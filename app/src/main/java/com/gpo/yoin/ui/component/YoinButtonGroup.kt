@@ -5,6 +5,7 @@ import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -37,6 +38,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -57,6 +59,7 @@ fun YoinButtonGroup(
     currentTrackCoverArtUrl: String?,
     isPlaybackReady: Boolean,
     connectionErrorMessage: String?,
+    playbackProgress: Float = 0f,
     onHomeClick: () -> Unit,
     onNowPlayingClick: () -> Unit,
     onLibraryClick: () -> Unit,
@@ -120,6 +123,10 @@ fun YoinButtonGroup(
             customItem(
                 buttonGroupContent = {
                     val interactionSource = rememberButtonGroupInteractionSource()
+                    val clampedProgress = playbackProgress.coerceIn(0f, 1f)
+                    val progressedColor = MaterialTheme.colorScheme.secondaryContainer
+                    val baseColor = MaterialTheme.colorScheme.surfaceContainerHigh
+
                     FilledTonalButton(
                         onClick = onNowPlayingClick,
                         modifier = Modifier
@@ -128,86 +135,108 @@ fun YoinButtonGroup(
                         interactionSource = interactionSource,
                         shape = MaterialTheme.shapes.extraLarge,
                     ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            NowPlayingArtwork(
-                                currentTrackCoverArtUrl = currentTrackCoverArtUrl,
-                                currentTrackTitle = currentTrackTitle,
-                                sharedTransitionScope = sharedTransitionScope,
-                                animatedVisibilityScope = animatedVisibilityScope,
-                            )
-                            Spacer(modifier = Modifier.width(10.dp))
-                            Column(modifier = Modifier.weight(1f)) {
-                                val titleText = currentTrackTitle ?: when {
-                                    connectionErrorMessage != null -> "Playback unavailable"
-                                    isPlaybackReady -> "Now Playing"
-                                    else -> "Connecting"
-                                }
-                                val artistText = currentTrackArtist ?: when {
-                                    connectionErrorMessage != null -> connectionErrorMessage
-                                    isPlaybackReady -> "Open player"
-                                    else -> "Preparing audio"
-                                }
-
-                                val titleMod = if (
-                                    sharedTransitionScope != null &&
-                                    animatedVisibilityScope != null &&
-                                    currentTrackTitle != null
-                                ) {
-                                    with(sharedTransitionScope) {
-                                        Modifier.sharedBounds(
-                                            sharedContentState = rememberSharedContentState(
-                                                key = "np_title",
+                        Box(modifier = Modifier.fillMaxWidth()) {
+                            if (currentTrackTitle != null && clampedProgress > 0f) {
+                                Box(
+                                    modifier = Modifier
+                                        .matchParentSize()
+                                        .clip(MaterialTheme.shapes.extraLarge)
+                                        .background(
+                                            Brush.horizontalGradient(
+                                                colorStops = arrayOf(
+                                                    0f to progressedColor.copy(alpha = 0.45f),
+                                                    clampedProgress to progressedColor
+                                                        .copy(alpha = 0.25f),
+                                                    (clampedProgress + 0.01f).coerceAtMost(1f)
+                                                        to baseColor.copy(alpha = 0f),
+                                                    1f to baseColor.copy(alpha = 0f),
+                                                ),
                                             ),
-                                            animatedVisibilityScope = animatedVisibilityScope,
-                                            boundsTransform = { _, _ ->
-                                                spring(stiffness = Spring.StiffnessMediumLow)
-                                            },
-                                        )
-                                    }
-                                } else {
-                                    Modifier
-                                }
-                                Text(
-                                    text = titleText,
-                                    style = MaterialTheme.typography.labelLarge,
-                                    color = MaterialTheme.colorScheme.onSecondaryContainer,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                    modifier = titleMod,
+                                        ),
                                 )
+                            }
 
-                                val artistMod = if (
-                                    sharedTransitionScope != null &&
-                                    animatedVisibilityScope != null &&
-                                    currentTrackArtist != null
-                                ) {
-                                    with(sharedTransitionScope) {
-                                        Modifier.sharedBounds(
-                                            sharedContentState = rememberSharedContentState(
-                                                key = "np_artist",
-                                            ),
-                                            animatedVisibilityScope = animatedVisibilityScope,
-                                            boundsTransform = { _, _ ->
-                                                spring(stiffness = Spring.StiffnessMediumLow)
-                                            },
-                                        )
-                                    }
-                                } else {
-                                    Modifier
-                                }
-                                Text(
-                                    text = artistText,
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSecondaryContainer.copy(
-                                        alpha = 0.72f,
-                                    ),
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                    modifier = artistMod,
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                NowPlayingArtwork(
+                                    currentTrackCoverArtUrl = currentTrackCoverArtUrl,
+                                    currentTrackTitle = currentTrackTitle,
+                                    sharedTransitionScope = sharedTransitionScope,
+                                    animatedVisibilityScope = animatedVisibilityScope,
                                 )
+                                Spacer(modifier = Modifier.width(10.dp))
+                                Column(modifier = Modifier.weight(1f)) {
+                                    val titleText = currentTrackTitle ?: when {
+                                        connectionErrorMessage != null -> "Playback unavailable"
+                                        isPlaybackReady -> "Now Playing"
+                                        else -> "Connecting"
+                                    }
+                                    val artistText = currentTrackArtist ?: when {
+                                        connectionErrorMessage != null -> connectionErrorMessage
+                                        isPlaybackReady -> "Open player"
+                                        else -> "Preparing audio"
+                                    }
+
+                                    val titleMod = if (
+                                        sharedTransitionScope != null &&
+                                        animatedVisibilityScope != null &&
+                                        currentTrackTitle != null
+                                    ) {
+                                        with(sharedTransitionScope) {
+                                            Modifier.sharedBounds(
+                                                sharedContentState = rememberSharedContentState(
+                                                    key = "np_title",
+                                                ),
+                                                animatedVisibilityScope = animatedVisibilityScope,
+                                                boundsTransform = { _, _ ->
+                                                    spring(stiffness = Spring.StiffnessMediumLow)
+                                                },
+                                            )
+                                        }
+                                    } else {
+                                        Modifier
+                                    }
+                                    Text(
+                                        text = titleText,
+                                        style = MaterialTheme.typography.labelLarge,
+                                        color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        modifier = titleMod,
+                                    )
+
+                                    val artistMod = if (
+                                        sharedTransitionScope != null &&
+                                        animatedVisibilityScope != null &&
+                                        currentTrackArtist != null
+                                    ) {
+                                        with(sharedTransitionScope) {
+                                            Modifier.sharedBounds(
+                                                sharedContentState = rememberSharedContentState(
+                                                    key = "np_artist",
+                                                ),
+                                                animatedVisibilityScope = animatedVisibilityScope,
+                                                boundsTransform = { _, _ ->
+                                                    spring(stiffness = Spring.StiffnessMediumLow)
+                                                },
+                                            )
+                                        }
+                                    } else {
+                                        Modifier
+                                    }
+                                    Text(
+                                        text = artistText,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSecondaryContainer.copy(
+                                            alpha = 0.72f,
+                                        ),
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        modifier = artistMod,
+                                    )
+                                }
                             }
                         }
                     }

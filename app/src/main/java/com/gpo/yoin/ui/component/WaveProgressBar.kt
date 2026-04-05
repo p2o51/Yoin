@@ -96,7 +96,7 @@ fun WaveProgressBar(
                     .fillMaxWidth()
                     .align(Alignment.Center),
                 color = bufferedColor,
-                trackColor = trackColor,
+                trackColor = Color.Transparent,
             )
 
             LinearWavyProgressIndicator(
@@ -105,7 +105,7 @@ fun WaveProgressBar(
                     .fillMaxWidth()
                     .align(Alignment.Center),
                 color = progressColor,
-                trackColor = Color.Transparent,
+                trackColor = trackColor,
             )
         }
     }

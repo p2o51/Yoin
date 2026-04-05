@@ -352,6 +352,12 @@ private fun YoinShell(
                     currentTrackCoverArtUrl = coverArtUrl,
                     isPlaybackReady = playbackState.controllerReady,
                     connectionErrorMessage = playbackState.connectionErrorMessage,
+                    playbackProgress = if (playbackState.duration > 0L) {
+                        (playbackState.position.toFloat() / playbackState.duration)
+                            .coerceIn(0f, 1f)
+                    } else {
+                        0f
+                    },
                     onHomeClick = { selectedSection = YoinSection.HOME },
                     onNowPlayingClick = { showNowPlaying = true },
                     onLibraryClick = { selectedSection = YoinSection.LIBRARY },

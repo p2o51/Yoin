@@ -31,19 +31,19 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
-import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.automirrored.filled.QueueMusic
+import androidx.compose.material.icons.filled.Devices
 import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
+import androidx.compose.material.icons.automirrored.filled.StickyNote2
 import androidx.compose.material3.ButtonGroup
 import androidx.compose.material3.ButtonGroupDefaults
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -322,7 +322,6 @@ private fun PlayingContent(
 
         // ── 5. Bottom pills ───────────────────────────────────────────────
         BottomPills(
-            queueSize = state.queue.size,
             onQueueClick = { showQueue = true },
             castState = castState,
             onCastClick = onCastClick,
@@ -361,9 +360,13 @@ private fun FavoriteButton(
         label = "heartColor",
     )
 
-    IconButton(
+    FilledIconButton(
         onClick = onClick,
         modifier = modifier.size(40.dp),
+        colors = IconButtonDefaults.filledIconButtonColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+            contentColor = heartColor,
+        ),
     ) {
         Icon(
             imageVector = if (isStarred) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder,
@@ -462,19 +465,9 @@ private fun PlaybackControls(
                             shape = MaterialTheme.shapes.extraLarge,
                             interactionSource = interactionSource,
                         ) {
-                            Icon(
-                                imageVector = if (isPlaying) {
-                                    Icons.Filled.Pause
-                                } else {
-                                    Icons.Filled.PlayArrow
-                                },
-                                contentDescription = null,
-                                modifier = Modifier.size(24.dp),
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
                             Text(
                                 text = if (isPlaying) "PAUSE" else "PLAY",
-                                style = MaterialTheme.typography.titleMedium,
+                                style = MaterialTheme.typography.titleLarge,
                             )
                         }
                     },
@@ -560,7 +553,6 @@ private fun PlaybackControls(
 
 @Composable
 private fun BottomPills(
-    queueSize: Int,
     onQueueClick: () -> Unit,
     castState: CastState = CastState.NotAvailable,
     onCastClick: () -> Unit = {},
@@ -583,7 +575,27 @@ private fun BottomPills(
                 modifier = Modifier.size(18.dp),
             )
             Spacer(modifier = Modifier.width(6.dp))
-            Text(text = "Queue ($queueSize)")
+            Text(text = "Queue")
+        }
+
+        FilledTonalButton(onClick = { /* TODO: device selector */ }) {
+            Icon(
+                imageVector = Icons.Filled.Devices,
+                contentDescription = null,
+                modifier = Modifier.size(18.dp),
+            )
+            Spacer(modifier = Modifier.width(6.dp))
+            Text(text = "Devices")
+        }
+
+        FilledTonalButton(onClick = { /* TODO: notes */ }) {
+            Icon(
+                imageVector = Icons.AutoMirrored.Filled.StickyNote2,
+                contentDescription = null,
+                modifier = Modifier.size(18.dp),
+            )
+            Spacer(modifier = Modifier.width(6.dp))
+            Text(text = "Notes")
         }
     }
 }
@@ -711,7 +723,6 @@ private fun FavoriteButtonPreview() {
 private fun BottomPillsPreview() {
     YoinTheme {
         BottomPills(
-            queueSize = 5,
             onQueueClick = {},
         )
     }
