@@ -17,7 +17,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import com.gpo.yoin.YoinApplication
 import androidx.navigation.toRoute
-import com.gpo.yoin.player.CastState
+import com.gpo.yoin.data.remote.Song
 import com.gpo.yoin.player.VisualizerData
 import com.gpo.yoin.ui.detail.AlbumDetailScreen
 import com.gpo.yoin.ui.detail.AlbumDetailViewModel
@@ -77,7 +77,12 @@ fun YoinNavHost(
                 onAlbumClick = { albumId ->
                     navController.navigate(YoinRoute.AlbumDetail(albumId))
                 },
-                onSongClick = { /* Phase 10: play song */ },
+                onSongClick = { songId ->
+                    app.container.playbackManager.playSingle(
+                        Song(id = songId),
+                        app.container.getCredentials(),
+                    )
+                },
             )
         }
 
@@ -111,7 +116,12 @@ fun YoinNavHost(
                 onAlbumClick = { albumId ->
                     navController.navigate(YoinRoute.AlbumDetail(albumId))
                 },
-                onSongClick = { /* Phase 10: play song */ },
+                onSongClick = { song ->
+                    app.container.playbackManager.playSingle(
+                        song,
+                        app.container.getCredentials(),
+                    )
+                },
             )
         }
 
@@ -162,8 +172,17 @@ fun YoinNavHost(
             AlbumDetailScreen(
                 uiState = uiState,
                 onBackClick = { navController.popBackStack() },
-                onSongClick = { /* Phase 10: play song */ },
+                onSongClick = { songId ->
+                    val songs = viewModel.getAlbumSongs()
+                    val idx = songs.indexOfFirst { it.id == songId }.coerceAtLeast(0)
+                    app.container.playbackManager.play(
+                        songs,
+                        idx,
+                        app.container.getCredentials(),
+                    )
+                },
                 onToggleStar = viewModel::toggleStar,
+                onRetry = viewModel::retry,
             )
         }
 
@@ -186,6 +205,7 @@ fun YoinNavHost(
                 onAlbumClick = { albumId ->
                     navController.navigate(YoinRoute.AlbumDetail(albumId))
                 },
+                onRetry = viewModel::retry,
             )
         }
 

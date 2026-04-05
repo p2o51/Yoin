@@ -40,6 +40,15 @@ class LibraryViewModel(
         observeSearch()
     }
 
+    fun refresh() {
+        _uiState.value = LibraryUiState.Loading
+        cachedArtists = null
+        cachedAlbums = null
+        cachedSongs = null
+        cachedFavorites = null
+        loadInitialData()
+    }
+
     private fun loadInitialData() {
         viewModelScope.launch {
             try {

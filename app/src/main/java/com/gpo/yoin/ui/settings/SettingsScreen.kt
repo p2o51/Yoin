@@ -28,6 +28,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -58,6 +59,7 @@ fun SettingsScreen(
         onSaveServer = viewModel::saveServer,
         onClearCache = viewModel::clearCache,
         onDismissConnectionResult = viewModel::dismissConnectionResult,
+        onRetry = viewModel::retry,
         modifier = modifier,
     )
 }
@@ -70,6 +72,7 @@ fun SettingsContent(
     onSaveServer: (String, String, String) -> Unit,
     onClearCache: () -> Unit,
     onDismissConnectionResult: () -> Unit,
+    onRetry: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val contentAlpha by animateFloatAsState(
@@ -138,11 +141,17 @@ fun SettingsContent(
                     AboutSection()
                 }
                 is SettingsUiState.Error -> {
-                    Text(
-                        text = uiState.message,
-                        color = MaterialTheme.colorScheme.error,
-                        style = MaterialTheme.typography.bodyLarge,
-                    )
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(
+                            text = uiState.message,
+                            color = MaterialTheme.colorScheme.error,
+                            style = MaterialTheme.typography.bodyLarge,
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        TextButton(onClick = onRetry) {
+                            Text("Retry")
+                        }
+                    }
                 }
             }
         }
@@ -411,6 +420,7 @@ fun SettingsContentPreview() {
             onSaveServer = { _, _, _ -> },
             onClearCache = {},
             onDismissConnectionResult = {},
+            onRetry = {},
         )
     }
 }
@@ -426,6 +436,7 @@ fun SettingsContentLoadingPreview() {
             onSaveServer = { _, _, _ -> },
             onClearCache = {},
             onDismissConnectionResult = {},
+            onRetry = {},
         )
     }
 }
@@ -448,6 +459,7 @@ fun SettingsContentErrorPreview() {
             onSaveServer = { _, _, _ -> },
             onClearCache = {},
             onDismissConnectionResult = {},
+            onRetry = {},
         )
     }
 }

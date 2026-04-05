@@ -123,6 +123,11 @@ class SettingsViewModel(
         _connectionResult.value = null
     }
 
+    fun retry() {
+        _uiState.value = SettingsUiState.Loading
+        loadSettings()
+    }
+
     sealed interface ConnectionResult {
         data object Success : ConnectionResult
         data class Failure(val message: String) : ConnectionResult

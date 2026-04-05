@@ -37,6 +37,7 @@ import androidx.compose.material3.PrimaryScrollableTabRow
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -78,6 +79,7 @@ fun LibraryScreen(
         onArtistClick = onArtistClick,
         onAlbumClick = onAlbumClick,
         onSongClick = onSongClick,
+        onRetry = viewModel::refresh,
         coverArtUrlBuilder = null,
         modifier = modifier,
     )
@@ -93,6 +95,7 @@ fun LibraryContent(
     onArtistClick: (String) -> Unit,
     onAlbumClick: (String) -> Unit,
     onSongClick: (Song) -> Unit,
+    onRetry: () -> Unit,
     coverArtUrlBuilder: ((String) -> String)?,
     modifier: Modifier = Modifier,
 ) {
@@ -117,11 +120,17 @@ fun LibraryContent(
                     modifier = Modifier.fillMaxSize(),
                     contentAlignment = Alignment.Center,
                 ) {
-                    Text(
-                        text = uiState.message,
-                        color = MaterialTheme.colorScheme.error,
-                        style = MaterialTheme.typography.bodyLarge,
-                    )
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(
+                            text = uiState.message,
+                            color = MaterialTheme.colorScheme.error,
+                            style = MaterialTheme.typography.bodyLarge,
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        TextButton(onClick = onRetry) {
+                            Text("Retry")
+                        }
+                    }
                 }
             }
 
@@ -720,6 +729,7 @@ private fun LibraryContentArtistsPreview() {
             onArtistClick = {},
             onAlbumClick = {},
             onSongClick = {},
+            onRetry = {},
             coverArtUrlBuilder = null,
         )
     }
@@ -750,6 +760,7 @@ private fun LibraryContentAlbumsPreview() {
             onArtistClick = {},
             onAlbumClick = {},
             onSongClick = {},
+            onRetry = {},
             coverArtUrlBuilder = null,
         )
     }
@@ -792,6 +803,7 @@ private fun LibraryContentSongsPreview() {
             onArtistClick = {},
             onAlbumClick = {},
             onSongClick = {},
+            onRetry = {},
             coverArtUrlBuilder = null,
         )
     }
@@ -810,6 +822,7 @@ private fun LibraryContentLoadingPreview() {
             onArtistClick = {},
             onAlbumClick = {},
             onSongClick = {},
+            onRetry = {},
             coverArtUrlBuilder = null,
         )
     }
@@ -828,6 +841,7 @@ private fun LibraryContentErrorPreview() {
             onArtistClick = {},
             onAlbumClick = {},
             onSongClick = {},
+            onRetry = {},
             coverArtUrlBuilder = null,
         )
     }
@@ -871,6 +885,7 @@ private fun LibraryContentSearchPreview() {
             onArtistClick = {},
             onAlbumClick = {},
             onSongClick = {},
+            onRetry = {},
             coverArtUrlBuilder = null,
         )
     }

@@ -22,6 +22,11 @@ class ArtistDetailViewModel(
         loadArtist()
     }
 
+    fun retry() {
+        _uiState.value = ArtistDetailUiState.Loading
+        loadArtist()
+    }
+
     private fun loadArtist() {
         viewModelScope.launch {
             try {

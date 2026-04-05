@@ -5,6 +5,7 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -24,6 +25,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -47,6 +49,7 @@ fun ArtistDetailScreen(
     uiState: ArtistDetailUiState,
     onBackClick: () -> Unit,
     onAlbumClick: (albumId: String) -> Unit,
+    onRetry: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Scaffold(
@@ -98,11 +101,17 @@ fun ArtistDetailScreen(
                         .padding(innerPadding),
                     contentAlignment = Alignment.Center,
                 ) {
-                    Text(
-                        text = uiState.message,
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.error,
-                    )
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(
+                            text = uiState.message,
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        TextButton(onClick = onRetry) {
+                            Text("Retry")
+                        }
+                    }
                 }
             }
 
@@ -185,6 +194,7 @@ private fun ArtistDetailScreenLoadingPreview() {
             uiState = ArtistDetailUiState.Loading,
             onBackClick = {},
             onAlbumClick = {},
+            onRetry = {},
         )
     }
 }
@@ -230,6 +240,7 @@ private fun ArtistDetailScreenContentPreview() {
             ),
             onBackClick = {},
             onAlbumClick = {},
+            onRetry = {},
         )
     }
 }
@@ -242,6 +253,7 @@ private fun ArtistDetailScreenErrorPreview() {
             uiState = ArtistDetailUiState.Error("Network error"),
             onBackClick = {},
             onAlbumClick = {},
+            onRetry = {},
         )
     }
 }

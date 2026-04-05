@@ -29,6 +29,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -59,6 +60,7 @@ fun AlbumDetailScreen(
     onBackClick: () -> Unit,
     onSongClick: (songId: String) -> Unit,
     onToggleStar: (songId: String) -> Unit,
+    onRetry: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Scaffold(
@@ -110,11 +112,17 @@ fun AlbumDetailScreen(
                         .padding(innerPadding),
                     contentAlignment = Alignment.Center,
                 ) {
-                    Text(
-                        text = uiState.message,
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.error,
-                    )
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(
+                            text = uiState.message,
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        TextButton(onClick = onRetry) {
+                            Text("Retry")
+                        }
+                    }
                 }
             }
 
@@ -323,6 +331,7 @@ private fun AlbumDetailScreenLoadingPreview() {
             onBackClick = {},
             onSongClick = {},
             onToggleStar = {},
+            onRetry = {},
         )
     }
 }
@@ -369,6 +378,7 @@ private fun AlbumDetailScreenContentPreview() {
             onBackClick = {},
             onSongClick = {},
             onToggleStar = {},
+            onRetry = {},
         )
     }
 }
@@ -382,6 +392,7 @@ private fun AlbumDetailScreenErrorPreview() {
             onBackClick = {},
             onSongClick = {},
             onToggleStar = {},
+            onRetry = {},
         )
     }
 }

@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.gpo.yoin.AppContainer
+import com.gpo.yoin.data.remote.Song
 import com.gpo.yoin.data.repository.YoinRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -18,7 +19,16 @@ class AlbumDetailViewModel(
     private val _uiState = MutableStateFlow<AlbumDetailUiState>(AlbumDetailUiState.Loading)
     val uiState: StateFlow<AlbumDetailUiState> = _uiState.asStateFlow()
 
+    private var albumSongs: List<Song> = emptyList()
+
     init {
+        loadAlbum()
+    }
+
+    fun getAlbumSongs(): List<Song> = albumSongs
+
+    fun retry() {
+        _uiState.value = AlbumDetailUiState.Loading
         loadAlbum()
     }
 
@@ -30,6 +40,7 @@ class AlbumDetailViewModel(
                     _uiState.value = AlbumDetailUiState.Error("Album not found")
                     return@launch
                 }
+                albumSongs = album.song
                 _uiState.value = AlbumDetailUiState.Content(
                     albumName = album.name,
                     artistName = album.artist.orEmpty(),
