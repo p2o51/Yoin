@@ -184,7 +184,7 @@ private fun YoinShell(
     val nowPlayingUiState by nowPlayingViewModel.uiState.collectAsState()
 
     val overlayOffsetPx by animateFloatAsState(
-        targetValue = dragOffsetPx + predictiveBackProgress * 1200f,
+        targetValue = predictiveBackProgress * 1200f,
         animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
         label = "overlayOffsetPx",
     )
@@ -297,6 +297,7 @@ private fun YoinShell(
             val npAvScope = this
 
             val dismissConnection = remember {
+                var accumulatedOverscroll = 0f
                 object : NestedScrollConnection {
                     override fun onPostScroll(
                         consumed: Offset,
@@ -304,7 +305,7 @@ private fun YoinShell(
                         source: NestedScrollSource,
                     ): Offset {
                         if (available.y > 0) {
-                            dragOffsetPx += available.y
+                            accumulatedOverscroll += available.y
                             return Offset(0f, available.y)
                         }
                         return Offset.Zero
@@ -314,10 +315,10 @@ private fun YoinShell(
                         available: Offset,
                         source: NestedScrollSource,
                     ): Offset {
-                        if (available.y < 0 && dragOffsetPx > 0f) {
-                            val consumed = available.y.coerceAtLeast(-dragOffsetPx)
-                            dragOffsetPx += consumed
-                            return Offset(0f, consumed)
+                        if (available.y < 0 && accumulatedOverscroll > 0f) {
+                            val used = available.y.coerceAtLeast(-accumulatedOverscroll)
+                            accumulatedOverscroll += used
+                            return Offset(0f, used)
                         }
                         return Offset.Zero
                     }
@@ -326,10 +327,10 @@ private fun YoinShell(
                         consumed: Velocity,
                         available: Velocity,
                     ): Velocity {
-                        if (dragOffsetPx > 240f) {
+                        if (accumulatedOverscroll > 240f) {
                             showNowPlaying = false
                         }
-                        dragOffsetPx = 0f
+                        accumulatedOverscroll = 0f
                         return Velocity.Zero
                     }
                 }
