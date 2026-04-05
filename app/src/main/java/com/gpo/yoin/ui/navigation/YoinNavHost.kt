@@ -8,6 +8,7 @@ import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionLayout
 import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.fadeIn
@@ -15,6 +16,9 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.foundation.gestures.draggable
+import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.offset
@@ -29,15 +33,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
-import androidx.compose.ui.input.nestedscroll.NestedScrollSource
-import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.IntOffset
-import androidx.compose.ui.unit.Velocity
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
@@ -296,50 +295,36 @@ private fun YoinShell(
         ) {
             val npAvScope = this
 
-            val dismissConnection = remember {
-                var accumulatedOverscroll = 0f
-                object : NestedScrollConnection {
-                    override fun onPostScroll(
-                        consumed: Offset,
-                        available: Offset,
-                        source: NestedScrollSource,
-                    ): Offset {
-                        if (available.y > 0) {
-                            accumulatedOverscroll += available.y
-                            return Offset(0f, available.y)
-                        }
-                        return Offset.Zero
-                    }
-
-                    override fun onPreScroll(
-                        available: Offset,
-                        source: NestedScrollSource,
-                    ): Offset {
-                        if (available.y < 0 && accumulatedOverscroll > 0f) {
-                            val used = available.y.coerceAtLeast(-accumulatedOverscroll)
-                            accumulatedOverscroll += used
-                            return Offset(0f, used)
-                        }
-                        return Offset.Zero
-                    }
-
-                    override suspend fun onPostFling(
-                        consumed: Velocity,
-                        available: Velocity,
-                    ): Velocity {
-                        if (accumulatedOverscroll > 240f) {
-                            showNowPlaying = false
-                        }
-                        accumulatedOverscroll = 0f
-                        return Velocity.Zero
-                    }
+            var dismissDragPx by remember { mutableStateOf(0f) }
+            val draggableState = rememberDraggableState { delta ->
+                if (delta > 0f || dismissDragPx > 0f) {
+                    dismissDragPx = (dismissDragPx + delta).coerceAtLeast(0f)
                 }
             }
 
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .nestedScroll(dismissConnection),
+                    .draggable(
+                        state = draggableState,
+                        orientation = Orientation.Vertical,
+                        onDragStopped = { velocity ->
+                            if (dismissDragPx > 240f || velocity > 800f) {
+                                showNowPlaying = false
+                                dismissDragPx = 0f
+                            } else {
+                                animate(
+                                    initialValue = dismissDragPx,
+                                    targetValue = 0f,
+                                    animationSpec = spring(
+                                        stiffness = Spring.StiffnessMediumLow,
+                                    ),
+                                ) { value, _ ->
+                                    dismissDragPx = value
+                                }
+                            }
+                        },
+                    ),
             ) {
                 NowPlayingScreen(
                     uiState = nowPlayingUiState,
@@ -362,7 +347,12 @@ private fun YoinShell(
                     animatedVisibilityScope = npAvScope,
                     modifier = Modifier
                         .fillMaxSize()
-                        .offset { IntOffset(0, overlayOffsetPx.roundToInt()) },
+                        .offset {
+                            IntOffset(
+                                0,
+                                (overlayOffsetPx + dismissDragPx).roundToInt(),
+                            )
+                        },
                 )
             }
         }
