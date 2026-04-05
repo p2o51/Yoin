@@ -27,10 +27,12 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
+import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.filled.Devices
@@ -44,6 +46,7 @@ import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -93,6 +96,7 @@ fun NowPlayingScreen(
     onRatingChange: (Float) -> Unit,
     onToggleFavorite: () -> Unit,
     onSkipToQueueItem: (Int) -> Unit,
+    onDismiss: () -> Unit = {},
     castState: CastState = CastState.NotAvailable,
     onCastClick: () -> Unit = {},
     sharedTransitionScope: SharedTransitionScope? = null,
@@ -134,6 +138,7 @@ fun NowPlayingScreen(
                 onRatingChange = onRatingChange,
                 onToggleFavorite = onToggleFavorite,
                 onSkipToQueueItem = onSkipToQueueItem,
+                onDismiss = onDismiss,
                 castState = castState,
                 onCastClick = onCastClick,
                 sharedTransitionScope = sharedTransitionScope,
@@ -168,6 +173,7 @@ private fun PlayingContent(
     onRatingChange: (Float) -> Unit,
     onToggleFavorite: () -> Unit,
     onSkipToQueueItem: (Int) -> Unit,
+    onDismiss: () -> Unit = {},
     castState: CastState = CastState.NotAvailable,
     onCastClick: () -> Unit = {},
     sharedTransitionScope: SharedTransitionScope? = null,
@@ -196,7 +202,20 @@ private fun PlayingContent(
         horizontalAlignment = Alignment.Start,
         verticalArrangement = Arrangement.Top,
     ) {
-        Spacer(modifier = Modifier.height(20.dp))
+        // ── 0. Drag handle / dismiss button ──────────────────────────────
+        Box(
+            modifier = Modifier.fillMaxWidth(),
+            contentAlignment = Alignment.Center,
+        ) {
+            IconButton(onClick = onDismiss) {
+                Icon(
+                    imageVector = Icons.Filled.KeyboardArrowDown,
+                    contentDescription = "Close Now Playing",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(28.dp),
+                )
+            }
+        }
 
         // ── 1. Album cover + Rating slider ────────────────────────────────
         Row(
@@ -551,6 +570,7 @@ private fun PlaybackControls(
     }
 }
 
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun BottomPills(
     onQueueClick: () -> Unit,
@@ -558,9 +578,11 @@ private fun BottomPills(
     onCastClick: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
+    val pillShape = RoundedCornerShape(8.dp)
+
     Row(
         modifier = modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         CastButton(
@@ -568,34 +590,87 @@ private fun BottomPills(
             onClick = onCastClick,
         )
 
-        FilledTonalButton(onClick = onQueueClick) {
-            Icon(
-                imageVector = Icons.AutoMirrored.Filled.QueueMusic,
-                contentDescription = null,
-                modifier = Modifier.size(18.dp),
+        ButtonGroup(
+            overflowIndicator = { _ -> },
+            expandedRatio = ButtonGroupDefaults.ExpandedRatio,
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            customItem(
+                buttonGroupContent = {
+                    val interactionSource = remember { MutableInteractionSource() }
+                    FilledTonalButton(
+                        onClick = onQueueClick,
+                        modifier = Modifier
+                            .height(36.dp)
+                            .animateWidth(interactionSource),
+                        interactionSource = interactionSource,
+                        shape = pillShape,
+                    ) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.QueueMusic,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp),
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = "Queue",
+                            style = MaterialTheme.typography.labelMedium,
+                        )
+                    }
+                },
+                menuContent = { _ -> },
             )
-            Spacer(modifier = Modifier.width(6.dp))
-            Text(text = "Queue")
-        }
-
-        FilledTonalButton(onClick = { /* TODO: device selector */ }) {
-            Icon(
-                imageVector = Icons.Filled.Devices,
-                contentDescription = null,
-                modifier = Modifier.size(18.dp),
+            customItem(
+                buttonGroupContent = {
+                    val interactionSource = remember { MutableInteractionSource() }
+                    FilledTonalButton(
+                        onClick = { /* TODO: device selector */ },
+                        modifier = Modifier
+                            .height(36.dp)
+                            .animateWidth(interactionSource),
+                        interactionSource = interactionSource,
+                        shape = pillShape,
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.Devices,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp),
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = "Devices",
+                            style = MaterialTheme.typography.labelMedium,
+                        )
+                    }
+                },
+                menuContent = { _ -> },
             )
-            Spacer(modifier = Modifier.width(6.dp))
-            Text(text = "Devices")
-        }
-
-        FilledTonalButton(onClick = { /* TODO: notes */ }) {
-            Icon(
-                imageVector = Icons.AutoMirrored.Filled.StickyNote2,
-                contentDescription = null,
-                modifier = Modifier.size(18.dp),
+            customItem(
+                buttonGroupContent = {
+                    val interactionSource = remember { MutableInteractionSource() }
+                    FilledTonalButton(
+                        onClick = { /* TODO: notes */ },
+                        modifier = Modifier
+                            .height(36.dp)
+                            .animateWidth(interactionSource),
+                        interactionSource = interactionSource,
+                        shape = pillShape,
+                    ) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.StickyNote2,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp),
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = "Notes",
+                            style = MaterialTheme.typography.labelMedium,
+                        )
+                    }
+                },
+                menuContent = { _ -> },
             )
-            Spacer(modifier = Modifier.width(6.dp))
-            Text(text = "Notes")
         }
     }
 }

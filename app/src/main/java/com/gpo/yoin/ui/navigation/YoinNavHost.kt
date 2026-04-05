@@ -321,6 +321,11 @@ private fun YoinShell(
                     onRatingChange = nowPlayingViewModel::setRating,
                     onToggleFavorite = nowPlayingViewModel::toggleFavorite,
                     onSkipToQueueItem = nowPlayingViewModel::skipToQueueItem,
+                    onDismiss = {
+                        dragOffsetPx = 0f
+                        predictiveBackProgress = 0f
+                        showNowPlaying = false
+                    },
                     castState = castState,
                     onCastClick = { },
                     sharedTransitionScope = sharedScope,
