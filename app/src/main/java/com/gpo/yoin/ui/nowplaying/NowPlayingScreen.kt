@@ -40,6 +40,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
+import com.gpo.yoin.player.VisualizerData
+import com.gpo.yoin.ui.component.AudioVisualizer
+import com.gpo.yoin.ui.component.VisualizerStyle
 import com.gpo.yoin.ui.component.WaveProgressBar
 import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinShapeTokens
@@ -53,6 +56,7 @@ import com.gpo.yoin.ui.theme.YoinTheme
 @Composable
 fun NowPlayingScreen(
     uiState: NowPlayingUiState,
+    visualizerData: VisualizerData,
     onTogglePlayPause: () -> Unit,
     onSkipNext: () -> Unit,
     onSkipPrevious: () -> Unit,
@@ -61,6 +65,7 @@ fun NowPlayingScreen(
 ) {
     val surfaceContainer = MaterialTheme.colorScheme.surfaceContainer
     val background = MaterialTheme.colorScheme.background
+    val vizColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)
 
     Box(
         modifier = modifier
@@ -72,6 +77,16 @@ fun NowPlayingScreen(
             )
             .padding(WindowInsets.systemBars.asPaddingValues()),
     ) {
+        // Background visualizer layer
+        AudioVisualizer(
+            visualizerData = visualizerData,
+            color = vizColor,
+            style = VisualizerStyle.Ambient,
+            modifier = Modifier
+                .fillMaxWidth()
+                .align(Alignment.BottomCenter),
+        )
+
         when (uiState) {
             is NowPlayingUiState.Idle -> IdleContent()
             is NowPlayingUiState.Playing -> PlayingContent(
@@ -298,6 +313,13 @@ private fun NowPlayingScreenPlayingPreview() {
                 durationMs = 240_000L,
                 bufferedMs = 180_000L,
             ),
+            visualizerData = VisualizerData(
+                fft = FloatArray(32) { i ->
+                    val t = i.toFloat() / 32
+                    (kotlin.math.sin(t * Math.PI * 2).toFloat() * 0.4f + 0.5f)
+                        .coerceIn(0f, 1f)
+                },
+            ),
             onTogglePlayPause = {},
             onSkipNext = {},
             onSkipPrevious = {},
@@ -312,6 +334,7 @@ private fun NowPlayingScreenIdlePreview() {
     YoinTheme {
         NowPlayingScreen(
             uiState = NowPlayingUiState.Idle,
+            visualizerData = VisualizerData.Empty,
             onTogglePlayPause = {},
             onSkipNext = {},
             onSkipPrevious = {},

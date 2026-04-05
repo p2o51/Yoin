@@ -23,6 +23,12 @@ sealed interface YoinRoute {
 
     @Serializable
     data object Settings : YoinRoute
+
+    @Serializable
+    data class AlbumDetail(val albumId: String) : YoinRoute
+
+    @Serializable
+    data class ArtistDetail(val artistId: String) : YoinRoute
 }
 
 /** The two main content sections selectable via the Button Group. */

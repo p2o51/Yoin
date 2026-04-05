@@ -15,6 +15,9 @@ import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
 import okhttp3.OkHttpClient
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import java.io.File
 
 class PlaybackService : MediaSessionService() {
@@ -50,6 +53,7 @@ class PlaybackService : MediaSessionService() {
             .build()
 
         mediaSession = MediaSession.Builder(this, player).build()
+        _audioSessionId.value = player.audioSessionId
     }
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? {
@@ -78,5 +82,10 @@ class PlaybackService : MediaSessionService() {
     companion object {
         private const val CACHE_DIR_NAME = "media_cache"
         private const val MAX_CACHE_SIZE_BYTES = 500L * 1024 * 1024 // 500 MB
+
+        private val _audioSessionId = MutableStateFlow(0)
+
+        /** Audio session ID from ExoPlayer, observed by [AudioVisualizerManager]. */
+        val audioSessionId: StateFlow<Int> = _audioSessionId.asStateFlow()
     }
 }

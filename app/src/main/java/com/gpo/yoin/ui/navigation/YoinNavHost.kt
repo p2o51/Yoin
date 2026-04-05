@@ -16,6 +16,12 @@ import androidx.navigation.compose.rememberNavController
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import com.gpo.yoin.YoinApplication
+import androidx.navigation.toRoute
+import com.gpo.yoin.player.VisualizerData
+import com.gpo.yoin.ui.detail.AlbumDetailScreen
+import com.gpo.yoin.ui.detail.AlbumDetailViewModel
+import com.gpo.yoin.ui.detail.ArtistDetailScreen
+import com.gpo.yoin.ui.detail.ArtistDetailViewModel
 import com.gpo.yoin.ui.home.HomeScreen
 import com.gpo.yoin.ui.home.HomeViewModel
 import com.gpo.yoin.ui.library.LibraryScreen
@@ -56,12 +62,20 @@ fun YoinNavHost(
             val viewModel: HomeViewModel = viewModel(
                 factory = HomeViewModel.Factory(app.container),
             )
+            val playbackState by app.container.playbackManager
+                .playbackState.collectAsState()
+            val visualizerData by app.container.audioVisualizerManager
+                .visualizerData.collectAsState()
             HomeScreen(
                 viewModel = viewModel,
+                isPlaying = playbackState.isPlaying,
+                visualizerData = visualizerData,
                 onNavigateToSettings = {
                     navController.navigate(YoinRoute.Settings)
                 },
-                onAlbumClick = { /* Phase 9: navigate to album detail */ },
+                onAlbumClick = { albumId ->
+                    navController.navigate(YoinRoute.AlbumDetail(albumId))
+                },
                 onSongClick = { /* Phase 10: play song */ },
             )
         }
@@ -90,8 +104,12 @@ fun YoinNavHost(
                 onNavigateToSettings = {
                     navController.navigate(YoinRoute.Settings)
                 },
-                onArtistClick = { /* Phase 9: navigate to artist detail */ },
-                onAlbumClick = { /* Phase 9: navigate to album detail */ },
+                onArtistClick = { artistId ->
+                    navController.navigate(YoinRoute.ArtistDetail(artistId))
+                },
+                onAlbumClick = { albumId ->
+                    navController.navigate(YoinRoute.AlbumDetail(albumId))
+                },
                 onSongClick = { /* Phase 10: play song */ },
             )
         }
@@ -108,12 +126,58 @@ fun YoinNavHost(
                 factory = NowPlayingViewModel.Factory(app.container),
             )
             val uiState by viewModel.uiState.collectAsState()
+            val visualizerData by app.container.audioVisualizerManager
+                .visualizerData.collectAsState()
             NowPlayingScreen(
                 uiState = uiState,
+                visualizerData = visualizerData,
                 onTogglePlayPause = viewModel::togglePlayPause,
                 onSkipNext = viewModel::skipNext,
                 onSkipPrevious = viewModel::skipPrevious,
                 onSeek = viewModel::seekTo,
+            )
+        }
+
+        // Album Detail — forward sub-route
+        composable<YoinRoute.AlbumDetail>(
+            enterTransition = { YoinMotion.navEnterForward },
+            exitTransition = { YoinMotion.navExitForward },
+            popEnterTransition = { YoinMotion.navEnterBack },
+            popExitTransition = { YoinMotion.navExitBack },
+        ) { backStackEntry ->
+            val route = backStackEntry.toRoute<YoinRoute.AlbumDetail>()
+            val app = LocalContext.current.applicationContext as YoinApplication
+            val viewModel: AlbumDetailViewModel = viewModel(
+                factory = AlbumDetailViewModel.Factory(route.albumId, app.container),
+            )
+            val uiState by viewModel.uiState.collectAsState()
+            AlbumDetailScreen(
+                uiState = uiState,
+                onBackClick = { navController.popBackStack() },
+                onSongClick = { /* Phase 10: play song */ },
+                onToggleStar = viewModel::toggleStar,
+            )
+        }
+
+        // Artist Detail — forward sub-route
+        composable<YoinRoute.ArtistDetail>(
+            enterTransition = { YoinMotion.navEnterForward },
+            exitTransition = { YoinMotion.navExitForward },
+            popEnterTransition = { YoinMotion.navEnterBack },
+            popExitTransition = { YoinMotion.navExitBack },
+        ) { backStackEntry ->
+            val route = backStackEntry.toRoute<YoinRoute.ArtistDetail>()
+            val app = LocalContext.current.applicationContext as YoinApplication
+            val viewModel: ArtistDetailViewModel = viewModel(
+                factory = ArtistDetailViewModel.Factory(route.artistId, app.container),
+            )
+            val uiState by viewModel.uiState.collectAsState()
+            ArtistDetailScreen(
+                uiState = uiState,
+                onBackClick = { navController.popBackStack() },
+                onAlbumClick = { albumId ->
+                    navController.navigate(YoinRoute.AlbumDetail(albumId))
+                },
             )
         }
 

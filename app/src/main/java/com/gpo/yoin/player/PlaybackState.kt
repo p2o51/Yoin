@@ -13,4 +13,5 @@ data class PlaybackState(
     val currentIndex: Int = -1,
     val repeatMode: Int = Player.REPEAT_MODE_OFF,
     val shuffleEnabled: Boolean = false,
+    val audioSessionId: Int = 0,
 )

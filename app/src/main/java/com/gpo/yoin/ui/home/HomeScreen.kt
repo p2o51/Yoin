@@ -48,13 +48,18 @@ import coil3.compose.AsyncImage
 import com.gpo.yoin.R
 import com.gpo.yoin.data.local.PlayHistory
 import com.gpo.yoin.data.remote.Album
+import com.gpo.yoin.player.VisualizerData
 import com.gpo.yoin.ui.component.AlbumCard
+import com.gpo.yoin.ui.component.AudioVisualizer
+import com.gpo.yoin.ui.component.VisualizerStyle
 import com.gpo.yoin.ui.theme.YoinShapeTokens
 import com.gpo.yoin.ui.theme.YoinTheme
 
 @Composable
 fun HomeScreen(
     viewModel: HomeViewModel,
+    isPlaying: Boolean,
+    visualizerData: VisualizerData,
     onNavigateToSettings: () -> Unit,
     onAlbumClick: (albumId: String) -> Unit,
     onSongClick: (songId: String) -> Unit,
@@ -64,6 +69,8 @@ fun HomeScreen(
 
     HomeContent(
         uiState = uiState,
+        isPlaying = isPlaying,
+        visualizerData = visualizerData,
         onNavigateToSettings = onNavigateToSettings,
         onAlbumClick = onAlbumClick,
         onSongClick = onSongClick,
@@ -76,6 +83,8 @@ fun HomeScreen(
 @Composable
 fun HomeContent(
     uiState: HomeUiState,
+    isPlaying: Boolean,
+    visualizerData: VisualizerData,
     onNavigateToSettings: () -> Unit,
     onAlbumClick: (albumId: String) -> Unit,
     onSongClick: (songId: String) -> Unit,
@@ -130,6 +139,16 @@ fun HomeContent(
                 }
 
                 is HomeUiState.Content -> {
+                    if (isPlaying) {
+                        AudioVisualizer(
+                            visualizerData = visualizerData,
+                            style = VisualizerStyle.Compact,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 8.dp),
+                        )
+                    }
+
                     HomeContentSections(
                         activities = uiState.activities,
                         mixAlbums = uiState.mixAlbums,
@@ -385,6 +404,8 @@ private fun HomeContentLoadingPreview() {
     YoinTheme {
         HomeContent(
             uiState = HomeUiState.Loading,
+            isPlaying = false,
+            visualizerData = VisualizerData.Empty,
             onNavigateToSettings = {},
             onAlbumClick = {},
             onSongClick = {},
@@ -400,6 +421,8 @@ private fun HomeContentErrorPreview() {
     YoinTheme {
         HomeContent(
             uiState = HomeUiState.Error("Failed to connect to server"),
+            isPlaying = false,
+            visualizerData = VisualizerData.Empty,
             onNavigateToSettings = {},
             onAlbumClick = {},
             onSongClick = {},
@@ -450,6 +473,14 @@ private fun HomeContentPreview() {
                     Album(id = "a4", name = "The Dark Side of the Moon", artist = "Pink Floyd"),
                     Album(id = "a5", name = "Abbey Road", artist = "The Beatles"),
                 ),
+            ),
+            isPlaying = true,
+            visualizerData = VisualizerData(
+                fft = FloatArray(24) { i ->
+                    val t = i.toFloat() / 24
+                    (kotlin.math.sin(t * Math.PI * 3).toFloat() * 0.35f + 0.4f)
+                        .coerceIn(0f, 1f)
+                },
             ),
             onNavigateToSettings = {},
             onAlbumClick = {},

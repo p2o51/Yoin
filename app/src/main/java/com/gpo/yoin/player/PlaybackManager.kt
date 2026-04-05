@@ -186,6 +186,7 @@ class PlaybackManager(private val context: Context) {
             currentIndex = player.currentMediaItemIndex,
             repeatMode = player.repeatMode,
             shuffleEnabled = player.shuffleModeEnabled,
+            audioSessionId = PlaybackService.audioSessionId.value,
         )
     }
 
