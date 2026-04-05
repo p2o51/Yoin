@@ -15,7 +15,6 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.offset
@@ -25,15 +24,20 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.Velocity
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
@@ -291,25 +295,50 @@ private fun YoinShell(
             modifier = Modifier.fillMaxSize(),
         ) {
             val npAvScope = this
+
+            val dismissConnection = remember {
+                object : NestedScrollConnection {
+                    override fun onPostScroll(
+                        consumed: Offset,
+                        available: Offset,
+                        source: NestedScrollSource,
+                    ): Offset {
+                        if (available.y > 0) {
+                            dragOffsetPx += available.y
+                            return Offset(0f, available.y)
+                        }
+                        return Offset.Zero
+                    }
+
+                    override fun onPreScroll(
+                        available: Offset,
+                        source: NestedScrollSource,
+                    ): Offset {
+                        if (available.y < 0 && dragOffsetPx > 0f) {
+                            val consumed = available.y.coerceAtLeast(-dragOffsetPx)
+                            dragOffsetPx += consumed
+                            return Offset(0f, consumed)
+                        }
+                        return Offset.Zero
+                    }
+
+                    override suspend fun onPostFling(
+                        consumed: Velocity,
+                        available: Velocity,
+                    ): Velocity {
+                        if (dragOffsetPx > 240f) {
+                            showNowPlaying = false
+                        }
+                        dragOffsetPx = 0f
+                        return Velocity.Zero
+                    }
+                }
+            }
+
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .pointerInput(showNowPlaying) {
-                        detectVerticalDragGestures(
-                            onVerticalDrag = { _, dragAmount ->
-                                dragOffsetPx = (dragOffsetPx + dragAmount).coerceAtLeast(0f)
-                            },
-                            onDragEnd = {
-                                if (dragOffsetPx > 240f) {
-                                    showNowPlaying = false
-                                }
-                                dragOffsetPx = 0f
-                            },
-                            onDragCancel = {
-                                dragOffsetPx = 0f
-                            },
-                        )
-                    },
+                    .nestedScroll(dismissConnection),
             ) {
                 NowPlayingScreen(
                     uiState = nowPlayingUiState,

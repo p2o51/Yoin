@@ -204,8 +204,10 @@ private fun PlayingContent(
     ) {
         // ── 0. Drag handle / dismiss button ──────────────────────────────
         Box(
-            modifier = Modifier.fillMaxWidth(),
-            contentAlignment = Alignment.Center,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(start = 4.dp),
+            contentAlignment = Alignment.CenterStart,
         ) {
             IconButton(onClick = onDismiss) {
                 Icon(

@@ -39,6 +39,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -124,8 +125,7 @@ fun YoinButtonGroup(
                 buttonGroupContent = {
                     val interactionSource = rememberButtonGroupInteractionSource()
                     val clampedProgress = playbackProgress.coerceIn(0f, 1f)
-                    val progressedColor = MaterialTheme.colorScheme.secondaryContainer
-                    val baseColor = MaterialTheme.colorScheme.surfaceContainerHigh
+                    val progressFill = MaterialTheme.colorScheme.primary.copy(alpha = 0.25f)
 
                     FilledTonalButton(
                         onClick = onNowPlayingClick,
@@ -144,12 +144,11 @@ fun YoinButtonGroup(
                                         .background(
                                             Brush.horizontalGradient(
                                                 colorStops = arrayOf(
-                                                    0f to progressedColor.copy(alpha = 0.45f),
-                                                    clampedProgress to progressedColor
-                                                        .copy(alpha = 0.25f),
-                                                    (clampedProgress + 0.01f).coerceAtMost(1f)
-                                                        to baseColor.copy(alpha = 0f),
-                                                    1f to baseColor.copy(alpha = 0f),
+                                                    0f to progressFill,
+                                                    clampedProgress to progressFill,
+                                                    (clampedProgress + 0.005f)
+                                                        .coerceAtMost(1f) to Color.Transparent,
+                                                    1f to Color.Transparent,
                                                 ),
                                             ),
                                         ),
