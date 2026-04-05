@@ -13,5 +13,23 @@ sealed interface NowPlayingUiState {
         val positionMs: Long,
         val durationMs: Long,
         val bufferedMs: Long,
+        val songId: String,
+        val rating: Float,
+        val isStarred: Boolean,
+        val lyrics: List<LyricLine>,
+        val queue: List<QueueItem>,
+        val currentQueueIndex: Int,
     ) : NowPlayingUiState
 }
+
+data class LyricLine(
+    val startMs: Long?,
+    val text: String,
+)
+
+data class QueueItem(
+    val songId: String,
+    val title: String,
+    val artist: String,
+    val coverArtUrl: String?,
+)
