@@ -26,6 +26,10 @@
             </intent-filter>
         </activity>
 
+        <meta-data
+            android:name="com.google.android.gms.cast.framework.OPTIONS_PROVIDER_CLASS_NAME"
+            android:value="com.gpo.yoin.player.CastOptionsProvider" />
+
         <service
             android:name=".player.PlaybackService"
             android:exported="true"

@@ -14,4 +14,6 @@ data class PlaybackState(
     val repeatMode: Int = Player.REPEAT_MODE_OFF,
     val shuffleEnabled: Boolean = false,
     val audioSessionId: Int = 0,
+    val isCasting: Boolean = false,
+    val castDeviceName: String? = null,
 )

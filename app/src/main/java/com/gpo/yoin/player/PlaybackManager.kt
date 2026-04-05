@@ -29,13 +29,30 @@ import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
-class PlaybackManager(private val context: Context) {
+class PlaybackManager(
+    private val context: Context,
+    private val castManager: CastManager? = null,
+) {
     private var controller: MediaController? = null
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private var positionUpdateJob: Job? = null
 
     private val _playbackState = MutableStateFlow(PlaybackState())
     val playbackState: StateFlow<PlaybackState> = _playbackState.asStateFlow()
+
+    init {
+        // Observe cast state and reflect in PlaybackState
+        castManager?.let { cm ->
+            scope.launch {
+                cm.castState.collect { state ->
+                    _playbackState.value = _playbackState.value.copy(
+                        isCasting = state is CastState.Connected,
+                        castDeviceName = (state as? CastState.Connected)?.deviceName,
+                    )
+                }
+            }
+        }
+    }
 
     suspend fun connect() {
         if (controller != null) return
@@ -62,6 +79,7 @@ class PlaybackManager(private val context: Context) {
         }
         controller = built
         built.addListener(playerListener)
+        castManager?.setLocalPlayerProvider { controller }
         syncState()
         startPositionUpdates()
     }
@@ -133,6 +151,13 @@ class PlaybackManager(private val context: Context) {
     fun clearQueue() {
         val player = controller ?: return
         player.clearMediaItems()
+    }
+
+    fun skipToQueueItem(index: Int) {
+        val player = controller ?: return
+        if (index in 0 until player.mediaItemCount) {
+            player.seekToDefaultPosition(index)
+        }
     }
 
     // ── Internal ────────────────────────────────────────────────────────

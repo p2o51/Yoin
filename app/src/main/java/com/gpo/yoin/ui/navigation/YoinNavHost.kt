@@ -17,6 +17,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import com.gpo.yoin.YoinApplication
 import androidx.navigation.toRoute
+import com.gpo.yoin.player.CastState
 import com.gpo.yoin.player.VisualizerData
 import com.gpo.yoin.ui.detail.AlbumDetailScreen
 import com.gpo.yoin.ui.detail.AlbumDetailViewModel
@@ -128,6 +129,8 @@ fun YoinNavHost(
             val uiState by viewModel.uiState.collectAsState()
             val visualizerData by app.container.audioVisualizerManager
                 .visualizerData.collectAsState()
+            val castState by app.container.castManager
+                .castState.collectAsState()
             NowPlayingScreen(
                 uiState = uiState,
                 visualizerData = visualizerData,
@@ -135,6 +138,11 @@ fun YoinNavHost(
                 onSkipNext = viewModel::skipNext,
                 onSkipPrevious = viewModel::skipPrevious,
                 onSeek = viewModel::seekTo,
+                onRatingChange = viewModel::setRating,
+                onToggleFavorite = viewModel::toggleFavorite,
+                onSkipToQueueItem = viewModel::skipToQueueItem,
+                castState = castState,
+                onCastClick = { /* Cast dialog handled by system UI */ },
             )
         }
 

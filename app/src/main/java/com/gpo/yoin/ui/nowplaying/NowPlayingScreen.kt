@@ -1,5 +1,6 @@
 package com.gpo.yoin.ui.nowplaying
 
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -14,14 +15,18 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.systemBars
+import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material3.FilledIconButton
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
@@ -29,19 +34,26 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
+import com.gpo.yoin.player.CastState
 import com.gpo.yoin.player.VisualizerData
 import com.gpo.yoin.ui.component.AudioVisualizer
+import com.gpo.yoin.ui.component.CastButton
+import com.gpo.yoin.ui.component.LyricsDisplay
+import com.gpo.yoin.ui.component.QueueSheet
+import com.gpo.yoin.ui.component.RatingSlider
 import com.gpo.yoin.ui.component.VisualizerStyle
 import com.gpo.yoin.ui.component.WaveProgressBar
 import com.gpo.yoin.ui.theme.YoinMotion
@@ -61,6 +73,11 @@ fun NowPlayingScreen(
     onSkipNext: () -> Unit,
     onSkipPrevious: () -> Unit,
     onSeek: (Float) -> Unit,
+    onRatingChange: (Float) -> Unit,
+    onToggleFavorite: () -> Unit,
+    onSkipToQueueItem: (Int) -> Unit,
+    castState: CastState = CastState.NotAvailable,
+    onCastClick: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val surfaceContainer = MaterialTheme.colorScheme.surfaceContainer
@@ -95,6 +112,11 @@ fun NowPlayingScreen(
                 onSkipNext = onSkipNext,
                 onSkipPrevious = onSkipPrevious,
                 onSeek = onSeek,
+                onRatingChange = onRatingChange,
+                onToggleFavorite = onToggleFavorite,
+                onSkipToQueueItem = onSkipToQueueItem,
+                castState = castState,
+                onCastClick = onCastClick,
             )
         }
     }
@@ -121,6 +143,11 @@ private fun PlayingContent(
     onSkipNext: () -> Unit,
     onSkipPrevious: () -> Unit,
     onSeek: (Float) -> Unit,
+    onRatingChange: (Float) -> Unit,
+    onToggleFavorite: () -> Unit,
+    onSkipToQueueItem: (Int) -> Unit,
+    castState: CastState = CastState.NotAvailable,
+    onCastClick: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val progress = if (state.durationMs > 0) {
@@ -134,21 +161,49 @@ private fun PlayingContent(
         0f
     }
 
+    var showQueue by remember { mutableStateOf(false) }
+
     Column(
         modifier = modifier
             .fillMaxSize()
-            .padding(horizontal = 32.dp),
+            .padding(horizontal = 24.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
-        // Album cover
-        AlbumCover(
-            coverArtUrl = state.coverArtUrl,
-            modifier = Modifier
-                .fillMaxWidth(0.85f),
-        )
+        // Album cover + Rating slider
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            // Album cover — takes most of the width
+            AlbumCover(
+                coverArtUrl = state.coverArtUrl,
+                modifier = Modifier.weight(1f),
+            )
 
-        Spacer(modifier = Modifier.height(32.dp))
+            Spacer(modifier = Modifier.width(12.dp))
+
+            // Rating slider + Favorite button
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier.height(250.dp),
+            ) {
+                RatingSlider(
+                    rating = state.rating,
+                    onRatingChange = onRatingChange,
+                    modifier = Modifier.weight(1f),
+                )
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                FavoriteButton(
+                    isStarred = state.isStarred,
+                    onClick = onToggleFavorite,
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(20.dp))
 
         // Song info
         Text(
@@ -169,7 +224,16 @@ private fun PlayingContent(
             modifier = Modifier.fillMaxWidth(),
         )
 
-        Spacer(modifier = Modifier.height(24.dp))
+        Spacer(modifier = Modifier.height(12.dp))
+
+        // Lyrics display
+        LyricsDisplay(
+            lyrics = state.lyrics,
+            positionMs = state.positionMs,
+            modifier = Modifier.fillMaxWidth(),
+        )
+
+        Spacer(modifier = Modifier.height(12.dp))
 
         // Progress bar
         WaveProgressBar(
@@ -198,7 +262,7 @@ private fun PlayingContent(
             )
         }
 
-        Spacer(modifier = Modifier.height(24.dp))
+        Spacer(modifier = Modifier.height(16.dp))
 
         // Playback controls
         PlaybackControls(
@@ -206,6 +270,58 @@ private fun PlayingContent(
             onTogglePlayPause = onTogglePlayPause,
             onSkipNext = onSkipNext,
             onSkipPrevious = onSkipPrevious,
+        )
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // Bottom pills — Queue button + Cast pill
+        BottomPills(
+            queueSize = state.queue.size,
+            onQueueClick = { showQueue = true },
+            castState = castState,
+            onCastClick = onCastClick,
+        )
+    }
+
+    // Queue bottom sheet
+    if (showQueue) {
+        QueueSheet(
+            queue = state.queue,
+            currentIndex = state.currentQueueIndex,
+            onItemClick = { index ->
+                onSkipToQueueItem(index)
+                showQueue = false
+            },
+            onDismiss = { showQueue = false },
+        )
+    }
+}
+
+@Composable
+private fun FavoriteButton(
+    isStarred: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val heartColor by animateColorAsState(
+        targetValue = if (isStarred) {
+            MaterialTheme.colorScheme.primary
+        } else {
+            MaterialTheme.colorScheme.onSurfaceVariant
+        },
+        animationSpec = YoinMotion.effectsSpring(),
+        label = "heartColor",
+    )
+
+    IconButton(
+        onClick = onClick,
+        modifier = modifier.size(40.dp),
+    ) {
+        Icon(
+            imageVector = if (isStarred) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder,
+            contentDescription = if (isStarred) "Remove from favorites" else "Add to favorites",
+            tint = heartColor,
+            modifier = Modifier.size(24.dp),
         )
     }
 }
@@ -288,6 +404,36 @@ private fun PlaybackControls(
     }
 }
 
+@Composable
+private fun BottomPills(
+    queueSize: Int,
+    onQueueClick: () -> Unit,
+    castState: CastState = CastState.NotAvailable,
+    onCastClick: () -> Unit = {},
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier = modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        CastButton(
+            castState = castState,
+            onClick = onCastClick,
+        )
+
+        FilledTonalButton(onClick = onQueueClick) {
+            Icon(
+                imageVector = Icons.AutoMirrored.Filled.QueueMusic,
+                contentDescription = null,
+                modifier = Modifier.size(18.dp),
+            )
+            Spacer(modifier = Modifier.width(6.dp))
+            Text(text = "Queue ($queueSize)")
+        }
+    }
+}
+
 /** Format milliseconds as m:ss (e.g. "3:45", "0:00"). */
 internal fun formatTime(ms: Long): String {
     val totalSeconds = (ms / 1000).coerceAtLeast(0)
@@ -298,32 +444,54 @@ internal fun formatTime(ms: Long): String {
 
 // ── Previews ────────────────────────────────────────────────────────────
 
+private val previewPlayingState = NowPlayingUiState.Playing(
+    songTitle = "Starlight",
+    artist = "Muse",
+    albumName = "Black Holes and Revelations",
+    coverArtUrl = null,
+    isPlaying = true,
+    positionMs = 125_000L,
+    durationMs = 240_000L,
+    bufferedMs = 180_000L,
+    songId = "1",
+    rating = 3.7f,
+    isStarred = true,
+    lyrics = listOf(
+        LyricLine(startMs = 0, text = "Far away…"),
+        LyricLine(startMs = 60_000, text = "This ship is taking me far away"),
+        LyricLine(startMs = 120_000, text = "Far away from the memories"),
+        LyricLine(startMs = 180_000, text = "Of the people who care if I live or die"),
+    ),
+    queue = listOf(
+        QueueItem("1", "Starlight", "Muse", null),
+        QueueItem("2", "Supermassive Black Hole", "Muse", null),
+        QueueItem("3", "Map of the Problematique", "Muse", null),
+    ),
+    currentQueueIndex = 0,
+)
+
+private val previewVisualizerData = VisualizerData(
+    fft = FloatArray(32) { i ->
+        val t = i.toFloat() / 32
+        (kotlin.math.sin(t * Math.PI * 2).toFloat() * 0.4f + 0.5f)
+            .coerceIn(0f, 1f)
+    },
+)
+
 @Preview(showBackground = true, backgroundColor = 0xFF1C1B1F, showSystemUi = true)
 @Composable
 private fun NowPlayingScreenPlayingPreview() {
     YoinTheme {
         NowPlayingScreen(
-            uiState = NowPlayingUiState.Playing(
-                songTitle = "Starlight",
-                artist = "Muse",
-                albumName = "Black Holes and Revelations",
-                coverArtUrl = null,
-                isPlaying = true,
-                positionMs = 125_000L,
-                durationMs = 240_000L,
-                bufferedMs = 180_000L,
-            ),
-            visualizerData = VisualizerData(
-                fft = FloatArray(32) { i ->
-                    val t = i.toFloat() / 32
-                    (kotlin.math.sin(t * Math.PI * 2).toFloat() * 0.4f + 0.5f)
-                        .coerceIn(0f, 1f)
-                },
-            ),
+            uiState = previewPlayingState,
+            visualizerData = previewVisualizerData,
             onTogglePlayPause = {},
             onSkipNext = {},
             onSkipPrevious = {},
             onSeek = {},
+            onRatingChange = {},
+            onToggleFavorite = {},
+            onSkipToQueueItem = {},
         )
     }
 }
@@ -339,6 +507,9 @@ private fun NowPlayingScreenIdlePreview() {
             onSkipNext = {},
             onSkipPrevious = {},
             onSeek = {},
+            onRatingChange = {},
+            onToggleFavorite = {},
+            onSkipToQueueItem = {},
         )
     }
 }
@@ -363,6 +534,28 @@ private fun AlbumCoverPreview() {
         AlbumCover(
             coverArtUrl = null,
             modifier = Modifier.size(300.dp),
+        )
+    }
+}
+
+@Preview(showBackground = true, backgroundColor = 0xFF1C1B1F)
+@Composable
+private fun FavoriteButtonPreview() {
+    YoinTheme {
+        FavoriteButton(
+            isStarred = true,
+            onClick = {},
+        )
+    }
+}
+
+@Preview(showBackground = true, backgroundColor = 0xFF1C1B1F)
+@Composable
+private fun BottomPillsPreview() {
+    YoinTheme {
+        BottomPills(
+            queueSize = 5,
+            onQueueClick = {},
         )
     }
 }

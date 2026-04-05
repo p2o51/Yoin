@@ -9,6 +9,7 @@ import com.gpo.yoin.data.remote.SubsonicApi
 import com.gpo.yoin.data.remote.SubsonicApiFactory
 import com.gpo.yoin.data.repository.YoinRepository
 import com.gpo.yoin.player.AudioVisualizerManager
+import com.gpo.yoin.player.CastManager
 import com.gpo.yoin.player.PlaybackManager
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
@@ -79,8 +80,12 @@ class AppContainer(private val context: Context) {
         )
     }
 
+    val castManager: CastManager by lazy {
+        CastManager(context).also { it.initialize() }
+    }
+
     val playbackManager: PlaybackManager by lazy {
-        PlaybackManager(context)
+        PlaybackManager(context, castManager)
     }
 
     val audioVisualizerManager: AudioVisualizerManager by lazy {

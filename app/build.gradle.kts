@@ -79,9 +79,9 @@ dependencies {
     implementation(libs.media3.datasource)
     implementation(libs.media3.datasource.okhttp)
     implementation(libs.media3.ui)
-    // Cast — uncomment when Chromecast is implemented (Phase 14)
-    // implementation(libs.media3.cast)
-    // implementation(libs.cast.framework)
+    // Cast (Phase 14)
+    implementation(libs.media3.cast)
+    implementation(libs.cast.framework)
 
     // Networking
     implementation(libs.okhttp)
