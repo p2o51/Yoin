@@ -39,4 +39,19 @@ class SubsonicAuthTest {
         val (_, salt2) = SubsonicAuth.generateToken("pass")
         assertNotEquals("Salts should differ between calls", salt1, salt2)
     }
+
+    @Test
+    fun should_returnSameStableToken_when_credentialsAreUnchanged() {
+        val credentials =
+            ServerCredentials(
+                serverUrl = "https://music.example.com",
+                username = "demo",
+                password = "secret",
+            )
+
+        val first = SubsonicAuth.stableToken(credentials)
+        val second = SubsonicAuth.stableToken(credentials)
+
+        assertEquals(first, second)
+    }
 }

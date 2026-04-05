@@ -160,6 +160,9 @@ class LibraryViewModel(
         _uiState.value = current.transform()
     }
 
+    fun buildCoverArtUrl(coverArtId: String): String =
+        repository.buildCoverArtUrl(coverArtId, size = 320)
+
     class Factory(private val container: AppContainer) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T =

@@ -8,7 +8,7 @@ class SubsonicInterceptor(
 ) : Interceptor {
     override fun intercept(chain: Interceptor.Chain): Response {
         val credentials = credentialsProvider()
-        val (token, salt) = SubsonicAuth.generateToken(credentials.password)
+        val (token, salt) = SubsonicAuth.stableToken(credentials)
 
         val originalUrl = chain.request().url
         val newUrl =

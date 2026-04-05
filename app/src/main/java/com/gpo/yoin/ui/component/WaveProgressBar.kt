@@ -1,44 +1,40 @@
 package com.gpo.yoin.ui.component
 
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.size
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.LinearWavyProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.WavyProgressIndicatorDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.CornerRadius
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
-import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinTheme
-import kotlin.math.sin
 
-private val BAR_HEIGHT = 6.dp
-private const val WAVE_AMPLITUDE_FRACTION = 0.4f
-private const val WAVE_PERIODS = 3f
+private val TOUCH_HEIGHT = 40.dp
 
 /**
- * Custom wave-shaped progress bar with buffering indicator and drag-to-seek.
+ * Interactive playback progress built on Material 3 Expressive's official
+ * `LinearWavyProgressIndicator`.
  *
- * @param progress current playback position as 0.0–1.0
- * @param buffered buffered position as 0.0–1.0
- * @param onSeek called with a 0.0–1.0 fraction when the user taps or drags
+ * The only custom layer left here is the gesture overlay needed for seek interactions.
  */
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun WaveProgressBar(
     progress: Float,
@@ -53,106 +49,67 @@ fun WaveProgressBar(
     var dragFraction by remember { mutableFloatStateOf(0f) }
 
     val animatedProgress by animateFloatAsState(
-        targetValue = if (isDragging) dragFraction else progress,
-        animationSpec = YoinMotion.spatialSpring(),
+        targetValue = if (isDragging) dragFraction else progress.coerceIn(0f, 1f),
+        animationSpec = WavyProgressIndicatorDefaults.ProgressAnimationSpec,
         label = "waveProgress",
     )
 
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .height(BAR_HEIGHT * 4) // extra touch area
-            .pointerInput(Unit) {
-                detectTapGestures { offset ->
-                    val fraction = (offset.x / size.width).coerceIn(0f, 1f)
-                    onSeek(fraction)
-                }
-            }
-            .pointerInput(Unit) {
-                detectHorizontalDragGestures(
-                    onDragStart = { offset ->
-                        isDragging = true
-                        dragFraction = (offset.x / size.width).coerceIn(0f, 1f)
-                    },
-                    onDragEnd = {
-                        onSeek(dragFraction)
-                        isDragging = false
-                    },
-                    onDragCancel = {
-                        isDragging = false
-                    },
-                    onHorizontalDrag = { _, dragAmount ->
-                        dragFraction = (dragFraction + dragAmount / size.width).coerceIn(0f, 1f)
-                    },
-                )
-            },
+            .height(TOUCH_HEIGHT),
+        contentAlignment = Alignment.Center,
     ) {
-        Canvas(modifier = Modifier.matchParentSize()) {
-            val barHeightPx = BAR_HEIGHT.toPx()
-            val barY = (size.height - barHeightPx) / 2f
-            val cornerRadiusPx = barHeightPx / 2f
-
-            // Track background
-            drawRoundRect(
-                color = trackColor,
-                topLeft = Offset(0f, barY),
-                size = Size(size.width, barHeightPx),
-                cornerRadius = CornerRadius(cornerRadiusPx),
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(WavyProgressIndicatorDefaults.LinearContainerHeight * 2)
+                .pointerInput(Unit) {
+                    detectTapGestures { offset ->
+                        val fraction = (offset.x / size.width).coerceIn(0f, 1f)
+                        onSeek(fraction)
+                    }
+                }
+                .pointerInput(Unit) {
+                    detectHorizontalDragGestures(
+                        onDragStart = { offset ->
+                            isDragging = true
+                            dragFraction = (offset.x / size.width).coerceIn(0f, 1f)
+                        },
+                        onDragEnd = {
+                            onSeek(dragFraction)
+                            isDragging = false
+                        },
+                        onDragCancel = {
+                            isDragging = false
+                        },
+                        onHorizontalDrag = { _, dragAmount ->
+                            dragFraction = (dragFraction + dragAmount / size.width)
+                                .coerceIn(0f, 1f)
+                        },
+                    )
+                },
+        ) {
+            LinearProgressIndicator(
+                progress = { buffered.coerceIn(0f, 1f) },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .align(Alignment.Center),
+                color = bufferedColor,
+                trackColor = trackColor,
             )
 
-            // Buffered overlay
-            val bufferedWidth = size.width * buffered.coerceIn(0f, 1f)
-            if (bufferedWidth > 0f) {
-                drawRoundRect(
-                    color = bufferedColor,
-                    topLeft = Offset(0f, barY),
-                    size = Size(bufferedWidth, barHeightPx),
-                    cornerRadius = CornerRadius(cornerRadiusPx),
-                )
-            }
-
-            // Filled wave portion
-            val progressWidth = size.width * animatedProgress.coerceIn(0f, 1f)
-            if (progressWidth > 0f) {
-                drawWaveFill(
-                    progressWidth = progressWidth,
-                    barY = barY,
-                    barHeight = barHeightPx,
-                    color = progressColor,
-                )
-            }
+            LinearWavyProgressIndicator(
+                progress = { animatedProgress },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .align(Alignment.Center),
+                color = progressColor,
+                trackColor = Color.Transparent,
+            )
         }
     }
 }
-
-private fun DrawScope.drawWaveFill(
-    progressWidth: Float,
-    barY: Float,
-    barHeight: Float,
-    color: Color,
-) {
-    val amplitude = barHeight * WAVE_AMPLITUDE_FRACTION
-    val path = Path().apply {
-        moveTo(0f, barY + barHeight / 2f)
-
-        // Top wave edge
-        val steps = (progressWidth / 2f).toInt().coerceAtLeast(1)
-        for (i in 0..steps) {
-            val x = (i.toFloat() / steps) * progressWidth
-            val waveY = barY + (barHeight / 2f - amplitude) +
-                amplitude * (1f - sin(x / progressWidth * WAVE_PERIODS * Math.PI.toFloat() * 2f))
-            if (i == 0) moveTo(x, waveY) else lineTo(x, waveY)
-        }
-
-        // Close along bottom
-        lineTo(progressWidth, barY + barHeight)
-        lineTo(0f, barY + barHeight)
-        close()
-    }
-    drawPath(path, color)
-}
-
-// ── Previews ────────────────────────────────────────────────────────────
 
 @Preview(showBackground = true, backgroundColor = 0xFF1C1B1F)
 @Composable
@@ -161,7 +118,7 @@ private fun WaveProgressBarPreview() {
         WaveProgressBar(
             progress = 0.4f,
             buffered = 0.7f,
-            onSeek = {},
+            onSeek = { _ -> },
             modifier = Modifier.fillMaxWidth(),
         )
     }
@@ -174,7 +131,7 @@ private fun WaveProgressBarEmptyPreview() {
         WaveProgressBar(
             progress = 0f,
             buffered = 0f,
-            onSeek = {},
+            onSeek = { _ -> },
             modifier = Modifier.fillMaxWidth(),
         )
     }
@@ -187,7 +144,7 @@ private fun WaveProgressBarFullPreview() {
         WaveProgressBar(
             progress = 1f,
             buffered = 1f,
-            onSeek = {},
+            onSeek = { _ -> },
             modifier = Modifier.fillMaxWidth(),
         )
     }

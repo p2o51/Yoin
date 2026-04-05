@@ -5,11 +5,10 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -33,6 +32,7 @@ import kotlin.math.roundToInt
 
 /**
  * Vertical rating slider — drag up to increase, down to decrease.
+ * Rating label is displayed inside the bar itself.
  *
  * @param rating current rating 0.0–5.0
  * @param onRatingChange called with the new rating (step 0.1)
@@ -52,64 +52,59 @@ fun RatingSlider(
     var trackHeightPx by remember { mutableIntStateOf(1) }
     var dragRating by remember { mutableFloatStateOf(rating) }
 
-    Column(
-        modifier = modifier,
-        horizontalAlignment = Alignment.CenterHorizontally,
+    // Vertical bar track — label inside
+    Box(
+        modifier = modifier
+            .width(42.dp)
+            .clip(YoinShapeTokens.Full)
+            .background(MaterialTheme.colorScheme.surfaceVariant)
+            .onSizeChanged { trackHeightPx = it.height.coerceAtLeast(1) }
+            .pointerInput(Unit) {
+                detectTapGestures { offset ->
+                    val fraction = 1f - (offset.y / trackHeightPx)
+                    val snapped = (fraction * 50).roundToInt()
+                        .coerceIn(0, 50) / 10f
+                    onRatingChange(snapped)
+                }
+            }
+            .pointerInput(Unit) {
+                detectDragGestures(
+                    onDragStart = { offset ->
+                        val fraction = 1f - (offset.y / trackHeightPx)
+                        dragRating = (fraction * 50).roundToInt()
+                            .coerceIn(0, 50) / 10f
+                        onRatingChange(dragRating)
+                    },
+                    onDrag = { change, _ ->
+                        change.consume()
+                        val fraction =
+                            1f - (change.position.y / trackHeightPx)
+                        dragRating = (fraction * 50).roundToInt()
+                            .coerceIn(0, 50) / 10f
+                        onRatingChange(dragRating)
+                    },
+                )
+            },
+        contentAlignment = Alignment.BottomCenter,
     ) {
-        // Rating label
-        Text(
-            text = "%.1f".format(rating),
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.primary,
-        )
-
-        Spacer(modifier = Modifier.height(4.dp))
-
-        // Vertical bar track
+        // Filled portion
         Box(
             modifier = Modifier
-                .width(14.dp)
-                .weight(1f)
+                .fillMaxWidth()
+                .fillMaxHeight(animatedFraction)
                 .clip(YoinShapeTokens.Full)
-                .background(MaterialTheme.colorScheme.surfaceVariant)
-                .onSizeChanged { trackHeightPx = it.height.coerceAtLeast(1) }
-                .pointerInput(Unit) {
-                    detectTapGestures { offset ->
-                        val fraction = 1f - (offset.y / trackHeightPx)
-                        val snapped = (fraction * 50).roundToInt()
-                            .coerceIn(0, 50) / 10f
-                        onRatingChange(snapped)
-                    }
-                }
-                .pointerInput(Unit) {
-                    detectDragGestures(
-                        onDragStart = { offset ->
-                            val fraction = 1f - (offset.y / trackHeightPx)
-                            dragRating = (fraction * 50).roundToInt()
-                                .coerceIn(0, 50) / 10f
-                            onRatingChange(dragRating)
-                        },
-                        onDrag = { change, _ ->
-                            change.consume()
-                            val fraction =
-                                1f - (change.position.y / trackHeightPx)
-                            dragRating = (fraction * 50).roundToInt()
-                                .coerceIn(0, 50) / 10f
-                            onRatingChange(dragRating)
-                        },
-                    )
-                },
-            contentAlignment = Alignment.BottomCenter,
-        ) {
-            // Filled portion
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .fillMaxHeight(animatedFraction)
-                    .clip(YoinShapeTokens.Full)
-                    .background(MaterialTheme.colorScheme.primary),
-            )
-        }
+                .background(MaterialTheme.colorScheme.primary),
+        )
+
+        // Rating label inside the bar (top)
+        Text(
+            text = "%.1f".format(rating),
+            style = MaterialTheme.typography.titleLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .padding(top = 8.dp),
+        )
     }
 }
 

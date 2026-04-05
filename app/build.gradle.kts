@@ -61,9 +61,7 @@ dependencies {
     // Material3 — stable from BOM + Expressive alpha explicit
     implementation(libs.material3)
     implementation(libs.material.icons.extended)
-    // MD3 Expressive (1.5.x alpha) — used only with @OptIn scoping
-    // Uncomment when Expressive components are implemented:
-    // implementation(libs.material3.expressive)
+    implementation(libs.material3.expressive)
 
     // Navigation
     implementation(libs.navigation.compose)

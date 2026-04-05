@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -28,7 +29,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -57,7 +57,10 @@ import com.gpo.yoin.data.remote.SearchResult
 import com.gpo.yoin.data.remote.Song
 import com.gpo.yoin.data.remote.StarredResponse
 import com.gpo.yoin.ui.component.SongListItem
+import com.gpo.yoin.ui.component.YoinLoadingIndicator
 import com.gpo.yoin.ui.theme.YoinTheme
+
+private val FloatingBottomGroupContentPadding = 132.dp
 
 @Composable
 fun LibraryScreen(
@@ -80,7 +83,7 @@ fun LibraryScreen(
         onAlbumClick = onAlbumClick,
         onSongClick = onSongClick,
         onRetry = viewModel::refresh,
-        coverArtUrlBuilder = null,
+        coverArtUrlBuilder = viewModel::buildCoverArtUrl,
         modifier = modifier,
     )
 }
@@ -109,9 +112,7 @@ fun LibraryContent(
                     modifier = Modifier.fillMaxSize(),
                     contentAlignment = Alignment.Center,
                 ) {
-                    CircularProgressIndicator(
-                        color = MaterialTheme.colorScheme.primary,
-                    )
+                    YoinLoadingIndicator()
                 }
             }
 
@@ -243,6 +244,7 @@ private fun SearchHeader(
     Row(
         modifier = modifier
             .fillMaxWidth()
+            .statusBarsPadding()
             .padding(start = 16.dp, end = 4.dp, top = 8.dp, bottom = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -253,10 +255,9 @@ private fun SearchHeader(
             placeholder = { Text("Search library…") },
             leadingIcon = {
                 if (isSearching) {
-                    CircularProgressIndicator(
+                    YoinLoadingIndicator(
                         modifier = Modifier.size(20.dp),
-                        strokeWidth = 2.dp,
-                        color = MaterialTheme.colorScheme.primary,
+                        size = 20.dp,
                     )
                 } else {
                     Icon(
@@ -332,7 +333,10 @@ private fun ArtistsTabContent(
     }
     LazyColumn(
         modifier = modifier.fillMaxSize(),
-        contentPadding = PaddingValues(vertical = 8.dp),
+        contentPadding = PaddingValues(
+            top = 8.dp,
+            bottom = FloatingBottomGroupContentPadding,
+        ),
     ) {
         items(artists, key = { it.id }) { artist ->
             ArtistListItem(
@@ -395,7 +399,12 @@ private fun AlbumsTabContent(
     LazyVerticalGrid(
         columns = GridCells.Adaptive(minSize = 160.dp),
         modifier = modifier.fillMaxSize(),
-        contentPadding = PaddingValues(16.dp),
+        contentPadding = PaddingValues(
+            start = 16.dp,
+            top = 16.dp,
+            end = 16.dp,
+            bottom = FloatingBottomGroupContentPadding,
+        ),
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
@@ -403,7 +412,9 @@ private fun AlbumsTabContent(
             AlbumGridItem(
                 album = album,
                 onClick = { onAlbumClick(album.id) },
-                coverArtUrl = album.coverArt?.let { coverArtUrlBuilder?.invoke(it) },
+                coverArtUrl =
+                    album.coverArt?.let { coverArtUrlBuilder?.invoke(it) }
+                        ?: coverArtUrlBuilder?.invoke(album.id),
             )
         }
     }
@@ -466,7 +477,10 @@ private fun SongsTabContent(
     }
     LazyColumn(
         modifier = modifier.fillMaxSize(),
-        contentPadding = PaddingValues(vertical = 8.dp),
+        contentPadding = PaddingValues(
+            top = 8.dp,
+            bottom = FloatingBottomGroupContentPadding,
+        ),
     ) {
         items(songs, key = { it.id }) { song ->
             SongListItem(
@@ -505,7 +519,10 @@ private fun FavoritesTabContent(
 
     LazyColumn(
         modifier = modifier.fillMaxSize(),
-        contentPadding = PaddingValues(vertical = 8.dp),
+        contentPadding = PaddingValues(
+            top = 8.dp,
+            bottom = FloatingBottomGroupContentPadding,
+        ),
     ) {
         if (favorites.artist.isNotEmpty()) {
             item {
@@ -526,7 +543,9 @@ private fun FavoritesTabContent(
                 AlbumListItem(
                     album = album,
                     onClick = { onAlbumClick(album.id) },
-                    coverArtUrl = album.coverArt?.let { coverArtUrlBuilder?.invoke(it) },
+                    coverArtUrl =
+                        album.coverArt?.let { coverArtUrlBuilder?.invoke(it) }
+                            ?: coverArtUrlBuilder?.invoke(album.id),
                 )
             }
         }
@@ -608,9 +627,7 @@ private fun SearchResultsContent(
             modifier = modifier.fillMaxSize(),
             contentAlignment = Alignment.Center,
         ) {
-            CircularProgressIndicator(
-                color = MaterialTheme.colorScheme.primary,
-            )
+            YoinLoadingIndicator()
         }
         return
     }
@@ -628,7 +645,10 @@ private fun SearchResultsContent(
 
     LazyColumn(
         modifier = modifier.fillMaxSize(),
-        contentPadding = PaddingValues(vertical = 8.dp),
+        contentPadding = PaddingValues(
+            top = 8.dp,
+            bottom = FloatingBottomGroupContentPadding,
+        ),
     ) {
         if (searchResults.artist.isNotEmpty()) {
             item {
@@ -649,7 +669,9 @@ private fun SearchResultsContent(
                 AlbumListItem(
                     album = album,
                     onClick = { onAlbumClick(album.id) },
-                    coverArtUrl = album.coverArt?.let { coverArtUrlBuilder?.invoke(it) },
+                    coverArtUrl =
+                        album.coverArt?.let { coverArtUrlBuilder?.invoke(it) }
+                            ?: coverArtUrlBuilder?.invoke(album.id),
                 )
             }
         }

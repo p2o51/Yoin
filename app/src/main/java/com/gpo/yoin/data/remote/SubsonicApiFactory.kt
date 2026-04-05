@@ -1,6 +1,7 @@
 package com.gpo.yoin.data.remote
 
 import kotlinx.serialization.json.Json
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
@@ -19,7 +20,7 @@ object SubsonicApiFactory {
         loggingEnabled: Boolean = false,
     ): SubsonicApi {
         val credentials = credentialsProvider()
-        val rawUrl = credentials.serverUrl.trimEnd('/')
+        val rawUrl = credentials.serverUrl.trim().trimEnd('/')
         // Use placeholder when no server is configured to avoid Retrofit crash
         val baseUrl = rawUrl.ifBlank { "http://localhost" }
 
@@ -56,20 +57,16 @@ object SubsonicApiFactory {
         maxBitRate: Int? = null,
         format: String? = null,
     ): String {
-        val (token, salt) = SubsonicAuth.generateToken(credentials.password)
-        val base = credentials.serverUrl.trimEnd('/')
-        return buildString {
-            append("$base/rest/stream")
-            append("?id=$songId")
-            append("&u=${credentials.username}")
-            append("&t=$token")
-            append("&s=$salt")
-            append("&v=${SubsonicInterceptor.API_VERSION}")
-            append("&c=${SubsonicInterceptor.CLIENT_NAME}")
-            append("&f=${SubsonicInterceptor.RESPONSE_FORMAT}")
-            maxBitRate?.let { append("&maxBitRate=$it") }
-            format?.let { append("&format=$it") }
-        }
+        return buildAuthenticatedRestUrl(
+            credentials = credentials,
+            endpoint = "stream.view",
+            queryParameters =
+                buildList {
+                    add("id" to songId)
+                    maxBitRate?.let { add("maxBitRate" to it.toString()) }
+                    format?.let { add("format" to it) }
+                },
+        )
     }
 
     /**
@@ -80,18 +77,39 @@ object SubsonicApiFactory {
         coverArtId: String,
         size: Int? = null,
     ): String {
-        val (token, salt) = SubsonicAuth.generateToken(credentials.password)
-        val base = credentials.serverUrl.trimEnd('/')
-        return buildString {
-            append("$base/rest/getCoverArt")
-            append("?id=$coverArtId")
-            append("&u=${credentials.username}")
-            append("&t=$token")
-            append("&s=$salt")
-            append("&v=${SubsonicInterceptor.API_VERSION}")
-            append("&c=${SubsonicInterceptor.CLIENT_NAME}")
-            append("&f=${SubsonicInterceptor.RESPONSE_FORMAT}")
-            size?.let { append("&size=$it") }
-        }
+        return buildAuthenticatedRestUrl(
+            credentials = credentials,
+            endpoint = "getCoverArt.view",
+            queryParameters =
+                buildList {
+                    add("id" to coverArtId)
+                    size?.let { add("size" to it.toString()) }
+                },
+        )
+    }
+
+    private fun buildAuthenticatedRestUrl(
+        credentials: ServerCredentials,
+        endpoint: String,
+        queryParameters: List<Pair<String, String>>,
+    ): String {
+        val (token, salt) = SubsonicAuth.stableToken(credentials)
+        val baseUrl = credentials.serverUrl.trim().trimEnd('/').toHttpUrl()
+        return baseUrl.newBuilder()
+            .addPathSegment("rest")
+            .addPathSegment(endpoint)
+            .apply {
+                queryParameters.forEach { (key, value) ->
+                    addQueryParameter(key, value)
+                }
+                addQueryParameter("u", credentials.username)
+                addQueryParameter("t", token)
+                addQueryParameter("s", salt)
+                addQueryParameter("v", SubsonicInterceptor.API_VERSION)
+                addQueryParameter("c", SubsonicInterceptor.CLIENT_NAME)
+                addQueryParameter("f", SubsonicInterceptor.RESPONSE_FORMAT)
+            }
+            .build()
+            .toString()
     }
 }

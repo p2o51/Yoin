@@ -36,6 +36,8 @@ class PlaybackManager(
     private var controller: MediaController? = null
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private var positionUpdateJob: Job? = null
+    private var connectJob: Job? = null
+    private val pendingCommands = mutableListOf<(MediaController) -> Unit>()
 
     private val _playbackState = MutableStateFlow(PlaybackState())
     val playbackState: StateFlow<PlaybackState> = _playbackState.asStateFlow()
@@ -56,50 +58,57 @@ class PlaybackManager(
 
     suspend fun connect() {
         if (controller != null) return
-        val sessionToken = SessionToken(
-            context,
-            ComponentName(context, PlaybackService::class.java),
-        )
-        val future = MediaController.Builder(context, sessionToken).buildAsync()
-        val built = suspendCancellableCoroutine { continuation ->
-            Futures.addCallback(
-                future,
-                object : FutureCallback<MediaController> {
-                    override fun onSuccess(result: MediaController) {
-                        continuation.resume(result)
-                    }
+        connectInBackground()
+        connectJob?.join()
+    }
 
-                    override fun onFailure(t: Throwable) {
-                        continuation.resumeWithException(t)
-                    }
-                },
-                MoreExecutors.directExecutor(),
-            )
-            continuation.invokeOnCancellation { future.cancel(false) }
+    fun connectInBackground() {
+        if (controller != null || connectJob?.isActive == true) return
+        _playbackState.value = _playbackState.value.copy(
+            controllerReady = false,
+            connectionErrorMessage = null,
+        )
+        connectJob = scope.launch {
+            try {
+                val built = buildController()
+                controller = built
+                built.addListener(playerListener)
+                castManager?.setLocalPlayerProvider { controller }
+                syncState()
+                startPositionUpdates()
+                flushPendingCommands(built)
+            } catch (error: Throwable) {
+                _playbackState.value = _playbackState.value.copy(
+                    controllerReady = false,
+                    connectionErrorMessage = error.message ?: "Unable to initialize playback",
+                )
+            } finally {
+                connectJob = null
+            }
         }
-        controller = built
-        built.addListener(playerListener)
-        castManager?.setLocalPlayerProvider { controller }
-        syncState()
-        startPositionUpdates()
     }
 
     fun disconnect() {
+        pendingCommands.clear()
+        connectJob?.cancel()
+        connectJob = null
         positionUpdateJob?.cancel()
         positionUpdateJob = null
         controller?.removeListener(playerListener)
         controller?.release()
         controller = null
+        _playbackState.value = PlaybackState()
     }
 
     // ── Playback controls ───────────────────────────────────────────────
 
     fun play(songs: List<Song>, startIndex: Int = 0, credentials: ServerCredentials) {
-        val player = controller ?: return
-        val items = songs.map { it.toMediaItem(credentials) }
-        player.setMediaItems(items, startIndex, 0L)
-        player.prepare()
-        player.play()
+        executeOrQueue { player ->
+            val items = songs.map { it.toMediaItem(credentials) }
+            player.setMediaItems(items, startIndex, 0L)
+            player.prepare()
+            player.play()
+        }
     }
 
     fun playSingle(song: Song, credentials: ServerCredentials) {
@@ -107,56 +116,60 @@ class PlaybackManager(
     }
 
     fun pause() {
-        controller?.pause()
+        executeOrQueue { it.pause() }
     }
 
     fun resume() {
-        controller?.play()
+        executeOrQueue { it.play() }
     }
 
     fun skipNext() {
-        val player = controller ?: return
-        if (player.hasNextMediaItem()) {
-            player.seekToNextMediaItem()
+        executeOrQueue { player ->
+            if (player.hasNextMediaItem()) {
+                player.seekToNextMediaItem()
+            }
         }
     }
 
     fun skipPrevious() {
-        val player = controller ?: return
-        if (player.hasPreviousMediaItem()) {
-            player.seekToPreviousMediaItem()
+        executeOrQueue { player ->
+            if (player.hasPreviousMediaItem()) {
+                player.seekToPreviousMediaItem()
+            }
         }
     }
 
     fun seekTo(positionMs: Long) {
-        controller?.seekTo(positionMs)
+        executeOrQueue { it.seekTo(positionMs) }
     }
 
     fun setRepeatMode(mode: Int) {
-        controller?.repeatMode = mode
+        executeOrQueue { it.repeatMode = mode }
     }
 
     fun toggleShuffle() {
-        val player = controller ?: return
-        player.shuffleModeEnabled = !player.shuffleModeEnabled
+        executeOrQueue { player ->
+            player.shuffleModeEnabled = !player.shuffleModeEnabled
+        }
     }
 
     // ── Queue management ────────────────────────────────────────────────
 
     fun addToQueue(song: Song, credentials: ServerCredentials) {
-        val player = controller ?: return
-        player.addMediaItem(song.toMediaItem(credentials))
+        executeOrQueue { player ->
+            player.addMediaItem(song.toMediaItem(credentials))
+        }
     }
 
     fun clearQueue() {
-        val player = controller ?: return
-        player.clearMediaItems()
+        executeOrQueue { it.clearMediaItems() }
     }
 
     fun skipToQueueItem(index: Int) {
-        val player = controller ?: return
-        if (index in 0 until player.mediaItemCount) {
-            player.seekToDefaultPosition(index)
+        executeOrQueue { player ->
+            if (index in 0 until player.mediaItemCount) {
+                player.seekToDefaultPosition(index)
+            }
         }
     }
 
@@ -195,23 +208,32 @@ class PlaybackManager(
 
     private fun syncState() {
         val player = controller ?: return
-        val currentItem = player.currentMediaItem
         val queue = buildList {
             for (i in 0 until player.mediaItemCount) {
                 add(player.getMediaItemAt(i).toSong())
             }
         }
+        val currentIndex = player.currentMediaItemIndex
+        val currentItem = player.currentMediaItem?.toSong()
+        val resolvedCurrentSong = when {
+            currentItem != null -> currentItem
+            currentIndex in queue.indices -> queue[currentIndex]
+            player.mediaItemCount == 0 -> null
+            else -> _playbackState.value.currentSong
+        }
         _playbackState.value = PlaybackState(
-            currentSong = currentItem?.toSong(),
+            currentSong = resolvedCurrentSong,
             isPlaying = player.isPlaying,
             position = player.currentPosition.coerceAtLeast(0L),
             duration = player.duration.coerceAtLeast(0L),
             bufferedPosition = player.bufferedPosition.coerceAtLeast(0L),
             queue = queue,
-            currentIndex = player.currentMediaItemIndex,
+            currentIndex = currentIndex,
             repeatMode = player.repeatMode,
             shuffleEnabled = player.shuffleModeEnabled,
             audioSessionId = PlaybackService.audioSessionId.value,
+            controllerReady = true,
+            connectionErrorMessage = null,
         )
     }
 
@@ -309,5 +331,46 @@ class PlaybackManager(
                     ?.getInt(EXTRA_USER_RATING),
             )
         }
+    }
+
+    private suspend fun buildController(): MediaController {
+        val sessionToken = SessionToken(
+            context,
+            ComponentName(context, PlaybackService::class.java),
+        )
+        val future = MediaController.Builder(context, sessionToken).buildAsync()
+        return suspendCancellableCoroutine { continuation ->
+            Futures.addCallback(
+                future,
+                object : FutureCallback<MediaController> {
+                    override fun onSuccess(result: MediaController) {
+                        continuation.resume(result)
+                    }
+
+                    override fun onFailure(t: Throwable) {
+                        continuation.resumeWithException(t)
+                    }
+                },
+                MoreExecutors.directExecutor(),
+            )
+            continuation.invokeOnCancellation { future.cancel(false) }
+        }
+    }
+
+    private fun executeOrQueue(command: (MediaController) -> Unit) {
+        val player = controller
+        if (player != null) {
+            command(player)
+            return
+        }
+        pendingCommands += command
+        connectInBackground()
+    }
+
+    private fun flushPendingCommands(player: MediaController) {
+        if (pendingCommands.isEmpty()) return
+        val commands = pendingCommands.toList()
+        pendingCommands.clear()
+        commands.forEach { it(player) }
     }
 }

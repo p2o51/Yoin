@@ -5,12 +5,15 @@ import kotlinx.serialization.Serializable
 /**
  * Type-safe navigation routes for Yoin.
  *
- * Home and Library are the two main sections (tab-style, crossfade transition).
- * NowPlaying is a fullscreen overlay (slide-up transition, Phase 10).
- * Settings is a forward sub-route from Home or Library.
+ * The app now boots into a single Shell route that owns the floating button group plus the
+ * Home/Library section switch. Settings and details still use pushed routes; Now Playing lives as
+ * a shell-owned overlay instead of a separate top-level destination.
  */
 @Serializable
 sealed interface YoinRoute {
+
+    @Serializable
+    data object Shell : YoinRoute
 
     @Serializable
     data object Home : YoinRoute

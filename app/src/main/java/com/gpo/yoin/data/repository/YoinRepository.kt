@@ -20,7 +20,7 @@ import kotlinx.coroutines.flow.first
 import kotlin.math.roundToInt
 
 class YoinRepository(
-    private val api: SubsonicApi,
+    private val apiProvider: () -> SubsonicApi,
     private val database: YoinDatabase,
     private val credentials: () -> ServerCredentials,
 ) {
@@ -37,17 +37,19 @@ class YoinRepository(
         }
     }
 
+    private fun api(): SubsonicApi = apiProvider()
+
     // ── Albums ──────────────────────────────────────────────────────────
 
     suspend fun getAlbumList(type: String, size: Int = 20, offset: Int = 0): List<Album> {
         requireConfigured()
-        val body = unwrap(api.getAlbumList2(type, size, offset))
+        val body = unwrap(api().getAlbumList2(type, size, offset))
         return body.albumList2?.album.orEmpty()
     }
 
     suspend fun getAlbum(id: String): Album? {
         requireConfigured()
-        val body = unwrap(api.getAlbum(id))
+        val body = unwrap(api().getAlbum(id))
         return body.album
     }
 
@@ -55,13 +57,13 @@ class YoinRepository(
 
     suspend fun getArtists(): List<ArtistIndex> {
         requireConfigured()
-        val body = unwrap(api.getArtists())
+        val body = unwrap(api().getArtists())
         return body.artists?.index.orEmpty()
     }
 
     suspend fun getArtist(id: String): ArtistDetail? {
         requireConfigured()
-        val body = unwrap(api.getArtist(id))
+        val body = unwrap(api().getArtist(id))
         return body.artist
     }
 
@@ -69,7 +71,7 @@ class YoinRepository(
 
     suspend fun search(query: String): SearchResult? {
         requireConfigured()
-        val body = unwrap(api.search3(query))
+        val body = unwrap(api().search3(query))
         return body.searchResult3
     }
 
@@ -77,17 +79,17 @@ class YoinRepository(
 
     suspend fun star(id: String? = null, albumId: String? = null, artistId: String? = null) {
         requireConfigured()
-        unwrap(api.star(id, albumId, artistId))
+        unwrap(api().star(id, albumId, artistId))
     }
 
     suspend fun unstar(id: String? = null, albumId: String? = null, artistId: String? = null) {
         requireConfigured()
-        unwrap(api.unstar(id, albumId, artistId))
+        unwrap(api().unstar(id, albumId, artistId))
     }
 
     suspend fun getStarred(): StarredResponse? {
         requireConfigured()
-        val body = unwrap(api.getStarred2())
+        val body = unwrap(api().getStarred2())
         return body.starred2
     }
 
@@ -95,7 +97,7 @@ class YoinRepository(
 
     suspend fun getRandomSongs(size: Int = 20): List<Song> {
         requireConfigured()
-        val body = unwrap(api.getRandomSongs(size))
+        val body = unwrap(api().getRandomSongs(size))
         return body.randomSongs?.song.orEmpty()
     }
 
@@ -113,7 +115,7 @@ class YoinRepository(
         )
         if (!isConfigured) return
         try {
-            unwrap(api.setRating(songId, serverRating))
+            unwrap(api().setRating(songId, serverRating))
             database.localRatingDao().upsert(
                 LocalRating(
                     songId = songId,
@@ -134,7 +136,7 @@ class YoinRepository(
         val pending = database.localRatingDao().getRatingsNeedingSync().first()
         for (rating in pending) {
             try {
-                unwrap(api.setRating(rating.songId, rating.serverRating))
+                unwrap(api().setRating(rating.songId, rating.serverRating))
                 database.localRatingDao().upsert(rating.copy(needsSync = false))
             } catch (_: Exception) {
                 // Skip this rating, will retry next sync
@@ -146,7 +148,7 @@ class YoinRepository(
 
     suspend fun getLyrics(songId: String): LyricsList? {
         requireConfigured()
-        val body = unwrap(api.getLyricsBySongId(songId))
+        val body = unwrap(api().getLyricsBySongId(songId))
         return body.lyricsList
     }
 
@@ -180,13 +182,11 @@ class YoinRepository(
 
     // ── Server test ─────────────────────────────────────────────────────
 
-    suspend fun testConnection(): Boolean =
-        try {
-            val body = unwrap(api.ping())
-            body.status == "ok"
-        } catch (_: Exception) {
-            false
-        }
+    suspend fun testConnection(): Boolean {
+        requireConfigured()
+        unwrap(api().ping())
+        return true
+    }
 
     // ── Internal helpers ────────────────────────────────────────────────
 

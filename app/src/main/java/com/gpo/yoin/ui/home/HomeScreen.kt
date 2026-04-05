@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -22,7 +23,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -48,12 +48,16 @@ import coil3.compose.AsyncImage
 import com.gpo.yoin.R
 import com.gpo.yoin.data.local.PlayHistory
 import com.gpo.yoin.data.remote.Album
+import com.gpo.yoin.data.remote.Song
 import com.gpo.yoin.player.VisualizerData
 import com.gpo.yoin.ui.component.AlbumCard
 import com.gpo.yoin.ui.component.AudioVisualizer
 import com.gpo.yoin.ui.component.VisualizerStyle
+import com.gpo.yoin.ui.component.YoinLoadingIndicator
 import com.gpo.yoin.ui.theme.YoinShapeTokens
 import com.gpo.yoin.ui.theme.YoinTheme
+
+private val FloatingBottomGroupClearance = 132.dp
 
 @Composable
 fun HomeScreen(
@@ -62,7 +66,7 @@ fun HomeScreen(
     visualizerData: VisualizerData,
     onNavigateToSettings: () -> Unit,
     onAlbumClick: (albumId: String) -> Unit,
-    onSongClick: (songId: String) -> Unit,
+    onSongClick: (Song) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -87,7 +91,7 @@ fun HomeContent(
     visualizerData: VisualizerData,
     onNavigateToSettings: () -> Unit,
     onAlbumClick: (albumId: String) -> Unit,
-    onSongClick: (songId: String) -> Unit,
+    onSongClick: (Song) -> Unit,
     onRetry: () -> Unit,
     buildCoverArtUrl: (String) -> String,
     modifier: Modifier = Modifier,
@@ -111,9 +115,7 @@ fun HomeContent(
                             .weight(1f),
                         contentAlignment = Alignment.Center,
                     ) {
-                        CircularProgressIndicator(
-                            color = MaterialTheme.colorScheme.primary,
-                        )
+                        YoinLoadingIndicator()
                     }
                 }
 
@@ -171,6 +173,7 @@ private fun HomeTopBar(
     Row(
         modifier = modifier
             .fillMaxWidth()
+            .statusBarsPadding()
             .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween,
@@ -196,7 +199,7 @@ private fun HomeContentSections(
     mixAlbums: List<Album>,
     memories: List<Album>,
     onAlbumClick: (albumId: String) -> Unit,
-    onSongClick: (songId: String) -> Unit,
+    onSongClick: (Song) -> Unit,
     buildCoverArtUrl: (String) -> String,
     modifier: Modifier = Modifier,
 ) {
@@ -232,7 +235,7 @@ private fun HomeContentSections(
         }
 
         // Phase 13 — visualization area placeholder
-        Spacer(modifier = Modifier.height(16.dp))
+        Spacer(modifier = Modifier.height(FloatingBottomGroupClearance))
     }
 }
 
@@ -293,7 +296,7 @@ private fun AlbumsRow(
 @Composable
 private fun ActivitiesRow(
     activities: List<PlayHistory>,
-    onSongClick: (songId: String) -> Unit,
+    onSongClick: (Song) -> Unit,
     buildCoverArtUrl: (String) -> String,
     modifier: Modifier = Modifier,
 ) {
@@ -320,7 +323,18 @@ private fun ActivitiesRow(
             ActivityCard(
                 history = history,
                 coverArtUrl = history.coverArtId?.let { buildCoverArtUrl(it) },
-                onClick = { onSongClick(history.songId) },
+                onClick = {
+                    onSongClick(
+                        Song(
+                            id = history.songId,
+                            title = history.title,
+                            artist = history.artist,
+                            album = history.album,
+                            albumId = history.albumId.takeIf { it.isNotBlank() },
+                            coverArt = history.coverArtId,
+                        ),
+                    )
+                },
                 modifier = Modifier.alpha(alpha.value),
             )
         }
@@ -408,7 +422,7 @@ private fun HomeContentLoadingPreview() {
             visualizerData = VisualizerData.Empty,
             onNavigateToSettings = {},
             onAlbumClick = {},
-            onSongClick = {},
+            onSongClick = { _ -> },
             onRetry = {},
             buildCoverArtUrl = { "" },
         )
@@ -425,7 +439,7 @@ private fun HomeContentErrorPreview() {
             visualizerData = VisualizerData.Empty,
             onNavigateToSettings = {},
             onAlbumClick = {},
-            onSongClick = {},
+            onSongClick = { _ -> },
             onRetry = {},
             buildCoverArtUrl = { "" },
         )
@@ -484,7 +498,7 @@ private fun HomeContentPreview() {
             ),
             onNavigateToSettings = {},
             onAlbumClick = {},
-            onSongClick = {},
+            onSongClick = { _ -> },
             onRetry = {},
             buildCoverArtUrl = { "" },
         )

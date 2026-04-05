@@ -16,4 +16,6 @@ data class PlaybackState(
     val audioSessionId: Int = 0,
     val isCasting: Boolean = false,
     val castDeviceName: String? = null,
+    val controllerReady: Boolean = false,
+    val connectionErrorMessage: String? = null,
 )

@@ -24,7 +24,7 @@ class AppContainer(private val context: Context) {
     private var cachedCredentials: ServerCredentials? = null
 
     @Volatile
-    private var cachedServerUrl: String? = null
+    private var cachedApiCredentials: ServerCredentials? = null
 
     @Volatile
     private var _api: SubsonicApi? = null
@@ -42,16 +42,15 @@ class AppContainer(private val context: Context) {
             )
         } ?: ServerCredentials("", "", "")
         cachedCredentials = creds
-        cachedServerUrl = creds.serverUrl
         return creds
     }
 
     fun getApi(): SubsonicApi {
         val creds = getCredentials()
-        if (_api == null || cachedServerUrl != creds.serverUrl) {
-            cachedServerUrl = creds.serverUrl
+        if (_api == null || cachedApiCredentials != creds) {
+            cachedApiCredentials = creds
             _api = SubsonicApiFactory.create(
-                credentialsProvider = { creds },
+                credentialsProvider = ::getCredentials,
                 loggingEnabled = false,
             )
         }
@@ -60,12 +59,13 @@ class AppContainer(private val context: Context) {
 
     fun invalidateCredentials() {
         cachedCredentials = null
+        cachedApiCredentials = null
         _api = null
     }
 
     val repository: YoinRepository by lazy {
         YoinRepository(
-            api = getApi(),
+            apiProvider = ::getApi,
             database = database,
             credentials = ::getCredentials,
         )
@@ -74,7 +74,7 @@ class AppContainer(private val context: Context) {
     fun rebuildRepository(): YoinRepository {
         invalidateCredentials()
         return YoinRepository(
-            api = getApi(),
+            apiProvider = ::getApi,
             database = database,
             credentials = ::getCredentials,
         )

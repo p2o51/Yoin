@@ -1,15 +1,24 @@
 package com.gpo.yoin.ui.nowplaying
 
+import androidx.compose.animation.AnimatedVisibilityScope
+import androidx.compose.animation.ExperimentalSharedTransitionApi
+import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
+import androidx.compose.foundation.basicMarquee
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -17,20 +26,27 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.automirrored.filled.QueueMusic
+import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
+import androidx.compose.material3.ButtonGroup
+import androidx.compose.material3.ButtonGroupDefaults
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -40,7 +56,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
@@ -64,7 +79,9 @@ import com.gpo.yoin.ui.theme.YoinTheme
  * Full-screen Now Playing overlay.
  *
  * All state is hoisted — this composable is purely presentational.
+ * Accepts optional shared-transition scopes for the cover-art / title / artist morph.
  */
+@OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
 fun NowPlayingScreen(
     uiState: NowPlayingUiState,
@@ -78,6 +95,8 @@ fun NowPlayingScreen(
     onSkipToQueueItem: (Int) -> Unit,
     castState: CastState = CastState.NotAvailable,
     onCastClick: () -> Unit = {},
+    sharedTransitionScope: SharedTransitionScope? = null,
+    animatedVisibilityScope: AnimatedVisibilityScope? = null,
     modifier: Modifier = Modifier,
 ) {
     val surfaceContainer = MaterialTheme.colorScheme.surfaceContainer
@@ -117,6 +136,8 @@ fun NowPlayingScreen(
                 onSkipToQueueItem = onSkipToQueueItem,
                 castState = castState,
                 onCastClick = onCastClick,
+                sharedTransitionScope = sharedTransitionScope,
+                animatedVisibilityScope = animatedVisibilityScope,
             )
         }
     }
@@ -136,6 +157,7 @@ private fun IdleContent(modifier: Modifier = Modifier) {
     }
 }
 
+@OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
 private fun PlayingContent(
     state: NowPlayingUiState.Playing,
@@ -148,6 +170,8 @@ private fun PlayingContent(
     onSkipToQueueItem: (Int) -> Unit,
     castState: CastState = CastState.NotAvailable,
     onCastClick: () -> Unit = {},
+    sharedTransitionScope: SharedTransitionScope? = null,
+    animatedVisibilityScope: AnimatedVisibilityScope? = null,
     modifier: Modifier = Modifier,
 ) {
     val progress = if (state.durationMs > 0) {
@@ -162,31 +186,37 @@ private fun PlayingContent(
     }
 
     var showQueue by remember { mutableStateOf(false) }
+    val scrollState = rememberScrollState()
 
     Column(
         modifier = modifier
             .fillMaxSize()
+            .verticalScroll(scrollState)
             .padding(horizontal = 24.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.Start,
+        verticalArrangement = Arrangement.Top,
     ) {
-        // Album cover + Rating slider
+        Spacer(modifier = Modifier.height(20.dp))
+
+        // ── 1. Album cover + Rating slider ────────────────────────────────
         Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(IntrinsicSize.Max),
+            verticalAlignment = Alignment.Top,
         ) {
-            // Album cover — takes most of the width
             AlbumCover(
                 coverArtUrl = state.coverArtUrl,
+                sharedTransitionScope = sharedTransitionScope,
+                animatedVisibilityScope = animatedVisibilityScope,
                 modifier = Modifier.weight(1f),
             )
 
             Spacer(modifier = Modifier.width(12.dp))
 
-            // Rating slider + Favorite button
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
-                modifier = Modifier.height(250.dp),
+                modifier = Modifier.fillMaxHeight(),
             ) {
                 RatingSlider(
                     rating = state.rating,
@@ -203,84 +233,102 @@ private fun PlayingContent(
             }
         }
 
-        Spacer(modifier = Modifier.height(20.dp))
+        Spacer(modifier = Modifier.height(16.dp))
 
-        // Song info
+        // ── 2. Lyrics header + lyrics ─────────────────────────────────────
         Text(
-            text = state.songTitle,
-            style = MaterialTheme.typography.headlineMedium,
-            color = MaterialTheme.colorScheme.onSurface,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.fillMaxWidth(),
-        )
-        Spacer(modifier = Modifier.height(4.dp))
-        Text(
-            text = state.artist,
-            style = MaterialTheme.typography.titleMedium,
+            text = "Lyrics",
+            style = MaterialTheme.typography.labelLarge,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier.padding(bottom = 4.dp),
         )
 
-        Spacer(modifier = Modifier.height(12.dp))
-
-        // Lyrics display
         LyricsDisplay(
             lyrics = state.lyrics,
             positionMs = state.positionMs,
             modifier = Modifier.fillMaxWidth(),
         )
 
-        Spacer(modifier = Modifier.height(12.dp))
-
-        // Progress bar
-        WaveProgressBar(
-            progress = progress,
-            buffered = buffered,
-            onSeek = onSeek,
-            modifier = Modifier.fillMaxWidth(),
-        )
-
-        // Time labels
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(top = 4.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-        ) {
-            Text(
-                text = formatTime(state.positionMs),
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Text(
-                text = formatTime(state.durationMs),
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-
         Spacer(modifier = Modifier.height(16.dp))
 
-        // Playback controls
+        // ── 3. Playback controls (with progress bar) ─────────────────────
         PlaybackControls(
             isPlaying = state.isPlaying,
             onTogglePlayPause = onTogglePlayPause,
             onSkipNext = onSkipNext,
             onSkipPrevious = onSkipPrevious,
+            progress = progress,
+            buffered = buffered,
+            onSeek = onSeek,
         )
 
-        Spacer(modifier = Modifier.height(16.dp))
+        Spacer(modifier = Modifier.height(12.dp))
 
-        // Bottom pills — Queue button + Cast pill
+        // ── 4. Song title + artist (bottom, large) ────────────────────────
+        val titleModifier = if (sharedTransitionScope != null && animatedVisibilityScope != null) {
+            with(sharedTransitionScope) {
+                Modifier
+                    .sharedBounds(
+                        sharedContentState = rememberSharedContentState(key = "np_title"),
+                        animatedVisibilityScope = animatedVisibilityScope,
+                        boundsTransform = { _, _ ->
+                            spring(stiffness = Spring.StiffnessMediumLow)
+                        },
+                    )
+                    .fillMaxWidth()
+            }
+        } else {
+            Modifier.fillMaxWidth()
+        }
+        Text(
+            text = state.songTitle,
+            style = MaterialTheme.typography.displaySmall,
+            color = MaterialTheme.colorScheme.onSurface,
+            maxLines = 1,
+            softWrap = false,
+            modifier = titleModifier.basicMarquee(
+                iterations = Int.MAX_VALUE,
+                repeatDelayMillis = 2000,
+                initialDelayMillis = 1500,
+            ),
+        )
+        Spacer(modifier = Modifier.height(2.dp))
+
+        val artistModifier = if (sharedTransitionScope != null && animatedVisibilityScope != null) {
+            with(sharedTransitionScope) {
+                Modifier
+                    .sharedBounds(
+                        sharedContentState = rememberSharedContentState(key = "np_artist"),
+                        animatedVisibilityScope = animatedVisibilityScope,
+                        boundsTransform = { _, _ ->
+                            spring(stiffness = Spring.StiffnessMediumLow)
+                        },
+                    )
+                    .fillMaxWidth()
+            }
+        } else {
+            Modifier.fillMaxWidth()
+        }
+        Text(
+            text = state.artist,
+            style = MaterialTheme.typography.titleMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = artistModifier,
+        )
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        // ── 5. Bottom pills ───────────────────────────────────────────────
         BottomPills(
             queueSize = state.queue.size,
             onQueueClick = { showQueue = true },
             castState = castState,
             onCastClick = onCastClick,
         )
+
+        Spacer(modifier = Modifier.height(24.dp))
     }
 
     // Queue bottom sheet
@@ -326,79 +374,185 @@ private fun FavoriteButton(
     }
 }
 
+@OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
 private fun AlbumCover(
     coverArtUrl: String?,
+    sharedTransitionScope: SharedTransitionScope? = null,
+    animatedVisibilityScope: AnimatedVisibilityScope? = null,
     modifier: Modifier = Modifier,
 ) {
-    AsyncImage(
-        model = coverArtUrl,
-        contentDescription = "Album cover",
-        contentScale = ContentScale.Crop,
-        modifier = modifier
-            .fillMaxWidth()
-            .clip(YoinShapeTokens.ExtraLarge),
-    )
+    val baseModifier = modifier
+        .aspectRatio(1f)
+
+    val finalModifier = if (sharedTransitionScope != null && animatedVisibilityScope != null) {
+        with(sharedTransitionScope) {
+            baseModifier.sharedBounds(
+                sharedContentState = rememberSharedContentState(key = "np_cover"),
+                animatedVisibilityScope = animatedVisibilityScope,
+                boundsTransform = { _, _ ->
+                    spring(stiffness = Spring.StiffnessMediumLow)
+                },
+            )
+        }
+    } else {
+        baseModifier
+    }
+
+    Surface(
+        modifier = finalModifier.clip(YoinShapeTokens.ExtraLarge),
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        shape = YoinShapeTokens.ExtraLarge,
+    ) {
+        if (coverArtUrl != null) {
+            AsyncImage(
+                model = coverArtUrl,
+                contentDescription = "Album cover",
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize(),
+            )
+        } else {
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.PlayArrow,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(48.dp),
+                )
+            }
+        }
+    }
 }
 
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun PlaybackControls(
     isPlaying: Boolean,
     onTogglePlayPause: () -> Unit,
     onSkipNext: () -> Unit,
     onSkipPrevious: () -> Unit,
+    progress: Float,
+    buffered: Float,
+    onSeek: (Float) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val playPauseScale by animateFloatAsState(
-        targetValue = 1f,
-        animationSpec = YoinMotion.bouncySpatialSpring(),
-        label = "playPauseScale",
-    )
-
-    Row(
-        modifier = modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.Center,
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        IconButton(
-            onClick = onSkipPrevious,
-            modifier = Modifier.size(64.dp),
+    Column(modifier = modifier.fillMaxWidth()) {
+        // Row 1: ButtonGroup(Pause, SkipNext) + Spacer + Shuffle
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            Icon(
-                imageVector = Icons.Filled.SkipPrevious,
-                contentDescription = "Skip previous",
-                modifier = Modifier.size(36.dp),
-                tint = MaterialTheme.colorScheme.onSurface,
-            )
+            ButtonGroup(
+                overflowIndicator = { _ -> },
+                expandedRatio = ButtonGroupDefaults.ExpandedRatio,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                customItem(
+                    buttonGroupContent = {
+                        val interactionSource = remember { MutableInteractionSource() }
+                        FilledTonalButton(
+                            onClick = onTogglePlayPause,
+                            modifier = Modifier
+                                .height(56.dp)
+                                .animateWidth(interactionSource),
+                            shape = MaterialTheme.shapes.extraLarge,
+                            interactionSource = interactionSource,
+                        ) {
+                            Icon(
+                                imageVector = if (isPlaying) {
+                                    Icons.Filled.Pause
+                                } else {
+                                    Icons.Filled.PlayArrow
+                                },
+                                contentDescription = null,
+                                modifier = Modifier.size(24.dp),
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = if (isPlaying) "PAUSE" else "PLAY",
+                                style = MaterialTheme.typography.titleMedium,
+                            )
+                        }
+                    },
+                    menuContent = { _ -> },
+                )
+
+                customItem(
+                    buttonGroupContent = {
+                        val interactionSource = remember { MutableInteractionSource() }
+                        FilledIconButton(
+                            onClick = onSkipNext,
+                            modifier = Modifier
+                                .size(56.dp)
+                                .animateWidth(interactionSource),
+                            interactionSource = interactionSource,
+                            colors = IconButtonDefaults.filledIconButtonColors(
+                                containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                                contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                            ),
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.SkipNext,
+                                contentDescription = "Skip next",
+                                modifier = Modifier.size(28.dp),
+                            )
+                        }
+                    },
+                    menuContent = { _ -> },
+                )
+            }
+
+            Spacer(modifier = Modifier.weight(1f))
+
+            // Shuffle / playback mode (UI only)
+            FilledIconButton(
+                onClick = { /* TODO: implement playback mode toggle */ },
+                modifier = Modifier.size(56.dp),
+                colors = IconButtonDefaults.filledIconButtonColors(
+                    containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                ),
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Shuffle,
+                    contentDescription = "Shuffle",
+                    modifier = Modifier.size(28.dp),
+                )
+            }
         }
 
-        FilledIconButton(
-            onClick = onTogglePlayPause,
-            modifier = Modifier
-                .padding(horizontal = 24.dp)
-                .size(72.dp)
-                .scale(playPauseScale),
-            colors = IconButtonDefaults.filledIconButtonColors(
-                containerColor = MaterialTheme.colorScheme.primaryContainer,
-                contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-            ),
-        ) {
-            Icon(
-                imageVector = if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
-                contentDescription = if (isPlaying) "Pause" else "Play",
-                modifier = Modifier.size(40.dp),
-            )
-        }
+        Spacer(modifier = Modifier.height(8.dp))
 
-        IconButton(
-            onClick = onSkipNext,
-            modifier = Modifier.size(64.dp),
+        // Row 2: Skip Previous + Progress Bar (same row)
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Icon(
-                imageVector = Icons.Filled.SkipNext,
-                contentDescription = "Skip next",
-                modifier = Modifier.size(36.dp),
-                tint = MaterialTheme.colorScheme.onSurface,
+            FilledIconButton(
+                onClick = onSkipPrevious,
+                modifier = Modifier.size(48.dp),
+                colors = IconButtonDefaults.filledIconButtonColors(
+                    containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                ),
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.SkipPrevious,
+                    contentDescription = "Skip previous",
+                    modifier = Modifier.size(24.dp),
+                )
+            }
+
+            WaveProgressBar(
+                progress = progress,
+                buffered = buffered,
+                onSeek = onSeek,
+                modifier = Modifier.weight(1f),
             )
         }
     }
@@ -414,7 +568,7 @@ private fun BottomPills(
 ) {
     Row(
         modifier = modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.Center,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         CastButton(
@@ -523,6 +677,9 @@ private fun PlaybackControlsPreview() {
             onTogglePlayPause = {},
             onSkipNext = {},
             onSkipPrevious = {},
+            progress = 0.4f,
+            buffered = 0.7f,
+            onSeek = {},
         )
     }
 }

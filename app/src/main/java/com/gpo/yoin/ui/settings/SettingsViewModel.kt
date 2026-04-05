@@ -7,12 +7,14 @@ import com.gpo.yoin.AppContainer
 import com.gpo.yoin.data.local.ServerConfig
 import com.gpo.yoin.data.remote.ServerCredentials
 import com.gpo.yoin.data.remote.SubsonicApiFactory
+import com.gpo.yoin.data.repository.SubsonicException
 import com.gpo.yoin.data.repository.YoinRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import java.net.UnknownServiceException
 
 class SettingsViewModel(
     private val container: AppContainer,
@@ -42,20 +44,23 @@ class SettingsViewModel(
     }
 
     fun saveServer(url: String, username: String, password: String) {
+        val normalizedUrl = url.trim().trimEnd('/')
+        val normalizedUsername = username.trim()
         viewModelScope.launch {
             container.database.serverConfigDao().insert(
                 ServerConfig(
-                    serverUrl = url.trimEnd('/'),
-                    username = username,
+                    serverUrl = normalizedUrl,
+                    username = normalizedUsername,
                     passwordHash = password,
                 ),
             )
             container.invalidateCredentials()
+            container.playbackManager.disconnect()
 
             val cacheSize = container.database.cacheMetadataDao().getTotalCacheSize().first()
             _uiState.value = SettingsUiState.Content(
-                serverUrl = url,
-                username = username,
+                serverUrl = normalizedUrl,
+                username = normalizedUsername,
                 isConnected = true,
                 cacheSizeBytes = cacheSize,
             )
@@ -63,13 +68,24 @@ class SettingsViewModel(
     }
 
     fun testConnection(url: String, username: String, password: String) {
+        val normalizedUrl = url.trim().trimEnd('/')
+        val normalizedUsername = username.trim()
+        validateConnectionInput(
+            url = normalizedUrl,
+            username = normalizedUsername,
+            password = password,
+        )?.let { message ->
+            _connectionResult.value = ConnectionResult.Failure(message)
+            return
+        }
+
         _uiState.value = SettingsUiState.Connecting
         _connectionResult.value = null
         viewModelScope.launch {
             try {
                 val creds = ServerCredentials(
-                    serverUrl = url.trimEnd('/'),
-                    username = username,
+                    serverUrl = normalizedUrl,
+                    username = normalizedUsername,
                     password = password,
                 )
                 val testApi = SubsonicApiFactory.create(
@@ -77,31 +93,27 @@ class SettingsViewModel(
                     loggingEnabled = false,
                 )
                 val repo = YoinRepository(
-                    api = testApi,
+                    apiProvider = { testApi },
                     database = container.database,
                     credentials = { creds },
                 )
-                val success = repo.testConnection()
-                _connectionResult.value = if (success) {
-                    ConnectionResult.Success
-                } else {
-                    ConnectionResult.Failure("Server returned an error response")
-                }
+                repo.testConnection()
+                _connectionResult.value = ConnectionResult.Success
                 val cacheSize = container.database.cacheMetadataDao().getTotalCacheSize().first()
                 _uiState.value = SettingsUiState.Content(
-                    serverUrl = url,
-                    username = username,
-                    isConnected = success,
+                    serverUrl = normalizedUrl,
+                    username = normalizedUsername,
+                    isConnected = true,
                     cacheSizeBytes = cacheSize,
                 )
             } catch (e: Exception) {
                 _connectionResult.value = ConnectionResult.Failure(
-                    e.message ?: "Connection failed",
+                    e.toConnectionErrorMessage(),
                 )
                 val cacheSize = container.database.cacheMetadataDao().getTotalCacheSize().first()
                 _uiState.value = SettingsUiState.Content(
-                    serverUrl = url,
-                    username = username,
+                    serverUrl = normalizedUrl,
+                    username = normalizedUsername,
                     isConnected = false,
                     cacheSizeBytes = cacheSize,
                 )
@@ -126,6 +138,24 @@ class SettingsViewModel(
     fun retry() {
         _uiState.value = SettingsUiState.Loading
         loadSettings()
+    }
+
+    private fun validateConnectionInput(
+        url: String,
+        username: String,
+        password: String,
+    ): String? = when {
+        url.isBlank() -> "Server URL is required"
+        username.isBlank() -> "Username is required"
+        password.isBlank() -> "Password is required"
+        else -> null
+    }
+
+    private fun Exception.toConnectionErrorMessage(): String = when (this) {
+        is SubsonicException -> message ?: "Subsonic server returned an error"
+        is UnknownServiceException -> "HTTP connections are blocked by Android network security policy"
+        is IllegalArgumentException -> "Invalid server URL. Include http:// or https://"
+        else -> message ?: "Connection failed"
     }
 
     sealed interface ConnectionResult {

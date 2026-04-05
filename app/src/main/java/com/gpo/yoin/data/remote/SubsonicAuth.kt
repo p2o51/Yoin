@@ -1,6 +1,7 @@
 package com.gpo.yoin.data.remote
 
 import java.security.MessageDigest
+import java.util.concurrent.ConcurrentHashMap
 
 data class ServerCredentials(
     val serverUrl: String,
@@ -9,6 +10,8 @@ data class ServerCredentials(
 )
 
 object SubsonicAuth {
+    private val stableAuthCache = ConcurrentHashMap<ServerCredentials, Pair<String, String>>()
+
     /**
      * Generates a Subsonic auth token pair.
      * @return (token, salt) where token = MD5(password + salt)
@@ -18,6 +21,17 @@ object SubsonicAuth {
         val token = md5("$password$salt")
         return token to salt
     }
+
+    /**
+     * Returns a stable auth token pair for the current credentials.
+     *
+     * This keeps authenticated resource URLs stable across recompositions so image loaders do not
+     * continuously treat the same cover art as a brand-new URL.
+     */
+    fun stableToken(credentials: ServerCredentials): Pair<String, String> =
+        stableAuthCache.getOrPut(credentials) {
+            generateToken(credentials.password)
+        }
 
     internal fun md5(input: String): String {
         val digest = MessageDigest.getInstance("MD5")
