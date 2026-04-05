@@ -8,6 +8,7 @@ import com.gpo.yoin.data.remote.ServerCredentials
 import com.gpo.yoin.data.remote.SubsonicApi
 import com.gpo.yoin.data.remote.SubsonicApiFactory
 import com.gpo.yoin.data.repository.YoinRepository
+import com.gpo.yoin.player.PlaybackManager
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 
@@ -75,5 +76,9 @@ class AppContainer(private val context: Context) {
             database = database,
             credentials = ::getCredentials,
         )
+    }
+
+    val playbackManager: PlaybackManager by lazy {
+        PlaybackManager(context)
     }
 }
