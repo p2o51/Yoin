@@ -1,5 +1,6 @@
 package com.gpo.yoin.ui.theme
 
+import android.graphics.Bitmap
 import android.os.Build
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -15,6 +16,11 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -24,22 +30,42 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 
 /**
- * Composition local for Palette-driven color override.
- * When a song is playing, this will be replaced with cover-extracted colors (Phase 12).
+ * Composition local for the resolved color scheme (may be palette-driven).
  */
 val LocalYoinColors = staticCompositionLocalOf { YoinDarkColorScheme }
 
+/**
+ * App-wide theme wrapper.
+ *
+ * @param colorSchemeOverride Hard override for previews / tests.
+ * @param coverBitmap When non-null, Palette API extracts album cover colors and
+ *   the entire [MaterialTheme.colorScheme] animates to the extracted scheme via
+ *   Effects Spring. When `null` (playback stopped), colors animate back to the
+ *   default dynamic / dark scheme.
+ */
 @Composable
 fun YoinTheme(
     colorSchemeOverride: ColorScheme? = null,
+    coverBitmap: Bitmap? = null,
     content: @Composable () -> Unit,
 ) {
     val context = LocalContext.current
-    val colorScheme = colorSchemeOverride ?: if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+    val defaultScheme = colorSchemeOverride ?: if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
         dynamicDarkColorScheme(context)
     } else {
         YoinDarkColorScheme
     }
+
+    // Extract palette from cover art (runs on Dispatchers.Default).
+    var extractedScheme by remember { mutableStateOf<ColorScheme?>(null) }
+    LaunchedEffect(coverBitmap) {
+        extractedScheme = PaletteExtractor.extractColorScheme(coverBitmap)
+    }
+
+    val targetScheme = extractedScheme ?: defaultScheme
+
+    // Animate every token via Effects Spring — zero hard color cuts.
+    val colorScheme = animateColorScheme(targetScheme)
 
     CompositionLocalProvider(LocalYoinColors provides colorScheme) {
         MaterialTheme(
