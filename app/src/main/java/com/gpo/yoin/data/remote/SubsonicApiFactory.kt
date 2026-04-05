@@ -19,7 +19,9 @@ object SubsonicApiFactory {
         loggingEnabled: Boolean = false,
     ): SubsonicApi {
         val credentials = credentialsProvider()
-        val baseUrl = credentials.serverUrl.trimEnd('/')
+        val rawUrl = credentials.serverUrl.trimEnd('/')
+        // Use placeholder when no server is configured to avoid Retrofit crash
+        val baseUrl = rawUrl.ifBlank { "http://localhost" }
 
         val client =
             OkHttpClient.Builder()

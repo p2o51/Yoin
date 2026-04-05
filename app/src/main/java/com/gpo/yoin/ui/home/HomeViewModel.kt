@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.gpo.yoin.AppContainer
 import com.gpo.yoin.data.repository.YoinRepository
 import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -27,29 +28,31 @@ class HomeViewModel(
         _uiState.value = HomeUiState.Loading
         viewModelScope.launch {
             try {
-                val activitiesDeferred = async {
-                    repository.getRecentHistory(limit = 20).first()
-                }
-                val randomDeferred = async {
-                    repository.getAlbumList("random", size = 10)
-                }
-                val newestDeferred = async {
-                    repository.getAlbumList("newest", size = 10)
-                }
-                val frequentDeferred = async {
-                    repository.getAlbumList("frequent", size = 20)
-                }
+                coroutineScope {
+                    val activitiesDeferred = async {
+                        repository.getRecentHistory(limit = 20).first()
+                    }
+                    val randomDeferred = async {
+                        repository.getAlbumList("random", size = 10)
+                    }
+                    val newestDeferred = async {
+                        repository.getAlbumList("newest", size = 10)
+                    }
+                    val frequentDeferred = async {
+                        repository.getAlbumList("frequent", size = 20)
+                    }
 
-                val activities = activitiesDeferred.await()
-                val random = randomDeferred.await()
-                val newest = newestDeferred.await()
-                val frequent = frequentDeferred.await()
+                    val activities = activitiesDeferred.await()
+                    val random = randomDeferred.await()
+                    val newest = newestDeferred.await()
+                    val frequent = frequentDeferred.await()
 
-                _uiState.value = HomeUiState.Content(
-                    activities = activities,
-                    mixAlbums = (random + newest).distinctBy { it.id },
-                    memories = frequent,
-                )
+                    _uiState.value = HomeUiState.Content(
+                        activities = activities,
+                        mixAlbums = (random + newest).distinctBy { it.id },
+                        memories = frequent,
+                    )
+                }
             } catch (e: Exception) {
                 _uiState.value = HomeUiState.Error(
                     e.message ?: "Failed to load home content",

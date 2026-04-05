@@ -24,14 +24,29 @@ class YoinRepository(
     private val database: YoinDatabase,
     private val credentials: () -> ServerCredentials,
 ) {
+    /** True when a server URL has been configured. */
+    val isConfigured: Boolean
+        get() = credentials().serverUrl.isNotBlank()
+
+    private fun requireConfigured() {
+        if (!isConfigured) {
+            throw SubsonicException(
+                code = -1,
+                message = "No server configured. Go to Settings to add a server.",
+            )
+        }
+    }
+
     // ── Albums ──────────────────────────────────────────────────────────
 
     suspend fun getAlbumList(type: String, size: Int = 20, offset: Int = 0): List<Album> {
+        requireConfigured()
         val body = unwrap(api.getAlbumList2(type, size, offset))
         return body.albumList2?.album.orEmpty()
     }
 
     suspend fun getAlbum(id: String): Album? {
+        requireConfigured()
         val body = unwrap(api.getAlbum(id))
         return body.album
     }
@@ -39,11 +54,13 @@ class YoinRepository(
     // ── Artists ─────────────────────────────────────────────────────────
 
     suspend fun getArtists(): List<ArtistIndex> {
+        requireConfigured()
         val body = unwrap(api.getArtists())
         return body.artists?.index.orEmpty()
     }
 
     suspend fun getArtist(id: String): ArtistDetail? {
+        requireConfigured()
         val body = unwrap(api.getArtist(id))
         return body.artist
     }
@@ -51,6 +68,7 @@ class YoinRepository(
     // ── Search ──────────────────────────────────────────────────────────
 
     suspend fun search(query: String): SearchResult? {
+        requireConfigured()
         val body = unwrap(api.search3(query))
         return body.searchResult3
     }
@@ -58,14 +76,17 @@ class YoinRepository(
     // ── Favorites ───────────────────────────────────────────────────────
 
     suspend fun star(id: String? = null, albumId: String? = null, artistId: String? = null) {
+        requireConfigured()
         unwrap(api.star(id, albumId, artistId))
     }
 
     suspend fun unstar(id: String? = null, albumId: String? = null, artistId: String? = null) {
+        requireConfigured()
         unwrap(api.unstar(id, albumId, artistId))
     }
 
     suspend fun getStarred(): StarredResponse? {
+        requireConfigured()
         val body = unwrap(api.getStarred2())
         return body.starred2
     }
@@ -73,6 +94,7 @@ class YoinRepository(
     // ── Random ──────────────────────────────────────────────────────────
 
     suspend fun getRandomSongs(size: Int = 20): List<Song> {
+        requireConfigured()
         val body = unwrap(api.getRandomSongs(size))
         return body.randomSongs?.song.orEmpty()
     }
@@ -89,6 +111,7 @@ class YoinRepository(
                 needsSync = true,
             ),
         )
+        if (!isConfigured) return
         try {
             unwrap(api.setRating(songId, serverRating))
             database.localRatingDao().upsert(
@@ -122,6 +145,7 @@ class YoinRepository(
     // ── Lyrics ──────────────────────────────────────────────────────────
 
     suspend fun getLyrics(songId: String): LyricsList? {
+        requireConfigured()
         val body = unwrap(api.getLyricsBySongId(songId))
         return body.lyricsList
     }
