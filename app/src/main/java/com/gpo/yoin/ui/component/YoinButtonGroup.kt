@@ -240,13 +240,11 @@ fun YoinButtonGroup(
                                 Column(modifier = Modifier.weight(1f)) {
                                     val titleText = currentTrackTitle ?: when {
                                         connectionErrorMessage != null -> "Playback unavailable"
-                                        isPlaybackReady -> "Now Playing"
-                                        else -> "Connecting"
+                                        else -> "Nothing playing"
                                     }
                                     val artistText = currentTrackArtist ?: when {
                                         connectionErrorMessage != null -> connectionErrorMessage
-                                        isPlaybackReady -> "Open player"
-                                        else -> "Preparing audio"
+                                        else -> "Tap to open player"
                                     }
 
                                     val titleMod = if (
