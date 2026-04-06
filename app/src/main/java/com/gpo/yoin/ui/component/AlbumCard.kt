@@ -33,6 +33,7 @@ fun AlbumCard(
     Column(
         modifier = modifier
             .width(150.dp)
+            .clip(YoinShapeTokens.Medium)
             .clickable(onClick = onClick),
     ) {
         if (LocalInspectionMode.current) {

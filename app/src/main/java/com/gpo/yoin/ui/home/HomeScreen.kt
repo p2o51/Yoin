@@ -1,11 +1,8 @@
 package com.gpo.yoin.ui.home
 
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
-import androidx.compose.animation.expandVertically
-import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -144,15 +141,7 @@ fun HomeContent(
                 }
 
                 is HomeUiState.Content -> {
-                    AnimatedVisibility(
-                        visible = isPlaying,
-                        enter = expandVertically(
-                            animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
-                        ),
-                        exit = shrinkVertically(
-                            animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
-                        ),
-                    ) {
+                    if (isPlaying) {
                         AudioVisualizer(
                             visualizerData = visualizerData,
                             style = VisualizerStyle.Compact,
@@ -168,6 +157,7 @@ fun HomeContent(
                         mixForYou = uiState.mixForYou,
                         mostPlayed = uiState.mostPlayed,
                         quickPlaySongs = uiState.quickPlaySongs,
+                        quickPlayAlbums = uiState.quickPlayAlbums,
                         onAlbumClick = onAlbumClick,
                         onSongClick = onSongClick,
                         buildCoverArtUrl = buildCoverArtUrl,
@@ -213,6 +203,7 @@ private fun HomeContentSections(
     mixForYou: List<Album>,
     mostPlayed: List<Album>,
     quickPlaySongs: List<Song>,
+    quickPlayAlbums: List<Album>,
     onAlbumClick: (albumId: String) -> Unit,
     onSongClick: (Song) -> Unit,
     buildCoverArtUrl: (String) -> String,
@@ -229,11 +220,13 @@ private fun HomeContentSections(
             Spacer(modifier = Modifier.height(24.dp))
         }
 
-        if (quickPlaySongs.isNotEmpty()) {
+        if (quickPlaySongs.isNotEmpty() || quickPlayAlbums.isNotEmpty()) {
             SectionHeader(title = "Quick Play")
             QuickPlayRow(
                 songs = quickPlaySongs,
+                albums = quickPlayAlbums,
                 onSongClick = onSongClick,
+                onAlbumClick = onAlbumClick,
                 buildCoverArtUrl = buildCoverArtUrl,
             )
             Spacer(modifier = Modifier.height(24.dp))
@@ -289,7 +282,9 @@ private fun SectionHeader(
 @Composable
 private fun QuickPlayRow(
     songs: List<Song>,
+    albums: List<Album>,
     onSongClick: (Song) -> Unit,
+    onAlbumClick: (albumId: String) -> Unit,
     buildCoverArtUrl: (String) -> String,
     modifier: Modifier = Modifier,
 ) {
@@ -298,9 +293,37 @@ private fun QuickPlayRow(
         contentPadding = PaddingValues(horizontal = 16.dp),
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
+        // Albums first — larger cards for visual variety
+        itemsIndexed(
+            items = albums,
+            key = { _, album -> "qp_album_${album.id}" },
+        ) { index, album ->
+            val coverUrl = album.coverArt?.let { buildCoverArtUrl(it) }
+                ?: buildCoverArtUrl(album.id)
+
+            val alpha = remember { Animatable(0f) }
+            LaunchedEffect(album.id) {
+                alpha.animateTo(
+                    targetValue = 1f,
+                    animationSpec = spring(
+                        dampingRatio = Spring.DampingRatioNoBouncy,
+                        stiffness = Spring.StiffnessLow,
+                    ),
+                )
+            }
+
+            QuickPlayAlbumCard(
+                album = album,
+                coverArtUrl = coverUrl,
+                onClick = { onAlbumClick(album.id) },
+                modifier = Modifier.alpha(alpha.value),
+            )
+        }
+
+        // Songs after albums
         itemsIndexed(
             items = songs,
-            key = { _, song -> song.id },
+            key = { _, song -> "qp_song_${song.id}" },
         ) { index, song ->
             val coverUrl = song.coverArt?.let { buildCoverArtUrl(it) }
 
@@ -326,6 +349,64 @@ private fun QuickPlayRow(
 }
 
 @Composable
+private fun QuickPlayAlbumCard(
+    album: Album,
+    coverArtUrl: String?,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        modifier = modifier.width(200.dp),
+        onClick = onClick,
+        shape = YoinShapeTokens.Large,
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        tonalElevation = 2.dp,
+    ) {
+        Column {
+            if (LocalInspectionMode.current) {
+                androidx.compose.foundation.Image(
+                    painter = painterResource(id = R.drawable.ic_launcher_foreground),
+                    contentDescription = album.name,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(200.dp)
+                        .clip(YoinShapeTokens.Large),
+                )
+            } else {
+                AsyncImage(
+                    model = coverArtUrl,
+                    contentDescription = album.name,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(200.dp)
+                        .clip(YoinShapeTokens.Large),
+                )
+            }
+            Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
+                Text(
+                    text = album.name,
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                album.artist?.let { artist ->
+                    Text(
+                        text = artist,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun QuickPlayCard(
     song: Song,
     coverArtUrl: String?,
@@ -334,8 +415,8 @@ private fun QuickPlayCard(
 ) {
     Surface(
         modifier = modifier
-            .width(180.dp)
-            .clickable(onClick = onClick),
+            .width(180.dp),
+        onClick = onClick,
         shape = YoinShapeTokens.Medium,
         color = MaterialTheme.colorScheme.surfaceContainerLow,
         tonalElevation = 1.dp,
@@ -483,6 +564,7 @@ fun ActivityCard(
     Column(
         modifier = modifier
             .width(150.dp)
+            .clip(YoinShapeTokens.Medium)
             .clickable(onClick = onClick),
     ) {
         if (LocalInspectionMode.current) {

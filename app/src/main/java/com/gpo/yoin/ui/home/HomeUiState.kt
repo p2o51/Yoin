@@ -12,6 +12,7 @@ sealed interface HomeUiState {
         val mixForYou: List<Album>,
         val mostPlayed: List<Album>,
         val quickPlaySongs: List<com.gpo.yoin.data.remote.Song>,
+        val quickPlayAlbums: List<Album> = emptyList(),
     ) : HomeUiState
 
     data class Error(val message: String) : HomeUiState

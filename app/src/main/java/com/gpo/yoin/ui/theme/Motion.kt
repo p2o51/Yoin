@@ -6,6 +6,8 @@ import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutHorizontally
@@ -51,20 +53,26 @@ object YoinMotion {
         slideInHorizontally(spring(stiffness = Spring.StiffnessMediumLow)) { it } +
             fadeIn(spring(stiffness = Spring.StiffnessLow))
 
-    /** Slide-out to left + fade-out — forward navigation exit. */
+    /** Scale down + fade-out — parent page recedes when child opens. */
     val navExitForward: ExitTransition =
-        slideOutHorizontally(spring(stiffness = Spring.StiffnessMediumLow)) { -it / 3 } +
-            fadeOut(spring(stiffness = Spring.StiffnessLow))
+        scaleOut(
+            animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
+            targetScale = 0.9f,
+        ) + fadeOut(spring(stiffness = Spring.StiffnessLow))
 
-    /** Slide-in from left + fade-in — back navigation enter (pop). */
+    /** Scale up + fade-in — parent page returns when child closes. */
     val navEnterBack: EnterTransition =
-        slideInHorizontally(spring(stiffness = Spring.StiffnessMediumLow)) { -it / 3 } +
-            fadeIn(spring(stiffness = Spring.StiffnessLow))
+        scaleIn(
+            animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
+            initialScale = 0.9f,
+        ) + fadeIn(spring(stiffness = Spring.StiffnessLow))
 
-    /** Slide-out to right + fade-out — back navigation exit (pop). */
+    /** Scale down + fade-out — child page shrinks away on back. */
     val navExitBack: ExitTransition =
-        slideOutHorizontally(spring(stiffness = Spring.StiffnessMediumLow)) { it } +
-            fadeOut(spring(stiffness = Spring.StiffnessLow))
+        scaleOut(
+            animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
+            targetScale = 0.9f,
+        ) + fadeOut(spring(stiffness = Spring.StiffnessLow))
 
     /** Slide-up + fade-in — fullscreen overlay enter (e.g., Now Playing). */
     val navEnterOverlay: EnterTransition =
