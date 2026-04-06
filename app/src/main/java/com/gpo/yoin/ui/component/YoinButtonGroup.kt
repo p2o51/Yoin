@@ -23,7 +23,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.LibraryMusic
@@ -50,6 +49,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 import com.gpo.yoin.ui.navigation.YoinSection
+import com.gpo.yoin.ui.theme.YoinShapeTokens
 
 /**
  * Floating navigation/playback group built on the official Material 3 Expressive
@@ -143,7 +143,7 @@ fun YoinButtonGroup(
                             .animateWidth(interactionSource),
                         interactionSource = interactionSource,
                         shape = MaterialTheme.shapes.extraLarge,
-                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                        contentPadding = PaddingValues(0.dp),
                     ) {
                         Box(modifier = Modifier.fillMaxWidth()) {
                             if (currentTrackTitle != null && clampedProgress > 0f) {
@@ -166,7 +166,9 @@ fun YoinButtonGroup(
                             }
 
                             Row(
-                                modifier = Modifier.fillMaxWidth(),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 10.dp, vertical = 4.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
                                 NowPlayingArtwork(
@@ -334,7 +336,7 @@ private fun NowPlayingArtwork(
     }
 
     Box(
-        modifier = finalModifier.clip(CircleShape),
+        modifier = finalModifier.clip(YoinShapeTokens.Small),
         contentAlignment = Alignment.Center,
     ) {
         if (currentTrackCoverArtUrl != null) {
