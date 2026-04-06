@@ -1,8 +1,11 @@
 package com.gpo.yoin.ui.home
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -141,7 +144,15 @@ fun HomeContent(
                 }
 
                 is HomeUiState.Content -> {
-                    if (isPlaying) {
+                    AnimatedVisibility(
+                        visible = isPlaying,
+                        enter = expandVertically(
+                            animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
+                        ),
+                        exit = shrinkVertically(
+                            animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
+                        ),
+                    ) {
                         AudioVisualizer(
                             visualizerData = visualizerData,
                             style = VisualizerStyle.Compact,

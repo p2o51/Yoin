@@ -142,7 +142,7 @@ private fun LyricLineItem(
         modifier = modifier
             .fillMaxWidth()
             .alpha(alpha)
-            .padding(horizontal = 8.dp, vertical = 4.dp),
+            .padding(vertical = 4.dp),
     )
 }
 

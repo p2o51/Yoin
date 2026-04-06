@@ -41,6 +41,7 @@ fun WaveProgressBar(
     buffered: Float,
     onSeek: (Float) -> Unit,
     modifier: Modifier = Modifier,
+    isPlaying: Boolean = true,
     trackColor: Color = MaterialTheme.colorScheme.surfaceContainerHighest,
     bufferedColor: Color = MaterialTheme.colorScheme.outlineVariant,
     progressColor: Color = MaterialTheme.colorScheme.primary,
@@ -100,14 +101,26 @@ fun WaveProgressBar(
                 drawStopIndicator = {},
             )
 
-            LinearWavyProgressIndicator(
-                progress = { animatedProgress },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .align(Alignment.Center),
-                color = progressColor,
-                trackColor = trackColor,
-            )
+            if (isPlaying) {
+                LinearWavyProgressIndicator(
+                    progress = { animatedProgress },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .align(Alignment.Center),
+                    color = progressColor,
+                    trackColor = trackColor,
+                )
+            } else {
+                LinearProgressIndicator(
+                    progress = { animatedProgress },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .align(Alignment.Center),
+                    color = progressColor,
+                    trackColor = trackColor,
+                    drawStopIndicator = {},
+                )
+            }
         }
     }
 }

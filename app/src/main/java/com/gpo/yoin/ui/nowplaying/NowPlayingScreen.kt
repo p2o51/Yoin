@@ -59,6 +59,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
@@ -114,8 +115,7 @@ fun NowPlayingScreen(
                 Brush.verticalGradient(
                     colors = listOf(surfaceContainer, background),
                 ),
-            )
-            .padding(WindowInsets.systemBars.asPaddingValues()),
+            ),
     ) {
         // Background visualizer layer
         AudioVisualizer(
@@ -205,6 +205,7 @@ private fun PlayingContent(
     Column(
         modifier = modifier
             .fillMaxSize()
+            .padding(WindowInsets.systemBars.asPaddingValues())
             .padding(horizontal = 24.dp),
         horizontalAlignment = Alignment.Start,
         verticalArrangement = Arrangement.Top,
@@ -315,7 +316,10 @@ private fun PlayingContent(
             maxLines = 1,
             softWrap = false,
             modifier = titleModifier
-                .graphicsLayer { scaleX = titleStretchScale }
+                .graphicsLayer {
+                    scaleX = titleStretchScale
+                    transformOrigin = TransformOrigin(0f, 0.5f)
+                }
                 .basicMarquee(
                     iterations = Int.MAX_VALUE,
                     repeatDelayMillis = 2000,
@@ -568,7 +572,7 @@ private fun PlaybackControls(
         ) {
             FilledIconButton(
                 onClick = onSkipPrevious,
-                modifier = Modifier.size(48.dp),
+                modifier = Modifier.size(56.dp),
                 colors = IconButtonDefaults.filledIconButtonColors(
                     containerColor = MaterialTheme.colorScheme.secondaryContainer,
                     contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
@@ -577,7 +581,7 @@ private fun PlaybackControls(
                 Icon(
                     imageVector = Icons.Filled.SkipPrevious,
                     contentDescription = "Skip previous",
-                    modifier = Modifier.size(24.dp),
+                    modifier = Modifier.size(28.dp),
                 )
             }
 
@@ -585,6 +589,7 @@ private fun PlaybackControls(
                 progress = progress,
                 buffered = buffered,
                 onSeek = onSeek,
+                isPlaying = isPlaying,
                 modifier = Modifier.weight(1f),
             )
         }
