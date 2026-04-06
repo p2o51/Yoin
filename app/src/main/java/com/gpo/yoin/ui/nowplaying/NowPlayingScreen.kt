@@ -1,5 +1,6 @@
 package com.gpo.yoin.ui.nowplaying
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionScope
@@ -7,9 +8,14 @@ import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.expandHorizontally
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkHorizontally
 import androidx.compose.foundation.background
 import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -42,6 +48,7 @@ import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material.icons.automirrored.filled.StickyNote2
 import androidx.compose.material3.ButtonGroup
 import androidx.compose.material3.ButtonGroupDefaults
+import androidx.compose.material3.ButtonGroupScope
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.FilledTonalButton
@@ -62,6 +69,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
@@ -627,6 +635,17 @@ private fun BottomPills(
     onCastClick: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
+    // Hoist interaction sources so each button can see others' pressed state
+    val queueInteraction = remember { MutableInteractionSource() }
+    val devicesInteraction = remember { MutableInteractionSource() }
+    val notesInteraction = remember { MutableInteractionSource() }
+
+    val queuePressed by queueInteraction.collectIsPressedAsState()
+    val devicesPressed by devicesInteraction.collectIsPressedAsState()
+    val notesPressed by notesInteraction.collectIsPressedAsState()
+
+    val anyPressed = queuePressed || devicesPressed || notesPressed
+
     Row(
         modifier = modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -645,67 +664,89 @@ private fun BottomPills(
         ) {
             customItem(
                 buttonGroupContent = {
-                    val interactionSource = remember { MutableInteractionSource() }
-                    FilledTonalButton(
+                    PillButton(
                         onClick = onQueueClick,
-                        modifier = Modifier
-                            .height(32.dp)
-                            .animateWidth(interactionSource),
-                        interactionSource = interactionSource,
-                        shape = RoundedCornerShape(8.dp),
-                        contentPadding = PaddingValues(horizontal = 10.dp),
-                    ) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.QueueMusic,
-                            contentDescription = "Queue",
-                            modifier = Modifier.size(16.dp),
-                        )
-                    }
+                        icon = Icons.AutoMirrored.Filled.QueueMusic,
+                        label = "Queue",
+                        showLabel = !anyPressed || queuePressed,
+                        interactionSource = queueInteraction,
+                    )
                 },
                 menuContent = { _ -> },
             )
             customItem(
                 buttonGroupContent = {
-                    val interactionSource = remember { MutableInteractionSource() }
-                    FilledTonalButton(
+                    PillButton(
                         onClick = { /* TODO: device selector */ },
-                        modifier = Modifier
-                            .height(32.dp)
-                            .animateWidth(interactionSource),
-                        interactionSource = interactionSource,
-                        shape = RoundedCornerShape(8.dp),
-                        contentPadding = PaddingValues(horizontal = 10.dp),
-                    ) {
-                        Icon(
-                            imageVector = Icons.Filled.Devices,
-                            contentDescription = "Devices",
-                            modifier = Modifier.size(16.dp),
-                        )
-                    }
+                        icon = Icons.Filled.Devices,
+                        label = "Devices",
+                        showLabel = !anyPressed || devicesPressed,
+                        interactionSource = devicesInteraction,
+                    )
                 },
                 menuContent = { _ -> },
             )
             customItem(
                 buttonGroupContent = {
-                    val interactionSource = remember { MutableInteractionSource() }
-                    FilledTonalButton(
+                    PillButton(
                         onClick = { /* TODO: notes */ },
-                        modifier = Modifier
-                            .height(32.dp)
-                            .animateWidth(interactionSource),
-                        interactionSource = interactionSource,
-                        shape = RoundedCornerShape(8.dp),
-                        contentPadding = PaddingValues(horizontal = 10.dp),
-                    ) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.StickyNote2,
-                            contentDescription = "Notes",
-                            modifier = Modifier.size(16.dp),
-                        )
-                    }
+                        icon = Icons.AutoMirrored.Filled.StickyNote2,
+                        label = "Notes",
+                        showLabel = !anyPressed || notesPressed,
+                        interactionSource = notesInteraction,
+                    )
                 },
                 menuContent = { _ -> },
             )
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+private fun ButtonGroupScope.PillButton(
+    onClick: () -> Unit,
+    icon: ImageVector,
+    label: String,
+    showLabel: Boolean,
+    interactionSource: MutableInteractionSource,
+) {
+    FilledTonalButton(
+        onClick = onClick,
+        modifier = Modifier
+            .height(36.dp)
+            .animateWidth(interactionSource),
+        interactionSource = interactionSource,
+        shape = RoundedCornerShape(8.dp),
+        contentPadding = PaddingValues(horizontal = 10.dp),
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = label,
+            modifier = Modifier.size(16.dp),
+        )
+        AnimatedVisibility(
+            visible = showLabel,
+            enter = expandHorizontally(
+                animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
+            ) + fadeIn(
+                animationSpec = spring(stiffness = Spring.StiffnessLow),
+            ),
+            exit = shrinkHorizontally(
+                animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
+            ) + fadeOut(
+                animationSpec = spring(stiffness = Spring.StiffnessLow),
+            ),
+        ) {
+            Row {
+                Spacer(modifier = Modifier.width(4.dp))
+                Text(
+                    text = label,
+                    style = MaterialTheme.typography.labelMedium,
+                    maxLines = 1,
+                    softWrap = false,
+                )
+            }
         }
     }
 }
