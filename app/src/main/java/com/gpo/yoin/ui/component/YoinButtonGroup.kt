@@ -6,13 +6,18 @@ import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
+import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -82,6 +87,7 @@ fun YoinButtonGroup(
             overflowIndicator = { _ -> },
             modifier = Modifier
                 .fillMaxWidth()
+                .height(IntrinsicSize.Max)
                 .padding(horizontal = 10.dp, vertical = 10.dp),
             expandedRatio = ButtonGroupDefaults.ExpandedRatio,
             horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -92,7 +98,9 @@ fun YoinButtonGroup(
                     val interactionSource = rememberButtonGroupInteractionSource()
                     FilledIconButton(
                         onClick = onHomeClick,
-                        modifier = Modifier.animateWidth(interactionSource),
+                        modifier = Modifier
+                            .fillMaxHeight()
+                            .animateWidth(interactionSource),
                         interactionSource = interactionSource,
                         colors = IconButtonDefaults.filledIconButtonColors(
                             containerColor = if (selectedSection == YoinSection.HOME) {
@@ -131,9 +139,11 @@ fun YoinButtonGroup(
                         onClick = onNowPlayingClick,
                         modifier = Modifier
                             .weight(1.65f)
+                            .fillMaxHeight()
                             .animateWidth(interactionSource),
                         interactionSource = interactionSource,
                         shape = MaterialTheme.shapes.extraLarge,
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
                     ) {
                         Box(modifier = Modifier.fillMaxWidth()) {
                             if (currentTrackTitle != null && clampedProgress > 0f) {
@@ -197,13 +207,22 @@ fun YoinButtonGroup(
                                     } else {
                                         Modifier
                                     }
+                                    val marqueeModifier = if (currentTrackTitle != null) {
+                                        titleMod.basicMarquee(
+                                            iterations = Int.MAX_VALUE,
+                                            repeatDelayMillis = 2000,
+                                            initialDelayMillis = 1500,
+                                        )
+                                    } else {
+                                        titleMod
+                                    }
                                     Text(
                                         text = titleText,
                                         style = MaterialTheme.typography.labelLarge,
                                         color = MaterialTheme.colorScheme.onSecondaryContainer,
                                         maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                        modifier = titleMod,
+                                        softWrap = false,
+                                        modifier = marqueeModifier,
                                     )
 
                                     val artistMod = if (
@@ -248,7 +267,9 @@ fun YoinButtonGroup(
                     val interactionSource = rememberButtonGroupInteractionSource()
                     FilledIconButton(
                         onClick = onLibraryClick,
-                        modifier = Modifier.animateWidth(interactionSource),
+                        modifier = Modifier
+                            .fillMaxHeight()
+                            .animateWidth(interactionSource),
                         interactionSource = interactionSource,
                         colors = IconButtonDefaults.filledIconButtonColors(
                             containerColor = if (selectedSection == YoinSection.LIBRARY) {

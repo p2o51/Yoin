@@ -97,6 +97,7 @@ fun WaveProgressBar(
                     .align(Alignment.Center),
                 color = bufferedColor,
                 trackColor = Color.Transparent,
+                drawStopIndicator = {},
             )
 
             LinearWavyProgressIndicator(
