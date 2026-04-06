@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -95,16 +96,16 @@ fun YoinButtonGroup(
         tonalElevation = 8.dp,
         shadowElevation = 12.dp,
     ) {
-        // Animate selected tab width
-        val homeWeight by animateFloatAsState(
-            targetValue = if (selectedSection == YoinSection.HOME) 1.3f else 0.85f,
+        // Animate selected tab aspect ratio: 1.5:1 selected, 1:1 unselected
+        val homeAspect by animateFloatAsState(
+            targetValue = if (selectedSection == YoinSection.HOME) 1.5f else 1f,
             animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
-            label = "homeWeight",
+            label = "homeAspect",
         )
-        val libraryWeight by animateFloatAsState(
-            targetValue = if (selectedSection == YoinSection.LIBRARY) 1.3f else 0.85f,
+        val libraryAspect by animateFloatAsState(
+            targetValue = if (selectedSection == YoinSection.LIBRARY) 1.5f else 1f,
             animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
-            label = "libraryWeight",
+            label = "libraryAspect",
         )
 
         // Wave animation for progress divider
@@ -140,8 +141,8 @@ fun YoinButtonGroup(
                     FilledIconButton(
                         onClick = onHomeClick,
                         modifier = Modifier
-                            .weight(homeWeight)
                             .fillMaxHeight()
+                            .aspectRatio(homeAspect)
                             .animateWidth(interactionSource),
                         interactionSource = interactionSource,
                         colors = IconButtonDefaults.filledIconButtonColors(
@@ -337,8 +338,8 @@ fun YoinButtonGroup(
                     FilledIconButton(
                         onClick = onLibraryClick,
                         modifier = Modifier
-                            .weight(libraryWeight)
                             .fillMaxHeight()
+                            .aspectRatio(libraryAspect)
                             .animateWidth(interactionSource),
                         interactionSource = interactionSource,
                         colors = IconButtonDefaults.filledIconButtonColors(
