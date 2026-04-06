@@ -1,6 +1,7 @@
 package com.gpo.yoin.ui.library
 
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.fadeIn
@@ -43,10 +44,13 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
@@ -62,6 +66,7 @@ import com.gpo.yoin.data.remote.Song
 import com.gpo.yoin.data.remote.StarredResponse
 import com.gpo.yoin.ui.component.SongListItem
 import com.gpo.yoin.ui.component.YoinLoadingIndicator
+import com.gpo.yoin.ui.theme.YoinShapeTokens
 import com.gpo.yoin.ui.theme.YoinTheme
 
 private val FloatingBottomGroupContentPadding = 132.dp
@@ -322,7 +327,7 @@ private fun LibraryFilterChips(
                     selectedContainerColor = MaterialTheme.colorScheme.primary,
                     selectedLabelColor = MaterialTheme.colorScheme.onPrimary,
                 ),
-                shape = MaterialTheme.shapes.small,
+                shape = MaterialTheme.shapes.extraLarge,
             )
         }
     }
@@ -348,9 +353,20 @@ private fun ArtistsTabContent(
         ),
     ) {
         items(artists, key = { it.id }) { artist ->
+            val itemAlpha = remember { Animatable(0f) }
+            LaunchedEffect(artist.id) {
+                itemAlpha.animateTo(
+                    targetValue = 1f,
+                    animationSpec = spring(
+                        dampingRatio = Spring.DampingRatioNoBouncy,
+                        stiffness = Spring.StiffnessLow,
+                    ),
+                )
+            }
             ArtistListItem(
                 artist = artist,
                 onClick = { onArtistClick(artist.id) },
+                modifier = Modifier.alpha(itemAlpha.value),
             )
         }
     }
@@ -436,12 +452,23 @@ private fun AlbumsTabContent(
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         items(albums, key = { it.id }) { album ->
+            val itemAlpha = remember { Animatable(0f) }
+            LaunchedEffect(album.id) {
+                itemAlpha.animateTo(
+                    targetValue = 1f,
+                    animationSpec = spring(
+                        dampingRatio = Spring.DampingRatioNoBouncy,
+                        stiffness = Spring.StiffnessLow,
+                    ),
+                )
+            }
             AlbumGridItem(
                 album = album,
                 onClick = { onAlbumClick(album.id) },
                 coverArtUrl =
                     album.coverArt?.let { coverArtUrlBuilder?.invoke(it) }
                         ?: coverArtUrlBuilder?.invoke(album.id),
+                modifier = Modifier.alpha(itemAlpha.value),
             )
         }
     }
@@ -454,39 +481,41 @@ private fun AlbumGridItem(
     coverArtUrl: String?,
     modifier: Modifier = Modifier,
 ) {
-    Column(
-        modifier = modifier
-            .clip(MaterialTheme.shapes.medium)
-            .clickable(onClick = onClick),
+    Surface(
+        modifier = modifier.clickable(onClick = onClick),
+        shape = YoinShapeTokens.Medium,
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        tonalElevation = 1.dp,
     ) {
-        AsyncImage(
-            model = coverArtUrl,
-            contentDescription = album.name,
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(160.dp)
-                .clip(MaterialTheme.shapes.medium),
-            contentScale = ContentScale.Crop,
-            error = painterResource(R.drawable.ic_launcher_foreground),
-        )
-        Spacer(modifier = Modifier.height(4.dp))
-        Text(
-            text = album.name,
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurface,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.padding(horizontal = 4.dp),
-        )
-        album.artist?.let { artist ->
-            Text(
-                text = artist,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.padding(horizontal = 4.dp),
+        Column {
+            AsyncImage(
+                model = coverArtUrl,
+                contentDescription = album.name,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(160.dp)
+                    .clip(YoinShapeTokens.Medium),
+                contentScale = ContentScale.Crop,
+                error = painterResource(R.drawable.ic_launcher_foreground),
             )
+            Column(modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)) {
+                Text(
+                    text = album.name,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                album.artist?.let { artist ->
+                    Text(
+                        text = artist,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
         }
     }
 }
@@ -613,7 +642,7 @@ private fun AlbumListItem(
             contentDescription = album.name,
             modifier = Modifier
                 .size(48.dp)
-                .clip(MaterialTheme.shapes.small),
+                .clip(YoinShapeTokens.Medium),
             contentScale = ContentScale.Crop,
             error = painterResource(R.drawable.ic_launcher_foreground),
         )
