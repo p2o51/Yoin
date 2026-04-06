@@ -286,7 +286,7 @@ private fun PlayingContent(
             positionMs = state.positionMs,
             modifier = Modifier
                 .fillMaxWidth()
-                .weight(1f, fill = false),
+                .weight(1f),
         )
 
         Spacer(modifier = Modifier.height(16.dp))
