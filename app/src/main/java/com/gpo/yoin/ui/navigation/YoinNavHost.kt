@@ -383,6 +383,7 @@ private fun YoinShell(
                     } else {
                         0f
                     },
+                    isPlaying = playbackState.isPlaying,
                     onHomeClick = { selectedSection = YoinSection.HOME },
                     onNowPlayingClick = { showNowPlaying = true },
                     onLibraryClick = { selectedSection = YoinSection.LIBRARY },

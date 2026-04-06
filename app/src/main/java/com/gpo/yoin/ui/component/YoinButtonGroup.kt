@@ -3,8 +3,15 @@ package com.gpo.yoin.ui.component
 import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionScope
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.layout.Arrangement
@@ -38,18 +45,22 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 import com.gpo.yoin.ui.navigation.YoinSection
 import com.gpo.yoin.ui.theme.YoinShapeTokens
+import kotlin.math.sin
 
 /**
  * Floating navigation/playback group built on the official Material 3 Expressive
@@ -66,6 +77,7 @@ fun YoinButtonGroup(
     isPlaybackReady: Boolean,
     connectionErrorMessage: String?,
     playbackProgress: Float = 0f,
+    isPlaying: Boolean = false,
     onHomeClick: () -> Unit,
     onNowPlayingClick: () -> Unit,
     onLibraryClick: () -> Unit,
@@ -83,6 +95,35 @@ fun YoinButtonGroup(
         tonalElevation = 8.dp,
         shadowElevation = 12.dp,
     ) {
+        // Animate selected tab width
+        val homeWeight by animateFloatAsState(
+            targetValue = if (selectedSection == YoinSection.HOME) 1.3f else 0.85f,
+            animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
+            label = "homeWeight",
+        )
+        val libraryWeight by animateFloatAsState(
+            targetValue = if (selectedSection == YoinSection.LIBRARY) 1.3f else 0.85f,
+            animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
+            label = "libraryWeight",
+        )
+
+        // Wave animation for progress divider
+        val waveTransition = rememberInfiniteTransition(label = "wave")
+        val wavePhase by waveTransition.animateFloat(
+            initialValue = 0f,
+            targetValue = 2f * Math.PI.toFloat(),
+            animationSpec = infiniteRepeatable(
+                animation = tween(durationMillis = 3000, easing = LinearEasing),
+                repeatMode = RepeatMode.Restart,
+            ),
+            label = "wavePhase",
+        )
+        val waveAmplitude by animateFloatAsState(
+            targetValue = if (isPlaying) 1f else 0f,
+            animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
+            label = "waveAmplitude",
+        )
+
         ButtonGroup(
             overflowIndicator = { _ -> },
             modifier = Modifier
@@ -99,6 +140,7 @@ fun YoinButtonGroup(
                     FilledIconButton(
                         onClick = onHomeClick,
                         modifier = Modifier
+                            .weight(homeWeight)
                             .fillMaxHeight()
                             .animateWidth(interactionSource),
                         interactionSource = interactionSource,
@@ -151,17 +193,33 @@ fun YoinButtonGroup(
                                     modifier = Modifier
                                         .matchParentSize()
                                         .clip(MaterialTheme.shapes.extraLarge)
-                                        .background(
-                                            Brush.horizontalGradient(
-                                                colorStops = arrayOf(
-                                                    0f to progressFill,
-                                                    clampedProgress to progressFill,
-                                                    (clampedProgress + 0.005f)
-                                                        .coerceAtMost(1f) to Color.Transparent,
-                                                    1f to Color.Transparent,
-                                                ),
-                                            ),
-                                        ),
+                                        .drawWithContent {
+                                            drawContent()
+                                            val w = size.width
+                                            val h = size.height
+                                            val progressX = w * clampedProgress
+                                            val amp = 4.dp.toPx() * waveAmplitude
+                                            val waveSteps = 20
+
+                                            val path = Path().apply {
+                                                moveTo(0f, 0f)
+                                                lineTo(progressX, 0f)
+                                                // Right edge: wavy line down
+                                                for (i in 0..waveSteps) {
+                                                    val fraction = i.toFloat() / waveSteps
+                                                    val y = fraction * h
+                                                    val dx = sin(
+                                                        wavePhase +
+                                                            fraction * 2f *
+                                                            Math.PI.toFloat(),
+                                                    ) * amp
+                                                    lineTo(progressX + dx, y)
+                                                }
+                                                lineTo(0f, h)
+                                                close()
+                                            }
+                                            drawPath(path, progressFill)
+                                        },
                                 )
                             }
 
@@ -246,6 +304,15 @@ fun YoinButtonGroup(
                                     } else {
                                         Modifier
                                     }
+                                    val artistMarqueeMod = if (currentTrackArtist != null) {
+                                        artistMod.basicMarquee(
+                                            iterations = Int.MAX_VALUE,
+                                            repeatDelayMillis = 2000,
+                                            initialDelayMillis = 2500,
+                                        )
+                                    } else {
+                                        artistMod
+                                    }
                                     Text(
                                         text = artistText,
                                         style = MaterialTheme.typography.labelSmall,
@@ -253,8 +320,8 @@ fun YoinButtonGroup(
                                             alpha = 0.72f,
                                         ),
                                         maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                        modifier = artistMod,
+                                        softWrap = false,
+                                        modifier = artistMarqueeMod,
                                     )
                                 }
                             }
@@ -270,6 +337,7 @@ fun YoinButtonGroup(
                     FilledIconButton(
                         onClick = onLibraryClick,
                         modifier = Modifier
+                            .weight(libraryWeight)
                             .fillMaxHeight()
                             .animateWidth(interactionSource),
                         interactionSource = interactionSource,
