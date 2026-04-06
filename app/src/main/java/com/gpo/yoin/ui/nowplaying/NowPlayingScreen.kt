@@ -284,11 +284,12 @@ private fun PlayingContent(
         LyricsDisplay(
             lyrics = state.lyrics,
             positionMs = state.positionMs,
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f, fill = false),
         )
 
-        // Push controls to bottom
-        Spacer(modifier = Modifier.weight(1f))
+        Spacer(modifier = Modifier.height(16.dp))
 
         // ── 3. Playback controls (with progress bar) ─────────────────────
         PlaybackControls(
@@ -494,6 +495,14 @@ private fun PlaybackControls(
         ),
         label = "playStretch",
     )
+    val textStretchScale by animateFloatAsState(
+        targetValue = if (isPlaying) 1.15f else 1f,
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioMediumBouncy,
+            stiffness = Spring.StiffnessMediumLow,
+        ),
+        label = "textStretch",
+    )
 
     Column(modifier = modifier.fillMaxWidth()) {
         // Row 1: ButtonGroup(Pause, SkipNext) + Spacer + Shuffle
@@ -522,6 +531,9 @@ private fun PlaybackControls(
                             Text(
                                 text = if (isPlaying) "PAUSE" else "PLAY",
                                 style = MaterialTheme.typography.titleLarge,
+                                modifier = Modifier.graphicsLayer {
+                                    scaleX = textStretchScale
+                                },
                             )
                         }
                     },

@@ -79,7 +79,6 @@ fun LyricsDisplay(
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .height(fixedHeight)
             .clipToBounds()
             .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
             .drawWithContent {

@@ -1,6 +1,9 @@
 package com.gpo.yoin.ui.component
 
+import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.Spring
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
@@ -101,25 +104,29 @@ fun WaveProgressBar(
                 drawStopIndicator = {},
             )
 
-            if (isPlaying) {
-                LinearWavyProgressIndicator(
-                    progress = { animatedProgress },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .align(Alignment.Center),
-                    color = progressColor,
-                    trackColor = trackColor,
-                )
-            } else {
-                LinearProgressIndicator(
-                    progress = { animatedProgress },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .align(Alignment.Center),
-                    color = progressColor,
-                    trackColor = trackColor,
-                    drawStopIndicator = {},
-                )
+            Crossfade(
+                targetState = isPlaying,
+                animationSpec = spring(stiffness = Spring.StiffnessLow),
+                label = "progressStyle",
+            ) { playing ->
+                if (playing) {
+                    LinearWavyProgressIndicator(
+                        progress = { animatedProgress },
+                        modifier = Modifier
+                            .fillMaxWidth(),
+                        color = progressColor,
+                        trackColor = trackColor,
+                    )
+                } else {
+                    LinearProgressIndicator(
+                        progress = { animatedProgress },
+                        modifier = Modifier
+                            .fillMaxWidth(),
+                        color = progressColor,
+                        trackColor = trackColor,
+                        drawStopIndicator = {},
+                    )
+                }
             }
         }
     }
