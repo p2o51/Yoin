@@ -67,13 +67,16 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import kotlin.math.roundToInt
 import coil3.compose.AsyncImage
 import com.gpo.yoin.player.CastState
 import com.gpo.yoin.player.VisualizerData
@@ -711,6 +714,12 @@ private fun ButtonGroupScope.PillButton(
     showLabel: Boolean,
     interactionSource: MutableInteractionSource,
 ) {
+    val labelFraction by animateFloatAsState(
+        targetValue = if (showLabel) 1f else 0f,
+        animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
+        label = "labelFraction",
+    )
+
     FilledTonalButton(
         onClick = onClick,
         modifier = Modifier
@@ -725,28 +734,27 @@ private fun ButtonGroupScope.PillButton(
             contentDescription = label,
             modifier = Modifier.size(16.dp),
         )
-        AnimatedVisibility(
-            visible = showLabel,
-            enter = expandHorizontally(
-                animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
-            ) + fadeIn(
-                animationSpec = spring(stiffness = Spring.StiffnessLow),
-            ),
-            exit = shrinkHorizontally(
-                animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
-            ) + fadeOut(
-                animationSpec = spring(stiffness = Spring.StiffnessLow),
-            ),
+        // Keep text always in composition — animate width to 0 via layout
+        // so there's no sudden jump when content is removed
+        Row(
+            modifier = Modifier
+                .graphicsLayer { alpha = labelFraction }
+                .clipToBounds()
+                .layout { measurable, constraints ->
+                    val placeable = measurable.measure(constraints)
+                    val w = (placeable.width * labelFraction).roundToInt()
+                    layout(w, placeable.height) {
+                        placeable.placeRelative(0, 0)
+                    }
+                },
         ) {
-            Row {
-                Spacer(modifier = Modifier.width(4.dp))
-                Text(
-                    text = label,
-                    style = MaterialTheme.typography.labelMedium,
-                    maxLines = 1,
-                    softWrap = false,
-                )
-            }
+            Spacer(modifier = Modifier.width(4.dp))
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelMedium,
+                maxLines = 1,
+                softWrap = false,
+            )
         }
     }
 }
