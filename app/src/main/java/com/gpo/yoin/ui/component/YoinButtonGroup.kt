@@ -1,5 +1,6 @@
 package com.gpo.yoin.ui.component
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionScope
@@ -12,6 +13,10 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandHorizontally
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkHorizontally
 import androidx.compose.foundation.background
 import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.layout.Arrangement
@@ -158,10 +163,38 @@ fun YoinButtonGroup(
                             },
                         ),
                     ) {
-                        Icon(
-                            imageVector = Icons.Filled.Home,
-                            contentDescription = "Home",
-                        )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.Center,
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.Home,
+                                contentDescription = "Home",
+                            )
+                            AnimatedVisibility(
+                                visible = selectedSection == YoinSection.HOME,
+                                enter = expandHorizontally(
+                                    animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
+                                ) + fadeIn(
+                                    animationSpec = spring(stiffness = Spring.StiffnessLow),
+                                ),
+                                exit = shrinkHorizontally(
+                                    animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
+                                ) + fadeOut(
+                                    animationSpec = spring(stiffness = Spring.StiffnessLow),
+                                ),
+                            ) {
+                                Row {
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = "Home",
+                                        style = MaterialTheme.typography.labelMedium,
+                                        maxLines = 1,
+                                        softWrap = false,
+                                    )
+                                }
+                            }
+                        }
                     }
                 },
                 menuContent = { _ ->
@@ -353,10 +386,38 @@ fun YoinButtonGroup(
                             },
                         ),
                     ) {
-                        Icon(
-                            imageVector = Icons.Filled.LibraryMusic,
-                            contentDescription = "Library",
-                        )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.Center,
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.LibraryMusic,
+                                contentDescription = "Library",
+                            )
+                            AnimatedVisibility(
+                                visible = selectedSection == YoinSection.LIBRARY,
+                                enter = expandHorizontally(
+                                    animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
+                                ) + fadeIn(
+                                    animationSpec = spring(stiffness = Spring.StiffnessLow),
+                                ),
+                                exit = shrinkHorizontally(
+                                    animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
+                                ) + fadeOut(
+                                    animationSpec = spring(stiffness = Spring.StiffnessLow),
+                                ),
+                            ) {
+                                Row {
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = "Library",
+                                        style = MaterialTheme.typography.labelMedium,
+                                        maxLines = 1,
+                                        softWrap = false,
+                                    )
+                                }
+                            }
+                        }
                     }
                 },
                 menuContent = { _ ->
