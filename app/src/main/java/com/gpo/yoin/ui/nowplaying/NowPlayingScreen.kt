@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -626,8 +627,6 @@ private fun BottomPills(
     onCastClick: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
-    val pillShape = RoundedCornerShape(8.dp)
-
     Row(
         modifier = modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -650,20 +649,16 @@ private fun BottomPills(
                     FilledTonalButton(
                         onClick = onQueueClick,
                         modifier = Modifier
-                            .height(36.dp)
+                            .height(32.dp)
                             .animateWidth(interactionSource),
                         interactionSource = interactionSource,
-                        shape = pillShape,
+                        shape = RoundedCornerShape(8.dp),
+                        contentPadding = PaddingValues(horizontal = 10.dp),
                     ) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.QueueMusic,
-                            contentDescription = null,
+                            contentDescription = "Queue",
                             modifier = Modifier.size(16.dp),
-                        )
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text(
-                            text = "Queue",
-                            style = MaterialTheme.typography.labelMedium,
                         )
                     }
                 },
@@ -675,20 +670,16 @@ private fun BottomPills(
                     FilledTonalButton(
                         onClick = { /* TODO: device selector */ },
                         modifier = Modifier
-                            .height(36.dp)
+                            .height(32.dp)
                             .animateWidth(interactionSource),
                         interactionSource = interactionSource,
-                        shape = pillShape,
+                        shape = RoundedCornerShape(8.dp),
+                        contentPadding = PaddingValues(horizontal = 10.dp),
                     ) {
                         Icon(
                             imageVector = Icons.Filled.Devices,
-                            contentDescription = null,
+                            contentDescription = "Devices",
                             modifier = Modifier.size(16.dp),
-                        )
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text(
-                            text = "Devices",
-                            style = MaterialTheme.typography.labelMedium,
                         )
                     }
                 },
@@ -700,20 +691,16 @@ private fun BottomPills(
                     FilledTonalButton(
                         onClick = { /* TODO: notes */ },
                         modifier = Modifier
-                            .height(36.dp)
+                            .height(32.dp)
                             .animateWidth(interactionSource),
                         interactionSource = interactionSource,
-                        shape = pillShape,
+                        shape = RoundedCornerShape(8.dp),
+                        contentPadding = PaddingValues(horizontal = 10.dp),
                     ) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.StickyNote2,
-                            contentDescription = null,
+                            contentDescription = "Notes",
                             modifier = Modifier.size(16.dp),
-                        )
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text(
-                            text = "Notes",
-                            style = MaterialTheme.typography.labelMedium,
                         )
                     }
                 },
