@@ -5,6 +5,7 @@ import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
 import androidx.compose.foundation.basicMarquee
@@ -58,6 +59,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
@@ -191,6 +193,15 @@ private fun PlayingContent(
 
     var showQueue by remember { mutableStateOf(false) }
 
+    val titleStretchScale by animateFloatAsState(
+        targetValue = if (state.isPlaying) 1.04f else 1f,
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioMediumBouncy,
+            stiffness = Spring.StiffnessMediumLow,
+        ),
+        label = "titleStretch",
+    )
+
     Column(
         modifier = modifier
             .fillMaxSize()
@@ -303,11 +314,13 @@ private fun PlayingContent(
             color = MaterialTheme.colorScheme.onSurface,
             maxLines = 1,
             softWrap = false,
-            modifier = titleModifier.basicMarquee(
-                iterations = Int.MAX_VALUE,
-                repeatDelayMillis = 2000,
-                initialDelayMillis = 1500,
-            ),
+            modifier = titleModifier
+                .graphicsLayer { scaleX = titleStretchScale }
+                .basicMarquee(
+                    iterations = Int.MAX_VALUE,
+                    repeatDelayMillis = 2000,
+                    initialDelayMillis = 1500,
+                ),
         )
         Spacer(modifier = Modifier.height(2.dp))
 
@@ -459,6 +472,15 @@ private fun PlaybackControls(
     onSeek: (Float) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val stretchScale by animateFloatAsState(
+        targetValue = if (isPlaying) 1.06f else 1f,
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioMediumBouncy,
+            stiffness = Spring.StiffnessMediumLow,
+        ),
+        label = "playStretch",
+    )
+
     Column(modifier = modifier.fillMaxWidth()) {
         // Row 1: ButtonGroup(Pause, SkipNext) + Spacer + Shuffle
         Row(
@@ -478,7 +500,8 @@ private fun PlaybackControls(
                             onClick = onTogglePlayPause,
                             modifier = Modifier
                                 .height(56.dp)
-                                .animateWidth(interactionSource),
+                                .animateWidth(interactionSource)
+                                .graphicsLayer { scaleX = stretchScale },
                             shape = MaterialTheme.shapes.extraLarge,
                             interactionSource = interactionSource,
                         ) {
