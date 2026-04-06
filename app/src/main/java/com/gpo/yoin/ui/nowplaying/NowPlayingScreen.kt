@@ -210,12 +210,12 @@ private fun PlayingContent(
         horizontalAlignment = Alignment.Start,
         verticalArrangement = Arrangement.Top,
     ) {
-        // ── 0. Drag handle / dismiss button ──────────────────────────────
-        Box(
+        // ── 0. Drag handle / dismiss button + Playing from ─────────────
+        Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(start = 4.dp),
-            contentAlignment = Alignment.CenterStart,
+            verticalAlignment = Alignment.CenterVertically,
         ) {
             IconButton(onClick = onDismiss) {
                 Icon(
@@ -225,6 +225,15 @@ private fun PlayingContent(
                     modifier = Modifier.size(28.dp),
                 )
             }
+            Spacer(modifier = Modifier.width(4.dp))
+            Text(
+                text = "Playing from ${state.albumName}",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
         }
 
         // ── 1. Album cover + Rating slider ────────────────────────────────
@@ -278,7 +287,8 @@ private fun PlayingContent(
             modifier = Modifier.fillMaxWidth(),
         )
 
-        Spacer(modifier = Modifier.height(16.dp))
+        // Push controls to bottom
+        Spacer(modifier = Modifier.weight(1f))
 
         // ── 3. Playback controls (with progress bar) ─────────────────────
         PlaybackControls(

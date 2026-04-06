@@ -21,6 +21,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.tooling.preview.Preview
@@ -94,6 +96,22 @@ fun RatingSlider(
                 .fillMaxHeight(animatedFraction)
                 .clip(YoinShapeTokens.Full)
                 .background(MaterialTheme.colorScheme.primary),
+        )
+
+        // Top gradient overlay for rating label readability
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .fillMaxHeight(0.35f)
+                .align(Alignment.TopCenter)
+                .background(
+                    Brush.verticalGradient(
+                        colors = listOf(
+                            MaterialTheme.colorScheme.surfaceVariant,
+                            Color.Transparent,
+                        ),
+                    ),
+                ),
         )
 
         // Rating label inside the bar (top)
