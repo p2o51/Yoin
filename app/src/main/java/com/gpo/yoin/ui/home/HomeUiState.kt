@@ -8,8 +8,10 @@ sealed interface HomeUiState {
 
     data class Content(
         val activities: List<PlayHistory>,
-        val mixAlbums: List<Album>,
-        val memories: List<Album>,
+        val recentlyAdded: List<Album>,
+        val mixForYou: List<Album>,
+        val mostPlayed: List<Album>,
+        val quickPlaySongs: List<com.gpo.yoin.data.remote.Song>,
     ) : HomeUiState
 
     data class Error(val message: String) : HomeUiState

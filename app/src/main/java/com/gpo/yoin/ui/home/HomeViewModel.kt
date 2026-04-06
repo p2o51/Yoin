@@ -41,16 +41,22 @@ class HomeViewModel(
                     val frequentDeferred = async {
                         repository.getAlbumList("frequent", size = 20)
                     }
+                    val quickPlayDeferred = async {
+                        repository.getRandomSongs(size = 10)
+                    }
 
                     val activities = activitiesDeferred.await()
                     val random = randomDeferred.await()
                     val newest = newestDeferred.await()
                     val frequent = frequentDeferred.await()
+                    val quickPlay = quickPlayDeferred.await()
 
                     _uiState.value = HomeUiState.Content(
                         activities = activities,
-                        mixAlbums = (random + newest).distinctBy { it.id },
-                        memories = frequent,
+                        recentlyAdded = newest,
+                        mixForYou = random,
+                        mostPlayed = frequent,
+                        quickPlaySongs = quickPlay,
                     )
                 }
             } catch (e: Exception) {

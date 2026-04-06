@@ -153,8 +153,10 @@ fun HomeContent(
 
                     HomeContentSections(
                         activities = uiState.activities,
-                        mixAlbums = uiState.mixAlbums,
-                        memories = uiState.memories,
+                        recentlyAdded = uiState.recentlyAdded,
+                        mixForYou = uiState.mixForYou,
+                        mostPlayed = uiState.mostPlayed,
+                        quickPlaySongs = uiState.quickPlaySongs,
                         onAlbumClick = onAlbumClick,
                         onSongClick = onSongClick,
                         buildCoverArtUrl = buildCoverArtUrl,
@@ -196,8 +198,10 @@ private fun HomeTopBar(
 @Composable
 private fun HomeContentSections(
     activities: List<PlayHistory>,
-    mixAlbums: List<Album>,
-    memories: List<Album>,
+    recentlyAdded: List<Album>,
+    mixForYou: List<Album>,
+    mostPlayed: List<Album>,
+    quickPlaySongs: List<Song>,
     onAlbumClick: (albumId: String) -> Unit,
     onSongClick: (Song) -> Unit,
     buildCoverArtUrl: (String) -> String,
@@ -214,27 +218,46 @@ private fun HomeContentSections(
             Spacer(modifier = Modifier.height(24.dp))
         }
 
-        if (mixAlbums.isNotEmpty()) {
-            SectionHeader(title = "Mix")
+        if (quickPlaySongs.isNotEmpty()) {
+            SectionHeader(title = "Quick Play")
+            QuickPlayRow(
+                songs = quickPlaySongs,
+                onSongClick = onSongClick,
+                buildCoverArtUrl = buildCoverArtUrl,
+            )
+            Spacer(modifier = Modifier.height(24.dp))
+        }
+
+        if (recentlyAdded.isNotEmpty()) {
+            SectionHeader(title = "Recently Added")
             AlbumsRow(
-                albums = mixAlbums,
+                albums = recentlyAdded,
                 onAlbumClick = onAlbumClick,
                 buildCoverArtUrl = buildCoverArtUrl,
             )
             Spacer(modifier = Modifier.height(24.dp))
         }
 
-        if (memories.isNotEmpty()) {
-            SectionHeader(title = "Memories")
+        if (mixForYou.isNotEmpty()) {
+            SectionHeader(title = "Mix For You")
             AlbumsRow(
-                albums = memories,
+                albums = mixForYou,
                 onAlbumClick = onAlbumClick,
                 buildCoverArtUrl = buildCoverArtUrl,
             )
             Spacer(modifier = Modifier.height(24.dp))
         }
 
-        // Phase 13 — visualization area placeholder
+        if (mostPlayed.isNotEmpty()) {
+            SectionHeader(title = "Most Played")
+            AlbumsRow(
+                albums = mostPlayed,
+                onAlbumClick = onAlbumClick,
+                buildCoverArtUrl = buildCoverArtUrl,
+            )
+            Spacer(modifier = Modifier.height(24.dp))
+        }
+
         Spacer(modifier = Modifier.height(FloatingBottomGroupClearance))
     }
 }
@@ -250,6 +273,104 @@ private fun SectionHeader(
         color = MaterialTheme.colorScheme.onBackground,
         modifier = modifier.padding(horizontal = 16.dp, vertical = 8.dp),
     )
+}
+
+@Composable
+private fun QuickPlayRow(
+    songs: List<Song>,
+    onSongClick: (Song) -> Unit,
+    buildCoverArtUrl: (String) -> String,
+    modifier: Modifier = Modifier,
+) {
+    LazyRow(
+        modifier = modifier,
+        contentPadding = PaddingValues(horizontal = 16.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        itemsIndexed(
+            items = songs,
+            key = { _, song -> song.id },
+        ) { index, song ->
+            val coverUrl = song.coverArt?.let { buildCoverArtUrl(it) }
+
+            val alpha = remember { Animatable(0f) }
+            LaunchedEffect(song.id) {
+                alpha.animateTo(
+                    targetValue = 1f,
+                    animationSpec = spring(
+                        dampingRatio = Spring.DampingRatioNoBouncy,
+                        stiffness = Spring.StiffnessLow,
+                    ),
+                )
+            }
+
+            QuickPlayCard(
+                song = song,
+                coverArtUrl = coverUrl,
+                onClick = { onSongClick(song) },
+                modifier = Modifier.alpha(alpha.value),
+            )
+        }
+    }
+}
+
+@Composable
+private fun QuickPlayCard(
+    song: Song,
+    coverArtUrl: String?,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        modifier = modifier
+            .width(180.dp)
+            .clickable(onClick = onClick),
+        shape = YoinShapeTokens.Medium,
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        tonalElevation = 1.dp,
+    ) {
+        Column {
+            if (LocalInspectionMode.current) {
+                androidx.compose.foundation.Image(
+                    painter = painterResource(id = R.drawable.ic_launcher_foreground),
+                    contentDescription = song.title,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(180.dp)
+                        .clip(YoinShapeTokens.Medium),
+                )
+            } else {
+                AsyncImage(
+                    model = coverArtUrl,
+                    contentDescription = song.title,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(180.dp)
+                        .clip(YoinShapeTokens.Medium),
+                )
+            }
+            Column(modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp)) {
+                Text(
+                    text = song.title.orEmpty(),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                song.artist?.let { artist ->
+                    Text(
+                        text = artist,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+        }
+    }
 }
 
 @Composable
@@ -478,14 +599,21 @@ private fun HomeContentPreview() {
                         completedPercent = 1.0f,
                     ),
                 ),
-                mixAlbums = listOf(
+                recentlyAdded = listOf(
                     Album(id = "a1", name = "Black Holes and Revelations", artist = "Muse"),
                     Album(id = "a2", name = "Random Access Memories", artist = "Daft Punk"),
-                    Album(id = "a3", name = "OK Computer", artist = "Radiohead"),
                 ),
-                memories = listOf(
+                mixForYou = listOf(
+                    Album(id = "a3", name = "OK Computer", artist = "Radiohead"),
+                    Album(id = "a6", name = "In Rainbows", artist = "Radiohead"),
+                ),
+                mostPlayed = listOf(
                     Album(id = "a4", name = "The Dark Side of the Moon", artist = "Pink Floyd"),
                     Album(id = "a5", name = "Abbey Road", artist = "The Beatles"),
+                ),
+                quickPlaySongs = listOf(
+                    Song(id = "qs1", title = "Bohemian Rhapsody", artist = "Queen"),
+                    Song(id = "qs2", title = "Stairway to Heaven", artist = "Led Zeppelin"),
                 ),
             ),
             isPlaying = true,
