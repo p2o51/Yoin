@@ -20,6 +20,8 @@ data class SubsonicResponseBody(
     val searchResult3: SearchResult? = null,
     val starred2: StarredResponse? = null,
     val randomSongs: RandomSongsResponse? = null,
+    val playlists: PlaylistsResponse? = null,
+    val playlist: Playlist? = null,
     val lyricsList: LyricsList? = null,
 )
 
@@ -119,6 +121,25 @@ data class StarredResponse(
 @Serializable
 data class RandomSongsResponse(
     val song: List<Song> = emptyList(),
+)
+
+@Serializable
+data class PlaylistsResponse(
+    val playlist: List<Playlist> = emptyList(),
+)
+
+@Serializable
+data class Playlist(
+    val id: String,
+    val name: String,
+    val owner: String? = null,
+    @SerialName("public") val isPublic: Boolean? = null,
+    val comment: String? = null,
+    val created: String? = null,
+    val changed: String? = null,
+    val songCount: Int? = null,
+    val duration: Int? = null,
+    val entry: List<Song> = emptyList(),
 )
 
 @Serializable

@@ -41,9 +41,13 @@ class AlbumDetailViewModel(
                     return@launch
                 }
                 albumSongs = album.song
+                repository.recordAlbumVisit(album)
                 _uiState.value = AlbumDetailUiState.Content(
+                    albumId = album.id,
                     albumName = album.name,
                     artistName = album.artist.orEmpty(),
+                    artistId = album.artistId,
+                    coverArtId = album.coverArt,
                     coverArtUrl = album.coverArt?.let { repository.buildCoverArtUrl(it) },
                     year = album.year,
                     songCount = album.songCount,

@@ -30,6 +30,7 @@ import androidx.compose.ui.unit.dp
 import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinShapeTokens
 import com.gpo.yoin.ui.theme.YoinTheme
+import com.gpo.yoin.ui.theme.withTabularFigures
 import kotlin.math.roundToInt
 
 /**
@@ -57,7 +58,7 @@ fun RatingSlider(
     // Vertical bar track — label inside
     Box(
         modifier = modifier
-            .width(42.dp)
+            .width(48.dp)
             .clip(YoinShapeTokens.Full)
             .background(MaterialTheme.colorScheme.surfaceVariant)
             .onSizeChanged { trackHeightPx = it.height.coerceAtLeast(1) }
@@ -117,7 +118,7 @@ fun RatingSlider(
         // Rating label inside the bar (top)
         Text(
             text = "%.1f".format(rating),
-            style = MaterialTheme.typography.titleLarge,
+            style = MaterialTheme.typography.titleLarge.withTabularFigures(),
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier
                 .align(Alignment.TopCenter)

@@ -35,9 +35,12 @@ class ArtistDetailViewModel(
                     _uiState.value = ArtistDetailUiState.Error("Artist not found")
                     return@launch
                 }
+                repository.recordArtistVisit(artist)
                 _uiState.value = ArtistDetailUiState.Content(
+                    artistId = artist.id,
                     artistName = artist.name,
                     albumCount = artist.albumCount,
+                    coverArtId = artist.coverArt,
                     albums = artist.album.map { album ->
                         ArtistAlbum(
                             id = album.id,

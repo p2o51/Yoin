@@ -4,8 +4,10 @@ sealed interface ArtistDetailUiState {
     data object Loading : ArtistDetailUiState
 
     data class Content(
+        val artistId: String,
         val artistName: String,
         val albumCount: Int?,
+        val coverArtId: String?,
         val albums: List<ArtistAlbum>,
     ) : ArtistDetailUiState
 

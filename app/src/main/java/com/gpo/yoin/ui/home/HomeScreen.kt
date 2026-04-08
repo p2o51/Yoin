@@ -19,8 +19,6 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Icon
@@ -46,6 +44,9 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 import com.gpo.yoin.R
+import com.gpo.yoin.data.local.ActivityActionType
+import com.gpo.yoin.data.local.ActivityEntityType
+import com.gpo.yoin.data.local.ActivityEvent
 import com.gpo.yoin.data.local.PlayHistory
 import com.gpo.yoin.data.remote.Album
 import com.gpo.yoin.data.remote.Song
@@ -66,6 +67,7 @@ fun HomeScreen(
     visualizerData: VisualizerData,
     onNavigateToSettings: () -> Unit,
     onAlbumClick: (albumId: String) -> Unit,
+    onArtistClick: (artistId: String) -> Unit,
     onSongClick: (Song) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -77,8 +79,11 @@ fun HomeScreen(
         visualizerData = visualizerData,
         onNavigateToSettings = onNavigateToSettings,
         onAlbumClick = onAlbumClick,
+        onArtistClick = onArtistClick,
         onSongClick = onSongClick,
         onRetry = viewModel::refresh,
+        onRefreshJumpBackIn = viewModel::refreshJumpBackIn,
+        onLoadMoreJumpBackIn = viewModel::loadMoreJumpBackIn,
         buildCoverArtUrl = viewModel::buildCoverArtUrl,
         modifier = modifier,
     )
@@ -91,8 +96,11 @@ fun HomeContent(
     visualizerData: VisualizerData,
     onNavigateToSettings: () -> Unit,
     onAlbumClick: (albumId: String) -> Unit,
+    onArtistClick: (artistId: String) -> Unit,
     onSongClick: (Song) -> Unit,
     onRetry: () -> Unit,
+    onRefreshJumpBackIn: () -> Unit,
+    onLoadMoreJumpBackIn: () -> Unit,
     buildCoverArtUrl: (String) -> String,
     modifier: Modifier = Modifier,
 ) {
@@ -100,15 +108,10 @@ fun HomeContent(
         modifier = modifier.fillMaxSize(),
         color = MaterialTheme.colorScheme.background,
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .verticalScroll(rememberScrollState()),
-        ) {
-            HomeTopBar(onNavigateToSettings = onNavigateToSettings)
-
-            when (uiState) {
-                is HomeUiState.Loading -> {
+        when (uiState) {
+            is HomeUiState.Loading -> {
+                Column(modifier = Modifier.fillMaxSize()) {
+                    HomeTopBar(onNavigateToSettings = onNavigateToSettings)
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -118,8 +121,11 @@ fun HomeContent(
                         YoinLoadingIndicator()
                     }
                 }
+            }
 
-                is HomeUiState.Error -> {
+            is HomeUiState.Error -> {
+                Column(modifier = Modifier.fillMaxSize()) {
+                    HomeTopBar(onNavigateToSettings = onNavigateToSettings)
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -139,28 +145,29 @@ fun HomeContent(
                         }
                     }
                 }
+            }
 
-                is HomeUiState.Content -> {
-                    if (isPlaying) {
-                        AudioVisualizer(
-                            visualizerData = visualizerData,
-                            style = VisualizerStyle.Compact,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 16.dp, vertical = 8.dp),
-                        )
-                    }
-
-                    HomeContentSections(
+            is HomeUiState.Content -> {
+                Column(
+                    modifier = Modifier.fillMaxSize(),
+                ) {
+                    HomeTopBar(onNavigateToSettings = onNavigateToSettings)
+                    HomeEditorialContent(
                         activities = uiState.activities,
-                        recentlyAdded = uiState.recentlyAdded,
-                        mixForYou = uiState.mixForYou,
-                        mostPlayed = uiState.mostPlayed,
-                        quickPlaySongs = uiState.quickPlaySongs,
-                        quickPlayAlbums = uiState.quickPlayAlbums,
+                        jumpBackInItems = uiState.jumpBackInItems,
+                        jumpBackInRevision = uiState.jumpBackInRevision,
+                        isLoadingMoreJumpBackIn = uiState.isLoadingMoreJumpBackIn,
+                        isPlaying = isPlaying,
+                        visualizerData = visualizerData,
                         onAlbumClick = onAlbumClick,
+                        onArtistClick = onArtistClick,
                         onSongClick = onSongClick,
+                        onRefreshJumpBackIn = onRefreshJumpBackIn,
+                        onLoadMoreJumpBackIn = onLoadMoreJumpBackIn,
                         buildCoverArtUrl = buildCoverArtUrl,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f),
                     )
                 }
             }
@@ -182,8 +189,8 @@ private fun HomeTopBar(
         horizontalArrangement = Arrangement.SpaceBetween,
     ) {
         Text(
-            text = "Yoin",
-            style = MaterialTheme.typography.headlineMedium,
+            text = "Activities",
+            style = MaterialTheme.typography.headlineLarge,
             color = MaterialTheme.colorScheme.onBackground,
         )
         IconButton(onClick = onNavigateToSettings) {
@@ -497,8 +504,8 @@ private fun AlbumsRow(
 
             AlbumCard(
                 coverArtUrl = coverUrl,
-                albumName = album.name,
-                artistName = album.artist.orEmpty(),
+                title = album.name,
+                subtitle = album.artist.orEmpty(),
                 onClick = { onAlbumClick(album.id) },
                 modifier = Modifier.alpha(alpha.value),
             )
@@ -624,7 +631,7 @@ private fun formatTimeAgo(playedAtMillis: Long): String {
     }
 }
 
-// ── Previews ────────────────────────────────────────────────────────────
+// Previews
 
 @Preview(showBackground = true, backgroundColor = 0xFF1C1B1F)
 @Composable
@@ -636,8 +643,11 @@ private fun HomeContentLoadingPreview() {
             visualizerData = VisualizerData.Empty,
             onNavigateToSettings = {},
             onAlbumClick = {},
+            onArtistClick = {},
             onSongClick = { _ -> },
             onRetry = {},
+            onRefreshJumpBackIn = {},
+            onLoadMoreJumpBackIn = {},
             buildCoverArtUrl = { "" },
         )
     }
@@ -653,8 +663,11 @@ private fun HomeContentErrorPreview() {
             visualizerData = VisualizerData.Empty,
             onNavigateToSettings = {},
             onAlbumClick = {},
+            onArtistClick = {},
             onSongClick = { _ -> },
             onRetry = {},
+            onRefreshJumpBackIn = {},
+            onLoadMoreJumpBackIn = {},
             buildCoverArtUrl = { "" },
         )
     }
@@ -667,29 +680,71 @@ private fun HomeContentPreview() {
         HomeContent(
             uiState = HomeUiState.Content(
                 activities = listOf(
-                    PlayHistory(
+                    ActivityEvent(
                         id = 1,
-                        songId = "s1",
-                        title = "Starlight",
-                        artist = "Muse",
-                        album = "Black Holes",
-                        albumId = "a1",
+                        entityType = ActivityEntityType.ALBUM.name,
+                        actionType = ActivityActionType.PLAYED.name,
+                        entityId = "a1",
+                        title = "Black Holes and Revelations",
+                        subtitle = "Muse",
                         coverArtId = "c1",
-                        playedAt = System.currentTimeMillis() - 3_600_000L,
-                        durationMs = 240_000L,
-                        completedPercent = 0.95f,
+                        albumId = "a1",
+                        songId = "s1",
+                        artistId = "artist-1",
+                        timestamp = System.currentTimeMillis() - 3_600_000L,
                     ),
-                    PlayHistory(
+                    ActivityEvent(
                         id = 2,
-                        songId = "s2",
-                        title = "Get Lucky",
-                        artist = "Daft Punk",
-                        album = "Random Access Memories",
-                        albumId = "a2",
+                        entityType = ActivityEntityType.ARTIST.name,
+                        actionType = ActivityActionType.VISITED.name,
+                        entityId = "artist-2",
+                        title = "Daft Punk",
+                        subtitle = "Artist",
                         coverArtId = "c2",
-                        playedAt = System.currentTimeMillis() - 86_400_000L,
-                        durationMs = 310_000L,
-                        completedPercent = 1.0f,
+                        artistId = "artist-2",
+                        timestamp = System.currentTimeMillis() - 86_400_000L,
+                    ),
+                    ActivityEvent(
+                        id = 3,
+                        entityType = ActivityEntityType.SONG.name,
+                        actionType = ActivityActionType.PLAYED.name,
+                        entityId = "s3",
+                        title = "Starlight",
+                        subtitle = "Muse",
+                        coverArtId = "c1",
+                        albumId = "a2",
+                        songId = "s3",
+                        artistId = "artist-1",
+                        timestamp = System.currentTimeMillis() - 172_800_000L,
+                    ),
+                ),
+                jumpBackInItems = listOf(
+                    HomeJumpBackInItem.AlbumItem(
+                        Album(
+                            id = "ja1",
+                            name = "Describe",
+                            artist = "Hannah Jadagu",
+                            coverArt = "cover-ja1",
+                            songCount = 12,
+                        ),
+                    ),
+                    HomeJumpBackInItem.SongItem(
+                        Song(
+                            id = "js1",
+                            title = "Little House",
+                            artist = "Rachel Chinouriri",
+                            album = "Little House",
+                            albumId = "album-js1",
+                            coverArt = "cover-js1",
+                        ),
+                    ),
+                    HomeJumpBackInItem.ArtistItem(
+                        com.gpo.yoin.data.remote.Artist(
+                            id = "artist-ja1",
+                            name = "Daft Punk",
+                            coverArt = "artist-cover-1",
+                            albumCount = 4,
+                        ),
                     ),
                 ),
                 recentlyAdded = listOf(
@@ -719,8 +774,11 @@ private fun HomeContentPreview() {
             ),
             onNavigateToSettings = {},
             onAlbumClick = {},
+            onArtistClick = {},
             onSongClick = { _ -> },
             onRetry = {},
+            onRefreshJumpBackIn = {},
+            onLoadMoreJumpBackIn = {},
             buildCoverArtUrl = { "" },
         )
     }

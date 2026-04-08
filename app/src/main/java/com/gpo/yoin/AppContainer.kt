@@ -2,6 +2,8 @@ package com.gpo.yoin
 
 import android.content.Context
 import androidx.room.Room
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 import com.gpo.yoin.data.local.ServerConfig
 import com.gpo.yoin.data.local.YoinDatabase
 import com.gpo.yoin.data.remote.ServerCredentials
@@ -17,7 +19,9 @@ import kotlinx.coroutines.runBlocking
 class AppContainer(private val context: Context) {
 
     val database: YoinDatabase by lazy {
-        Room.databaseBuilder(context, YoinDatabase::class.java, "yoin-database").build()
+        Room.databaseBuilder(context, YoinDatabase::class.java, "yoin-database")
+            .addMigrations(MIGRATION_1_2)
+            .build()
     }
 
     @Volatile
@@ -85,10 +89,38 @@ class AppContainer(private val context: Context) {
     }
 
     val playbackManager: PlaybackManager by lazy {
-        PlaybackManager(context, castManager)
+        PlaybackManager(
+            context = context,
+            repository = repository,
+            castManager = castManager,
+        )
     }
 
     val audioVisualizerManager: AudioVisualizerManager by lazy {
         AudioVisualizerManager()
+    }
+
+    private companion object {
+        val MIGRATION_1_2 = object : Migration(1, 2) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `activity_events` (
+                        `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        `entityType` TEXT NOT NULL,
+                        `actionType` TEXT NOT NULL,
+                        `entityId` TEXT NOT NULL,
+                        `title` TEXT NOT NULL,
+                        `subtitle` TEXT NOT NULL,
+                        `coverArtId` TEXT,
+                        `songId` TEXT,
+                        `albumId` TEXT,
+                        `artistId` TEXT,
+                        `timestamp` INTEGER NOT NULL
+                    )
+                    """.trimIndent(),
+                )
+            }
+        }
     }
 }

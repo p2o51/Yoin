@@ -7,8 +7,7 @@ import androidx.compose.animation.core.spring
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -27,19 +26,19 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.LibraryMusic
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -51,21 +50,25 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
-import coil3.compose.AsyncImage
 import com.gpo.yoin.R
 import com.gpo.yoin.data.remote.Album
 import com.gpo.yoin.data.remote.Artist
+import com.gpo.yoin.data.remote.Playlist
 import com.gpo.yoin.data.remote.SearchResult
 import com.gpo.yoin.data.remote.Song
 import com.gpo.yoin.data.remote.StarredResponse
+import com.gpo.yoin.ui.component.ExpressiveMediaArtwork
+import com.gpo.yoin.ui.component.ExpressiveMetaPill
+import com.gpo.yoin.ui.component.ExpressivePageBackground
+import com.gpo.yoin.ui.component.ExpressiveSectionPanel
+import com.gpo.yoin.ui.component.ExpressiveSegmentedTabs
 import com.gpo.yoin.ui.component.SongListItem
 import com.gpo.yoin.ui.component.YoinLoadingIndicator
+import com.gpo.yoin.ui.component.minimumTouchTarget
 import com.gpo.yoin.ui.theme.YoinShapeTokens
 import com.gpo.yoin.ui.theme.YoinTheme
 
@@ -77,6 +80,7 @@ fun LibraryScreen(
     onNavigateToSettings: () -> Unit,
     onArtistClick: (String) -> Unit,
     onAlbumClick: (String) -> Unit,
+    onPlaylistClick: (String) -> Unit,
     onSongClick: (Song) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -90,6 +94,7 @@ fun LibraryScreen(
         onNavigateToSettings = onNavigateToSettings,
         onArtistClick = onArtistClick,
         onAlbumClick = onAlbumClick,
+        onPlaylistClick = onPlaylistClick,
         onSongClick = onSongClick,
         onRetry = viewModel::refresh,
         coverArtUrlBuilder = viewModel::buildCoverArtUrl,
@@ -106,15 +111,13 @@ fun LibraryContent(
     onNavigateToSettings: () -> Unit,
     onArtistClick: (String) -> Unit,
     onAlbumClick: (String) -> Unit,
+    onPlaylistClick: (String) -> Unit,
     onSongClick: (Song) -> Unit,
     onRetry: () -> Unit,
     coverArtUrlBuilder: ((String) -> String)?,
     modifier: Modifier = Modifier,
 ) {
-    Surface(
-        modifier = modifier.fillMaxSize(),
-        color = MaterialTheme.colorScheme.background,
-    ) {
+    ExpressivePageBackground(modifier = modifier) {
         when (uiState) {
             is LibraryUiState.Loading -> {
                 Box(
@@ -130,15 +133,24 @@ fun LibraryContent(
                     modifier = Modifier.fillMaxSize(),
                     contentAlignment = Alignment.Center,
                 ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text(
-                            text = uiState.message,
-                            color = MaterialTheme.colorScheme.error,
-                            style = MaterialTheme.typography.bodyLarge,
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
-                        TextButton(onClick = onRetry) {
-                            Text("Retry")
+                    ExpressiveSectionPanel(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp),
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(20.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                        ) {
+                            Text(
+                                text = uiState.message,
+                                color = MaterialTheme.colorScheme.error,
+                                style = MaterialTheme.typography.bodyLarge,
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            TextButton(onClick = onRetry) {
+                                Text("Retry")
+                            }
                         }
                     }
                 }
@@ -153,6 +165,7 @@ fun LibraryContent(
                     onNavigateToSettings = onNavigateToSettings,
                     onArtistClick = onArtistClick,
                     onAlbumClick = onAlbumClick,
+                    onPlaylistClick = onPlaylistClick,
                     onSongClick = onSongClick,
                     coverArtUrlBuilder = coverArtUrlBuilder,
                 )
@@ -170,11 +183,16 @@ private fun LibraryContentBody(
     onNavigateToSettings: () -> Unit,
     onArtistClick: (String) -> Unit,
     onAlbumClick: (String) -> Unit,
+    onPlaylistClick: (String) -> Unit,
     onSongClick: (Song) -> Unit,
     coverArtUrlBuilder: ((String) -> String)?,
 ) {
-    Column(modifier = Modifier.fillMaxSize()) {
-        // Search bar + settings gear
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
         SearchHeader(
             searchQuery = state.searchQuery,
             isSearching = state.isSearching,
@@ -183,58 +201,73 @@ private fun LibraryContentBody(
             onNavigateToSettings = onNavigateToSettings,
         )
 
-        // Show search results if query is active
-        if (state.searchQuery.isNotBlank()) {
-            SearchResultsContent(
-                searchResults = state.searchResults,
-                isSearching = state.isSearching,
-                onArtistClick = onArtistClick,
-                onAlbumClick = onAlbumClick,
-                onSongClick = onSongClick,
-                coverArtUrlBuilder = coverArtUrlBuilder,
-            )
-        } else {
-            // Tab row
+        if (state.searchQuery.isBlank()) {
             LibraryFilterChips(
                 selectedTab = state.selectedTab,
                 onTabSelected = onTabSelected,
             )
+        }
 
-            // Tab content with Effects Spring crossfade
-            AnimatedContent(
-                targetState = state.selectedTab,
-                transitionSpec = {
-                    fadeIn(
-                        spring(stiffness = Spring.StiffnessLow),
-                    ) togetherWith fadeOut(
-                        spring(stiffness = Spring.StiffnessLow),
-                    )
-                },
-                label = "tabContent",
-                modifier = Modifier.weight(1f),
-            ) { tab ->
-                when (tab) {
-                    LibraryTab.Artists -> ArtistsTabContent(
-                        artists = state.artists,
-                        onArtistClick = onArtistClick,
-                    )
-                    LibraryTab.Albums -> AlbumsTabContent(
-                        albums = state.albums,
-                        onAlbumClick = onAlbumClick,
-                        coverArtUrlBuilder = coverArtUrlBuilder,
-                    )
-                    LibraryTab.Songs -> SongsTabContent(
-                        songs = state.songs,
-                        onSongClick = onSongClick,
-                        coverArtUrlBuilder = coverArtUrlBuilder,
-                    )
-                    LibraryTab.Favorites -> FavoritesTabContent(
-                        favorites = state.favorites,
+        Box(
+            modifier = Modifier.weight(1f),
+        ) {
+            ExpressiveSectionPanel(
+                modifier = Modifier.fillMaxSize(),
+                shape = YoinShapeTokens.ExtraLarge,
+                containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+                tonalElevation = 3.dp,
+                shadowElevation = 8.dp,
+            ) {
+                if (state.searchQuery.isNotBlank()) {
+                    SearchResultsContent(
+                        searchResults = state.searchResults,
+                        isSearching = state.isSearching,
                         onArtistClick = onArtistClick,
                         onAlbumClick = onAlbumClick,
                         onSongClick = onSongClick,
                         coverArtUrlBuilder = coverArtUrlBuilder,
                     )
+                } else {
+                    AnimatedContent(
+                        targetState = state.selectedTab,
+                        transitionSpec = {
+                            fadeIn(
+                                spring(stiffness = Spring.StiffnessLow),
+                            ) togetherWith fadeOut(
+                                spring(stiffness = Spring.StiffnessLow),
+                            )
+                        },
+                        label = "tabContent",
+                        modifier = Modifier.weight(1f),
+                    ) { tab ->
+                        when (tab) {
+                            LibraryTab.Artists -> ArtistsTabContent(
+                                artists = state.artists,
+                                onArtistClick = onArtistClick,
+                            )
+                            LibraryTab.Albums -> AlbumsTabContent(
+                                albums = state.albums,
+                                onAlbumClick = onAlbumClick,
+                                coverArtUrlBuilder = coverArtUrlBuilder,
+                            )
+                            LibraryTab.Songs -> SongsTabContent(
+                                songs = state.songs,
+                                onSongClick = onSongClick,
+                                coverArtUrlBuilder = coverArtUrlBuilder,
+                            )
+                            LibraryTab.Playlists -> PlaylistsTabContent(
+                                playlists = state.playlists,
+                                onPlaylistClick = onPlaylistClick,
+                            )
+                            LibraryTab.Favorites -> FavoritesTabContent(
+                                favorites = state.favorites,
+                                onArtistClick = onArtistClick,
+                                onAlbumClick = onAlbumClick,
+                                onSongClick = onSongClick,
+                                coverArtUrlBuilder = coverArtUrlBuilder,
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -250,51 +283,103 @@ private fun SearchHeader(
     onNavigateToSettings: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Row(
+    Column(
         modifier = modifier
             .fillMaxWidth()
-            .statusBarsPadding()
-            .padding(start = 16.dp, end = 4.dp, top = 8.dp, bottom = 4.dp),
-        verticalAlignment = Alignment.CenterVertically,
+            .statusBarsPadding(),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        OutlinedTextField(
-            value = searchQuery,
-            onValueChange = onSearchQueryChanged,
-            modifier = Modifier.weight(1f),
-            placeholder = { Text("Search library…") },
-            leadingIcon = {
-                if (isSearching) {
-                    YoinLoadingIndicator(
-                        modifier = Modifier.size(20.dp),
-                        size = 20.dp,
-                    )
-                } else {
-                    Icon(
-                        imageVector = Icons.Filled.Search,
-                        contentDescription = "Search",
-                    )
-                }
-            },
-            trailingIcon = {
-                if (searchQuery.isNotBlank()) {
-                    IconButton(onClick = onClearSearch) {
+        Text(
+            text = "Library",
+            style = MaterialTheme.typography.headlineMedium,
+            color = MaterialTheme.colorScheme.onSurface,
+        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Surface(
+                modifier = Modifier.weight(1f),
+                shape = RoundedCornerShape(20.dp),
+                color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                tonalElevation = 2.dp,
+                shadowElevation = 4.dp,
+                border = BorderStroke(
+                    width = 1.dp,
+                    color = MaterialTheme.colorScheme.outline.copy(alpha = 0.12f),
+                ),
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 14.dp, vertical = 12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    if (isSearching) {
+                        YoinLoadingIndicator(
+                            modifier = Modifier.size(18.dp),
+                            size = 18.dp,
+                        )
+                    } else {
                         Icon(
-                            imageVector = Icons.Filled.Clear,
-                            contentDescription = "Clear search",
+                            imageVector = Icons.Filled.Search,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
+                    BasicTextField(
+                        value = searchQuery,
+                        onValueChange = onSearchQueryChanged,
+                        modifier = Modifier.weight(1f),
+                        singleLine = true,
+                        textStyle = MaterialTheme.typography.bodyLarge.copy(
+                            color = MaterialTheme.colorScheme.onSurface,
+                        ),
+                        cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                        decorationBox = { innerTextField ->
+                            Box(contentAlignment = Alignment.CenterStart) {
+                                if (searchQuery.isBlank()) {
+                                    Text(
+                                        text = "Search library",
+                                        style = MaterialTheme.typography.bodyLarge,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f),
+                                    )
+                                }
+                                innerTextField()
+                            }
+                        },
+                    )
+                    if (searchQuery.isNotBlank()) {
+                        IconButton(
+                            onClick = onClearSearch,
+                            modifier = Modifier.minimumTouchTarget(),
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.Clear,
+                                contentDescription = "Clear search",
+                            )
+                        }
+                    }
                 }
-            },
-            singleLine = true,
-            shape = MaterialTheme.shapes.extraLarge,
-        )
+            }
 
-        IconButton(onClick = onNavigateToSettings) {
-            Icon(
-                imageVector = Icons.Filled.Settings,
-                contentDescription = "Settings",
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+            androidx.compose.material3.FilledIconButton(
+                onClick = onNavigateToSettings,
+                modifier = Modifier
+                    .size(52.dp)
+                    .minimumTouchTarget(),
+                colors = androidx.compose.material3.IconButtonDefaults.filledIconButtonColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                    contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                ),
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Settings,
+                    contentDescription = "Settings",
+                )
+            }
         }
     }
 }
@@ -305,32 +390,13 @@ private fun LibraryFilterChips(
     onTabSelected: (LibraryTab) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val tabs = LibraryTab.entries
-    Row(
-        modifier = modifier
-            .fillMaxWidth()
-            .horizontalScroll(rememberScrollState())
-            .padding(horizontal = 16.dp, vertical = 8.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        tabs.forEach { tab ->
-            FilterChip(
-                selected = selectedTab == tab,
-                onClick = { onTabSelected(tab) },
-                label = {
-                    Text(
-                        text = tab.name,
-                        style = MaterialTheme.typography.labelLarge,
-                    )
-                },
-                colors = FilterChipDefaults.filterChipColors(
-                    selectedContainerColor = MaterialTheme.colorScheme.primary,
-                    selectedLabelColor = MaterialTheme.colorScheme.onPrimary,
-                ),
-                shape = MaterialTheme.shapes.extraLarge,
-            )
-        }
-    }
+    ExpressiveSegmentedTabs(
+        items = LibraryTab.entries,
+        selectedItem = selectedTab,
+        label = { it.name },
+        onSelectedChange = onTabSelected,
+        modifier = modifier.fillMaxWidth(),
+    )
 }
 
 // ── Tab content composables ─────────────────────────────────────────────
@@ -378,51 +444,49 @@ private fun ArtistListItem(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Row(
+    Surface(
+        onClick = onClick,
         modifier = modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
+            .padding(horizontal = 16.dp, vertical = 6.dp),
+        shape = YoinShapeTokens.ExtraLarge,
+        color = MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.72f),
     ) {
-        Surface(
-            modifier = Modifier.size(48.dp),
-            shape = CircleShape,
-            color = MaterialTheme.colorScheme.secondaryContainer,
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            Box(
-                modifier = Modifier.fillMaxSize(),
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(
-                    imageVector = Icons.Filled.Person,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSecondaryContainer,
-                    modifier = Modifier.size(24.dp),
-                )
-            }
-        }
-        Spacer(modifier = Modifier.width(12.dp))
-        Text(
-            text = artist.name,
-            style = MaterialTheme.typography.bodyLarge,
-            color = MaterialTheme.colorScheme.onSurface,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f),
-        )
-        artist.albumCount?.let { count ->
-            Spacer(modifier = Modifier.width(8.dp))
             Surface(
-                shape = MaterialTheme.shapes.small,
+                modifier = Modifier.size(50.dp),
+                shape = CircleShape,
                 color = MaterialTheme.colorScheme.secondaryContainer,
             ) {
-                Text(
-                    text = "$count",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSecondaryContainer,
-                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
-                )
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Person,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                        modifier = Modifier.size(24.dp),
+                    )
+                }
+            }
+            Spacer(modifier = Modifier.width(12.dp))
+            Text(
+                text = artist.name,
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+            artist.albumCount?.let { count ->
+                Spacer(modifier = Modifier.width(8.dp))
+                ExpressiveMetaPill(text = "$count albums")
             }
         }
     }
@@ -481,43 +545,14 @@ private fun AlbumGridItem(
     coverArtUrl: String?,
     modifier: Modifier = Modifier,
 ) {
-    Surface(
-        modifier = modifier.clickable(onClick = onClick),
-        shape = YoinShapeTokens.Medium,
-        color = MaterialTheme.colorScheme.surfaceContainerLow,
-        tonalElevation = 1.dp,
-    ) {
-        Column {
-            AsyncImage(
-                model = coverArtUrl,
-                contentDescription = album.name,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(160.dp)
-                    .clip(YoinShapeTokens.Medium),
-                contentScale = ContentScale.Crop,
-                error = painterResource(R.drawable.ic_launcher_foreground),
-            )
-            Column(modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)) {
-                Text(
-                    text = album.name,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                album.artist?.let { artist ->
-                    Text(
-                        text = artist,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-            }
-        }
-    }
+    com.gpo.yoin.ui.component.AlbumCard(
+        coverArtUrl = coverArtUrl,
+        title = album.name,
+        subtitle = album.artist,
+        onClick = onClick,
+        modifier = modifier.fillMaxWidth(),
+        fixedWidth = null,
+    )
 }
 
 @Composable
@@ -547,6 +582,92 @@ private fun SongsTabContent(
                 coverArtUrl = song.coverArt?.let { coverArtUrlBuilder?.invoke(it) },
                 onClick = { onSongClick(song) },
             )
+        }
+    }
+}
+
+@Composable
+private fun PlaylistsTabContent(
+    playlists: List<Playlist>,
+    onPlaylistClick: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    if (playlists.isEmpty()) {
+        EmptyState(message = "No playlists found", modifier = modifier)
+        return
+    }
+    LazyColumn(
+        modifier = modifier.fillMaxSize(),
+        contentPadding = PaddingValues(
+            top = 8.dp,
+            bottom = FloatingBottomGroupContentPadding,
+        ),
+    ) {
+        items(playlists, key = { it.id }) { playlist ->
+            PlaylistListItem(
+                playlist = playlist,
+                onClick = { onPlaylistClick(playlist.id) },
+            )
+        }
+    }
+}
+
+@Composable
+private fun PlaylistListItem(
+    playlist: Playlist,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        onClick = onClick,
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 6.dp),
+        shape = YoinShapeTokens.ExtraLarge,
+        color = MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.72f),
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Surface(
+                modifier = Modifier.size(50.dp),
+                shape = YoinShapeTokens.Medium,
+                color = MaterialTheme.colorScheme.secondaryContainer,
+            ) {
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.QueueMusic,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                        modifier = Modifier.size(24.dp),
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.width(12.dp))
+
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = playlist.name,
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    text = buildPlaylistMeta(playlist),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
         }
     }
 }
@@ -630,41 +751,66 @@ private fun AlbumListItem(
     coverArtUrl: String?,
     modifier: Modifier = Modifier,
 ) {
-    Row(
+    Surface(
+        onClick = onClick,
         modifier = modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
+            .padding(horizontal = 16.dp, vertical = 6.dp),
+        shape = YoinShapeTokens.ExtraLarge,
+        color = MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.72f),
     ) {
-        AsyncImage(
-            model = coverArtUrl,
-            contentDescription = album.name,
+        Row(
             modifier = Modifier
-                .size(48.dp)
-                .clip(YoinShapeTokens.Medium),
-            contentScale = ContentScale.Crop,
-            error = painterResource(R.drawable.ic_launcher_foreground),
-        )
-        Spacer(modifier = Modifier.width(12.dp))
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = album.name,
-                style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.onSurface,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            ExpressiveMediaArtwork(
+                model = coverArtUrl,
+                contentDescription = album.name,
+                modifier = Modifier.size(54.dp),
+                shape = YoinShapeTokens.Medium,
+                fallbackIcon = Icons.Filled.LibraryMusic,
+                tonalElevation = 1.dp,
             )
-            album.artist?.let { artist ->
+            Spacer(modifier = Modifier.width(12.dp))
+            Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = artist,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    text = album.name,
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.onSurface,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
+                album.artist?.let { artist ->
+                    Text(
+                        text = artist,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
             }
         }
+    }
+}
+
+private fun buildPlaylistMeta(playlist: Playlist): String {
+    val parts = mutableListOf<String>()
+    playlist.owner?.takeIf { it.isNotBlank() }?.let(parts::add)
+    playlist.songCount?.let { parts.add("$it tracks") }
+    playlist.duration?.takeIf { it > 0 }?.let { parts.add(formatPlaylistDuration(it)) }
+    playlist.isPublic?.let { parts.add(if (it) "Public" else "Private") }
+    return parts.joinToString(" · ").ifBlank { "Playlist" }
+}
+
+private fun formatPlaylistDuration(seconds: Int): String {
+    val hours = seconds / 3600
+    val minutes = (seconds % 3600) / 60
+    return when {
+        hours > 0 -> "${hours}h ${minutes}m"
+        else -> "${minutes}m"
     }
 }
 
@@ -756,9 +902,9 @@ private fun SectionHeader(
 ) {
     Text(
         text = title,
-        style = MaterialTheme.typography.titleSmall,
-        color = MaterialTheme.colorScheme.primary,
-        modifier = modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+        style = MaterialTheme.typography.labelLarge,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = modifier.padding(horizontal = 16.dp, vertical = 12.dp),
     )
 }
 
@@ -771,11 +917,22 @@ private fun EmptyState(
         modifier = modifier.fillMaxSize(),
         contentAlignment = Alignment.Center,
     ) {
-        Text(
-            text = message,
-            style = MaterialTheme.typography.bodyLarge,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
+        ExpressiveSectionPanel(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp),
+            shape = YoinShapeTokens.Large,
+            containerColor = MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.72f),
+            tonalElevation = 1.dp,
+            shadowElevation = 0.dp,
+        ) {
+            Text(
+                text = message,
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 20.dp, vertical = 18.dp),
+            )
+        }
     }
 }
 
@@ -795,6 +952,7 @@ private fun LibraryContentArtistsPreview() {
                 ),
                 albums = emptyList(),
                 songs = emptyList(),
+                playlists = emptyList(),
                 favorites = null,
                 searchQuery = "",
                 searchResults = null,
@@ -806,6 +964,7 @@ private fun LibraryContentArtistsPreview() {
             onNavigateToSettings = {},
             onArtistClick = {},
             onAlbumClick = {},
+            onPlaylistClick = {},
             onSongClick = {},
             onRetry = {},
             coverArtUrlBuilder = null,
@@ -826,6 +985,7 @@ private fun LibraryContentAlbumsPreview() {
                     Album(id = "2", name = "The Dark Side of the Moon", artist = "Pink Floyd"),
                 ),
                 songs = emptyList(),
+                playlists = emptyList(),
                 favorites = null,
                 searchQuery = "",
                 searchResults = null,
@@ -837,6 +997,7 @@ private fun LibraryContentAlbumsPreview() {
             onNavigateToSettings = {},
             onArtistClick = {},
             onAlbumClick = {},
+            onPlaylistClick = {},
             onSongClick = {},
             onRetry = {},
             coverArtUrlBuilder = null,
@@ -869,6 +1030,7 @@ private fun LibraryContentSongsPreview() {
                         duration = 382,
                     ),
                 ),
+                playlists = emptyList(),
                 favorites = null,
                 searchQuery = "",
                 searchResults = null,
@@ -880,6 +1042,7 @@ private fun LibraryContentSongsPreview() {
             onNavigateToSettings = {},
             onArtistClick = {},
             onAlbumClick = {},
+            onPlaylistClick = {},
             onSongClick = {},
             onRetry = {},
             coverArtUrlBuilder = null,
@@ -899,6 +1062,7 @@ private fun LibraryContentLoadingPreview() {
             onNavigateToSettings = {},
             onArtistClick = {},
             onAlbumClick = {},
+            onPlaylistClick = {},
             onSongClick = {},
             onRetry = {},
             coverArtUrlBuilder = null,
@@ -918,6 +1082,7 @@ private fun LibraryContentErrorPreview() {
             onNavigateToSettings = {},
             onArtistClick = {},
             onAlbumClick = {},
+            onPlaylistClick = {},
             onSongClick = {},
             onRetry = {},
             coverArtUrlBuilder = null,
@@ -935,6 +1100,7 @@ private fun LibraryContentSearchPreview() {
                 artists = emptyList(),
                 albums = emptyList(),
                 songs = emptyList(),
+                playlists = emptyList(),
                 favorites = null,
                 searchQuery = "radio",
                 searchResults = SearchResult(
@@ -962,6 +1128,7 @@ private fun LibraryContentSearchPreview() {
             onNavigateToSettings = {},
             onArtistClick = {},
             onAlbumClick = {},
+            onPlaylistClick = {},
             onSongClick = {},
             onRetry = {},
             coverArtUrlBuilder = null,

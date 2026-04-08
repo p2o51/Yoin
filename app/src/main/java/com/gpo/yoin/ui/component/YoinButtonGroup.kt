@@ -8,6 +8,8 @@ import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
@@ -36,6 +38,7 @@ import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.LibraryMusic
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material3.ButtonGroup
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ButtonGroupDefaults
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.FilledIconButton
@@ -55,11 +58,10 @@ import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import coil3.compose.AsyncImage
 import com.gpo.yoin.ui.navigation.YoinSection
+import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinShapeTokens
 import kotlin.math.sin
 
@@ -86,13 +88,78 @@ fun YoinButtonGroup(
     animatedVisibilityScope: AnimatedVisibilityScope? = null,
     modifier: Modifier = Modifier,
 ) {
+    val surfaceColor by animateColorAsState(
+        targetValue = MaterialTheme.colorScheme.surfaceContainerHigh,
+        animationSpec = YoinMotion.effectsSpring(),
+        label = "buttonGroupSurfaceColor",
+    )
+    val progressFillColor by animateColorAsState(
+        targetValue = MaterialTheme.colorScheme.primary.copy(alpha = 0.25f),
+        animationSpec = YoinMotion.effectsSpring(),
+        label = "buttonGroupProgressFill",
+    )
+    val homeContainerColor by animateColorAsState(
+        targetValue = if (selectedSection == YoinSection.HOME) {
+            MaterialTheme.colorScheme.primaryContainer
+        } else {
+            MaterialTheme.colorScheme.surfaceContainerHighest
+        },
+        animationSpec = YoinMotion.effectsSpring(),
+        label = "buttonGroupHomeContainer",
+    )
+    val homeContentColor by animateColorAsState(
+        targetValue = if (selectedSection == YoinSection.HOME) {
+            MaterialTheme.colorScheme.onPrimaryContainer
+        } else {
+            MaterialTheme.colorScheme.onSurfaceVariant
+        },
+        animationSpec = YoinMotion.effectsSpring(),
+        label = "buttonGroupHomeContent",
+    )
+    val centerContainerColor by animateColorAsState(
+        targetValue = if (currentTrackTitle != null) {
+            MaterialTheme.colorScheme.secondaryContainer
+        } else {
+            MaterialTheme.colorScheme.surfaceContainerHighest
+        },
+        animationSpec = YoinMotion.effectsSpring(),
+        label = "buttonGroupCenterContainer",
+    )
+    val centerContentColor by animateColorAsState(
+        targetValue = if (currentTrackTitle != null) {
+            MaterialTheme.colorScheme.onSecondaryContainer
+        } else {
+            MaterialTheme.colorScheme.onSurfaceVariant
+        },
+        animationSpec = YoinMotion.effectsSpring(),
+        label = "buttonGroupCenterContent",
+    )
+    val libraryContainerColor by animateColorAsState(
+        targetValue = if (selectedSection == YoinSection.LIBRARY) {
+            MaterialTheme.colorScheme.primaryContainer
+        } else {
+            MaterialTheme.colorScheme.surfaceContainerHighest
+        },
+        animationSpec = YoinMotion.effectsSpring(),
+        label = "buttonGroupLibraryContainer",
+    )
+    val libraryContentColor by animateColorAsState(
+        targetValue = if (selectedSection == YoinSection.LIBRARY) {
+            MaterialTheme.colorScheme.onPrimaryContainer
+        } else {
+            MaterialTheme.colorScheme.onSurfaceVariant
+        },
+        animationSpec = YoinMotion.effectsSpring(),
+        label = "buttonGroupLibraryContent",
+    )
+
     Surface(
         modifier = modifier
             .fillMaxWidth()
             .navigationBarsPadding()
             .padding(horizontal = 16.dp, vertical = 12.dp),
         shape = MaterialTheme.shapes.extraLarge,
-        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        color = surfaceColor,
         tonalElevation = 8.dp,
         shadowElevation = 12.dp,
     ) {
@@ -146,16 +213,8 @@ fun YoinButtonGroup(
                             .animateWidth(interactionSource),
                         interactionSource = interactionSource,
                         colors = IconButtonDefaults.filledIconButtonColors(
-                            containerColor = if (selectedSection == YoinSection.HOME) {
-                                MaterialTheme.colorScheme.primaryContainer
-                            } else {
-                                MaterialTheme.colorScheme.surfaceContainerHighest
-                            },
-                            contentColor = if (selectedSection == YoinSection.HOME) {
-                                MaterialTheme.colorScheme.onPrimaryContainer
-                            } else {
-                                MaterialTheme.colorScheme.onSurfaceVariant
-                            },
+                            containerColor = homeContainerColor,
+                            contentColor = homeContentColor,
                         ),
                     ) {
                         Icon(
@@ -176,17 +235,21 @@ fun YoinButtonGroup(
                 buttonGroupContent = {
                     val interactionSource = rememberButtonGroupInteractionSource()
                     val clampedProgress = playbackProgress.coerceIn(0f, 1f)
-                    val progressFill = MaterialTheme.colorScheme.primary.copy(alpha = 0.25f)
 
                     FilledTonalButton(
                         onClick = onNowPlayingClick,
                         modifier = Modifier
                             .weight(1.65f)
                             .fillMaxHeight()
-                            .animateWidth(interactionSource),
+                            .animateWidth(interactionSource)
+                            .animateContentSize(animationSpec = YoinMotion.spatialSpring()),
                         interactionSource = interactionSource,
                         shape = MaterialTheme.shapes.extraLarge,
                         contentPadding = PaddingValues(0.dp),
+                        colors = ButtonDefaults.filledTonalButtonColors(
+                            containerColor = centerContainerColor,
+                            contentColor = centerContentColor,
+                        ),
                     ) {
                         Box(modifier = Modifier.fillMaxWidth()) {
                             if (currentTrackTitle != null && clampedProgress > 0f) {
@@ -216,10 +279,10 @@ fun YoinButtonGroup(
                                                     ) * amp
                                                     lineTo(progressX + dx, y)
                                                 }
-                                                lineTo(0f, h)
-                                                close()
-                                            }
-                                            drawPath(path, progressFill)
+                                                    lineTo(0f, h)
+                                                    close()
+                                                }
+                                            drawPath(path, progressFillColor)
                                         },
                                 )
                             }
@@ -278,7 +341,7 @@ fun YoinButtonGroup(
                                     Text(
                                         text = titleText,
                                         style = MaterialTheme.typography.labelLarge,
-                                        color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                        color = centerContentColor,
                                         maxLines = 1,
                                         softWrap = false,
                                         modifier = marqueeModifier,
@@ -315,9 +378,7 @@ fun YoinButtonGroup(
                                     Text(
                                         text = artistText,
                                         style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.onSecondaryContainer.copy(
-                                            alpha = 0.72f,
-                                        ),
+                                        color = centerContentColor.copy(alpha = 0.72f),
                                         maxLines = 1,
                                         softWrap = false,
                                         modifier = artistMarqueeMod,
@@ -341,16 +402,8 @@ fun YoinButtonGroup(
                             .animateWidth(interactionSource),
                         interactionSource = interactionSource,
                         colors = IconButtonDefaults.filledIconButtonColors(
-                            containerColor = if (selectedSection == YoinSection.LIBRARY) {
-                                MaterialTheme.colorScheme.primaryContainer
-                            } else {
-                                MaterialTheme.colorScheme.surfaceContainerHighest
-                            },
-                            contentColor = if (selectedSection == YoinSection.LIBRARY) {
-                                MaterialTheme.colorScheme.onPrimaryContainer
-                            } else {
-                                MaterialTheme.colorScheme.onSurfaceVariant
-                            },
+                            containerColor = libraryContainerColor,
+                            contentColor = libraryContentColor,
                         ),
                     ) {
                         Icon(
@@ -402,33 +455,13 @@ private fun NowPlayingArtwork(
         baseModifier
     }
 
-    Box(
-        modifier = finalModifier.clip(YoinShapeTokens.Small),
-        contentAlignment = Alignment.Center,
-    ) {
-        if (currentTrackCoverArtUrl != null) {
-            AsyncImage(
-                model = currentTrackCoverArtUrl,
-                contentDescription = currentTrackTitle ?: "Current track",
-                contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize(),
-            )
-        } else {
-            Surface(
-                modifier = Modifier.fillMaxSize(),
-                color = MaterialTheme.colorScheme.secondaryContainer,
-            ) {
-                Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Icon(
-                        imageVector = Icons.Filled.MusicNote,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onSecondaryContainer,
-                    )
-                }
-            }
-        }
-    }
+    ExpressiveMediaArtwork(
+        model = currentTrackCoverArtUrl,
+        contentDescription = currentTrackTitle ?: "Current track",
+        modifier = finalModifier,
+        shape = YoinShapeTokens.Small,
+        fallbackIcon = Icons.Filled.MusicNote,
+        tonalElevation = 1.dp,
+        shadowElevation = 0.dp,
+    )
 }

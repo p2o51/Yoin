@@ -1,21 +1,21 @@
 package com.gpo.yoin.ui.detail
 
-import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.spring
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.GridItemSpan
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.LibraryMusic
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -26,33 +26,28 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
-import com.gpo.yoin.ui.component.AlbumCard
 import com.gpo.yoin.ui.component.ExpressiveHeaderBlock
 import com.gpo.yoin.ui.component.ExpressiveMediaArtwork
 import com.gpo.yoin.ui.component.ExpressiveMetaPill
 import com.gpo.yoin.ui.component.ExpressivePageBackground
 import com.gpo.yoin.ui.component.ExpressiveSectionPanel
+import com.gpo.yoin.ui.component.SongListItem
 import com.gpo.yoin.ui.component.YoinLoadingIndicator
 import com.gpo.yoin.ui.theme.YoinShapeTokens
 import com.gpo.yoin.ui.theme.YoinTheme
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ArtistDetailScreen(
-    uiState: ArtistDetailUiState,
+fun PlaylistDetailScreen(
+    uiState: PlaylistDetailUiState,
     onBackClick: () -> Unit,
-    onAlbumClick: (albumId: String) -> Unit,
+    onPlayAllClick: () -> Unit,
+    onSongClick: (songId: String) -> Unit,
     onRetry: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -61,7 +56,7 @@ fun ArtistDetailScreen(
             TopAppBar(
                 title = {
                     Text(
-                        text = (uiState as? ArtistDetailUiState.Content)?.artistName.orEmpty(),
+                        text = (uiState as? PlaylistDetailUiState.Content)?.playlistName.orEmpty(),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
@@ -84,7 +79,7 @@ fun ArtistDetailScreen(
     ) { innerPadding ->
         ExpressivePageBackground(modifier = Modifier.padding(innerPadding)) {
             when (uiState) {
-                is ArtistDetailUiState.Loading -> {
+                is PlaylistDetailUiState.Loading -> {
                     androidx.compose.foundation.layout.Box(
                         modifier = Modifier.fillMaxSize(),
                         contentAlignment = Alignment.Center,
@@ -93,7 +88,7 @@ fun ArtistDetailScreen(
                     }
                 }
 
-                is ArtistDetailUiState.Error -> {
+                is PlaylistDetailUiState.Error -> {
                     ExpressiveSectionPanel(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -116,10 +111,11 @@ fun ArtistDetailScreen(
                     }
                 }
 
-                is ArtistDetailUiState.Content -> {
-                    ArtistDetailContent(
+                is PlaylistDetailUiState.Content -> {
+                    PlaylistDetailContent(
                         content = uiState,
-                        onAlbumClick = onAlbumClick,
+                        onPlayAllClick = onPlayAllClick,
+                        onSongClick = onSongClick,
                     )
                 }
             }
@@ -128,29 +124,18 @@ fun ArtistDetailScreen(
 }
 
 @Composable
-private fun ArtistDetailContent(
-    content: ArtistDetailUiState.Content,
-    onAlbumClick: (albumId: String) -> Unit,
+private fun PlaylistDetailContent(
+    content: PlaylistDetailUiState.Content,
+    onPlayAllClick: () -> Unit,
+    onSongClick: (songId: String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    var targetAlpha by remember { mutableFloatStateOf(0f) }
-    val alpha by animateFloatAsState(
-        targetValue = targetAlpha,
-        animationSpec = spring(stiffness = Spring.StiffnessLow),
-        label = "artistContentAlpha",
-    )
-    LaunchedEffect(Unit) { targetAlpha = 1f }
-
-    LazyVerticalGrid(
-        columns = GridCells.Adaptive(minSize = 158.dp),
-        modifier = modifier
-            .fillMaxSize()
-            .alpha(alpha),
+    androidx.compose.foundation.lazy.LazyColumn(
+        modifier = modifier.fillMaxSize(),
         contentPadding = PaddingValues(16.dp),
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        item(span = { GridItemSpan(maxLineSpan) }) {
+        item {
             ExpressiveSectionPanel(
                 modifier = Modifier.fillMaxWidth(),
                 tonalElevation = 4.dp,
@@ -161,113 +146,126 @@ private fun ArtistDetailContent(
                     verticalArrangement = Arrangement.spacedBy(14.dp),
                 ) {
                     ExpressiveMediaArtwork(
-                        model = content.albums.firstOrNull()?.coverArtUrl,
-                        contentDescription = content.artistName,
+                        model = content.coverArtUrl,
+                        contentDescription = content.playlistName,
                         modifier = Modifier
                             .fillMaxWidth()
-                            .aspectRatio(1.2f),
+                            .aspectRatio(1f),
                         shape = YoinShapeTokens.ExtraLarge,
                         fallbackIcon = Icons.Filled.LibraryMusic,
                         shadowElevation = 12.dp,
                         tonalElevation = 3.dp,
                     )
                     ExpressiveHeaderBlock(
-                        title = content.artistName,
-                        overline = "Artist",
+                        title = content.playlistName,
+                        overline = "Playlist",
+                        supporting = content.comment?.takeIf { it.isNotBlank() } ?: "Hand-picked tracks ready to play through.",
                     )
-                    content.albumCount?.let {
-                        ExpressiveMetaPill(text = "$it releases")
+                    PlaylistMetaRow(content = content)
+                    if (content.songs.isNotEmpty()) {
+                        Button(
+                            onClick = onPlayAllClick,
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.PlayArrow,
+                                contentDescription = null,
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Play All")
+                        }
                     }
                 }
             }
         }
 
-        items(
-            items = content.albums,
-            key = { it.id },
-        ) { album ->
-            AlbumCard(
-                coverArtUrl = album.coverArtUrl,
-                title = album.name,
-                subtitle = album.songCount?.let { count -> "$count songs" },
-                metaLabel = album.year?.toString(),
-                onClick = { onAlbumClick(album.id) },
-                modifier = Modifier.fillMaxWidth(),
-                fixedWidth = null,
+        item {
+            Text(
+                text = "Tracks",
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 4.dp),
             )
+        }
+
+        items(content.songs, key = { it.id }) { song ->
+            SongListItem(
+                title = song.title,
+                artist = song.artist,
+                album = song.album,
+                durationSeconds = song.duration,
+                coverArtUrl = song.coverArtUrl,
+                onClick = { onSongClick(song.id) },
+            )
+        }
+
+        item {
+            Spacer(modifier = Modifier.height(116.dp))
         }
     }
 }
 
-@Preview(showBackground = true, backgroundColor = 0xFF1C1B1F)
 @Composable
-private fun ArtistDetailScreenLoadingPreview() {
-    YoinTheme {
-        ArtistDetailScreen(
-            uiState = ArtistDetailUiState.Loading,
-            onBackClick = {},
-            onAlbumClick = {},
-            onRetry = {},
-        )
+private fun PlaylistMetaRow(
+    content: PlaylistDetailUiState.Content,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier = modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        content.owner.takeIf { it.isNotBlank() }?.let { ExpressiveMetaPill(text = it) }
+        content.songCount?.let { ExpressiveMetaPill(text = "$it tracks") }
+        content.totalDuration?.takeIf { it > 0 }?.let { ExpressiveMetaPill(text = formatPlaylistDuration(it)) }
+        content.isPublic?.let { ExpressiveMetaPill(text = if (it) "Public" else "Private") }
+    }
+}
+
+private fun formatPlaylistDuration(seconds: Int): String {
+    val hours = seconds / 3600
+    val minutes = (seconds % 3600) / 60
+    return when {
+        hours > 0 -> "${hours}h ${minutes}m"
+        else -> "${minutes}m"
     }
 }
 
 @Preview(showBackground = true, backgroundColor = 0xFF1C1B1F)
 @Composable
-private fun ArtistDetailScreenContentPreview() {
+private fun PlaylistDetailContentPreview() {
     YoinTheme {
-        ArtistDetailScreen(
-            uiState = ArtistDetailUiState.Content(
-                artistId = "artist-1",
-                artistName = "Daft Punk",
-                albumCount = 4,
-                coverArtId = "cover-artist-1",
-                albums = listOf(
-                    ArtistAlbum(
+        PlaylistDetailScreen(
+            uiState = PlaylistDetailUiState.Content(
+                playlistName = "Late Night Rotation",
+                owner = "gpo",
+                comment = "Pulled from Navidrome",
+                isPublic = false,
+                songCount = 2,
+                totalDuration = 768,
+                coverArtUrl = null,
+                songs = listOf(
+                    PlaylistSong(
                         id = "1",
-                        name = "Random Access Memories",
+                        title = "Paranoid Android",
+                        artist = "Radiohead",
+                        album = "OK Computer",
+                        duration = 386,
                         coverArtUrl = null,
-                        year = 2013,
-                        songCount = 13,
                     ),
-                    ArtistAlbum(
+                    PlaylistSong(
                         id = "2",
-                        name = "TRON: Legacy",
+                        title = "Comfortably Numb",
+                        artist = "Pink Floyd",
+                        album = "The Wall",
+                        duration = 382,
                         coverArtUrl = null,
-                        year = 2010,
-                        songCount = 22,
-                    ),
-                    ArtistAlbum(
-                        id = "3",
-                        name = "Human After All",
-                        coverArtUrl = null,
-                        year = 2005,
-                        songCount = 10,
-                    ),
-                    ArtistAlbum(
-                        id = "4",
-                        name = "Discovery",
-                        coverArtUrl = null,
-                        year = 2001,
-                        songCount = 14,
                     ),
                 ),
             ),
             onBackClick = {},
-            onAlbumClick = {},
-            onRetry = {},
-        )
-    }
-}
-
-@Preview(showBackground = true, backgroundColor = 0xFF1C1B1F)
-@Composable
-private fun ArtistDetailScreenErrorPreview() {
-    YoinTheme {
-        ArtistDetailScreen(
-            uiState = ArtistDetailUiState.Error("Network error"),
-            onBackClick = {},
-            onAlbumClick = {},
+            onPlayAllClick = {},
+            onSongClick = {},
             onRetry = {},
         )
     }

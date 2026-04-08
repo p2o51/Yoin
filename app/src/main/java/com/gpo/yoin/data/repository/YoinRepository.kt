@@ -1,5 +1,8 @@
 package com.gpo.yoin.data.repository
 
+import com.gpo.yoin.data.local.ActivityActionType
+import com.gpo.yoin.data.local.ActivityEntityType
+import com.gpo.yoin.data.local.ActivityEvent
 import com.gpo.yoin.data.local.LocalRating
 import com.gpo.yoin.data.local.PlayHistory
 import com.gpo.yoin.data.local.YoinDatabase
@@ -7,6 +10,7 @@ import com.gpo.yoin.data.remote.Album
 import com.gpo.yoin.data.remote.ArtistDetail
 import com.gpo.yoin.data.remote.ArtistIndex
 import com.gpo.yoin.data.remote.LyricsList
+import com.gpo.yoin.data.remote.Playlist
 import com.gpo.yoin.data.remote.SearchResult
 import com.gpo.yoin.data.remote.Song
 import com.gpo.yoin.data.remote.StarredResponse
@@ -17,6 +21,7 @@ import com.gpo.yoin.data.remote.SubsonicResponseBody
 import com.gpo.yoin.data.remote.ServerCredentials
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlin.math.roundToInt
 
 class YoinRepository(
@@ -101,6 +106,20 @@ class YoinRepository(
         return body.randomSongs?.song.orEmpty()
     }
 
+    // ── Playlists ───────────────────────────────────────────────────────
+
+    suspend fun getPlaylists(username: String? = null): List<Playlist> {
+        requireConfigured()
+        val body = unwrap(api().getPlaylists(username))
+        return body.playlists?.playlist.orEmpty()
+    }
+
+    suspend fun getPlaylist(id: String): Playlist? {
+        requireConfigured()
+        val body = unwrap(api().getPlaylist(id))
+        return body.playlist
+    }
+
     // ── Rating (local float + server sync) ──────────────────────────────
 
     suspend fun setRating(songId: String, rating: Float) {
@@ -154,7 +173,12 @@ class YoinRepository(
 
     // ── Play History ────────────────────────────────────────────────────
 
-    suspend fun recordPlay(song: Song, durationMs: Long, completedPercent: Float) {
+    suspend fun recordPlay(
+        song: Song,
+        durationMs: Long,
+        completedPercent: Float,
+        activityContext: ActivityContext = ActivityContext.None,
+    ) {
         database.playHistoryDao().insert(
             PlayHistory(
                 songId = song.id,
@@ -167,10 +191,47 @@ class YoinRepository(
                 completedPercent = completedPercent,
             ),
         )
+        database.activityEventDao().insert(
+            buildPlaybackActivity(song = song, activityContext = activityContext),
+        )
     }
 
     fun getRecentHistory(limit: Int = 50): Flow<List<PlayHistory>> =
         database.playHistoryDao().getRecentHistory(limit)
+
+    fun getRecentActivities(limit: Int = 20): Flow<List<ActivityEvent>> =
+        database.activityEventDao()
+            .getRecentEvents(limit * 4)
+            .map { events -> collapseAdjacentDuplicates(events).take(limit) }
+
+    suspend fun recordAlbumVisit(album: Album) {
+        database.activityEventDao().insert(
+            ActivityEvent(
+                entityType = ActivityEntityType.ALBUM.name,
+                actionType = ActivityActionType.VISITED.name,
+                entityId = album.id,
+                title = album.name,
+                subtitle = album.artist.orEmpty(),
+                coverArtId = album.coverArt ?: album.id,
+                albumId = album.id,
+                artistId = album.artistId,
+            ),
+        )
+    }
+
+    suspend fun recordArtistVisit(artist: ArtistDetail) {
+        database.activityEventDao().insert(
+            ActivityEvent(
+                entityType = ActivityEntityType.ARTIST.name,
+                actionType = ActivityActionType.VISITED.name,
+                entityId = artist.id,
+                title = artist.name,
+                subtitle = "Artist",
+                coverArtId = artist.coverArt,
+                artistId = artist.id,
+            ),
+        )
+    }
 
     // ── URLs (pass-through) ─────────────────────────────────────────────
 
@@ -200,5 +261,60 @@ class YoinRepository(
             )
         }
         return body
+    }
+
+    private fun buildPlaybackActivity(
+        song: Song,
+        activityContext: ActivityContext,
+    ): ActivityEvent = when (activityContext) {
+        is ActivityContext.Album -> ActivityEvent(
+            entityType = ActivityEntityType.ALBUM.name,
+            actionType = ActivityActionType.PLAYED.name,
+            entityId = activityContext.albumId,
+            title = activityContext.albumName,
+            subtitle = activityContext.artistName.orEmpty().ifBlank { song.artist.orEmpty() },
+            coverArtId = activityContext.coverArtId ?: song.coverArt ?: song.albumId,
+            songId = song.id,
+            albumId = activityContext.albumId,
+            artistId = activityContext.artistId ?: song.artistId,
+        )
+
+        is ActivityContext.Artist -> ActivityEvent(
+            entityType = ActivityEntityType.ARTIST.name,
+            actionType = ActivityActionType.PLAYED.name,
+            entityId = activityContext.artistId,
+            title = activityContext.artistName,
+            subtitle = "Artist",
+            coverArtId = activityContext.coverArtId ?: song.coverArt,
+            songId = song.id,
+            albumId = song.albumId,
+            artistId = activityContext.artistId,
+        )
+
+        ActivityContext.None -> ActivityEvent(
+            entityType = ActivityEntityType.SONG.name,
+            actionType = ActivityActionType.PLAYED.name,
+            entityId = song.id,
+            title = song.title.orEmpty(),
+            subtitle = song.artist.orEmpty(),
+            coverArtId = song.coverArt ?: song.albumId,
+            songId = song.id,
+            albumId = song.albumId,
+            artistId = song.artistId,
+        )
+    }
+
+    private fun collapseAdjacentDuplicates(events: List<ActivityEvent>): List<ActivityEvent> {
+        val collapsed = mutableListOf<ActivityEvent>()
+        events.forEach { event ->
+            val previous = collapsed.lastOrNull()
+            val duplicateOfPrevious = previous != null &&
+                previous.entityType == event.entityType &&
+                previous.entityId == event.entityId
+            if (!duplicateOfPrevious) {
+                collapsed += event
+            }
+        }
+        return collapsed
     }
 }

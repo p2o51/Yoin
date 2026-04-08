@@ -25,6 +25,7 @@ import com.gpo.yoin.ui.navigation.YoinNavHost
 import com.gpo.yoin.ui.theme.CoverColorState
 import com.gpo.yoin.ui.theme.LocalCoverColorState
 import com.gpo.yoin.ui.theme.YoinTheme
+import kotlinx.coroutines.delay
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -58,7 +59,7 @@ fun YoinApp(modifier: Modifier = Modifier) {
         val playbackState by app.container.playbackManager.playbackState.collectAsState()
         val coverArtId = playbackState.currentSong?.coverArt
 
-        LaunchedEffect(coverArtId) {
+        LaunchedEffect(coverArtId, playbackState.queue.size) {
             if (coverArtId != null) {
                 val url = app.container.repository.buildCoverArtUrl(coverArtId)
                 val request = ImageRequest.Builder(context)
@@ -70,7 +71,9 @@ fun YoinApp(modifier: Modifier = Modifier) {
                 if (result is SuccessResult) {
                     coverColorState.updateCover(result.image.toBitmap())
                 }
-            } else {
+            } else if (playbackState.queue.isEmpty()) {
+                // Keep the previous palette during track handoff so the whole app doesn't flash.
+                delay(220)
                 coverColorState.clearCover()
             }
         }

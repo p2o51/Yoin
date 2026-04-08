@@ -7,6 +7,7 @@ import com.gpo.yoin.AppContainer
 import com.gpo.yoin.data.remote.Album
 import com.gpo.yoin.data.remote.Artist
 import com.gpo.yoin.data.remote.ArtistIndex
+import com.gpo.yoin.data.remote.Playlist
 import com.gpo.yoin.data.remote.SearchResult
 import com.gpo.yoin.data.remote.Song
 import com.gpo.yoin.data.remote.StarredResponse
@@ -33,6 +34,7 @@ class LibraryViewModel(
     private var cachedArtists: List<Artist>? = null
     private var cachedAlbums: List<Album>? = null
     private var cachedSongs: List<Song>? = null
+    private var cachedPlaylists: List<Playlist>? = null
     private var cachedFavorites: StarredResponse? = null
 
     init {
@@ -45,6 +47,7 @@ class LibraryViewModel(
         cachedArtists = null
         cachedAlbums = null
         cachedSongs = null
+        cachedPlaylists = null
         cachedFavorites = null
         loadInitialData()
     }
@@ -59,6 +62,7 @@ class LibraryViewModel(
                     artists = artists,
                     albums = emptyList(),
                     songs = emptyList(),
+                    playlists = emptyList(),
                     favorites = null,
                     searchQuery = "",
                     searchResults = null,
@@ -95,6 +99,12 @@ class LibraryViewModel(
                             cachedSongs = repository.getRandomSongs(size = 50)
                         }
                         updateContent { copy(songs = cachedSongs.orEmpty()) }
+                    }
+                    LibraryTab.Playlists -> {
+                        if (cachedPlaylists == null) {
+                            cachedPlaylists = repository.getPlaylists()
+                        }
+                        updateContent { copy(playlists = cachedPlaylists.orEmpty()) }
                     }
                     LibraryTab.Favorites -> {
                         cachedFavorites = repository.getStarred()

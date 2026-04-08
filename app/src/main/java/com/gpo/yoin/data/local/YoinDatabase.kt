@@ -9,8 +9,9 @@ import androidx.room.RoomDatabase
         LocalRating::class,
         CacheMetadata::class,
         PlayHistory::class,
+        ActivityEvent::class,
     ],
-    version = 1,
+    version = 2,
     exportSchema = true,
 )
 abstract class YoinDatabase : RoomDatabase() {
@@ -21,4 +22,6 @@ abstract class YoinDatabase : RoomDatabase() {
     abstract fun cacheMetadataDao(): CacheMetadataDao
 
     abstract fun playHistoryDao(): PlayHistoryDao
+
+    abstract fun activityEventDao(): ActivityEventDao
 }

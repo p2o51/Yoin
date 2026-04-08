@@ -79,6 +79,16 @@ interface SubsonicApi {
         @Query("size") size: Int? = null,
     ): SubsonicResponse
 
+    @GET("rest/getPlaylists.view")
+    suspend fun getPlaylists(
+        @Query("username") username: String? = null,
+    ): SubsonicResponse
+
+    @GET("rest/getPlaylist.view")
+    suspend fun getPlaylist(
+        @Query("id") id: String,
+    ): SubsonicResponse
+
     @GET("rest/setRating.view")
     suspend fun setRating(
         @Query("id") id: String,

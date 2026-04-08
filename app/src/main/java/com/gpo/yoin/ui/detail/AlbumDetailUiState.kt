@@ -4,8 +4,11 @@ sealed interface AlbumDetailUiState {
     data object Loading : AlbumDetailUiState
 
     data class Content(
+        val albumId: String,
         val albumName: String,
         val artistName: String,
+        val artistId: String?,
+        val coverArtId: String?,
         val coverArtUrl: String?,
         val year: Int?,
         val songCount: Int?,

@@ -34,6 +34,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Favorite
@@ -82,14 +83,18 @@ import com.gpo.yoin.player.CastState
 import com.gpo.yoin.player.VisualizerData
 import com.gpo.yoin.ui.component.AudioVisualizer
 import com.gpo.yoin.ui.component.CastButton
+import com.gpo.yoin.ui.component.ExpressiveMediaArtwork
+import com.gpo.yoin.ui.component.horizontalFadeMask
 import com.gpo.yoin.ui.component.LyricsDisplay
 import com.gpo.yoin.ui.component.QueueSheet
 import com.gpo.yoin.ui.component.RatingSlider
 import com.gpo.yoin.ui.component.VisualizerStyle
 import com.gpo.yoin.ui.component.WaveProgressBar
+import com.gpo.yoin.ui.component.minimumTouchTarget
 import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinShapeTokens
 import com.gpo.yoin.ui.theme.YoinTheme
+import com.gpo.yoin.ui.theme.withTabularFigures
 
 /**
  * Full-screen Now Playing overlay.
@@ -204,6 +209,7 @@ private fun PlayingContent(
     }
 
     var showQueue by remember { mutableStateOf(false) }
+    var shouldMaskTitle by remember(state.songId) { mutableStateOf(false) }
 
     val titleStretchScale by animateFloatAsState(
         targetValue = if (state.isPlaying) 1.04f else 1f,
@@ -309,6 +315,8 @@ private fun PlayingContent(
             onTogglePlayPause = onTogglePlayPause,
             onSkipNext = onSkipNext,
             onSkipPrevious = onSkipPrevious,
+            positionMs = state.positionMs,
+            durationMs = state.durationMs,
             progress = progress,
             buffered = buffered,
             onSeek = onSeek,
@@ -332,23 +340,36 @@ private fun PlayingContent(
         } else {
             Modifier.fillMaxWidth()
         }
-        Text(
-            text = state.songTitle,
-            style = MaterialTheme.typography.displaySmall,
-            color = MaterialTheme.colorScheme.onSurface,
-            maxLines = 1,
-            softWrap = false,
+        Box(
             modifier = titleModifier
-                .graphicsLayer {
-                    scaleX = titleStretchScale
-                    transformOrigin = TransformOrigin(0f, 0.5f)
-                }
-                .basicMarquee(
-                    iterations = Int.MAX_VALUE,
-                    repeatDelayMillis = 2000,
-                    initialDelayMillis = 1500,
+                .clipToBounds()
+                .then(
+                    if (shouldMaskTitle) {
+                        Modifier.horizontalFadeMask(edgeWidth = 28.dp)
+                    } else {
+                        Modifier
+                    },
                 ),
-        )
+        ) {
+            Text(
+                text = state.songTitle,
+                style = MaterialTheme.typography.displaySmall,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                softWrap = false,
+                onTextLayout = { shouldMaskTitle = it.didOverflowWidth },
+                modifier = Modifier
+                    .graphicsLayer {
+                        scaleX = titleStretchScale
+                        transformOrigin = TransformOrigin(0f, 0.5f)
+                    }
+                    .basicMarquee(
+                        iterations = Int.MAX_VALUE,
+                        repeatDelayMillis = 2000,
+                        initialDelayMillis = 1500,
+                    ),
+            )
+        }
         Spacer(modifier = Modifier.height(2.dp))
 
         val artistModifier = if (sharedTransitionScope != null && animatedVisibilityScope != null) {
@@ -419,7 +440,9 @@ private fun FavoriteButton(
 
     FilledIconButton(
         onClick = onClick,
-        modifier = modifier.size(40.dp),
+        modifier = modifier
+            .size(44.dp)
+            .minimumTouchTarget(),
         colors = IconButtonDefaults.filledIconButtonColors(
             containerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
             contentColor = heartColor,
@@ -459,32 +482,15 @@ private fun AlbumCover(
         baseModifier
     }
 
-    Surface(
-        modifier = finalModifier.clip(YoinShapeTokens.ExtraLarge),
-        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+    ExpressiveMediaArtwork(
+        model = coverArtUrl,
+        contentDescription = "Album cover",
+        modifier = finalModifier,
         shape = YoinShapeTokens.ExtraLarge,
-    ) {
-        if (coverArtUrl != null) {
-            AsyncImage(
-                model = coverArtUrl,
-                contentDescription = "Album cover",
-                contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize(),
-            )
-        } else {
-            Box(
-                modifier = Modifier.fillMaxSize(),
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(
-                    imageVector = Icons.Filled.PlayArrow,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(48.dp),
-                )
-            }
-        }
-    }
+        fallbackIcon = Icons.Filled.PlayArrow,
+        tonalElevation = 4.dp,
+        shadowElevation = 16.dp,
+    )
 }
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
@@ -494,6 +500,8 @@ private fun PlaybackControls(
     onTogglePlayPause: () -> Unit,
     onSkipNext: () -> Unit,
     onSkipPrevious: () -> Unit,
+    positionMs: Long,
+    durationMs: Long,
     progress: Float,
     buffered: Float,
     onSeek: (Float) -> Unit,
@@ -535,14 +543,17 @@ private fun PlaybackControls(
                             onClick = onTogglePlayPause,
                             modifier = Modifier
                                 .height(56.dp)
-                                .animateWidth(interactionSource)
+                                .widthIn(min = 132.dp)
                                 .graphicsLayer { scaleX = stretchScale },
                             shape = MaterialTheme.shapes.extraLarge,
                             interactionSource = interactionSource,
+                            contentPadding = PaddingValues(horizontal = 20.dp),
                         ) {
                             Text(
                                 text = if (isPlaying) "PAUSE" else "PLAY",
                                 style = MaterialTheme.typography.titleLarge,
+                                maxLines = 1,
+                                softWrap = false,
                                 modifier = Modifier.graphicsLayer {
                                     scaleX = textStretchScale
                                 },
@@ -558,8 +569,7 @@ private fun PlaybackControls(
                         FilledIconButton(
                             onClick = onSkipNext,
                             modifier = Modifier
-                                .size(56.dp)
-                                .animateWidth(interactionSource),
+                                .size(56.dp),
                             interactionSource = interactionSource,
                             colors = IconButtonDefaults.filledIconButtonColors(
                                 containerColor = MaterialTheme.colorScheme.secondaryContainer,
@@ -596,7 +606,7 @@ private fun PlaybackControls(
             }
         }
 
-        Spacer(modifier = Modifier.height(8.dp))
+        Spacer(modifier = Modifier.height(4.dp))
 
         // Row 2: Skip Previous + Progress Bar (same row)
         Row(
@@ -619,15 +629,42 @@ private fun PlaybackControls(
                 )
             }
 
-            WaveProgressBar(
-                progress = progress,
-                buffered = buffered,
-                onSeek = onSeek,
-                isPlaying = isPlaying,
-                modifier = Modifier.weight(1f),
+            PlaybackTimeLabel(
+                text = formatTime(positionMs),
+                modifier = Modifier.width(44.dp),
+            )
+            Box(modifier = Modifier.weight(1f)) {
+                WaveProgressBar(
+                    progress = progress,
+                    buffered = buffered,
+                    durationMs = durationMs,
+                    onSeek = onSeek,
+                    isPlaying = isPlaying,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+            PlaybackTimeLabel(
+                text = "-${formatTime((durationMs - positionMs).coerceAtLeast(0L))}",
+                modifier = Modifier.width(52.dp),
+                textAlign = androidx.compose.ui.text.style.TextAlign.End,
             )
         }
     }
+}
+
+@Composable
+private fun PlaybackTimeLabel(
+    text: String,
+    modifier: Modifier = Modifier,
+    textAlign: androidx.compose.ui.text.style.TextAlign = androidx.compose.ui.text.style.TextAlign.Start,
+) {
+    Text(
+        text = text,
+        style = MaterialTheme.typography.labelLarge.withTabularFigures(),
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        textAlign = textAlign,
+        modifier = modifier,
+    )
 }
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
@@ -662,7 +699,7 @@ private fun BottomPills(
         ButtonGroup(
             overflowIndicator = { _ -> },
             expandedRatio = ButtonGroupDefaults.ExpandedRatio,
-            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            horizontalArrangement = Arrangement.spacedBy(2.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             customItem(
@@ -673,6 +710,7 @@ private fun BottomPills(
                         label = "Queue",
                         showLabel = !anyPressed || queuePressed,
                         interactionSource = queueInteraction,
+                        shape = YoinShapeTokens.Full,
                     )
                 },
                 menuContent = { _ -> },
@@ -685,6 +723,7 @@ private fun BottomPills(
                         label = "Devices",
                         showLabel = !anyPressed || devicesPressed,
                         interactionSource = devicesInteraction,
+                        shape = RoundedCornerShape(20.dp),
                     )
                 },
                 menuContent = { _ -> },
@@ -697,6 +736,7 @@ private fun BottomPills(
                         label = "Notes",
                         showLabel = !anyPressed || notesPressed,
                         interactionSource = notesInteraction,
+                        shape = YoinShapeTokens.Full,
                     )
                 },
                 menuContent = { _ -> },
@@ -713,6 +753,7 @@ private fun ButtonGroupScope.PillButton(
     label: String,
     showLabel: Boolean,
     interactionSource: MutableInteractionSource,
+    shape: androidx.compose.ui.graphics.Shape,
 ) {
     val labelFraction by animateFloatAsState(
         targetValue = if (showLabel) 1f else 0f,
@@ -723,10 +764,11 @@ private fun ButtonGroupScope.PillButton(
     FilledTonalButton(
         onClick = onClick,
         modifier = Modifier
-            .height(36.dp)
+            .height(44.dp)
+            .minimumTouchTarget()
             .animateWidth(interactionSource),
         interactionSource = interactionSource,
-        shape = RoundedCornerShape(8.dp),
+        shape = shape,
         contentPadding = PaddingValues(horizontal = 10.dp),
     ) {
         Icon(
@@ -848,6 +890,8 @@ private fun PlaybackControlsPreview() {
             onTogglePlayPause = {},
             onSkipNext = {},
             onSkipPrevious = {},
+            positionMs = 96_000L,
+            durationMs = 240_000L,
             progress = 0.4f,
             buffered = 0.7f,
             onSeek = {},

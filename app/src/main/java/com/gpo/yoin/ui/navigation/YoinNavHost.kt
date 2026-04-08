@@ -44,11 +44,15 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.toRoute
 import com.gpo.yoin.YoinApplication
+import com.gpo.yoin.data.repository.ActivityContext
 import com.gpo.yoin.ui.component.YoinButtonGroup
 import com.gpo.yoin.ui.detail.AlbumDetailScreen
+import com.gpo.yoin.ui.detail.AlbumDetailUiState
 import com.gpo.yoin.ui.detail.AlbumDetailViewModel
 import com.gpo.yoin.ui.detail.ArtistDetailScreen
 import com.gpo.yoin.ui.detail.ArtistDetailViewModel
+import com.gpo.yoin.ui.detail.PlaylistDetailScreen
+import com.gpo.yoin.ui.detail.PlaylistDetailViewModel
 import com.gpo.yoin.ui.home.HomeScreen
 import com.gpo.yoin.ui.home.HomeViewModel
 import com.gpo.yoin.ui.library.LibraryScreen
@@ -92,6 +96,7 @@ fun YoinNavHost(
                 onNavigateToSettings = { navController.navigate(YoinRoute.Settings) },
                 onNavigateToAlbum = { navController.navigate(YoinRoute.AlbumDetail(it)) },
                 onNavigateToArtist = { navController.navigate(YoinRoute.ArtistDetail(it)) },
+                onNavigateToPlaylist = { navController.navigate(YoinRoute.PlaylistDetail(it)) },
             )
         }
 
@@ -113,10 +118,20 @@ fun YoinNavHost(
                 onSongClick = { songId ->
                     val songs = viewModel.getAlbumSongs()
                     val index = songs.indexOfFirst { it.id == songId }.coerceAtLeast(0)
+                    val activityContext = (uiState as? AlbumDetailUiState.Content)?.let { content ->
+                        ActivityContext.Album(
+                            albumId = content.albumId,
+                            albumName = content.albumName,
+                            artistName = content.artistName,
+                            artistId = content.artistId,
+                            coverArtId = content.coverArtId,
+                        )
+                    } ?: ActivityContext.None
                     app.container.playbackManager.play(
                         songs = songs,
                         startIndex = index,
                         credentials = app.container.getCredentials(),
+                        activityContext = activityContext,
                     )
                 },
                 onToggleStar = viewModel::toggleStar,
@@ -146,6 +161,44 @@ fun YoinNavHost(
             )
         }
 
+        composable<YoinRoute.PlaylistDetail>(
+            enterTransition = { YoinMotion.navEnterForward },
+            exitTransition = { YoinMotion.navExitForward },
+            popEnterTransition = { YoinMotion.navEnterBack },
+            popExitTransition = { YoinMotion.navExitBack },
+        ) { backStackEntry ->
+            val route = backStackEntry.toRoute<YoinRoute.PlaylistDetail>()
+            val app = LocalContext.current.applicationContext as YoinApplication
+            val viewModel: PlaylistDetailViewModel = viewModel(
+                factory = PlaylistDetailViewModel.Factory(route.playlistId, app.container),
+            )
+            val uiState by viewModel.uiState.collectAsState()
+            PlaylistDetailScreen(
+                uiState = uiState,
+                onBackClick = { navController.popBackStack() },
+                onPlayAllClick = {
+                    val songs = viewModel.getPlaylistSongs()
+                    if (songs.isNotEmpty()) {
+                        app.container.playbackManager.play(
+                            songs = songs,
+                            startIndex = 0,
+                            credentials = app.container.getCredentials(),
+                        )
+                    }
+                },
+                onSongClick = { songId ->
+                    val songs = viewModel.getPlaylistSongs()
+                    val index = songs.indexOfFirst { it.id == songId }.coerceAtLeast(0)
+                    app.container.playbackManager.play(
+                        songs = songs,
+                        startIndex = index,
+                        credentials = app.container.getCredentials(),
+                    )
+                },
+                onRetry = viewModel::retry,
+            )
+        }
+
         composable<YoinRoute.Settings>(
             enterTransition = { YoinMotion.navEnterForward },
             exitTransition = { YoinMotion.navExitForward },
@@ -170,6 +223,7 @@ private fun YoinShell(
     onNavigateToSettings: () -> Unit,
     onNavigateToAlbum: (String) -> Unit,
     onNavigateToArtist: (String) -> Unit,
+    onNavigateToPlaylist: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     var selectedSection by rememberSaveable { mutableStateOf(YoinSection.HOME) }
@@ -234,6 +288,7 @@ private fun YoinShell(
                     visualizerData = visualizerData,
                     onNavigateToSettings = onNavigateToSettings,
                     onAlbumClick = onNavigateToAlbum,
+                    onArtistClick = onNavigateToArtist,
                     onSongClick = { song ->
                         app.container.playbackManager.playSingle(
                             song,
@@ -248,6 +303,7 @@ private fun YoinShell(
                     onNavigateToSettings = onNavigateToSettings,
                     onArtistClick = onNavigateToArtist,
                     onAlbumClick = onNavigateToAlbum,
+                    onPlaylistClick = onNavigateToPlaylist,
                     onSongClick = { song ->
                         app.container.playbackManager.playSingle(
                             song,

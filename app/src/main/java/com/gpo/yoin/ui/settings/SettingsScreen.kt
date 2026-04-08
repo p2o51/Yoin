@@ -7,10 +7,8 @@ import androidx.compose.animation.core.spring
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -21,12 +19,9 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Error
 import androidx.compose.material3.Button
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -41,8 +36,13 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import com.gpo.yoin.ui.component.ExpressiveHeaderBlock
+import com.gpo.yoin.ui.component.ExpressivePageBackground
+import com.gpo.yoin.ui.component.ExpressiveSectionPanel
+import com.gpo.yoin.ui.component.ExpressiveTextField
 import com.gpo.yoin.ui.component.YoinLoadingIndicator
 import com.gpo.yoin.ui.theme.YoinMotion
+import com.gpo.yoin.ui.theme.YoinShapeTokens
 import com.gpo.yoin.ui.theme.YoinTheme
 
 @Composable
@@ -82,10 +82,7 @@ fun SettingsContent(
         label = "contentAlpha",
     )
 
-    Surface(
-        modifier = modifier.fillMaxSize(),
-        color = MaterialTheme.colorScheme.background,
-    ) {
+    ExpressivePageBackground(modifier = modifier) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -93,14 +90,11 @@ fun SettingsContent(
                 .statusBarsPadding()
                 .padding(16.dp)
                 .alpha(contentAlpha),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            Text(
-                text = "Settings",
-                style = MaterialTheme.typography.headlineMedium,
-                color = MaterialTheme.colorScheme.onBackground,
+            ExpressiveHeaderBlock(
+                title = "Settings",
             )
-
-            Spacer(modifier = Modifier.height(24.dp))
 
             when (uiState) {
                 is SettingsUiState.Loading -> {
@@ -108,6 +102,7 @@ fun SettingsContent(
                         modifier = Modifier.align(Alignment.CenterHorizontally),
                     )
                 }
+
                 is SettingsUiState.Connecting -> {
                     ServerSection(
                         initialUrl = "",
@@ -119,6 +114,7 @@ fun SettingsContent(
                         onDismissConnectionResult = onDismissConnectionResult,
                     )
                 }
+
                 is SettingsUiState.Content -> {
                     ServerSection(
                         initialUrl = uiState.serverUrl,
@@ -129,28 +125,30 @@ fun SettingsContent(
                         onSaveServer = onSaveServer,
                         onDismissConnectionResult = onDismissConnectionResult,
                     )
-                    Spacer(modifier = Modifier.height(24.dp))
-                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-                    Spacer(modifier = Modifier.height(24.dp))
                     CacheSection(
                         cacheSizeBytes = uiState.cacheSizeBytes,
                         onClearCache = onClearCache,
                     )
-                    Spacer(modifier = Modifier.height(24.dp))
-                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-                    Spacer(modifier = Modifier.height(24.dp))
                     AboutSection()
                 }
+
                 is SettingsUiState.Error -> {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text(
-                            text = uiState.message,
-                            color = MaterialTheme.colorScheme.error,
-                            style = MaterialTheme.typography.bodyLarge,
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
-                        TextButton(onClick = onRetry) {
-                            Text("Retry")
+                    ExpressiveSectionPanel(
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(20.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(10.dp),
+                        ) {
+                            Text(
+                                text = uiState.message,
+                                color = MaterialTheme.colorScheme.error,
+                                style = MaterialTheme.typography.bodyLarge,
+                            )
+                            TextButton(onClick = onRetry) {
+                                Text("Retry")
+                            }
                         }
                     }
                 }
@@ -174,81 +172,79 @@ private fun ServerSection(
     var username by rememberSaveable { mutableStateOf(initialUsername) }
     var password by rememberSaveable { mutableStateOf("") }
 
-    Column(modifier = modifier.fillMaxWidth()) {
-        Text(
-            text = "Server",
-            style = MaterialTheme.typography.titleMedium,
-            color = MaterialTheme.colorScheme.onBackground,
-        )
-
-        Spacer(modifier = Modifier.height(12.dp))
-
-        OutlinedTextField(
-            value = serverUrl,
-            onValueChange = {
-                serverUrl = it
-                onDismissConnectionResult()
-            },
-            label = { Text("Server URL") },
-            placeholder = { Text("https://your-server.com") },
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth(),
-        )
-
-        Spacer(modifier = Modifier.height(8.dp))
-
-        OutlinedTextField(
-            value = username,
-            onValueChange = {
-                username = it
-                onDismissConnectionResult()
-            },
-            label = { Text("Username") },
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth(),
-        )
-
-        Spacer(modifier = Modifier.height(8.dp))
-
-        OutlinedTextField(
-            value = password,
-            onValueChange = {
-                password = it
-                onDismissConnectionResult()
-            },
-            label = { Text("Password") },
-            singleLine = true,
-            visualTransformation = PasswordVisualTransformation(),
-            modifier = Modifier.fillMaxWidth(),
-        )
-
-        Spacer(modifier = Modifier.height(16.dp))
-
-        ConnectionStatusIndicator(
-            connectionResult = connectionResult,
-            isConnecting = isConnecting,
-        )
-
-        Spacer(modifier = Modifier.height(16.dp))
-
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ExpressiveSectionPanel(
+        modifier = modifier.fillMaxWidth(),
+        tonalElevation = 3.dp,
+        shadowElevation = 8.dp,
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            OutlinedButton(
-                onClick = { onTestConnection(serverUrl, username, password) },
-                enabled = !isConnecting && serverUrl.isNotBlank(),
-                modifier = Modifier.weight(1f),
-            ) {
-                Text("Test Connection")
-            }
+            ExpressiveHeaderBlock(
+                title = "Server",
+            )
 
-            Button(
-                onClick = { onSaveServer(serverUrl, username, password) },
-                enabled = !isConnecting && serverUrl.isNotBlank() && username.isNotBlank(),
-                modifier = Modifier.weight(1f),
+            ExpressiveTextField(
+                value = serverUrl,
+                onValueChange = {
+                    serverUrl = it
+                    onDismissConnectionResult()
+                },
+                label = "Server URL",
+                placeholder = "https://your-server.com",
+                modifier = Modifier.fillMaxWidth(),
+            )
+
+            ExpressiveTextField(
+                value = username,
+                onValueChange = {
+                    username = it
+                    onDismissConnectionResult()
+                },
+                label = "Username",
+                placeholder = "music-admin",
+                modifier = Modifier.fillMaxWidth(),
+            )
+
+            ExpressiveTextField(
+                value = password,
+                onValueChange = {
+                    password = it
+                    onDismissConnectionResult()
+                },
+                label = "Password",
+                placeholder = "App password",
+                visualTransformation = PasswordVisualTransformation(),
+                modifier = Modifier.fillMaxWidth(),
+            )
+
+            ConnectionStatusIndicator(
+                connectionResult = connectionResult,
+                isConnecting = isConnecting,
+            )
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                Text("Save")
+                OutlinedButton(
+                    onClick = { onTestConnection(serverUrl, username, password) },
+                    enabled = !isConnecting && serverUrl.isNotBlank(),
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Text("Test Connection")
+                }
+
+                Button(
+                    onClick = { onSaveServer(serverUrl, username, password) },
+                    enabled = !isConnecting && serverUrl.isNotBlank() && username.isNotBlank(),
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Text("Save")
+                }
             }
         }
     }
@@ -260,21 +256,15 @@ private fun ConnectionStatusIndicator(
     isConnecting: Boolean,
     modifier: Modifier = Modifier,
 ) {
-    val targetAlpha = if (connectionResult != null || isConnecting) 1f else 0f
     val alpha by animateFloatAsState(
-        targetValue = targetAlpha,
+        targetValue = if (connectionResult != null || isConnecting) 1f else 0.88f,
         animationSpec = YoinMotion.effectsSpring(),
         label = "statusAlpha",
     )
-
     val statusColor by animateColorAsState(
         targetValue = when (connectionResult) {
-            is SettingsViewModel.ConnectionResult.Success ->
-                MaterialTheme.colorScheme.primary
-
-            is SettingsViewModel.ConnectionResult.Failure ->
-                MaterialTheme.colorScheme.error
-
+            is SettingsViewModel.ConnectionResult.Success -> MaterialTheme.colorScheme.primary
+            is SettingsViewModel.ConnectionResult.Failure -> MaterialTheme.colorScheme.error
             null -> MaterialTheme.colorScheme.onSurfaceVariant
         },
         animationSpec = spring(
@@ -284,52 +274,72 @@ private fun ConnectionStatusIndicator(
         label = "statusColor",
     )
 
-    Row(
+    ExpressiveSectionPanel(
         modifier = modifier
             .fillMaxWidth()
             .alpha(alpha),
-        verticalAlignment = Alignment.CenterVertically,
+        shape = YoinShapeTokens.Large,
+        containerColor = MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.76f),
+        tonalElevation = 1.dp,
+        shadowElevation = 0.dp,
     ) {
-        when {
-            isConnecting -> {
-                YoinLoadingIndicator(
-                    modifier = Modifier.size(20.dp),
-                    size = 20.dp,
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = "Testing connection…",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            connectionResult is SettingsViewModel.ConnectionResult.Success -> {
-                Icon(
-                    imageVector = Icons.Filled.CheckCircle,
-                    contentDescription = "Connected",
-                    tint = statusColor,
-                    modifier = Modifier.size(20.dp),
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = "Connection successful",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = statusColor,
-                )
-            }
-            connectionResult is SettingsViewModel.ConnectionResult.Failure -> {
-                Icon(
-                    imageVector = Icons.Filled.Error,
-                    contentDescription = "Error",
-                    tint = statusColor,
-                    modifier = Modifier.size(20.dp),
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = connectionResult.message,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = statusColor,
-                )
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            when {
+                isConnecting -> {
+                    YoinLoadingIndicator(
+                        modifier = Modifier.size(20.dp),
+                        size = 20.dp,
+                    )
+                    androidx.compose.foundation.layout.Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "Testing connection…",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+
+                connectionResult is SettingsViewModel.ConnectionResult.Success -> {
+                    Icon(
+                        imageVector = Icons.Filled.CheckCircle,
+                        contentDescription = "Connected",
+                        tint = statusColor,
+                        modifier = Modifier.size(20.dp),
+                    )
+                    androidx.compose.foundation.layout.Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "Connection successful",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = statusColor,
+                    )
+                }
+
+                connectionResult is SettingsViewModel.ConnectionResult.Failure -> {
+                    Icon(
+                        imageVector = Icons.Filled.Error,
+                        contentDescription = "Error",
+                        tint = statusColor,
+                        modifier = Modifier.size(20.dp),
+                    )
+                    androidx.compose.foundation.layout.Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = connectionResult.message,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = statusColor,
+                    )
+                }
+
+                else -> {
+                    Text(
+                        text = "Ready to test the current server settings.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
         }
     }
@@ -341,28 +351,31 @@ private fun CacheSection(
     onClearCache: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Column(modifier = modifier.fillMaxWidth()) {
-        Text(
-            text = "Cache",
-            style = MaterialTheme.typography.titleMedium,
-            color = MaterialTheme.colorScheme.onBackground,
-        )
-
-        Spacer(modifier = Modifier.height(12.dp))
-
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
+    ExpressiveSectionPanel(
+        modifier = modifier.fillMaxWidth(),
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Text(
-                text = "Cache size: ${formatBytes(cacheSizeBytes)}",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            ExpressiveHeaderBlock(
+                title = "Cache",
             )
 
-            OutlinedButton(onClick = onClearCache) {
-                Text("Clear Cache")
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = "Cache size: ${formatBytes(cacheSizeBytes)}",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+
+                OutlinedButton(onClick = onClearCache) {
+                    Text("Clear Cache")
+                }
             }
         }
     }
@@ -370,28 +383,29 @@ private fun CacheSection(
 
 @Composable
 private fun AboutSection(modifier: Modifier = Modifier) {
-    Column(modifier = modifier.fillMaxWidth()) {
-        Text(
-            text = "About",
-            style = MaterialTheme.typography.titleMedium,
-            color = MaterialTheme.colorScheme.onBackground,
-        )
+    ExpressiveSectionPanel(
+        modifier = modifier.fillMaxWidth(),
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            ExpressiveHeaderBlock(
+                title = "About",
+            )
 
-        Spacer(modifier = Modifier.height(12.dp))
+            Text(
+                text = "Built for testing navigation, playback, and Subsonic integration.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
 
-        Text(
-            text = "Yoin — Subsonic Music Client",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-
-        Spacer(modifier = Modifier.height(4.dp))
-
-        Text(
-            text = "Version 0.1.0",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
+            Text(
+                text = "Version 0.1.0",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
     }
 }
 
@@ -401,8 +415,6 @@ private fun formatBytes(bytes: Long): String = when {
     bytes < 1_073_741_824L -> "%.1f MB".format(bytes / 1_048_576.0)
     else -> "%.2f GB".format(bytes / 1_073_741_824.0)
 }
-
-// ── Previews ────────────────────────────────────────────────────────────
 
 @Preview(showBackground = true, backgroundColor = 0xFF1C1B1F)
 @Composable

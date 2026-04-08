@@ -9,6 +9,8 @@ import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
+import com.gpo.yoin.data.repository.ActivityContext
+import com.gpo.yoin.data.repository.YoinRepository
 import com.gpo.yoin.data.remote.ServerCredentials
 import com.gpo.yoin.data.remote.Song
 import com.gpo.yoin.data.remote.SubsonicApiFactory
@@ -31,6 +33,7 @@ import kotlin.coroutines.resumeWithException
 
 class PlaybackManager(
     private val context: Context,
+    private val repository: YoinRepository,
     private val castManager: CastManager? = null,
 ) {
     private var controller: MediaController? = null
@@ -38,6 +41,8 @@ class PlaybackManager(
     private var positionUpdateJob: Job? = null
     private var connectJob: Job? = null
     private val pendingCommands = mutableListOf<(MediaController) -> Unit>()
+    private var lastRecordedSongId: String? = null
+    private var currentActivityContext: ActivityContext = ActivityContext.None
 
     private val _playbackState = MutableStateFlow(PlaybackState())
     val playbackState: StateFlow<PlaybackState> = _playbackState.asStateFlow()
@@ -102,7 +107,14 @@ class PlaybackManager(
 
     // ── Playback controls ───────────────────────────────────────────────
 
-    fun play(songs: List<Song>, startIndex: Int = 0, credentials: ServerCredentials) {
+    fun play(
+        songs: List<Song>,
+        startIndex: Int = 0,
+        credentials: ServerCredentials,
+        activityContext: ActivityContext = ActivityContext.None,
+    ) {
+        lastRecordedSongId = null
+        currentActivityContext = activityContext
         executeOrQueue { player ->
             val items = songs.map { it.toMediaItem(credentials) }
             player.setMediaItems(items, startIndex, 0L)
@@ -111,8 +123,12 @@ class PlaybackManager(
         }
     }
 
-    fun playSingle(song: Song, credentials: ServerCredentials) {
-        play(listOf(song), 0, credentials)
+    fun playSingle(
+        song: Song,
+        credentials: ServerCredentials,
+        activityContext: ActivityContext = ActivityContext.None,
+    ) {
+        play(listOf(song), 0, credentials, activityContext)
     }
 
     fun pause() {
@@ -166,6 +182,7 @@ class PlaybackManager(
     }
 
     fun skipToQueueItem(index: Int) {
+        lastRecordedSongId = null
         executeOrQueue { player ->
             if (index in 0 until player.mediaItemCount) {
                 player.seekToDefaultPosition(index)
@@ -235,6 +252,23 @@ class PlaybackManager(
             controllerReady = true,
             connectionErrorMessage = null,
         )
+
+        val shouldRecord = player.isPlaying &&
+            resolvedCurrentSong != null &&
+            resolvedCurrentSong.id != lastRecordedSongId
+        if (shouldRecord) {
+            val song = checkNotNull(resolvedCurrentSong)
+            lastRecordedSongId = song.id
+            scope.launch {
+                repository.recordPlay(
+                    song = song,
+                    durationMs = player.duration.coerceAtLeast(0L).takeIf { it > 0L }
+                        ?: ((song.duration ?: 0) * 1_000L),
+                    completedPercent = 0f,
+                    activityContext = currentActivityContext,
+                )
+            }
+        }
     }
 
     private fun startPositionUpdates() {

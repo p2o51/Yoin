@@ -12,6 +12,8 @@ import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.ui.graphics.TransformOrigin
+import kotlin.math.roundToInt
 
 /**
  * Spring animation specifications following MD3 Expressive Motion Physics.
@@ -21,6 +23,7 @@ import androidx.compose.animation.slideOutVertically
  * - StiffSpatialSpring: for quick micro-interactions (icon press, toggle feedback)
  */
 object YoinMotion {
+    private val PredictiveBackTransformOrigin = TransformOrigin(0f, 0.5f)
 
     /** Spatial Spring — position and size changes. */
     fun <T> spatialSpring() = spring<T>(
@@ -46,32 +49,36 @@ object YoinMotion {
         stiffness = Spring.StiffnessMedium,
     )
 
-    // ── Navigation transition helpers ──────────────────────────────────
+    // Navigation transitions
 
     /** Slide-in from right + fade-in — forward navigation enter. */
     val navEnterForward: EnterTransition =
-        slideInHorizontally(spring(stiffness = Spring.StiffnessMediumLow)) { it } +
+        slideInHorizontally(spring(stiffness = Spring.StiffnessMediumLow)) {
+            (it * 0.14f).roundToInt()
+        } +
             fadeIn(spring(stiffness = Spring.StiffnessLow))
 
     /** Scale down + fade-out — parent page recedes when child opens. */
     val navExitForward: ExitTransition =
         scaleOut(
             animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
-            targetScale = 0.9f,
+            targetScale = 0.96f,
         ) + fadeOut(spring(stiffness = Spring.StiffnessLow))
 
     /** Scale up + fade-in — parent page returns when child closes. */
     val navEnterBack: EnterTransition =
         scaleIn(
             animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
-            initialScale = 0.9f,
+            initialScale = 0.94f,
+            transformOrigin = PredictiveBackTransformOrigin,
         ) + fadeIn(spring(stiffness = Spring.StiffnessLow))
 
-    /** Scale down + fade-out — child page shrinks away on back. */
+    /** Scale down + fade-out — child page follows predictive back without collapsing away. */
     val navExitBack: ExitTransition =
         scaleOut(
             animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
             targetScale = 0.9f,
+            transformOrigin = PredictiveBackTransformOrigin,
         ) + fadeOut(spring(stiffness = Spring.StiffnessLow))
 
     /** Slide-up + fade-in — fullscreen overlay enter (e.g., Now Playing). */

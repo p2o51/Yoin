@@ -1,76 +1,101 @@
 package com.gpo.yoin.ui.component
 
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.LibraryMusic
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalInspectionMode
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
-import coil3.compose.AsyncImage
-import com.gpo.yoin.R
 import com.gpo.yoin.ui.theme.YoinShapeTokens
 import com.gpo.yoin.ui.theme.YoinTheme
 
 @Composable
 fun AlbumCard(
     coverArtUrl: String?,
-    albumName: String,
-    artistName: String,
+    title: String,
+    subtitle: String? = null,
+    metaLabel: String? = null,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    fixedWidth: androidx.compose.ui.unit.Dp? = 156.dp,
 ) {
-    Column(
-        modifier = modifier
-            .width(150.dp)
-            .clip(YoinShapeTokens.Medium)
-            .clickable(onClick = onClick),
+    val interactionSource = remember { MutableInteractionSource() }
+
+    Surface(
+        onClick = onClick,
+        modifier = modifier.then(
+            if (fixedWidth != null) {
+                Modifier.width(fixedWidth)
+            } else {
+                Modifier
+            },
+        ),
+        shape = YoinShapeTokens.ExtraLarge,
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        tonalElevation = 3.dp,
+        shadowElevation = 8.dp,
+        interactionSource = interactionSource,
     ) {
-        if (LocalInspectionMode.current) {
-            // Preview placeholder
-            androidx.compose.foundation.Image(
-                painter = painterResource(id = R.drawable.ic_launcher_foreground),
-                contentDescription = albumName,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier
-                    .size(150.dp)
-                    .clip(YoinShapeTokens.Medium),
-            )
-        } else {
-            AsyncImage(
+        Column(
+            modifier = Modifier
+                .fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            ExpressiveMediaArtwork(
                 model = coverArtUrl,
-                contentDescription = albumName,
-                contentScale = ContentScale.Crop,
+                contentDescription = title,
                 modifier = Modifier
-                    .size(150.dp)
-                    .clip(YoinShapeTokens.Medium),
+                    .fillMaxWidth()
+                    .aspectRatio(1f),
+                shape = YoinShapeTokens.Large,
+                fallbackIcon = Icons.Filled.LibraryMusic,
+                interactionSource = interactionSource,
+                tonalElevation = 1.dp,
             )
+
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(72.dp)
+                    .padding(horizontal = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                if (!metaLabel.isNullOrBlank()) {
+                    ExpressiveMetaPill(text = metaLabel)
+                }
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                if (!subtitle.isNullOrBlank()) {
+                    Text(
+                        text = subtitle,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                Spacer(modifier = Modifier.height(2.dp))
+            }
         }
-        Spacer(modifier = Modifier.height(6.dp))
-        Text(
-            text = albumName,
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurface,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
-        Text(
-            text = artistName,
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
     }
 }
 
@@ -80,9 +105,11 @@ private fun AlbumCardPreview() {
     YoinTheme {
         AlbumCard(
             coverArtUrl = null,
-            albumName = "Random Access Memories",
-            artistName = "Daft Punk",
+            title = "Random Access Memories",
+            subtitle = "Daft Punk",
+            metaLabel = "2013",
             onClick = {},
+            fixedWidth = null,
         )
     }
 }
