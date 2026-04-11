@@ -1,5 +1,6 @@
 package com.gpo.yoin.ui.navigation
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedContentTransitionScope
 import androidx.compose.animation.AnimatedVisibility
@@ -11,7 +12,10 @@ import androidx.compose.animation.SharedTransitionLayout
 import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.draggable
@@ -65,6 +69,7 @@ import com.gpo.yoin.ui.memories.MemoryEntry
 import com.gpo.yoin.ui.memories.MemoriesScreen
 import com.gpo.yoin.ui.memories.MemoriesViewModel
 import com.gpo.yoin.ui.navigation.back.BackMotionTokens
+import com.gpo.yoin.ui.navigation.back.BackSurfaceController
 import com.gpo.yoin.ui.navigation.back.BackSurfaceKind
 import com.gpo.yoin.ui.navigation.back.ShellBackOwner
 import com.gpo.yoin.ui.navigation.back.YoinBackSurface
@@ -77,6 +82,7 @@ import com.gpo.yoin.ui.settings.SettingsViewModel
 import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinMotionRole
 import com.gpo.yoin.ui.theme.YoinTheme
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalSharedTransitionApi::class)
@@ -345,11 +351,23 @@ private fun YoinShell(
     val castState by app.container.castManager.castState.collectAsState()
     val nowPlayingUiState by nowPlayingViewModel.uiState.collectAsState()
     val memoriesEnterSpec = YoinMotion.slowSpatialSpec<Float>(role = YoinMotionRole.Standard)
+    val memoriesExitSpec = YoinMotion.defaultSpatialSpec<Float>(role = YoinMotionRole.Standard)
     val shellFadeSpec = YoinMotion.defaultEffectsSpec<Float>(role = YoinMotionRole.Standard)
     val shellScope = rememberCoroutineScope()
-    val nowPlayingBackController = rememberBackSurfaceController()
+    val nowPlayingBackController = remember {
+        BackSurfaceController { from: Float, to: Float, onValue: (Float) -> Unit ->
+            animate(
+                initialValue = from,
+                targetValue = to,
+                animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
+            ) { value, _ ->
+                onValue(value)
+            }
+        }
+    }
     val memoriesBackController = rememberBackSurfaceController()
     var memoriesMounted by remember { mutableStateOf(homeSurface == HomeSurface.Memories) }
+    var memoriesCloseJob by remember { mutableStateOf<Job?>(null) }
 
     val coverArtUrl = playbackState.currentSong?.coverArt?.let {
         app.container.repository.buildCoverArtUrl(it)
@@ -374,7 +392,6 @@ private fun YoinShell(
     val closeNowPlaying = remember(experienceSessionStore, nowPlayingBackController) {
         {
             experienceSessionStore.setNowPlayingExpanded(false)
-            nowPlayingBackController.reset()
             Unit
         }
     }
@@ -382,14 +399,25 @@ private fun YoinShell(
         experienceSessionStore,
         memoriesBackController,
         memoriesEntryOffset,
+        memoriesExitSpec,
         shellScope,
     ) {
         {
-            memoriesMounted = false
+            memoriesCloseJob?.cancel()
+            val startingOffset = (memoriesEntryOffset.value - memoriesBackController.fraction)
+                .coerceIn(-1f, 0f)
             experienceSessionStore.setHomeSurface(HomeSurface.Feed)
-            memoriesBackController.reset()
-            shellScope.launch {
+            memoriesCloseJob = shellScope.launch {
+                memoriesMounted = true
+                memoriesEntryOffset.snapTo(startingOffset)
+                memoriesBackController.reset()
+                memoriesEntryOffset.animateTo(
+                    targetValue = -1f,
+                    animationSpec = memoriesExitSpec,
+                )
+                memoriesMounted = false
                 memoriesEntryOffset.snapTo(-1f)
+                memoriesCloseJob = null
             }
             Unit
         }
@@ -397,7 +425,10 @@ private fun YoinShell(
 
     LaunchedEffect(memoriesActive) {
         if (memoriesActive) {
+            memoriesCloseJob?.cancel()
+            memoriesCloseJob = null
             memoriesMounted = true
+            memoriesBackController.reset()
             memoriesEntryOffset.snapTo(-1f)
             memoriesEntryOffset.animateTo(
                 targetValue = 0f,
@@ -408,6 +439,8 @@ private fun YoinShell(
 
     LaunchedEffect(selectedSection) {
         if (selectedSection != YoinSection.HOME) {
+            memoriesCloseJob?.cancel()
+            memoriesCloseJob = null
             memoriesMounted = false
             memoriesBackController.reset()
             memoriesEntryOffset.snapTo(-1f)
@@ -460,17 +493,19 @@ private fun YoinShell(
                         if (memoriesMounted) {
                             YoinBackSurface(
                                 kind = BackSurfaceKind.ShellOverlayUp,
-                                enabled = shellBackOwner == ShellBackOwner.Memories,
+                                enabled = false,
                                 controller = memoriesBackController,
                                 onCommitBack = closeMemories,
                             ) { backModifier, controller ->
+                                BackHandler(enabled = shellBackOwner == ShellBackOwner.Memories) {
+                                    closeMemories()
+                                }
+
                                 MemoriesScreen(
                                     viewModel = memoriesViewModel,
                                     dismissFraction = controller.fraction,
                                     onDismissGestureProgress = controller::updateFromDrag,
-                                    onDismissGestureCommit = {
-                                        controller.animateCommit(closeMemories)
-                                    },
+                                    onDismissGestureCommit = closeMemories,
                                     onDismissGestureCancel = controller::animateCancel,
                                     onPlayMemoryTrack = { memory, trackIndex ->
                                         val queue = memory.playbackSongs
@@ -551,16 +586,21 @@ private fun YoinShell(
             visible = showNowPlaying,
             enter = YoinMotion.slideInVertically(role = YoinMotionRole.Expressive) { it } +
                 YoinMotion.fadeIn(role = YoinMotionRole.Standard),
-            exit = ExitTransition.None,
+            exit = YoinMotion.slideOutVertically(role = YoinMotionRole.Standard) { it } +
+                YoinMotion.fadeOut(role = YoinMotionRole.Standard),
             modifier = Modifier.fillMaxSize(),
         ) {
             val npAvScope = this
             YoinBackSurface(
                 kind = BackSurfaceKind.ShellOverlayDown,
-                enabled = shellBackOwner == ShellBackOwner.NowPlaying,
+                enabled = false,
                 controller = nowPlayingBackController,
                 onCommitBack = closeNowPlaying,
             ) { backModifier, controller ->
+                BackHandler(enabled = shellBackOwner == ShellBackOwner.NowPlaying) {
+                    closeNowPlaying()
+                }
+
                 val density = LocalDensity.current
 
                 BoxWithConstraints(
@@ -582,11 +622,12 @@ private fun YoinShell(
                                 orientation = Orientation.Vertical,
                                 onDragStopped = { velocity ->
                                     shellScope.launch {
+                                        val dragPx = controller.fraction * heightPx
                                         if (
-                                            controller.fraction >= BackMotionTokens.OverlayDismissThresholdFraction ||
+                                            dragPx >= BackMotionTokens.NowPlayingDismissThresholdPx ||
                                             velocity > BackMotionTokens.SharedVelocityThresholdPx
                                         ) {
-                                            controller.animateCommit(closeNowPlaying)
+                                            closeNowPlaying()
                                         } else {
                                             controller.animateCancel()
                                         }
@@ -604,11 +645,7 @@ private fun YoinShell(
                             onRatingChange = nowPlayingViewModel::setRating,
                             onToggleFavorite = nowPlayingViewModel::toggleFavorite,
                             onSkipToQueueItem = nowPlayingViewModel::skipToQueueItem,
-                            onDismiss = {
-                                shellScope.launch {
-                                    controller.animateCommit(closeNowPlaying)
-                                }
-                            },
+                            onDismiss = closeNowPlaying,
                             castState = castState,
                             onCastClick = { },
                             sharedTransitionScope = sharedTransitionScope,
