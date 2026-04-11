@@ -6,8 +6,8 @@ import kotlinx.serialization.Serializable
  * Type-safe navigation routes for Yoin.
  *
  * The app now boots into a single Shell route that owns the floating button group plus the
- * Home/Library section switch. Settings and details still use pushed routes; Now Playing lives as
- * a shell-owned overlay instead of a separate top-level destination.
+ * Home/Library section switch. Settings and details still use pushed routes; Now Playing and
+ * Memories live as shell-owned overlays instead of separate top-level destinations.
  */
 @Serializable
 sealed interface YoinRoute {
@@ -20,9 +20,6 @@ sealed interface YoinRoute {
 
     @Serializable
     data object Library : YoinRoute
-
-    @Serializable
-    data object NowPlaying : YoinRoute
 
     @Serializable
     data object Settings : YoinRoute

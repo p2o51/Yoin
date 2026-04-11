@@ -1,7 +1,5 @@
 package com.gpo.yoin.ui.navigation
 
-import androidx.activity.compose.BackHandler
-import androidx.activity.compose.PredictiveBackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedContentTransitionScope
 import androidx.compose.animation.AnimatedVisibility
@@ -13,35 +11,31 @@ import androidx.compose.animation.SharedTransitionLayout
 import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.draggable
 import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.tooling.preview.Preview
-import androidx.compose.ui.unit.Dp
-import androidx.compose.ui.unit.LayoutDirection
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.lerp
+import androidx.compose.ui.platform.LocalDensity
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavBackStackEntry
 import androidx.navigation.NavDestination.Companion.hasRoute
@@ -66,11 +60,16 @@ import com.gpo.yoin.ui.home.HomeViewModel
 import com.gpo.yoin.ui.library.LibraryScreen
 import com.gpo.yoin.ui.library.LibraryViewModel
 import com.gpo.yoin.ui.experience.HomeSurface
-import com.gpo.yoin.ui.experience.rememberPredictiveBackPreviewState
 import com.gpo.yoin.ui.memories.MemoryEntityType
 import com.gpo.yoin.ui.memories.MemoryEntry
 import com.gpo.yoin.ui.memories.MemoriesScreen
 import com.gpo.yoin.ui.memories.MemoriesViewModel
+import com.gpo.yoin.ui.navigation.back.BackMotionTokens
+import com.gpo.yoin.ui.navigation.back.BackSurfaceKind
+import com.gpo.yoin.ui.navigation.back.ShellBackOwner
+import com.gpo.yoin.ui.navigation.back.YoinBackSurface
+import com.gpo.yoin.ui.navigation.back.rememberBackSurfaceController
+import com.gpo.yoin.ui.navigation.back.resolveShellBackOwner
 import com.gpo.yoin.ui.nowplaying.NowPlayingScreen
 import com.gpo.yoin.ui.nowplaying.NowPlayingViewModel
 import com.gpo.yoin.ui.settings.SettingsScreen
@@ -78,12 +77,8 @@ import com.gpo.yoin.ui.settings.SettingsViewModel
 import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinMotionRole
 import com.gpo.yoin.ui.theme.YoinTheme
-import kotlinx.coroutines.flow.collectLatest
-import kotlin.math.roundToInt
+import kotlinx.coroutines.launch
 
-private val PredictiveBackPreviewMaxCornerRadius: Dp = 28.dp
-private val PredictiveBackPreviewMaxEdgeInset: Dp = 12.dp
-private const val OverlayPredictiveBackPreviewCap = 0.8f
 @OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
 fun YoinNavHost(
@@ -153,9 +148,10 @@ fun YoinNavHost(
                     factory = AlbumDetailViewModel.Factory(route.albumId, app.container),
                 )
                 val uiState by viewModel.uiState.collectAsState()
-                PredictiveBackPreviewContainer(
-                    onBackCommitted = { navController.popBackStack() },
-                ) { predictiveBackModifier ->
+                YoinBackSurface(
+                    kind = BackSurfaceKind.PushPage,
+                    onCommitBack = { navController.popBackStack() },
+                ) { predictiveBackModifier, _ ->
                     AlbumDetailScreen(
                         uiState = uiState,
                         sharedTransitionKey = route.sharedTransitionKey,
@@ -200,9 +196,10 @@ fun YoinNavHost(
                     factory = ArtistDetailViewModel.Factory(route.artistId, app.container),
                 )
                 val uiState by viewModel.uiState.collectAsState()
-                PredictiveBackPreviewContainer(
-                    onBackCommitted = { navController.popBackStack() },
-                ) { predictiveBackModifier ->
+                YoinBackSurface(
+                    kind = BackSurfaceKind.PushPage,
+                    onCommitBack = { navController.popBackStack() },
+                ) { predictiveBackModifier, _ ->
                     ArtistDetailScreen(
                         uiState = uiState,
                         onBackClick = { navController.popBackStack() },
@@ -227,9 +224,10 @@ fun YoinNavHost(
                     factory = PlaylistDetailViewModel.Factory(route.playlistId, app.container),
                 )
                 val uiState by viewModel.uiState.collectAsState()
-                PredictiveBackPreviewContainer(
-                    onBackCommitted = { navController.popBackStack() },
-                ) { predictiveBackModifier ->
+                YoinBackSurface(
+                    kind = BackSurfaceKind.PushPage,
+                    onCommitBack = { navController.popBackStack() },
+                ) { predictiveBackModifier, _ ->
                     PlaylistDetailScreen(
                         uiState = uiState,
                         onBackClick = { navController.popBackStack() },
@@ -290,11 +288,13 @@ fun YoinNavHost(
                 val viewModel: SettingsViewModel = viewModel(
                     factory = SettingsViewModel.Factory(app.container),
                 )
-                PredictiveBackPreviewContainer(
-                    onBackCommitted = { navController.popBackStack() },
-                ) { predictiveBackModifier ->
+                YoinBackSurface(
+                    kind = BackSurfaceKind.PushPage,
+                    onCommitBack = { navController.popBackStack() },
+                ) { predictiveBackModifier, _ ->
                     SettingsScreen(
                         viewModel = viewModel,
+                        onBackClick = { navController.popBackStack() },
                         modifier = predictiveBackModifier.fillMaxSize(),
                     )
                 }
@@ -319,64 +319,6 @@ private fun AnimatedContentTransitionScope<NavBackStackEntry>.albumDetailPopExit
         YoinMotion.navExitBack
     }
 
-@Composable
-private fun PredictiveBackPreviewContainer(
-    onBackCommitted: () -> Unit,
-    modifier: Modifier = Modifier,
-    content: @Composable (Modifier) -> Unit,
-) {
-    val previewState = rememberPredictiveBackPreviewState()
-    val layoutDirection = LocalLayoutDirection.current
-    val previewFraction = previewState.previewFraction
-    val transformOrigin = remember(layoutDirection) {
-        TransformOrigin(
-            pivotFractionX = if (layoutDirection == LayoutDirection.Rtl) 1f else 0f,
-            pivotFractionY = 0.5f,
-        )
-    }
-    val previewShape = remember(previewFraction) {
-        androidx.compose.foundation.shape.RoundedCornerShape(
-            lerp(0.dp, PredictiveBackPreviewMaxCornerRadius, previewFraction),
-        )
-    }
-
-    PredictiveBackHandler { progress ->
-        var committed = false
-        try {
-            progress.collectLatest { event ->
-                previewState.update(event.progress)
-            }
-            committed = true
-            onBackCommitted()
-        } finally {
-            if (!committed) {
-                if (previewState.progress > 0f) {
-                    previewState.animateReset()
-                }
-                previewState.snapToHidden()
-            }
-        }
-    }
-
-    content(
-        modifier.graphicsLayer {
-            val scale = 1f - (0.1f * previewState.progress)
-            val edgeInsetPx = lerp(0.dp, PredictiveBackPreviewMaxEdgeInset, previewFraction)
-                .toPx()
-            scaleX = scale
-            scaleY = scale
-            translationX = if (layoutDirection == LayoutDirection.Rtl) {
-                -edgeInsetPx
-            } else {
-                edgeInsetPx
-            }
-            shape = previewShape
-            clip = previewState.progress > 0f
-            this.transformOrigin = transformOrigin
-        },
-    )
-}
-
 @OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
 private fun YoinShell(
@@ -398,16 +340,16 @@ private fun YoinShell(
     val selectedSection = experienceSession.selectedSection
     val homeSurface = experienceSession.homeSurface
     val showNowPlaying = experienceSession.nowPlayingExpanded
-    var predictiveBackProgress by remember { mutableStateOf(0f) }
-
     val playbackState by app.container.playbackManager.playbackState.collectAsState()
     val visualizerData by app.container.audioVisualizerManager.visualizerData.collectAsState()
     val castState by app.container.castManager.castState.collectAsState()
     val nowPlayingUiState by nowPlayingViewModel.uiState.collectAsState()
-    val overlaySpatialSpec = YoinMotion.defaultSpatialSpec<Float>(role = YoinMotionRole.Expressive)
     val memoriesEnterSpec = YoinMotion.slowSpatialSpec<Float>(role = YoinMotionRole.Standard)
-    val memoriesExitSpec = YoinMotion.defaultSpatialSpec<Float>(role = YoinMotionRole.Standard)
     val shellFadeSpec = YoinMotion.defaultEffectsSpec<Float>(role = YoinMotionRole.Standard)
+    val shellScope = rememberCoroutineScope()
+    val nowPlayingBackController = rememberBackSurfaceController()
+    val memoriesBackController = rememberBackSurfaceController()
+    var memoriesMounted by remember { mutableStateOf(homeSurface == HomeSurface.Memories) }
 
     val coverArtUrl = playbackState.currentSong?.coverArt?.let {
         app.container.repository.buildCoverArtUrl(it)
@@ -417,79 +359,58 @@ private fun YoinShell(
         app.container.playbackManager.connectInBackground()
     }
 
-    var memoriesBackProgress by remember { mutableStateOf(0f) }
-    val memoriesSlideOffset = remember {
+    val memoriesEntryOffset = remember {
         Animatable(-1f).also { animatable ->
             // Prevent spring overshoot from crossing the resting position and "bouncing" on open.
             animatable.updateBounds(lowerBound = -1f, upperBound = 0f)
         }
     }
-
-    BackHandler(enabled = showNowPlaying) {
-        predictiveBackProgress = 0f
-        experienceSessionStore.setNowPlayingExpanded(false)
+    val shellBackOwner = resolveShellBackOwner(
+        showNowPlaying = showNowPlaying,
+        selectedSection = selectedSection,
+        homeSurface = homeSurface,
+    )
+    val memoriesActive = selectedSection == YoinSection.HOME && homeSurface == HomeSurface.Memories
+    val closeNowPlaying = remember(experienceSessionStore, nowPlayingBackController) {
+        {
+            experienceSessionStore.setNowPlayingExpanded(false)
+            nowPlayingBackController.reset()
+            Unit
+        }
     }
-
-    PredictiveBackHandler(
-        enabled = !showNowPlaying &&
-            selectedSection == YoinSection.HOME &&
-            homeSurface == HomeSurface.Memories,
-    ) { progress ->
-        var committed = false
-        try {
-            progress.collectLatest { event ->
-                memoriesBackProgress = event.progress * OverlayPredictiveBackPreviewCap
-            }
-            committed = true
-            animate(
-                initialValue = memoriesBackProgress,
-                targetValue = 1f,
-                animationSpec = memoriesExitSpec,
-            ) { value, _ ->
-                memoriesBackProgress = value
-            }
-            memoriesSlideOffset.snapTo(-1f)
+    val closeMemories = remember(
+        experienceSessionStore,
+        memoriesBackController,
+        memoriesEntryOffset,
+        shellScope,
+    ) {
+        {
+            memoriesMounted = false
             experienceSessionStore.setHomeSurface(HomeSurface.Feed)
-        } finally {
-            if (!committed && memoriesBackProgress > 0f) {
-                animate(
-                    initialValue = memoriesBackProgress,
-                    targetValue = 0f,
-                    animationSpec = YoinMotion.predictiveBackSettleSpring(),
-                ) { value, _ ->
-                    memoriesBackProgress = value
-                }
+            memoriesBackController.reset()
+            shellScope.launch {
+                memoriesEntryOffset.snapTo(-1f)
             }
-            memoriesBackProgress = 0f
+            Unit
         }
     }
 
-    PredictiveBackHandler(enabled = showNowPlaying) { progress ->
-        var committed = false
-        try {
-            progress.collectLatest { event ->
-                predictiveBackProgress = event.progress * OverlayPredictiveBackPreviewCap
-            }
-            committed = true
-            animate(
-                initialValue = predictiveBackProgress,
-                targetValue = 1f,
-                animationSpec = overlaySpatialSpec,
-            ) { value, _ ->
-                predictiveBackProgress = value
-            }
-            experienceSessionStore.setNowPlayingExpanded(false)
-        } finally {
-            if (!committed && predictiveBackProgress > 0f) {
-                animate(
-                    initialValue = predictiveBackProgress,
-                    targetValue = 0f,
-                    animationSpec = YoinMotion.predictiveBackSettleSpring(),
-                ) { value, _ ->
-                    predictiveBackProgress = value
-                }
-            }
-            predictiveBackProgress = 0f
+    LaunchedEffect(memoriesActive) {
+        if (memoriesActive) {
+            memoriesMounted = true
+            memoriesEntryOffset.snapTo(-1f)
+            memoriesEntryOffset.animateTo(
+                targetValue = 0f,
+                animationSpec = memoriesEnterSpec,
+            )
+        }
+    }
+
+    LaunchedEffect(selectedSection) {
+        if (selectedSection != YoinSection.HOME) {
+            memoriesMounted = false
+            memoriesBackController.reset()
+            memoriesEntryOffset.snapTo(-1f)
         }
     }
 
@@ -506,26 +427,6 @@ private fun YoinShell(
             when (section) {
                 YoinSection.HOME -> {
                     val homeBgColor = MaterialTheme.colorScheme.background
-                    val memoriesActive = homeSurface == HomeSurface.Memories
-                    val memoriesVisible = memoriesActive ||
-                        memoriesSlideOffset.value > -0.99f ||
-                        memoriesBackProgress > 0f
-
-                    LaunchedEffect(memoriesActive) {
-                        if (memoriesActive) {
-                            memoriesSlideOffset.snapTo(-1f)
-                            memoriesSlideOffset.animateTo(
-                                0f,
-                                memoriesEnterSpec,
-                            )
-                        } else if (memoriesSlideOffset.value > -0.99f) {
-                            // Regular back — animate slide out
-                            memoriesSlideOffset.animateTo(
-                                -1f,
-                                memoriesExitSpec,
-                            )
-                        }
-                    }
 
                     Box(
                         modifier = Modifier
@@ -539,6 +440,7 @@ private fun YoinShell(
                             activeSongId = playbackState.currentSong?.id,
                             onNavigateToSettings = onNavigateToSettings,
                             onNavigateToMemories = {
+                                memoriesBackController.reset()
                                 experienceSessionStore.setHomeSurface(HomeSurface.Memories)
                             },
                             onAlbumClick = onNavigateToAlbum,
@@ -555,45 +457,51 @@ private fun YoinShell(
                             modifier = Modifier.fillMaxSize(),
                         )
 
-                        if (memoriesVisible) {
-                            MemoriesScreen(
-                                viewModel = memoriesViewModel,
-                                onBackClick = {
-                                    experienceSessionStore.setHomeSurface(HomeSurface.Feed)
-                                },
-                                onPlayMemoryTrack = { memory, trackIndex ->
-                                    val queue = memory.playbackSongs
-                                    if (queue.isNotEmpty()) {
-                                        val startIndex = trackIndex.coerceIn(0, queue.lastIndex)
-                                        val selectedSong = queue[startIndex]
-                                        val activityContext = memory.toPlaybackActivityContext()
+                        if (memoriesMounted) {
+                            YoinBackSurface(
+                                kind = BackSurfaceKind.ShellOverlayUp,
+                                enabled = shellBackOwner == ShellBackOwner.Memories,
+                                controller = memoriesBackController,
+                                onCommitBack = closeMemories,
+                            ) { backModifier, controller ->
+                                MemoriesScreen(
+                                    viewModel = memoriesViewModel,
+                                    dismissFraction = controller.fraction,
+                                    onDismissGestureProgress = controller::updateFromDrag,
+                                    onDismissGestureCommit = {
+                                        controller.animateCommit(closeMemories)
+                                    },
+                                    onDismissGestureCancel = controller::animateCancel,
+                                    onPlayMemoryTrack = { memory, trackIndex ->
+                                        val queue = memory.playbackSongs
+                                        if (queue.isNotEmpty()) {
+                                            val startIndex = trackIndex.coerceIn(0, queue.lastIndex)
+                                            val selectedSong = queue[startIndex]
+                                            val activityContext = memory.toPlaybackActivityContext()
 
-                                        if (memory.entityType == MemoryEntityType.SONG || queue.size <= 1) {
-                                            app.container.playbackManager.playSingle(
-                                                song = selectedSong,
-                                                credentials = app.container.getCredentials(),
-                                                activityContext = activityContext,
-                                            )
-                                        } else {
-                                            app.container.playbackManager.play(
-                                                songs = queue,
-                                                startIndex = startIndex,
-                                                credentials = app.container.getCredentials(),
-                                                activityContext = activityContext,
-                                            )
-                                        }
-                                    }
-                                },
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .graphicsLayer {
-                                        translationY = if (memoriesBackProgress > 0f) {
-                                            -memoriesBackProgress * size.height
-                                        } else {
-                                            memoriesSlideOffset.value * size.height
+                                            if (memory.entityType == MemoryEntityType.SONG || queue.size <= 1) {
+                                                app.container.playbackManager.playSingle(
+                                                    song = selectedSong,
+                                                    credentials = app.container.getCredentials(),
+                                                    activityContext = activityContext,
+                                                )
+                                            } else {
+                                                app.container.playbackManager.play(
+                                                    songs = queue,
+                                                    startIndex = startIndex,
+                                                    credentials = app.container.getCredentials(),
+                                                    activityContext = activityContext,
+                                                )
+                                            }
                                         }
                                     },
-                            )
+                                    modifier = backModifier
+                                        .fillMaxSize()
+                                        .graphicsLayer {
+                                            translationY += memoriesEntryOffset.value * size.height
+                                        },
+                                )
+                            }
                         }
                     }
                 }
@@ -619,11 +527,16 @@ private fun YoinShell(
         }
 
         // ── Background scrim — dims content as NP opens ───────────────────
-        val scrimAlpha by animateFloatAsState(
+        val baseScrimAlpha by animateFloatAsState(
             targetValue = if (showNowPlaying) 0.5f else 0f,
             animationSpec = shellFadeSpec,
             label = "scrimAlpha",
         )
+        val scrimAlpha = if (showNowPlaying) {
+            baseScrimAlpha * (1f - nowPlayingBackController.fraction)
+        } else {
+            baseScrimAlpha
+        }
         if (scrimAlpha > 0f) {
             Box(
                 modifier = Modifier
@@ -638,65 +551,72 @@ private fun YoinShell(
             visible = showNowPlaying,
             enter = YoinMotion.slideInVertically(role = YoinMotionRole.Expressive) { it } +
                 YoinMotion.fadeIn(role = YoinMotionRole.Standard),
-            exit = YoinMotion.slideOutVertically(role = YoinMotionRole.Standard) { it } +
-                YoinMotion.fadeOut(role = YoinMotionRole.Standard),
+            exit = ExitTransition.None,
             modifier = Modifier.fillMaxSize(),
         ) {
             val npAvScope = this
+            YoinBackSurface(
+                kind = BackSurfaceKind.ShellOverlayDown,
+                enabled = shellBackOwner == ShellBackOwner.NowPlaying,
+                controller = nowPlayingBackController,
+                onCommitBack = closeNowPlaying,
+            ) { backModifier, controller ->
+                val density = LocalDensity.current
 
-            var dismissDragPx by remember { mutableStateOf(0f) }
-            val draggableState = rememberDraggableState { delta ->
-                if (delta > 0f || dismissDragPx > 0f) {
-                    dismissDragPx = (dismissDragPx + delta).coerceAtLeast(0f)
-                }
-            }
+                BoxWithConstraints(
+                    modifier = backModifier.fillMaxSize(),
+                ) {
+                    val heightPx = with(density) { maxHeight.toPx().coerceAtLeast(1f) }
+                    val draggableState = rememberDraggableState { delta ->
+                        if (delta > 0f || controller.fraction > 0f) {
+                            val dragPx = ((controller.fraction * heightPx) + delta).coerceAtLeast(0f)
+                            controller.updateFromDrag((dragPx / heightPx).coerceIn(0f, 1f))
+                        }
+                    }
 
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .draggable(
-                        state = draggableState,
-                        orientation = Orientation.Vertical,
-                        onDragStopped = { velocity ->
-                            if (dismissDragPx > 240f || velocity > 800f) {
-                                experienceSessionStore.setNowPlayingExpanded(false)
-                                dismissDragPx = 0f
-                            } else {
-                                animate(
-                                    initialValue = dismissDragPx,
-                                    targetValue = 0f,
-                                    animationSpec = overlaySpatialSpec,
-                                ) { value, _ ->
-                                    dismissDragPx = value
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .draggable(
+                                state = draggableState,
+                                orientation = Orientation.Vertical,
+                                onDragStopped = { velocity ->
+                                    shellScope.launch {
+                                        if (
+                                            controller.fraction >= BackMotionTokens.OverlayDismissThresholdFraction ||
+                                            velocity > BackMotionTokens.SharedVelocityThresholdPx
+                                        ) {
+                                            controller.animateCommit(closeNowPlaying)
+                                        } else {
+                                            controller.animateCancel()
+                                        }
+                                    }
+                                },
+                            ),
+                    ) {
+                        NowPlayingScreen(
+                            uiState = nowPlayingUiState,
+                            visualizerData = visualizerData,
+                            onTogglePlayPause = nowPlayingViewModel::togglePlayPause,
+                            onSkipNext = nowPlayingViewModel::skipNext,
+                            onSkipPrevious = nowPlayingViewModel::skipPrevious,
+                            onSeek = nowPlayingViewModel::seekTo,
+                            onRatingChange = nowPlayingViewModel::setRating,
+                            onToggleFavorite = nowPlayingViewModel::toggleFavorite,
+                            onSkipToQueueItem = nowPlayingViewModel::skipToQueueItem,
+                            onDismiss = {
+                                shellScope.launch {
+                                    controller.animateCommit(closeNowPlaying)
                                 }
-                            }
-                        },
-                    ),
-            ) {
-                NowPlayingScreen(
-                    uiState = nowPlayingUiState,
-                    visualizerData = visualizerData,
-                    onTogglePlayPause = nowPlayingViewModel::togglePlayPause,
-                    onSkipNext = nowPlayingViewModel::skipNext,
-                    onSkipPrevious = nowPlayingViewModel::skipPrevious,
-                    onSeek = nowPlayingViewModel::seekTo,
-                    onRatingChange = nowPlayingViewModel::setRating,
-                    onToggleFavorite = nowPlayingViewModel::toggleFavorite,
-                    onSkipToQueueItem = nowPlayingViewModel::skipToQueueItem,
-                    onDismiss = {
-                        predictiveBackProgress = 0f
-                        experienceSessionStore.setNowPlayingExpanded(false)
-                    },
-                    castState = castState,
-                    onCastClick = { },
-                    sharedTransitionScope = sharedTransitionScope,
-                    animatedVisibilityScope = npAvScope,
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .graphicsLayer {
-                            translationY = (predictiveBackProgress * size.height) + dismissDragPx
-                        },
-                )
+                            },
+                            castState = castState,
+                            onCastClick = { },
+                            sharedTransitionScope = sharedTransitionScope,
+                            animatedVisibilityScope = npAvScope,
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                    }
+                }
             }
         }
 
@@ -730,13 +650,24 @@ private fun YoinShell(
                     isPlaying = playbackState.isPlaying,
                     onHomeClick = {
                         experienceSessionStore.setSelectedSection(YoinSection.HOME)
+                        memoriesMounted = false
+                        memoriesBackController.reset()
+                        shellScope.launch {
+                            memoriesEntryOffset.snapTo(-1f)
+                        }
                         experienceSessionStore.setHomeSurface(HomeSurface.Feed)
                     },
                     onNowPlayingClick = {
+                        nowPlayingBackController.reset()
                         experienceSessionStore.setNowPlayingExpanded(true)
                     },
                     onLibraryClick = {
                         experienceSessionStore.setSelectedSection(YoinSection.LIBRARY)
+                        memoriesMounted = false
+                        memoriesBackController.reset()
+                        shellScope.launch {
+                            memoriesEntryOffset.snapTo(-1f)
+                        }
                         experienceSessionStore.setHomeSurface(HomeSurface.Feed)
                     },
                     sharedTransitionScope = sharedTransitionScope,

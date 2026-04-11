@@ -5,6 +5,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -38,6 +39,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -96,7 +98,10 @@ private val MemoriesScoreShapeHeight = 118.dp
 @Composable
 fun MemoriesScreen(
     viewModel: MemoriesViewModel,
-    onBackClick: () -> Unit,
+    dismissFraction: Float,
+    onDismissGestureProgress: (Float) -> Unit,
+    onDismissGestureCommit: suspend () -> Unit,
+    onDismissGestureCancel: suspend () -> Unit,
     onPlayMemoryTrack: (MemoryEntry, Int) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -137,7 +142,10 @@ fun MemoriesScreen(
                     MemoriesContent(
                         contentState = state,
                         sessionState = sessionState,
-                        onBackClick = onBackClick,
+                        dismissFraction = dismissFraction,
+                        onDismissGestureProgress = onDismissGestureProgress,
+                        onDismissGestureCommit = onDismissGestureCommit,
+                        onDismissGestureCancel = onDismissGestureCancel,
                         onPlayMemoryTrack = onPlayMemoryTrack,
                         onAdvanceDeck = viewModel::advanceDeck,
                         onCurrentPageChange = viewModel::setCurrentPage,
@@ -208,7 +216,10 @@ private fun MemoriesErrorState(
 private fun MemoriesContent(
     contentState: MemoriesUiState.Content,
     sessionState: MemoriesSessionState,
-    onBackClick: () -> Unit,
+    dismissFraction: Float,
+    onDismissGestureProgress: (Float) -> Unit,
+    onDismissGestureCommit: suspend () -> Unit,
+    onDismissGestureCancel: suspend () -> Unit,
     onPlayMemoryTrack: (MemoryEntry, Int) -> Unit,
     onAdvanceDeck: (MemoryDeckDirection) -> Unit,
     onCurrentPageChange: (Int) -> Unit,
@@ -227,6 +238,7 @@ private fun MemoriesContent(
 
     LaunchedEffect(contentState.deckRevision) {
         dismissState.reset()
+        onDismissGestureProgress(0f)
         edgeAdvanceState.reset()
         if (contentState.deckRevision <= 1) return@LaunchedEffect
         deckEntranceProgress.animateTo(
@@ -235,7 +247,11 @@ private fun MemoriesContent(
         )
     }
 
-    Box(modifier = Modifier.fillMaxSize()) {
+    BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+        val containerHeightPx = with(density) { maxHeight.toPx().coerceAtLeast(1f) }
+        val dismissPreviewFraction = ((dismissFraction * containerHeightPx) / dismissTriggerPx)
+            .coerceIn(0f, 1f)
+
         key(contentState.deckRevision) {
             val memories = contentState.memories
             val pagerState = rememberPagerState(
@@ -244,10 +260,16 @@ private fun MemoriesContent(
             )
             val coroutineScope = rememberCoroutineScope()
             var isDismissingToHome by remember(contentState.deckRevision) { mutableStateOf(false) }
+            var latestContainerHeightPx by remember { mutableFloatStateOf(containerHeightPx) }
             val selectedIndex = pagerState.currentPage.coerceIn(0, memories.lastIndex)
             val selectedMemory = memories[selectedIndex]
             val deckTransitionDirection = contentState.deckDirection
             val adjacentDeckDirection = edgeAdvanceState.direction?.toMemoryDeckDirection()
+
+            LaunchedEffect(containerHeightPx) {
+                latestContainerHeightPx = containerHeightPx
+            }
+
             LaunchedEffect(pagerState, memories) {
                 snapshotFlow { pagerState.currentPage to pagerState.currentPageOffsetFraction }
                     .collect { (page, offsetFraction) ->
@@ -301,12 +323,12 @@ private fun MemoriesContent(
                 modifier = Modifier
                     .fillMaxSize()
                     .graphicsLayer {
+                        translationY = -dismissFraction * size.height
                         val directionMultiplier = when (deckTransitionDirection) {
                             MemoryDeckDirection.Backward -> -1f
                             MemoryDeckDirection.Forward -> 1f
                         }
                         translationX = (1f - deckEntranceProgress.value) * directionMultiplier * deckEnterOffsetPx
-                        translationY = -dismissState.pullPx * 0.1f
                         alpha = 0.8f + deckEntranceProgress.value * 0.2f
                     }
                     .padding(top = WindowInsets.systemBars.asPaddingValues().calculateTopPadding() + 12.dp),
@@ -363,7 +385,11 @@ private fun MemoriesContent(
                                 onMemoryScrollChange(memory.sourceActivityId, position)
                             }
                     }
-                    val dismissConnection = remember(listState, onBackClick) {
+                    val dismissConnection = remember(
+                        listState,
+                        onDismissGestureCommit,
+                        onDismissGestureCancel,
+                    ) {
                         object : NestedScrollConnection {
                             override fun onPreScroll(
                                 available: Offset,
@@ -374,12 +400,16 @@ private fun MemoriesContent(
                                 }
                                 if (available.y < 0f && listState.isAtTop()) {
                                     val triggered = dismissState.registerPull(deltaPx = -available.y)
+                                    onDismissGestureProgress(
+                                        dismissState.pullPx
+                                            .div(latestContainerHeightPx)
+                                            .coerceIn(0f, 1f),
+                                    )
                                     if (triggered) {
                                         isDismissingToHome = true
                                         coroutineScope.launch {
-                                            dismissState.animateToTrigger()
-                                            onBackClick()
-                                            dismissState.animateReset()
+                                            onDismissGestureCommit()
+                                            dismissState.reset()
                                             isDismissingToHome = false
                                         }
                                     }
@@ -387,6 +417,11 @@ private fun MemoriesContent(
                                 }
                                 if (available.y > 0f && dismissState.pullPx > 0f) {
                                     dismissState.release(available.y)
+                                    onDismissGestureProgress(
+                                        dismissState.pullPx
+                                            .div(latestContainerHeightPx)
+                                            .coerceIn(0f, 1f),
+                                    )
                                     return Offset(0f, available.y)
                                 }
                                 return Offset.Zero
@@ -396,7 +431,9 @@ private fun MemoriesContent(
                                 return when {
                                     isDismissingToHome -> available
                                     dismissState.pullPx > 0f -> {
-                                        dismissState.animateReset()
+                                        onDismissGestureCancel()
+                                        dismissState.reset()
+                                        onDismissGestureProgress(0f)
                                         available
                                     }
                                     else -> Velocity.Zero
@@ -451,8 +488,8 @@ private fun MemoriesContent(
                 .align(Alignment.BottomCenter)
                 .padding(bottom = 28.dp)
                 .graphicsLayer {
-                    translationY = -dismissState.pullPx * 0.3f
-                    alpha = 0.4f + dismissState.progress * 0.6f
+                    translationY = -(dismissFraction * containerHeightPx) * 0.3f
+                    alpha = 0.4f + dismissPreviewFraction * 0.6f
                 }
                 .size(28.dp),
         )

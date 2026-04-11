@@ -13,10 +13,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import com.gpo.yoin.ui.theme.YoinMotion
-import kotlin.math.pow
-
-private const val PredictiveBackPreviewCap = 0.8f
-private const val PredictiveBackPreviewCurveExponent = 1.2f
 private val PullSettleMotionScheme = MotionScheme.standard()
 
 private fun pullSettleSpec(): FiniteAnimationSpec<Float> =
@@ -138,42 +134,6 @@ fun rememberPullToDismissState(
         maxPullPx = maxPullPx,
         resistance = resistance,
     )
-}
-
-@Stable
-class PredictiveBackPreviewState internal constructor() {
-    var progress by mutableFloatStateOf(0f)
-        private set
-
-    val previewFraction: Float
-        get() = (progress / PredictiveBackPreviewCap).coerceIn(0f, 1f)
-
-    fun update(rawProgress: Float) {
-        val curvedProgress = rawProgress
-            .coerceIn(0f, 1f)
-            .pow(PredictiveBackPreviewCurveExponent)
-        progress = (curvedProgress * PredictiveBackPreviewCap)
-            .coerceIn(0f, PredictiveBackPreviewCap)
-    }
-
-    suspend fun animateReset() {
-        animate(
-            initialValue = progress,
-            targetValue = 0f,
-            animationSpec = YoinMotion.predictiveBackSettleSpring(),
-        ) { value, _ ->
-            progress = value
-        }
-    }
-
-    fun snapToHidden() {
-        progress = 0f
-    }
-}
-
-@Composable
-fun rememberPredictiveBackPreviewState(): PredictiveBackPreviewState = remember {
-    PredictiveBackPreviewState()
 }
 
 data class DeckIndicatorTransitionState(

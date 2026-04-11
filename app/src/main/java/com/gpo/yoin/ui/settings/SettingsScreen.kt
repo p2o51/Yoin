@@ -5,6 +5,7 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBarsPadding
@@ -15,15 +16,21 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Error
 import androidx.compose.material3.Button
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -33,6 +40,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -50,6 +58,7 @@ import com.gpo.yoin.ui.theme.YoinTheme
 @Composable
 fun SettingsScreen(
     viewModel: SettingsViewModel,
+    onBackClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -58,6 +67,7 @@ fun SettingsScreen(
     SettingsContent(
         uiState = uiState,
         connectionResult = connectionResult,
+        onBackClick = onBackClick,
         onTestConnection = viewModel::testConnection,
         onSaveServer = viewModel::saveServer,
         onClearCache = viewModel::clearCache,
@@ -67,10 +77,12 @@ fun SettingsScreen(
     )
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsContent(
     uiState: SettingsUiState,
     connectionResult: SettingsViewModel.ConnectionResult?,
+    onBackClick: () -> Unit,
     onTestConnection: (String, String, String) -> Unit,
     onSaveServer: (String, String, String) -> Unit,
     onClearCache: () -> Unit,
@@ -86,72 +98,97 @@ fun SettingsContent(
         )
 
         ExpressivePageBackground(modifier = modifier) {
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .verticalScroll(rememberScrollState())
-                    .statusBarsPadding()
-                    .navigationBarsPadding()
-                    .padding(16.dp)
-                    .alpha(contentAlpha),
-                verticalArrangement = Arrangement.spacedBy(16.dp),
-            ) {
-                ExpressiveHeaderBlock(
-                    title = "Settings",
-                )
-
-                when (uiState) {
-                    is SettingsUiState.Loading -> {
-                        YoinLoadingIndicator(
-                            modifier = Modifier.align(Alignment.CenterHorizontally),
-                        )
-                    }
-
-                    is SettingsUiState.Connecting -> {
-                        ServerSection(
-                            initialUrl = "",
-                            initialUsername = "",
-                            isConnecting = true,
-                            connectionResult = connectionResult,
-                            onTestConnection = onTestConnection,
-                            onSaveServer = onSaveServer,
-                            onDismissConnectionResult = onDismissConnectionResult,
-                        )
-                    }
-
-                    is SettingsUiState.Content -> {
-                        ServerSection(
-                            initialUrl = uiState.serverUrl,
-                            initialUsername = uiState.username,
-                            isConnecting = false,
-                            connectionResult = connectionResult,
-                            onTestConnection = onTestConnection,
-                            onSaveServer = onSaveServer,
-                            onDismissConnectionResult = onDismissConnectionResult,
-                        )
-                        CacheSection(
-                            cacheSizeBytes = uiState.cacheSizeBytes,
-                            onClearCache = onClearCache,
-                        )
-                        AboutSection()
-                    }
-
-                    is SettingsUiState.Error -> {
-                        ExpressiveSectionPanel(
-                            modifier = Modifier.fillMaxWidth(),
-                        ) {
-                            Column(
-                                modifier = Modifier.padding(20.dp),
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.spacedBy(10.dp),
-                            ) {
-                                Text(
-                                    text = uiState.message,
-                                    color = MaterialTheme.colorScheme.error,
-                                    style = MaterialTheme.typography.bodyLarge,
+            Scaffold(
+                modifier = Modifier.fillMaxSize(),
+                containerColor = Color.Transparent,
+                contentColor = MaterialTheme.colorScheme.onSurface,
+                contentWindowInsets = WindowInsets(0, 0, 0, 0),
+                topBar = {
+                    TopAppBar(
+                        title = { Text("Settings") },
+                        navigationIcon = {
+                            IconButton(onClick = onBackClick) {
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                    contentDescription = "Back",
                                 )
-                                TextButton(onClick = onRetry) {
-                                    Text("Retry")
+                            }
+                        },
+                        colors = TopAppBarDefaults.topAppBarColors(
+                            containerColor = Color.Transparent,
+                            titleContentColor = MaterialTheme.colorScheme.onSurface,
+                            navigationIconContentColor = MaterialTheme.colorScheme.onSurface,
+                        ),
+                    )
+                },
+            ) { innerPadding ->
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .verticalScroll(rememberScrollState())
+                        .navigationBarsPadding()
+                        .padding(innerPadding)
+                        .padding(16.dp)
+                        .alpha(contentAlpha),
+                    verticalArrangement = Arrangement.spacedBy(16.dp),
+                ) {
+                    ExpressiveHeaderBlock(
+                        title = "Settings",
+                    )
+
+                    when (uiState) {
+                        is SettingsUiState.Loading -> {
+                            YoinLoadingIndicator(
+                                modifier = Modifier.align(Alignment.CenterHorizontally),
+                            )
+                        }
+
+                        is SettingsUiState.Connecting -> {
+                            ServerSection(
+                                initialUrl = "",
+                                initialUsername = "",
+                                isConnecting = true,
+                                connectionResult = connectionResult,
+                                onTestConnection = onTestConnection,
+                                onSaveServer = onSaveServer,
+                                onDismissConnectionResult = onDismissConnectionResult,
+                            )
+                        }
+
+                        is SettingsUiState.Content -> {
+                            ServerSection(
+                                initialUrl = uiState.serverUrl,
+                                initialUsername = uiState.username,
+                                isConnecting = false,
+                                connectionResult = connectionResult,
+                                onTestConnection = onTestConnection,
+                                onSaveServer = onSaveServer,
+                                onDismissConnectionResult = onDismissConnectionResult,
+                            )
+                            CacheSection(
+                                cacheSizeBytes = uiState.cacheSizeBytes,
+                                onClearCache = onClearCache,
+                            )
+                            AboutSection()
+                        }
+
+                        is SettingsUiState.Error -> {
+                            ExpressiveSectionPanel(
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(20.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                                ) {
+                                    Text(
+                                        text = uiState.message,
+                                        color = MaterialTheme.colorScheme.error,
+                                        style = MaterialTheme.typography.bodyLarge,
+                                    )
+                                    TextButton(onClick = onRetry) {
+                                        Text("Retry")
+                                    }
                                 }
                             }
                         }
@@ -433,6 +470,7 @@ fun SettingsContentPreview() {
                 cacheSizeBytes = 52_428_800L,
             ),
             connectionResult = SettingsViewModel.ConnectionResult.Success,
+            onBackClick = {},
             onTestConnection = { _, _, _ -> },
             onSaveServer = { _, _, _ -> },
             onClearCache = {},
@@ -449,6 +487,7 @@ fun SettingsContentLoadingPreview() {
         SettingsContent(
             uiState = SettingsUiState.Loading,
             connectionResult = null,
+            onBackClick = {},
             onTestConnection = { _, _, _ -> },
             onSaveServer = { _, _, _ -> },
             onClearCache = {},
@@ -472,6 +511,7 @@ fun SettingsContentErrorPreview() {
             connectionResult = SettingsViewModel.ConnectionResult.Failure(
                 "Connection refused",
             ),
+            onBackClick = {},
             onTestConnection = { _, _, _ -> },
             onSaveServer = { _, _, _ -> },
             onClearCache = {},
