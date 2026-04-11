@@ -13,6 +13,9 @@ import com.gpo.yoin.data.repository.YoinRepository
 import com.gpo.yoin.player.AudioVisualizerManager
 import com.gpo.yoin.player.CastManager
 import com.gpo.yoin.player.PlaybackManager
+import com.gpo.yoin.ui.experience.ExperienceSessionStore
+import com.gpo.yoin.ui.experience.MotionCapabilityProvider
+import com.gpo.yoin.ui.memories.MemoriesDeckCoordinator
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 
@@ -98,6 +101,21 @@ class AppContainer(private val context: Context) {
 
     val audioVisualizerManager: AudioVisualizerManager by lazy {
         AudioVisualizerManager()
+    }
+
+    val experienceSessionStore: ExperienceSessionStore by lazy {
+        ExperienceSessionStore()
+    }
+
+    val motionCapabilityProvider: MotionCapabilityProvider by lazy {
+        MotionCapabilityProvider(context.applicationContext)
+    }
+
+    val memoriesDeckCoordinator: MemoriesDeckCoordinator by lazy {
+        MemoriesDeckCoordinator(
+            repository = repository,
+            sessionStore = experienceSessionStore,
+        )
     }
 
     private companion object {

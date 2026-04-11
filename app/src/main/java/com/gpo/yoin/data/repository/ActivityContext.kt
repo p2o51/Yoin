@@ -16,4 +16,11 @@ sealed interface ActivityContext {
         val artistName: String,
         val coverArtId: String? = null,
     ) : ActivityContext
+
+    data class Playlist(
+        val playlistId: String,
+        val playlistName: String,
+        val owner: String? = null,
+        val coverArtId: String? = null,
+    ) : ActivityContext
 }

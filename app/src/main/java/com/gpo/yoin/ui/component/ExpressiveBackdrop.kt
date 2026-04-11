@@ -1,147 +1,261 @@
 package com.gpo.yoin.ui.component
 
-import androidx.compose.foundation.Canvas
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.MaterialShapes
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.toShape
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.asComposePath
-import androidx.compose.ui.graphics.drawscope.rotate
+import androidx.compose.ui.graphics.Matrix
+import androidx.compose.ui.graphics.Outline
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.copy
+import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.LayoutDirection
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.unit.dp
-import androidx.graphics.shapes.CornerRounding
 import androidx.graphics.shapes.Morph
-import androidx.graphics.shapes.RoundedPolygon
-import androidx.graphics.shapes.toPath
+import com.gpo.yoin.ui.experience.LocalMotionProfile
+import com.gpo.yoin.ui.experience.MotionProfile
+import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinTheme
 
-internal enum class ExpressiveBackdropVariant(
-    val startVertices: Int,
-    val endVertices: Int,
-    val progress: Float,
-    val rotation: Float,
-    val roundingFraction: Float,
-    val endRadiusFraction: Float,
-) {
-    Bloom(
-        startVertices = 6,
-        endVertices = 4,
-        progress = 0.22f,
-        rotation = -14f,
-        roundingFraction = 0.18f,
-        endRadiusFraction = 0.44f,
-    ),
-    Orbit(
-        startVertices = 5,
-        endVertices = 7,
-        progress = 0.58f,
-        rotation = 18f,
-        roundingFraction = 0.2f,
-        endRadiusFraction = 0.47f,
-    ),
-    Pebble(
-        startVertices = 4,
-        endVertices = 8,
-        progress = 0.4f,
-        rotation = -22f,
-        roundingFraction = 0.22f,
-        endRadiusFraction = 0.42f,
-    ),
+internal enum class ExpressiveBackdropVariant {
+    Bun,
+    Ghostish,
+    Circle,
+    SoftBoom,
 }
 
-internal fun expressiveBackdropVariantAt(index: Int): ExpressiveBackdropVariant {
-    val variants = ExpressiveBackdropVariant.entries
-    return variants[index.mod(variants.size)]
+private const val ExpressiveBackdropShapeScale = 0.88f
+private const val ExpressiveBackdropArtworkShiftFraction = 0.08f
+
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+private fun expressiveBackdropShape(variant: ExpressiveBackdropVariant): Shape = when (variant) {
+    ExpressiveBackdropVariant.Bun -> MaterialShapes.Bun.toShape()
+    ExpressiveBackdropVariant.Ghostish -> MaterialShapes.Ghostish.toShape()
+    ExpressiveBackdropVariant.Circle -> MaterialShapes.Circle.toShape()
+    ExpressiveBackdropVariant.SoftBoom -> MaterialShapes.SoftBoom.toShape()
 }
 
-@Suppress("MagicNumber")
-@androidx.compose.runtime.Composable
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+private fun rememberCircleArrowMorph(): Morph = remember {
+    Morph(
+        start = MaterialShapes.Circle.normalized(),
+        end = MaterialShapes.Arrow.normalized(),
+    )
+}
+
+private class ExpressiveMorphShape(
+    private val basePath: Path,
+) : Shape {
+    override fun createOutline(
+        size: Size,
+        layoutDirection: LayoutDirection,
+        density: Density,
+    ): Outline {
+        val transformedPath = basePath.copy()
+        val matrix = Matrix()
+        matrix.scale(x = size.width, y = size.height)
+        transformedPath.transform(matrix)
+
+        val boundsCenter = transformedPath.getBounds().center
+        transformedPath.translate(
+            Offset(
+                x = (size.width / 2f) - boundsCenter.x,
+                y = (size.height / 2f) - boundsCenter.y,
+            ),
+        )
+        return Outline.Generic(transformedPath)
+    }
+}
+
+@Composable
 internal fun ExpressiveBackdrop(
     baseColor: Color,
     accentColor: Color,
     modifier: Modifier = Modifier,
-    variant: ExpressiveBackdropVariant = ExpressiveBackdropVariant.Bloom,
+    variant: ExpressiveBackdropVariant = ExpressiveBackdropVariant.Bun,
+    interactionSource: MutableInteractionSource? = null,
+    isPlaybackActive: Boolean = false,
+    playbackSignal: Float = 0f,
 ) {
-    Canvas(modifier = modifier) {
-        val minDimension = size.minDimension
-        val pivot = Offset(size.width / 2f, size.height / 2f)
-        val primaryRounding = CornerRounding(
-            radius = minDimension * variant.roundingFraction,
-            smoothing = 0.82f,
-        )
-        val secondaryRounding = CornerRounding(
-            radius = minDimension * variant.roundingFraction * 0.82f,
-            smoothing = 1f,
-        )
-        val startPolygon = RoundedPolygon(
-            numVertices = variant.startVertices,
-            radius = minDimension * 0.48f,
-            centerX = size.width * 0.43f,
-            centerY = size.height * 0.48f,
-            rounding = primaryRounding,
-        )
-        val endPolygon = RoundedPolygon(
-            numVertices = variant.endVertices,
-            radius = minDimension * variant.endRadiusFraction,
-            centerX = size.width * 0.58f,
-            centerY = size.height * 0.52f,
-            rounding = secondaryRounding,
-        )
-        val morphPath = Morph(start = startPolygon, end = endPolygon)
-            .toPath(progress = variant.progress)
-            .asComposePath()
-
-        rotate(degrees = variant.rotation, pivot = pivot) {
-            drawPath(
-                path = morphPath,
-                brush = Brush.radialGradient(
-                    colors = listOf(
-                        baseColor.copy(alpha = 0.92f),
-                        accentColor.copy(alpha = 0.58f),
-                    ),
-                    center = Offset(size.width * 0.48f, size.height * 0.42f),
-                    radius = minDimension * 0.9f,
-                ),
+    val motionProfile = LocalMotionProfile.current
+    val morphProgress by animateFloatAsState(
+        targetValue = if (
+            variant == ExpressiveBackdropVariant.Circle &&
+            isPlaybackActive &&
+            motionProfile == MotionProfile.Full
+        ) {
+            1f
+        } else {
+            0f
+        },
+        animationSpec = if (motionProfile == MotionProfile.Full) {
+            YoinMotion.bouncySpatialSpring()
+        } else {
+            YoinMotion.spatialSpring()
+        },
+        label = "expressiveBackdropMorphProgress",
+    )
+    val shape = if (variant == ExpressiveBackdropVariant.Circle) {
+        val morph = rememberCircleArrowMorph()
+        val path = remember<Path>(morph, morphProgress) {
+            MaterialShapeInterop.morphToPath(
+                morph,
+                morphProgress,
+                Path(),
+                0,
             )
         }
+        remember(path) { ExpressiveMorphShape(path) }
+    } else {
+        expressiveBackdropShape(variant)
+    }
+    val animatedScale by animateFloatAsState(
+        targetValue = if (isPlaybackActive) {
+            if (motionProfile == MotionProfile.Full) {
+                1.02f + playbackSignal * 0.03f
+            } else {
+                1.01f + playbackSignal * 0.012f
+            }
+        } else {
+            1f
+        },
+        animationSpec = if (motionProfile == MotionProfile.Full) {
+            YoinMotion.expressiveSpatialSpring()
+        } else {
+            YoinMotion.spatialSpring()
+        },
+        label = "expressiveBackdropScale",
+    )
+    val animatedColor by animateColorAsState(
+        targetValue = if (isPlaybackActive) {
+            if (motionProfile == MotionProfile.Full) {
+                lerp(baseColor, accentColor, 0.16f + playbackSignal * 0.16f)
+            } else {
+                lerp(baseColor, accentColor, 0.08f + playbackSignal * 0.08f)
+            }
+        } else {
+            baseColor.copy(alpha = 0.9f)
+        },
+        animationSpec = YoinMotion.effectsSpring(),
+        label = "expressiveBackdropColor",
+    )
 
-        val orbitPolygon = RoundedPolygon(
-            numVertices = variant.endVertices + 1,
-            radius = minDimension * 0.18f,
-            centerX = size.width * 0.73f,
-            centerY = size.height * 0.24f,
-            rounding = secondaryRounding,
+    Box(
+        modifier = modifier
+            .clip(shape)
+            .background(animatedColor)
+            .graphicsLayer(
+                scaleX = animatedScale,
+                scaleY = animatedScale,
+            ),
+    )
+}
+
+@Composable
+internal fun ExpressiveBackdropArtwork(
+    model: String?,
+    contentDescription: String?,
+    variant: ExpressiveBackdropVariant,
+    modifier: Modifier = Modifier,
+    shape: Shape,
+    fallbackIcon: ImageVector,
+    interactionSource: MutableInteractionSource? = null,
+    isPlaybackActive: Boolean = false,
+    playbackSignal: Float = 0f,
+    fillFraction: Float = 1f,
+    backdropScale: Float = ExpressiveBackdropShapeScale,
+    artworkShiftFraction: Float = ExpressiveBackdropArtworkShiftFraction,
+    offsetX: Dp = 0.dp,
+    offsetY: Dp = 0.dp,
+    tonalElevation: Dp = 1.dp,
+    shadowElevation: Dp = 0.dp,
+) {
+    val backdropColors = rememberExpressiveBackdropColors(
+        model = model,
+        fallbackBaseColor = MaterialTheme.colorScheme.secondaryContainer,
+        fallbackAccentColor = MaterialTheme.colorScheme.tertiaryContainer,
+    )
+    val scaledFillFraction = (fillFraction * ExpressiveBackdropArtworkScale).coerceIn(0.36f, 1f)
+
+    BoxWithConstraints(modifier = modifier) {
+        val opticalShift = minOf(maxWidth, maxHeight) * artworkShiftFraction
+        ExpressiveBackdrop(
+            baseColor = backdropColors.baseColor,
+            accentColor = backdropColors.accentColor,
+            variant = variant,
+            interactionSource = interactionSource,
+            isPlaybackActive = isPlaybackActive,
+            playbackSignal = playbackSignal,
+            modifier = Modifier
+                .fillMaxSize(backdropScale)
+                .align(Alignment.Center)
+                .offset(x = -opticalShift, y = -opticalShift),
         )
-        drawPath(
-            path = orbitPolygon.toPath().asComposePath(),
-            color = accentColor.copy(alpha = 0.24f),
+        ExpressiveMediaArtwork(
+            model = model,
+            contentDescription = contentDescription,
+            modifier = Modifier
+                .fillMaxSize(scaledFillFraction)
+                .align(Alignment.Center)
+                .offset(
+                    x = opticalShift + offsetX * 0.25f,
+                    y = opticalShift + offsetY * 0.25f,
+                ),
+            shape = shape,
+            fallbackIcon = fallbackIcon,
+            interactionSource = interactionSource,
+            tonalElevation = tonalElevation,
+            shadowElevation = shadowElevation,
         )
     }
 }
 
 @Preview(showBackground = true, backgroundColor = 0xFF1C1B1F)
-@androidx.compose.runtime.Composable
+@Composable
 private fun ExpressiveBackdropPreview() {
     YoinTheme {
         Row(
             modifier = Modifier
-                .background(color = androidx.compose.material3.MaterialTheme.colorScheme.background)
+                .background(color = MaterialTheme.colorScheme.background)
                 .padding(16.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             ExpressiveBackdropVariant.entries.forEach { variant ->
                 Box(modifier = Modifier.size(92.dp)) {
                     ExpressiveBackdrop(
-                        baseColor = androidx.compose.material3.MaterialTheme.colorScheme.secondaryContainer,
-                        accentColor = androidx.compose.material3.MaterialTheme.colorScheme.tertiaryContainer,
+                        baseColor = MaterialTheme.colorScheme.secondaryContainer,
+                        accentColor = MaterialTheme.colorScheme.tertiaryContainer,
                         variant = variant,
-                        modifier = Modifier.matchParentSize(),
+                        modifier = Modifier.fillMaxSize(),
                     )
                 }
             }

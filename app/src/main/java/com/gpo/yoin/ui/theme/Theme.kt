@@ -2,6 +2,9 @@ package com.gpo.yoin.ui.theme
 
 import android.graphics.Bitmap
 import android.os.Build
+import androidx.activity.ComponentActivity
+import androidx.activity.SystemBarStyle
+import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -12,15 +15,20 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.MotionScheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.dynamicDarkColorScheme
+import androidx.compose.material3.dynamicLightColorScheme
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -38,40 +46,75 @@ val LocalYoinColors = staticCompositionLocalOf { YoinDarkColorScheme }
  * App-wide theme wrapper.
  *
  * @param colorSchemeOverride Hard override for previews / tests.
- * @param coverBitmap When non-null, Palette API extracts album cover colors and
- *   the entire [MaterialTheme.colorScheme] animates to the extracted scheme via
- *   Effects Spring. When `null` (playback stopped), colors animate back to the
- *   default dynamic / dark scheme.
+ * @param coverBitmap When non-null, album art resolves to a single seed color and
+ *   the entire [MaterialTheme.colorScheme] animates to an expressive `SPEC_2025`
+ *   scheme. When `null` (playback stopped), colors animate back to the default
+ *   dynamic / dark scheme.
  */
 @Composable
 fun YoinTheme(
     colorSchemeOverride: ColorScheme? = null,
+    motionSchemeOverride: MotionScheme? = null,
     coverBitmap: Bitmap? = null,
+    darkTheme: Boolean = isSystemInDarkTheme(),
     content: @Composable () -> Unit,
 ) {
     val context = LocalContext.current
+    val resolvedDarkTheme by rememberUpdatedState(darkTheme)
     val defaultScheme = colorSchemeOverride ?: if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-        dynamicDarkColorScheme(context)
+        if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
     } else {
-        YoinDarkColorScheme
+        if (darkTheme) YoinDarkColorScheme else YoinLightColorScheme
     }
 
-    // Extract palette from cover art (runs on Dispatchers.Default).
+    SideEffect {
+        (context as? ComponentActivity)?.enableEdgeToEdge(
+            statusBarStyle = if (resolvedDarkTheme) {
+                SystemBarStyle.dark(android.graphics.Color.TRANSPARENT)
+            } else {
+                SystemBarStyle.light(
+                    android.graphics.Color.TRANSPARENT,
+                    android.graphics.Color.TRANSPARENT,
+                )
+            },
+            navigationBarStyle = if (resolvedDarkTheme) {
+                SystemBarStyle.dark(android.graphics.Color.TRANSPARENT)
+            } else {
+                SystemBarStyle.light(
+                    android.graphics.Color.TRANSPARENT,
+                    android.graphics.Color.TRANSPARENT,
+                )
+            },
+        )
+    }
+
+    // Resolve a single seed from cover art, then build a SPEC_2025 expressive scheme.
     var extractedScheme by remember { mutableStateOf<ColorScheme?>(null) }
-    LaunchedEffect(coverBitmap) {
-        extractedScheme = PaletteExtractor.extractColorScheme(coverBitmap)
+    LaunchedEffect(coverBitmap, darkTheme) {
+        extractedScheme = CoverSeedExtractor.extractSeedArgb(coverBitmap)?.let { seedArgb ->
+            ExpressiveColorSchemeFactory.fromSeed(
+                seedArgb = seedArgb,
+                isDark = darkTheme,
+            )
+        }
     }
 
     val targetScheme = extractedScheme ?: defaultScheme
+    val motionScheme = motionSchemeOverride ?: MotionScheme.expressive()
 
-    // Animate every token via Effects Spring — zero hard color cuts.
-    val colorScheme = animateColorScheme(targetScheme)
+    // Animate every token via the current effects motion bucket — zero hard color cuts.
+    val colorScheme = animateColorScheme(
+        targetColorScheme = targetScheme,
+        darkTheme = darkTheme,
+        motionScheme = motionScheme,
+    )
 
     CompositionLocalProvider(LocalYoinColors provides colorScheme) {
         MaterialTheme(
             colorScheme = colorScheme,
-            typography = YoinTypography,
+            motionScheme = motionScheme,
             shapes = YoinShapes,
+            typography = YoinTypography,
             content = content,
         )
     }

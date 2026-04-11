@@ -10,6 +10,9 @@ interface PlayHistoryDao {
     @Query("SELECT * FROM play_history ORDER BY playedAt DESC LIMIT :limit")
     fun getRecentHistory(limit: Int): Flow<List<PlayHistory>>
 
+    @Query("SELECT * FROM play_history WHERE songId = :songId ORDER BY playedAt DESC LIMIT 1")
+    suspend fun getMostRecentPlay(songId: String): PlayHistory?
+
     @Insert
     suspend fun insert(entry: PlayHistory)
 

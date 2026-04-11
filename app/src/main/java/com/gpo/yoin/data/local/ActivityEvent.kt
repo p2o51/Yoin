@@ -22,6 +22,7 @@ enum class ActivityEntityType {
     SONG,
     ALBUM,
     ARTIST,
+    PLAYLIST,
 }
 
 enum class ActivityActionType {

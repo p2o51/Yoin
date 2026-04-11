@@ -9,6 +9,7 @@ import com.gpo.yoin.data.remote.Artist
 import com.gpo.yoin.data.remote.ArtistIndex
 import com.gpo.yoin.data.remote.Song
 import com.gpo.yoin.data.repository.YoinRepository
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.collectLatest
@@ -25,6 +26,7 @@ class HomeViewModel(
     private val _uiState = MutableStateFlow<HomeUiState>(HomeUiState.Loading)
     val uiState: StateFlow<HomeUiState> = _uiState.asStateFlow()
     private var artistPool: List<Artist> = emptyList()
+    private var artistPoolWarmupJob: Job? = null
     private var isLoadingMoreJumpBackIn = false
 
     init {
@@ -42,6 +44,7 @@ class HomeViewModel(
                 _uiState.value = loadHomeContent(
                     previousRevision = previousContent?.jumpBackInRevision ?: 0,
                 )
+                warmArtistPool()
             } catch (e: Exception) {
                 _uiState.value = HomeUiState.Error(
                     e.message ?: "Failed to load home content",
@@ -86,11 +89,13 @@ class HomeViewModel(
                         jumpBackInItems = buildJumpBackInBatch(
                             albumCandidates = mixForYou + quickPlayAlbums + recentlyAdded + mostPlayed,
                             songCandidates = quickPlaySongs,
+                            artistCandidates = artistPool,
                             existingIds = emptySet(),
                             batchSize = JUMP_BACK_IN_BATCH_SIZE,
                         ),
                         jumpBackInRevision = currentContent.jumpBackInRevision + 1,
                     )
+                    warmArtistPool()
                 }
             } catch (_: Exception) {
                 // Keep the current section stable if recommendation refresh fails.
@@ -115,6 +120,7 @@ class HomeViewModel(
                     val nextBatch = buildJumpBackInBatch(
                         albumCandidates = albumDeferred.await(),
                         songCandidates = songDeferred.await(),
+                        artistCandidates = artistPool,
                         existingIds = currentContent.jumpBackInItems.mapTo(mutableSetOf()) { it.stableId },
                         batchSize = JUMP_BACK_IN_BATCH_SIZE,
                     )
@@ -169,8 +175,9 @@ class HomeViewModel(
                 jumpBackInItems = buildJumpBackInBatch(
                     albumCandidates = mixForYou + quickPlayAlbums + recentlyAdded + mostPlayed,
                     songCandidates = quickPlaySongs,
+                    artistCandidates = artistPool,
                     existingIds = emptySet(),
-                    batchSize = JUMP_BACK_IN_BATCH_SIZE,
+                    batchSize = INITIAL_JUMP_BACK_IN_BATCH_SIZE,
                 ),
                 recentlyAdded = recentlyAdded,
                 mixForYou = mixForYou,
@@ -193,13 +200,10 @@ class HomeViewModel(
     private suspend fun buildJumpBackInBatch(
         albumCandidates: List<Album>,
         songCandidates: List<Song>,
+        artistCandidates: List<Artist>,
         existingIds: Set<String>,
         batchSize: Int,
     ): List<HomeJumpBackInItem> {
-        if (artistPool.isEmpty()) {
-            artistPool = loadArtistsFlat()
-        }
-
         val albumItems = albumCandidates
             .shuffled()
             .map { HomeJumpBackInItem.AlbumItem(it) }
@@ -214,7 +218,7 @@ class HomeViewModel(
             .filterNot { it.stableId in existingIds }
             .take(batchSize / 5 * 2)
 
-        val artistItems = artistPool
+        val artistItems = artistCandidates
             .shuffled()
             .map { HomeJumpBackInItem.ArtistItem(it) }
             .distinctBy { it.stableId }
@@ -239,6 +243,20 @@ class HomeViewModel(
         return result.take(batchSize)
     }
 
+    private fun warmArtistPool() {
+        if (artistPool.isNotEmpty() || artistPoolWarmupJob?.isActive == true) return
+
+        artistPoolWarmupJob = viewModelScope.launch {
+            try {
+                artistPool = loadArtistsFlat()
+            } catch (_: Exception) {
+                // Skip artist warmup. Albums and songs are enough for the home feed.
+            } finally {
+                artistPoolWarmupJob = null
+            }
+        }
+    }
+
     private suspend fun loadArtistsFlat(): List<Artist> {
         val indices: List<ArtistIndex> = repository.getArtists()
         return indices.flatMap { it.artist }
@@ -251,6 +269,7 @@ class HomeViewModel(
     }
 
     private companion object {
-        private const val JUMP_BACK_IN_BATCH_SIZE = 30
+        private const val INITIAL_JUMP_BACK_IN_BATCH_SIZE = 12
+        private const val JUMP_BACK_IN_BATCH_SIZE = 18
     }
 }

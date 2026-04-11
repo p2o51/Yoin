@@ -10,8 +10,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.MotionScheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
@@ -21,15 +23,22 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 
 /**
- * Smoothly transitions **every** token in [targetColorScheme] using the Effects Spring
- * (`spring(stiffness = StiffnessLow, dampingRatio = NoBouncy)`).
+ * Smoothly transitions **every** token in [targetColorScheme] using the theme's
+ * default effects motion bucket.
  *
  * When the target changes — e.g. new album cover → new palette — all colors animate
  * in concert, producing a seamless global wash across the entire app.
  */
 @Composable
-fun animateColorScheme(targetColorScheme: ColorScheme): ColorScheme {
-    val spec = YoinMotion.effectsSpring<Color>()
+fun animateColorScheme(
+    targetColorScheme: ColorScheme,
+    darkTheme: Boolean,
+    motionScheme: MotionScheme,
+): ColorScheme {
+    val spec = YoinMotion.defaultEffectsSpec<Color>(
+        role = YoinMotionRole.Expressive,
+        expressiveScheme = motionScheme,
+    )
 
     // ── Primary ──────────────────────────────────────────────────────────
     val primary by animateColorAsState(targetColorScheme.primary, spec, label = "primary")
@@ -189,44 +198,85 @@ fun animateColorScheme(targetColorScheme: ColorScheme): ColorScheme {
         label = "surfaceContainerLowest",
     )
 
-    return darkColorScheme(
-        primary = primary,
-        onPrimary = onPrimary,
-        primaryContainer = primaryContainer,
-        onPrimaryContainer = onPrimaryContainer,
-        inversePrimary = inversePrimary,
-        secondary = secondary,
-        onSecondary = onSecondary,
-        secondaryContainer = secondaryContainer,
-        onSecondaryContainer = onSecondaryContainer,
-        tertiary = tertiary,
-        onTertiary = onTertiary,
-        tertiaryContainer = tertiaryContainer,
-        onTertiaryContainer = onTertiaryContainer,
-        background = background,
-        onBackground = onBackground,
-        surface = surface,
-        onSurface = onSurface,
-        surfaceVariant = surfaceVariant,
-        onSurfaceVariant = onSurfaceVariant,
-        surfaceTint = surfaceTint,
-        inverseSurface = inverseSurface,
-        inverseOnSurface = inverseOnSurface,
-        error = error,
-        onError = onError,
-        errorContainer = errorContainer,
-        onErrorContainer = onErrorContainer,
-        outline = outline,
-        outlineVariant = outlineVariant,
-        scrim = scrim,
-        surfaceBright = surfaceBright,
-        surfaceDim = surfaceDim,
-        surfaceContainer = surfaceContainer,
-        surfaceContainerHigh = surfaceContainerHigh,
-        surfaceContainerHighest = surfaceContainerHighest,
-        surfaceContainerLow = surfaceContainerLow,
-        surfaceContainerLowest = surfaceContainerLowest,
-    )
+    return if (darkTheme) {
+        darkColorScheme(
+            primary = primary,
+            onPrimary = onPrimary,
+            primaryContainer = primaryContainer,
+            onPrimaryContainer = onPrimaryContainer,
+            inversePrimary = inversePrimary,
+            secondary = secondary,
+            onSecondary = onSecondary,
+            secondaryContainer = secondaryContainer,
+            onSecondaryContainer = onSecondaryContainer,
+            tertiary = tertiary,
+            onTertiary = onTertiary,
+            tertiaryContainer = tertiaryContainer,
+            onTertiaryContainer = onTertiaryContainer,
+            background = background,
+            onBackground = onBackground,
+            surface = surface,
+            onSurface = onSurface,
+            surfaceVariant = surfaceVariant,
+            onSurfaceVariant = onSurfaceVariant,
+            surfaceTint = surfaceTint,
+            inverseSurface = inverseSurface,
+            inverseOnSurface = inverseOnSurface,
+            error = error,
+            onError = onError,
+            errorContainer = errorContainer,
+            onErrorContainer = onErrorContainer,
+            outline = outline,
+            outlineVariant = outlineVariant,
+            scrim = scrim,
+            surfaceBright = surfaceBright,
+            surfaceDim = surfaceDim,
+            surfaceContainer = surfaceContainer,
+            surfaceContainerHigh = surfaceContainerHigh,
+            surfaceContainerHighest = surfaceContainerHighest,
+            surfaceContainerLow = surfaceContainerLow,
+            surfaceContainerLowest = surfaceContainerLowest,
+        )
+    } else {
+        lightColorScheme(
+            primary = primary,
+            onPrimary = onPrimary,
+            primaryContainer = primaryContainer,
+            onPrimaryContainer = onPrimaryContainer,
+            inversePrimary = inversePrimary,
+            secondary = secondary,
+            onSecondary = onSecondary,
+            secondaryContainer = secondaryContainer,
+            onSecondaryContainer = onSecondaryContainer,
+            tertiary = tertiary,
+            onTertiary = onTertiary,
+            tertiaryContainer = tertiaryContainer,
+            onTertiaryContainer = onTertiaryContainer,
+            background = background,
+            onBackground = onBackground,
+            surface = surface,
+            onSurface = onSurface,
+            surfaceVariant = surfaceVariant,
+            onSurfaceVariant = onSurfaceVariant,
+            surfaceTint = surfaceTint,
+            inverseSurface = inverseSurface,
+            inverseOnSurface = inverseOnSurface,
+            error = error,
+            onError = onError,
+            errorContainer = errorContainer,
+            onErrorContainer = onErrorContainer,
+            outline = outline,
+            outlineVariant = outlineVariant,
+            scrim = scrim,
+            surfaceBright = surfaceBright,
+            surfaceDim = surfaceDim,
+            surfaceContainer = surfaceContainer,
+            surfaceContainerHigh = surfaceContainerHigh,
+            surfaceContainerHighest = surfaceContainerHighest,
+            surfaceContainerLow = surfaceContainerLow,
+            surfaceContainerLowest = surfaceContainerLowest,
+        )
+    }
 }
 
 // ── Preview ──────────────────────────────────────────────────────────────
@@ -235,7 +285,11 @@ fun animateColorScheme(targetColorScheme: ColorScheme): ColorScheme {
 @Preview(showBackground = true, backgroundColor = 0xFF1C1B1F)
 @Composable
 private fun AnimatedColorSchemePreview() {
-    val animated = animateColorScheme(targetColorScheme = YoinDarkColorScheme)
+    val animated = animateColorScheme(
+        targetColorScheme = YoinDarkColorScheme,
+        darkTheme = true,
+        motionScheme = MotionScheme.expressive(),
+    )
     MaterialTheme(colorScheme = animated) {
         val cs = MaterialTheme.colorScheme
         FlowRow(

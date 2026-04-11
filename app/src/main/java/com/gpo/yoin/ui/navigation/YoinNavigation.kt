@@ -28,7 +28,10 @@ sealed interface YoinRoute {
     data object Settings : YoinRoute
 
     @Serializable
-    data class AlbumDetail(val albumId: String) : YoinRoute
+    data class AlbumDetail(
+        val albumId: String,
+        val sharedTransitionKey: String? = null,
+    ) : YoinRoute
 
     @Serializable
     data class ArtistDetail(val artistId: String) : YoinRoute

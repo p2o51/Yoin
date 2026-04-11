@@ -43,6 +43,19 @@ android {
     // Room schema export — will be configured in Phase 3 with androidx.room plugin
 }
 
+ktlint {
+    filter {
+        exclude("**/contrast/**")
+        exclude("**/dislike/**")
+        exclude("**/dynamiccolor/**")
+        exclude("**/hct/**")
+        exclude("**/palettes/**")
+        exclude("**/scheme/**")
+        exclude("**/temperature/**")
+        exclude("**/utils/**")
+    }
+}
+
 dependencies {
     // Compose BOM
     val composeBom = platform(libs.compose.bom)

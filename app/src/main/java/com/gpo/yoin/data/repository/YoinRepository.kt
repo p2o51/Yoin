@@ -151,6 +151,13 @@ class YoinRepository(
     fun getRating(songId: String): Flow<LocalRating?> =
         database.localRatingDao().getRating(songId)
 
+    suspend fun getRatings(songIds: Collection<String>): Map<String, LocalRating> {
+        if (songIds.isEmpty()) return emptyMap()
+        return database.localRatingDao()
+            .getRatings(songIds.distinct())
+            .associateBy { it.songId }
+    }
+
     suspend fun syncPendingRatings() {
         val pending = database.localRatingDao().getRatingsNeedingSync().first()
         for (rating in pending) {
@@ -201,8 +208,26 @@ class YoinRepository(
 
     fun getRecentActivities(limit: Int = 20): Flow<List<ActivityEvent>> =
         database.activityEventDao()
-            .getRecentEvents(limit * 4)
-            .map { events -> collapseAdjacentDuplicates(events).take(limit) }
+            .getRecentEvents(limit * 8)
+            .map { events -> collapseToLatestUnique(events).take(limit) }
+
+    suspend fun getRecentMemoryActivities(limit: Int = 48): List<ActivityEvent> =
+        database.activityEventDao()
+            .getRecentEvents(limit * 10)
+            .first()
+            .filter { it.actionType == ActivityActionType.PLAYED.name }
+            .filter {
+                it.entityType == ActivityEntityType.SONG.name ||
+                    it.entityType == ActivityEntityType.ALBUM.name ||
+                    it.entityType == ActivityEntityType.PLAYLIST.name
+            }
+            .let(::collapseToLatestUnique)
+            .asSequence()
+            .take(limit)
+            .toList()
+
+    suspend fun getMostRecentPlay(songId: String): PlayHistory? =
+        database.playHistoryDao().getMostRecentPlay(songId)
 
     suspend fun recordAlbumVisit(album: Album) {
         database.activityEventDao().insert(
@@ -291,6 +316,18 @@ class YoinRepository(
             artistId = activityContext.artistId,
         )
 
+        is ActivityContext.Playlist -> ActivityEvent(
+            entityType = ActivityEntityType.PLAYLIST.name,
+            actionType = ActivityActionType.PLAYED.name,
+            entityId = activityContext.playlistId,
+            title = activityContext.playlistName,
+            subtitle = activityContext.owner.orEmpty().ifBlank { "Playlist" },
+            coverArtId = activityContext.coverArtId ?: song.coverArt ?: song.albumId,
+            songId = song.id,
+            albumId = song.albumId,
+            artistId = song.artistId,
+        )
+
         ActivityContext.None -> ActivityEvent(
             entityType = ActivityEntityType.SONG.name,
             actionType = ActivityActionType.PLAYED.name,
@@ -304,14 +341,12 @@ class YoinRepository(
         )
     }
 
-    private fun collapseAdjacentDuplicates(events: List<ActivityEvent>): List<ActivityEvent> {
+    private fun collapseToLatestUnique(events: List<ActivityEvent>): List<ActivityEvent> {
+        val seenKeys = mutableSetOf<String>()
         val collapsed = mutableListOf<ActivityEvent>()
         events.forEach { event ->
-            val previous = collapsed.lastOrNull()
-            val duplicateOfPrevious = previous != null &&
-                previous.entityType == event.entityType &&
-                previous.entityId == event.entityId
-            if (!duplicateOfPrevious) {
+            val stableKey = "${event.actionType}:${event.entityType}:${event.entityId}"
+            if (seenKeys.add(stableKey)) {
                 collapsed += event
             }
         }

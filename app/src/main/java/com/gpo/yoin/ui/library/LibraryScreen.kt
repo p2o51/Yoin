@@ -2,12 +2,7 @@ package com.gpo.yoin.ui.library
 
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.spring
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -25,6 +20,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -61,6 +57,9 @@ import com.gpo.yoin.data.remote.Playlist
 import com.gpo.yoin.data.remote.SearchResult
 import com.gpo.yoin.data.remote.Song
 import com.gpo.yoin.data.remote.StarredResponse
+import com.gpo.yoin.player.VisualizerData
+import com.gpo.yoin.ui.component.ExpressiveBackdropArtwork
+import com.gpo.yoin.ui.component.ExpressiveBackdropVariant
 import com.gpo.yoin.ui.component.ExpressiveMediaArtwork
 import com.gpo.yoin.ui.component.ExpressiveMetaPill
 import com.gpo.yoin.ui.component.ExpressivePageBackground
@@ -68,7 +67,13 @@ import com.gpo.yoin.ui.component.ExpressiveSectionPanel
 import com.gpo.yoin.ui.component.ExpressiveSegmentedTabs
 import com.gpo.yoin.ui.component.SongListItem
 import com.gpo.yoin.ui.component.YoinLoadingIndicator
+import com.gpo.yoin.ui.component.expressiveEntrance
 import com.gpo.yoin.ui.component.minimumTouchTarget
+import com.gpo.yoin.ui.component.playbackBackdropSignal
+import com.gpo.yoin.ui.component.rememberExpressiveEntranceProgress
+import com.gpo.yoin.ui.theme.ProvideYoinMotionRole
+import com.gpo.yoin.ui.theme.YoinMotion
+import com.gpo.yoin.ui.theme.YoinMotionRole
 import com.gpo.yoin.ui.theme.YoinShapeTokens
 import com.gpo.yoin.ui.theme.YoinTheme
 
@@ -77,6 +82,9 @@ private val FloatingBottomGroupContentPadding = 132.dp
 @Composable
 fun LibraryScreen(
     viewModel: LibraryViewModel,
+    activeSongId: String? = null,
+    isPlaying: Boolean = false,
+    visualizerData: VisualizerData = VisualizerData.Empty,
     onNavigateToSettings: () -> Unit,
     onArtistClick: (String) -> Unit,
     onAlbumClick: (String) -> Unit,
@@ -88,6 +96,9 @@ fun LibraryScreen(
 
     LibraryContent(
         uiState = uiState,
+        activeSongId = activeSongId,
+        isPlaying = isPlaying,
+        visualizerData = visualizerData,
         onTabSelected = viewModel::selectTab,
         onSearchQueryChanged = viewModel::search,
         onClearSearch = viewModel::clearSearch,
@@ -105,6 +116,9 @@ fun LibraryScreen(
 @Composable
 fun LibraryContent(
     uiState: LibraryUiState,
+    activeSongId: String? = null,
+    isPlaying: Boolean = false,
+    visualizerData: VisualizerData = VisualizerData.Empty,
     onTabSelected: (LibraryTab) -> Unit,
     onSearchQueryChanged: (String) -> Unit,
     onClearSearch: () -> Unit,
@@ -117,58 +131,63 @@ fun LibraryContent(
     coverArtUrlBuilder: ((String) -> String)?,
     modifier: Modifier = Modifier,
 ) {
-    ExpressivePageBackground(modifier = modifier) {
-        when (uiState) {
-            is LibraryUiState.Loading -> {
-                Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    YoinLoadingIndicator()
+    ProvideYoinMotionRole(role = YoinMotionRole.Standard) {
+        ExpressivePageBackground(modifier = modifier) {
+            when (uiState) {
+                is LibraryUiState.Loading -> {
+                    Box(
+                        modifier = Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        YoinLoadingIndicator()
+                    }
                 }
-            }
 
-            is LibraryUiState.Error -> {
-                Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    ExpressiveSectionPanel(
+                is LibraryUiState.Error -> {
+                    Box(
                         modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp),
+                            .fillMaxSize()
+                            .padding(horizontal = 24.dp),
+                        contentAlignment = Alignment.Center,
                     ) {
                         Column(
-                            modifier = Modifier.padding(20.dp),
                             horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
                             Text(
                                 text = uiState.message,
                                 color = MaterialTheme.colorScheme.error,
                                 style = MaterialTheme.typography.bodyLarge,
                             )
-                            Spacer(modifier = Modifier.height(8.dp))
-                            TextButton(onClick = onRetry) {
-                                Text("Retry")
+                            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                TextButton(onClick = onRetry) {
+                                    Text("Retry")
+                                }
+                                TextButton(onClick = onNavigateToSettings) {
+                                    Text("Settings")
+                                }
                             }
                         }
                     }
                 }
-            }
 
-            is LibraryUiState.Content -> {
-                LibraryContentBody(
-                    state = uiState,
-                    onTabSelected = onTabSelected,
-                    onSearchQueryChanged = onSearchQueryChanged,
-                    onClearSearch = onClearSearch,
-                    onNavigateToSettings = onNavigateToSettings,
-                    onArtistClick = onArtistClick,
-                    onAlbumClick = onAlbumClick,
-                    onPlaylistClick = onPlaylistClick,
-                    onSongClick = onSongClick,
-                    coverArtUrlBuilder = coverArtUrlBuilder,
-                )
+                is LibraryUiState.Content -> {
+                    LibraryContentBody(
+                        state = uiState,
+                        activeSongId = activeSongId,
+                        isPlaying = isPlaying,
+                        visualizerData = visualizerData,
+                        onTabSelected = onTabSelected,
+                        onSearchQueryChanged = onSearchQueryChanged,
+                        onClearSearch = onClearSearch,
+                        onNavigateToSettings = onNavigateToSettings,
+                        onArtistClick = onArtistClick,
+                        onAlbumClick = onAlbumClick,
+                        onPlaylistClick = onPlaylistClick,
+                        onSongClick = onSongClick,
+                        coverArtUrlBuilder = coverArtUrlBuilder,
+                    )
+                }
             }
         }
     }
@@ -177,6 +196,9 @@ fun LibraryContent(
 @Composable
 private fun LibraryContentBody(
     state: LibraryUiState.Content,
+    activeSongId: String? = null,
+    isPlaying: Boolean = false,
+    visualizerData: VisualizerData = VisualizerData.Empty,
     onTabSelected: (LibraryTab) -> Unit,
     onSearchQueryChanged: (String) -> Unit,
     onClearSearch: () -> Unit,
@@ -187,6 +209,12 @@ private fun LibraryContentBody(
     onSongClick: (Song) -> Unit,
     coverArtUrlBuilder: ((String) -> String)?,
 ) {
+    val playbackSignal = remember(visualizerData, isPlaying) {
+        playbackBackdropSignal(
+            visualizerData = visualizerData,
+            isPlaying = isPlaying,
+        )
+    }
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -211,62 +239,62 @@ private fun LibraryContentBody(
         Box(
             modifier = Modifier.weight(1f),
         ) {
-            ExpressiveSectionPanel(
-                modifier = Modifier.fillMaxSize(),
-                shape = YoinShapeTokens.ExtraLarge,
-                containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
-                tonalElevation = 3.dp,
-                shadowElevation = 8.dp,
-            ) {
-                if (state.searchQuery.isNotBlank()) {
-                    SearchResultsContent(
-                        searchResults = state.searchResults,
-                        isSearching = state.isSearching,
-                        onArtistClick = onArtistClick,
-                        onAlbumClick = onAlbumClick,
-                        onSongClick = onSongClick,
-                        coverArtUrlBuilder = coverArtUrlBuilder,
-                    )
-                } else {
-                    AnimatedContent(
-                        targetState = state.selectedTab,
-                        transitionSpec = {
-                            fadeIn(
-                                spring(stiffness = Spring.StiffnessLow),
-                            ) togetherWith fadeOut(
-                                spring(stiffness = Spring.StiffnessLow),
-                            )
-                        },
-                        label = "tabContent",
-                        modifier = Modifier.weight(1f),
-                    ) { tab ->
-                        when (tab) {
-                            LibraryTab.Artists -> ArtistsTabContent(
-                                artists = state.artists,
-                                onArtistClick = onArtistClick,
-                            )
-                            LibraryTab.Albums -> AlbumsTabContent(
-                                albums = state.albums,
-                                onAlbumClick = onAlbumClick,
-                                coverArtUrlBuilder = coverArtUrlBuilder,
-                            )
-                            LibraryTab.Songs -> SongsTabContent(
-                                songs = state.songs,
-                                onSongClick = onSongClick,
-                                coverArtUrlBuilder = coverArtUrlBuilder,
-                            )
-                            LibraryTab.Playlists -> PlaylistsTabContent(
-                                playlists = state.playlists,
-                                onPlaylistClick = onPlaylistClick,
-                            )
-                            LibraryTab.Favorites -> FavoritesTabContent(
-                                favorites = state.favorites,
-                                onArtistClick = onArtistClick,
-                                onAlbumClick = onAlbumClick,
-                                onSongClick = onSongClick,
-                                coverArtUrlBuilder = coverArtUrlBuilder,
-                            )
-                        }
+            if (state.searchQuery.isNotBlank()) {
+                SearchResultsContent(
+                    searchResults = state.searchResults,
+                    isSearching = state.isSearching,
+                    activeSongId = activeSongId,
+                    isPlaying = isPlaying,
+                    playbackSignal = playbackSignal,
+                    onArtistClick = onArtistClick,
+                    onAlbumClick = onAlbumClick,
+                    onSongClick = onSongClick,
+                    coverArtUrlBuilder = coverArtUrlBuilder,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            } else {
+                AnimatedContent(
+                    targetState = state.selectedTab,
+                    transitionSpec = {
+                        YoinMotion.fadeIn(role = YoinMotionRole.Standard) togetherWith
+                            YoinMotion.fadeOut(role = YoinMotionRole.Standard)
+                    },
+                    label = "tabContent",
+                    modifier = Modifier.fillMaxSize(),
+                ) { tab ->
+                    when (tab) {
+                        LibraryTab.Artists -> ArtistsTabContent(
+                            artists = state.artists,
+                            onArtistClick = onArtistClick,
+                        )
+                        LibraryTab.Albums -> AlbumsTabContent(
+                            albums = state.albums,
+                            onAlbumClick = onAlbumClick,
+                            coverArtUrlBuilder = coverArtUrlBuilder,
+                        )
+                        LibraryTab.Songs -> SongsTabContent(
+                            songs = state.songs,
+                            activeSongId = activeSongId,
+                            isPlaying = isPlaying,
+                            playbackSignal = playbackSignal,
+                            onSongClick = onSongClick,
+                            coverArtUrlBuilder = coverArtUrlBuilder,
+                        )
+                        LibraryTab.Playlists -> PlaylistsTabContent(
+                            playlists = state.playlists,
+                            onPlaylistClick = onPlaylistClick,
+                            coverArtUrlBuilder = coverArtUrlBuilder,
+                        )
+                        LibraryTab.Favorites -> FavoritesTabContent(
+                            favorites = state.favorites,
+                            activeSongId = activeSongId,
+                            isPlaying = isPlaying,
+                            playbackSignal = playbackSignal,
+                            onArtistClick = onArtistClick,
+                            onAlbumClick = onAlbumClick,
+                            onSongClick = onSongClick,
+                            coverArtUrlBuilder = coverArtUrlBuilder,
+                        )
                     }
                 }
             }
@@ -301,19 +329,15 @@ private fun SearchHeader(
         ) {
             Surface(
                 modifier = Modifier.weight(1f),
-                shape = RoundedCornerShape(20.dp),
-                color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                tonalElevation = 2.dp,
-                shadowElevation = 4.dp,
-                border = BorderStroke(
-                    width = 1.dp,
-                    color = MaterialTheme.colorScheme.outline.copy(alpha = 0.12f),
-                ),
+                shape = RoundedCornerShape(22.dp),
+                color = MaterialTheme.colorScheme.surfaceContainerLow.copy(alpha = 0.96f),
+                tonalElevation = 0.dp,
+                shadowElevation = 0.dp,
             ) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 14.dp, vertical = 12.dp),
+                        .padding(horizontal = 16.dp, vertical = 13.dp),
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
@@ -371,7 +395,7 @@ private fun SearchHeader(
                     .size(52.dp)
                     .minimumTouchTarget(),
                 colors = androidx.compose.material3.IconButtonDefaults.filledIconButtonColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                    containerColor = MaterialTheme.colorScheme.surfaceContainerLow.copy(alpha = 0.96f),
                     contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
                 ),
             ) {
@@ -414,25 +438,21 @@ private fun ArtistsTabContent(
     LazyColumn(
         modifier = modifier.fillMaxSize(),
         contentPadding = PaddingValues(
+            start = 4.dp,
             top = 8.dp,
+            end = 4.dp,
             bottom = FloatingBottomGroupContentPadding,
         ),
     ) {
-        items(artists, key = { it.id }) { artist ->
-            val itemAlpha = remember { Animatable(0f) }
-            LaunchedEffect(artist.id) {
-                itemAlpha.animateTo(
-                    targetValue = 1f,
-                    animationSpec = spring(
-                        dampingRatio = Spring.DampingRatioNoBouncy,
-                        stiffness = Spring.StiffnessLow,
-                    ),
-                )
-            }
+        itemsIndexed(artists, key = { _, artist -> artist.id }) { index, artist ->
+            val entranceProgress = rememberExpressiveEntranceProgress(
+                key = artist.id,
+                delayMillis = index * 24L,
+            )
             ArtistListItem(
                 artist = artist,
                 onClick = { onArtistClick(artist.id) },
-                modifier = Modifier.alpha(itemAlpha.value),
+                modifier = Modifier.expressiveEntrance(entranceProgress),
             )
         }
     }
@@ -446,22 +466,22 @@ private fun ArtistListItem(
 ) {
     Surface(
         onClick = onClick,
-        modifier = modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 6.dp),
+        modifier = modifier.fillMaxWidth(),
         shape = YoinShapeTokens.ExtraLarge,
-        color = MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.72f),
+        color = androidx.compose.ui.graphics.Color.Transparent,
+        tonalElevation = 0.dp,
+        shadowElevation = 0.dp,
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 12.dp, vertical = 12.dp),
+                .padding(horizontal = 16.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Surface(
-                modifier = Modifier.size(50.dp),
+                modifier = Modifier.size(48.dp),
                 shape = CircleShape,
-                color = MaterialTheme.colorScheme.secondaryContainer,
+                color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.84f),
             ) {
                 Box(
                     modifier = Modifier.fillMaxSize(),
@@ -471,7 +491,7 @@ private fun ArtistListItem(
                         imageVector = Icons.Filled.Person,
                         contentDescription = null,
                         tint = MaterialTheme.colorScheme.onSecondaryContainer,
-                        modifier = Modifier.size(24.dp),
+                        modifier = Modifier.size(22.dp),
                     )
                 }
             }
@@ -504,35 +524,30 @@ private fun AlbumsTabContent(
         return
     }
     LazyVerticalGrid(
-        columns = GridCells.Adaptive(minSize = 160.dp),
+        columns = GridCells.Fixed(3),
         modifier = modifier.fillMaxSize(),
         contentPadding = PaddingValues(
-            start = 16.dp,
-            top = 16.dp,
-            end = 16.dp,
+            start = 4.dp,
+            top = 12.dp,
+            end = 4.dp,
             bottom = FloatingBottomGroupContentPadding,
         ),
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalArrangement = Arrangement.spacedBy(18.dp),
     ) {
         items(albums, key = { it.id }) { album ->
-            val itemAlpha = remember { Animatable(0f) }
-            LaunchedEffect(album.id) {
-                itemAlpha.animateTo(
-                    targetValue = 1f,
-                    animationSpec = spring(
-                        dampingRatio = Spring.DampingRatioNoBouncy,
-                        stiffness = Spring.StiffnessLow,
-                    ),
-                )
-            }
+            val entranceProgress = rememberExpressiveEntranceProgress(key = album.id)
             AlbumGridItem(
                 album = album,
                 onClick = { onAlbumClick(album.id) },
                 coverArtUrl =
                     album.coverArt?.let { coverArtUrlBuilder?.invoke(it) }
                         ?: coverArtUrlBuilder?.invoke(album.id),
-                modifier = Modifier.alpha(itemAlpha.value),
+                modifier = Modifier.expressiveEntrance(
+                    progress = entranceProgress,
+                    initialOffsetY = 22.dp,
+                    initialScale = 0.92f,
+                ),
             )
         }
     }
@@ -558,6 +573,9 @@ private fun AlbumGridItem(
 @Composable
 private fun SongsTabContent(
     songs: List<Song>,
+    activeSongId: String? = null,
+    isPlaying: Boolean = false,
+    playbackSignal: Float = 0f,
     onSongClick: (Song) -> Unit,
     coverArtUrlBuilder: ((String) -> String)?,
     modifier: Modifier = Modifier,
@@ -569,11 +587,17 @@ private fun SongsTabContent(
     LazyColumn(
         modifier = modifier.fillMaxSize(),
         contentPadding = PaddingValues(
+            start = 4.dp,
             top = 8.dp,
+            end = 4.dp,
             bottom = FloatingBottomGroupContentPadding,
         ),
     ) {
-        items(songs, key = { it.id }) { song ->
+        itemsIndexed(songs, key = { _, song -> song.id }) { index, song ->
+            val entranceProgress = rememberExpressiveEntranceProgress(
+                key = song.id,
+                delayMillis = index * 20L,
+            )
             SongListItem(
                 title = song.title.orEmpty(),
                 artist = song.artist.orEmpty(),
@@ -581,6 +605,9 @@ private fun SongsTabContent(
                 durationSeconds = song.duration,
                 coverArtUrl = song.coverArt?.let { coverArtUrlBuilder?.invoke(it) },
                 onClick = { onSongClick(song) },
+                isNowPlaying = isPlaying && song.id == activeSongId,
+                playbackSignal = playbackSignal,
+                modifier = Modifier.expressiveEntrance(entranceProgress),
             )
         }
     }
@@ -590,6 +617,7 @@ private fun SongsTabContent(
 private fun PlaylistsTabContent(
     playlists: List<Playlist>,
     onPlaylistClick: (String) -> Unit,
+    coverArtUrlBuilder: ((String) -> String)?,
     modifier: Modifier = Modifier,
 ) {
     if (playlists.isEmpty()) {
@@ -599,14 +627,22 @@ private fun PlaylistsTabContent(
     LazyColumn(
         modifier = modifier.fillMaxSize(),
         contentPadding = PaddingValues(
+            start = 4.dp,
             top = 8.dp,
+            end = 4.dp,
             bottom = FloatingBottomGroupContentPadding,
         ),
     ) {
-        items(playlists, key = { it.id }) { playlist ->
+        itemsIndexed(playlists, key = { _, playlist -> playlist.id }) { index, playlist ->
+            val entranceProgress = rememberExpressiveEntranceProgress(
+                key = playlist.id,
+                delayMillis = index * 24L,
+            )
             PlaylistListItem(
                 playlist = playlist,
                 onClick = { onPlaylistClick(playlist.id) },
+                coverArtUrl = playlistBackdropArtUrl(playlist, coverArtUrlBuilder),
+                modifier = Modifier.expressiveEntrance(entranceProgress),
             )
         }
     }
@@ -616,39 +652,35 @@ private fun PlaylistsTabContent(
 private fun PlaylistListItem(
     playlist: Playlist,
     onClick: () -> Unit,
+    coverArtUrl: String?,
     modifier: Modifier = Modifier,
 ) {
     Surface(
         onClick = onClick,
-        modifier = modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 6.dp),
+        modifier = modifier.fillMaxWidth(),
         shape = YoinShapeTokens.ExtraLarge,
-        color = MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.72f),
+        color = androidx.compose.ui.graphics.Color.Transparent,
+        tonalElevation = 0.dp,
+        shadowElevation = 0.dp,
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 12.dp, vertical = 12.dp),
+                .padding(horizontal = 16.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Surface(
-                modifier = Modifier.size(50.dp),
-                shape = YoinShapeTokens.Medium,
-                color = MaterialTheme.colorScheme.secondaryContainer,
-            ) {
-                Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.QueueMusic,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onSecondaryContainer,
-                        modifier = Modifier.size(24.dp),
-                    )
-                }
-            }
+            ExpressiveBackdropArtwork(
+                model = coverArtUrl,
+                contentDescription = playlist.name,
+                variant = ExpressiveBackdropVariant.Ghostish,
+                modifier = Modifier.size(48.dp),
+                shape = YoinShapeTokens.Small,
+                fallbackIcon = Icons.AutoMirrored.Filled.QueueMusic,
+                fillFraction = 0.8f,
+                backdropScale = 0.8f,
+                artworkShiftFraction = 0.06f,
+                tonalElevation = 0.dp,
+            )
 
             Spacer(modifier = Modifier.width(12.dp))
 
@@ -675,6 +707,9 @@ private fun PlaylistListItem(
 @Composable
 private fun FavoritesTabContent(
     favorites: StarredResponse?,
+    activeSongId: String? = null,
+    isPlaying: Boolean = false,
+    playbackSignal: Float = 0f,
     onArtistClick: (String) -> Unit,
     onAlbumClick: (String) -> Unit,
     onSongClick: (Song) -> Unit,
@@ -697,7 +732,9 @@ private fun FavoritesTabContent(
     LazyColumn(
         modifier = modifier.fillMaxSize(),
         contentPadding = PaddingValues(
+            start = 4.dp,
             top = 8.dp,
+            end = 4.dp,
             bottom = FloatingBottomGroupContentPadding,
         ),
     ) {
@@ -705,10 +742,18 @@ private fun FavoritesTabContent(
             item {
                 SectionHeader(title = "Artists")
             }
-            items(favorites.artist, key = { "fav-artist-${it.id}" }) { artist ->
+            itemsIndexed(
+                items = favorites.artist,
+                key = { _, artist -> "fav-artist-${artist.id}" },
+            ) { index, artist ->
+                val entranceProgress = rememberExpressiveEntranceProgress(
+                    key = "fav-artist-${artist.id}",
+                    delayMillis = index * 24L,
+                )
                 ArtistListItem(
                     artist = artist,
                     onClick = { onArtistClick(artist.id) },
+                    modifier = Modifier.expressiveEntrance(entranceProgress),
                 )
             }
         }
@@ -716,13 +761,21 @@ private fun FavoritesTabContent(
             item {
                 SectionHeader(title = "Albums")
             }
-            items(favorites.album, key = { "fav-album-${it.id}" }) { album ->
+            itemsIndexed(
+                items = favorites.album,
+                key = { _, album -> "fav-album-${album.id}" },
+            ) { index, album ->
+                val entranceProgress = rememberExpressiveEntranceProgress(
+                    key = "fav-album-${album.id}",
+                    delayMillis = index * 24L,
+                )
                 AlbumListItem(
                     album = album,
                     onClick = { onAlbumClick(album.id) },
                     coverArtUrl =
                         album.coverArt?.let { coverArtUrlBuilder?.invoke(it) }
                             ?: coverArtUrlBuilder?.invoke(album.id),
+                    modifier = Modifier.expressiveEntrance(entranceProgress),
                 )
             }
         }
@@ -730,7 +783,14 @@ private fun FavoritesTabContent(
             item {
                 SectionHeader(title = "Songs")
             }
-            items(favorites.song, key = { "fav-song-${it.id}" }) { song ->
+            itemsIndexed(
+                items = favorites.song,
+                key = { _, song -> "fav-song-${song.id}" },
+            ) { index, song ->
+                val entranceProgress = rememberExpressiveEntranceProgress(
+                    key = "fav-song-${song.id}",
+                    delayMillis = index * 20L,
+                )
                 SongListItem(
                     title = song.title.orEmpty(),
                     artist = song.artist.orEmpty(),
@@ -738,6 +798,9 @@ private fun FavoritesTabContent(
                     durationSeconds = song.duration,
                     coverArtUrl = song.coverArt?.let { coverArtUrlBuilder?.invoke(it) },
                     onClick = { onSongClick(song) },
+                    isNowPlaying = isPlaying && song.id == activeSongId,
+                    playbackSignal = playbackSignal,
+                    modifier = Modifier.expressiveEntrance(entranceProgress),
                 )
             }
         }
@@ -753,25 +816,29 @@ private fun AlbumListItem(
 ) {
     Surface(
         onClick = onClick,
-        modifier = modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 6.dp),
+        modifier = modifier.fillMaxWidth(),
         shape = YoinShapeTokens.ExtraLarge,
-        color = MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.72f),
+        color = androidx.compose.ui.graphics.Color.Transparent,
+        tonalElevation = 0.dp,
+        shadowElevation = 0.dp,
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 12.dp, vertical = 12.dp),
+                .padding(horizontal = 16.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            ExpressiveMediaArtwork(
+            ExpressiveBackdropArtwork(
                 model = coverArtUrl,
                 contentDescription = album.name,
-                modifier = Modifier.size(54.dp),
-                shape = YoinShapeTokens.Medium,
+                variant = ExpressiveBackdropVariant.Bun,
+                modifier = Modifier.size(52.dp),
+                shape = YoinShapeTokens.Small,
                 fallbackIcon = Icons.Filled.LibraryMusic,
-                tonalElevation = 1.dp,
+                fillFraction = 0.8f,
+                backdropScale = 0.8f,
+                artworkShiftFraction = 0.06f,
+                tonalElevation = 0.dp,
             )
             Spacer(modifier = Modifier.width(12.dp))
             Column(modifier = Modifier.weight(1f)) {
@@ -818,6 +885,9 @@ private fun formatPlaylistDuration(seconds: Int): String {
 private fun SearchResultsContent(
     searchResults: SearchResult?,
     isSearching: Boolean,
+    activeSongId: String? = null,
+    isPlaying: Boolean = false,
+    playbackSignal: Float = 0f,
     onArtistClick: (String) -> Unit,
     onAlbumClick: (String) -> Unit,
     onSongClick: (Song) -> Unit,
@@ -848,7 +918,9 @@ private fun SearchResultsContent(
     LazyColumn(
         modifier = modifier.fillMaxSize(),
         contentPadding = PaddingValues(
+            start = 4.dp,
             top = 8.dp,
+            end = 4.dp,
             bottom = FloatingBottomGroupContentPadding,
         ),
     ) {
@@ -856,10 +928,18 @@ private fun SearchResultsContent(
             item {
                 SectionHeader(title = "Artists")
             }
-            items(searchResults.artist, key = { "search-artist-${it.id}" }) { artist ->
+            itemsIndexed(
+                items = searchResults.artist,
+                key = { _, artist -> "search-artist-${artist.id}" },
+            ) { index, artist ->
+                val entranceProgress = rememberExpressiveEntranceProgress(
+                    key = "search-artist-${artist.id}",
+                    delayMillis = index * 24L,
+                )
                 ArtistListItem(
                     artist = artist,
                     onClick = { onArtistClick(artist.id) },
+                    modifier = Modifier.expressiveEntrance(entranceProgress),
                 )
             }
         }
@@ -867,13 +947,21 @@ private fun SearchResultsContent(
             item {
                 SectionHeader(title = "Albums")
             }
-            items(searchResults.album, key = { "search-album-${it.id}" }) { album ->
+            itemsIndexed(
+                items = searchResults.album,
+                key = { _, album -> "search-album-${album.id}" },
+            ) { index, album ->
+                val entranceProgress = rememberExpressiveEntranceProgress(
+                    key = "search-album-${album.id}",
+                    delayMillis = index * 24L,
+                )
                 AlbumListItem(
                     album = album,
                     onClick = { onAlbumClick(album.id) },
                     coverArtUrl =
                         album.coverArt?.let { coverArtUrlBuilder?.invoke(it) }
                             ?: coverArtUrlBuilder?.invoke(album.id),
+                    modifier = Modifier.expressiveEntrance(entranceProgress),
                 )
             }
         }
@@ -881,7 +969,14 @@ private fun SearchResultsContent(
             item {
                 SectionHeader(title = "Songs")
             }
-            items(searchResults.song, key = { "search-song-${it.id}" }) { song ->
+            itemsIndexed(
+                items = searchResults.song,
+                key = { _, song -> "search-song-${song.id}" },
+            ) { index, song ->
+                val entranceProgress = rememberExpressiveEntranceProgress(
+                    key = "search-song-${song.id}",
+                    delayMillis = index * 20L,
+                )
                 SongListItem(
                     title = song.title.orEmpty(),
                     artist = song.artist.orEmpty(),
@@ -889,9 +984,23 @@ private fun SearchResultsContent(
                     durationSeconds = song.duration,
                     coverArtUrl = song.coverArt?.let { coverArtUrlBuilder?.invoke(it) },
                     onClick = { onSongClick(song) },
+                    isNowPlaying = isPlaying && song.id == activeSongId,
+                    playbackSignal = playbackSignal,
+                    modifier = Modifier.expressiveEntrance(entranceProgress),
                 )
             }
         }
+    }
+}
+
+private fun playlistBackdropArtUrl(
+    playlist: Playlist,
+    coverArtUrlBuilder: ((String) -> String)?,
+): String? {
+    if (coverArtUrlBuilder == null) return null
+    return playlist.entry.firstNotNullOfOrNull { song ->
+        song.coverArt?.let(coverArtUrlBuilder)
+            ?: song.albumId?.let(coverArtUrlBuilder)
     }
 }
 

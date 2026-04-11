@@ -10,6 +10,9 @@ interface LocalRatingDao {
     @Query("SELECT * FROM local_ratings WHERE songId = :songId")
     fun getRating(songId: String): Flow<LocalRating?>
 
+    @Query("SELECT * FROM local_ratings WHERE songId IN (:songIds)")
+    suspend fun getRatings(songIds: List<String>): List<LocalRating>
+
     @Query("SELECT * FROM local_ratings WHERE needsSync = 1")
     fun getRatingsNeedingSync(): Flow<List<LocalRating>>
 

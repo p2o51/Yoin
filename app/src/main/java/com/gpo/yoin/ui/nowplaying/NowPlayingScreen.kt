@@ -5,19 +5,16 @@ import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.Spring
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.spring
-import androidx.compose.animation.expandHorizontally
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.shrinkHorizontally
 import androidx.compose.foundation.background
 import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
@@ -35,6 +32,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Favorite
@@ -49,6 +47,7 @@ import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material.icons.automirrored.filled.StickyNote2
 import androidx.compose.material3.ButtonGroup
 import androidx.compose.material3.ButtonGroupDefaults
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ButtonGroupScope
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.FilledIconButton
@@ -69,29 +68,38 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.layout
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.Constraints
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import kotlin.math.roundToInt
 import coil3.compose.AsyncImage
 import com.gpo.yoin.player.CastState
 import com.gpo.yoin.player.VisualizerData
-import com.gpo.yoin.ui.component.AudioVisualizer
 import com.gpo.yoin.ui.component.CastButton
 import com.gpo.yoin.ui.component.ExpressiveMediaArtwork
 import com.gpo.yoin.ui.component.horizontalFadeMask
 import com.gpo.yoin.ui.component.LyricsDisplay
 import com.gpo.yoin.ui.component.QueueSheet
 import com.gpo.yoin.ui.component.RatingSlider
-import com.gpo.yoin.ui.component.VisualizerStyle
 import com.gpo.yoin.ui.component.WaveProgressBar
 import com.gpo.yoin.ui.component.minimumTouchTarget
+import com.gpo.yoin.ui.experience.LocalMotionProfile
+import com.gpo.yoin.ui.experience.MotionProfile
+import com.gpo.yoin.ui.experience.ReportMotionPressure
+import com.gpo.yoin.ui.theme.ProvideYoinMotionRole
 import com.gpo.yoin.ui.theme.YoinMotion
+import com.gpo.yoin.ui.theme.YoinMotionRole
 import com.gpo.yoin.ui.theme.YoinShapeTokens
 import com.gpo.yoin.ui.theme.YoinTheme
 import com.gpo.yoin.ui.theme.withTabularFigures
@@ -123,44 +131,42 @@ fun NowPlayingScreen(
 ) {
     val surfaceContainer = MaterialTheme.colorScheme.surfaceContainer
     val background = MaterialTheme.colorScheme.background
-    val vizColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)
 
-    Box(
-        modifier = modifier
-            .fillMaxSize()
-            .background(
-                Brush.verticalGradient(
-                    colors = listOf(surfaceContainer, background),
+    ReportMotionPressure(
+        tag = "now-playing",
+        isHighPressure = uiState is NowPlayingUiState.Playing &&
+            uiState.isPlaying &&
+            visualizerData.fft.isNotEmpty(),
+    )
+
+    ProvideYoinMotionRole(role = YoinMotionRole.Expressive) {
+        Box(
+            modifier = modifier
+                .fillMaxSize()
+                .background(
+                    Brush.verticalGradient(
+                        colors = listOf(surfaceContainer, background),
+                    ),
                 ),
-            ),
-    ) {
-        // Background visualizer layer
-        AudioVisualizer(
-            visualizerData = visualizerData,
-            color = vizColor,
-            style = VisualizerStyle.Ambient,
-            modifier = Modifier
-                .fillMaxWidth()
-                .align(Alignment.BottomCenter),
-        )
-
-        when (uiState) {
-            is NowPlayingUiState.Idle -> IdleContent()
-            is NowPlayingUiState.Playing -> PlayingContent(
-                state = uiState,
-                onTogglePlayPause = onTogglePlayPause,
-                onSkipNext = onSkipNext,
-                onSkipPrevious = onSkipPrevious,
-                onSeek = onSeek,
-                onRatingChange = onRatingChange,
-                onToggleFavorite = onToggleFavorite,
-                onSkipToQueueItem = onSkipToQueueItem,
-                onDismiss = onDismiss,
-                castState = castState,
-                onCastClick = onCastClick,
-                sharedTransitionScope = sharedTransitionScope,
-                animatedVisibilityScope = animatedVisibilityScope,
-            )
+        ) {
+            when (uiState) {
+                is NowPlayingUiState.Idle -> IdleContent()
+                is NowPlayingUiState.Playing -> PlayingContent(
+                    state = uiState,
+                    onTogglePlayPause = onTogglePlayPause,
+                    onSkipNext = onSkipNext,
+                    onSkipPrevious = onSkipPrevious,
+                    onSeek = onSeek,
+                    onRatingChange = onRatingChange,
+                    onToggleFavorite = onToggleFavorite,
+                    onSkipToQueueItem = onSkipToQueueItem,
+                    onDismiss = onDismiss,
+                    castState = castState,
+                    onCastClick = onCastClick,
+                    sharedTransitionScope = sharedTransitionScope,
+                    animatedVisibilityScope = animatedVisibilityScope,
+                )
+            }
         }
     }
 }
@@ -197,6 +203,16 @@ private fun PlayingContent(
     animatedVisibilityScope: AnimatedVisibilityScope? = null,
     modifier: Modifier = Modifier,
 ) {
+    val motionProfile = LocalMotionProfile.current
+    val heroStretchSpec = if (motionProfile == MotionProfile.Full) {
+        YoinMotion.slowSpatialSpec<Float>(role = YoinMotionRole.Expressive)
+    } else {
+        YoinMotion.fastSpatialSpec<Float>(role = YoinMotionRole.Expressive)
+    }
+    val heroBoundsSpec = YoinMotion.slowSpatialSpec<Rect>(
+        role = YoinMotionRole.Expressive,
+        expressiveScheme = MaterialTheme.motionScheme,
+    )
     val progress = if (state.durationMs > 0) {
         (state.positionMs.toFloat() / state.durationMs).coerceIn(0f, 1f)
     } else {
@@ -209,15 +225,35 @@ private fun PlayingContent(
     }
 
     var showQueue by remember { mutableStateOf(false) }
-    var shouldMaskTitle by remember(state.songId) { mutableStateOf(false) }
+    val playInteractionSource = rememberNowPlayingButtonGroupInteractionSource()
+    val nextInteractionSource = rememberNowPlayingButtonGroupInteractionSource()
+    val playPressed by playInteractionSource.collectIsPressedAsState()
+    val nextPressed by nextInteractionSource.collectIsPressedAsState()
+    val transportPressed = playPressed || nextPressed
 
     val titleStretchScale by animateFloatAsState(
-        targetValue = if (state.isPlaying) 1.04f else 1f,
-        animationSpec = spring(
-            dampingRatio = Spring.DampingRatioMediumBouncy,
-            stiffness = Spring.StiffnessMediumLow,
-        ),
+        targetValue = when {
+            motionProfile == MotionProfile.AdaptiveReduced && transportPressed -> 1.02f
+            motionProfile == MotionProfile.AdaptiveReduced && state.isPlaying -> 1.01f
+            motionProfile == MotionProfile.AdaptiveReduced -> 0.99f
+            transportPressed -> 1.05f
+            state.isPlaying -> 1.03f
+            else -> 0.97f
+        },
+        animationSpec = heroStretchSpec,
         label = "titleStretch",
+    )
+    val artistStretchScale by animateFloatAsState(
+        targetValue = when {
+            motionProfile == MotionProfile.AdaptiveReduced && transportPressed -> 1.015f
+            motionProfile == MotionProfile.AdaptiveReduced && state.isPlaying -> 1.008f
+            motionProfile == MotionProfile.AdaptiveReduced -> 0.992f
+            transportPressed -> 1.04f
+            state.isPlaying -> 1.02f
+            else -> 0.98f
+        },
+        animationSpec = heroStretchSpec,
+        label = "artistStretch",
     )
 
     Column(
@@ -320,6 +356,10 @@ private fun PlayingContent(
             progress = progress,
             buffered = buffered,
             onSeek = onSeek,
+            playInteractionSource = playInteractionSource,
+            nextInteractionSource = nextInteractionSource,
+            playPressed = playPressed,
+            nextPressed = nextPressed,
         )
 
         Spacer(modifier = Modifier.height(12.dp))
@@ -331,43 +371,20 @@ private fun PlayingContent(
                     .sharedBounds(
                         sharedContentState = rememberSharedContentState(key = "np_title"),
                         animatedVisibilityScope = animatedVisibilityScope,
-                        boundsTransform = { _, _ ->
-                            spring(stiffness = Spring.StiffnessMediumLow)
-                        },
+                        boundsTransform = { _, _ -> heroBoundsSpec },
                     )
                     .fillMaxWidth()
             }
         } else {
             Modifier.fillMaxWidth()
         }
-        Box(
-            modifier = titleModifier
-                .clipToBounds()
-                .then(
-                    if (shouldMaskTitle) {
-                        Modifier.horizontalFadeMask(edgeWidth = 28.dp)
-                    } else {
-                        Modifier
-                    },
-                ),
-        ) {
-            Text(
+        Box(modifier = titleModifier) {
+            NowPlayingMarqueeTitle(
                 text = state.songTitle,
                 style = MaterialTheme.typography.displaySmall,
                 color = MaterialTheme.colorScheme.onSurface,
-                maxLines = 1,
-                softWrap = false,
-                onTextLayout = { shouldMaskTitle = it.didOverflowWidth },
-                modifier = Modifier
-                    .graphicsLayer {
-                        scaleX = titleStretchScale
-                        transformOrigin = TransformOrigin(0f, 0.5f)
-                    }
-                    .basicMarquee(
-                        iterations = Int.MAX_VALUE,
-                        repeatDelayMillis = 2000,
-                        initialDelayMillis = 1500,
-                    ),
+                stretchScale = titleStretchScale,
+                modifier = Modifier.fillMaxWidth(),
             )
         }
         Spacer(modifier = Modifier.height(2.dp))
@@ -378,9 +395,7 @@ private fun PlayingContent(
                     .sharedBounds(
                         sharedContentState = rememberSharedContentState(key = "np_artist"),
                         animatedVisibilityScope = animatedVisibilityScope,
-                        boundsTransform = { _, _ ->
-                            spring(stiffness = Spring.StiffnessMediumLow)
-                        },
+                        boundsTransform = { _, _ -> heroBoundsSpec },
                     )
                     .fillMaxWidth()
             }
@@ -389,11 +404,16 @@ private fun PlayingContent(
         }
         Text(
             text = state.artist,
-            style = MaterialTheme.typography.titleMedium,
+            style = MaterialTheme.typography.titleMedium.copy(
+                fontSize = MaterialTheme.typography.titleMedium.fontSize * 0.9f,
+            ),
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
-            modifier = artistModifier,
+            modifier = artistModifier.graphicsLayer {
+                scaleX = artistStretchScale
+                transformOrigin = TransformOrigin(0f, 0.5f)
+            },
         )
 
         Spacer(modifier = Modifier.height(12.dp))
@@ -410,15 +430,17 @@ private fun PlayingContent(
 
     // Queue bottom sheet
     if (showQueue) {
-        QueueSheet(
-            queue = state.queue,
-            currentIndex = state.currentQueueIndex,
-            onItemClick = { index ->
-                onSkipToQueueItem(index)
-                showQueue = false
-            },
-            onDismiss = { showQueue = false },
-        )
+        ProvideYoinMotionRole(role = YoinMotionRole.Standard) {
+            QueueSheet(
+                queue = state.queue,
+                currentIndex = state.currentQueueIndex,
+                onItemClick = { index ->
+                    onSkipToQueueItem(index)
+                    showQueue = false
+                },
+                onDismiss = { showQueue = false },
+            )
+        }
     }
 }
 
@@ -428,32 +450,43 @@ private fun FavoriteButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val heartColor by animateColorAsState(
-        targetValue = if (isStarred) {
-            MaterialTheme.colorScheme.primary
-        } else {
-            MaterialTheme.colorScheme.onSurfaceVariant
-        },
-        animationSpec = YoinMotion.effectsSpring(),
-        label = "heartColor",
-    )
-
-    FilledIconButton(
-        onClick = onClick,
-        modifier = modifier
-            .size(44.dp)
-            .minimumTouchTarget(),
-        colors = IconButtonDefaults.filledIconButtonColors(
-            containerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
-            contentColor = heartColor,
-        ),
-    ) {
-        Icon(
-            imageVector = if (isStarred) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder,
-            contentDescription = if (isStarred) "Remove from favorites" else "Add to favorites",
-            tint = heartColor,
-            modifier = Modifier.size(24.dp),
+    ProvideYoinMotionRole(role = YoinMotionRole.Standard) {
+        val heartColor by animateColorAsState(
+            targetValue = if (isStarred) {
+                MaterialTheme.colorScheme.onTertiary
+            } else {
+                MaterialTheme.colorScheme.onTertiaryContainer
+            },
+            animationSpec = YoinMotion.defaultEffectsSpec(),
+            label = "heartColor",
         )
+        val heartContainerColor by animateColorAsState(
+            targetValue = if (isStarred) {
+                MaterialTheme.colorScheme.tertiary
+            } else {
+                MaterialTheme.colorScheme.tertiaryContainer
+            },
+            animationSpec = YoinMotion.defaultEffectsSpec(),
+            label = "heartContainerColor",
+        )
+
+        FilledIconButton(
+            onClick = onClick,
+            modifier = modifier
+                .size(44.dp)
+                .minimumTouchTarget(),
+            colors = IconButtonDefaults.filledIconButtonColors(
+                containerColor = heartContainerColor,
+                contentColor = heartColor,
+            ),
+        ) {
+            Icon(
+                imageVector = if (isStarred) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder,
+                contentDescription = if (isStarred) "Remove from favorites" else "Add to favorites",
+                tint = heartColor,
+                modifier = Modifier.size(24.dp),
+            )
+        }
     }
 }
 
@@ -467,15 +500,17 @@ private fun AlbumCover(
 ) {
     val baseModifier = modifier
         .aspectRatio(1f)
+    val coverBoundsSpec = YoinMotion.slowSpatialSpec<Rect>(
+        role = YoinMotionRole.Expressive,
+        expressiveScheme = MaterialTheme.motionScheme,
+    )
 
     val finalModifier = if (sharedTransitionScope != null && animatedVisibilityScope != null) {
         with(sharedTransitionScope) {
             baseModifier.sharedBounds(
                 sharedContentState = rememberSharedContentState(key = "np_cover"),
                 animatedVisibilityScope = animatedVisibilityScope,
-                boundsTransform = { _, _ ->
-                    spring(stiffness = Spring.StiffnessMediumLow)
-                },
+                boundsTransform = { _, _ -> coverBoundsSpec },
             )
         }
     } else {
@@ -489,8 +524,73 @@ private fun AlbumCover(
         shape = YoinShapeTokens.ExtraLarge,
         fallbackIcon = Icons.Filled.PlayArrow,
         tonalElevation = 4.dp,
-        shadowElevation = 16.dp,
+        shadowElevation = 0.dp,
     )
+}
+
+@Composable
+private fun NowPlayingMarqueeTitle(
+    text: String,
+    style: androidx.compose.ui.text.TextStyle,
+    color: androidx.compose.ui.graphics.Color,
+    stretchScale: Float,
+    modifier: Modifier = Modifier,
+) {
+    BoxWithConstraints(modifier = modifier) {
+        val textMeasurer = rememberTextMeasurer()
+        val density = LocalDensity.current
+        val availableWidthPx = with(density) { maxWidth.roundToPx() }
+        val shouldMarquee = remember(text, style, availableWidthPx) {
+            if (availableWidthPx <= 0) {
+                false
+            } else {
+                textMeasurer.measure(
+                    text = AnnotatedString(text),
+                    style = style,
+                    maxLines = 1,
+                    softWrap = false,
+                    overflow = TextOverflow.Clip,
+                    constraints = Constraints(maxWidth = Constraints.Infinity),
+                ).size.width > availableWidthPx
+            }
+        }
+
+        Box(
+            modifier = if (shouldMarquee) {
+                Modifier
+                    .fillMaxWidth()
+                    .clipToBounds()
+                    .horizontalFadeMask(edgeWidth = 28.dp)
+            } else {
+                Modifier.fillMaxWidth()
+            },
+        ) {
+            Text(
+                text = text,
+                style = style,
+                color = color,
+                maxLines = 1,
+                softWrap = false,
+                overflow = TextOverflow.Clip,
+                modifier = Modifier
+                    .graphicsLayer {
+                        scaleX = stretchScale
+                        transformOrigin = TransformOrigin(0f, 0.5f)
+                    }
+                    .then(
+                        if (shouldMarquee) {
+                            Modifier.basicMarquee(
+                                iterations = Int.MAX_VALUE,
+                                repeatDelayMillis = 2000,
+                                initialDelayMillis = 1500,
+                            )
+                        } else {
+                            Modifier
+                        },
+                    ),
+            )
+        }
+    }
 }
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
@@ -505,149 +605,183 @@ private fun PlaybackControls(
     progress: Float,
     buffered: Float,
     onSeek: (Float) -> Unit,
+    playInteractionSource: MutableInteractionSource,
+    nextInteractionSource: MutableInteractionSource,
+    playPressed: Boolean,
+    nextPressed: Boolean,
     modifier: Modifier = Modifier,
 ) {
-    val stretchScale by animateFloatAsState(
-        targetValue = if (isPlaying) 1.06f else 1f,
-        animationSpec = spring(
-            dampingRatio = Spring.DampingRatioMediumBouncy,
-            stiffness = Spring.StiffnessMediumLow,
-        ),
-        label = "playStretch",
-    )
-    val textStretchScale by animateFloatAsState(
-        targetValue = if (isPlaying) 1.15f else 1f,
-        animationSpec = spring(
-            dampingRatio = Spring.DampingRatioMediumBouncy,
-            stiffness = Spring.StiffnessMediumLow,
-        ),
-        label = "textStretch",
-    )
+    ProvideYoinMotionRole(role = YoinMotionRole.Standard) {
+        val controlButtonSize = 56.dp
+        val controlSpatialSpec = if (playPressed || nextPressed) {
+            YoinMotion.fastSpatialSpec<Dp>()
+        } else {
+            YoinMotion.defaultSpatialSpec<Dp>()
+        }
+        val textStretchSpec = if (playPressed) {
+            YoinMotion.fastSpatialSpec<Float>()
+        } else {
+            YoinMotion.defaultSpatialSpec<Float>()
+        }
+        val playHorizontalPadding by animateDpAsState(
+            targetValue = when {
+                playPressed -> 28.dp
+                nextPressed -> 14.dp
+                isPlaying -> 24.dp
+                else -> 16.dp
+            },
+            animationSpec = controlSpatialSpec,
+            label = "playHorizontalPadding",
+        )
+        val nextButtonWidth by animateDpAsState(
+            targetValue = if (playPressed || nextPressed) 48.dp else controlButtonSize,
+            animationSpec = controlSpatialSpec,
+            label = "nextButtonWidth",
+        )
+        val textStretchScale by animateFloatAsState(
+            targetValue = when {
+                playPressed -> 1.08f
+                isPlaying -> 1.02f
+                else -> 0.97f
+            },
+            animationSpec = textStretchSpec,
+            label = "textStretch",
+        )
 
-    Column(modifier = modifier.fillMaxWidth()) {
-        // Row 1: ButtonGroup(Pause, SkipNext) + Spacer + Shuffle
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            ButtonGroup(
-                overflowIndicator = { _ -> },
-                expandedRatio = ButtonGroupDefaults.ExpandedRatio,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+        Column(modifier = modifier.fillMaxWidth()) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                customItem(
-                    buttonGroupContent = {
-                        val interactionSource = remember { MutableInteractionSource() }
-                        FilledTonalButton(
-                            onClick = onTogglePlayPause,
-                            modifier = Modifier
-                                .height(56.dp)
-                                .widthIn(min = 132.dp)
-                                .graphicsLayer { scaleX = stretchScale },
-                            shape = MaterialTheme.shapes.extraLarge,
-                            interactionSource = interactionSource,
-                            contentPadding = PaddingValues(horizontal = 20.dp),
-                        ) {
-                            Text(
-                                text = if (isPlaying) "PAUSE" else "PLAY",
-                                style = MaterialTheme.typography.titleLarge,
-                                maxLines = 1,
-                                softWrap = false,
-                                modifier = Modifier.graphicsLayer {
-                                    scaleX = textStretchScale
-                                },
-                            )
-                        }
-                    },
-                    menuContent = { _ -> },
-                )
+                ButtonGroup(
+                    overflowIndicator = { _ -> },
+                    modifier = Modifier.height(controlButtonSize),
+                    expandedRatio = ButtonGroupDefaults.ExpandedRatio,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    customItem(
+                        buttonGroupContent = {
+                            FilledTonalButton(
+                                onClick = onTogglePlayPause,
+                                modifier = Modifier
+                                    .fillMaxHeight()
+                                    .animateWidth(playInteractionSource)
+                                    .animateContentSize(
+                                        animationSpec = YoinMotion.defaultSpatialSpec(),
+                                    ),
+                                shape = MaterialTheme.shapes.extraLarge,
+                                interactionSource = playInteractionSource,
+                                contentPadding = PaddingValues(horizontal = playHorizontalPadding),
+                                colors = ButtonDefaults.filledTonalButtonColors(
+                                    containerColor = MaterialTheme.colorScheme.primary,
+                                    contentColor = MaterialTheme.colorScheme.onPrimary,
+                                ),
+                            ) {
+                                Text(
+                                    text = if (isPlaying) "PAUSE" else "PLAY",
+                                    style = MaterialTheme.typography.titleLarge.copy(
+                                        fontSize = MaterialTheme.typography.titleLarge.fontSize * 0.9f,
+                                    ),
+                                    maxLines = 1,
+                                    softWrap = false,
+                                    modifier = Modifier.graphicsLayer {
+                                        scaleX = textStretchScale
+                                        transformOrigin = TransformOrigin(0f, 0.5f)
+                                    },
+                                )
+                            }
+                        },
+                        menuContent = { _ -> },
+                    )
 
-                customItem(
-                    buttonGroupContent = {
-                        val interactionSource = remember { MutableInteractionSource() }
-                        FilledIconButton(
-                            onClick = onSkipNext,
-                            modifier = Modifier
-                                .size(56.dp),
-                            interactionSource = interactionSource,
-                            colors = IconButtonDefaults.filledIconButtonColors(
-                                containerColor = MaterialTheme.colorScheme.secondaryContainer,
-                                contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
-                            ),
-                        ) {
-                            Icon(
-                                imageVector = Icons.Filled.SkipNext,
-                                contentDescription = "Skip next",
-                                modifier = Modifier.size(28.dp),
-                            )
-                        }
-                    },
-                    menuContent = { _ -> },
-                )
+                    customItem(
+                        buttonGroupContent = {
+                            FilledIconButton(
+                                onClick = onSkipNext,
+                                modifier = Modifier
+                                    .fillMaxHeight()
+                                    .animateWidth(nextInteractionSource)
+                                    .width(nextButtonWidth),
+                                interactionSource = nextInteractionSource,
+                                colors = IconButtonDefaults.filledIconButtonColors(
+                                    containerColor = MaterialTheme.colorScheme.primary,
+                                    contentColor = MaterialTheme.colorScheme.onPrimary,
+                                ),
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Filled.SkipNext,
+                                    contentDescription = "Skip next",
+                                    modifier = Modifier.size(28.dp),
+                                )
+                            }
+                        },
+                        menuContent = { _ -> },
+                    )
+                }
+
+                Spacer(modifier = Modifier.weight(1f))
+
+                FilledIconButton(
+                    onClick = { /* TODO: implement playback mode toggle */ },
+                    modifier = Modifier.size(56.dp),
+                    colors = IconButtonDefaults.filledIconButtonColors(
+                        containerColor = MaterialTheme.colorScheme.tertiaryContainer,
+                        contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
+                    ),
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Shuffle,
+                        contentDescription = "Shuffle",
+                        modifier = Modifier.size(28.dp),
+                    )
+                }
             }
 
-            Spacer(modifier = Modifier.weight(1f))
+            Spacer(modifier = Modifier.height(4.dp))
 
-            // Shuffle / playback mode (UI only)
-            FilledIconButton(
-                onClick = { /* TODO: implement playback mode toggle */ },
-                modifier = Modifier.size(56.dp),
-                colors = IconButtonDefaults.filledIconButtonColors(
-                    containerColor = MaterialTheme.colorScheme.secondaryContainer,
-                    contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
-                ),
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                Icon(
-                    imageVector = Icons.Filled.Shuffle,
-                    contentDescription = "Shuffle",
-                    modifier = Modifier.size(28.dp),
+                FilledIconButton(
+                    onClick = onSkipPrevious,
+                    modifier = Modifier.size(56.dp),
+                    colors = IconButtonDefaults.filledIconButtonColors(
+                        containerColor = MaterialTheme.colorScheme.secondary,
+                        contentColor = MaterialTheme.colorScheme.onSecondary,
+                    ),
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.SkipPrevious,
+                        contentDescription = "Skip previous",
+                        modifier = Modifier.size(28.dp),
+                    )
+                }
+
+                PlaybackTimeLabel(
+                    text = formatTime(positionMs),
+                    modifier = Modifier
+                        .width(44.dp)
+                        .offset(y = 6.dp),
                 )
-            }
-        }
-
-        Spacer(modifier = Modifier.height(4.dp))
-
-        // Row 2: Skip Previous + Progress Bar (same row)
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            FilledIconButton(
-                onClick = onSkipPrevious,
-                modifier = Modifier.size(56.dp),
-                colors = IconButtonDefaults.filledIconButtonColors(
-                    containerColor = MaterialTheme.colorScheme.secondaryContainer,
-                    contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
-                ),
-            ) {
-                Icon(
-                    imageVector = Icons.Filled.SkipPrevious,
-                    contentDescription = "Skip previous",
-                    modifier = Modifier.size(28.dp),
-                )
-            }
-
-            PlaybackTimeLabel(
-                text = formatTime(positionMs),
-                modifier = Modifier.width(44.dp),
-            )
-            Box(modifier = Modifier.weight(1f)) {
                 WaveProgressBar(
                     progress = progress,
                     buffered = buffered,
                     durationMs = durationMs,
                     onSeek = onSeek,
                     isPlaying = isPlaying,
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier.weight(1f),
+                )
+                PlaybackTimeLabel(
+                    text = "-${formatTime((durationMs - positionMs).coerceAtLeast(0L))}",
+                    modifier = Modifier
+                        .width(52.dp)
+                        .offset(y = 6.dp),
+                    textAlign = androidx.compose.ui.text.style.TextAlign.End,
                 )
             }
-            PlaybackTimeLabel(
-                text = "-${formatTime((durationMs - positionMs).coerceAtLeast(0L))}",
-                modifier = Modifier.width(52.dp),
-                textAlign = androidx.compose.ui.text.style.TextAlign.End,
-            )
         }
     }
 }
@@ -675,72 +809,73 @@ private fun BottomPills(
     onCastClick: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
-    // Hoist interaction sources so each button can see others' pressed state
-    val queueInteraction = remember { MutableInteractionSource() }
-    val devicesInteraction = remember { MutableInteractionSource() }
-    val notesInteraction = remember { MutableInteractionSource() }
+    ProvideYoinMotionRole(role = YoinMotionRole.Standard) {
+        val queueInteraction = remember { MutableInteractionSource() }
+        val devicesInteraction = remember { MutableInteractionSource() }
+        val notesInteraction = remember { MutableInteractionSource() }
 
-    val queuePressed by queueInteraction.collectIsPressedAsState()
-    val devicesPressed by devicesInteraction.collectIsPressedAsState()
-    val notesPressed by notesInteraction.collectIsPressedAsState()
+        val queuePressed by queueInteraction.collectIsPressedAsState()
+        val devicesPressed by devicesInteraction.collectIsPressedAsState()
+        val notesPressed by notesInteraction.collectIsPressedAsState()
 
-    val anyPressed = queuePressed || devicesPressed || notesPressed
+        val anyPressed = queuePressed || devicesPressed || notesPressed
 
-    Row(
-        modifier = modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        CastButton(
-            castState = castState,
-            onClick = onCastClick,
-        )
-
-        ButtonGroup(
-            overflowIndicator = { _ -> },
-            expandedRatio = ButtonGroupDefaults.ExpandedRatio,
-            horizontalArrangement = Arrangement.spacedBy(2.dp),
+        Row(
+            modifier = modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            customItem(
-                buttonGroupContent = {
-                    PillButton(
-                        onClick = onQueueClick,
-                        icon = Icons.AutoMirrored.Filled.QueueMusic,
-                        label = "Queue",
-                        showLabel = !anyPressed || queuePressed,
-                        interactionSource = queueInteraction,
-                        shape = YoinShapeTokens.Full,
-                    )
-                },
-                menuContent = { _ -> },
+            CastButton(
+                castState = castState,
+                onClick = onCastClick,
             )
-            customItem(
-                buttonGroupContent = {
-                    PillButton(
-                        onClick = { /* TODO: device selector */ },
-                        icon = Icons.Filled.Devices,
-                        label = "Devices",
-                        showLabel = !anyPressed || devicesPressed,
-                        interactionSource = devicesInteraction,
-                        shape = RoundedCornerShape(20.dp),
-                    )
-                },
-                menuContent = { _ -> },
-            )
-            customItem(
-                buttonGroupContent = {
-                    PillButton(
-                        onClick = { /* TODO: notes */ },
-                        icon = Icons.AutoMirrored.Filled.StickyNote2,
-                        label = "Notes",
-                        showLabel = !anyPressed || notesPressed,
-                        interactionSource = notesInteraction,
-                        shape = YoinShapeTokens.Full,
-                    )
-                },
-                menuContent = { _ -> },
-            )
+
+            ButtonGroup(
+                overflowIndicator = { _ -> },
+                expandedRatio = ButtonGroupDefaults.ExpandedRatio,
+                horizontalArrangement = Arrangement.spacedBy(2.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                customItem(
+                    buttonGroupContent = {
+                        PillButton(
+                            onClick = onQueueClick,
+                            icon = Icons.AutoMirrored.Filled.QueueMusic,
+                            label = "Queue",
+                            showLabel = !anyPressed || queuePressed,
+                            interactionSource = queueInteraction,
+                            shape = YoinShapeTokens.Full,
+                        )
+                    },
+                    menuContent = { _ -> },
+                )
+                customItem(
+                    buttonGroupContent = {
+                        PillButton(
+                            onClick = { /* TODO: device selector */ },
+                            icon = Icons.Filled.Devices,
+                            label = "Devices",
+                            showLabel = !anyPressed || devicesPressed,
+                            interactionSource = devicesInteraction,
+                            shape = RoundedCornerShape(20.dp),
+                        )
+                    },
+                    menuContent = { _ -> },
+                )
+                customItem(
+                    buttonGroupContent = {
+                        PillButton(
+                            onClick = { /* TODO: notes */ },
+                            icon = Icons.AutoMirrored.Filled.StickyNote2,
+                            label = "Notes",
+                            showLabel = !anyPressed || notesPressed,
+                            interactionSource = notesInteraction,
+                            shape = YoinShapeTokens.Full,
+                        )
+                    },
+                    menuContent = { _ -> },
+                )
+            }
         }
     }
 }
@@ -757,7 +892,7 @@ private fun ButtonGroupScope.PillButton(
 ) {
     val labelFraction by animateFloatAsState(
         targetValue = if (showLabel) 1f else 0f,
-        animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
+        animationSpec = YoinMotion.fastEffectsSpec(),
         label = "labelFraction",
     )
 
@@ -770,6 +905,10 @@ private fun ButtonGroupScope.PillButton(
         interactionSource = interactionSource,
         shape = shape,
         contentPadding = PaddingValues(horizontal = 10.dp),
+        colors = ButtonDefaults.filledTonalButtonColors(
+            containerColor = MaterialTheme.colorScheme.primary,
+            contentColor = MaterialTheme.colorScheme.onPrimary,
+        ),
     ) {
         Icon(
             imageVector = icon,
@@ -800,6 +939,10 @@ private fun ButtonGroupScope.PillButton(
         }
     }
 }
+
+@Composable
+private fun rememberNowPlayingButtonGroupInteractionSource() =
+    remember { MutableInteractionSource() }
 
 /** Format milliseconds as m:ss (e.g. "3:45", "0:00"). */
 internal fun formatTime(ms: Long): String {
@@ -885,6 +1028,8 @@ private fun NowPlayingScreenIdlePreview() {
 @Composable
 private fun PlaybackControlsPreview() {
     YoinTheme {
+        val playInteractionSource = remember { MutableInteractionSource() }
+        val nextInteractionSource = remember { MutableInteractionSource() }
         PlaybackControls(
             isPlaying = false,
             onTogglePlayPause = {},
@@ -895,6 +1040,10 @@ private fun PlaybackControlsPreview() {
             progress = 0.4f,
             buffered = 0.7f,
             onSeek = {},
+            playInteractionSource = playInteractionSource,
+            nextInteractionSource = nextInteractionSource,
+            playPressed = false,
+            nextPressed = false,
         )
     }
 }

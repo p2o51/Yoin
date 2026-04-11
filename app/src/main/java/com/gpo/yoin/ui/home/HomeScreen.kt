@@ -1,8 +1,9 @@
 package com.gpo.yoin.ui.home
 
-import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.spring
+import androidx.compose.animation.AnimatedVisibilityScope
+import androidx.compose.animation.ExperimentalSharedTransitionApi
+import androidx.compose.animation.SharedTransitionScope
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -15,14 +16,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -31,12 +27,17 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalInspectionMode
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextOverflow
@@ -55,20 +56,33 @@ import com.gpo.yoin.ui.component.AlbumCard
 import com.gpo.yoin.ui.component.AudioVisualizer
 import com.gpo.yoin.ui.component.VisualizerStyle
 import com.gpo.yoin.ui.component.YoinLoadingIndicator
+import com.gpo.yoin.ui.experience.ReportMotionPressure
+import com.gpo.yoin.ui.theme.ProvideYoinMotionRole
+import com.gpo.yoin.ui.theme.YoinMotion
+import com.gpo.yoin.ui.theme.YoinMotionRole
 import com.gpo.yoin.ui.theme.YoinShapeTokens
 import com.gpo.yoin.ui.theme.YoinTheme
+import kotlinx.coroutines.delay
 
 private val FloatingBottomGroupClearance = 132.dp
+private const val HomeLoadingIndicatorDelayMillis = 180L
+private val HomeInitialEntranceOffset = 16.dp
 
+@OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
 fun HomeScreen(
     viewModel: HomeViewModel,
     isPlaying: Boolean,
     visualizerData: VisualizerData,
+    activeSongId: String? = null,
     onNavigateToSettings: () -> Unit,
-    onAlbumClick: (albumId: String) -> Unit,
+    onNavigateToMemories: () -> Unit,
+    onAlbumClick: (albumId: String, sharedTransitionKey: String?) -> Unit,
     onArtistClick: (artistId: String) -> Unit,
+    onPlaylistClick: (playlistId: String) -> Unit,
     onSongClick: (Song) -> Unit,
+    sharedTransitionScope: SharedTransitionScope? = null,
+    animatedVisibilityScope: AnimatedVisibilityScope? = null,
     modifier: Modifier = Modifier,
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -77,59 +91,98 @@ fun HomeScreen(
         uiState = uiState,
         isPlaying = isPlaying,
         visualizerData = visualizerData,
+        activeSongId = activeSongId,
         onNavigateToSettings = onNavigateToSettings,
+        onNavigateToMemories = onNavigateToMemories,
         onAlbumClick = onAlbumClick,
         onArtistClick = onArtistClick,
+        onPlaylistClick = onPlaylistClick,
         onSongClick = onSongClick,
         onRetry = viewModel::refresh,
-        onRefreshJumpBackIn = viewModel::refreshJumpBackIn,
         onLoadMoreJumpBackIn = viewModel::loadMoreJumpBackIn,
         buildCoverArtUrl = viewModel::buildCoverArtUrl,
+        sharedTransitionScope = sharedTransitionScope,
+        animatedVisibilityScope = animatedVisibilityScope,
         modifier = modifier,
     )
 }
 
+@OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
 fun HomeContent(
     uiState: HomeUiState,
     isPlaying: Boolean,
     visualizerData: VisualizerData,
+    activeSongId: String? = null,
     onNavigateToSettings: () -> Unit,
-    onAlbumClick: (albumId: String) -> Unit,
+    onNavigateToMemories: () -> Unit,
+    onAlbumClick: (albumId: String, sharedTransitionKey: String?) -> Unit,
     onArtistClick: (artistId: String) -> Unit,
+    onPlaylistClick: (playlistId: String) -> Unit,
     onSongClick: (Song) -> Unit,
     onRetry: () -> Unit,
-    onRefreshJumpBackIn: () -> Unit,
     onLoadMoreJumpBackIn: () -> Unit,
     buildCoverArtUrl: (String) -> String,
+    sharedTransitionScope: SharedTransitionScope? = null,
+    animatedVisibilityScope: AnimatedVisibilityScope? = null,
     modifier: Modifier = Modifier,
 ) {
-    Surface(
-        modifier = modifier.fillMaxSize(),
-        color = MaterialTheme.colorScheme.background,
-    ) {
-        when (uiState) {
-            is HomeUiState.Loading -> {
-                Column(modifier = Modifier.fillMaxSize()) {
-                    HomeTopBar(onNavigateToSettings = onNavigateToSettings)
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .weight(1f),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        YoinLoadingIndicator()
-                    }
+    ReportMotionPressure(
+        tag = "home",
+        isHighPressure = uiState is HomeUiState.Loading ||
+            (uiState as? HomeUiState.Content)?.isLoadingMoreJumpBackIn == true,
+    )
+
+    ProvideYoinMotionRole(role = YoinMotionRole.Expressive) {
+        Surface(
+            modifier = modifier.fillMaxSize(),
+            color = MaterialTheme.colorScheme.background,
+        ) {
+            val isLoading = uiState is HomeUiState.Loading
+            val isContent = uiState is HomeUiState.Content
+            val contentEntranceOffsetPx = with(LocalDensity.current) { HomeInitialEntranceOffset.toPx() }
+            var showDelayedLoading by remember { mutableStateOf(false) }
+            var hasPlayedInitialContentEntrance by rememberSaveable { mutableStateOf(false) }
+            LaunchedEffect(isLoading) {
+                if (!isLoading) {
+                    showDelayedLoading = false
+                    return@LaunchedEffect
+                }
+                showDelayedLoading = false
+                delay(HomeLoadingIndicatorDelayMillis)
+                showDelayedLoading = true
+            }
+            LaunchedEffect(isContent) {
+                if (isContent && !hasPlayedInitialContentEntrance) {
+                    hasPlayedInitialContentEntrance = true
                 }
             }
+            val contentAlpha by animateFloatAsState(
+                targetValue = if (isContent && hasPlayedInitialContentEntrance) 1f else 0f,
+                animationSpec = YoinMotion.defaultEffectsSpec(),
+                label = "homeInitialContentAlpha",
+            )
+            val contentOffsetProgress by animateFloatAsState(
+                targetValue = if (isContent && hasPlayedInitialContentEntrance) 1f else 0f,
+                animationSpec = YoinMotion.defaultSpatialSpec(),
+                label = "homeInitialContentOffset",
+            )
 
-            is HomeUiState.Error -> {
-                Column(modifier = Modifier.fillMaxSize()) {
-                    HomeTopBar(onNavigateToSettings = onNavigateToSettings)
+            when (uiState) {
+                is HomeUiState.Loading -> {
                     Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .weight(1f),
+                        modifier = Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        if (showDelayedLoading) {
+                            YoinLoadingIndicator()
+                        }
+                    }
+                }
+
+                is HomeUiState.Error -> {
+                    Box(
+                        modifier = Modifier.fillMaxSize(),
                         contentAlignment = Alignment.Center,
                     ) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -139,66 +192,49 @@ fun HomeContent(
                                 color = MaterialTheme.colorScheme.error,
                             )
                             Spacer(modifier = Modifier.height(8.dp))
-                            TextButton(onClick = onRetry) {
-                                Text("Retry")
+                            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                TextButton(onClick = onRetry) {
+                                    Text("Retry")
+                                }
+                                TextButton(onClick = onNavigateToSettings) {
+                                    Text("Settings")
+                                }
                             }
                         }
                     }
                 }
-            }
 
-            is HomeUiState.Content -> {
-                Column(
-                    modifier = Modifier.fillMaxSize(),
-                ) {
-                    HomeTopBar(onNavigateToSettings = onNavigateToSettings)
-                    HomeEditorialContent(
-                        activities = uiState.activities,
-                        jumpBackInItems = uiState.jumpBackInItems,
-                        jumpBackInRevision = uiState.jumpBackInRevision,
-                        isLoadingMoreJumpBackIn = uiState.isLoadingMoreJumpBackIn,
-                        isPlaying = isPlaying,
-                        visualizerData = visualizerData,
-                        onAlbumClick = onAlbumClick,
-                        onArtistClick = onArtistClick,
-                        onSongClick = onSongClick,
-                        onRefreshJumpBackIn = onRefreshJumpBackIn,
-                        onLoadMoreJumpBackIn = onLoadMoreJumpBackIn,
-                        buildCoverArtUrl = buildCoverArtUrl,
+                is HomeUiState.Content -> {
+                    Box(
                         modifier = Modifier
-                            .fillMaxWidth()
-                            .weight(1f),
-                    )
+                            .fillMaxSize()
+                            .graphicsLayer {
+                                alpha = contentAlpha
+                                translationY = (1f - contentOffsetProgress) * contentEntranceOffsetPx
+                            },
+                    ) {
+                        HomeEditorialContent(
+                            activities = uiState.activities,
+                            jumpBackInItems = uiState.jumpBackInItems,
+                            isLoadingMoreJumpBackIn = uiState.isLoadingMoreJumpBackIn,
+                            isPlaying = isPlaying,
+                            visualizerData = visualizerData,
+                            activeSongId = activeSongId,
+                            onNavigateToSettings = onNavigateToSettings,
+                            onNavigateToMemories = onNavigateToMemories,
+                            onAlbumClick = onAlbumClick,
+                            onArtistClick = onArtistClick,
+                            onPlaylistClick = onPlaylistClick,
+                            onSongClick = onSongClick,
+                            onLoadMoreJumpBackIn = onLoadMoreJumpBackIn,
+                            buildCoverArtUrl = buildCoverArtUrl,
+                            sharedTransitionScope = sharedTransitionScope,
+                            animatedVisibilityScope = animatedVisibilityScope,
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                    }
                 }
             }
-        }
-    }
-}
-
-@Composable
-private fun HomeTopBar(
-    onNavigateToSettings: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    Row(
-        modifier = modifier
-            .fillMaxWidth()
-            .statusBarsPadding()
-            .padding(horizontal = 16.dp, vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween,
-    ) {
-        Text(
-            text = "Activities",
-            style = MaterialTheme.typography.headlineLarge,
-            color = MaterialTheme.colorScheme.onBackground,
-        )
-        IconButton(onClick = onNavigateToSettings) {
-            Icon(
-                imageVector = Icons.Filled.Settings,
-                contentDescription = "Settings",
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
         }
     }
 }
@@ -304,26 +340,14 @@ private fun QuickPlayRow(
         itemsIndexed(
             items = albums,
             key = { _, album -> "qp_album_${album.id}" },
-        ) { index, album ->
+        ) { _, album ->
             val coverUrl = album.coverArt?.let { buildCoverArtUrl(it) }
                 ?: buildCoverArtUrl(album.id)
-
-            val alpha = remember { Animatable(0f) }
-            LaunchedEffect(album.id) {
-                alpha.animateTo(
-                    targetValue = 1f,
-                    animationSpec = spring(
-                        dampingRatio = Spring.DampingRatioNoBouncy,
-                        stiffness = Spring.StiffnessLow,
-                    ),
-                )
-            }
 
             QuickPlayAlbumCard(
                 album = album,
                 coverArtUrl = coverUrl,
                 onClick = { onAlbumClick(album.id) },
-                modifier = Modifier.alpha(alpha.value),
             )
         }
 
@@ -331,25 +355,13 @@ private fun QuickPlayRow(
         itemsIndexed(
             items = songs,
             key = { _, song -> "qp_song_${song.id}" },
-        ) { index, song ->
+        ) { _, song ->
             val coverUrl = song.coverArt?.let { buildCoverArtUrl(it) }
-
-            val alpha = remember { Animatable(0f) }
-            LaunchedEffect(song.id) {
-                alpha.animateTo(
-                    targetValue = 1f,
-                    animationSpec = spring(
-                        dampingRatio = Spring.DampingRatioNoBouncy,
-                        stiffness = Spring.StiffnessLow,
-                    ),
-                )
-            }
 
             QuickPlayCard(
                 song = song,
                 coverArtUrl = coverUrl,
                 onClick = { onSongClick(song) },
-                modifier = Modifier.alpha(alpha.value),
             )
         }
     }
@@ -487,27 +499,15 @@ private fun AlbumsRow(
         itemsIndexed(
             items = albums,
             key = { _, album -> album.id },
-        ) { index, album ->
+        ) { _, album ->
             val coverUrl = album.coverArt?.let { buildCoverArtUrl(it) }
                 ?: buildCoverArtUrl(album.id)
-
-            val alpha = remember { Animatable(0f) }
-            LaunchedEffect(album.id) {
-                alpha.animateTo(
-                    targetValue = 1f,
-                    animationSpec = spring(
-                        dampingRatio = Spring.DampingRatioNoBouncy,
-                        stiffness = Spring.StiffnessLow,
-                    ),
-                )
-            }
 
             AlbumCard(
                 coverArtUrl = coverUrl,
                 title = album.name,
                 subtitle = album.artist.orEmpty(),
                 onClick = { onAlbumClick(album.id) },
-                modifier = Modifier.alpha(alpha.value),
             )
         }
     }
@@ -528,18 +528,7 @@ private fun ActivitiesRow(
         itemsIndexed(
             items = activities,
             key = { _, history -> history.id },
-        ) { index, history ->
-            val alpha = remember { Animatable(0f) }
-            LaunchedEffect(history.id) {
-                alpha.animateTo(
-                    targetValue = 1f,
-                    animationSpec = spring(
-                        dampingRatio = Spring.DampingRatioNoBouncy,
-                        stiffness = Spring.StiffnessLow,
-                    ),
-                )
-            }
-
+        ) { _, history ->
             ActivityCard(
                 history = history,
                 coverArtUrl = history.coverArtId?.let { buildCoverArtUrl(it) },
@@ -555,7 +544,6 @@ private fun ActivitiesRow(
                         ),
                     )
                 },
-                modifier = Modifier.alpha(alpha.value),
             )
         }
     }
@@ -641,12 +629,14 @@ private fun HomeContentLoadingPreview() {
             uiState = HomeUiState.Loading,
             isPlaying = false,
             visualizerData = VisualizerData.Empty,
+            activeSongId = null,
             onNavigateToSettings = {},
-            onAlbumClick = {},
+            onNavigateToMemories = {},
+            onAlbumClick = { _, _ -> },
             onArtistClick = {},
+            onPlaylistClick = {},
             onSongClick = { _ -> },
             onRetry = {},
-            onRefreshJumpBackIn = {},
             onLoadMoreJumpBackIn = {},
             buildCoverArtUrl = { "" },
         )
@@ -661,12 +651,14 @@ private fun HomeContentErrorPreview() {
             uiState = HomeUiState.Error("Failed to connect to server"),
             isPlaying = false,
             visualizerData = VisualizerData.Empty,
+            activeSongId = null,
             onNavigateToSettings = {},
-            onAlbumClick = {},
+            onNavigateToMemories = {},
+            onAlbumClick = { _, _ -> },
             onArtistClick = {},
+            onPlaylistClick = {},
             onSongClick = { _ -> },
             onRetry = {},
-            onRefreshJumpBackIn = {},
             onLoadMoreJumpBackIn = {},
             buildCoverArtUrl = { "" },
         )
@@ -772,12 +764,14 @@ private fun HomeContentPreview() {
                         .coerceIn(0f, 1f)
                 },
             ),
+            activeSongId = "js1",
             onNavigateToSettings = {},
-            onAlbumClick = {},
+            onNavigateToMemories = {},
+            onAlbumClick = { _, _ -> },
             onArtistClick = {},
+            onPlaylistClick = {},
             onSongClick = { _ -> },
             onRetry = {},
-            onRefreshJumpBackIn = {},
             onLoadMoreJumpBackIn = {},
             buildCoverArtUrl = { "" },
         )

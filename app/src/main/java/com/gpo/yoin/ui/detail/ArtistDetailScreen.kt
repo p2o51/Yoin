@@ -1,9 +1,10 @@
 package com.gpo.yoin.ui.detail
 
-import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.spring
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
@@ -34,6 +35,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -44,6 +46,9 @@ import com.gpo.yoin.ui.component.ExpressiveMetaPill
 import com.gpo.yoin.ui.component.ExpressivePageBackground
 import com.gpo.yoin.ui.component.ExpressiveSectionPanel
 import com.gpo.yoin.ui.component.YoinLoadingIndicator
+import com.gpo.yoin.ui.theme.ProvideYoinMotionRole
+import com.gpo.yoin.ui.theme.YoinMotion
+import com.gpo.yoin.ui.theme.YoinMotionRole
 import com.gpo.yoin.ui.theme.YoinShapeTokens
 import com.gpo.yoin.ui.theme.YoinTheme
 
@@ -56,71 +61,88 @@ fun ArtistDetailScreen(
     onRetry: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = {
-                    Text(
-                        text = (uiState as? ArtistDetailUiState.Content)?.artistName.orEmpty(),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
+    ProvideYoinMotionRole(role = YoinMotionRole.Standard) {
+        ExpressivePageBackground(modifier = modifier) {
+            Scaffold(
+                modifier = Modifier.fillMaxSize(),
+                containerColor = Color.Transparent,
+                contentColor = MaterialTheme.colorScheme.onSurface,
+                contentWindowInsets = WindowInsets(0, 0, 0, 0),
+                topBar = {
+                    TopAppBar(
+                        title = {
+                            Text(
+                                text = (uiState as? ArtistDetailUiState.Content)?.artistName.orEmpty(),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        },
+                        navigationIcon = {
+                            IconButton(onClick = onBackClick) {
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                    contentDescription = "Back",
+                                )
+                            }
+                        },
+                        colors = TopAppBarDefaults.topAppBarColors(
+                            containerColor = Color.Transparent,
+                            titleContentColor = MaterialTheme.colorScheme.onSurface,
+                            navigationIconContentColor = MaterialTheme.colorScheme.onSurface,
+                        ),
                     )
                 },
-                navigationIcon = {
-                    IconButton(onClick = onBackClick) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Back",
-                        )
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
-                    titleContentColor = MaterialTheme.colorScheme.onSurface,
-                ),
-            )
-        },
-        modifier = modifier,
-    ) { innerPadding ->
-        ExpressivePageBackground(modifier = Modifier.padding(innerPadding)) {
-            when (uiState) {
-                is ArtistDetailUiState.Loading -> {
-                    androidx.compose.foundation.layout.Box(
-                        modifier = Modifier.fillMaxSize(),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        YoinLoadingIndicator()
-                    }
-                }
-
-                is ArtistDetailUiState.Error -> {
-                    ExpressiveSectionPanel(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(16.dp),
-                    ) {
-                        androidx.compose.foundation.layout.Column(
-                            modifier = Modifier.padding(20.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) { innerPadding ->
+                when (uiState) {
+                    is ArtistDetailUiState.Loading -> {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(innerPadding)
+                                .navigationBarsPadding(),
+                            contentAlignment = Alignment.Center,
                         ) {
-                            Text(
-                                text = uiState.message,
-                                style = MaterialTheme.typography.bodyLarge,
-                                color = MaterialTheme.colorScheme.error,
-                            )
-                            TextButton(onClick = onRetry) {
-                                Text("Retry")
+                            YoinLoadingIndicator()
+                        }
+                    }
+
+                    is ArtistDetailUiState.Error -> {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(innerPadding)
+                                .navigationBarsPadding()
+                                .padding(16.dp),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            ExpressiveSectionPanel(
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                androidx.compose.foundation.layout.Column(
+                                    modifier = Modifier.padding(20.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                                ) {
+                                    Text(
+                                        text = uiState.message,
+                                        style = MaterialTheme.typography.bodyLarge,
+                                        color = MaterialTheme.colorScheme.error,
+                                    )
+                                    TextButton(onClick = onRetry) {
+                                        Text("Retry")
+                                    }
+                                }
                             }
                         }
                     }
-                }
 
-                is ArtistDetailUiState.Content -> {
-                    ArtistDetailContent(
-                        content = uiState,
-                        onAlbumClick = onAlbumClick,
-                    )
+                    is ArtistDetailUiState.Content -> {
+                        ArtistDetailContent(
+                            content = uiState,
+                            onAlbumClick = onAlbumClick,
+                            modifier = Modifier.padding(innerPadding),
+                        )
+                    }
                 }
             }
         }
@@ -136,41 +158,41 @@ private fun ArtistDetailContent(
     var targetAlpha by remember { mutableFloatStateOf(0f) }
     val alpha by animateFloatAsState(
         targetValue = targetAlpha,
-        animationSpec = spring(stiffness = Spring.StiffnessLow),
+        animationSpec = YoinMotion.defaultEffectsSpec(role = YoinMotionRole.Standard),
         label = "artistContentAlpha",
     )
     LaunchedEffect(Unit) { targetAlpha = 1f }
 
     LazyVerticalGrid(
-        columns = GridCells.Adaptive(minSize = 158.dp),
+        columns = GridCells.Fixed(3),
         modifier = modifier
             .fillMaxSize()
+            .navigationBarsPadding()
             .alpha(alpha),
-        contentPadding = PaddingValues(16.dp),
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+        contentPadding = PaddingValues(start = 16.dp, top = 16.dp, end = 16.dp, bottom = 24.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalArrangement = Arrangement.spacedBy(18.dp),
     ) {
         item(span = { GridItemSpan(maxLineSpan) }) {
-            ExpressiveSectionPanel(
+            androidx.compose.foundation.layout.Column(
                 modifier = Modifier.fillMaxWidth(),
-                tonalElevation = 4.dp,
-                shadowElevation = 10.dp,
+                verticalArrangement = Arrangement.spacedBy(14.dp),
             ) {
+                ExpressiveMediaArtwork(
+                    model = content.albums.firstOrNull()?.coverArtUrl,
+                    contentDescription = content.artistName,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .aspectRatio(1.2f),
+                    shape = YoinShapeTokens.ExtraLarge,
+                    fallbackIcon = Icons.Filled.LibraryMusic,
+                    shadowElevation = 12.dp,
+                    tonalElevation = 3.dp,
+                )
                 androidx.compose.foundation.layout.Column(
-                    modifier = Modifier.padding(16.dp),
+                    modifier = Modifier.padding(top = 2.dp, bottom = 10.dp),
                     verticalArrangement = Arrangement.spacedBy(14.dp),
                 ) {
-                    ExpressiveMediaArtwork(
-                        model = content.albums.firstOrNull()?.coverArtUrl,
-                        contentDescription = content.artistName,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .aspectRatio(1.2f),
-                        shape = YoinShapeTokens.ExtraLarge,
-                        fallbackIcon = Icons.Filled.LibraryMusic,
-                        shadowElevation = 12.dp,
-                        tonalElevation = 3.dp,
-                    )
                     ExpressiveHeaderBlock(
                         title = content.artistName,
                         overline = "Artist",

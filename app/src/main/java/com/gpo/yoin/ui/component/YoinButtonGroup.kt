@@ -5,14 +5,12 @@ import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.basicMarquee
@@ -58,10 +56,13 @@ import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.gpo.yoin.ui.navigation.YoinSection
+import com.gpo.yoin.ui.theme.ProvideYoinMotionRole
 import com.gpo.yoin.ui.theme.YoinMotion
+import com.gpo.yoin.ui.theme.YoinMotionRole
 import com.gpo.yoin.ui.theme.YoinShapeTokens
 import kotlin.math.sin
 
@@ -88,337 +89,334 @@ fun YoinButtonGroup(
     animatedVisibilityScope: AnimatedVisibilityScope? = null,
     modifier: Modifier = Modifier,
 ) {
-    val surfaceColor by animateColorAsState(
-        targetValue = MaterialTheme.colorScheme.surfaceContainerHigh,
-        animationSpec = YoinMotion.effectsSpring(),
-        label = "buttonGroupSurfaceColor",
-    )
-    val progressFillColor by animateColorAsState(
-        targetValue = MaterialTheme.colorScheme.primary.copy(alpha = 0.25f),
-        animationSpec = YoinMotion.effectsSpring(),
-        label = "buttonGroupProgressFill",
-    )
-    val homeContainerColor by animateColorAsState(
-        targetValue = if (selectedSection == YoinSection.HOME) {
-            MaterialTheme.colorScheme.primaryContainer
-        } else {
-            MaterialTheme.colorScheme.surfaceContainerHighest
-        },
-        animationSpec = YoinMotion.effectsSpring(),
-        label = "buttonGroupHomeContainer",
-    )
-    val homeContentColor by animateColorAsState(
-        targetValue = if (selectedSection == YoinSection.HOME) {
-            MaterialTheme.colorScheme.onPrimaryContainer
-        } else {
-            MaterialTheme.colorScheme.onSurfaceVariant
-        },
-        animationSpec = YoinMotion.effectsSpring(),
-        label = "buttonGroupHomeContent",
-    )
-    val centerContainerColor by animateColorAsState(
-        targetValue = if (currentTrackTitle != null) {
-            MaterialTheme.colorScheme.secondaryContainer
-        } else {
-            MaterialTheme.colorScheme.surfaceContainerHighest
-        },
-        animationSpec = YoinMotion.effectsSpring(),
-        label = "buttonGroupCenterContainer",
-    )
-    val centerContentColor by animateColorAsState(
-        targetValue = if (currentTrackTitle != null) {
-            MaterialTheme.colorScheme.onSecondaryContainer
-        } else {
-            MaterialTheme.colorScheme.onSurfaceVariant
-        },
-        animationSpec = YoinMotion.effectsSpring(),
-        label = "buttonGroupCenterContent",
-    )
-    val libraryContainerColor by animateColorAsState(
-        targetValue = if (selectedSection == YoinSection.LIBRARY) {
-            MaterialTheme.colorScheme.primaryContainer
-        } else {
-            MaterialTheme.colorScheme.surfaceContainerHighest
-        },
-        animationSpec = YoinMotion.effectsSpring(),
-        label = "buttonGroupLibraryContainer",
-    )
-    val libraryContentColor by animateColorAsState(
-        targetValue = if (selectedSection == YoinSection.LIBRARY) {
-            MaterialTheme.colorScheme.onPrimaryContainer
-        } else {
-            MaterialTheme.colorScheme.onSurfaceVariant
-        },
-        animationSpec = YoinMotion.effectsSpring(),
-        label = "buttonGroupLibraryContent",
-    )
-
-    Surface(
-        modifier = modifier
-            .fillMaxWidth()
-            .navigationBarsPadding()
-            .padding(horizontal = 16.dp, vertical = 12.dp),
-        shape = MaterialTheme.shapes.extraLarge,
-        color = surfaceColor,
-        tonalElevation = 8.dp,
-        shadowElevation = 12.dp,
-    ) {
-        // Animate selected tab aspect ratio: 1.5:1 selected, 1:1 unselected
-        val homeAspect by animateFloatAsState(
-            targetValue = if (selectedSection == YoinSection.HOME) 1.5f else 1f,
-            animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
-            label = "homeAspect",
+    ProvideYoinMotionRole(role = YoinMotionRole.Standard) {
+        val surfaceColor by animateColorAsState(
+            targetValue = MaterialTheme.colorScheme.surfaceContainerHigh,
+            animationSpec = YoinMotion.defaultEffectsSpec(),
+            label = "buttonGroupSurfaceColor",
         )
-        val libraryAspect by animateFloatAsState(
-            targetValue = if (selectedSection == YoinSection.LIBRARY) 1.5f else 1f,
-            animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
-            label = "libraryAspect",
+        val progressFillColor by animateColorAsState(
+            targetValue = MaterialTheme.colorScheme.primary.copy(alpha = 0.25f),
+            animationSpec = YoinMotion.defaultEffectsSpec(),
+            label = "buttonGroupProgressFill",
+        )
+        val homeContainerColor by animateColorAsState(
+            targetValue = if (selectedSection == YoinSection.HOME) {
+                MaterialTheme.colorScheme.primaryContainer
+            } else {
+                MaterialTheme.colorScheme.surfaceContainerHighest
+            },
+            animationSpec = YoinMotion.defaultEffectsSpec(),
+            label = "buttonGroupHomeContainer",
+        )
+        val homeContentColor by animateColorAsState(
+            targetValue = if (selectedSection == YoinSection.HOME) {
+                MaterialTheme.colorScheme.onPrimaryContainer
+            } else {
+                MaterialTheme.colorScheme.onSurfaceVariant
+            },
+            animationSpec = YoinMotion.defaultEffectsSpec(),
+            label = "buttonGroupHomeContent",
+        )
+        val centerContainerColor by animateColorAsState(
+            targetValue = if (currentTrackTitle != null) {
+                MaterialTheme.colorScheme.primaryContainer
+            } else {
+                MaterialTheme.colorScheme.surfaceContainerHighest
+            },
+            animationSpec = YoinMotion.defaultEffectsSpec(),
+            label = "buttonGroupCenterContainer",
+        )
+        val centerContentColor by animateColorAsState(
+            targetValue = if (currentTrackTitle != null) {
+                MaterialTheme.colorScheme.onPrimaryContainer
+            } else {
+                MaterialTheme.colorScheme.onSurfaceVariant
+            },
+            animationSpec = YoinMotion.defaultEffectsSpec(),
+            label = "buttonGroupCenterContent",
+        )
+        val libraryContainerColor by animateColorAsState(
+            targetValue = if (selectedSection == YoinSection.LIBRARY) {
+                MaterialTheme.colorScheme.primaryContainer
+            } else {
+                MaterialTheme.colorScheme.surfaceContainerHighest
+            },
+            animationSpec = YoinMotion.defaultEffectsSpec(),
+            label = "buttonGroupLibraryContainer",
+        )
+        val libraryContentColor by animateColorAsState(
+            targetValue = if (selectedSection == YoinSection.LIBRARY) {
+                MaterialTheme.colorScheme.onPrimaryContainer
+            } else {
+                MaterialTheme.colorScheme.onSurfaceVariant
+            },
+            animationSpec = YoinMotion.defaultEffectsSpec(),
+            label = "buttonGroupLibraryContent",
+        )
+        val sharedBoundsSpec = YoinMotion.defaultSpatialSpec<Rect>(
+            role = YoinMotionRole.Standard,
+            expressiveScheme = MaterialTheme.motionScheme,
         )
 
-        // Wave animation for progress divider
-        val waveTransition = rememberInfiniteTransition(label = "wave")
-        val wavePhase by waveTransition.animateFloat(
-            initialValue = 0f,
-            targetValue = 2f * Math.PI.toFloat(),
-            animationSpec = infiniteRepeatable(
-                animation = tween(durationMillis = 3000, easing = LinearEasing),
-                repeatMode = RepeatMode.Restart,
-            ),
-            label = "wavePhase",
-        )
-        val waveAmplitude by animateFloatAsState(
-            targetValue = if (isPlaying) 1f else 0f,
-            animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
-            label = "waveAmplitude",
-        )
-
-        ButtonGroup(
-            overflowIndicator = { _ -> },
-            modifier = Modifier
+        Surface(
+            modifier = modifier
                 .fillMaxWidth()
-                .height(IntrinsicSize.Max)
-                .padding(horizontal = 10.dp, vertical = 10.dp),
-            expandedRatio = ButtonGroupDefaults.ExpandedRatio,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.CenterVertically,
+                .navigationBarsPadding()
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            shape = MaterialTheme.shapes.extraLarge,
+            color = surfaceColor,
+            tonalElevation = 8.dp,
+            shadowElevation = 12.dp,
         ) {
-            customItem(
-                buttonGroupContent = {
-                    val interactionSource = rememberButtonGroupInteractionSource()
-                    FilledIconButton(
-                        onClick = onHomeClick,
-                        modifier = Modifier
-                            .fillMaxHeight()
-                            .aspectRatio(homeAspect)
-                            .animateWidth(interactionSource),
-                        interactionSource = interactionSource,
-                        colors = IconButtonDefaults.filledIconButtonColors(
-                            containerColor = homeContainerColor,
-                            contentColor = homeContentColor,
-                        ),
-                    ) {
+            val homeAspect by animateFloatAsState(
+                targetValue = if (selectedSection == YoinSection.HOME) 1.5f else 1f,
+                animationSpec = YoinMotion.defaultSpatialSpec(),
+                label = "homeAspect",
+            )
+            val libraryAspect by animateFloatAsState(
+                targetValue = if (selectedSection == YoinSection.LIBRARY) 1.5f else 1f,
+                animationSpec = YoinMotion.defaultSpatialSpec(),
+                label = "libraryAspect",
+            )
+            val waveTransition = rememberInfiniteTransition(label = "wave")
+            val wavePhase by waveTransition.animateFloat(
+                initialValue = 0f,
+                targetValue = 2f * Math.PI.toFloat(),
+                animationSpec = infiniteRepeatable(
+                    animation = tween(durationMillis = 3000, easing = LinearEasing),
+                    repeatMode = RepeatMode.Restart,
+                ),
+                label = "wavePhase",
+            )
+            val waveAmplitude by animateFloatAsState(
+                targetValue = if (isPlaying) 1f else 0f,
+                animationSpec = YoinMotion.defaultSpatialSpec(),
+                label = "waveAmplitude",
+            )
+
+            ButtonGroup(
+                overflowIndicator = { _ -> },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(IntrinsicSize.Max)
+                    .padding(horizontal = 10.dp, vertical = 10.dp),
+                expandedRatio = ButtonGroupDefaults.ExpandedRatio,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                customItem(
+                    buttonGroupContent = {
+                        val interactionSource = rememberButtonGroupInteractionSource()
+                        FilledIconButton(
+                            onClick = onHomeClick,
+                            modifier = Modifier
+                                .fillMaxHeight()
+                                .aspectRatio(homeAspect)
+                                .animateWidth(interactionSource),
+                            interactionSource = interactionSource,
+                            colors = IconButtonDefaults.filledIconButtonColors(
+                                containerColor = homeContainerColor,
+                                contentColor = homeContentColor,
+                            ),
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.Home,
+                                contentDescription = "Home",
+                            )
+                        }
+                    },
+                    menuContent = { _ ->
                         Icon(
                             imageVector = Icons.Filled.Home,
                             contentDescription = "Home",
                         )
-                    }
-                },
-                menuContent = { _ ->
-                    Icon(
-                        imageVector = Icons.Filled.Home,
-                        contentDescription = "Home",
-                    )
-                },
-            )
+                    },
+                )
 
-            customItem(
-                buttonGroupContent = {
-                    val interactionSource = rememberButtonGroupInteractionSource()
-                    val clampedProgress = playbackProgress.coerceIn(0f, 1f)
+                customItem(
+                    buttonGroupContent = {
+                        val interactionSource = rememberButtonGroupInteractionSource()
+                        val clampedProgress = playbackProgress.coerceIn(0f, 1f)
 
-                    FilledTonalButton(
-                        onClick = onNowPlayingClick,
-                        modifier = Modifier
-                            .weight(1.65f)
-                            .fillMaxHeight()
-                            .animateWidth(interactionSource)
-                            .animateContentSize(animationSpec = YoinMotion.spatialSpring()),
-                        interactionSource = interactionSource,
-                        shape = MaterialTheme.shapes.extraLarge,
-                        contentPadding = PaddingValues(0.dp),
-                        colors = ButtonDefaults.filledTonalButtonColors(
-                            containerColor = centerContainerColor,
-                            contentColor = centerContentColor,
-                        ),
-                    ) {
-                        Box(modifier = Modifier.fillMaxWidth()) {
-                            if (currentTrackTitle != null && clampedProgress > 0f) {
-                                Box(
-                                    modifier = Modifier
-                                        .matchParentSize()
-                                        .clip(MaterialTheme.shapes.extraLarge)
-                                        .drawWithContent {
-                                            drawContent()
-                                            val w = size.width
-                                            val h = size.height
-                                            val progressX = w * clampedProgress
-                                            val amp = 4.dp.toPx() * waveAmplitude
-                                            val waveSteps = 20
+                        FilledTonalButton(
+                            onClick = onNowPlayingClick,
+                            modifier = Modifier
+                                .weight(1.65f)
+                                .fillMaxHeight()
+                                .animateWidth(interactionSource)
+                                .animateContentSize(animationSpec = YoinMotion.defaultSpatialSpec()),
+                            interactionSource = interactionSource,
+                            shape = MaterialTheme.shapes.extraLarge,
+                            contentPadding = PaddingValues(0.dp),
+                            colors = ButtonDefaults.filledTonalButtonColors(
+                                containerColor = centerContainerColor,
+                                contentColor = centerContentColor,
+                            ),
+                        ) {
+                            Box(modifier = Modifier.fillMaxWidth()) {
+                                if (currentTrackTitle != null && clampedProgress > 0f) {
+                                    Box(
+                                        modifier = Modifier
+                                            .matchParentSize()
+                                            .clip(MaterialTheme.shapes.extraLarge)
+                                            .drawWithContent {
+                                                drawContent()
+                                                val width = size.width
+                                                val height = size.height
+                                                val progressX = width * clampedProgress
+                                                val amplitude = 4.dp.toPx() * waveAmplitude
+                                                val waveSteps = 20
 
-                                            val path = Path().apply {
-                                                moveTo(0f, 0f)
-                                                lineTo(progressX, 0f)
-                                                // Right edge: wavy line down
-                                                for (i in 0..waveSteps) {
-                                                    val fraction = i.toFloat() / waveSteps
-                                                    val y = fraction * h
-                                                    val dx = sin(
-                                                        wavePhase +
-                                                            fraction * 2f *
-                                                            Math.PI.toFloat(),
-                                                    ) * amp
-                                                    lineTo(progressX + dx, y)
-                                                }
-                                                    lineTo(0f, h)
+                                                val path = Path().apply {
+                                                    moveTo(0f, 0f)
+                                                    lineTo(progressX, 0f)
+                                                    for (index in 0..waveSteps) {
+                                                        val fraction = index.toFloat() / waveSteps
+                                                        val y = fraction * height
+                                                        val dx = sin(
+                                                            wavePhase +
+                                                                fraction * 2f * Math.PI.toFloat(),
+                                                        ) * amplitude
+                                                        lineTo(progressX + dx, y)
+                                                    }
+                                                    lineTo(0f, height)
                                                     close()
                                                 }
-                                            drawPath(path, progressFillColor)
-                                        },
-                                )
-                            }
-
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = 10.dp, vertical = 4.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                NowPlayingArtwork(
-                                    currentTrackCoverArtUrl = currentTrackCoverArtUrl,
-                                    currentTrackTitle = currentTrackTitle,
-                                    sharedTransitionScope = sharedTransitionScope,
-                                    animatedVisibilityScope = animatedVisibilityScope,
-                                )
-                                Spacer(modifier = Modifier.width(10.dp))
-                                Column(modifier = Modifier.weight(1f)) {
-                                    val titleText = currentTrackTitle ?: when {
-                                        connectionErrorMessage != null -> "Playback unavailable"
-                                        else -> "Nothing playing"
-                                    }
-                                    val artistText = currentTrackArtist ?: when {
-                                        connectionErrorMessage != null -> connectionErrorMessage
-                                        else -> "Tap to open player"
-                                    }
-
-                                    val titleMod = if (
-                                        sharedTransitionScope != null &&
-                                        animatedVisibilityScope != null &&
-                                        currentTrackTitle != null
-                                    ) {
-                                        with(sharedTransitionScope) {
-                                            Modifier.sharedBounds(
-                                                sharedContentState = rememberSharedContentState(
-                                                    key = "np_title",
-                                                ),
-                                                animatedVisibilityScope = animatedVisibilityScope,
-                                                boundsTransform = { _, _ ->
-                                                    spring(stiffness = Spring.StiffnessMediumLow)
-                                                },
-                                            )
-                                        }
-                                    } else {
-                                        Modifier
-                                    }
-                                    val marqueeModifier = if (currentTrackTitle != null) {
-                                        titleMod.basicMarquee(
-                                            iterations = Int.MAX_VALUE,
-                                            repeatDelayMillis = 2000,
-                                            initialDelayMillis = 1500,
-                                        )
-                                    } else {
-                                        titleMod
-                                    }
-                                    Text(
-                                        text = titleText,
-                                        style = MaterialTheme.typography.labelLarge,
-                                        color = centerContentColor,
-                                        maxLines = 1,
-                                        softWrap = false,
-                                        modifier = marqueeModifier,
+                                                drawPath(path, progressFillColor)
+                                            },
                                     )
+                                }
 
-                                    val artistMod = if (
-                                        sharedTransitionScope != null &&
-                                        animatedVisibilityScope != null &&
-                                        currentTrackArtist != null
-                                    ) {
-                                        with(sharedTransitionScope) {
-                                            Modifier.sharedBounds(
-                                                sharedContentState = rememberSharedContentState(
-                                                    key = "np_artist",
-                                                ),
-                                                animatedVisibilityScope = animatedVisibilityScope,
-                                                boundsTransform = { _, _ ->
-                                                    spring(stiffness = Spring.StiffnessMediumLow)
-                                                },
-                                            )
-                                        }
-                                    } else {
-                                        Modifier
-                                    }
-                                    val artistMarqueeMod = if (currentTrackArtist != null) {
-                                        artistMod.basicMarquee(
-                                            iterations = Int.MAX_VALUE,
-                                            repeatDelayMillis = 2000,
-                                            initialDelayMillis = 2500,
-                                        )
-                                    } else {
-                                        artistMod
-                                    }
-                                    Text(
-                                        text = artistText,
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = centerContentColor.copy(alpha = 0.72f),
-                                        maxLines = 1,
-                                        softWrap = false,
-                                        modifier = artistMarqueeMod,
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 10.dp, vertical = 4.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    NowPlayingArtwork(
+                                        currentTrackCoverArtUrl = currentTrackCoverArtUrl,
+                                        currentTrackTitle = currentTrackTitle,
+                                        sharedTransitionScope = sharedTransitionScope,
+                                        animatedVisibilityScope = animatedVisibilityScope,
                                     )
+                                    Spacer(modifier = Modifier.width(10.dp))
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        val titleText = currentTrackTitle ?: when {
+                                            connectionErrorMessage != null -> "Playback unavailable"
+                                            else -> "Nothing playing"
+                                        }
+                                        val artistText = currentTrackArtist ?: when {
+                                            connectionErrorMessage != null -> connectionErrorMessage
+                                            else -> "Tap to open player"
+                                        }
+
+                                        val titleModifier = if (
+                                            sharedTransitionScope != null &&
+                                            animatedVisibilityScope != null &&
+                                            currentTrackTitle != null
+                                        ) {
+                                            with(sharedTransitionScope) {
+                                                Modifier.sharedBounds(
+                                                    sharedContentState = rememberSharedContentState(
+                                                        key = "np_title",
+                                                    ),
+                                                    animatedVisibilityScope = animatedVisibilityScope,
+                                                    boundsTransform = { _, _ -> sharedBoundsSpec },
+                                                )
+                                            }
+                                        } else {
+                                            Modifier
+                                        }
+                                        val marqueeTitleModifier = if (currentTrackTitle != null) {
+                                            titleModifier.basicMarquee(
+                                                iterations = Int.MAX_VALUE,
+                                                repeatDelayMillis = 2000,
+                                                initialDelayMillis = 1500,
+                                            )
+                                        } else {
+                                            titleModifier
+                                        }
+                                        Text(
+                                            text = titleText,
+                                            style = MaterialTheme.typography.labelLarge,
+                                            color = centerContentColor,
+                                            maxLines = 1,
+                                            softWrap = false,
+                                            modifier = marqueeTitleModifier,
+                                        )
+
+                                        val artistModifier = if (
+                                            sharedTransitionScope != null &&
+                                            animatedVisibilityScope != null &&
+                                            currentTrackArtist != null
+                                        ) {
+                                            with(sharedTransitionScope) {
+                                                Modifier.sharedBounds(
+                                                    sharedContentState = rememberSharedContentState(
+                                                        key = "np_artist",
+                                                    ),
+                                                    animatedVisibilityScope = animatedVisibilityScope,
+                                                    boundsTransform = { _, _ -> sharedBoundsSpec },
+                                                )
+                                            }
+                                        } else {
+                                            Modifier
+                                        }
+                                        val marqueeArtistModifier = if (currentTrackArtist != null) {
+                                            artistModifier.basicMarquee(
+                                                iterations = Int.MAX_VALUE,
+                                                repeatDelayMillis = 2000,
+                                                initialDelayMillis = 2500,
+                                            )
+                                        } else {
+                                            artistModifier
+                                        }
+                                        Text(
+                                            text = artistText,
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = centerContentColor.copy(alpha = 0.72f),
+                                            maxLines = 1,
+                                            softWrap = false,
+                                            modifier = marqueeArtistModifier,
+                                        )
+                                    }
                                 }
                             }
                         }
-                    }
-                },
-                menuContent = { _ -> },
-            )
+                    },
+                    menuContent = { _ -> },
+                )
 
-            customItem(
-                buttonGroupContent = {
-                    val interactionSource = rememberButtonGroupInteractionSource()
-                    FilledIconButton(
-                        onClick = onLibraryClick,
-                        modifier = Modifier
-                            .fillMaxHeight()
-                            .aspectRatio(libraryAspect)
-                            .animateWidth(interactionSource),
-                        interactionSource = interactionSource,
-                        colors = IconButtonDefaults.filledIconButtonColors(
-                            containerColor = libraryContainerColor,
-                            contentColor = libraryContentColor,
-                        ),
-                    ) {
+                customItem(
+                    buttonGroupContent = {
+                        val interactionSource = rememberButtonGroupInteractionSource()
+                        FilledIconButton(
+                            onClick = onLibraryClick,
+                            modifier = Modifier
+                                .fillMaxHeight()
+                                .aspectRatio(libraryAspect)
+                                .animateWidth(interactionSource),
+                            interactionSource = interactionSource,
+                            colors = IconButtonDefaults.filledIconButtonColors(
+                                containerColor = libraryContainerColor,
+                                contentColor = libraryContentColor,
+                            ),
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.LibraryMusic,
+                                contentDescription = "Library",
+                            )
+                        }
+                    },
+                    menuContent = { _ ->
                         Icon(
                             imageVector = Icons.Filled.LibraryMusic,
                             contentDescription = "Library",
                         )
-                    }
-                },
-                menuContent = { _ ->
-                    Icon(
-                        imageVector = Icons.Filled.LibraryMusic,
-                        contentDescription = "Library",
-                    )
-                },
-            )
+                    },
+                )
+            }
         }
     }
 }
@@ -437,6 +435,10 @@ private fun NowPlayingArtwork(
     modifier: Modifier = Modifier,
 ) {
     val baseModifier = modifier.size(34.dp)
+    val sharedBoundsSpec = YoinMotion.defaultSpatialSpec<Rect>(
+        role = YoinMotionRole.Standard,
+        expressiveScheme = MaterialTheme.motionScheme,
+    )
     val finalModifier = if (
         sharedTransitionScope != null &&
         animatedVisibilityScope != null &&
@@ -446,9 +448,7 @@ private fun NowPlayingArtwork(
             baseModifier.sharedBounds(
                 sharedContentState = rememberSharedContentState(key = "np_cover"),
                 animatedVisibilityScope = animatedVisibilityScope,
-                boundsTransform = { _, _ ->
-                    spring(stiffness = Spring.StiffnessMediumLow)
-                },
+                boundsTransform = { _, _ -> sharedBoundsSpec },
             )
         }
     } else {

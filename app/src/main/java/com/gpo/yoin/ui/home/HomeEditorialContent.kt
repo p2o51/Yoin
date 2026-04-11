@@ -1,6 +1,9 @@
 package com.gpo.yoin.ui.home
 
+import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.ExperimentalSharedTransitionApi
+import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.layout.Box
@@ -17,13 +20,24 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.unit.Velocity
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.QueueMusic
+import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.LibraryMusic
 import androidx.compose.material.icons.filled.Person
-import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -32,15 +46,23 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextOverflow
@@ -56,12 +78,22 @@ import com.gpo.yoin.ui.component.ExpressiveMediaArtwork
 import com.gpo.yoin.ui.component.ExpressiveSectionPanel
 import com.gpo.yoin.ui.component.YoinLoadingIndicator
 import com.gpo.yoin.ui.component.elasticPress
-import com.gpo.yoin.ui.component.expressiveBackdropVariantAt
+import com.gpo.yoin.ui.component.expressiveEntrance
+import com.gpo.yoin.ui.component.ExpressiveBackdropArtworkScale
 import com.gpo.yoin.ui.component.horizontalFadeMask
 import com.gpo.yoin.ui.component.minimumTouchTarget
 import com.gpo.yoin.ui.component.noRippleClickable
+import com.gpo.yoin.ui.component.playbackBackdropSignal
+import com.gpo.yoin.ui.component.rememberExpressiveEntranceProgress
+import com.gpo.yoin.ui.component.rememberExpressiveBackdropColors
+import com.gpo.yoin.ui.experience.rememberPullToDismissState
+import com.gpo.yoin.ui.navigation.albumCoverSharedKey
 import com.gpo.yoin.ui.theme.YoinMotion
+import com.gpo.yoin.ui.theme.YoinMotionRole
 import com.gpo.yoin.ui.theme.YoinShapeTokens
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.collectLatest
 
 private data class HomeMomentEntry(
     val stableId: String,
@@ -69,7 +101,12 @@ private data class HomeMomentEntry(
     val subtitle: String,
     val footnote: String,
     val coverArtUrl: String?,
+    val sharedAlbumId: String?,
+    val sharedSourceKey: String?,
+    val songId: String?,
     val variant: ExpressiveBackdropVariant,
+    val shape: Shape,
+    val fallbackIcon: androidx.compose.ui.graphics.vector.ImageVector,
     val onClick: () -> Unit,
 )
 
@@ -79,56 +116,179 @@ private data class JumpBackInVisualEntry(
     val subtitle: String?,
     val metaText: String?,
     val coverArtUrl: String?,
+    val sharedAlbumId: String?,
+    val sharedSourceKey: String?,
+    val songId: String?,
     val variant: ExpressiveBackdropVariant,
     val shape: Shape,
     val fallbackIcon: androidx.compose.ui.graphics.vector.ImageVector,
     val onClick: () -> Unit,
 )
 
+private const val HomeBackdropPaletteWarmupDelayMillis = 350L
+
+@OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
 internal fun HomeEditorialContent(
     activities: List<ActivityEvent>,
     jumpBackInItems: List<HomeJumpBackInItem>,
-    jumpBackInRevision: Int,
     isLoadingMoreJumpBackIn: Boolean,
     isPlaying: Boolean,
     visualizerData: com.gpo.yoin.player.VisualizerData,
-    onAlbumClick: (albumId: String) -> Unit,
+    activeSongId: String? = null,
+    onNavigateToSettings: () -> Unit,
+    onNavigateToMemories: () -> Unit,
+    onAlbumClick: (albumId: String, sharedTransitionKey: String?) -> Unit,
     onArtistClick: (artistId: String) -> Unit,
+    onPlaylistClick: (playlistId: String) -> Unit,
     onSongClick: (Song) -> Unit,
-    onRefreshJumpBackIn: () -> Unit,
     onLoadMoreJumpBackIn: () -> Unit,
     buildCoverArtUrl: (String) -> String,
+    sharedTransitionScope: SharedTransitionScope? = null,
+    animatedVisibilityScope: AnimatedVisibilityScope? = null,
     modifier: Modifier = Modifier,
 ) {
-    val activityEntries = buildActivityEntries(
-        activities = activities,
-        buildCoverArtUrl = buildCoverArtUrl,
-        onAlbumClick = onAlbumClick,
-        onArtistClick = onArtistClick,
-        onSongClick = onSongClick,
+    val listState = rememberLazyListState()
+    val density = LocalDensity.current
+    val pullTriggerPx = with(density) { 108.dp.toPx() }
+    val maxPullPx = pullTriggerPx * 1.35f
+    val coroutineScope = rememberCoroutineScope()
+    val pullToMemoriesState = rememberPullToDismissState(
+        triggerPx = pullTriggerPx,
+        maxPullPx = maxPullPx,
     )
-    val jumpEntries = jumpBackInItems.mapIndexed { index, item ->
-        buildJumpBackInEntry(
-            item = item,
-            variant = expressiveBackdropVariantAt(index),
+    var isNavigatingToMemories by remember { mutableStateOf(false) }
+    val memoriesHintProgress = pullToMemoriesState.progress
+    var allowBackdropPalette by remember { mutableStateOf(false) }
+    val pullToMemoriesConnection = remember(
+        listState,
+        pullToMemoriesState,
+        onNavigateToMemories,
+        coroutineScope,
+        isNavigatingToMemories,
+    ) {
+        object : NestedScrollConnection {
+            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+                if (source != NestedScrollSource.UserInput || isNavigatingToMemories) {
+                    return Offset.Zero
+                }
+                val isAtTop = listState.isAtTop()
+                if (available.y > 0f && isAtTop) {
+                    val triggered = pullToMemoriesState.registerPull(available.y)
+                    if (triggered) {
+                        isNavigatingToMemories = true
+                        coroutineScope.launch {
+                            pullToMemoriesState.animateToTrigger()
+                            onNavigateToMemories()
+                            pullToMemoriesState.animateReset()
+                            isNavigatingToMemories = false
+                        }
+                    }
+                    return Offset(0f, available.y)
+                }
+                if (available.y < 0f && pullToMemoriesState.pullPx > 0f) {
+                    pullToMemoriesState.release(-available.y)
+                    return Offset(0f, available.y)
+                }
+                return Offset.Zero
+            }
+
+            override suspend fun onPreFling(available: Velocity): Velocity {
+                return when {
+                    isNavigatingToMemories -> available
+                    pullToMemoriesState.pullPx > 0f -> {
+                        pullToMemoriesState.animateReset()
+                        available
+                    }
+                    else -> Velocity.Zero
+                }
+            }
+        }
+    }
+    LaunchedEffect(listState, allowBackdropPalette) {
+        if (allowBackdropPalette) return@LaunchedEffect
+        snapshotFlow { listState.isScrollInProgress }
+            .collectLatest { isScrollInProgress ->
+                if (!isScrollInProgress) {
+                    delay(HomeBackdropPaletteWarmupDelayMillis)
+                    allowBackdropPalette = true
+                }
+            }
+    }
+    val playbackSignal = remember(visualizerData, isPlaying) {
+        playbackBackdropSignal(
+            visualizerData = visualizerData,
+            isPlaying = isPlaying,
+        )
+    }
+    val activityEntries = remember(
+        activities,
+        buildCoverArtUrl,
+        onAlbumClick,
+        onArtistClick,
+        onPlaylistClick,
+        onSongClick,
+    ) {
+        buildActivityEntries(
+            activities = activities,
             buildCoverArtUrl = buildCoverArtUrl,
             onAlbumClick = onAlbumClick,
             onArtistClick = onArtistClick,
+            onPlaylistClick = onPlaylistClick,
             onSongClick = onSongClick,
         )
     }
-    val jumpRows = jumpEntries.chunked(3)
+    val jumpRows = remember(
+        jumpBackInItems,
+        buildCoverArtUrl,
+        onAlbumClick,
+        onArtistClick,
+        onSongClick,
+    ) {
+        jumpBackInItems
+            .map { item ->
+                buildJumpBackInEntry(
+                    item = item,
+                    buildCoverArtUrl = buildCoverArtUrl,
+                    onAlbumClick = onAlbumClick,
+                    onArtistClick = onArtistClick,
+                    onSongClick = onSongClick,
+                )
+            }
+            .chunked(3)
+    }
 
     LazyColumn(
-        modifier = modifier.fillMaxSize(),
+        state = listState,
+        modifier = modifier
+            .fillMaxSize()
+            .nestedScroll(pullToMemoriesConnection)
+            .graphicsLayer {
+                translationY = pullToMemoriesState.pullPx * 0.14f
+            },
         contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 132.dp),
         verticalArrangement = Arrangement.spacedBy(18.dp),
     ) {
         item {
+            HomeContentHeader(
+                title = "Activities",
+                onNavigateToSettings = onNavigateToSettings,
+                onNavigateToMemories = onNavigateToMemories,
+                memoriesHintProgress = memoriesHintProgress,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
+
+        item {
             AnimatedVisibility(visible = activityEntries.isNotEmpty()) {
                 ActivityGrid(
                     entries = activityEntries.take(6),
+                    activeSongId = activeSongId,
+                    isPlaying = isPlaying,
+                    playbackSignal = playbackSignal,
+                    extractBackdropColors = allowBackdropPalette,
+                    sharedTransitionScope = sharedTransitionScope,
+                    animatedVisibilityScope = animatedVisibilityScope,
                     modifier = Modifier.fillMaxWidth(),
                 )
             }
@@ -143,8 +303,6 @@ internal fun HomeEditorialContent(
 
         item {
             JumpBackInHeader(
-                refreshTick = jumpBackInRevision,
-                onRefreshClick = onRefreshJumpBackIn,
                 modifier = Modifier.fillMaxWidth(),
             )
         }
@@ -164,10 +322,16 @@ internal fun HomeEditorialContent(
             ) { index, row ->
                 JumpBackInRow(
                     entries = row,
+                    activeSongId = activeSongId,
+                    isPlaying = isPlaying,
+                    playbackSignal = playbackSignal,
+                    extractBackdropColors = allowBackdropPalette,
+                    sharedTransitionScope = sharedTransitionScope,
+                    animatedVisibilityScope = animatedVisibilityScope,
                     modifier = Modifier.fillMaxWidth(),
                 )
                 if (index >= jumpRows.lastIndex - 1 && !isLoadingMoreJumpBackIn) {
-                    LaunchedEffect(jumpEntries.size, index) {
+                    LaunchedEffect(jumpBackInItems.size, index) {
                         onLoadMoreJumpBackIn()
                     }
                 }
@@ -190,46 +354,125 @@ internal fun HomeEditorialContent(
 }
 
 @Composable
+private fun HomeContentHeader(
+    title: String,
+    onNavigateToSettings: () -> Unit,
+    onNavigateToMemories: () -> Unit,
+    memoriesHintProgress: Float,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier = modifier
+            .statusBarsPadding()
+            .padding(top = 8.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = title,
+            style = MaterialTheme.typography.headlineLarge,
+            color = MaterialTheme.colorScheme.onBackground,
+        )
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(2.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            IconButton(
+                onClick = onNavigateToMemories,
+                modifier = Modifier.graphicsLayer {
+                    translationY = memoriesHintProgress * 4f
+                    alpha = 0.62f + memoriesHintProgress * 0.38f
+                },
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.KeyboardArrowDown,
+                    contentDescription = "Memories",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            IconButton(onClick = onNavigateToSettings) {
+                Icon(
+                    imageVector = Icons.Filled.Settings,
+                    contentDescription = "Settings",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalSharedTransitionApi::class)
+@Composable
 private fun ActivityGrid(
     entries: List<HomeMomentEntry>,
+    activeSongId: String? = null,
+    isPlaying: Boolean,
+    playbackSignal: Float,
+    extractBackdropColors: Boolean,
+    sharedTransitionScope: SharedTransitionScope? = null,
+    animatedVisibilityScope: AnimatedVisibilityScope? = null,
     modifier: Modifier = Modifier,
 ) {
     Column(
         modifier = modifier,
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        entries.chunked(2).forEach { rowEntries ->
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                rowEntries.forEach { entry ->
-                    ActivityCard(
-                        entry = entry,
-                        modifier = Modifier.weight(1f),
-                    )
-                }
-                if (rowEntries.size == 1) {
-                    Spacer(modifier = Modifier.weight(1f))
+        entries.chunked(2).forEachIndexed { rowIndex, rowEntries ->
+            key(rowEntries.joinToString(separator = "|") { it.stableId }) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    rowEntries.forEachIndexed { columnIndex, entry ->
+                        key(entry.stableId) {
+                            ActivityCard(
+                                entry = entry,
+                                activeSongId = activeSongId,
+                                isPlaying = isPlaying,
+                                playbackSignal = playbackSignal,
+                                extractBackdropColors = extractBackdropColors,
+                                delayMillis = ((rowIndex * 2) + columnIndex) * 36L,
+                                sharedTransitionScope = sharedTransitionScope,
+                                animatedVisibilityScope = animatedVisibilityScope,
+                                modifier = Modifier.weight(1f),
+                            )
+                        }
+                    }
+                    if (rowEntries.size == 1) {
+                        Spacer(modifier = Modifier.weight(1f))
+                    }
                 }
             }
         }
     }
 }
 
+@OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
 private fun ActivityCard(
     entry: HomeMomentEntry,
+    activeSongId: String? = null,
+    isPlaying: Boolean,
+    playbackSignal: Float,
+    extractBackdropColors: Boolean,
+    delayMillis: Long = 0L,
+    sharedTransitionScope: SharedTransitionScope? = null,
+    animatedVisibilityScope: AnimatedVisibilityScope? = null,
     modifier: Modifier = Modifier,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
+    val entranceProgress = rememberExpressiveEntranceProgress(
+        key = entry.stableId,
+        delayMillis = delayMillis,
+    )
+    val isPlaybackActive = isPlaying && entry.songId != null && entry.songId == activeSongId
 
     Surface(
-        modifier = modifier,
+        modifier = modifier.expressiveEntrance(entranceProgress),
         shape = YoinShapeTokens.Large,
         color = MaterialTheme.colorScheme.surfaceContainerLow,
         tonalElevation = 2.dp,
-        shadowElevation = 4.dp,
+        shadowElevation = 0.dp,
     ) {
         Row(
             modifier = Modifier
@@ -242,14 +485,21 @@ private fun ActivityCard(
             ExpressiveArtwork(
                 model = entry.coverArtUrl,
                 contentDescription = entry.title,
+                sharedAlbumId = entry.sharedAlbumId,
+                sharedSourceKey = entry.sharedSourceKey,
+                isPlaybackActive = isPlaybackActive,
+                playbackSignal = playbackSignal,
+                extractBackdropColors = extractBackdropColors,
+                sharedTransitionScope = sharedTransitionScope,
+                animatedVisibilityScope = animatedVisibilityScope,
                 interactionSource = interactionSource,
                 backdropVariant = entry.variant,
                 modifier = Modifier.size(58.dp),
-                fillFraction = 0.82f,
-                offsetX = 4.dp,
-                offsetY = 5.dp,
-                shape = YoinShapeTokens.Small,
-                fallbackIcon = Icons.Filled.LibraryMusic,
+                fillFraction = 1f,
+                offsetX = 2.dp,
+                offsetY = 3.dp,
+                shape = entry.shape,
+                fallbackIcon = entry.fallbackIcon,
             )
             Column(
                 modifier = Modifier.weight(1f),
@@ -282,16 +532,8 @@ private fun ActivityCard(
 
 @Composable
 private fun JumpBackInHeader(
-    refreshTick: Int,
-    onRefreshClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val refreshRotation by animateFloatAsState(
-        targetValue = refreshTick * 360f,
-        animationSpec = YoinMotion.spatialSpring(),
-        label = "jumpBackInRefreshRotation",
-    )
-
     Row(
         modifier = modifier,
         horizontalArrangement = Arrangement.SpaceBetween,
@@ -302,25 +544,19 @@ private fun JumpBackInHeader(
             style = MaterialTheme.typography.headlineMedium,
             color = MaterialTheme.colorScheme.onSurface,
         )
-        IconButton(
-            onClick = onRefreshClick,
-            modifier = Modifier.minimumTouchTarget(),
-        ) {
-            Icon(
-                imageVector = Icons.Filled.Refresh,
-                contentDescription = "Refresh Jump Back In",
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.graphicsLayer {
-                    rotationZ = refreshRotation
-                },
-            )
-        }
     }
 }
 
+@OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
 private fun JumpBackInRow(
     entries: List<JumpBackInVisualEntry>,
+    activeSongId: String? = null,
+    isPlaying: Boolean,
+    playbackSignal: Float,
+    extractBackdropColors: Boolean,
+    sharedTransitionScope: SharedTransitionScope? = null,
+    animatedVisibilityScope: AnimatedVisibilityScope? = null,
     modifier: Modifier = Modifier,
 ) {
     Row(
@@ -328,9 +564,16 @@ private fun JumpBackInRow(
         horizontalArrangement = Arrangement.spacedBy(14.dp),
         verticalAlignment = Alignment.Top,
     ) {
-        entries.forEach { entry ->
+        entries.forEachIndexed { index, entry ->
             JumpBackInTile(
                 entry = entry,
+                activeSongId = activeSongId,
+                isPlaying = isPlaying,
+                playbackSignal = playbackSignal,
+                extractBackdropColors = extractBackdropColors,
+                delayMillis = index * 42L,
+                sharedTransitionScope = sharedTransitionScope,
+                animatedVisibilityScope = animatedVisibilityScope,
                 modifier = Modifier.weight(1f),
             )
         }
@@ -340,28 +583,49 @@ private fun JumpBackInRow(
     }
 }
 
+@OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
 private fun JumpBackInTile(
     entry: JumpBackInVisualEntry,
+    activeSongId: String? = null,
+    isPlaying: Boolean,
+    playbackSignal: Float,
+    extractBackdropColors: Boolean,
+    delayMillis: Long = 0L,
+    sharedTransitionScope: SharedTransitionScope? = null,
+    animatedVisibilityScope: AnimatedVisibilityScope? = null,
     modifier: Modifier = Modifier,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
+    val entranceProgress = rememberExpressiveEntranceProgress(
+        key = entry.stableId,
+        delayMillis = delayMillis,
+    )
+    val isPlaybackActive = isPlaying && entry.songId != null && entry.songId == activeSongId
     Column(
         modifier = modifier
+            .expressiveEntrance(entranceProgress)
             .noRippleClickable(interactionSource = interactionSource, onClick = entry.onClick),
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         ExpressiveArtwork(
             model = entry.coverArtUrl,
             contentDescription = entry.title,
+            sharedAlbumId = entry.sharedAlbumId,
+            sharedSourceKey = entry.sharedSourceKey,
+            isPlaybackActive = isPlaybackActive,
+            playbackSignal = playbackSignal,
+            extractBackdropColors = extractBackdropColors,
+            sharedTransitionScope = sharedTransitionScope,
+            animatedVisibilityScope = animatedVisibilityScope,
             interactionSource = interactionSource,
             backdropVariant = entry.variant,
             modifier = Modifier
                 .fillMaxWidth()
                 .aspectRatio(1f),
-            fillFraction = 0.78f,
-            offsetX = 6.dp,
-            offsetY = 8.dp,
+            fillFraction = 1f,
+            offsetX = 3.dp,
+            offsetY = 5.dp,
             shape = entry.shape,
             fallbackIcon = entry.fallbackIcon,
         )
@@ -444,11 +708,19 @@ private fun MarqueeTitle(
     }
 }
 
+@OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
 private fun ExpressiveArtwork(
     model: String?,
     contentDescription: String,
     backdropVariant: ExpressiveBackdropVariant,
+    extractBackdropColors: Boolean,
+    sharedAlbumId: String? = null,
+    sharedSourceKey: String? = null,
+    isPlaybackActive: Boolean = false,
+    playbackSignal: Float = 0f,
+    sharedTransitionScope: SharedTransitionScope? = null,
+    animatedVisibilityScope: AnimatedVisibilityScope? = null,
     modifier: Modifier = Modifier,
     interactionSource: MutableInteractionSource? = null,
     fillFraction: Float = 0.78f,
@@ -457,19 +729,35 @@ private fun ExpressiveArtwork(
     shape: Shape = YoinShapeTokens.ExtraLarge,
     fallbackIcon: androidx.compose.ui.graphics.vector.ImageVector = Icons.Filled.LibraryMusic,
 ) {
-    Box(modifier = modifier) {
+    val backdropColors = rememberExpressiveBackdropColors(
+        model = model,
+        fallbackBaseColor = MaterialTheme.colorScheme.secondaryContainer,
+        fallbackAccentColor = MaterialTheme.colorScheme.tertiaryContainer,
+        enabled = extractBackdropColors,
+    )
+    val scaledFillFraction = (fillFraction * ExpressiveBackdropArtworkScale).coerceIn(0.36f, 1f)
+
+    BoxWithConstraints(modifier = modifier) {
+        val opticalShift = minOf(maxWidth, maxHeight) * 0.08f
         ExpressiveBackdrop(
-            baseColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.72f),
-            accentColor = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.48f),
+            baseColor = backdropColors.baseColor,
+            accentColor = backdropColors.accentColor,
             variant = backdropVariant,
-            modifier = Modifier.matchParentSize(),
+            isPlaybackActive = isPlaybackActive,
+            playbackSignal = playbackSignal,
+            modifier = Modifier
+                .fillMaxSize(0.88f)
+                .align(Alignment.Center)
+                .offset(x = -opticalShift, y = -opticalShift),
         )
 
         val coverModifier = Modifier
-            .fillMaxSize(fillFraction)
+            .fillMaxSize(scaledFillFraction)
             .align(Alignment.Center)
-            .offset(x = offsetX, y = offsetY)
-            .shadow(14.dp, shape = shape, clip = false)
+            .offset(
+                x = opticalShift + offsetX * 0.25f,
+                y = opticalShift + offsetY * 0.25f,
+            )
             .then(
                 if (interactionSource != null) {
                     Modifier.elasticPress(interactionSource)
@@ -477,12 +765,38 @@ private fun ExpressiveArtwork(
                     Modifier
                 },
             )
+        val sharedArtworkBoundsSpec = YoinMotion.slowSpatialSpec<Rect>(
+            role = YoinMotionRole.Expressive,
+            expressiveScheme = MaterialTheme.motionScheme,
+        )
+
+        val sharedArtworkModifier = if (
+            sharedAlbumId != null &&
+            sharedTransitionScope != null &&
+            animatedVisibilityScope != null
+        ) {
+            with(sharedTransitionScope) {
+                Modifier
+                    .fillMaxSize()
+                    .sharedElement(
+                        sharedContentState = rememberSharedContentState(
+                            key = albumCoverSharedKey(sharedAlbumId, sharedSourceKey),
+                        ),
+                        animatedVisibilityScope = animatedVisibilityScope,
+                        boundsTransform = { _, _ -> sharedArtworkBoundsSpec },
+                        zIndexInOverlay = 1f,
+                    )
+                    .clip(shape)
+            }
+        } else {
+            Modifier.fillMaxSize()
+        }
 
         Box(modifier = coverModifier) {
             ExpressiveMediaArtwork(
                 model = model,
                 contentDescription = contentDescription,
-                modifier = Modifier.fillMaxSize(),
+                modifier = sharedArtworkModifier,
                 shape = shape,
                 fallbackIcon = fallbackIcon,
                 tonalElevation = 1.dp,
@@ -523,15 +837,29 @@ private fun HomeEmptyCard(
     }
 }
 
+internal fun dedupeActivitiesForHome(
+    activities: List<ActivityEvent>,
+): List<ActivityEvent> = activities.distinctBy(::homeActivityDedupKey)
+
+private fun homeActivityDedupKey(activity: ActivityEvent): String {
+    val canonicalEntityId = when (activity.entityType) {
+        ActivityEntityType.SONG.name -> activity.songId ?: activity.entityId
+        else -> activity.entityId
+    }
+    return "${activity.entityType}:$canonicalEntityId"
+}
+
 private fun buildActivityEntries(
     activities: List<ActivityEvent>,
     buildCoverArtUrl: (String) -> String,
-    onAlbumClick: (albumId: String) -> Unit,
+    onAlbumClick: (albumId: String, sharedTransitionKey: String?) -> Unit,
     onArtistClick: (artistId: String) -> Unit,
+    onPlaylistClick: (playlistId: String) -> Unit,
     onSongClick: (Song) -> Unit,
-): List<HomeMomentEntry> = activities.take(6).mapIndexed { index, activity ->
+): List<HomeMomentEntry> = dedupeActivitiesForHome(activities).take(6).map { activity ->
+    val stableId = "activity:${activity.id}:${activity.entityType}:${activity.entityId}:${activity.actionType}"
     HomeMomentEntry(
-        stableId = "activity:${activity.entityType}:${activity.entityId}:${activity.actionType}",
+        stableId = stableId,
         title = activity.title,
         subtitle = activity.subtitle.ifBlank {
             when (activity.entityType) {
@@ -541,11 +869,19 @@ private fun buildActivityEntries(
         },
         footnote = buildActivityFootnote(activity),
         coverArtUrl = buildActivityCoverArtUrl(activity, buildCoverArtUrl),
-        variant = expressiveBackdropVariantAt(index),
+        sharedAlbumId = activity.entityId.takeIf { activity.entityType == ActivityEntityType.ALBUM.name },
+        sharedSourceKey = stableId.takeIf { activity.entityType == ActivityEntityType.ALBUM.name },
+        songId = (activity.songId ?: activity.entityId).takeIf {
+            activity.entityType == ActivityEntityType.SONG.name
+        },
+        variant = backdropVariantForActivity(activity.entityType),
+        shape = artworkShapeForEntityType(activity.entityType),
+        fallbackIcon = artworkFallbackIconForEntityType(activity.entityType),
         onClick = {
             when (activity.entityType) {
-                ActivityEntityType.ALBUM.name -> onAlbumClick(activity.entityId)
+                ActivityEntityType.ALBUM.name -> onAlbumClick(activity.entityId, stableId)
                 ActivityEntityType.ARTIST.name -> onArtistClick(activity.entityId)
+                ActivityEntityType.PLAYLIST.name -> onPlaylistClick(activity.entityId)
                 else -> onSongClick(activity.asSong())
             }
         },
@@ -554,9 +890,8 @@ private fun buildActivityEntries(
 
 private fun buildJumpBackInEntry(
     item: HomeJumpBackInItem,
-    variant: ExpressiveBackdropVariant,
     buildCoverArtUrl: (String) -> String,
-    onAlbumClick: (albumId: String) -> Unit,
+    onAlbumClick: (albumId: String, sharedTransitionKey: String?) -> Unit,
     onArtistClick: (artistId: String) -> Unit,
     onSongClick: (Song) -> Unit,
 ): JumpBackInVisualEntry = when (item) {
@@ -566,10 +901,13 @@ private fun buildJumpBackInEntry(
         subtitle = item.album.artist,
         metaText = item.album.songCount?.let { "$it tracks" },
         coverArtUrl = item.album.coverArt?.let(buildCoverArtUrl) ?: buildCoverArtUrl(item.album.id),
-        variant = variant,
-        shape = YoinShapeTokens.Large,
+        sharedAlbumId = item.album.id,
+        sharedSourceKey = item.stableId,
+        songId = null,
+        variant = ExpressiveBackdropVariant.Bun,
+        shape = YoinShapeTokens.Medium,
         fallbackIcon = Icons.Filled.LibraryMusic,
-        onClick = { onAlbumClick(item.album.id) },
+        onClick = { onAlbumClick(item.album.id, item.stableId) },
     )
 
     is HomeJumpBackInItem.SongItem -> JumpBackInVisualEntry(
@@ -579,8 +917,11 @@ private fun buildJumpBackInEntry(
         metaText = "Single",
         coverArtUrl = item.song.coverArt?.let(buildCoverArtUrl)
             ?: item.song.albumId?.let(buildCoverArtUrl),
-        variant = variant,
-        shape = YoinShapeTokens.Large,
+        sharedAlbumId = null,
+        sharedSourceKey = null,
+        songId = item.song.id,
+        variant = ExpressiveBackdropVariant.Circle,
+        shape = YoinShapeTokens.Medium,
         fallbackIcon = Icons.Filled.LibraryMusic,
         onClick = { onSongClick(item.song) },
     )
@@ -591,11 +932,34 @@ private fun buildJumpBackInEntry(
         subtitle = "Artist",
         metaText = null,
         coverArtUrl = item.artist.coverArt?.let(buildCoverArtUrl),
-        variant = variant,
-        shape = YoinShapeTokens.Full,
+        sharedAlbumId = null,
+        sharedSourceKey = null,
+        songId = null,
+        variant = ExpressiveBackdropVariant.SoftBoom,
+        shape = CircleShape,
         fallbackIcon = Icons.Filled.Person,
         onClick = { onArtistClick(item.artist.id) },
     )
+}
+
+private fun backdropVariantForActivity(entityType: String): ExpressiveBackdropVariant = when (entityType) {
+    ActivityEntityType.ALBUM.name -> ExpressiveBackdropVariant.Bun
+    ActivityEntityType.SONG.name -> ExpressiveBackdropVariant.Circle
+    ActivityEntityType.PLAYLIST.name -> ExpressiveBackdropVariant.Ghostish
+    else -> ExpressiveBackdropVariant.SoftBoom
+}
+
+private fun artworkShapeForEntityType(entityType: String): Shape = when (entityType) {
+    ActivityEntityType.ARTIST.name -> CircleShape
+    else -> YoinShapeTokens.Small
+}
+
+private fun artworkFallbackIconForEntityType(
+    entityType: String,
+): androidx.compose.ui.graphics.vector.ImageVector = when (entityType) {
+    ActivityEntityType.ARTIST.name -> Icons.Filled.Person
+    ActivityEntityType.PLAYLIST.name -> Icons.AutoMirrored.Filled.QueueMusic
+    else -> Icons.Filled.LibraryMusic
 }
 
 private fun ActivityEvent.asSong(): Song = Song(
@@ -621,10 +985,14 @@ private fun buildActivityFootnote(activity: ActivityEvent): String {
     val label = when (activity.entityType) {
         ActivityEntityType.ALBUM.name -> "Album"
         ActivityEntityType.ARTIST.name -> "Artist"
+        ActivityEntityType.PLAYLIST.name -> "Playlist"
         else -> "Track"
     }
     return "$label · ${formatTimeAgo(activity.timestamp)}"
 }
+
+private fun LazyListState.isAtTop(): Boolean =
+    firstVisibleItemIndex == 0 && firstVisibleItemScrollOffset == 0
 
 private fun formatTimeAgo(timestampMillis: Long): String {
     val diff = System.currentTimeMillis() - timestampMillis

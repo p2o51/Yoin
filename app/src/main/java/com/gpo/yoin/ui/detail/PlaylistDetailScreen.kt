@@ -1,6 +1,9 @@
 package com.gpo.yoin.ui.detail
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -28,6 +31,7 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -51,37 +55,44 @@ fun PlaylistDetailScreen(
     onRetry: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = {
-                    Text(
-                        text = (uiState as? PlaylistDetailUiState.Content)?.playlistName.orEmpty(),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                },
-                navigationIcon = {
-                    IconButton(onClick = onBackClick) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Back",
+    ExpressivePageBackground(modifier = modifier) {
+        Scaffold(
+            modifier = Modifier.fillMaxSize(),
+            containerColor = Color.Transparent,
+            contentColor = MaterialTheme.colorScheme.onSurface,
+            contentWindowInsets = WindowInsets(0, 0, 0, 0),
+            topBar = {
+                TopAppBar(
+                    title = {
+                        Text(
+                            text = (uiState as? PlaylistDetailUiState.Content)?.playlistName.orEmpty(),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
                         )
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
-                    titleContentColor = MaterialTheme.colorScheme.onSurface,
-                ),
-            )
-        },
-        modifier = modifier,
-    ) { innerPadding ->
-        ExpressivePageBackground(modifier = Modifier.padding(innerPadding)) {
+                    },
+                    navigationIcon = {
+                        IconButton(onClick = onBackClick) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                contentDescription = "Back",
+                            )
+                        }
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = Color.Transparent,
+                        titleContentColor = MaterialTheme.colorScheme.onSurface,
+                        navigationIconContentColor = MaterialTheme.colorScheme.onSurface,
+                    ),
+                )
+            },
+        ) { innerPadding ->
             when (uiState) {
                 is PlaylistDetailUiState.Loading -> {
-                    androidx.compose.foundation.layout.Box(
-                        modifier = Modifier.fillMaxSize(),
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(innerPadding)
+                            .navigationBarsPadding(),
                         contentAlignment = Alignment.Center,
                     ) {
                         YoinLoadingIndicator()
@@ -89,23 +100,30 @@ fun PlaylistDetailScreen(
                 }
 
                 is PlaylistDetailUiState.Error -> {
-                    ExpressiveSectionPanel(
+                    Box(
                         modifier = Modifier
-                            .fillMaxWidth()
+                            .fillMaxSize()
+                            .padding(innerPadding)
+                            .navigationBarsPadding()
                             .padding(16.dp),
+                        contentAlignment = Alignment.Center,
                     ) {
-                        androidx.compose.foundation.layout.Column(
-                            modifier = Modifier.padding(20.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.spacedBy(10.dp),
+                        ExpressiveSectionPanel(
+                            modifier = Modifier.fillMaxWidth(),
                         ) {
-                            Text(
-                                text = uiState.message,
-                                style = MaterialTheme.typography.bodyLarge,
-                                color = MaterialTheme.colorScheme.error,
-                            )
-                            TextButton(onClick = onRetry) {
-                                Text("Retry")
+                            androidx.compose.foundation.layout.Column(
+                                modifier = Modifier.padding(20.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(10.dp),
+                            ) {
+                                Text(
+                                    text = uiState.message,
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    color = MaterialTheme.colorScheme.error,
+                                )
+                                TextButton(onClick = onRetry) {
+                                    Text("Retry")
+                                }
                             }
                         }
                     }
@@ -116,6 +134,7 @@ fun PlaylistDetailScreen(
                         content = uiState,
                         onPlayAllClick = onPlayAllClick,
                         onSongClick = onSongClick,
+                        modifier = Modifier.padding(innerPadding),
                     )
                 }
             }
@@ -131,31 +150,31 @@ private fun PlaylistDetailContent(
     modifier: Modifier = Modifier,
 ) {
     androidx.compose.foundation.lazy.LazyColumn(
-        modifier = modifier.fillMaxSize(),
-        contentPadding = PaddingValues(16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
+        modifier = modifier
+            .fillMaxSize()
+            .navigationBarsPadding(),
+        contentPadding = PaddingValues(start = 16.dp, top = 16.dp, end = 16.dp, bottom = 24.dp),
     ) {
         item {
-            ExpressiveSectionPanel(
+            androidx.compose.foundation.layout.Column(
                 modifier = Modifier.fillMaxWidth(),
-                tonalElevation = 4.dp,
-                shadowElevation = 10.dp,
+                verticalArrangement = Arrangement.spacedBy(14.dp),
             ) {
+                ExpressiveMediaArtwork(
+                    model = content.coverArtUrl,
+                    contentDescription = content.playlistName,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .aspectRatio(1f),
+                    shape = YoinShapeTokens.ExtraLarge,
+                    fallbackIcon = Icons.Filled.LibraryMusic,
+                    shadowElevation = 12.dp,
+                    tonalElevation = 3.dp,
+                )
                 androidx.compose.foundation.layout.Column(
-                    modifier = Modifier.padding(16.dp),
+                    modifier = Modifier.padding(top = 2.dp, bottom = 10.dp),
                     verticalArrangement = Arrangement.spacedBy(14.dp),
                 ) {
-                    ExpressiveMediaArtwork(
-                        model = content.coverArtUrl,
-                        contentDescription = content.playlistName,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .aspectRatio(1f),
-                        shape = YoinShapeTokens.ExtraLarge,
-                        fallbackIcon = Icons.Filled.LibraryMusic,
-                        shadowElevation = 12.dp,
-                        tonalElevation = 3.dp,
-                    )
                     ExpressiveHeaderBlock(
                         title = content.playlistName,
                         overline = "Playlist",
@@ -184,7 +203,7 @@ private fun PlaylistDetailContent(
                 text = "Tracks",
                 style = MaterialTheme.typography.labelLarge,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(horizontal = 4.dp),
+                modifier = Modifier.padding(horizontal = 4.dp, vertical = 10.dp),
             )
         }
 
@@ -199,9 +218,7 @@ private fun PlaylistDetailContent(
             )
         }
 
-        item {
-            Spacer(modifier = Modifier.height(116.dp))
-        }
+        item { Spacer(modifier = Modifier.height(24.dp)) }
     }
 }
 

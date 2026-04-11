@@ -7,7 +7,7 @@ import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface ActivityEventDao {
-    @Query("SELECT * FROM activity_events ORDER BY timestamp DESC LIMIT :limit")
+    @Query("SELECT * FROM activity_events ORDER BY timestamp DESC, id DESC LIMIT :limit")
     fun getRecentEvents(limit: Int): Flow<List<ActivityEvent>>
 
     @Insert

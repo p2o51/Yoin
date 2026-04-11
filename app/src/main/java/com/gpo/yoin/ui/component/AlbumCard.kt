@@ -2,9 +2,11 @@ package com.gpo.yoin.ui.component
 
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -17,6 +19,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -45,33 +48,44 @@ fun AlbumCard(
             },
         ),
         shape = YoinShapeTokens.ExtraLarge,
-        color = MaterialTheme.colorScheme.surfaceContainerLow,
-        tonalElevation = 3.dp,
-        shadowElevation = 8.dp,
+        color = Color.Transparent,
+        tonalElevation = 0.dp,
+        shadowElevation = 0.dp,
         interactionSource = interactionSource,
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth(),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            ExpressiveMediaArtwork(
-                model = coverArtUrl,
-                contentDescription = title,
+            Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .aspectRatio(1f),
-                shape = YoinShapeTokens.Large,
-                fallbackIcon = Icons.Filled.LibraryMusic,
-                interactionSource = interactionSource,
-                tonalElevation = 1.dp,
-            )
+                    .aspectRatio(1f)
+                    .padding(end = 8.dp, bottom = 8.dp),
+            ) {
+                ExpressiveBackdropArtwork(
+                    model = coverArtUrl,
+                    contentDescription = title,
+                    variant = ExpressiveBackdropVariant.Bun,
+                    modifier = Modifier.fillMaxSize(),
+                    shape = YoinShapeTokens.Small,
+                    fallbackIcon = Icons.Filled.LibraryMusic,
+                    interactionSource = interactionSource,
+                    fillFraction = 0.82f,
+                    backdropScale = 0.8f,
+                    artworkShiftFraction = 0.06f,
+                    offsetX = 8.dp,
+                    offsetY = 10.dp,
+                    tonalElevation = 0.dp,
+                )
+            }
 
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(72.dp)
-                    .padding(horizontal = 12.dp),
+                    .height(68.dp)
+                    .padding(end = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
                 if (!metaLabel.isNullOrBlank()) {

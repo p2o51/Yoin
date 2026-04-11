@@ -1,8 +1,6 @@
 package com.gpo.yoin.ui.component
 
 import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.spring
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -19,6 +17,8 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.gpo.yoin.player.VisualizerData
+import com.gpo.yoin.ui.theme.YoinMotion
+import com.gpo.yoin.ui.theme.YoinMotionRole
 import com.gpo.yoin.ui.theme.YoinTheme
 
 /** Rendering style for the audio visualizer. */
@@ -58,6 +58,7 @@ fun AudioVisualizer(
     val animatedHeights = remember(barCount) {
         List(barCount) { Animatable(0f) }
     }
+    val barHeightSpec = YoinMotion.fastSpatialSpec<Float>(role = YoinMotionRole.Standard)
 
     // Spring-animate each bar towards its target value
     LaunchedEffect(visualizerData.fft) {
@@ -70,10 +71,7 @@ fun AudioVisualizer(
             val target = fft[sampleIndex]
             animatable.animateTo(
                 targetValue = target,
-                animationSpec = spring(
-                    dampingRatio = Spring.DampingRatioNoBouncy,
-                    stiffness = Spring.StiffnessLow,
-                ),
+                animationSpec = barHeightSpec,
             )
         }
     }

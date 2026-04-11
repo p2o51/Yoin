@@ -1,10 +1,8 @@
 package com.gpo.yoin
 
 import android.os.Bundle
-import androidx.activity.ComponentActivity
-import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
-import androidx.activity.enableEdgeToEdge
+import androidx.activity.ComponentActivity
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
@@ -21,6 +19,10 @@ import coil3.request.SuccessResult
 import coil3.request.allowHardware
 import coil3.size.Size
 import coil3.toBitmap
+import com.gpo.yoin.ui.experience.LocalMotionCapabilityProvider
+import com.gpo.yoin.ui.experience.LocalMotionProfile
+import com.gpo.yoin.ui.experience.MotionCapabilityProvider
+import com.gpo.yoin.ui.experience.MotionProfile
 import com.gpo.yoin.ui.navigation.YoinNavHost
 import com.gpo.yoin.ui.theme.CoverColorState
 import com.gpo.yoin.ui.theme.LocalCoverColorState
@@ -29,10 +31,6 @@ import kotlinx.coroutines.delay
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
-        enableEdgeToEdge(
-            statusBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
-            navigationBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
-        )
         super.onCreate(savedInstanceState)
         setContent {
             val coverColorState = remember { CoverColorState() }
@@ -52,6 +50,9 @@ fun YoinApp(modifier: Modifier = Modifier) {
     // ── Cover color extraction driven by playback state ──────────────────
     val app = LocalContext.current.applicationContext as? YoinApplication
     val coverColorState = LocalCoverColorState.current
+    val fallbackMotionCapabilityProvider = remember { MotionCapabilityProvider(lowRamDevice = false) }
+    val motionCapabilityProvider = app?.container?.motionCapabilityProvider ?: fallbackMotionCapabilityProvider
+    val motionProfile by motionCapabilityProvider.profile.collectAsState(initial = MotionProfile.Full)
 
     if (app != null) {
         val context = LocalContext.current
@@ -79,10 +80,15 @@ fun YoinApp(modifier: Modifier = Modifier) {
         }
     }
 
-    YoinNavHost(
-        navController = navController,
-        modifier = modifier,
-    )
+    CompositionLocalProvider(
+        LocalMotionCapabilityProvider provides motionCapabilityProvider,
+        LocalMotionProfile provides motionProfile,
+    ) {
+        YoinNavHost(
+            navController = navController,
+            modifier = modifier,
+        )
+    }
 }
 
 @Preview(showBackground = true, backgroundColor = 0xFF1C1B1F)

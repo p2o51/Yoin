@@ -60,9 +60,9 @@ internal fun ExpressivePageBackground(
             .background(
                 Brush.verticalGradient(
                     colors = listOf(
-                        MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.96f),
+                        MaterialTheme.colorScheme.surfaceContainer,
                         MaterialTheme.colorScheme.background,
-                        MaterialTheme.colorScheme.surfaceContainerLow.copy(alpha = 0.92f),
+                        MaterialTheme.colorScheme.surfaceContainerLow,
                     ),
                 ),
             ),
@@ -75,8 +75,9 @@ internal fun ExpressiveSectionPanel(
     modifier: Modifier = Modifier,
     shape: Shape = YoinShapeTokens.ExtraLarge,
     containerColor: androidx.compose.ui.graphics.Color = MaterialTheme.colorScheme.surfaceContainerLow,
-    tonalElevation: Dp = 3.dp,
-    shadowElevation: Dp = 8.dp,
+    tonalElevation: Dp = 1.dp,
+    shadowElevation: Dp = 0.dp,
+    border: BorderStroke? = null,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     Surface(
@@ -85,10 +86,7 @@ internal fun ExpressiveSectionPanel(
         color = containerColor,
         tonalElevation = tonalElevation,
         shadowElevation = shadowElevation,
-        border = BorderStroke(
-            width = 1.dp,
-            color = MaterialTheme.colorScheme.outline.copy(alpha = 0.12f),
-        ),
+        border = border,
     ) {
         Column(content = content)
     }
@@ -172,84 +170,76 @@ internal fun ExpressiveTextField(
     visualTransformation: VisualTransformation = VisualTransformation.None,
 ) {
     val borderColor by animateColorAsState(
-        targetValue = MaterialTheme.colorScheme.outline.copy(alpha = 0.18f),
+        targetValue = MaterialTheme.colorScheme.outline.copy(alpha = 0.1f),
         animationSpec = YoinMotion.effectsSpring(),
         label = "expressiveFieldBorder",
     )
 
-    ExpressiveSectionPanel(
+    Column(
         modifier = modifier,
-        shape = YoinShapeTokens.ExtraLarge,
-        containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
-        tonalElevation = 2.dp,
-        shadowElevation = 4.dp,
+        verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 14.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.76f),
+        )
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(20.dp),
+            color = MaterialTheme.colorScheme.surfaceContainerLow,
+            tonalElevation = 0.dp,
+            shadowElevation = 0.dp,
+            border = BorderStroke(1.dp, borderColor),
         ) {
-            Text(
-                text = label,
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.82f),
-            )
-            Surface(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(20.dp),
-                color = MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.72f),
-                border = BorderStroke(1.dp, borderColor),
-            ) {
-                BasicTextField(
-                    value = value,
-                    onValueChange = onValueChange,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 14.dp, vertical = 12.dp),
-                    singleLine = true,
-                    textStyle = MaterialTheme.typography.bodyLarge.copy(
-                        color = MaterialTheme.colorScheme.onSurface,
-                        fontFamily = GoogleSansFlex,
-                    ),
-                    cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
-                    visualTransformation = visualTransformation,
-                    decorationBox = { innerTextField ->
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(10.dp),
-                        ) {
-                            if (leadingContent != null) {
-                                Box(
-                                    modifier = Modifier.size(18.dp),
-                                    contentAlignment = Alignment.Center,
-                                ) {
-                                    leadingContent()
-                                }
-                            }
+            BasicTextField(
+                value = value,
+                onValueChange = onValueChange,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 14.dp),
+                singleLine = true,
+                textStyle = MaterialTheme.typography.bodyLarge.copy(
+                    color = MaterialTheme.colorScheme.onSurface,
+                    fontFamily = GoogleSansFlex,
+                ),
+                cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                visualTransformation = visualTransformation,
+                decorationBox = { innerTextField ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        if (leadingContent != null) {
                             Box(
-                                modifier = Modifier.weight(1f),
-                                contentAlignment = Alignment.CenterStart,
+                                modifier = Modifier.size(18.dp),
+                                contentAlignment = Alignment.Center,
                             ) {
-                                if (value.isBlank()) {
-                                    Text(
-                                        text = placeholder,
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f),
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                    )
-                                }
-                                innerTextField()
-                            }
-                            if (trailingContent != null) {
-                                trailingContent()
+                                leadingContent()
                             }
                         }
-                    },
-                )
-            }
+                        Box(
+                            modifier = Modifier.weight(1f),
+                            contentAlignment = Alignment.CenterStart,
+                        ) {
+                            if (value.isBlank()) {
+                                Text(
+                                    text = placeholder,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                            innerTextField()
+                        }
+                        if (trailingContent != null) {
+                            trailingContent()
+                        }
+                    }
+                },
+            )
         }
     }
 }

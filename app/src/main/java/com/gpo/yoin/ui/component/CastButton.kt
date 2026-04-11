@@ -1,12 +1,6 @@
 package com.gpo.yoin.ui.component
 
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.spring
-import androidx.compose.animation.expandHorizontally
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.shrinkHorizontally
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.size
@@ -14,6 +8,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Cast
 import androidx.compose.material.icons.filled.CastConnected
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -25,6 +20,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.gpo.yoin.player.CastState
+import com.gpo.yoin.ui.theme.ProvideYoinMotionRole
+import com.gpo.yoin.ui.theme.YoinMotion
+import com.gpo.yoin.ui.theme.YoinMotionRole
 import com.gpo.yoin.ui.theme.YoinTheme
 
 /**
@@ -40,42 +38,60 @@ fun CastButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    AnimatedVisibility(
-        visible = castState !is CastState.NotAvailable,
-        enter = fadeIn(spring(stiffness = Spring.StiffnessLow)) +
-            expandHorizontally(spring(stiffness = Spring.StiffnessMediumLow)),
-        exit = fadeOut(spring(stiffness = Spring.StiffnessLow)) +
-            shrinkHorizontally(spring(stiffness = Spring.StiffnessMediumLow)),
-        modifier = modifier,
-    ) {
-        when (castState) {
-            is CastState.Available -> {
-                IconButton(onClick = onClick) {
-                    Icon(
-                        imageVector = Icons.Filled.Cast,
-                        contentDescription = "Cast to device",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(24.dp),
-                    )
-                }
-            }
-
-            is CastState.Connected -> {
-                FilledTonalButton(onClick = onClick) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
+    ProvideYoinMotionRole(role = YoinMotionRole.Standard) {
+        AnimatedVisibility(
+            visible = castState !is CastState.NotAvailable,
+            enter = YoinMotion.fadeIn(
+                role = YoinMotionRole.Standard,
+                expressiveScheme = MaterialTheme.motionScheme,
+            ) + YoinMotion.expandHorizontally(
+                role = YoinMotionRole.Standard,
+                expressiveScheme = MaterialTheme.motionScheme,
+            ),
+            exit = YoinMotion.fadeOut(
+                role = YoinMotionRole.Standard,
+                expressiveScheme = MaterialTheme.motionScheme,
+            ) + YoinMotion.shrinkHorizontally(
+                role = YoinMotionRole.Standard,
+                expressiveScheme = MaterialTheme.motionScheme,
+            ),
+            modifier = modifier,
+        ) {
+            when (castState) {
+                is CastState.Available -> {
+                    IconButton(onClick = onClick) {
                         Icon(
-                            imageVector = Icons.Filled.CastConnected,
-                            contentDescription = null,
-                            modifier = Modifier.size(18.dp),
+                            imageVector = Icons.Filled.Cast,
+                            contentDescription = "Cast to device",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(24.dp),
                         )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(text = castState.deviceName)
                     }
                 }
-            }
 
-            // NotAvailable — AnimatedVisibility hides the entire block
-            else -> {}
+
+                is CastState.Connected -> {
+                    FilledTonalButton(
+                        onClick = onClick,
+                        colors = ButtonDefaults.filledTonalButtonColors(
+                            containerColor = MaterialTheme.colorScheme.primary,
+                            contentColor = MaterialTheme.colorScheme.onPrimary,
+                        ),
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Filled.CastConnected,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp),
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(text = castState.deviceName)
+                        }
+                    }
+                }
+
+                else -> {}
+            }
         }
     }
 }

@@ -4,6 +4,7 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -18,6 +19,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -33,7 +35,10 @@ fun SongListItem(
     durationSeconds: Int?,
     coverArtUrl: String?,
     onClick: () -> Unit,
+    isNowPlaying: Boolean = false,
+    playbackSignal: Float = 0f,
     modifier: Modifier = Modifier,
+    trailingContent: (@Composable RowScope.() -> Unit)? = null,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
 
@@ -41,26 +46,32 @@ fun SongListItem(
         onClick = onClick,
         modifier = modifier.fillMaxWidth(),
         shape = YoinShapeTokens.ExtraLarge,
-        color = MaterialTheme.colorScheme.surfaceContainerLow,
-        tonalElevation = 2.dp,
-        shadowElevation = 4.dp,
+        color = Color.Transparent,
+        tonalElevation = 0.dp,
+        shadowElevation = 0.dp,
         interactionSource = interactionSource,
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 12.dp, vertical = 12.dp),
+                .padding(horizontal = 16.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            ExpressiveMediaArtwork(
+            ExpressiveBackdropArtwork(
                 model = coverArtUrl,
                 contentDescription = title,
+                variant = ExpressiveBackdropVariant.Circle,
                 modifier = Modifier.size(54.dp),
-                shape = YoinShapeTokens.Medium,
+                shape = YoinShapeTokens.Small,
                 fallbackIcon = Icons.Filled.MusicNote,
                 interactionSource = interactionSource,
-                tonalElevation = 1.dp,
+                isPlaybackActive = isNowPlaying,
+                playbackSignal = playbackSignal,
+                fillFraction = 0.78f,
+                backdropScale = 0.78f,
+                artworkShiftFraction = 0.06f,
+                tonalElevation = 0.dp,
             )
 
             Column(
@@ -96,6 +107,11 @@ fun SongListItem(
                     style = MaterialTheme.typography.labelLarge.withTabularFigures(),
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+            }
+
+            if (trailingContent != null) {
+                Spacer(modifier = Modifier.width(2.dp))
+                trailingContent()
             }
         }
     }

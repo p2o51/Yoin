@@ -1,14 +1,13 @@
 package com.gpo.yoin.ui.settings
 
 import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.spring
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -22,6 +21,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -41,7 +41,9 @@ import com.gpo.yoin.ui.component.ExpressivePageBackground
 import com.gpo.yoin.ui.component.ExpressiveSectionPanel
 import com.gpo.yoin.ui.component.ExpressiveTextField
 import com.gpo.yoin.ui.component.YoinLoadingIndicator
+import com.gpo.yoin.ui.theme.ProvideYoinMotionRole
 import com.gpo.yoin.ui.theme.YoinMotion
+import com.gpo.yoin.ui.theme.YoinMotionRole
 import com.gpo.yoin.ui.theme.YoinShapeTokens
 import com.gpo.yoin.ui.theme.YoinTheme
 
@@ -76,78 +78,81 @@ fun SettingsContent(
     onRetry: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val contentAlpha by animateFloatAsState(
-        targetValue = if (uiState is SettingsUiState.Loading) 0f else 1f,
-        animationSpec = YoinMotion.effectsSpring(),
-        label = "contentAlpha",
-    )
+    ProvideYoinMotionRole(role = YoinMotionRole.Standard) {
+        val contentAlpha by animateFloatAsState(
+            targetValue = if (uiState is SettingsUiState.Loading) 0f else 1f,
+            animationSpec = YoinMotion.defaultEffectsSpec(),
+            label = "contentAlpha",
+        )
 
-    ExpressivePageBackground(modifier = modifier) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .verticalScroll(rememberScrollState())
-                .statusBarsPadding()
-                .padding(16.dp)
-                .alpha(contentAlpha),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
-        ) {
-            ExpressiveHeaderBlock(
-                title = "Settings",
-            )
+        ExpressivePageBackground(modifier = modifier) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .verticalScroll(rememberScrollState())
+                    .statusBarsPadding()
+                    .navigationBarsPadding()
+                    .padding(16.dp)
+                    .alpha(contentAlpha),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+            ) {
+                ExpressiveHeaderBlock(
+                    title = "Settings",
+                )
 
-            when (uiState) {
-                is SettingsUiState.Loading -> {
-                    YoinLoadingIndicator(
-                        modifier = Modifier.align(Alignment.CenterHorizontally),
-                    )
-                }
+                when (uiState) {
+                    is SettingsUiState.Loading -> {
+                        YoinLoadingIndicator(
+                            modifier = Modifier.align(Alignment.CenterHorizontally),
+                        )
+                    }
 
-                is SettingsUiState.Connecting -> {
-                    ServerSection(
-                        initialUrl = "",
-                        initialUsername = "",
-                        isConnecting = true,
-                        connectionResult = connectionResult,
-                        onTestConnection = onTestConnection,
-                        onSaveServer = onSaveServer,
-                        onDismissConnectionResult = onDismissConnectionResult,
-                    )
-                }
+                    is SettingsUiState.Connecting -> {
+                        ServerSection(
+                            initialUrl = "",
+                            initialUsername = "",
+                            isConnecting = true,
+                            connectionResult = connectionResult,
+                            onTestConnection = onTestConnection,
+                            onSaveServer = onSaveServer,
+                            onDismissConnectionResult = onDismissConnectionResult,
+                        )
+                    }
 
-                is SettingsUiState.Content -> {
-                    ServerSection(
-                        initialUrl = uiState.serverUrl,
-                        initialUsername = uiState.username,
-                        isConnecting = false,
-                        connectionResult = connectionResult,
-                        onTestConnection = onTestConnection,
-                        onSaveServer = onSaveServer,
-                        onDismissConnectionResult = onDismissConnectionResult,
-                    )
-                    CacheSection(
-                        cacheSizeBytes = uiState.cacheSizeBytes,
-                        onClearCache = onClearCache,
-                    )
-                    AboutSection()
-                }
+                    is SettingsUiState.Content -> {
+                        ServerSection(
+                            initialUrl = uiState.serverUrl,
+                            initialUsername = uiState.username,
+                            isConnecting = false,
+                            connectionResult = connectionResult,
+                            onTestConnection = onTestConnection,
+                            onSaveServer = onSaveServer,
+                            onDismissConnectionResult = onDismissConnectionResult,
+                        )
+                        CacheSection(
+                            cacheSizeBytes = uiState.cacheSizeBytes,
+                            onClearCache = onClearCache,
+                        )
+                        AboutSection()
+                    }
 
-                is SettingsUiState.Error -> {
-                    ExpressiveSectionPanel(
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        Column(
-                            modifier = Modifier.padding(20.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.spacedBy(10.dp),
+                    is SettingsUiState.Error -> {
+                        ExpressiveSectionPanel(
+                            modifier = Modifier.fillMaxWidth(),
                         ) {
-                            Text(
-                                text = uiState.message,
-                                color = MaterialTheme.colorScheme.error,
-                                style = MaterialTheme.typography.bodyLarge,
-                            )
-                            TextButton(onClick = onRetry) {
-                                Text("Retry")
+                            Column(
+                                modifier = Modifier.padding(20.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(10.dp),
+                            ) {
+                                Text(
+                                    text = uiState.message,
+                                    color = MaterialTheme.colorScheme.error,
+                                    style = MaterialTheme.typography.bodyLarge,
+                                )
+                                TextButton(onClick = onRetry) {
+                                    Text("Retry")
+                                }
                             }
                         }
                     }
@@ -174,14 +179,15 @@ private fun ServerSection(
 
     ExpressiveSectionPanel(
         modifier = modifier.fillMaxWidth(),
-        tonalElevation = 3.dp,
-        shadowElevation = 8.dp,
+        containerColor = MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.96f),
+        tonalElevation = 1.dp,
+        shadowElevation = 0.dp,
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+                .padding(18.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
             ExpressiveHeaderBlock(
                 title = "Server",
@@ -267,20 +273,17 @@ private fun ConnectionStatusIndicator(
             is SettingsViewModel.ConnectionResult.Failure -> MaterialTheme.colorScheme.error
             null -> MaterialTheme.colorScheme.onSurfaceVariant
         },
-        animationSpec = spring(
-            dampingRatio = Spring.DampingRatioNoBouncy,
-            stiffness = Spring.StiffnessLow,
-        ),
+        animationSpec = YoinMotion.defaultEffectsSpec(),
         label = "statusColor",
     )
 
-    ExpressiveSectionPanel(
+    Surface(
         modifier = modifier
             .fillMaxWidth()
             .alpha(alpha),
         shape = YoinShapeTokens.Large,
-        containerColor = MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.76f),
-        tonalElevation = 1.dp,
+        color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.64f),
+        tonalElevation = 0.dp,
         shadowElevation = 0.dp,
     ) {
         Row(
@@ -353,6 +356,7 @@ private fun CacheSection(
 ) {
     ExpressiveSectionPanel(
         modifier = modifier.fillMaxWidth(),
+        containerColor = MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.94f),
     ) {
         Column(
             modifier = Modifier.padding(16.dp),
@@ -385,6 +389,7 @@ private fun CacheSection(
 private fun AboutSection(modifier: Modifier = Modifier) {
     ExpressiveSectionPanel(
         modifier = modifier.fillMaxWidth(),
+        containerColor = MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.92f),
     ) {
         Column(
             modifier = Modifier.padding(16.dp),
