@@ -1,21 +1,23 @@
 package com.gpo.yoin.ui.navigation
 
+import androidx.activity.compose.BackHandler
+import androidx.activity.compose.PredictiveBackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionLayout
 import androidx.compose.animation.SharedTransitionScope
+import androidx.compose.animation.core.animate
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.togetherWith
-import androidx.activity.compose.PredictiveBackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.draggable
 import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.layout.offset
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -23,16 +25,14 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.tooling.preview.Preview
-import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.IntOffset
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
@@ -59,7 +59,6 @@ import com.gpo.yoin.ui.memories.MemoryEntityType
 import com.gpo.yoin.ui.memories.MemoryEntry
 import com.gpo.yoin.ui.memories.MemoriesScreen
 import com.gpo.yoin.ui.memories.MemoriesViewModel
-import com.gpo.yoin.ui.navigation.back.BackMotionTokens
 import com.gpo.yoin.ui.navigation.back.BackSurfaceKind
 import com.gpo.yoin.ui.navigation.back.ShellBackOwner
 import com.gpo.yoin.ui.navigation.back.YoinBackSurface
@@ -72,7 +71,8 @@ import com.gpo.yoin.ui.settings.SettingsViewModel
 import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinMotionRole
 import com.gpo.yoin.ui.theme.YoinTheme
-import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.collectLatest
+import kotlin.math.roundToInt
 
 @OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
@@ -322,10 +322,16 @@ private fun YoinShell(
     val visualizerData by app.container.audioVisualizerManager.visualizerData.collectAsState()
     val castState by app.container.castManager.castState.collectAsState()
     val nowPlayingUiState by nowPlayingViewModel.uiState.collectAsState()
-    val shellScope = rememberCoroutineScope()
     val memoriesBackController = rememberBackSurfaceController()
     var memoriesMounted by remember { mutableStateOf(homeSurface == HomeSurface.Memories) }
-    val npSheetState = rememberNowPlayingSheetState()
+    var dismissDragPx by rememberSaveable { mutableStateOf(0f) }
+    var predictiveBackProgress by rememberSaveable { mutableStateOf(0f) }
+    val dragResetSpec = YoinMotion.defaultSpatialSpec<Float>(role = YoinMotionRole.Standard)
+    val overlayOffsetPx by animateFloatAsState(
+        targetValue = predictiveBackProgress * 1200f,
+        animationSpec = YoinMotion.defaultSpatialSpec(role = YoinMotionRole.Standard),
+        label = "overlayOffsetPx",
+    )
 
     val coverArtUrl = playbackState.currentSong?.coverArt?.let {
         app.container.repository.buildCoverArtUrl(it)
@@ -336,7 +342,7 @@ private fun YoinShell(
     }
 
     val shellBackOwner = resolveShellBackOwner(
-        showNowPlaying = npSheetState.isVisible,
+        showNowPlaying = showNowPlaying,
         selectedSection = selectedSection,
         homeSurface = homeSurface,
     )
@@ -365,12 +371,23 @@ private fun YoinShell(
         }
     }
 
-    // Sync store → sheet: animate expand/collapse when external trigger fires
-    LaunchedEffect(showNowPlaying) {
-        if (showNowPlaying && npSheetState.progress < 1f) {
-            npSheetState.animateExpand()
-        } else if (!showNowPlaying && npSheetState.progress > 0f && !npSheetState.isDragging) {
-            npSheetState.animateCollapse()
+    val closeNowPlaying = {
+        dismissDragPx = 0f
+        predictiveBackProgress = 0f
+        experienceSessionStore.setNowPlayingExpanded(false)
+    }
+
+    BackHandler(enabled = showNowPlaying, onBack = closeNowPlaying)
+
+    PredictiveBackHandler(enabled = showNowPlaying) { progress ->
+        try {
+            progress.collectLatest { event ->
+                predictiveBackProgress = event.progress
+            }
+            dismissDragPx = 0f
+            experienceSessionStore.setNowPlayingExpanded(false)
+        } finally {
+            predictiveBackProgress = 0f
         }
     }
 
@@ -480,15 +497,97 @@ private fun YoinShell(
             }
         }
 
+        // ── Background scrim ─────────────────────────────────────────────
+        val scrimAlpha by animateFloatAsState(
+            targetValue = if (showNowPlaying) 0.5f else 0f,
+            animationSpec = YoinMotion.defaultEffectsSpec(role = YoinMotionRole.Standard),
+            label = "scrimAlpha",
+        )
+        if (scrimAlpha > 0f) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = scrimAlpha)),
+            )
+        }
+
+        // ── Now Playing overlay ──────────────────────────────────────────
+        AnimatedVisibility(
+            visible = showNowPlaying,
+            enter = YoinMotion.slideInVertically(role = YoinMotionRole.Expressive) { it } +
+                YoinMotion.fadeIn(role = YoinMotionRole.Standard),
+            exit = YoinMotion.slideOutVertically(role = YoinMotionRole.Standard) { it } +
+                YoinMotion.fadeOut(role = YoinMotionRole.Standard),
+            modifier = Modifier.fillMaxSize(),
+        ) {
+            val npAvScope = this
+            val draggableState = rememberDraggableState { delta ->
+                if (delta > 0f || dismissDragPx > 0f) {
+                    dismissDragPx = (dismissDragPx + delta).coerceAtLeast(0f)
+                }
+            }
+
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .draggable(
+                        state = draggableState,
+                        orientation = Orientation.Vertical,
+                        onDragStopped = { velocity ->
+                            if (dismissDragPx > 240f || velocity > 800f) {
+                                dismissDragPx = 0f
+                                predictiveBackProgress = 0f
+                                experienceSessionStore.setNowPlayingExpanded(false)
+                            } else {
+                                animate(
+                                    initialValue = dismissDragPx,
+                                    targetValue = 0f,
+                                    animationSpec = dragResetSpec,
+                                ) { value, _ ->
+                                    dismissDragPx = value
+                                }
+                            }
+                        },
+                    ),
+            ) {
+                NowPlayingScreen(
+                    uiState = nowPlayingUiState,
+                    visualizerData = visualizerData,
+                    onTogglePlayPause = nowPlayingViewModel::togglePlayPause,
+                    onSkipNext = nowPlayingViewModel::skipNext,
+                    onSkipPrevious = nowPlayingViewModel::skipPrevious,
+                    onSeek = nowPlayingViewModel::seekTo,
+                    onRatingChange = nowPlayingViewModel::setRating,
+                    onToggleFavorite = nowPlayingViewModel::toggleFavorite,
+                    onSkipToQueueItem = nowPlayingViewModel::skipToQueueItem,
+                    onDismiss = closeNowPlaying,
+                    castState = castState,
+                    onCastClick = { },
+                    sharedTransitionScope = sharedTransitionScope,
+                    animatedVisibilityScope = npAvScope,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .offset {
+                            IntOffset(
+                                x = 0,
+                                y = (overlayOffsetPx + dismissDragPx).roundToInt(),
+                            )
+                        },
+                )
+            }
+        }
+
         // ── Bottom navigation ────────────────────────────────────────────
         AnimatedVisibility(
-            visible = !npSheetState.isVisible &&
+            visible = !showNowPlaying &&
                 !(selectedSection == YoinSection.HOME && homeSurface == HomeSurface.Memories),
             enter = YoinMotion.fadeIn(role = YoinMotionRole.Standard) +
                 YoinMotion.slideInVertically(role = YoinMotionRole.Standard) { it },
             exit = YoinMotion.fadeOut(role = YoinMotionRole.Standard) +
                 YoinMotion.slideOutVertically(role = YoinMotionRole.Standard) { it },
         ) {
+            val bgAvScope = this
+
             Box(
                 modifier = Modifier.fillMaxSize(),
                 contentAlignment = Alignment.BottomCenter,
@@ -515,9 +614,6 @@ private fun YoinShell(
                     },
                     onNowPlayingClick = {
                         experienceSessionStore.setNowPlayingExpanded(true)
-                        // Directly trigger expand — don't rely solely on LaunchedEffect,
-                        // which won't restart if the store was already 'true'.
-                        shellScope.launch { npSheetState.animateExpand() }
                     },
                     onLibraryClick = {
                         experienceSessionStore.setSelectedSection(YoinSection.LIBRARY)
@@ -525,112 +621,9 @@ private fun YoinShell(
                         memoriesBackController.reset()
                         experienceSessionStore.setHomeSurface(HomeSurface.Feed)
                     },
-                    sharedTransitionScope = null,
-                    animatedVisibilityScope = null,
+                    sharedTransitionScope = sharedTransitionScope,
+                    animatedVisibilityScope = bgAvScope,
                 )
-            }
-        }
-
-        // ── Background scrim ─────────────────────────────────────────────
-        val scrimAlpha = npSheetState.progress * 0.5f
-        if (scrimAlpha > 0f) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(Color.Black.copy(alpha = scrimAlpha)),
-            )
-        }
-
-        // ── Now Playing overlay ──────────────────────────────────────────
-        // Predictive back: system gesture feeds progress into the sheet
-        // state so dismiss preview, drag-to-dismiss, and the dismiss button
-        // all share one controller.
-        PredictiveBackHandler(
-            enabled = npSheetState.isVisible && !npSheetState.isDragging,
-        ) { backEvents ->
-            npSheetState.onPredictiveBackStart()
-            try {
-                backEvents.collect { event ->
-                    npSheetState.onPredictiveBackProgress(event.progress)
-                }
-                // Back committed — animate to collapsed
-                npSheetState.onPredictiveBackEnd()
-                npSheetState.animateCollapse {
-                    experienceSessionStore.setNowPlayingExpanded(false)
-                }
-            } catch (_: kotlin.coroutines.cancellation.CancellationException) {
-                // Back cancelled — spring back to expanded
-                npSheetState.onPredictiveBackEnd()
-                npSheetState.animateExpand()
-            }
-        }
-
-        if (npSheetState.isVisible) {
-            val density = LocalDensity.current
-
-            BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
-                val heightPx = with(density) { maxHeight.toPx().coerceAtLeast(1f) }
-                val draggableState = rememberDraggableState { delta ->
-                    npSheetState.onDrag(delta, heightPx)
-                }
-
-                // Corner radius: fully rounded when collapsed, sharp when expanded
-                val cornerFraction = (1f - npSheetState.progress).coerceIn(0f, 1f)
-                val npCornerShape = remember(cornerFraction) {
-                    RoundedCornerShape(
-                        BackMotionTokens.NowPlayingCornerRadius * cornerFraction,
-                    )
-                }
-
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .draggable(
-                            state = draggableState,
-                            orientation = Orientation.Vertical,
-                            onDragStarted = { npSheetState.onDragStart() },
-                            onDragStopped = { velocity ->
-                                npSheetState.settle(
-                                    velocityPxPerSec = velocity,
-                                    heightPx = heightPx,
-                                    onSettledCollapsed = {
-                                        experienceSessionStore.setNowPlayingExpanded(false)
-                                    },
-                                )
-                            },
-                        )
-                        .graphicsLayer {
-                            translationY = (1f - npSheetState.progress) * size.height
-                            alpha = 0.7f + npSheetState.progress * 0.3f
-                            shape = npCornerShape
-                            clip = cornerFraction > 0f
-                        },
-                ) {
-                    NowPlayingScreen(
-                        uiState = nowPlayingUiState,
-                        visualizerData = visualizerData,
-                        onTogglePlayPause = nowPlayingViewModel::togglePlayPause,
-                        onSkipNext = nowPlayingViewModel::skipNext,
-                        onSkipPrevious = nowPlayingViewModel::skipPrevious,
-                        onSeek = nowPlayingViewModel::seekTo,
-                        onRatingChange = nowPlayingViewModel::setRating,
-                        onToggleFavorite = nowPlayingViewModel::toggleFavorite,
-                        onSkipToQueueItem = nowPlayingViewModel::skipToQueueItem,
-                        onDismiss = {
-                            shellScope.launch {
-                                npSheetState.animateCollapse {
-                                    experienceSessionStore.setNowPlayingExpanded(false)
-                                }
-                            }
-                        },
-                        castState = castState,
-                        onCastClick = { },
-                        sharedTransitionScope = null,
-                        animatedVisibilityScope = null,
-                        dismissProgress = 1f - npSheetState.progress,
-                        modifier = Modifier.fillMaxSize(),
-                    )
-                }
             }
         }
     }
