@@ -22,6 +22,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.TransformOrigin
+import com.gpo.yoin.ui.navigation.back.BackMotionTokens
 import kotlin.math.roundToInt
 
 enum class YoinMotionRole {
@@ -64,6 +65,11 @@ object YoinMotion {
     private fun <T> predictiveBackSpring() = spring<T>(
         dampingRatio = Spring.DampingRatioLowBouncy,
         stiffness = Spring.StiffnessMediumLow * PredictiveBackSpringSpeedMultiplier,
+    )
+
+    private fun <T> simplePushSpring() = spring<T>(
+        dampingRatio = Spring.DampingRatioNoBouncy,
+        stiffness = Spring.StiffnessMediumLow,
     )
 
     private fun resolveScheme(
@@ -400,4 +406,22 @@ object YoinMotion {
             role = YoinMotionRole.Standard,
             speed = YoinMotionSpeed.Fast,
         ) { it } + fadeOut(role = YoinMotionRole.Standard, speed = YoinMotionSpeed.Fast)
+
+    val simplePushEnter: EnterTransition =
+        composeScaleIn(
+            animationSpec = simplePushSpring(),
+            initialScale = BackMotionTokens.PushPageScaleTarget,
+            transformOrigin = PredictiveBackTransformOrigin,
+        ) + composeFadeIn(animationSpec = simplePushSpring())
+
+    val simplePushExit: ExitTransition = ExitTransition.None
+
+    val simplePushPopEnter: EnterTransition = EnterTransition.None
+
+    val simplePushPopExit: ExitTransition =
+        composeScaleOut(
+            animationSpec = simplePushSpring(),
+            targetScale = BackMotionTokens.PushPageScaleTarget,
+            transformOrigin = PredictiveBackTransformOrigin,
+        ) + composeFadeOut(animationSpec = simplePushSpring())
 }

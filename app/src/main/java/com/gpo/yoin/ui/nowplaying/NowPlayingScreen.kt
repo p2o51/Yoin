@@ -127,10 +127,30 @@ fun NowPlayingScreen(
     onCastClick: () -> Unit = {},
     sharedTransitionScope: SharedTransitionScope? = null,
     animatedVisibilityScope: AnimatedVisibilityScope? = null,
+    dismissProgress: Float = 0f,
     modifier: Modifier = Modifier,
 ) {
     val surfaceContainer = MaterialTheme.colorScheme.surfaceContainer
     val background = MaterialTheme.colorScheme.background
+    val shellBoundsSpec = YoinMotion.defaultSpatialSpec<Rect>(
+        role = YoinMotionRole.Expressive,
+        expressiveScheme = MaterialTheme.motionScheme,
+    )
+    val shellModifier = if (
+        sharedTransitionScope != null &&
+        animatedVisibilityScope != null &&
+        dismissProgress <= 0f
+    ) {
+        with(sharedTransitionScope) {
+            modifier.sharedBounds(
+                sharedContentState = rememberSharedContentState(key = "np_shell"),
+                animatedVisibilityScope = animatedVisibilityScope,
+                boundsTransform = { _, _ -> shellBoundsSpec },
+            )
+        }
+    } else {
+        modifier
+    }
 
     ReportMotionPressure(
         tag = "now-playing",
@@ -141,7 +161,7 @@ fun NowPlayingScreen(
 
     ProvideYoinMotionRole(role = YoinMotionRole.Expressive) {
         Box(
-            modifier = modifier
+            modifier = shellModifier
                 .fillMaxSize()
                 .background(
                     Brush.verticalGradient(
@@ -165,6 +185,7 @@ fun NowPlayingScreen(
                     onCastClick = onCastClick,
                     sharedTransitionScope = sharedTransitionScope,
                     animatedVisibilityScope = animatedVisibilityScope,
+                    dismissProgress = dismissProgress,
                 )
             }
         }
@@ -201,6 +222,7 @@ private fun PlayingContent(
     onCastClick: () -> Unit = {},
     sharedTransitionScope: SharedTransitionScope? = null,
     animatedVisibilityScope: AnimatedVisibilityScope? = null,
+    dismissProgress: Float = 0f,
     modifier: Modifier = Modifier,
 ) {
     val motionProfile = LocalMotionProfile.current
@@ -255,7 +277,17 @@ private fun PlayingContent(
         animationSpec = heroStretchSpec,
         label = "artistStretch",
     )
-
+    val textExitProgress = nowPlayingDismissInterval(
+        progress = dismissProgress,
+        start = 0.10f,
+        end = 0.35f,
+    )
+    val coverExitProgress = nowPlayingDismissInterval(
+        progress = dismissProgress,
+        start = 0.42f,
+        end = 0.82f,
+    )
+    val secondaryExitOffsetPx = with(LocalDensity.current) { 12.dp.toPx() } * textExitProgress
     Column(
         modifier = modifier
             .fillMaxSize()
@@ -264,168 +296,224 @@ private fun PlayingContent(
         horizontalAlignment = Alignment.Start,
         verticalArrangement = Arrangement.Top,
     ) {
-        // ── 0. Drag handle / dismiss button + Playing from ─────────────
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(start = 4.dp),
-            verticalAlignment = Alignment.CenterVertically,
+        Column(
+            modifier = Modifier.fillMaxSize(),
+            horizontalAlignment = Alignment.Start,
+            verticalArrangement = Arrangement.Top,
         ) {
-            IconButton(onClick = onDismiss) {
-                Icon(
-                    imageVector = Icons.Filled.KeyboardArrowDown,
-                    contentDescription = "Close Now Playing",
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(28.dp),
-                )
-            }
-            Spacer(modifier = Modifier.width(4.dp))
-            Text(
-                text = "Playing from ${state.albumName}",
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f),
-            )
-        }
-
-        // ── 1. Album cover + Rating slider ────────────────────────────────
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(IntrinsicSize.Max),
-            verticalAlignment = Alignment.Top,
-        ) {
-            AlbumCover(
-                coverArtUrl = state.coverArtUrl,
-                sharedTransitionScope = sharedTransitionScope,
-                animatedVisibilityScope = animatedVisibilityScope,
-                modifier = Modifier.weight(1f),
-            )
-
-            Spacer(modifier = Modifier.width(12.dp))
-
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                modifier = Modifier.fillMaxHeight(),
+            // ── 0. Drag handle / dismiss button + Playing from ─────────────
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 4.dp)
+                    .graphicsLayer {
+                        alpha = 1f - textExitProgress
+                        translationY = secondaryExitOffsetPx
+                    },
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                RatingSlider(
-                    rating = state.rating,
-                    onRatingChange = onRatingChange,
+                IconButton(onClick = onDismiss) {
+                    Icon(
+                        imageVector = Icons.Filled.KeyboardArrowDown,
+                        contentDescription = "Close Now Playing",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(28.dp),
+                    )
+                }
+                Spacer(modifier = Modifier.width(4.dp))
+                Text(
+                    text = "Playing from ${state.albumName}",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f),
                 )
+            }
 
-                Spacer(modifier = Modifier.height(8.dp))
+            // ── 1. Album cover + Rating slider ────────────────────────────────
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(IntrinsicSize.Max),
+                verticalAlignment = Alignment.Top,
+            ) {
+                AlbumCover(
+                    coverArtUrl = state.coverArtUrl,
+                    sharedTransitionScope = sharedTransitionScope,
+                    animatedVisibilityScope = animatedVisibilityScope,
+                    dismissProgress = dismissProgress,
+                    modifier = Modifier
+                        .weight(1f)
+                        .graphicsLayer {
+                            alpha = 1f - coverExitProgress
+                            scaleX = 1f - (0.06f * coverExitProgress)
+                            scaleY = 1f - (0.06f * coverExitProgress)
+                            transformOrigin = TransformOrigin(0.5f, 0.5f)
+                        },
+                )
 
-                FavoriteButton(
-                    isStarred = state.isStarred,
-                    onClick = onToggleFavorite,
+                Spacer(modifier = Modifier.width(12.dp))
+
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier
+                        .fillMaxHeight()
+                        .graphicsLayer {
+                            alpha = 1f - textExitProgress
+                            translationY = secondaryExitOffsetPx
+                        },
+                ) {
+                    RatingSlider(
+                        rating = state.rating,
+                        onRatingChange = onRatingChange,
+                        modifier = Modifier.weight(1f),
+                    )
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    FavoriteButton(
+                        isStarred = state.isStarred,
+                        onClick = onToggleFavorite,
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // ── 2. Lyrics header + lyrics ─────────────────────────────────────
+            Text(
+                text = "Lyrics",
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier
+                    .padding(bottom = 4.dp)
+                    .graphicsLayer {
+                        alpha = 1f - textExitProgress
+                        translationY = secondaryExitOffsetPx
+                    },
+            )
+
+            LyricsDisplay(
+                lyrics = state.lyrics,
+                positionMs = state.positionMs,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+                    .graphicsLayer {
+                        alpha = 1f - textExitProgress
+                        translationY = secondaryExitOffsetPx
+                    },
+            )
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // ── 3. Playback controls (with progress bar) ─────────────────────
+            PlaybackControls(
+                isPlaying = state.isPlaying,
+                onTogglePlayPause = onTogglePlayPause,
+                onSkipNext = onSkipNext,
+                onSkipPrevious = onSkipPrevious,
+                positionMs = state.positionMs,
+                durationMs = state.durationMs,
+                progress = progress,
+                buffered = buffered,
+                onSeek = onSeek,
+                playInteractionSource = playInteractionSource,
+                nextInteractionSource = nextInteractionSource,
+                playPressed = playPressed,
+                nextPressed = nextPressed,
+                modifier = Modifier.graphicsLayer {
+                    alpha = 1f - textExitProgress
+                    translationY = secondaryExitOffsetPx
+                },
+            )
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // ── 4. Song title + artist (bottom, large) ────────────────────────
+            val titleModifier = if (
+                sharedTransitionScope != null &&
+                animatedVisibilityScope != null &&
+                dismissProgress <= 0f
+            ) {
+                with(sharedTransitionScope) {
+                    Modifier
+                        .sharedBounds(
+                            sharedContentState = rememberSharedContentState(key = "np_title"),
+                            animatedVisibilityScope = animatedVisibilityScope,
+                            boundsTransform = { _, _ -> heroBoundsSpec },
+                        )
+                        .fillMaxWidth()
+                }
+            } else {
+                Modifier.fillMaxWidth()
+            }
+            Box(
+                modifier = titleModifier.graphicsLayer {
+                    alpha = 1f - textExitProgress
+                    translationY = secondaryExitOffsetPx
+                },
+            ) {
+                NowPlayingMarqueeTitle(
+                    text = state.songTitle,
+                    style = MaterialTheme.typography.displaySmall,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    stretchScale = titleStretchScale,
+                    modifier = Modifier.fillMaxWidth(),
                 )
             }
-        }
+            Spacer(modifier = Modifier.height(2.dp))
 
-        Spacer(modifier = Modifier.height(16.dp))
-
-        // ── 2. Lyrics header + lyrics ─────────────────────────────────────
-        Text(
-            text = "Lyrics",
-            style = MaterialTheme.typography.labelLarge,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(bottom = 4.dp),
-        )
-
-        LyricsDisplay(
-            lyrics = state.lyrics,
-            positionMs = state.positionMs,
-            modifier = Modifier
-                .fillMaxWidth()
-                .weight(1f),
-        )
-
-        Spacer(modifier = Modifier.height(16.dp))
-
-        // ── 3. Playback controls (with progress bar) ─────────────────────
-        PlaybackControls(
-            isPlaying = state.isPlaying,
-            onTogglePlayPause = onTogglePlayPause,
-            onSkipNext = onSkipNext,
-            onSkipPrevious = onSkipPrevious,
-            positionMs = state.positionMs,
-            durationMs = state.durationMs,
-            progress = progress,
-            buffered = buffered,
-            onSeek = onSeek,
-            playInteractionSource = playInteractionSource,
-            nextInteractionSource = nextInteractionSource,
-            playPressed = playPressed,
-            nextPressed = nextPressed,
-        )
-
-        Spacer(modifier = Modifier.height(12.dp))
-
-        // ── 4. Song title + artist (bottom, large) ────────────────────────
-        val titleModifier = if (sharedTransitionScope != null && animatedVisibilityScope != null) {
-            with(sharedTransitionScope) {
-                Modifier
-                    .sharedBounds(
-                        sharedContentState = rememberSharedContentState(key = "np_title"),
-                        animatedVisibilityScope = animatedVisibilityScope,
-                        boundsTransform = { _, _ -> heroBoundsSpec },
-                    )
-                    .fillMaxWidth()
+            val artistModifier = if (
+                sharedTransitionScope != null &&
+                animatedVisibilityScope != null &&
+                dismissProgress <= 0f
+            ) {
+                with(sharedTransitionScope) {
+                    Modifier
+                        .sharedBounds(
+                            sharedContentState = rememberSharedContentState(key = "np_artist"),
+                            animatedVisibilityScope = animatedVisibilityScope,
+                            boundsTransform = { _, _ -> heroBoundsSpec },
+                        )
+                        .fillMaxWidth()
+                }
+            } else {
+                Modifier.fillMaxWidth()
             }
-        } else {
-            Modifier.fillMaxWidth()
-        }
-        Box(modifier = titleModifier) {
-            NowPlayingMarqueeTitle(
-                text = state.songTitle,
-                style = MaterialTheme.typography.displaySmall,
-                color = MaterialTheme.colorScheme.onSurface,
-                stretchScale = titleStretchScale,
-                modifier = Modifier.fillMaxWidth(),
+            Text(
+                text = state.artist,
+                style = MaterialTheme.typography.titleMedium.copy(
+                    fontSize = MaterialTheme.typography.titleMedium.fontSize * 0.9f,
+                ),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = artistModifier.graphicsLayer {
+                    alpha = 1f - textExitProgress
+                    scaleX = artistStretchScale
+                    scaleY = 1f
+                    translationY = secondaryExitOffsetPx
+                    transformOrigin = TransformOrigin(0f, 0.5f)
+                },
             )
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // ── 5. Bottom pills ───────────────────────────────────────────────
+            BottomPills(
+                onQueueClick = { showQueue = true },
+                castState = castState,
+                onCastClick = onCastClick,
+                modifier = Modifier.graphicsLayer {
+                    alpha = 1f - textExitProgress
+                    translationY = secondaryExitOffsetPx
+                },
+            )
+
+            Spacer(modifier = Modifier.height(24.dp))
         }
-        Spacer(modifier = Modifier.height(2.dp))
-
-        val artistModifier = if (sharedTransitionScope != null && animatedVisibilityScope != null) {
-            with(sharedTransitionScope) {
-                Modifier
-                    .sharedBounds(
-                        sharedContentState = rememberSharedContentState(key = "np_artist"),
-                        animatedVisibilityScope = animatedVisibilityScope,
-                        boundsTransform = { _, _ -> heroBoundsSpec },
-                    )
-                    .fillMaxWidth()
-            }
-        } else {
-            Modifier.fillMaxWidth()
-        }
-        Text(
-            text = state.artist,
-            style = MaterialTheme.typography.titleMedium.copy(
-                fontSize = MaterialTheme.typography.titleMedium.fontSize * 0.9f,
-            ),
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = artistModifier.graphicsLayer {
-                scaleX = artistStretchScale
-                transformOrigin = TransformOrigin(0f, 0.5f)
-            },
-        )
-
-        Spacer(modifier = Modifier.height(12.dp))
-
-        // ── 5. Bottom pills ───────────────────────────────────────────────
-        BottomPills(
-            onQueueClick = { showQueue = true },
-            castState = castState,
-            onCastClick = onCastClick,
-        )
-
-        Spacer(modifier = Modifier.height(24.dp))
     }
 
     // Queue bottom sheet
@@ -496,6 +584,7 @@ private fun AlbumCover(
     coverArtUrl: String?,
     sharedTransitionScope: SharedTransitionScope? = null,
     animatedVisibilityScope: AnimatedVisibilityScope? = null,
+    dismissProgress: Float = 0f,
     modifier: Modifier = Modifier,
 ) {
     val baseModifier = modifier
@@ -505,7 +594,11 @@ private fun AlbumCover(
         expressiveScheme = MaterialTheme.motionScheme,
     )
 
-    val finalModifier = if (sharedTransitionScope != null && animatedVisibilityScope != null) {
+    val finalModifier = if (
+        sharedTransitionScope != null &&
+        animatedVisibilityScope != null &&
+        dismissProgress <= 0f
+    ) {
         with(sharedTransitionScope) {
             baseModifier.sharedBounds(
                 sharedContentState = rememberSharedContentState(key = "np_cover"),
@@ -526,6 +619,17 @@ private fun AlbumCover(
         tonalElevation = 4.dp,
         shadowElevation = 0.dp,
     )
+}
+
+private fun nowPlayingDismissInterval(
+    progress: Float,
+    start: Float,
+    end: Float,
+): Float {
+    if (end <= start) {
+        return if (progress >= end) 1f else 0f
+    }
+    return ((progress - start) / (end - start)).coerceIn(0f, 1f)
 }
 
 @Composable

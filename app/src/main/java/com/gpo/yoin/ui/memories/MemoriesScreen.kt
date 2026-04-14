@@ -76,6 +76,7 @@ import com.gpo.yoin.ui.experience.ReportMotionPressure
 import com.gpo.yoin.ui.experience.rememberDeckIndicatorTransitionState
 import com.gpo.yoin.ui.experience.rememberEdgeAdvanceState
 import com.gpo.yoin.ui.experience.rememberPullToDismissState
+import com.gpo.yoin.ui.navigation.back.BackMotionTokens
 import com.gpo.yoin.ui.theme.ProvideYoinMotionRole
 import com.gpo.yoin.ui.theme.GoogleSansFlex
 import com.gpo.yoin.ui.theme.YoinMotion
@@ -226,7 +227,7 @@ private fun MemoriesContent(
     onMemoryScrollChange: (Long, MemoryScrollPosition) -> Unit,
 ) {
     val density = LocalDensity.current
-    val dismissTriggerPx = with(density) { 112.dp.toPx() }
+    val dismissTriggerPx = with(density) { BackMotionTokens.MemoriesDismissTrigger.toPx() }
     val adjacentDeckTriggerPx = with(density) { MemoriesAdjacentDeckTrigger.toPx() }
     val deckEnterOffsetPx = with(density) { MemoriesDeckEnterOffset.toPx() }
     val deckEntranceProgress = remember(contentState.deckRevision) {
@@ -323,7 +324,6 @@ private fun MemoriesContent(
                 modifier = Modifier
                     .fillMaxSize()
                     .graphicsLayer {
-                        translationY = -dismissFraction * size.height
                         val directionMultiplier = when (deckTransitionDirection) {
                             MemoryDeckDirection.Backward -> -1f
                             MemoryDeckDirection.Forward -> 1f

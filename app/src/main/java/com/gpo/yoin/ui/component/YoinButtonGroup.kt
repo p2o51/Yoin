@@ -238,10 +238,27 @@ fun YoinButtonGroup(
                     buttonGroupContent = {
                         val interactionSource = rememberButtonGroupInteractionSource()
                         val clampedProgress = playbackProgress.coerceIn(0f, 1f)
+                        val centerShellModifier = if (
+                            sharedTransitionScope != null &&
+                            animatedVisibilityScope != null &&
+                            currentTrackTitle != null
+                        ) {
+                            with(sharedTransitionScope) {
+                                Modifier.sharedBounds(
+                                    sharedContentState = rememberSharedContentState(
+                                        key = "np_shell",
+                                    ),
+                                    animatedVisibilityScope = animatedVisibilityScope,
+                                    boundsTransform = { _, _ -> sharedBoundsSpec },
+                                )
+                            }
+                        } else {
+                            Modifier
+                        }
 
                         FilledTonalButton(
                             onClick = onNowPlayingClick,
-                            modifier = Modifier
+                            modifier = centerShellModifier
                                 .weight(1.65f)
                                 .fillMaxHeight()
                                 .animateWidth(interactionSource)
