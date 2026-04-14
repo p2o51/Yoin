@@ -58,6 +58,28 @@ class NowPlayingSheetState {
         progress = (progress - deltaPx / heightPx).coerceIn(0f, 1f)
     }
 
+    // ── Predictive back ─────────────────────────────────────────────────
+
+    /** Call when the system predictive-back gesture begins. Cancels running animations. */
+    fun onPredictiveBackStart() {
+        generation++
+        isDragging = true
+    }
+
+    /**
+     * Map system predictive-back fraction (0 → 1) to sheet progress (1 → 0).
+     * Call on every [BackEventCompat] emitted during the gesture.
+     */
+    fun onPredictiveBackProgress(backFraction: Float) {
+        isDragging = true
+        progress = (1f - backFraction).coerceIn(0f, 1f)
+    }
+
+    /** Reset interaction state after the predictive-back gesture ends (commit or cancel). */
+    fun onPredictiveBackEnd() {
+        isDragging = false
+    }
+
     /**
      * Spring-settle to the nearest anchor after drag ends.
      *

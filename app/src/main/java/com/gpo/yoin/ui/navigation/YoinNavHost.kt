@@ -7,7 +7,7 @@ import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionLayout
 import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.animation.togetherWith
-import androidx.activity.compose.BackHandler
+import androidx.activity.compose.PredictiveBackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.draggable
@@ -15,6 +15,7 @@ import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -31,6 +32,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
@@ -57,6 +59,7 @@ import com.gpo.yoin.ui.memories.MemoryEntityType
 import com.gpo.yoin.ui.memories.MemoryEntry
 import com.gpo.yoin.ui.memories.MemoriesScreen
 import com.gpo.yoin.ui.memories.MemoriesViewModel
+import com.gpo.yoin.ui.navigation.back.BackMotionTokens
 import com.gpo.yoin.ui.navigation.back.BackSurfaceKind
 import com.gpo.yoin.ui.navigation.back.ShellBackOwner
 import com.gpo.yoin.ui.navigation.back.YoinBackSurface
@@ -539,13 +542,26 @@ private fun YoinShell(
         }
 
         // ── Now Playing overlay ──────────────────────────────────────────
-        BackHandler(
+        // Predictive back: system gesture feeds progress into the sheet
+        // state so dismiss preview, drag-to-dismiss, and the dismiss button
+        // all share one controller.
+        PredictiveBackHandler(
             enabled = npSheetState.isVisible && !npSheetState.isDragging,
-        ) {
-            shellScope.launch {
+        ) { backEvents ->
+            npSheetState.onPredictiveBackStart()
+            try {
+                backEvents.collect { event ->
+                    npSheetState.onPredictiveBackProgress(event.progress)
+                }
+                // Back committed — animate to collapsed
+                npSheetState.onPredictiveBackEnd()
                 npSheetState.animateCollapse {
                     experienceSessionStore.setNowPlayingExpanded(false)
                 }
+            } catch (_: kotlin.coroutines.cancellation.CancellationException) {
+                // Back cancelled — spring back to expanded
+                npSheetState.onPredictiveBackEnd()
+                npSheetState.animateExpand()
             }
         }
 
@@ -556,6 +572,14 @@ private fun YoinShell(
                 val heightPx = with(density) { maxHeight.toPx().coerceAtLeast(1f) }
                 val draggableState = rememberDraggableState { delta ->
                     npSheetState.onDrag(delta, heightPx)
+                }
+
+                // Corner radius: fully rounded when collapsed, sharp when expanded
+                val cornerFraction = (1f - npSheetState.progress).coerceIn(0f, 1f)
+                val npCornerShape = remember(cornerFraction) {
+                    RoundedCornerShape(
+                        BackMotionTokens.NowPlayingCornerRadius * cornerFraction,
+                    )
                 }
 
                 Box(
@@ -578,6 +602,8 @@ private fun YoinShell(
                         .graphicsLayer {
                             translationY = (1f - npSheetState.progress) * size.height
                             alpha = 0.7f + npSheetState.progress * 0.3f
+                            shape = npCornerShape
+                            clip = cornerFraction > 0f
                         },
                 ) {
                     NowPlayingScreen(

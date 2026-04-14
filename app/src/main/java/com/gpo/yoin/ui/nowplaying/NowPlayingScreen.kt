@@ -282,11 +282,10 @@ private fun PlayingContent(
         start = 0.10f,
         end = 0.35f,
     )
-    val coverExitProgress = nowPlayingDismissInterval(
-        progress = dismissProgress,
-        start = 0.42f,
-        end = 0.82f,
-    )
+    // Cover uses dismissProgress directly for a smooth, continuous transition
+    // instead of an interval — the spring from NowPlayingSheetState provides
+    // the elastic feel automatically.
+    val coverTransitionDp = with(LocalDensity.current) { 24.dp.toPx() }
     val secondaryExitOffsetPx = with(LocalDensity.current) { 12.dp.toPx() } * textExitProgress
     Column(
         modifier = modifier
@@ -346,9 +345,12 @@ private fun PlayingContent(
                     modifier = Modifier
                         .weight(1f)
                         .graphicsLayer {
-                            alpha = 1f - coverExitProgress
-                            scaleX = 1f - (0.06f * coverExitProgress)
-                            scaleY = 1f - (0.06f * coverExitProgress)
+                            val p = dismissProgress.coerceIn(0f, 1f)
+                            val scale = 1f - (0.12f * p)
+                            scaleX = scale
+                            scaleY = scale
+                            alpha = 1f - (0.35f * p)
+                            translationY = p * coverTransitionDp
                             transformOrigin = TransformOrigin(0.5f, 0.5f)
                         },
                 )

@@ -10,4 +10,7 @@ object BackMotionTokens {
     val PushPageEdgeInset = 0.dp
 
     val MemoriesDismissTrigger = 112.dp
+
+    /** Corner radius for the Now Playing overlay during open/close and predictive back. */
+    val NowPlayingCornerRadius = 28.dp
 }
