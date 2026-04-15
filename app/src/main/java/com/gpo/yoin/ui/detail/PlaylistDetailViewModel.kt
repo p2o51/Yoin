@@ -44,6 +44,7 @@ class PlaylistDetailViewModel(
                 val heroSong = playlist.entry.firstOrNull()
                 val coverArtId = heroSong?.coverArt ?: heroSong?.albumId
                 _uiState.value = PlaylistDetailUiState.Content(
+                    playlistId = playlistId,
                     playlistName = playlist.name,
                     owner = playlist.owner.orEmpty(),
                     comment = playlist.comment,

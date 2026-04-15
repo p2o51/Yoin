@@ -31,10 +31,16 @@ sealed interface YoinRoute {
     ) : YoinRoute
 
     @Serializable
-    data class ArtistDetail(val artistId: String) : YoinRoute
+    data class ArtistDetail(
+        val artistId: String,
+        val sharedTransitionKey: String? = null,
+    ) : YoinRoute
 
     @Serializable
-    data class PlaylistDetail(val playlistId: String) : YoinRoute
+    data class PlaylistDetail(
+        val playlistId: String,
+        val sharedTransitionKey: String? = null,
+    ) : YoinRoute
 }
 
 /** The two main content sections selectable via the Button Group. */

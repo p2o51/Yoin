@@ -1,5 +1,8 @@
 package com.gpo.yoin.ui.detail
 
+import androidx.compose.animation.AnimatedVisibilityScope
+import androidx.compose.animation.ExperimentalSharedTransitionApi
+import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -35,6 +38,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
@@ -46,19 +51,23 @@ import com.gpo.yoin.ui.component.ExpressiveMetaPill
 import com.gpo.yoin.ui.component.ExpressivePageBackground
 import com.gpo.yoin.ui.component.ExpressiveSectionPanel
 import com.gpo.yoin.ui.component.YoinLoadingIndicator
+import com.gpo.yoin.ui.navigation.artistCoverSharedKey
 import com.gpo.yoin.ui.theme.ProvideYoinMotionRole
 import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinMotionRole
 import com.gpo.yoin.ui.theme.YoinShapeTokens
 import com.gpo.yoin.ui.theme.YoinTheme
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalSharedTransitionApi::class)
 @Composable
 fun ArtistDetailScreen(
     uiState: ArtistDetailUiState,
     onBackClick: () -> Unit,
     onAlbumClick: (albumId: String) -> Unit,
     onRetry: () -> Unit,
+    sharedTransitionKey: String? = null,
+    sharedTransitionScope: SharedTransitionScope? = null,
+    animatedVisibilityScope: AnimatedVisibilityScope? = null,
     modifier: Modifier = Modifier,
 ) {
     ProvideYoinMotionRole(role = YoinMotionRole.Standard) {
@@ -140,6 +149,9 @@ fun ArtistDetailScreen(
                         ArtistDetailContent(
                             content = uiState,
                             onAlbumClick = onAlbumClick,
+                            sharedTransitionKey = sharedTransitionKey,
+                            sharedTransitionScope = sharedTransitionScope,
+                            animatedVisibilityScope = animatedVisibilityScope,
                             modifier = Modifier.padding(innerPadding),
                         )
                     }
@@ -149,10 +161,14 @@ fun ArtistDetailScreen(
     }
 }
 
+@OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
 private fun ArtistDetailContent(
     content: ArtistDetailUiState.Content,
     onAlbumClick: (albumId: String) -> Unit,
+    sharedTransitionKey: String? = null,
+    sharedTransitionScope: SharedTransitionScope? = null,
+    animatedVisibilityScope: AnimatedVisibilityScope? = null,
     modifier: Modifier = Modifier,
 ) {
     var targetAlpha by remember { mutableFloatStateOf(0f) }
@@ -178,16 +194,16 @@ private fun ArtistDetailContent(
                 modifier = Modifier.fillMaxWidth(),
                 verticalArrangement = Arrangement.spacedBy(14.dp),
             ) {
-                ExpressiveMediaArtwork(
-                    model = content.albums.firstOrNull()?.coverArtUrl,
-                    contentDescription = content.artistName,
+                ArtistHeroArtwork(
+                    artistId = content.artistId,
+                    sharedTransitionKey = sharedTransitionKey,
+                    coverArtUrl = content.albums.firstOrNull()?.coverArtUrl,
+                    artistName = content.artistName,
+                    sharedTransitionScope = sharedTransitionScope,
+                    animatedVisibilityScope = animatedVisibilityScope,
                     modifier = Modifier
                         .fillMaxWidth()
                         .aspectRatio(1.2f),
-                    shape = YoinShapeTokens.ExtraLarge,
-                    fallbackIcon = Icons.Filled.LibraryMusic,
-                    shadowElevation = 12.dp,
-                    tonalElevation = 3.dp,
                 )
                 androidx.compose.foundation.layout.Column(
                     modifier = Modifier.padding(top = 2.dp, bottom = 10.dp),
@@ -218,6 +234,55 @@ private fun ArtistDetailContent(
                 fixedWidth = null,
             )
         }
+    }
+}
+
+@OptIn(ExperimentalSharedTransitionApi::class)
+@Composable
+private fun ArtistHeroArtwork(
+    artistId: String,
+    sharedTransitionKey: String?,
+    coverArtUrl: String?,
+    artistName: String,
+    sharedTransitionScope: SharedTransitionScope?,
+    animatedVisibilityScope: AnimatedVisibilityScope?,
+    modifier: Modifier = Modifier,
+) {
+    val shape = YoinShapeTokens.ExtraLarge
+    val artworkBoundsSpec = YoinMotion.defaultSpatialSpec<Rect>(
+        role = YoinMotionRole.Expressive,
+        expressiveScheme = MaterialTheme.motionScheme,
+    )
+    val sharedArtworkModifier = if (
+        sharedTransitionScope != null &&
+        animatedVisibilityScope != null
+    ) {
+        with(sharedTransitionScope) {
+            modifier
+                .sharedElement(
+                    sharedContentState = rememberSharedContentState(
+                        key = artistCoverSharedKey(artistId, sharedTransitionKey),
+                    ),
+                    animatedVisibilityScope = animatedVisibilityScope,
+                    boundsTransform = { _, _ -> artworkBoundsSpec },
+                    zIndexInOverlay = 1f,
+                )
+                .clip(shape)
+        }
+    } else {
+        modifier
+    }
+
+    Box(modifier = sharedArtworkModifier) {
+        ExpressiveMediaArtwork(
+            model = coverArtUrl,
+            contentDescription = artistName,
+            modifier = Modifier.fillMaxSize(),
+            shape = shape,
+            fallbackIcon = Icons.Filled.LibraryMusic,
+            shadowElevation = 12.dp,
+            tonalElevation = 3.dp,
+        )
     }
 }
 

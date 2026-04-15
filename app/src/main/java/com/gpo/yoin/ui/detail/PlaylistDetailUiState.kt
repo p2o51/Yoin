@@ -4,6 +4,7 @@ sealed interface PlaylistDetailUiState {
     data object Loading : PlaylistDetailUiState
 
     data class Content(
+        val playlistId: String,
         val playlistName: String,
         val owner: String,
         val comment: String?,

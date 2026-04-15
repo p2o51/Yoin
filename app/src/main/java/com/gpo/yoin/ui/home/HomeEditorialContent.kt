@@ -765,7 +765,7 @@ private fun ExpressiveArtwork(
                     Modifier
                 },
             )
-        val sharedArtworkBoundsSpec = YoinMotion.slowSpatialSpec<Rect>(
+        val sharedArtworkBoundsSpec = YoinMotion.defaultSpatialSpec<Rect>(
             role = YoinMotionRole.Expressive,
             expressiveScheme = MaterialTheme.motionScheme,
         )

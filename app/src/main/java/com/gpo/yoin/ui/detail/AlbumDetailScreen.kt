@@ -297,7 +297,7 @@ private fun AlbumHeroArtwork(
     modifier: Modifier = Modifier,
 ) {
     val shape = YoinShapeTokens.Large
-    val artworkBoundsSpec = YoinMotion.slowSpatialSpec<Rect>(
+    val artworkBoundsSpec = YoinMotion.defaultSpatialSpec<Rect>(
         role = YoinMotionRole.Expressive,
         expressiveScheme = MaterialTheme.motionScheme,
     )

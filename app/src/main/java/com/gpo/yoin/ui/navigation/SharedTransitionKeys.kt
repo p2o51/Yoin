@@ -8,3 +8,21 @@ internal fun albumCoverSharedKey(
 } else {
     "album-cover:$albumId:$sourceKey"
 }
+
+internal fun artistCoverSharedKey(
+    artistId: String,
+    sourceKey: String? = null,
+): String = if (sourceKey.isNullOrBlank()) {
+    "artist-cover:$artistId"
+} else {
+    "artist-cover:$artistId:$sourceKey"
+}
+
+internal fun playlistCoverSharedKey(
+    playlistId: String,
+    sourceKey: String? = null,
+): String = if (sourceKey.isNullOrBlank()) {
+    "playlist-cover:$playlistId"
+} else {
+    "playlist-cover:$playlistId:$sourceKey"
+}

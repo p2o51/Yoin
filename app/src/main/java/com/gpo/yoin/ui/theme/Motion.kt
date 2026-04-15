@@ -68,7 +68,7 @@ object YoinMotion {
     )
 
     private fun <T> simplePushSpring() = spring<T>(
-        dampingRatio = Spring.DampingRatioNoBouncy,
+        dampingRatio = Spring.DampingRatioLowBouncy,
         stiffness = Spring.StiffnessMediumLow,
     )
 

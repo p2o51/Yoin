@@ -28,9 +28,14 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.animation.AnimatedVisibilityScope
+import androidx.compose.animation.ExperimentalSharedTransitionApi
+import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
@@ -42,10 +47,13 @@ import com.gpo.yoin.ui.component.ExpressivePageBackground
 import com.gpo.yoin.ui.component.ExpressiveSectionPanel
 import com.gpo.yoin.ui.component.SongListItem
 import com.gpo.yoin.ui.component.YoinLoadingIndicator
+import com.gpo.yoin.ui.navigation.playlistCoverSharedKey
+import com.gpo.yoin.ui.theme.YoinMotion
+import com.gpo.yoin.ui.theme.YoinMotionRole
 import com.gpo.yoin.ui.theme.YoinShapeTokens
 import com.gpo.yoin.ui.theme.YoinTheme
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalSharedTransitionApi::class)
 @Composable
 fun PlaylistDetailScreen(
     uiState: PlaylistDetailUiState,
@@ -53,6 +61,9 @@ fun PlaylistDetailScreen(
     onPlayAllClick: () -> Unit,
     onSongClick: (songId: String) -> Unit,
     onRetry: () -> Unit,
+    sharedTransitionKey: String? = null,
+    sharedTransitionScope: SharedTransitionScope? = null,
+    animatedVisibilityScope: AnimatedVisibilityScope? = null,
     modifier: Modifier = Modifier,
 ) {
     ExpressivePageBackground(modifier = modifier) {
@@ -134,6 +145,9 @@ fun PlaylistDetailScreen(
                         content = uiState,
                         onPlayAllClick = onPlayAllClick,
                         onSongClick = onSongClick,
+                        sharedTransitionKey = sharedTransitionKey,
+                        sharedTransitionScope = sharedTransitionScope,
+                        animatedVisibilityScope = animatedVisibilityScope,
                         modifier = Modifier.padding(innerPadding),
                     )
                 }
@@ -142,11 +156,15 @@ fun PlaylistDetailScreen(
     }
 }
 
+@OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
 private fun PlaylistDetailContent(
     content: PlaylistDetailUiState.Content,
     onPlayAllClick: () -> Unit,
     onSongClick: (songId: String) -> Unit,
+    sharedTransitionKey: String? = null,
+    sharedTransitionScope: SharedTransitionScope? = null,
+    animatedVisibilityScope: AnimatedVisibilityScope? = null,
     modifier: Modifier = Modifier,
 ) {
     androidx.compose.foundation.lazy.LazyColumn(
@@ -160,16 +178,16 @@ private fun PlaylistDetailContent(
                 modifier = Modifier.fillMaxWidth(),
                 verticalArrangement = Arrangement.spacedBy(14.dp),
             ) {
-                ExpressiveMediaArtwork(
-                    model = content.coverArtUrl,
-                    contentDescription = content.playlistName,
+                PlaylistHeroArtwork(
+                    playlistId = content.playlistId,
+                    sharedTransitionKey = sharedTransitionKey,
+                    coverArtUrl = content.coverArtUrl,
+                    playlistName = content.playlistName,
+                    sharedTransitionScope = sharedTransitionScope,
+                    animatedVisibilityScope = animatedVisibilityScope,
                     modifier = Modifier
                         .fillMaxWidth()
                         .aspectRatio(1f),
-                    shape = YoinShapeTokens.ExtraLarge,
-                    fallbackIcon = Icons.Filled.LibraryMusic,
-                    shadowElevation = 12.dp,
-                    tonalElevation = 3.dp,
                 )
                 androidx.compose.foundation.layout.Column(
                     modifier = Modifier.padding(top = 2.dp, bottom = 10.dp),
@@ -222,6 +240,55 @@ private fun PlaylistDetailContent(
     }
 }
 
+@OptIn(ExperimentalSharedTransitionApi::class)
+@Composable
+private fun PlaylistHeroArtwork(
+    playlistId: String,
+    sharedTransitionKey: String?,
+    coverArtUrl: String?,
+    playlistName: String,
+    sharedTransitionScope: SharedTransitionScope?,
+    animatedVisibilityScope: AnimatedVisibilityScope?,
+    modifier: Modifier = Modifier,
+) {
+    val shape = YoinShapeTokens.ExtraLarge
+    val artworkBoundsSpec = YoinMotion.defaultSpatialSpec<Rect>(
+        role = YoinMotionRole.Expressive,
+        expressiveScheme = MaterialTheme.motionScheme,
+    )
+    val sharedArtworkModifier = if (
+        sharedTransitionScope != null &&
+        animatedVisibilityScope != null
+    ) {
+        with(sharedTransitionScope) {
+            modifier
+                .sharedElement(
+                    sharedContentState = rememberSharedContentState(
+                        key = playlistCoverSharedKey(playlistId, sharedTransitionKey),
+                    ),
+                    animatedVisibilityScope = animatedVisibilityScope,
+                    boundsTransform = { _, _ -> artworkBoundsSpec },
+                    zIndexInOverlay = 1f,
+                )
+                .clip(shape)
+        }
+    } else {
+        modifier
+    }
+
+    Box(modifier = sharedArtworkModifier) {
+        ExpressiveMediaArtwork(
+            model = coverArtUrl,
+            contentDescription = playlistName,
+            modifier = Modifier.fillMaxSize(),
+            shape = shape,
+            fallbackIcon = Icons.Filled.LibraryMusic,
+            shadowElevation = 12.dp,
+            tonalElevation = 3.dp,
+        )
+    }
+}
+
 @Composable
 private fun PlaylistMetaRow(
     content: PlaylistDetailUiState.Content,
@@ -254,6 +321,7 @@ private fun PlaylistDetailContentPreview() {
     YoinTheme {
         PlaylistDetailScreen(
             uiState = PlaylistDetailUiState.Content(
+                playlistId = "playlist-preview",
                 playlistName = "Late Night Rotation",
                 owner = "gpo",
                 comment = "Pulled from Navidrome",

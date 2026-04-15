@@ -123,8 +123,22 @@ fun YoinNavHost(
                             ),
                         )
                     },
-                    onNavigateToArtist = { navController.navigate(YoinRoute.ArtistDetail(it)) },
-                    onNavigateToPlaylist = { navController.navigate(YoinRoute.PlaylistDetail(it)) },
+                    onNavigateToArtist = { artistId, sharedTransitionKey ->
+                        navController.navigate(
+                            YoinRoute.ArtistDetail(
+                                artistId = artistId,
+                                sharedTransitionKey = sharedTransitionKey,
+                            ),
+                        )
+                    },
+                    onNavigateToPlaylist = { playlistId, sharedTransitionKey ->
+                        navController.navigate(
+                            YoinRoute.PlaylistDetail(
+                                playlistId = playlistId,
+                                sharedTransitionKey = sharedTransitionKey,
+                            ),
+                        )
+                    },
                     sharedTransitionScope = sharedTransitionScope,
                     shellAnimatedVisibilityScope = shellAnimatedVisibilityScope,
                 )
@@ -137,6 +151,7 @@ fun YoinNavHost(
                 popExitTransition = { YoinMotion.simplePushPopExit },
             ) { backStackEntry ->
                 val route = backStackEntry.toRoute<YoinRoute.AlbumDetail>()
+                val navAnimatedVisibilityScope = this
                 val app = LocalContext.current.applicationContext as YoinApplication
                 val viewModel: AlbumDetailViewModel = viewModel(
                     factory = AlbumDetailViewModel.Factory(route.albumId, app.container),
@@ -148,7 +163,7 @@ fun YoinNavHost(
                 ) { predictiveBackModifier, _, requestBack ->
                     AlbumDetailScreen(
                         uiState = uiState,
-                        sharedTransitionKey = null,
+                        sharedTransitionKey = route.sharedTransitionKey,
                         onBackClick = requestBack,
                         onSongClick = { songId ->
                             val songs = viewModel.getAlbumSongs()
@@ -171,8 +186,8 @@ fun YoinNavHost(
                         },
                         onToggleStar = viewModel::toggleStar,
                         onRetry = viewModel::retry,
-                        sharedTransitionScope = null,
-                        animatedVisibilityScope = null,
+                        sharedTransitionScope = sharedTransitionScope,
+                        animatedVisibilityScope = navAnimatedVisibilityScope,
                         modifier = predictiveBackModifier.fillMaxSize(),
                     )
                 }
@@ -185,6 +200,7 @@ fun YoinNavHost(
                 popExitTransition = { YoinMotion.simplePushPopExit },
             ) { backStackEntry ->
                 val route = backStackEntry.toRoute<YoinRoute.ArtistDetail>()
+                val navAnimatedVisibilityScope = this
                 val app = LocalContext.current.applicationContext as YoinApplication
                 val viewModel: ArtistDetailViewModel = viewModel(
                     factory = ArtistDetailViewModel.Factory(route.artistId, app.container),
@@ -201,6 +217,9 @@ fun YoinNavHost(
                             navController.navigate(YoinRoute.AlbumDetail(albumId))
                         },
                         onRetry = viewModel::retry,
+                        sharedTransitionKey = route.sharedTransitionKey,
+                        sharedTransitionScope = sharedTransitionScope,
+                        animatedVisibilityScope = navAnimatedVisibilityScope,
                         modifier = predictiveBackModifier.fillMaxSize(),
                     )
                 }
@@ -213,6 +232,7 @@ fun YoinNavHost(
                 popExitTransition = { YoinMotion.simplePushPopExit },
             ) { backStackEntry ->
                 val route = backStackEntry.toRoute<YoinRoute.PlaylistDetail>()
+                val navAnimatedVisibilityScope = this
                 val app = LocalContext.current.applicationContext as YoinApplication
                 val viewModel: PlaylistDetailViewModel = viewModel(
                     factory = PlaylistDetailViewModel.Factory(route.playlistId, app.container),
@@ -267,6 +287,9 @@ fun YoinNavHost(
                             )
                         },
                         onRetry = viewModel::retry,
+                        sharedTransitionKey = route.sharedTransitionKey,
+                        sharedTransitionScope = sharedTransitionScope,
+                        animatedVisibilityScope = navAnimatedVisibilityScope,
                         modifier = predictiveBackModifier.fillMaxSize(),
                     )
                 }
@@ -307,8 +330,8 @@ private fun YoinShell(
     nowPlayingViewModel: NowPlayingViewModel,
     onNavigateToSettings: () -> Unit,
     onNavigateToAlbum: (String, String?) -> Unit,
-    onNavigateToArtist: (String) -> Unit,
-    onNavigateToPlaylist: (String) -> Unit,
+    onNavigateToArtist: (String, String?) -> Unit,
+    onNavigateToPlaylist: (String, String?) -> Unit,
     sharedTransitionScope: SharedTransitionScope,
     shellAnimatedVisibilityScope: AnimatedVisibilityScope,
     modifier: Modifier = Modifier,
@@ -421,8 +444,8 @@ private fun YoinShell(
                                 experienceSessionStore.setHomeSurface(HomeSurface.Memories)
                             },
                             onAlbumClick = onNavigateToAlbum,
-                            onArtistClick = onNavigateToArtist,
-                            onPlaylistClick = onNavigateToPlaylist,
+                            onArtistClick = { artistId -> onNavigateToArtist(artistId, null) },
+                            onPlaylistClick = { playlistId -> onNavigateToPlaylist(playlistId, null) },
                             onSongClick = { song ->
                                 app.container.playbackManager.playSingle(
                                     song,
@@ -483,9 +506,9 @@ private fun YoinShell(
                     isPlaying = playbackState.isPlaying,
                     visualizerData = visualizerData,
                     onNavigateToSettings = onNavigateToSettings,
-                    onArtistClick = onNavigateToArtist,
+                    onArtistClick = { artistId -> onNavigateToArtist(artistId, null) },
                     onAlbumClick = { albumId -> onNavigateToAlbum(albumId, null) },
-                    onPlaylistClick = onNavigateToPlaylist,
+                    onPlaylistClick = { playlistId -> onNavigateToPlaylist(playlistId, null) },
                     onSongClick = { song ->
                         app.container.playbackManager.playSingle(
                             song,
