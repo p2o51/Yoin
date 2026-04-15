@@ -452,7 +452,13 @@ private fun YoinShell(
                             activeSongId = playbackState.currentSong?.id,
                             onNavigateToSettings = onNavigateToSettings,
                             onNavigateToMemories = {
-                                memoriesBackController.reset()
+                                // Prime the overlay off-screen so the
+                                // LaunchedEffect(memoriesActive) plays its
+                                // snap(1) → animateCancel(0) open animation.
+                                // reset() used to set fraction to 0, which
+                                // then failed the > 0.02 guard in the effect
+                                // and skipped the animation entirely.
+                                memoriesBackController.snapTo(1f)
                                 experienceSessionStore.setHomeSurface(HomeSurface.Memories)
                             },
                             onPullToMemoriesProgress = { progress ->

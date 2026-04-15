@@ -251,8 +251,9 @@ private fun MemoriesContent(
 
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
         val containerHeightPx = with(density) { maxHeight.toPx().coerceAtLeast(1f) }
-        val dismissPreviewFraction = ((dismissFraction * containerHeightPx) / dismissTriggerPx)
-            .coerceIn(0f, 1f)
+        // dismissFraction is now relative to the trigger (0..1), so the
+        // preview fraction is the same value — no rescaling needed.
+        val dismissPreviewFraction = dismissFraction.coerceIn(0f, 1f)
 
         key(contentState.deckRevision) {
             val memories = contentState.memories
@@ -403,7 +404,7 @@ private fun MemoriesContent(
                                     val triggered = dismissState.registerPull(deltaPx = -available.y)
                                     onDismissGestureProgress(
                                         dismissState.pullPx
-                                            .div(latestContainerHeightPx)
+                                            .div(dismissTriggerPx)
                                             .coerceIn(0f, 1f),
                                     )
                                     if (triggered) {
@@ -420,7 +421,7 @@ private fun MemoriesContent(
                                     dismissState.release(available.y)
                                     onDismissGestureProgress(
                                         dismissState.pullPx
-                                            .div(latestContainerHeightPx)
+                                            .div(dismissTriggerPx)
                                             .coerceIn(0f, 1f),
                                     )
                                     return Offset(0f, available.y)
@@ -491,7 +492,7 @@ private fun MemoriesContent(
                 .align(Alignment.BottomCenter)
                 .padding(bottom = 28.dp)
                 .graphicsLayer {
-                    translationY = -(dismissFraction * containerHeightPx) * 0.3f
+                    translationY = -(dismissFraction * dismissTriggerPx) * 0.3f
                     alpha = 0.4f + dismissPreviewFraction * 0.6f
                 }
                 .size(28.dp),

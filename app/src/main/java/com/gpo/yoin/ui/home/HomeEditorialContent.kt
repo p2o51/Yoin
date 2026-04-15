@@ -195,11 +195,13 @@ internal fun HomeEditorialContent(
                     if (triggered) {
                         isNavigatingToMemories = true
                         onPullToMemoriesCommit()
-                        coroutineScope.launch {
-                            pullToMemoriesState.animateReset()
-                            onPullToMemoriesProgress(0f)
-                            isNavigatingToMemories = false
-                        }
+                        // Snap local pull state to 0 synchronously. Do NOT emit
+                        // another onPullToMemoriesProgress(0f) afterwards — that
+                        // would race with the commit path and rewrite the
+                        // controller's fraction back to 1 (Memories off-screen),
+                        // producing the "open then silently disappear" glitch.
+                        pullToMemoriesState.reset()
+                        isNavigatingToMemories = false
                     }
                     return Offset(0f, available.y)
                 }
