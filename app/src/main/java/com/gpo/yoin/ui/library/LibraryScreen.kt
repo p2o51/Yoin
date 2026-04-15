@@ -61,7 +61,8 @@ import com.gpo.yoin.data.remote.Playlist
 import com.gpo.yoin.data.remote.SearchResult
 import com.gpo.yoin.data.remote.Song
 import com.gpo.yoin.data.remote.StarredResponse
-import com.gpo.yoin.player.VisualizerData
+// VisualizerData intentionally removed: LibraryScreen consumes a
+// pre-smoothed playbackSignal from AudioVisualizerManager instead.
 import com.gpo.yoin.ui.component.ExpressiveBackdropArtwork
 import com.gpo.yoin.ui.component.ExpressiveBackdropVariant
 import com.gpo.yoin.ui.component.ExpressiveMediaArtwork
@@ -73,7 +74,6 @@ import com.gpo.yoin.ui.component.SongListItem
 import com.gpo.yoin.ui.component.YoinLoadingIndicator
 import com.gpo.yoin.ui.component.expressiveEntrance
 import com.gpo.yoin.ui.component.minimumTouchTarget
-import com.gpo.yoin.ui.component.playbackBackdropSignal
 import com.gpo.yoin.ui.component.rememberExpressiveEntranceProgress
 import com.gpo.yoin.ui.theme.ProvideYoinMotionRole
 import com.gpo.yoin.ui.theme.YoinMotion
@@ -93,7 +93,7 @@ fun LibraryScreen(
     viewModel: LibraryViewModel,
     activeSongId: String? = null,
     isPlaying: Boolean = false,
-    visualizerData: VisualizerData = VisualizerData.Empty,
+    playbackSignal: Float = 0f,
     onNavigateToSettings: () -> Unit,
     onArtistClick: (String) -> Unit,
     onAlbumClick: (String) -> Unit,
@@ -107,7 +107,7 @@ fun LibraryScreen(
         uiState = uiState,
         activeSongId = activeSongId,
         isPlaying = isPlaying,
-        visualizerData = visualizerData,
+        playbackSignal = playbackSignal,
         onTabSelected = viewModel::selectTab,
         onSearchQueryChanged = viewModel::search,
         onClearSearch = viewModel::clearSearch,
@@ -127,7 +127,7 @@ fun LibraryContent(
     uiState: LibraryUiState,
     activeSongId: String? = null,
     isPlaying: Boolean = false,
-    visualizerData: VisualizerData = VisualizerData.Empty,
+    playbackSignal: Float = 0f,
     onTabSelected: (LibraryTab) -> Unit,
     onSearchQueryChanged: (String) -> Unit,
     onClearSearch: () -> Unit,
@@ -185,7 +185,7 @@ fun LibraryContent(
                         state = uiState,
                         activeSongId = activeSongId,
                         isPlaying = isPlaying,
-                        visualizerData = visualizerData,
+                        playbackSignal = playbackSignal,
                         onTabSelected = onTabSelected,
                         onSearchQueryChanged = onSearchQueryChanged,
                         onClearSearch = onClearSearch,
@@ -207,7 +207,7 @@ private fun LibraryContentBody(
     state: LibraryUiState.Content,
     activeSongId: String? = null,
     isPlaying: Boolean = false,
-    visualizerData: VisualizerData = VisualizerData.Empty,
+    playbackSignal: Float = 0f,
     onTabSelected: (LibraryTab) -> Unit,
     onSearchQueryChanged: (String) -> Unit,
     onClearSearch: () -> Unit,
@@ -218,12 +218,6 @@ private fun LibraryContentBody(
     onSongClick: (Song) -> Unit,
     coverArtUrlBuilder: ((String) -> String)?,
 ) {
-    val playbackSignal = remember(visualizerData, isPlaying) {
-        playbackBackdropSignal(
-            visualizerData = visualizerData,
-            isPlaying = isPlaying,
-        )
-    }
     Column(
         modifier = Modifier
             .fillMaxSize()

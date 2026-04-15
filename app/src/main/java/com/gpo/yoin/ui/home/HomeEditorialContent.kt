@@ -54,6 +54,7 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalDensity
@@ -86,7 +87,6 @@ import com.gpo.yoin.ui.component.ExpressiveBackdropArtworkScale
 import com.gpo.yoin.ui.component.horizontalFadeMask
 import com.gpo.yoin.ui.component.minimumTouchTarget
 import com.gpo.yoin.ui.component.noRippleClickable
-import com.gpo.yoin.ui.component.playbackBackdropSignal
 import com.gpo.yoin.ui.component.rememberExpressiveEntranceProgress
 import com.gpo.yoin.ui.component.rememberExpressiveBackdropColors
 import com.gpo.yoin.ui.experience.rememberPullToDismissState
@@ -97,6 +97,15 @@ import com.gpo.yoin.ui.theme.YoinShapeTokens
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.filter
+
+internal sealed interface HomeEntryTarget {
+    data class Album(val albumId: String, val sharedTransitionKey: String?) : HomeEntryTarget
+    data class Artist(val artistId: String) : HomeEntryTarget
+    data class Playlist(val playlistId: String) : HomeEntryTarget
+    data class SongTarget(val song: Song) : HomeEntryTarget
+}
 
 private data class HomeMomentEntry(
     val stableId: String,
@@ -110,7 +119,7 @@ private data class HomeMomentEntry(
     val variant: ExpressiveBackdropVariant,
     val shape: Shape,
     val fallbackIcon: androidx.compose.ui.graphics.vector.ImageVector,
-    val onClick: () -> Unit,
+    val target: HomeEntryTarget,
 )
 
 private data class JumpBackInVisualEntry(
@@ -125,7 +134,7 @@ private data class JumpBackInVisualEntry(
     val variant: ExpressiveBackdropVariant,
     val shape: Shape,
     val fallbackIcon: androidx.compose.ui.graphics.vector.ImageVector,
-    val onClick: () -> Unit,
+    val target: HomeEntryTarget,
 )
 
 private const val HomeBackdropPaletteWarmupDelayMillis = 350L
@@ -137,7 +146,7 @@ internal fun HomeEditorialContent(
     jumpBackInItems: List<HomeJumpBackInItem>,
     isLoadingMoreJumpBackIn: Boolean,
     isPlaying: Boolean,
-    visualizerData: com.gpo.yoin.player.VisualizerData,
+    playbackSignal: Float,
     activeSongId: String? = null,
     onNavigateToSettings: () -> Unit,
     onNavigateToMemories: () -> Unit,
@@ -228,47 +237,59 @@ internal fun HomeEditorialContent(
                 }
             }
     }
-    val playbackSignal = remember(visualizerData, isPlaying) {
-        playbackBackdropSignal(
-            visualizerData = visualizerData,
-            isPlaying = isPlaying,
-        )
-    }
-    val activityEntries = remember(
-        activities,
-        buildCoverArtUrl,
-        onAlbumClick,
-        onArtistClick,
-        onPlaylistClick,
-        onSongClick,
-    ) {
+    val activityEntries = remember(activities, buildCoverArtUrl) {
         buildActivityEntries(
             activities = activities,
             buildCoverArtUrl = buildCoverArtUrl,
-            onAlbumClick = onAlbumClick,
-            onArtistClick = onArtistClick,
-            onPlaylistClick = onPlaylistClick,
-            onSongClick = onSongClick,
         )
     }
-    val jumpRows = remember(
-        jumpBackInItems,
-        buildCoverArtUrl,
-        onAlbumClick,
-        onArtistClick,
-        onSongClick,
-    ) {
+    val jumpRows = remember(jumpBackInItems, buildCoverArtUrl) {
         jumpBackInItems
             .map { item ->
                 buildJumpBackInEntry(
                     item = item,
                     buildCoverArtUrl = buildCoverArtUrl,
-                    onAlbumClick = onAlbumClick,
-                    onArtistClick = onArtistClick,
-                    onSongClick = onSongClick,
                 )
             }
             .chunked(3)
+    }
+    // Keep a single stable dispatcher for entry clicks. Nav lambdas are held
+    // via rememberUpdatedState so each call reaches the latest referenced
+    // lambda without invalidating `remember`-cached entry lists.
+    val onAlbumClickState = rememberUpdatedState(onAlbumClick)
+    val onArtistClickState = rememberUpdatedState(onArtistClick)
+    val onPlaylistClickState = rememberUpdatedState(onPlaylistClick)
+    val onSongClickState = rememberUpdatedState(onSongClick)
+    val onEntryClick = remember {
+        { target: HomeEntryTarget ->
+            when (target) {
+                is HomeEntryTarget.Album -> onAlbumClickState.value(
+                    target.albumId,
+                    target.sharedTransitionKey,
+                )
+                is HomeEntryTarget.Artist -> onArtistClickState.value(target.artistId)
+                is HomeEntryTarget.Playlist -> onPlaylistClickState.value(target.playlistId)
+                is HomeEntryTarget.SongTarget -> onSongClickState.value(target.song)
+            }
+        }
+    }
+
+    // Pagination trigger: watch the last visible item index instead of
+    // relying on an item-scoped LaunchedEffect, so a single stable observer
+    // handles all fling-induced index changes without spawning per-row
+    // effects. HomeViewModel.loadMoreJumpBackIn() is single-flight.
+    val onLoadMoreState = rememberUpdatedState(onLoadMoreJumpBackIn)
+    LaunchedEffect(listState, jumpRows.isNotEmpty()) {
+        if (jumpRows.isEmpty()) return@LaunchedEffect
+        snapshotFlow {
+            val info = listState.layoutInfo
+            val lastVisible = info.visibleItemsInfo.lastOrNull()?.index ?: -1
+            val total = info.totalItemsCount
+            total > 0 && lastVisible >= total - 2
+        }
+            .distinctUntilChanged()
+            .filter { it }
+            .collect { onLoadMoreState.value() }
     }
 
     val navBarBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
@@ -306,6 +327,7 @@ internal fun HomeEditorialContent(
                     isPlaying = isPlaying,
                     playbackSignal = playbackSignal,
                     extractBackdropColors = allowBackdropPalette,
+                    onEntryClick = onEntryClick,
                     sharedTransitionScope = sharedTransitionScope,
                     animatedVisibilityScope = animatedVisibilityScope,
                     modifier = Modifier.fillMaxWidth(),
@@ -345,15 +367,11 @@ internal fun HomeEditorialContent(
                     isPlaying = isPlaying,
                     playbackSignal = playbackSignal,
                     extractBackdropColors = allowBackdropPalette,
+                    onEntryClick = onEntryClick,
                     sharedTransitionScope = sharedTransitionScope,
                     animatedVisibilityScope = animatedVisibilityScope,
                     modifier = Modifier.fillMaxWidth(),
                 )
-                if (index >= jumpRows.lastIndex - 1 && !isLoadingMoreJumpBackIn) {
-                    LaunchedEffect(jumpBackInItems.size, index) {
-                        onLoadMoreJumpBackIn()
-                    }
-                }
             }
         }
 
@@ -428,6 +446,7 @@ private fun ActivityGrid(
     isPlaying: Boolean,
     playbackSignal: Float,
     extractBackdropColors: Boolean,
+    onEntryClick: (HomeEntryTarget) -> Unit,
     sharedTransitionScope: SharedTransitionScope? = null,
     animatedVisibilityScope: AnimatedVisibilityScope? = null,
     modifier: Modifier = Modifier,
@@ -451,6 +470,7 @@ private fun ActivityGrid(
                                 playbackSignal = playbackSignal,
                                 extractBackdropColors = extractBackdropColors,
                                 delayMillis = ((rowIndex * 2) + columnIndex) * 36L,
+                                onClick = { onEntryClick(entry.target) },
                                 sharedTransitionScope = sharedTransitionScope,
                                 animatedVisibilityScope = animatedVisibilityScope,
                                 modifier = Modifier.weight(1f),
@@ -474,6 +494,7 @@ private fun ActivityCard(
     isPlaying: Boolean,
     playbackSignal: Float,
     extractBackdropColors: Boolean,
+    onClick: () -> Unit,
     delayMillis: Long = 0L,
     sharedTransitionScope: SharedTransitionScope? = null,
     animatedVisibilityScope: AnimatedVisibilityScope? = null,
@@ -496,7 +517,7 @@ private fun ActivityCard(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .noRippleClickable(interactionSource = interactionSource, onClick = entry.onClick)
+                .noRippleClickable(interactionSource = interactionSource, onClick = onClick)
                 .padding(horizontal = 8.dp, vertical = 8.dp),
             horizontalArrangement = Arrangement.spacedBy(10.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -574,6 +595,7 @@ private fun JumpBackInRow(
     isPlaying: Boolean,
     playbackSignal: Float,
     extractBackdropColors: Boolean,
+    onEntryClick: (HomeEntryTarget) -> Unit,
     sharedTransitionScope: SharedTransitionScope? = null,
     animatedVisibilityScope: AnimatedVisibilityScope? = null,
     modifier: Modifier = Modifier,
@@ -591,6 +613,7 @@ private fun JumpBackInRow(
                 playbackSignal = playbackSignal,
                 extractBackdropColors = extractBackdropColors,
                 delayMillis = index * 42L,
+                onClick = { onEntryClick(entry.target) },
                 sharedTransitionScope = sharedTransitionScope,
                 animatedVisibilityScope = animatedVisibilityScope,
                 modifier = Modifier.weight(1f),
@@ -610,6 +633,7 @@ private fun JumpBackInTile(
     isPlaying: Boolean,
     playbackSignal: Float,
     extractBackdropColors: Boolean,
+    onClick: () -> Unit,
     delayMillis: Long = 0L,
     sharedTransitionScope: SharedTransitionScope? = null,
     animatedVisibilityScope: AnimatedVisibilityScope? = null,
@@ -624,7 +648,7 @@ private fun JumpBackInTile(
     Column(
         modifier = modifier
             .expressiveEntrance(entranceProgress)
-            .noRippleClickable(interactionSource = interactionSource, onClick = entry.onClick),
+            .noRippleClickable(interactionSource = interactionSource, onClick = onClick),
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         ExpressiveArtwork(
@@ -871,12 +895,14 @@ private fun homeActivityDedupKey(activity: ActivityEvent): String {
 private fun buildActivityEntries(
     activities: List<ActivityEvent>,
     buildCoverArtUrl: (String) -> String,
-    onAlbumClick: (albumId: String, sharedTransitionKey: String?) -> Unit,
-    onArtistClick: (artistId: String) -> Unit,
-    onPlaylistClick: (playlistId: String) -> Unit,
-    onSongClick: (Song) -> Unit,
 ): List<HomeMomentEntry> = dedupeActivitiesForHome(activities).take(6).map { activity ->
     val stableId = "activity:${activity.id}:${activity.entityType}:${activity.entityId}:${activity.actionType}"
+    val target: HomeEntryTarget = when (activity.entityType) {
+        ActivityEntityType.ALBUM.name -> HomeEntryTarget.Album(activity.entityId, stableId)
+        ActivityEntityType.ARTIST.name -> HomeEntryTarget.Artist(activity.entityId)
+        ActivityEntityType.PLAYLIST.name -> HomeEntryTarget.Playlist(activity.entityId)
+        else -> HomeEntryTarget.SongTarget(activity.asSong())
+    }
     HomeMomentEntry(
         stableId = stableId,
         title = activity.title,
@@ -896,23 +922,13 @@ private fun buildActivityEntries(
         variant = backdropVariantForActivity(activity.entityType),
         shape = artworkShapeForEntityType(activity.entityType),
         fallbackIcon = artworkFallbackIconForEntityType(activity.entityType),
-        onClick = {
-            when (activity.entityType) {
-                ActivityEntityType.ALBUM.name -> onAlbumClick(activity.entityId, stableId)
-                ActivityEntityType.ARTIST.name -> onArtistClick(activity.entityId)
-                ActivityEntityType.PLAYLIST.name -> onPlaylistClick(activity.entityId)
-                else -> onSongClick(activity.asSong())
-            }
-        },
+        target = target,
     )
 }
 
 private fun buildJumpBackInEntry(
     item: HomeJumpBackInItem,
     buildCoverArtUrl: (String) -> String,
-    onAlbumClick: (albumId: String, sharedTransitionKey: String?) -> Unit,
-    onArtistClick: (artistId: String) -> Unit,
-    onSongClick: (Song) -> Unit,
 ): JumpBackInVisualEntry = when (item) {
     is HomeJumpBackInItem.AlbumItem -> JumpBackInVisualEntry(
         stableId = item.stableId,
@@ -926,7 +942,7 @@ private fun buildJumpBackInEntry(
         variant = ExpressiveBackdropVariant.Bun,
         shape = YoinShapeTokens.Medium,
         fallbackIcon = Icons.Filled.LibraryMusic,
-        onClick = { onAlbumClick(item.album.id, item.stableId) },
+        target = HomeEntryTarget.Album(item.album.id, item.stableId),
     )
 
     is HomeJumpBackInItem.SongItem -> JumpBackInVisualEntry(
@@ -942,7 +958,7 @@ private fun buildJumpBackInEntry(
         variant = ExpressiveBackdropVariant.Circle,
         shape = YoinShapeTokens.Medium,
         fallbackIcon = Icons.Filled.LibraryMusic,
-        onClick = { onSongClick(item.song) },
+        target = HomeEntryTarget.SongTarget(item.song),
     )
 
     is HomeJumpBackInItem.ArtistItem -> JumpBackInVisualEntry(
@@ -957,7 +973,7 @@ private fun buildJumpBackInEntry(
         variant = ExpressiveBackdropVariant.SoftBoom,
         shape = CircleShape,
         fallbackIcon = Icons.Filled.Person,
-        onClick = { onArtistClick(item.artist.id) },
+        target = HomeEntryTarget.Artist(item.artist.id),
     )
 }
 

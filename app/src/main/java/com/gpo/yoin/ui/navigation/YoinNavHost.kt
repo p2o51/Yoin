@@ -344,7 +344,11 @@ private fun YoinShell(
     val homeSurface = experienceSession.homeSurface
     val showNowPlaying = experienceSession.nowPlayingExpanded
     val playbackState by app.container.playbackManager.playbackState.collectAsState()
-    val visualizerData by app.container.audioVisualizerManager.visualizerData.collectAsState()
+    // playbackSignal is a heavily-throttled Float (≤3% change to emit); safe
+    // to collect at the shell level without recomposing at ~30Hz.
+    // The full VisualizerData stream is subscribed only inside the Now
+    // Playing overlay where the FFT bars actually render.
+    val playbackSignal by app.container.audioVisualizerManager.playbackSignal.collectAsState()
     val castState by app.container.castManager.castState.collectAsState()
     val nowPlayingUiState by nowPlayingViewModel.uiState.collectAsState()
     val memoriesBackController = rememberBackSurfaceController()
@@ -444,7 +448,7 @@ private fun YoinShell(
                         HomeScreen(
                             viewModel = homeViewModel,
                             isPlaying = playbackState.isPlaying,
-                            visualizerData = visualizerData,
+                            playbackSignal = if (playbackState.isPlaying) playbackSignal else 0f,
                             activeSongId = playbackState.currentSong?.id,
                             onNavigateToSettings = onNavigateToSettings,
                             onNavigateToMemories = {
@@ -536,7 +540,7 @@ private fun YoinShell(
                     viewModel = libraryViewModel,
                     activeSongId = playbackState.currentSong?.id,
                     isPlaying = playbackState.isPlaying,
-                    visualizerData = visualizerData,
+                    playbackSignal = if (playbackState.isPlaying) playbackSignal else 0f,
                     onNavigateToSettings = onNavigateToSettings,
                     onArtistClick = { artistId -> onNavigateToArtist(artistId, null) },
                     onAlbumClick = { albumId -> onNavigateToAlbum(albumId, null) },
@@ -576,6 +580,10 @@ private fun YoinShell(
             modifier = Modifier.fillMaxSize(),
         ) {
             val npAvScope = this
+            // Subscribe to the full VisualizerData stream only while NP is
+            // composed; keeps the shell clear of 30Hz recompositions.
+            val visualizerData by app.container.audioVisualizerManager.visualizerData
+                .collectAsState()
             val draggableState = rememberDraggableState { delta ->
                 if (delta > 0f || dismissDragPx > 0f) {
                     dismissDragPx = (dismissDragPx + delta).coerceAtLeast(0f)

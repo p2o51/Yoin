@@ -57,6 +57,15 @@ class AudioVisualizerManager {
     private val _visualizerData = MutableStateFlow(VisualizerData.Empty)
     val visualizerData: StateFlow<VisualizerData> = _visualizerData.asStateFlow()
 
+    // Smoothed, heavily throttled amplitude for UI backdrops that want a
+    // low-frequency "is the music breathing?" signal without the 30Hz
+    // refresh cost of the full FFT. Updates only when the EMA drifts past
+    // PLAYBACK_SIGNAL_DELTA_THRESHOLD (≈3% change).
+    private val _playbackSignal = MutableStateFlow(0f)
+    val playbackSignal: StateFlow<Float> = _playbackSignal.asStateFlow()
+
+    private var smoothedSignal = 0f
+
     fun start(audioSessionId: Int) {
         if (audioSessionId == currentSessionId && visualizer != null) return
         stop()
@@ -90,6 +99,8 @@ class AudioVisualizerManager {
         visualizer = null
         currentSessionId = -1
         _visualizerData.value = VisualizerData.Empty
+        smoothedSignal = 0f
+        _playbackSignal.value = 0f
     }
 
     // ── Real capture listener ───────────────────────────────────────────
@@ -121,7 +132,21 @@ class AudioVisualizerManager {
                     (magnitude / FFT_NORMALIZE).coerceIn(0f, 1f)
                 }
                 _visualizerData.value = _visualizerData.value.copy(fft = magnitudes)
+                emitPlaybackSignalIfChanged(magnitudes)
             }
+        }
+    }
+
+    private fun emitPlaybackSignalIfChanged(magnitudes: FloatArray) {
+        if (magnitudes.isEmpty()) return
+        val avg = magnitudes.sum() / magnitudes.size
+        smoothedSignal =
+            smoothedSignal * (1f - PLAYBACK_SIGNAL_SMOOTHING) + avg * PLAYBACK_SIGNAL_SMOOTHING
+        if (
+            kotlin.math.abs(smoothedSignal - _playbackSignal.value) >
+            PLAYBACK_SIGNAL_DELTA_THRESHOLD
+        ) {
+            _playbackSignal.value = smoothedSignal.coerceIn(0f, 1f)
         }
     }
 
@@ -144,6 +169,7 @@ class AudioVisualizerManager {
                     (base + secondary).coerceIn(0f, 1f)
                 }
                 _visualizerData.value = VisualizerData(waveform = FloatArray(0), fft = fft)
+                emitPlaybackSignalIfChanged(fft)
                 delay(FRAME_DELAY_MS)
             }
         }
@@ -156,5 +182,7 @@ class AudioVisualizerManager {
         private const val SIMULATION_BAR_COUNT = 32
         private const val SIMULATION_PHASE_STEP = 0.15f
         private const val FRAME_DELAY_MS = 33L
+        private const val PLAYBACK_SIGNAL_SMOOTHING = 0.3f
+        private const val PLAYBACK_SIGNAL_DELTA_THRESHOLD = 0.03f
     }
 }

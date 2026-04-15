@@ -51,7 +51,8 @@ import com.gpo.yoin.data.local.ActivityEvent
 import com.gpo.yoin.data.local.PlayHistory
 import com.gpo.yoin.data.remote.Album
 import com.gpo.yoin.data.remote.Song
-import com.gpo.yoin.player.VisualizerData
+// VisualizerData intentionally removed: HomeScreen consumes a pre-smoothed
+// playbackSignal from AudioVisualizerManager instead.
 import com.gpo.yoin.ui.component.AlbumCard
 import com.gpo.yoin.ui.component.AudioVisualizer
 import com.gpo.yoin.ui.component.VisualizerStyle
@@ -73,7 +74,7 @@ private val HomeInitialEntranceOffset = 16.dp
 fun HomeScreen(
     viewModel: HomeViewModel,
     isPlaying: Boolean,
-    visualizerData: VisualizerData,
+    playbackSignal: Float,
     activeSongId: String? = null,
     onNavigateToSettings: () -> Unit,
     onNavigateToMemories: () -> Unit,
@@ -93,7 +94,7 @@ fun HomeScreen(
     HomeContent(
         uiState = uiState,
         isPlaying = isPlaying,
-        visualizerData = visualizerData,
+        playbackSignal = playbackSignal,
         activeSongId = activeSongId,
         onNavigateToSettings = onNavigateToSettings,
         onNavigateToMemories = onNavigateToMemories,
@@ -118,7 +119,7 @@ fun HomeScreen(
 fun HomeContent(
     uiState: HomeUiState,
     isPlaying: Boolean,
-    visualizerData: VisualizerData,
+    playbackSignal: Float,
     activeSongId: String? = null,
     onNavigateToSettings: () -> Unit,
     onNavigateToMemories: () -> Unit,
@@ -227,7 +228,7 @@ fun HomeContent(
                             jumpBackInItems = uiState.jumpBackInItems,
                             isLoadingMoreJumpBackIn = uiState.isLoadingMoreJumpBackIn,
                             isPlaying = isPlaying,
-                            visualizerData = visualizerData,
+                            playbackSignal = playbackSignal,
                             activeSongId = activeSongId,
                             onNavigateToSettings = onNavigateToSettings,
                             onNavigateToMemories = onNavigateToMemories,
@@ -640,7 +641,7 @@ private fun HomeContentLoadingPreview() {
         HomeContent(
             uiState = HomeUiState.Loading,
             isPlaying = false,
-            visualizerData = VisualizerData.Empty,
+            playbackSignal = 0f,
             activeSongId = null,
             onNavigateToSettings = {},
             onNavigateToMemories = {},
@@ -662,7 +663,7 @@ private fun HomeContentErrorPreview() {
         HomeContent(
             uiState = HomeUiState.Error("Failed to connect to server"),
             isPlaying = false,
-            visualizerData = VisualizerData.Empty,
+            playbackSignal = 0f,
             activeSongId = null,
             onNavigateToSettings = {},
             onNavigateToMemories = {},
@@ -769,13 +770,7 @@ private fun HomeContentPreview() {
                 ),
             ),
             isPlaying = true,
-            visualizerData = VisualizerData(
-                fft = FloatArray(24) { i ->
-                    val t = i.toFloat() / 24
-                    (kotlin.math.sin(t * Math.PI * 3).toFloat() * 0.35f + 0.4f)
-                        .coerceIn(0f, 1f)
-                },
-            ),
+            playbackSignal = 0.35f,
             activeSongId = "js1",
             onNavigateToSettings = {},
             onNavigateToMemories = {},
