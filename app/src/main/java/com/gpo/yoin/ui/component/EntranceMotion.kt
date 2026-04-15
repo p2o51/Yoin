@@ -26,8 +26,13 @@ internal fun rememberExpressiveEntranceProgress(
     val progress = remember(key) { Animatable(0f) }
     val fullSpec = YoinMotion.slowSpatialSpec<Float>(role = motionRole)
     val reducedSpec = YoinMotion.fastSpatialSpec<Float>(role = motionRole)
-    LaunchedEffect(key, motionProfile, motionRole) {
-        progress.snapTo(0f)
+    // Intentionally key only on `key` (the stable id of the entry). Changes to
+    // motionProfile or motionRole must not re-trigger the entrance animation,
+    // because they can flip for unrelated reasons (device pressure heuristics,
+    // theme role scope changes) during normal navigation and produce a visible
+    // animation replay on cards that never moved.
+    LaunchedEffect(key) {
+        if (progress.value >= 1f) return@LaunchedEffect
         val effectiveDelayMillis = if (motionProfile == MotionProfile.Full) {
             delayMillis
         } else {

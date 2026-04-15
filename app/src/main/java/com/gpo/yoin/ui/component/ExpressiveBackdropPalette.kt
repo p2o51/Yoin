@@ -3,6 +3,8 @@ package com.gpo.yoin.ui.component
 import android.content.Context
 import android.graphics.Bitmap
 import android.util.LruCache
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
@@ -103,7 +105,23 @@ internal fun rememberExpressiveBackdropColors(
             fallbackColors = fallbackColors,
         )
     }
-    return colors
+    // Soften the hand-off when the palette resolves: tween the two
+    // colors instead of snapping from fallback → extracted, which is
+    // what the user perceives as a "flash" on newly-loaded artwork.
+    val animatedBase by animateColorAsState(
+        targetValue = colors.baseColor,
+        animationSpec = tween(durationMillis = 380),
+        label = "backdropBase",
+    )
+    val animatedAccent by animateColorAsState(
+        targetValue = colors.accentColor,
+        animationSpec = tween(durationMillis = 380),
+        label = "backdropAccent",
+    )
+    return ExpressiveBackdropColors(
+        baseColor = animatedBase,
+        accentColor = animatedAccent,
+    )
 }
 
 private suspend fun loadBackdropColors(

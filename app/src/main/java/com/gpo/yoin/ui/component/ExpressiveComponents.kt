@@ -30,6 +30,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
@@ -44,6 +45,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
+import coil3.request.ImageRequest
+import coil3.request.crossfade
 import com.gpo.yoin.R
 import com.gpo.yoin.ui.theme.GoogleSansFlex
 import com.gpo.yoin.ui.theme.YoinMotion
@@ -123,8 +126,15 @@ internal fun ExpressiveMediaArtwork(
     ) {
         when {
             !LocalInspectionMode.current && model != null -> {
+                val context = LocalContext.current
+                val request = remember(model, context) {
+                    ImageRequest.Builder(context)
+                        .data(model)
+                        .crossfade(220)
+                        .build()
+                }
                 AsyncImage(
-                    model = model,
+                    model = request,
                     contentDescription = contentDescription,
                     contentScale = contentScale,
                     modifier = Modifier.fillMaxSize(),

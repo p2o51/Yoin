@@ -297,10 +297,7 @@ internal fun HomeEditorialContent(
         state = listState,
         modifier = modifier
             .fillMaxSize()
-            .nestedScroll(pullToMemoriesConnection)
-            .graphicsLayer {
-                translationY = pullToMemoriesState.pullPx * 0.14f
-            },
+            .nestedScroll(pullToMemoriesConnection),
         contentPadding = PaddingValues(
             start = 16.dp,
             end = 16.dp,
