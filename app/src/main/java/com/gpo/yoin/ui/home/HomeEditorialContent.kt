@@ -138,6 +138,9 @@ internal fun HomeEditorialContent(
     activeSongId: String? = null,
     onNavigateToSettings: () -> Unit,
     onNavigateToMemories: () -> Unit,
+    onPullToMemoriesProgress: (Float) -> Unit = {},
+    onPullToMemoriesCommit: () -> Unit = {},
+    onPullToMemoriesCancel: () -> Unit = {},
     onAlbumClick: (albumId: String, sharedTransitionKey: String?) -> Unit,
     onArtistClick: (artistId: String) -> Unit,
     onPlaylistClick: (playlistId: String) -> Unit,
@@ -164,6 +167,9 @@ internal fun HomeEditorialContent(
         listState,
         pullToMemoriesState,
         onNavigateToMemories,
+        onPullToMemoriesProgress,
+        onPullToMemoriesCommit,
+        onPullToMemoriesCancel,
         coroutineScope,
         isNavigatingToMemories,
     ) {
@@ -175,12 +181,13 @@ internal fun HomeEditorialContent(
                 val isAtTop = listState.isAtTop()
                 if (available.y > 0f && isAtTop) {
                     val triggered = pullToMemoriesState.registerPull(available.y)
+                    onPullToMemoriesProgress(pullToMemoriesState.progress)
                     if (triggered) {
                         isNavigatingToMemories = true
+                        onPullToMemoriesCommit()
                         coroutineScope.launch {
-                            pullToMemoriesState.animateToTrigger()
-                            onNavigateToMemories()
                             pullToMemoriesState.animateReset()
+                            onPullToMemoriesProgress(0f)
                             isNavigatingToMemories = false
                         }
                     }
@@ -188,6 +195,7 @@ internal fun HomeEditorialContent(
                 }
                 if (available.y < 0f && pullToMemoriesState.pullPx > 0f) {
                     pullToMemoriesState.release(-available.y)
+                    onPullToMemoriesProgress(pullToMemoriesState.progress)
                     return Offset(0f, available.y)
                 }
                 return Offset.Zero
@@ -197,7 +205,9 @@ internal fun HomeEditorialContent(
                 return when {
                     isNavigatingToMemories -> available
                     pullToMemoriesState.pullPx > 0f -> {
+                        onPullToMemoriesCancel()
                         pullToMemoriesState.animateReset()
+                        onPullToMemoriesProgress(0f)
                         available
                     }
                     else -> Velocity.Zero

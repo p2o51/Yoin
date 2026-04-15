@@ -25,6 +25,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
@@ -72,6 +73,7 @@ import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinMotionRole
 import com.gpo.yoin.ui.theme.YoinTheme
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
 @OptIn(ExperimentalSharedTransitionApi::class)
@@ -347,6 +349,8 @@ private fun YoinShell(
     val nowPlayingUiState by nowPlayingViewModel.uiState.collectAsState()
     val memoriesBackController = rememberBackSurfaceController()
     var memoriesMounted by remember { mutableStateOf(homeSurface == HomeSurface.Memories) }
+    var isPreviewingMemories by remember { mutableStateOf(false) }
+    val shellScope = rememberCoroutineScope()
     var dismissDragPx by rememberSaveable { mutableStateOf(0f) }
     var predictiveBackProgress by rememberSaveable { mutableStateOf(0f) }
     val dragResetSpec = YoinMotion.defaultSpatialSpec<Float>(role = YoinMotionRole.Standard)
@@ -382,8 +386,12 @@ private fun YoinShell(
     LaunchedEffect(memoriesActive) {
         if (memoriesActive) {
             memoriesMounted = true
-            memoriesBackController.snapTo(1f)
-            memoriesBackController.animateCancel()
+            // If Memories is already visually open (e.g. committed via pull-to-reveal),
+            // skip the snap+cancel animation so the progressive gesture isn't interrupted.
+            if (memoriesBackController.fraction > 0.02f) {
+                memoriesBackController.snapTo(1f)
+                memoriesBackController.animateCancel()
+            }
         }
     }
 
@@ -443,6 +451,30 @@ private fun YoinShell(
                                 memoriesBackController.reset()
                                 experienceSessionStore.setHomeSurface(HomeSurface.Memories)
                             },
+                            onPullToMemoriesProgress = { progress ->
+                                val clamped = progress.coerceIn(0f, 1f)
+                                if (clamped > 0f) {
+                                    memoriesMounted = true
+                                    isPreviewingMemories = true
+                                }
+                                memoriesBackController.updateFromDrag(1f - clamped)
+                            },
+                            onPullToMemoriesCommit = {
+                                shellScope.launch {
+                                    memoriesBackController.animateCancel()
+                                    experienceSessionStore.setHomeSurface(HomeSurface.Memories)
+                                    isPreviewingMemories = false
+                                }
+                            },
+                            onPullToMemoriesCancel = {
+                                shellScope.launch {
+                                    memoriesBackController.animateCommit {
+                                        memoriesMounted = false
+                                    }
+                                    memoriesBackController.reset()
+                                    isPreviewingMemories = false
+                                }
+                            },
                             onAlbumClick = onNavigateToAlbum,
                             onArtistClick = { artistId -> onNavigateToArtist(artistId, null) },
                             onPlaylistClick = { playlistId -> onNavigateToPlaylist(playlistId, null) },
@@ -457,7 +489,7 @@ private fun YoinShell(
                             modifier = Modifier.fillMaxSize(),
                         )
 
-                        if (memoriesMounted) {
+                        if (memoriesMounted || isPreviewingMemories) {
                             YoinBackSurface(
                                 kind = BackSurfaceKind.ShellOverlayUp,
                                 enabled = shellBackOwner == ShellBackOwner.Memories,
