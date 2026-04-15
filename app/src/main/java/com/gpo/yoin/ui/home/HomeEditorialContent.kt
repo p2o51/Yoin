@@ -82,12 +82,10 @@ import com.gpo.yoin.ui.component.ExpressiveMediaArtwork
 import com.gpo.yoin.ui.component.ExpressiveSectionPanel
 import com.gpo.yoin.ui.component.YoinLoadingIndicator
 import com.gpo.yoin.ui.component.elasticPress
-import com.gpo.yoin.ui.component.expressiveEntrance
 import com.gpo.yoin.ui.component.ExpressiveBackdropArtworkScale
 import com.gpo.yoin.ui.component.horizontalFadeMask
 import com.gpo.yoin.ui.component.minimumTouchTarget
 import com.gpo.yoin.ui.component.noRippleClickable
-import com.gpo.yoin.ui.component.rememberExpressiveEntranceProgress
 import com.gpo.yoin.ui.component.rememberExpressiveBackdropColors
 import com.gpo.yoin.ui.experience.rememberPullToDismissState
 import com.gpo.yoin.ui.navigation.albumCoverSharedKey
@@ -498,14 +496,10 @@ private fun ActivityCard(
     modifier: Modifier = Modifier,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
-    val entranceProgress = rememberExpressiveEntranceProgress(
-        key = entry.stableId,
-        delayMillis = delayMillis,
-    )
     val isPlaybackActive = isPlaying && entry.songId != null && entry.songId == activeSongId
 
     Surface(
-        modifier = modifier.expressiveEntrance(entranceProgress),
+        modifier = modifier,
         shape = YoinShapeTokens.Large,
         color = MaterialTheme.colorScheme.surfaceContainerLow,
         tonalElevation = 2.dp,
@@ -637,14 +631,9 @@ private fun JumpBackInTile(
     modifier: Modifier = Modifier,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
-    val entranceProgress = rememberExpressiveEntranceProgress(
-        key = entry.stableId,
-        delayMillis = delayMillis,
-    )
     val isPlaybackActive = isPlaying && entry.songId != null && entry.songId == activeSongId
     Column(
         modifier = modifier
-            .expressiveEntrance(entranceProgress)
             .noRippleClickable(interactionSource = interactionSource, onClick = onClick),
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
