@@ -6,8 +6,10 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -122,13 +124,19 @@ fun SettingsContent(
                     )
                 },
             ) { innerPadding ->
+                val navBottom = WindowInsets.navigationBars.asPaddingValues()
+                    .calculateBottomPadding()
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
                         .verticalScroll(rememberScrollState())
-                        .navigationBarsPadding()
                         .padding(innerPadding)
-                        .padding(16.dp)
+                        .padding(
+                            start = 16.dp,
+                            top = 16.dp,
+                            end = 16.dp,
+                            bottom = 16.dp + navBottom,
+                        )
                         .alpha(contentAlpha),
                     verticalArrangement = Arrangement.spacedBy(16.dp),
                 ) {
