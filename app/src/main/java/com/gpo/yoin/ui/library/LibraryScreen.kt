@@ -14,6 +14,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
@@ -39,6 +42,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.unit.Dp
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -77,7 +81,12 @@ import com.gpo.yoin.ui.theme.YoinMotionRole
 import com.gpo.yoin.ui.theme.YoinShapeTokens
 import com.gpo.yoin.ui.theme.YoinTheme
 
-private val FloatingBottomGroupContentPadding = 132.dp
+private val FloatingBottomGroupContentPaddingBase = 108.dp
+
+@Composable
+private fun floatingBottomGroupContentPadding(): Dp =
+    FloatingBottomGroupContentPaddingBase +
+        WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
 
 @Composable
 fun LibraryScreen(
@@ -441,7 +450,7 @@ private fun ArtistsTabContent(
             start = 4.dp,
             top = 8.dp,
             end = 4.dp,
-            bottom = FloatingBottomGroupContentPadding,
+            bottom = floatingBottomGroupContentPadding(),
         ),
     ) {
         itemsIndexed(artists, key = { _, artist -> artist.id }) { index, artist ->
@@ -530,7 +539,7 @@ private fun AlbumsTabContent(
             start = 4.dp,
             top = 12.dp,
             end = 4.dp,
-            bottom = FloatingBottomGroupContentPadding,
+            bottom = floatingBottomGroupContentPadding(),
         ),
         horizontalArrangement = Arrangement.spacedBy(10.dp),
         verticalArrangement = Arrangement.spacedBy(18.dp),
@@ -590,7 +599,7 @@ private fun SongsTabContent(
             start = 4.dp,
             top = 8.dp,
             end = 4.dp,
-            bottom = FloatingBottomGroupContentPadding,
+            bottom = floatingBottomGroupContentPadding(),
         ),
     ) {
         itemsIndexed(songs, key = { _, song -> song.id }) { index, song ->
@@ -630,7 +639,7 @@ private fun PlaylistsTabContent(
             start = 4.dp,
             top = 8.dp,
             end = 4.dp,
-            bottom = FloatingBottomGroupContentPadding,
+            bottom = floatingBottomGroupContentPadding(),
         ),
     ) {
         itemsIndexed(playlists, key = { _, playlist -> playlist.id }) { index, playlist ->
@@ -735,7 +744,7 @@ private fun FavoritesTabContent(
             start = 4.dp,
             top = 8.dp,
             end = 4.dp,
-            bottom = FloatingBottomGroupContentPadding,
+            bottom = floatingBottomGroupContentPadding(),
         ),
     ) {
         if (favorites.artist.isNotEmpty()) {
@@ -921,7 +930,7 @@ private fun SearchResultsContent(
             start = 4.dp,
             top = 8.dp,
             end = 4.dp,
-            bottom = FloatingBottomGroupContentPadding,
+            bottom = floatingBottomGroupContentPadding(),
         ),
     ) {
         if (searchResults.artist.isNotEmpty()) {

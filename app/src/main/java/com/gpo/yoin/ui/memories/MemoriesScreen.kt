@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyListState
@@ -441,6 +442,8 @@ private fun MemoriesContent(
                             }
                         }
                     }
+                    val navBottom = WindowInsets.navigationBars.asPaddingValues()
+                        .calculateBottomPadding()
                     LazyColumn(
                         state = listState,
                         modifier = Modifier
@@ -450,7 +453,7 @@ private fun MemoriesContent(
                             top = 20.dp,
                             start = 20.dp,
                             end = 20.dp,
-                            bottom = 156.dp,
+                            bottom = 132.dp + navBottom,
                         ),
                         verticalArrangement = Arrangement.spacedBy(20.dp),
                     ) {

@@ -20,6 +20,9 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -268,6 +271,7 @@ internal fun HomeEditorialContent(
             .chunked(3)
     }
 
+    val navBarBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
     LazyColumn(
         state = listState,
         modifier = modifier
@@ -276,7 +280,12 @@ internal fun HomeEditorialContent(
             .graphicsLayer {
                 translationY = pullToMemoriesState.pullPx * 0.14f
             },
-        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 132.dp),
+        contentPadding = PaddingValues(
+            start = 16.dp,
+            end = 16.dp,
+            top = 4.dp,
+            bottom = 108.dp + navBarBottom,
+        ),
         verticalArrangement = Arrangement.spacedBy(18.dp),
     ) {
         item {
