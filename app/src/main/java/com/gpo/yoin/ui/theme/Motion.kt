@@ -418,12 +418,10 @@ object YoinMotion {
 
     val simplePushPopEnter: EnterTransition = EnterTransition.None
 
-    // Pop is intentionally instant. Returning from a detail page used to
-    // play a spring scale-out + fade-out on the outgoing page; the final
-    // frame of that settle consistently showed a shape "snap" as the
-    // clip/scale state collapsed back to zero. User preference is no exit
-    // animation on back navigation — the incoming page already has its
-    // own enter transition set to None, so pop feels like an immediate
-    // reveal.
-    val simplePushPopExit: ExitTransition = ExitTransition.None
+    val simplePushPopExit: ExitTransition =
+        composeScaleOut(
+            animationSpec = simplePushSpring(),
+            targetScale = BackMotionTokens.PushPageScaleTarget,
+            transformOrigin = PredictiveBackTransformOrigin,
+        ) + composeFadeOut(animationSpec = simplePushSpring())
 }
