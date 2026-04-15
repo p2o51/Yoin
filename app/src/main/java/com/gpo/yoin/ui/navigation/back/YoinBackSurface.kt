@@ -91,7 +91,12 @@ private fun pushPageTransform(fraction: Float): Modifier {
         scaleY = scale
         translationX = if (layoutDirection == LayoutDirection.Rtl) -edgeInsetPx else edgeInsetPx
         shape = previewShape
-        clip = fraction > 0f
+        // Keep clipping on at all times. Previously we toggled clip based on
+        // fraction > 0, which meant the very last frame of a pop animation
+        // flipped clip true → false and the rounded corners snapped back to
+        // sharp edges in one step. A RoundedCornerShape with 0dp corners is
+        // equivalent to no clip visually, so always-on clipping is free.
+        clip = true
         this.transformOrigin = transformOrigin
     }
 }
