@@ -10,8 +10,10 @@ import androidx.room.RoomDatabase
         CacheMetadata::class,
         PlayHistory::class,
         ActivityEvent::class,
+        SongInfo::class,
+        GeminiConfig::class,
     ],
-    version = 2,
+    version = 3,
     exportSchema = true,
 )
 abstract class YoinDatabase : RoomDatabase() {
@@ -24,4 +26,8 @@ abstract class YoinDatabase : RoomDatabase() {
     abstract fun playHistoryDao(): PlayHistoryDao
 
     abstract fun activityEventDao(): ActivityEventDao
+
+    abstract fun songInfoDao(): SongInfoDao
+
+    abstract fun geminiConfigDao(): GeminiConfigDao
 }

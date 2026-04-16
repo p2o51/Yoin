@@ -4,16 +4,20 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.gpo.yoin.AppContainer
+import com.gpo.yoin.data.local.YoinDatabase
+import com.gpo.yoin.data.remote.GeminiService
 import com.gpo.yoin.player.PlaybackManager
 import com.gpo.yoin.data.repository.YoinRepository
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -22,10 +26,14 @@ import kotlinx.coroutines.launch
 class NowPlayingViewModel(
     private val playbackManager: PlaybackManager,
     private val repository: YoinRepository,
+    private val geminiService: GeminiService,
+    private val database: YoinDatabase,
 ) : ViewModel() {
 
     private val _lyrics = MutableStateFlow<List<LyricLine>>(emptyList())
     private val _isStarred = MutableStateFlow(false)
+    private val _songInfoState = MutableStateFlow<SongInfoUiState>(SongInfoUiState.Idle)
+    val songInfoState: StateFlow<SongInfoUiState> = _songInfoState.asStateFlow()
 
     // Track current song ID so we can reload lyrics / starred state on change
     private val currentSongId: StateFlow<String?> = playbackManager.playbackState
@@ -39,11 +47,13 @@ class NowPlayingViewModel(
             currentSongId.collect { songId ->
                 if (songId != null) {
                     loadLyrics(songId)
+                    loadSongInfo(songId)
                     _isStarred.value =
                         playbackManager.playbackState.value.currentSong?.starred != null
                 } else {
                     _lyrics.value = emptyList()
                     _isStarred.value = false
+                    _songInfoState.value = SongInfoUiState.Idle
                 }
             }
         }
@@ -145,6 +155,54 @@ class NowPlayingViewModel(
         playbackManager.skipToQueueItem(index)
     }
 
+    fun retryFetchSongInfo() {
+        val songId = currentSongId.value ?: return
+        viewModelScope.launch { loadSongInfo(songId) }
+    }
+
+    private suspend fun loadSongInfo(songId: String) {
+        _songInfoState.value = SongInfoUiState.Loading
+        try {
+            // Check Room cache first
+            val cached = database.songInfoDao().getBySongId(songId)
+            if (cached != null) {
+                _songInfoState.value = cached.toSuccessState()
+                return
+            }
+            // Check API key
+            val config = database.geminiConfigDao().getConfig().first()
+            val apiKey = config?.apiKey
+            if (apiKey.isNullOrBlank()) {
+                _songInfoState.value = SongInfoUiState.ApiKeyMissing
+                return
+            }
+            // Fetch from Gemini
+            val song = playbackManager.playbackState.value.currentSong
+            val result = geminiService.generateSongInfo(
+                apiKey = apiKey,
+                title = song?.title.orEmpty(),
+                artist = song?.artist.orEmpty(),
+                album = song?.album.orEmpty(),
+            )
+            val songInfo = result.copy(songId = songId)
+            database.songInfoDao().upsert(songInfo)
+            _songInfoState.value = songInfo.toSuccessState()
+        } catch (e: Exception) {
+            _songInfoState.value = SongInfoUiState.Error(
+                e.message ?: "Failed to load song info",
+            )
+        }
+    }
+
+    private fun com.gpo.yoin.data.local.SongInfo.toSuccessState() = SongInfoUiState.Success(
+        creationTime = creationTime,
+        creationLocation = creationLocation,
+        lyricist = lyricist,
+        composer = composer,
+        producer = producer,
+        review = review,
+    )
+
     private suspend fun loadLyrics(songId: String) {
         try {
             val lyricsList = repository.getLyrics(songId)
@@ -169,6 +227,8 @@ class NowPlayingViewModel(
             NowPlayingViewModel(
                 playbackManager = container.playbackManager,
                 repository = container.repository,
+                geminiService = container.geminiService,
+                database = container.database,
             ) as T
     }
 }

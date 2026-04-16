@@ -6,6 +6,7 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import com.gpo.yoin.data.local.ServerConfig
 import com.gpo.yoin.data.local.YoinDatabase
+import com.gpo.yoin.data.remote.GeminiService
 import com.gpo.yoin.data.remote.ServerCredentials
 import com.gpo.yoin.data.remote.SubsonicApi
 import com.gpo.yoin.data.remote.SubsonicApiFactory
@@ -18,12 +19,15 @@ import com.gpo.yoin.ui.experience.MotionCapabilityProvider
 import com.gpo.yoin.ui.memories.MemoriesDeckCoordinator
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.json.Json
+import okhttp3.OkHttpClient
+import java.util.concurrent.TimeUnit
 
 class AppContainer(private val context: Context) {
 
     val database: YoinDatabase by lazy {
         Room.databaseBuilder(context, YoinDatabase::class.java, "yoin-database")
-            .addMigrations(MIGRATION_1_2)
+            .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
             .build()
     }
 
@@ -111,6 +115,16 @@ class AppContainer(private val context: Context) {
         MotionCapabilityProvider(context.applicationContext)
     }
 
+    val geminiService: GeminiService by lazy {
+        GeminiService(
+            client = OkHttpClient.Builder()
+                .connectTimeout(15, TimeUnit.SECONDS)
+                .readTimeout(45, TimeUnit.SECONDS)
+                .build(),
+            json = Json { ignoreUnknownKeys = true; isLenient = true },
+        )
+    }
+
     val memoriesDeckCoordinator: MemoriesDeckCoordinator by lazy {
         MemoriesDeckCoordinator(
             repository = repository,
@@ -135,6 +149,33 @@ class AppContainer(private val context: Context) {
                         `albumId` TEXT,
                         `artistId` TEXT,
                         `timestamp` INTEGER NOT NULL
+                    )
+                    """.trimIndent(),
+                )
+            }
+        }
+
+        val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `song_info` (
+                        `songId` TEXT NOT NULL PRIMARY KEY,
+                        `creationTime` TEXT,
+                        `creationLocation` TEXT,
+                        `lyricist` TEXT,
+                        `composer` TEXT,
+                        `producer` TEXT,
+                        `review` TEXT,
+                        `cachedAt` INTEGER NOT NULL DEFAULT 0
+                    )
+                    """.trimIndent(),
+                )
+                database.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `gemini_config` (
+                        `id` INTEGER NOT NULL PRIMARY KEY,
+                        `apiKey` TEXT NOT NULL
                     )
                     """.trimIndent(),
                 )

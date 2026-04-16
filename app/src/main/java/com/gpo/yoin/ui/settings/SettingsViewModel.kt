@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.gpo.yoin.AppContainer
+import com.gpo.yoin.data.local.GeminiConfig
 import com.gpo.yoin.data.local.ServerConfig
 import com.gpo.yoin.data.remote.ServerCredentials
 import com.gpo.yoin.data.remote.SubsonicApiFactory
@@ -34,11 +35,13 @@ class SettingsViewModel(
         viewModelScope.launch {
             val config = container.database.serverConfigDao().getActiveServer().first()
             val cacheSize = container.database.cacheMetadataDao().getTotalCacheSize().first()
+            val geminiConfig = container.database.geminiConfigDao().getConfig().first()
             _uiState.value = SettingsUiState.Content(
                 serverUrl = config?.serverUrl.orEmpty(),
                 username = config?.username.orEmpty(),
                 isConnected = config != null,
                 cacheSizeBytes = cacheSize,
+                geminiApiKey = geminiConfig?.apiKey.orEmpty(),
             )
         }
     }
@@ -117,6 +120,16 @@ class SettingsViewModel(
                     isConnected = false,
                     cacheSizeBytes = cacheSize,
                 )
+            }
+        }
+    }
+
+    fun saveGeminiApiKey(key: String) {
+        viewModelScope.launch {
+            container.database.geminiConfigDao().upsert(GeminiConfig(apiKey = key.trim()))
+            val state = _uiState.value
+            if (state is SettingsUiState.Content) {
+                _uiState.value = state.copy(geminiApiKey = key.trim())
             }
         }
     }

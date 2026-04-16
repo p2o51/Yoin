@@ -72,6 +72,7 @@ fun SettingsScreen(
         onBackClick = onBackClick,
         onTestConnection = viewModel::testConnection,
         onSaveServer = viewModel::saveServer,
+        onSaveGeminiApiKey = viewModel::saveGeminiApiKey,
         onClearCache = viewModel::clearCache,
         onDismissConnectionResult = viewModel::dismissConnectionResult,
         onRetry = viewModel::retry,
@@ -87,6 +88,7 @@ fun SettingsContent(
     onBackClick: () -> Unit,
     onTestConnection: (String, String, String) -> Unit,
     onSaveServer: (String, String, String) -> Unit,
+    onSaveGeminiApiKey: (String) -> Unit = {},
     onClearCache: () -> Unit,
     onDismissConnectionResult: () -> Unit,
     onRetry: () -> Unit,
@@ -172,6 +174,10 @@ fun SettingsContent(
                                 onTestConnection = onTestConnection,
                                 onSaveServer = onSaveServer,
                                 onDismissConnectionResult = onDismissConnectionResult,
+                            )
+                            GeminiSection(
+                                initialApiKey = uiState.geminiApiKey,
+                                onSaveApiKey = onSaveGeminiApiKey,
                             )
                             CacheSection(
                                 cacheSizeBytes = uiState.cacheSizeBytes,
@@ -394,6 +400,56 @@ private fun ConnectionStatusIndicator(
 }
 
 @Composable
+private fun GeminiSection(
+    initialApiKey: String,
+    onSaveApiKey: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    var apiKey by rememberSaveable { mutableStateOf(initialApiKey) }
+
+    ExpressiveSectionPanel(
+        modifier = modifier.fillMaxWidth(),
+        containerColor = MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.95f),
+        tonalElevation = 1.dp,
+        shadowElevation = 0.dp,
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(18.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            ExpressiveHeaderBlock(
+                title = "AI Features",
+            )
+
+            Text(
+                text = "Enter your Gemini API key to enable AI-powered song info. Get one from Google AI Studio.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+
+            ExpressiveTextField(
+                value = apiKey,
+                onValueChange = { apiKey = it },
+                label = "Gemini API Key",
+                placeholder = "AIza…",
+                visualTransformation = PasswordVisualTransformation(),
+                modifier = Modifier.fillMaxWidth(),
+            )
+
+            Button(
+                onClick = { onSaveApiKey(apiKey) },
+                enabled = apiKey.isNotBlank(),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text("Save API Key")
+            }
+        }
+    }
+}
+
+@Composable
 private fun CacheSection(
     cacheSizeBytes: Long,
     onClearCache: () -> Unit,
@@ -481,6 +537,7 @@ fun SettingsContentPreview() {
             onBackClick = {},
             onTestConnection = { _, _, _ -> },
             onSaveServer = { _, _, _ -> },
+            onSaveGeminiApiKey = {},
             onClearCache = {},
             onDismissConnectionResult = {},
             onRetry = {},
@@ -498,6 +555,7 @@ fun SettingsContentLoadingPreview() {
             onBackClick = {},
             onTestConnection = { _, _, _ -> },
             onSaveServer = { _, _, _ -> },
+            onSaveGeminiApiKey = {},
             onClearCache = {},
             onDismissConnectionResult = {},
             onRetry = {},
@@ -522,6 +580,7 @@ fun SettingsContentErrorPreview() {
             onBackClick = {},
             onTestConnection = { _, _, _ -> },
             onSaveServer = { _, _, _ -> },
+            onSaveGeminiApiKey = {},
             onClearCache = {},
             onDismissConnectionResult = {},
             onRetry = {},

@@ -8,6 +8,7 @@ sealed interface SettingsUiState {
         val username: String,
         val isConnected: Boolean,
         val cacheSizeBytes: Long = 0L,
+        val geminiApiKey: String = "",
     ) : SettingsUiState
 
     data object Connecting : SettingsUiState

@@ -351,6 +351,7 @@ private fun YoinShell(
     val playbackSignal by app.container.audioVisualizerManager.playbackSignal.collectAsState()
     val castState by app.container.castManager.castState.collectAsState()
     val nowPlayingUiState by nowPlayingViewModel.uiState.collectAsState()
+    val songInfoState by nowPlayingViewModel.songInfoState.collectAsState()
     val memoriesBackController = rememberBackSurfaceController()
     var memoriesMounted by remember { mutableStateOf(homeSurface == HomeSurface.Memories) }
     var isPreviewingMemories by remember { mutableStateOf(false) }
@@ -630,6 +631,8 @@ private fun YoinShell(
                     onToggleFavorite = nowPlayingViewModel::toggleFavorite,
                     onSkipToQueueItem = nowPlayingViewModel::skipToQueueItem,
                     onDismiss = closeNowPlaying,
+                    songInfoState = songInfoState,
+                    onRetryFetchSongInfo = nowPlayingViewModel::retryFetchSongInfo,
                     castState = castState,
                     onCastClick = { },
                     sharedTransitionScope = sharedTransitionScope,

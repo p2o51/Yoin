@@ -8,10 +8,13 @@ import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -62,6 +65,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -76,6 +80,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
@@ -83,6 +88,7 @@ import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import kotlin.math.roundToInt
+import kotlinx.coroutines.launch
 import coil3.compose.AsyncImage
 import com.gpo.yoin.player.CastState
 import com.gpo.yoin.player.VisualizerData
@@ -90,6 +96,7 @@ import com.gpo.yoin.ui.component.CastButton
 import com.gpo.yoin.ui.component.ExpressiveMediaArtwork
 import com.gpo.yoin.ui.component.horizontalFadeMask
 import com.gpo.yoin.ui.component.LyricsDisplay
+import com.gpo.yoin.ui.component.SongInfoDisplay
 import com.gpo.yoin.ui.component.QueueSheet
 import com.gpo.yoin.ui.component.RatingSlider
 import com.gpo.yoin.ui.component.WaveProgressBar
@@ -123,6 +130,8 @@ fun NowPlayingScreen(
     onToggleFavorite: () -> Unit,
     onSkipToQueueItem: (Int) -> Unit,
     onDismiss: () -> Unit = {},
+    songInfoState: SongInfoUiState = SongInfoUiState.Idle,
+    onRetryFetchSongInfo: () -> Unit = {},
     castState: CastState = CastState.NotAvailable,
     onCastClick: () -> Unit = {},
     sharedTransitionScope: SharedTransitionScope? = null,
@@ -161,6 +170,8 @@ fun NowPlayingScreen(
                     onToggleFavorite = onToggleFavorite,
                     onSkipToQueueItem = onSkipToQueueItem,
                     onDismiss = onDismiss,
+                    songInfoState = songInfoState,
+                    onRetryFetchSongInfo = onRetryFetchSongInfo,
                     castState = castState,
                     onCastClick = onCastClick,
                     sharedTransitionScope = sharedTransitionScope,
@@ -197,6 +208,8 @@ private fun PlayingContent(
     onToggleFavorite: () -> Unit,
     onSkipToQueueItem: (Int) -> Unit,
     onDismiss: () -> Unit = {},
+    songInfoState: SongInfoUiState = SongInfoUiState.Idle,
+    onRetryFetchSongInfo: () -> Unit = {},
     castState: CastState = CastState.NotAvailable,
     onCastClick: () -> Unit = {},
     sharedTransitionScope: SharedTransitionScope? = null,
@@ -331,21 +344,70 @@ private fun PlayingContent(
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            // ── 2. Lyrics header + lyrics ─────────────────────────────────────
-            Text(
-                text = "Lyrics",
-                style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(bottom = 4.dp),
+            // ── 2. Lyrics / Song Info pager ───────────────────────────────────
+            val pagerState = rememberPagerState(pageCount = { 2 })
+            val pagerScope = rememberCoroutineScope()
+            val lyricsAlpha by animateFloatAsState(
+                targetValue = if (pagerState.currentPage == 0) 1f else 0.5f,
+                animationSpec = YoinMotion.defaultEffectsSpec(),
+                label = "lyricsTabAlpha",
+            )
+            val aboutAlpha by animateFloatAsState(
+                targetValue = if (pagerState.currentPage == 1) 1f else 0.5f,
+                animationSpec = YoinMotion.defaultEffectsSpec(),
+                label = "aboutTabAlpha",
             )
 
-            LyricsDisplay(
-                lyrics = state.lyrics,
-                positionMs = state.positionMs,
+            Row(
+                modifier = Modifier.padding(bottom = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Text(
+                    text = "Lyrics",
+                    style = MaterialTheme.typography.labelLarge.let {
+                        if (pagerState.currentPage == 0) it.copy(fontWeight = FontWeight.Bold) else it
+                    },
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier
+                        .graphicsLayer { alpha = lyricsAlpha }
+                        .clickable {
+                            pagerScope.launch { pagerState.animateScrollToPage(0) }
+                        },
+                )
+                Text(
+                    text = "About",
+                    style = MaterialTheme.typography.labelLarge.let {
+                        if (pagerState.currentPage == 1) it.copy(fontWeight = FontWeight.Bold) else it
+                    },
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier
+                        .graphicsLayer { alpha = aboutAlpha }
+                        .clickable {
+                            pagerScope.launch { pagerState.animateScrollToPage(1) }
+                        },
+                )
+            }
+
+            HorizontalPager(
+                state = pagerState,
+                beyondViewportPageCount = 1,
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f),
-            )
+            ) { page ->
+                when (page) {
+                    0 -> LyricsDisplay(
+                        lyrics = state.lyrics,
+                        positionMs = state.positionMs,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                    1 -> SongInfoDisplay(
+                        songInfoState = songInfoState,
+                        onRetry = onRetryFetchSongInfo,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                }
+            }
 
             Spacer(modifier = Modifier.height(16.dp))
 
