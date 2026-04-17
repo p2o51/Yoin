@@ -12,8 +12,10 @@ import androidx.room.RoomDatabase
         ActivityEvent::class,
         SongInfo::class,
         GeminiConfig::class,
+        Profile::class,
+        SpotifyConfig::class,
     ],
-    version = 3,
+    version = 5,
     exportSchema = true,
 )
 abstract class YoinDatabase : RoomDatabase() {
@@ -30,4 +32,8 @@ abstract class YoinDatabase : RoomDatabase() {
     abstract fun songInfoDao(): SongInfoDao
 
     abstract fun geminiConfigDao(): GeminiConfigDao
+
+    abstract fun profileDao(): ProfileDao
+
+    abstract fun spotifyConfigDao(): SpotifyConfigDao
 }

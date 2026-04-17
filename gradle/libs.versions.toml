@@ -98,11 +98,13 @@ graphics-shapes = { group = "androidx.graphics", name = "graphics-shapes", versi
 
 # Core AndroidX
 core-ktx = { group = "androidx.core", name = "core-ktx", version = "1.15.0" }
+androidx-browser = { group = "androidx.browser", name = "browser", version = "1.8.0" }
 
 # Testing
 junit = { group = "junit", name = "junit", version.ref = "junit" }
 turbine = { group = "app.cash.turbine", name = "turbine", version.ref = "turbine" }
 mockk = { group = "io.mockk", name = "mockk", version.ref = "mockk" }
+okhttp-mockwebserver = { group = "com.squareup.okhttp3", name = "mockwebserver", version.ref = "okhttp" }
 coroutines-test = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-test", version.ref = "coroutinesTest" }
 compose-ui-test-junit4 = { group = "androidx.compose.ui", name = "ui-test-junit4" }
 compose-ui-test-manifest = { group = "androidx.compose.ui", name = "ui-test-manifest" }

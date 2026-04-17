@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.gpo.yoin.AppContainer
 import com.gpo.yoin.data.local.YoinDatabase
+import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.remote.GeminiService
 import com.gpo.yoin.player.PlaybackManager
 import com.gpo.yoin.data.repository.YoinRepository
@@ -164,7 +165,7 @@ class NowPlayingViewModel(
         _songInfoState.value = SongInfoUiState.Loading
         try {
             // Check Room cache first
-            val cached = database.songInfoDao().getBySongId(songId)
+            val cached = database.songInfoDao().getBySongId(songId, MediaId.PROVIDER_SUBSONIC)
             if (cached != null) {
                 _songInfoState.value = cached.toSuccessState()
                 return

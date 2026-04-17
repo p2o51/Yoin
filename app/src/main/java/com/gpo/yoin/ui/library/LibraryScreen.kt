@@ -1,7 +1,6 @@
 package com.gpo.yoin.ui.library
 
 import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -22,9 +21,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -43,18 +41,14 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.unit.Dp
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
-import com.gpo.yoin.R
 import com.gpo.yoin.data.remote.Album
 import com.gpo.yoin.data.remote.Artist
 import com.gpo.yoin.data.remote.Playlist
@@ -65,7 +59,6 @@ import com.gpo.yoin.data.remote.StarredResponse
 // pre-smoothed playbackSignal from AudioVisualizerManager instead.
 import com.gpo.yoin.ui.component.ExpressiveBackdropArtwork
 import com.gpo.yoin.ui.component.ExpressiveBackdropVariant
-import com.gpo.yoin.ui.component.ExpressiveMediaArtwork
 import com.gpo.yoin.ui.component.ExpressiveMetaPill
 import com.gpo.yoin.ui.component.ExpressivePageBackground
 import com.gpo.yoin.ui.component.ExpressiveSectionPanel
@@ -82,11 +75,28 @@ import com.gpo.yoin.ui.theme.YoinShapeTokens
 import com.gpo.yoin.ui.theme.YoinTheme
 
 private val FloatingBottomGroupContentPaddingBase = 108.dp
+private const val MaxAnimatedLibraryItems = 10
 
 @Composable
 private fun floatingBottomGroupContentPadding(): Dp =
     FloatingBottomGroupContentPaddingBase +
         WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+
+@Composable
+private fun rememberLibraryItemEntrance(
+    key: Any,
+    index: Int,
+    delayStepMillis: Long,
+    enabled: Boolean = true,
+): Float {
+    if (!enabled || index >= MaxAnimatedLibraryItems) {
+        return 1f
+    }
+    return rememberExpressiveEntranceProgress(
+        key = key,
+        delayMillis = index * delayStepMillis,
+    )
+}
 
 @Composable
 fun LibraryScreen(
@@ -448,9 +458,10 @@ private fun ArtistsTabContent(
         ),
     ) {
         itemsIndexed(artists, key = { _, artist -> artist.id }) { index, artist ->
-            val entranceProgress = rememberExpressiveEntranceProgress(
+            val entranceProgress = rememberLibraryItemEntrance(
                 key = artist.id,
-                delayMillis = index * 24L,
+                index = index,
+                delayStepMillis = 24L,
             )
             ArtistListItem(
                 artist = artist,
@@ -538,8 +549,12 @@ private fun AlbumsTabContent(
         horizontalArrangement = Arrangement.spacedBy(10.dp),
         verticalArrangement = Arrangement.spacedBy(18.dp),
     ) {
-        items(albums, key = { it.id }) { album ->
-            val entranceProgress = rememberExpressiveEntranceProgress(key = album.id)
+        itemsIndexed(albums, key = { _, album -> album.id }) { index, album ->
+            val entranceProgress = rememberLibraryItemEntrance(
+                key = album.id,
+                index = index,
+                delayStepMillis = 24L,
+            )
             AlbumGridItem(
                 album = album,
                 onClick = { onAlbumClick(album.id) },
@@ -568,6 +583,7 @@ private fun AlbumGridItem(
         title = album.name,
         subtitle = album.artist,
         onClick = onClick,
+        extractBackdropColors = false,
         modifier = modifier.fillMaxWidth(),
         fixedWidth = null,
     )
@@ -597,9 +613,10 @@ private fun SongsTabContent(
         ),
     ) {
         itemsIndexed(songs, key = { _, song -> song.id }) { index, song ->
-            val entranceProgress = rememberExpressiveEntranceProgress(
+            val entranceProgress = rememberLibraryItemEntrance(
                 key = song.id,
-                delayMillis = index * 20L,
+                index = index,
+                delayStepMillis = 20L,
             )
             SongListItem(
                 title = song.title.orEmpty(),
@@ -610,6 +627,7 @@ private fun SongsTabContent(
                 onClick = { onSongClick(song) },
                 isNowPlaying = isPlaying && song.id == activeSongId,
                 playbackSignal = playbackSignal,
+                extractBackdropColors = false,
                 modifier = Modifier.expressiveEntrance(entranceProgress),
             )
         }
@@ -637,9 +655,10 @@ private fun PlaylistsTabContent(
         ),
     ) {
         itemsIndexed(playlists, key = { _, playlist -> playlist.id }) { index, playlist ->
-            val entranceProgress = rememberExpressiveEntranceProgress(
+            val entranceProgress = rememberLibraryItemEntrance(
                 key = playlist.id,
-                delayMillis = index * 24L,
+                index = index,
+                delayStepMillis = 24L,
             )
             PlaylistListItem(
                 playlist = playlist,
@@ -683,6 +702,7 @@ private fun PlaylistListItem(
                 backdropScale = 0.8f,
                 artworkShiftFraction = 0.06f,
                 tonalElevation = 0.dp,
+                extractBackdropColors = false,
             )
 
             Spacer(modifier = Modifier.width(12.dp))
@@ -749,9 +769,10 @@ private fun FavoritesTabContent(
                 items = favorites.artist,
                 key = { _, artist -> "fav-artist-${artist.id}" },
             ) { index, artist ->
-                val entranceProgress = rememberExpressiveEntranceProgress(
+                val entranceProgress = rememberLibraryItemEntrance(
                     key = "fav-artist-${artist.id}",
-                    delayMillis = index * 24L,
+                    index = index,
+                    delayStepMillis = 24L,
                 )
                 ArtistListItem(
                     artist = artist,
@@ -768,9 +789,10 @@ private fun FavoritesTabContent(
                 items = favorites.album,
                 key = { _, album -> "fav-album-${album.id}" },
             ) { index, album ->
-                val entranceProgress = rememberExpressiveEntranceProgress(
+                val entranceProgress = rememberLibraryItemEntrance(
                     key = "fav-album-${album.id}",
-                    delayMillis = index * 24L,
+                    index = index,
+                    delayStepMillis = 24L,
                 )
                 AlbumListItem(
                     album = album,
@@ -790,9 +812,10 @@ private fun FavoritesTabContent(
                 items = favorites.song,
                 key = { _, song -> "fav-song-${song.id}" },
             ) { index, song ->
-                val entranceProgress = rememberExpressiveEntranceProgress(
+                val entranceProgress = rememberLibraryItemEntrance(
                     key = "fav-song-${song.id}",
-                    delayMillis = index * 20L,
+                    index = index,
+                    delayStepMillis = 20L,
                 )
                 SongListItem(
                     title = song.title.orEmpty(),
@@ -803,6 +826,7 @@ private fun FavoritesTabContent(
                     onClick = { onSongClick(song) },
                     isNowPlaying = isPlaying && song.id == activeSongId,
                     playbackSignal = playbackSignal,
+                    extractBackdropColors = false,
                     modifier = Modifier.expressiveEntrance(entranceProgress),
                 )
             }
@@ -842,6 +866,7 @@ private fun AlbumListItem(
                 backdropScale = 0.8f,
                 artworkShiftFraction = 0.06f,
                 tonalElevation = 0.dp,
+                extractBackdropColors = false,
             )
             Spacer(modifier = Modifier.width(12.dp))
             Column(modifier = Modifier.weight(1f)) {
@@ -935,9 +960,11 @@ private fun SearchResultsContent(
                 items = searchResults.artist,
                 key = { _, artist -> "search-artist-${artist.id}" },
             ) { index, artist ->
-                val entranceProgress = rememberExpressiveEntranceProgress(
+                val entranceProgress = rememberLibraryItemEntrance(
                     key = "search-artist-${artist.id}",
-                    delayMillis = index * 24L,
+                    index = index,
+                    delayStepMillis = 24L,
+                    enabled = false,
                 )
                 ArtistListItem(
                     artist = artist,
@@ -954,9 +981,11 @@ private fun SearchResultsContent(
                 items = searchResults.album,
                 key = { _, album -> "search-album-${album.id}" },
             ) { index, album ->
-                val entranceProgress = rememberExpressiveEntranceProgress(
+                val entranceProgress = rememberLibraryItemEntrance(
                     key = "search-album-${album.id}",
-                    delayMillis = index * 24L,
+                    index = index,
+                    delayStepMillis = 24L,
+                    enabled = false,
                 )
                 AlbumListItem(
                     album = album,
@@ -976,9 +1005,11 @@ private fun SearchResultsContent(
                 items = searchResults.song,
                 key = { _, song -> "search-song-${song.id}" },
             ) { index, song ->
-                val entranceProgress = rememberExpressiveEntranceProgress(
+                val entranceProgress = rememberLibraryItemEntrance(
                     key = "search-song-${song.id}",
-                    delayMillis = index * 20L,
+                    index = index,
+                    delayStepMillis = 20L,
+                    enabled = false,
                 )
                 SongListItem(
                     title = song.title.orEmpty(),
@@ -989,6 +1020,7 @@ private fun SearchResultsContent(
                     onClick = { onSongClick(song) },
                     isNowPlaying = isPlaying && song.id == activeSongId,
                     playbackSignal = playbackSignal,
+                    extractBackdropColors = false,
                     modifier = Modifier.expressiveEntrance(entranceProgress),
                 )
             }

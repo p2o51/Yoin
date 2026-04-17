@@ -198,11 +198,13 @@ internal fun ExpressiveBackdropArtwork(
     offsetY: Dp = 0.dp,
     tonalElevation: Dp = 1.dp,
     shadowElevation: Dp = 0.dp,
+    extractBackdropColors: Boolean = true,
 ) {
     val backdropColors = rememberExpressiveBackdropColors(
         model = model,
         fallbackBaseColor = MaterialTheme.colorScheme.secondaryContainer,
         fallbackAccentColor = MaterialTheme.colorScheme.tertiaryContainer,
+        enabled = extractBackdropColors,
     )
     val scaledFillFraction = (fillFraction * ExpressiveBackdropArtworkScale).coerceIn(0.36f, 1f)
 

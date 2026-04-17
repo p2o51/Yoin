@@ -10,8 +10,11 @@ interface PlayHistoryDao {
     @Query("SELECT * FROM play_history ORDER BY playedAt DESC LIMIT :limit")
     fun getRecentHistory(limit: Int): Flow<List<PlayHistory>>
 
-    @Query("SELECT * FROM play_history WHERE songId = :songId ORDER BY playedAt DESC LIMIT 1")
-    suspend fun getMostRecentPlay(songId: String): PlayHistory?
+    @Query(
+        "SELECT * FROM play_history WHERE songId = :songId AND provider = :provider " +
+            "ORDER BY playedAt DESC LIMIT 1",
+    )
+    suspend fun getMostRecentPlay(songId: String, provider: String): PlayHistory?
 
     @Insert
     suspend fun insert(entry: PlayHistory)
@@ -19,6 +22,6 @@ interface PlayHistoryDao {
     @Query("DELETE FROM play_history WHERE playedAt < :timestamp")
     suspend fun deleteOlderThan(timestamp: Long)
 
-    @Query("SELECT COUNT(*) FROM play_history WHERE songId = :songId")
-    fun getPlayCount(songId: String): Flow<Int>
+    @Query("SELECT COUNT(*) FROM play_history WHERE songId = :songId AND provider = :provider")
+    fun getPlayCount(songId: String, provider: String): Flow<Int>
 }

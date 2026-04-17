@@ -345,6 +345,7 @@ private fun YoinShell(
     val selectedSection = experienceSession.selectedSection
     val homeSurface = experienceSession.homeSurface
     val showNowPlaying = experienceSession.nowPlayingExpanded
+    val musicConfigurationRevision by app.container.musicConfigurationRevision.collectAsState()
     val playbackState by app.container.playbackManager.playbackState.collectAsState()
     // playbackSignal is a heavily-throttled Float (≤3% change to emit); safe
     // to collect at the shell level without recomposing at ~30Hz.
@@ -374,6 +375,13 @@ private fun YoinShell(
 
     LaunchedEffect(Unit) {
         app.container.playbackManager.connectInBackground()
+    }
+
+    LaunchedEffect(musicConfigurationRevision) {
+        if (musicConfigurationRevision == 0L) return@LaunchedEffect
+        homeViewModel.refresh()
+        libraryViewModel.refresh()
+        memoriesViewModel.refresh()
     }
 
     val shellBackOwner = resolveShellBackOwner(

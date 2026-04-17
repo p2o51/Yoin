@@ -6,6 +6,12 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import com.gpo.yoin.data.local.ServerConfig
 import com.gpo.yoin.data.local.YoinDatabase
+import com.gpo.yoin.data.profile.PlaintextProfileCredentialsCodec
+import com.gpo.yoin.data.profile.ProfileCredentials
+import com.gpo.yoin.data.profile.ProfileCredentialsCodec
+import com.gpo.yoin.data.profile.ProfileManager
+import com.gpo.yoin.data.profile.SharedPrefsProfileActiveIdStore
+import com.gpo.yoin.data.source.spotify.SpotifyAuthConfig
 import com.gpo.yoin.data.remote.GeminiService
 import com.gpo.yoin.data.remote.ServerCredentials
 import com.gpo.yoin.data.remote.SubsonicApi
@@ -17,7 +23,17 @@ import com.gpo.yoin.player.PlaybackManager
 import com.gpo.yoin.ui.experience.ExperienceSessionStore
 import com.gpo.yoin.ui.experience.MotionCapabilityProvider
 import com.gpo.yoin.ui.memories.MemoriesDeckCoordinator
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import okhttp3.OkHttpClient
@@ -25,9 +41,12 @@ import java.util.concurrent.TimeUnit
 
 class AppContainer(private val context: Context) {
 
+    private val applicationScope =
+        CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
     val database: YoinDatabase by lazy {
         Room.databaseBuilder(context, YoinDatabase::class.java, "yoin-database")
-            .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
+            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
             .build()
     }
 
@@ -40,18 +59,26 @@ class AppContainer(private val context: Context) {
     @Volatile
     private var _api: SubsonicApi? = null
 
+    private val _musicConfigurationRevision = MutableStateFlow(0L)
+    val musicConfigurationRevision: StateFlow<Long> = _musicConfigurationRevision.asStateFlow()
+
     fun getCredentials(): ServerCredentials {
         cachedCredentials?.let { return it }
-        val config: ServerConfig? = runBlocking {
-            database.serverConfigDao().getActiveServer().first()
-        }
-        val creds = config?.let {
-            ServerCredentials(
-                serverUrl = it.serverUrl,
-                username = it.username,
-                password = it.passwordHash,
+        val profileBacked = runBlocking { profileManager.getActiveProfileSnapshot() }
+            ?.let(profileManager::decodeCredentials)
+        val creds = when (profileBacked) {
+            is ProfileCredentials.Subsonic -> ServerCredentials(
+                serverUrl = profileBacked.serverUrl,
+                username = profileBacked.username,
+                password = profileBacked.password,
             )
-        } ?: ServerCredentials("", "", "")
+            // Spotify profile is active — YoinRepository's Subsonic shape is
+            // unusable. Return a blank `ServerCredentials` so `isConfigured`
+            // flips false; VMs will show empty/error state. Phase 2 routes
+            // remote calls through `MusicSource` and this branch goes away.
+            is ProfileCredentials.Spotify -> ServerCredentials("", "", "")
+            null -> loadLegacyServerCredentials()
+        }
         cachedCredentials = creds
         return creds
     }
@@ -74,6 +101,11 @@ class AppContainer(private val context: Context) {
         _api = null
     }
 
+    fun notifyMusicConfigurationChanged() {
+        invalidateCredentials()
+        _musicConfigurationRevision.value += 1
+    }
+
     val repository: YoinRepository by lazy {
         YoinRepository(
             apiProvider = ::getApi,
@@ -89,6 +121,59 @@ class AppContainer(private val context: Context) {
             database = database,
             credentials = ::getCredentials,
         )
+    }
+
+    /**
+     * Provider-agnostic account manager. Phase 1 of the multi-provider
+     * refactor wires this up and migrates any existing Subsonic config into
+     * a Profile on first boot, but the UI/VM layer still consumes
+     * [YoinRepository] (Subsonic-shaped). Phase 2 slims the Repository onto
+     * `profileManager.activeSource` and removes [getApi] / [getCredentials].
+     */
+    private val credentialsCodec: ProfileCredentialsCodec = PlaintextProfileCredentialsCodec()
+
+    /**
+     * Current Spotify OAuth client id. Resolves user-entered value from the
+     * `spotify_config` Room row; falls back to the dev-time
+     * `BuildConfig.SPOTIFY_CLIENT_ID` when the user hasn't set one. Refresh
+     * loops and the OAuth activity both read this.
+     */
+    val spotifyClientIdFlow: StateFlow<String> by lazy {
+        database.spotifyConfigDao().getConfig()
+            .map { it?.clientId?.takeIf { id -> id.isNotBlank() } ?: SpotifyAuthConfig.FALLBACK_CLIENT_ID }
+            .stateIn(
+                scope = applicationScope,
+                started = SharingStarted.Eagerly,
+                initialValue = SpotifyAuthConfig.FALLBACK_CLIENT_ID,
+            )
+    }
+
+    val profileManager: ProfileManager by lazy {
+        ProfileManager(
+            profileDao = database.profileDao(),
+            serverConfigDao = database.serverConfigDao(),
+            activeIdStore = SharedPrefsProfileActiveIdStore(context),
+            codec = credentialsCodec,
+            scope = applicationScope,
+            spotifyClientIdProvider = { spotifyClientIdFlow.value },
+            onSwitchPrepare = {
+                // Kill the current playback session — its stream URLs and auth
+                // tokens are scoped to the outgoing profile. invalidate before
+                // the new source is built so any re-entrant getCredentials()
+                // call reads the new profile.
+                playbackManager.disconnect()
+                invalidateCredentials()
+            },
+            onSwitchCommit = {
+                // Fan out to feature VMs (Home / Library / Memories) so the
+                // first render after the switch shows new-profile content.
+                notifyMusicConfigurationChanged()
+            },
+        ).also { manager ->
+            applicationScope.launch {
+                manager.migrateLegacyServerConfigIfNeeded()
+            }
+        }
     }
 
     val castManager: CastManager by lazy {
@@ -130,6 +215,19 @@ class AppContainer(private val context: Context) {
             repository = repository,
             sessionStore = experienceSessionStore,
         )
+    }
+
+    private fun loadLegacyServerCredentials(): ServerCredentials {
+        val config: ServerConfig? = runBlocking {
+            database.serverConfigDao().getActiveServer().first()
+        }
+        return config?.let {
+            ServerCredentials(
+                serverUrl = it.serverUrl,
+                username = it.username,
+                password = it.passwordHash,
+            )
+        } ?: ServerCredentials("", "", "")
     }
 
     private companion object {
@@ -176,6 +274,140 @@ class AppContainer(private val context: Context) {
                     CREATE TABLE IF NOT EXISTS `gemini_config` (
                         `id` INTEGER NOT NULL PRIMARY KEY,
                         `apiKey` TEXT NOT NULL
+                    )
+                    """.trimIndent(),
+                )
+            }
+        }
+
+        // v3 → v4: add `provider` column to every table that stores a remote
+        // entity id, so Subsonic / Spotify / ... data can coexist. Existing
+        // rows are tagged "subsonic". Also introduces the `profiles` table.
+        val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                // local_ratings: rebuild with composite PK (songId, provider)
+                database.execSQL(
+                    """
+                    CREATE TABLE `local_ratings_new` (
+                        `songId` TEXT NOT NULL,
+                        `provider` TEXT NOT NULL DEFAULT 'subsonic',
+                        `rating` REAL NOT NULL,
+                        `serverRating` INTEGER NOT NULL,
+                        `needsSync` INTEGER NOT NULL,
+                        `updatedAt` INTEGER NOT NULL,
+                        PRIMARY KEY(`songId`, `provider`)
+                    )
+                    """.trimIndent(),
+                )
+                database.execSQL(
+                    """
+                    INSERT INTO `local_ratings_new`
+                        (`songId`, `provider`, `rating`, `serverRating`, `needsSync`, `updatedAt`)
+                    SELECT `songId`, 'subsonic', `rating`, `serverRating`, `needsSync`, `updatedAt`
+                    FROM `local_ratings`
+                    """.trimIndent(),
+                )
+                database.execSQL("DROP TABLE `local_ratings`")
+                database.execSQL("ALTER TABLE `local_ratings_new` RENAME TO `local_ratings`")
+
+                // song_info: rebuild with composite PK
+                database.execSQL(
+                    """
+                    CREATE TABLE `song_info_new` (
+                        `songId` TEXT NOT NULL,
+                        `provider` TEXT NOT NULL DEFAULT 'subsonic',
+                        `creationTime` TEXT,
+                        `creationLocation` TEXT,
+                        `lyricist` TEXT,
+                        `composer` TEXT,
+                        `producer` TEXT,
+                        `review` TEXT,
+                        `cachedAt` INTEGER NOT NULL DEFAULT 0,
+                        PRIMARY KEY(`songId`, `provider`)
+                    )
+                    """.trimIndent(),
+                )
+                database.execSQL(
+                    """
+                    INSERT INTO `song_info_new`
+                        (`songId`, `provider`, `creationTime`, `creationLocation`,
+                         `lyricist`, `composer`, `producer`, `review`, `cachedAt`)
+                    SELECT `songId`, 'subsonic', `creationTime`, `creationLocation`,
+                           `lyricist`, `composer`, `producer`, `review`, `cachedAt`
+                    FROM `song_info`
+                    """.trimIndent(),
+                )
+                database.execSQL("DROP TABLE `song_info`")
+                database.execSQL("ALTER TABLE `song_info_new` RENAME TO `song_info`")
+
+                // cache_metadata: rebuild with composite PK
+                database.execSQL(
+                    """
+                    CREATE TABLE `cache_metadata_new` (
+                        `songId` TEXT NOT NULL,
+                        `provider` TEXT NOT NULL DEFAULT 'subsonic',
+                        `title` TEXT NOT NULL,
+                        `artist` TEXT NOT NULL,
+                        `album` TEXT NOT NULL,
+                        `fileSizeBytes` INTEGER NOT NULL,
+                        `cachedAt` INTEGER NOT NULL,
+                        `lastAccessedAt` INTEGER NOT NULL,
+                        PRIMARY KEY(`songId`, `provider`)
+                    )
+                    """.trimIndent(),
+                )
+                database.execSQL(
+                    """
+                    INSERT INTO `cache_metadata_new`
+                        (`songId`, `provider`, `title`, `artist`, `album`,
+                         `fileSizeBytes`, `cachedAt`, `lastAccessedAt`)
+                    SELECT `songId`, 'subsonic', `title`, `artist`, `album`,
+                           `fileSizeBytes`, `cachedAt`, `lastAccessedAt`
+                    FROM `cache_metadata`
+                    """.trimIndent(),
+                )
+                database.execSQL("DROP TABLE `cache_metadata`")
+                database.execSQL("ALTER TABLE `cache_metadata_new` RENAME TO `cache_metadata`")
+
+                // play_history: add `provider` column in place
+                database.execSQL(
+                    """
+                    ALTER TABLE `play_history`
+                    ADD COLUMN `provider` TEXT NOT NULL DEFAULT 'subsonic'
+                    """.trimIndent(),
+                )
+
+                // activity_events: add `provider` column in place
+                database.execSQL(
+                    """
+                    ALTER TABLE `activity_events`
+                    ADD COLUMN `provider` TEXT NOT NULL DEFAULT 'subsonic'
+                    """.trimIndent(),
+                )
+
+                // profiles: new table
+                database.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `profiles` (
+                        `id` TEXT NOT NULL PRIMARY KEY,
+                        `provider` TEXT NOT NULL,
+                        `displayName` TEXT NOT NULL,
+                        `credentialsJson` TEXT NOT NULL,
+                        `createdAt` INTEGER NOT NULL
+                    )
+                    """.trimIndent(),
+                )
+            }
+        }
+
+        // v4 → v5: single-row spotify_config table for user-supplied OAuth client id.
+        val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `spotify_config` (
+                        `id` INTEGER NOT NULL PRIMARY KEY,
+                        `clientId` TEXT NOT NULL
                     )
                     """.trimIndent(),
                 )

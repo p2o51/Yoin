@@ -292,6 +292,22 @@ class PlaybackManager(
         positionUpdateJob = null
     }
 
+    private fun executeOrQueue(command: (MediaController) -> Unit) {
+        val player = controller
+        if (player != null) {
+            command(player)
+        } else {
+            pendingCommands += command
+            connectInBackground()
+        }
+    }
+
+    private fun flushPendingCommands(player: MediaController) {
+        val commands = pendingCommands.toList()
+        pendingCommands.clear()
+        commands.forEach { it(player) }
+    }
+
     companion object {
         private const val POSITION_UPDATE_INTERVAL_MS = 250L
 
@@ -387,24 +403,6 @@ class PlaybackManager(
                 },
                 MoreExecutors.directExecutor(),
             )
-            continuation.invokeOnCancellation { future.cancel(false) }
         }
-    }
-
-    private fun executeOrQueue(command: (MediaController) -> Unit) {
-        val player = controller
-        if (player != null) {
-            command(player)
-            return
-        }
-        pendingCommands += command
-        connectInBackground()
-    }
-
-    private fun flushPendingCommands(player: MediaController) {
-        if (pendingCommands.isEmpty()) return
-        val commands = pendingCommands.toList()
-        pendingCommands.clear()
-        commands.forEach { it(player) }
     }
 }

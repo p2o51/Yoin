@@ -11,8 +11,8 @@ interface CacheMetadataDao {
     @Query("SELECT * FROM cache_metadata")
     fun getAll(): Flow<List<CacheMetadata>>
 
-    @Query("SELECT * FROM cache_metadata WHERE songId = :songId")
-    suspend fun getBySongId(songId: String): CacheMetadata?
+    @Query("SELECT * FROM cache_metadata WHERE songId = :songId AND provider = :provider")
+    suspend fun getBySongId(songId: String, provider: String): CacheMetadata?
 
     @Query("SELECT COALESCE(SUM(fileSizeBytes), 0) FROM cache_metadata")
     fun getTotalCacheSize(): Flow<Long>
@@ -20,13 +20,13 @@ interface CacheMetadataDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insert(metadata: CacheMetadata)
 
-    @Query("DELETE FROM cache_metadata WHERE songId = :songId")
-    suspend fun delete(songId: String)
+    @Query("DELETE FROM cache_metadata WHERE songId = :songId AND provider = :provider")
+    suspend fun delete(songId: String, provider: String)
 
     @Query(
         """
-        DELETE FROM cache_metadata WHERE songId NOT IN (
-            SELECT songId FROM cache_metadata
+        DELETE FROM cache_metadata WHERE (songId, provider) NOT IN (
+            SELECT songId, provider FROM cache_metadata
             ORDER BY lastAccessedAt DESC
             LIMIT :keepCount
         )
@@ -34,6 +34,9 @@ interface CacheMetadataDao {
     )
     suspend fun deleteOldest(keepCount: Int)
 
-    @Query("UPDATE cache_metadata SET lastAccessedAt = :time WHERE songId = :songId")
-    suspend fun updateLastAccessed(songId: String, time: Long)
+    @Query(
+        "UPDATE cache_metadata SET lastAccessedAt = :time " +
+            "WHERE songId = :songId AND provider = :provider",
+    )
+    suspend fun updateLastAccessed(songId: String, provider: String, time: Long)
 }

@@ -98,7 +98,7 @@ Respond strictly in the tagged format above. Every field must include its corres
     companion object {
         private const val BASE_URL =
             "https://generativelanguage.googleapis.com/v1beta/models/"
-        private const val MODEL = "gemini-2.0-flash"
+        private const val MODEL = "gemini-3.1-flash-lite-preview"
         private val JSON_MEDIA_TYPE = "application/json".toMediaType()
 
         fun parseTaggedResponse(rawText: String, songId: String): SongInfo {

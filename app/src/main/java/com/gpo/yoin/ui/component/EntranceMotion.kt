@@ -57,6 +57,10 @@ internal fun Modifier.expressiveEntrance(
     initialOffsetY: Dp = 18.dp,
     initialScale: Float = 0.94f,
 ): Modifier {
+    val clampedProgress = progress.coerceIn(0f, 1f)
+    if (clampedProgress >= 0.999f) {
+        return this
+    }
     val motionProfile = LocalMotionProfile.current
     val density = LocalDensity.current
     val reducedMotionFactor = if (motionProfile == MotionProfile.Full) 1f else 0.45f
@@ -67,7 +71,6 @@ internal fun Modifier.expressiveEntrance(
         1f - ((1f - initialScale) * 0.42f)
     }
     return graphicsLayer {
-        val clampedProgress = progress.coerceIn(0f, 1f)
         val scale = effectiveInitialScale + ((1f - effectiveInitialScale) * clampedProgress)
         alpha = clampedProgress
         scaleX = scale

@@ -6,9 +6,11 @@ import android.util.LruCache
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.produceState
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
@@ -74,32 +76,29 @@ internal fun rememberExpressiveBackdropColors(
             accentColor = fallbackAccentColor,
         )
     }
-    val cachedColors = remember(model) {
-        model?.let(ExpressiveBackdropPaletteCache::get)
+    // Re-read the palette cache on every composition. `remember(model)` would
+    // snapshot at first composition, which is the bug behind the "fast-scroll
+    // white flash": once a previously resolved entry is composed while
+    // `enabled=false` (scroll gate closed), the old code returns the snapshot
+    // cachedColors (null at first frame) instead of the colors that a sibling
+    // composition already produced and wrote to the LruCache.
+    val cacheHit = model?.let(ExpressiveBackdropPaletteCache::get)
+    // Monotonic "last resolved" state keyed on model. Persists across
+    // `enabled` flips so already-colored cards keep their colors when
+    // scrolling pauses palette extraction.
+    var resolvedColors by remember(model) {
+        mutableStateOf(cacheHit ?: fallbackColors)
     }
-    if (!enabled) {
-        return cachedColors ?: fallbackColors
+    if (cacheHit != null && resolvedColors !== cacheHit) {
+        resolvedColors = cacheHit
     }
-    if (motionProfile == MotionProfile.AdaptiveReduced && cachedColors == null) {
-        return fallbackColors
-    }
-    val colors by produceState(
-        initialValue = cachedColors ?: fallbackColors,
-        key1 = model,
-        key2 = fallbackBaseColor,
-        key3 = fallbackAccentColor,
-    ) {
-        if (model.isNullOrBlank()) {
-            value = fallbackColors
-            return@produceState
-        }
 
-        cachedColors?.let {
-            value = it
-            return@produceState
-        }
-
-        value = loadBackdropColors(
+    LaunchedEffect(model, enabled) {
+        if (!enabled) return@LaunchedEffect
+        if (model.isNullOrBlank()) return@LaunchedEffect
+        if (ExpressiveBackdropPaletteCache.get(model) != null) return@LaunchedEffect
+        if (motionProfile == MotionProfile.AdaptiveReduced) return@LaunchedEffect
+        resolvedColors = loadBackdropColors(
             context = context,
             model = model,
             fallbackColors = fallbackColors,
@@ -109,12 +108,12 @@ internal fun rememberExpressiveBackdropColors(
     // colors instead of snapping from fallback → extracted, which is
     // what the user perceives as a "flash" on newly-loaded artwork.
     val animatedBase by animateColorAsState(
-        targetValue = colors.baseColor,
+        targetValue = resolvedColors.baseColor,
         animationSpec = tween(durationMillis = 380),
         label = "backdropBase",
     )
     val animatedAccent by animateColorAsState(
-        targetValue = colors.accentColor,
+        targetValue = resolvedColors.accentColor,
         animationSpec = tween(durationMillis = 380),
         label = "backdropAccent",
     )

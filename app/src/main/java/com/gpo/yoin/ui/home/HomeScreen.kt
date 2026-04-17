@@ -750,22 +750,6 @@ private fun HomeContentPreview() {
                         ),
                     ),
                 ),
-                recentlyAdded = listOf(
-                    Album(id = "a1", name = "Black Holes and Revelations", artist = "Muse"),
-                    Album(id = "a2", name = "Random Access Memories", artist = "Daft Punk"),
-                ),
-                mixForYou = listOf(
-                    Album(id = "a3", name = "OK Computer", artist = "Radiohead"),
-                    Album(id = "a6", name = "In Rainbows", artist = "Radiohead"),
-                ),
-                mostPlayed = listOf(
-                    Album(id = "a4", name = "The Dark Side of the Moon", artist = "Pink Floyd"),
-                    Album(id = "a5", name = "Abbey Road", artist = "The Beatles"),
-                ),
-                quickPlaySongs = listOf(
-                    Song(id = "qs1", title = "Bohemian Rhapsody", artist = "Queen"),
-                    Song(id = "qs2", title = "Stairway to Heaven", artist = "Led Zeppelin"),
-                ),
             ),
             isPlaying = true,
             playbackSignal = 0.35f,

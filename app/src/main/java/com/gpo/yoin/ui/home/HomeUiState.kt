@@ -12,12 +12,6 @@ sealed interface HomeUiState {
         val activities: List<ActivityEvent>,
         val jumpBackInItems: List<HomeJumpBackInItem>,
         val isLoadingMoreJumpBackIn: Boolean = false,
-        val recentlyAdded: List<Album>,
-        val mixForYou: List<Album>,
-        val mostPlayed: List<Album>,
-        val quickPlaySongs: List<Song>,
-        val quickPlayAlbums: List<Album> = emptyList(),
-        val jumpBackInRevision: Int = 0,
     ) : HomeUiState
 
     data class Error(val message: String) : HomeUiState

@@ -6,6 +6,7 @@ import com.gpo.yoin.data.local.ActivityEvent
 import com.gpo.yoin.data.local.LocalRating
 import com.gpo.yoin.data.local.PlayHistory
 import com.gpo.yoin.data.local.YoinDatabase
+import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.remote.Album
 import com.gpo.yoin.data.remote.ArtistDetail
 import com.gpo.yoin.data.remote.ArtistIndex
@@ -24,6 +25,16 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlin.math.roundToInt
 
+/**
+ * Subsonic-shaped repository used by v1 ViewModels.
+ *
+ * The provider-agnostic [com.gpo.yoin.data.source.MusicSource] interface and
+ * Profile system are already wired (see `AppContainer.profileManager`), but
+ * the UI layer has not been migrated to consume neutral models yet. That is
+ * phase 2 of the multi-provider refactor (see `docs/design.md` — Provider
+ * abstraction). Internal DB calls tag all rows with
+ * [MediaId.PROVIDER_SUBSONIC].
+ */
 class YoinRepository(
     private val apiProvider: () -> SubsonicApi,
     private val database: YoinDatabase,
@@ -127,6 +138,7 @@ class YoinRepository(
         database.localRatingDao().upsert(
             LocalRating(
                 songId = songId,
+                provider = MediaId.PROVIDER_SUBSONIC,
                 rating = rating,
                 serverRating = serverRating,
                 needsSync = true,
@@ -138,6 +150,7 @@ class YoinRepository(
             database.localRatingDao().upsert(
                 LocalRating(
                     songId = songId,
+                    provider = MediaId.PROVIDER_SUBSONIC,
                     rating = rating,
                     serverRating = serverRating,
                     needsSync = false,
@@ -149,18 +162,19 @@ class YoinRepository(
     }
 
     fun getRating(songId: String): Flow<LocalRating?> =
-        database.localRatingDao().getRating(songId)
+        database.localRatingDao().getRating(songId, MediaId.PROVIDER_SUBSONIC)
 
     suspend fun getRatings(songIds: Collection<String>): Map<String, LocalRating> {
         if (songIds.isEmpty()) return emptyMap()
         return database.localRatingDao()
-            .getRatings(songIds.distinct())
+            .getRatings(songIds.distinct(), MediaId.PROVIDER_SUBSONIC)
             .associateBy { it.songId }
     }
 
     suspend fun syncPendingRatings() {
         val pending = database.localRatingDao().getRatingsNeedingSync().first()
         for (rating in pending) {
+            if (rating.provider != MediaId.PROVIDER_SUBSONIC) continue
             try {
                 unwrap(api().setRating(rating.songId, rating.serverRating))
                 database.localRatingDao().upsert(rating.copy(needsSync = false))
@@ -189,6 +203,7 @@ class YoinRepository(
         database.playHistoryDao().insert(
             PlayHistory(
                 songId = song.id,
+                provider = MediaId.PROVIDER_SUBSONIC,
                 title = song.title.orEmpty(),
                 artist = song.artist.orEmpty(),
                 album = song.album.orEmpty(),
@@ -227,7 +242,7 @@ class YoinRepository(
             .toList()
 
     suspend fun getMostRecentPlay(songId: String): PlayHistory? =
-        database.playHistoryDao().getMostRecentPlay(songId)
+        database.playHistoryDao().getMostRecentPlay(songId, MediaId.PROVIDER_SUBSONIC)
 
     suspend fun recordAlbumVisit(album: Album) {
         database.activityEventDao().insert(
@@ -235,6 +250,7 @@ class YoinRepository(
                 entityType = ActivityEntityType.ALBUM.name,
                 actionType = ActivityActionType.VISITED.name,
                 entityId = album.id,
+                provider = MediaId.PROVIDER_SUBSONIC,
                 title = album.name,
                 subtitle = album.artist.orEmpty(),
                 coverArtId = album.coverArt ?: album.id,
@@ -250,6 +266,7 @@ class YoinRepository(
                 entityType = ActivityEntityType.ARTIST.name,
                 actionType = ActivityActionType.VISITED.name,
                 entityId = artist.id,
+                provider = MediaId.PROVIDER_SUBSONIC,
                 title = artist.name,
                 subtitle = "Artist",
                 coverArtId = artist.coverArt,
@@ -296,6 +313,7 @@ class YoinRepository(
             entityType = ActivityEntityType.ALBUM.name,
             actionType = ActivityActionType.PLAYED.name,
             entityId = activityContext.albumId,
+            provider = MediaId.PROVIDER_SUBSONIC,
             title = activityContext.albumName,
             subtitle = activityContext.artistName.orEmpty().ifBlank { song.artist.orEmpty() },
             coverArtId = activityContext.coverArtId ?: song.coverArt ?: song.albumId,
@@ -308,6 +326,7 @@ class YoinRepository(
             entityType = ActivityEntityType.ARTIST.name,
             actionType = ActivityActionType.PLAYED.name,
             entityId = activityContext.artistId,
+            provider = MediaId.PROVIDER_SUBSONIC,
             title = activityContext.artistName,
             subtitle = "Artist",
             coverArtId = activityContext.coverArtId ?: song.coverArt,
@@ -320,6 +339,7 @@ class YoinRepository(
             entityType = ActivityEntityType.PLAYLIST.name,
             actionType = ActivityActionType.PLAYED.name,
             entityId = activityContext.playlistId,
+            provider = MediaId.PROVIDER_SUBSONIC,
             title = activityContext.playlistName,
             subtitle = activityContext.owner.orEmpty().ifBlank { "Playlist" },
             coverArtId = activityContext.coverArtId ?: song.coverArt ?: song.albumId,
@@ -332,6 +352,7 @@ class YoinRepository(
             entityType = ActivityEntityType.SONG.name,
             actionType = ActivityActionType.PLAYED.name,
             entityId = song.id,
+            provider = MediaId.PROVIDER_SUBSONIC,
             title = song.title.orEmpty(),
             subtitle = song.artist.orEmpty(),
             coverArtId = song.coverArt ?: song.albumId,

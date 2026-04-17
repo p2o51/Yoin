@@ -1,8 +1,6 @@
 package com.gpo.yoin.ui.component
 
 import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -31,6 +29,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.gpo.yoin.ui.nowplaying.SongInfoUiState
+import com.gpo.yoin.ui.theme.YoinMotion
+import com.gpo.yoin.ui.theme.YoinMotionRole
 import com.gpo.yoin.ui.theme.YoinTheme
 
 @Composable
@@ -41,7 +41,10 @@ fun SongInfoDisplay(
 ) {
     AnimatedContent(
         targetState = songInfoState,
-        transitionSpec = { fadeIn() togetherWith fadeOut() },
+        transitionSpec = {
+            YoinMotion.fadeIn(role = YoinMotionRole.Standard) togetherWith
+                YoinMotion.fadeOut(role = YoinMotionRole.Standard)
+        },
         contentKey = { it::class },
         modifier = modifier,
         label = "songInfoContent",

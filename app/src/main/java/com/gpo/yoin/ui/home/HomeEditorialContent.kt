@@ -82,6 +82,8 @@ import com.gpo.yoin.ui.component.ExpressiveMediaArtwork
 import com.gpo.yoin.ui.component.ExpressiveSectionPanel
 import com.gpo.yoin.ui.component.YoinLoadingIndicator
 import com.gpo.yoin.ui.component.elasticPress
+import com.gpo.yoin.ui.component.expressiveEntrance
+import com.gpo.yoin.ui.component.rememberExpressiveEntranceProgress
 import com.gpo.yoin.ui.component.ExpressiveBackdropArtworkScale
 import com.gpo.yoin.ui.component.horizontalFadeMask
 import com.gpo.yoin.ui.component.minimumTouchTarget
@@ -267,6 +269,7 @@ internal fun HomeEditorialContent(
             .filter { it }
             .collect { onLoadMoreState.value() }
     }
+    val shouldExtractBackdropColors = allowBackdropPalette && !listState.isScrollInProgress
 
     val navBarBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
     LazyColumn(
@@ -300,7 +303,7 @@ internal fun HomeEditorialContent(
                     activeSongId = activeSongId,
                     isPlaying = isPlaying,
                     playbackSignal = playbackSignal,
-                    extractBackdropColors = allowBackdropPalette,
+                    extractBackdropColors = shouldExtractBackdropColors,
                     onEntryClick = onEntryClick,
                     sharedTransitionScope = sharedTransitionScope,
                     animatedVisibilityScope = animatedVisibilityScope,
@@ -337,10 +340,11 @@ internal fun HomeEditorialContent(
             ) { index, row ->
                 JumpBackInRow(
                     entries = row,
+                    rowIndex = index,
                     activeSongId = activeSongId,
                     isPlaying = isPlaying,
                     playbackSignal = playbackSignal,
-                    extractBackdropColors = allowBackdropPalette,
+                    extractBackdropColors = shouldExtractBackdropColors,
                     onEntryClick = onEntryClick,
                     sharedTransitionScope = sharedTransitionScope,
                     animatedVisibilityScope = animatedVisibilityScope,
@@ -476,9 +480,13 @@ private fun ActivityCard(
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isPlaybackActive = isPlaying && entry.songId != null && entry.songId == activeSongId
+    val entranceProgress = rememberExpressiveEntranceProgress(
+        key = entry.stableId,
+        delayMillis = delayMillis,
+    )
 
     Surface(
-        modifier = modifier,
+        modifier = modifier.expressiveEntrance(entranceProgress),
         shape = YoinShapeTokens.Large,
         color = MaterialTheme.colorScheme.surfaceContainerLow,
         tonalElevation = 2.dp,
@@ -561,6 +569,7 @@ private fun JumpBackInHeader(
 @Composable
 private fun JumpBackInRow(
     entries: List<JumpBackInVisualEntry>,
+    rowIndex: Int,
     activeSongId: String? = null,
     isPlaying: Boolean,
     playbackSignal: Float,
@@ -570,6 +579,11 @@ private fun JumpBackInRow(
     animatedVisibilityScope: AnimatedVisibilityScope? = null,
     modifier: Modifier = Modifier,
 ) {
+    // Stagger only the first two rows — these are the user's first
+    // perceivable impression. Rows beyond that (including anything the
+    // pagination appends) still fade/scale in, but without the cascading
+    // delay so fresh pages don't feel like a heavy entrance animation.
+    val staggerRow = rowIndex < 2
     Row(
         modifier = modifier,
         horizontalArrangement = Arrangement.spacedBy(14.dp),
@@ -582,7 +596,7 @@ private fun JumpBackInRow(
                 isPlaying = isPlaying,
                 playbackSignal = playbackSignal,
                 extractBackdropColors = extractBackdropColors,
-                delayMillis = index * 42L,
+                delayMillis = if (staggerRow) index * 42L else 0L,
                 onClick = { onEntryClick(entry.target) },
                 sharedTransitionScope = sharedTransitionScope,
                 animatedVisibilityScope = animatedVisibilityScope,
@@ -611,8 +625,13 @@ private fun JumpBackInTile(
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isPlaybackActive = isPlaying && entry.songId != null && entry.songId == activeSongId
+    val entranceProgress = rememberExpressiveEntranceProgress(
+        key = entry.stableId,
+        delayMillis = delayMillis,
+    )
     Column(
         modifier = modifier
+            .expressiveEntrance(entranceProgress)
             .noRippleClickable(interactionSource = interactionSource, onClick = onClick),
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {

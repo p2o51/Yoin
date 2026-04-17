@@ -37,6 +37,7 @@ fun SongListItem(
     onClick: () -> Unit,
     isNowPlaying: Boolean = false,
     playbackSignal: Float = 0f,
+    extractBackdropColors: Boolean = true,
     modifier: Modifier = Modifier,
     trailingContent: (@Composable RowScope.() -> Unit)? = null,
 ) {
@@ -72,6 +73,7 @@ fun SongListItem(
                 backdropScale = 0.78f,
                 artworkShiftFraction = 0.06f,
                 tonalElevation = 0.dp,
+                extractBackdropColors = extractBackdropColors,
             )
 
             Column(

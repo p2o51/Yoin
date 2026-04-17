@@ -33,6 +33,7 @@ fun AlbumCard(
     subtitle: String? = null,
     metaLabel: String? = null,
     onClick: () -> Unit,
+    extractBackdropColors: Boolean = true,
     modifier: Modifier = Modifier,
     fixedWidth: androidx.compose.ui.unit.Dp? = 156.dp,
 ) {
@@ -78,6 +79,7 @@ fun AlbumCard(
                     offsetX = 8.dp,
                     offsetY = 10.dp,
                     tonalElevation = 0.dp,
+                    extractBackdropColors = extractBackdropColors,
                 )
             }
 

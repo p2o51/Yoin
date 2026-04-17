@@ -18,6 +18,9 @@ android {
         versionName = "0.1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        val spotifyClientId = (project.findProperty("spotifyClientId") as String?).orEmpty()
+        buildConfigField("String", "SPOTIFY_CLIENT_ID", "\"$spotifyClientId\"")
     }
 
     buildTypes {
@@ -38,6 +41,7 @@ android {
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 
     // Room schema export — will be configured in Phase 3 with androidx.room plugin
@@ -116,11 +120,13 @@ dependencies {
 
     // Core AndroidX
     implementation(libs.core.ktx)
+    implementation(libs.androidx.browser)
 
     // Testing
     testImplementation(libs.junit)
     testImplementation(libs.turbine)
     testImplementation(libs.mockk)
+    testImplementation(libs.okhttp.mockwebserver)
     testImplementation(libs.coroutines.test)
     androidTestImplementation(libs.compose.ui.test.junit4)
     debugImplementation(libs.compose.ui.test.manifest)

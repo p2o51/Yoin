@@ -7,8 +7,8 @@ import androidx.room.Upsert
 @Dao
 interface SongInfoDao {
 
-    @Query("SELECT * FROM song_info WHERE songId = :songId LIMIT 1")
-    suspend fun getBySongId(songId: String): SongInfo?
+    @Query("SELECT * FROM song_info WHERE songId = :songId AND provider = :provider LIMIT 1")
+    suspend fun getBySongId(songId: String, provider: String): SongInfo?
 
     @Upsert
     suspend fun upsert(songInfo: SongInfo)

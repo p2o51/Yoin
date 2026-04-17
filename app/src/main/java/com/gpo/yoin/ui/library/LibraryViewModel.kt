@@ -16,9 +16,9 @@ import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.launch
 
 @OptIn(FlowPreview::class)
@@ -120,7 +120,13 @@ class LibraryViewModel(
     }
 
     fun search(query: String) {
-        updateContent { copy(searchQuery = query) }
+        updateContent {
+            if (searchQuery == query) {
+                this
+            } else {
+                copy(searchQuery = query)
+            }
+        }
         searchQueryFlow.value = query
     }
 
@@ -140,19 +146,40 @@ class LibraryViewModel(
             searchQueryFlow
                 .debounce(SEARCH_DEBOUNCE_MS)
                 .distinctUntilChanged()
-                .filter { it.isNotBlank() }
-                .collect { query ->
+                .collectLatest { query ->
+                    if (query.isBlank()) {
+                        updateContent {
+                            copy(
+                                searchResults = null,
+                                isSearching = false,
+                            )
+                        }
+                        return@collectLatest
+                    }
+
                     updateContent { copy(isSearching = true) }
                     try {
                         val results = repository.search(query)
                         updateContent {
-                            copy(
-                                searchResults = results,
-                                isSearching = false,
-                            )
+                            if (searchQuery != query) {
+                                this
+                            } else {
+                                copy(
+                                    searchResults = results,
+                                    isSearching = false,
+                                )
+                            }
                         }
                     } catch (_: Exception) {
-                        updateContent { copy(isSearching = false) }
+                        updateContent {
+                            if (searchQuery != query) {
+                                this
+                            } else {
+                                copy(
+                                    isSearching = false,
+                                )
+                            }
+                        }
                     }
                 }
         }
@@ -171,7 +198,7 @@ class LibraryViewModel(
     }
 
     fun buildCoverArtUrl(coverArtId: String): String =
-        repository.buildCoverArtUrl(coverArtId, size = 320)
+        repository.buildCoverArtUrl(coverArtId, size = 256)
 
     class Factory(private val container: AppContainer) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
