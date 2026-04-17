@@ -53,10 +53,10 @@ import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.Alignment
@@ -87,13 +87,13 @@ import com.gpo.yoin.ui.component.horizontalFadeMask
 import com.gpo.yoin.ui.component.minimumTouchTarget
 import com.gpo.yoin.ui.component.noRippleClickable
 import com.gpo.yoin.ui.component.rememberExpressiveBackdropColors
-import com.gpo.yoin.ui.experience.rememberPullToDismissState
+import com.gpo.yoin.ui.experience.RevealState
+import com.gpo.yoin.ui.experience.rememberRevealState
 import com.gpo.yoin.ui.navigation.albumCoverSharedKey
 import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinMotionRole
 import com.gpo.yoin.ui.theme.YoinShapeTokens
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filter
@@ -148,9 +148,8 @@ internal fun HomeEditorialContent(
     activeSongId: String? = null,
     onNavigateToSettings: () -> Unit,
     onNavigateToMemories: () -> Unit,
-    onPullToMemoriesProgress: (Float) -> Unit = {},
-    onPullToMemoriesCommit: () -> Unit = {},
-    onPullToMemoriesCancel: () -> Unit = {},
+    memoriesRevealState: RevealState = rememberRevealState(),
+    onCommitMemoriesReveal: () -> Unit = {},
     onAlbumClick: (albumId: String, sharedTransitionKey: String?) -> Unit,
     onArtistClick: (artistId: String) -> Unit,
     onPlaylistClick: (playlistId: String) -> Unit,
@@ -162,68 +161,45 @@ internal fun HomeEditorialContent(
     modifier: Modifier = Modifier,
 ) {
     val listState = rememberLazyListState()
-    val density = LocalDensity.current
-    val pullTriggerPx = with(density) { 108.dp.toPx() }
-    val maxPullPx = pullTriggerPx * 1.35f
-    val coroutineScope = rememberCoroutineScope()
-    val pullToMemoriesState = rememberPullToDismissState(
-        triggerPx = pullTriggerPx,
-        maxPullPx = maxPullPx,
-    )
-    var isNavigatingToMemories by remember { mutableStateOf(false) }
-    val memoriesHintProgress = pullToMemoriesState.progress
+    var containerHeightPx by remember { mutableFloatStateOf(0f) }
+    var isCommittedToMemories by remember { mutableStateOf(false) }
+    // Visual hint = how far open the reveal is, capped at 1 so rubber-band
+    // overshoot doesn't inflate the chevron.
+    val memoriesHintProgress = (1f - memoriesRevealState.fraction).coerceIn(0f, 1f)
     var allowBackdropPalette by remember { mutableStateOf(false) }
-    val pullToMemoriesConnection = remember(
-        listState,
-        pullToMemoriesState,
-        onNavigateToMemories,
-        onPullToMemoriesProgress,
-        onPullToMemoriesCommit,
-        onPullToMemoriesCancel,
-        coroutineScope,
-        isNavigatingToMemories,
-    ) {
+    val pullToMemoriesConnection = remember(listState, memoriesRevealState) {
         object : NestedScrollConnection {
             override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
-                if (source != NestedScrollSource.UserInput || isNavigatingToMemories) {
+                if (source != NestedScrollSource.UserInput) {
                     return Offset.Zero
                 }
-                val isAtTop = listState.isAtTop()
-                if (available.y > 0f && isAtTop) {
-                    val triggered = pullToMemoriesState.registerPull(available.y)
-                    onPullToMemoriesProgress(pullToMemoriesState.progress)
-                    if (triggered) {
-                        isNavigatingToMemories = true
-                        onPullToMemoriesCommit()
-                        // Snap local pull state to 0 synchronously. Do NOT emit
-                        // another onPullToMemoriesProgress(0f) afterwards — that
-                        // would race with the commit path and rewrite the
-                        // controller's fraction back to 1 (Memories off-screen),
-                        // producing the "open then silently disappear" glitch.
-                        pullToMemoriesState.reset()
-                        isNavigatingToMemories = false
-                    }
+                if (isCommittedToMemories) {
+                    // Settle in flight — own the rest of this touch sequence
+                    // so the next event doesn't fight the open animation.
                     return Offset(0f, available.y)
                 }
-                if (available.y < 0f && pullToMemoriesState.pullPx > 0f) {
-                    pullToMemoriesState.release(-available.y)
-                    onPullToMemoriesProgress(pullToMemoriesState.progress)
+                val pullingDownAtTop = available.y > 0f && listState.isAtTop()
+                val pullingUpWhileEngaged = available.y < 0f && memoriesRevealState.fraction < 1f
+                if (pullingDownAtTop || pullingUpWhileEngaged) {
+                    memoriesRevealState.dragBy(available.y, containerHeightPx)
                     return Offset(0f, available.y)
                 }
                 return Offset.Zero
             }
 
             override suspend fun onPreFling(available: Velocity): Velocity {
-                return when {
-                    isNavigatingToMemories -> available
-                    pullToMemoriesState.pullPx > 0f -> {
-                        onPullToMemoriesCancel()
-                        pullToMemoriesState.animateReset()
-                        onPullToMemoriesProgress(0f)
-                        available
-                    }
-                    else -> Velocity.Zero
+                if (memoriesRevealState.fraction >= 1f) return Velocity.Zero
+                isCommittedToMemories = true
+                try {
+                    val target = memoriesRevealState.settle(
+                        velocityPxPerSec = available.y,
+                        containerPx = containerHeightPx,
+                    )
+                    if (target <= 0f) onCommitMemoriesReveal()
+                } finally {
+                    isCommittedToMemories = false
                 }
+                return available
             }
         }
     }
@@ -297,6 +273,7 @@ internal fun HomeEditorialContent(
         state = listState,
         modifier = modifier
             .fillMaxSize()
+            .onSizeChanged { containerHeightPx = it.height.toFloat().coerceAtLeast(1f) }
             .nestedScroll(pullToMemoriesConnection),
         contentPadding = PaddingValues(
             start = 16.dp,

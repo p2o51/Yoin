@@ -58,6 +58,8 @@ import com.gpo.yoin.ui.component.AudioVisualizer
 import com.gpo.yoin.ui.component.VisualizerStyle
 import com.gpo.yoin.ui.component.YoinLoadingIndicator
 import com.gpo.yoin.ui.experience.ReportMotionPressure
+import com.gpo.yoin.ui.experience.RevealState
+import com.gpo.yoin.ui.experience.rememberRevealState
 import com.gpo.yoin.ui.theme.ProvideYoinMotionRole
 import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinMotionRole
@@ -78,9 +80,8 @@ fun HomeScreen(
     activeSongId: String? = null,
     onNavigateToSettings: () -> Unit,
     onNavigateToMemories: () -> Unit,
-    onPullToMemoriesProgress: (Float) -> Unit = {},
-    onPullToMemoriesCommit: () -> Unit = {},
-    onPullToMemoriesCancel: () -> Unit = {},
+    memoriesRevealState: RevealState = rememberRevealState(),
+    onCommitMemoriesReveal: () -> Unit = {},
     onAlbumClick: (albumId: String, sharedTransitionKey: String?) -> Unit,
     onArtistClick: (artistId: String) -> Unit,
     onPlaylistClick: (playlistId: String) -> Unit,
@@ -98,9 +99,8 @@ fun HomeScreen(
         activeSongId = activeSongId,
         onNavigateToSettings = onNavigateToSettings,
         onNavigateToMemories = onNavigateToMemories,
-        onPullToMemoriesProgress = onPullToMemoriesProgress,
-        onPullToMemoriesCommit = onPullToMemoriesCommit,
-        onPullToMemoriesCancel = onPullToMemoriesCancel,
+        memoriesRevealState = memoriesRevealState,
+        onCommitMemoriesReveal = onCommitMemoriesReveal,
         onAlbumClick = onAlbumClick,
         onArtistClick = onArtistClick,
         onPlaylistClick = onPlaylistClick,
@@ -123,9 +123,8 @@ fun HomeContent(
     activeSongId: String? = null,
     onNavigateToSettings: () -> Unit,
     onNavigateToMemories: () -> Unit,
-    onPullToMemoriesProgress: (Float) -> Unit = {},
-    onPullToMemoriesCommit: () -> Unit = {},
-    onPullToMemoriesCancel: () -> Unit = {},
+    memoriesRevealState: RevealState = rememberRevealState(),
+    onCommitMemoriesReveal: () -> Unit = {},
     onAlbumClick: (albumId: String, sharedTransitionKey: String?) -> Unit,
     onArtistClick: (artistId: String) -> Unit,
     onPlaylistClick: (playlistId: String) -> Unit,
@@ -232,9 +231,8 @@ fun HomeContent(
                             activeSongId = activeSongId,
                             onNavigateToSettings = onNavigateToSettings,
                             onNavigateToMemories = onNavigateToMemories,
-                            onPullToMemoriesProgress = onPullToMemoriesProgress,
-                            onPullToMemoriesCommit = onPullToMemoriesCommit,
-                            onPullToMemoriesCancel = onPullToMemoriesCancel,
+                            memoriesRevealState = memoriesRevealState,
+                            onCommitMemoriesReveal = onCommitMemoriesReveal,
                             onAlbumClick = onAlbumClick,
                             onArtistClick = onArtistClick,
                             onPlaylistClick = onPlaylistClick,

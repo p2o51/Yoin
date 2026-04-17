@@ -74,9 +74,9 @@ import com.gpo.yoin.ui.experience.EdgeAdvanceDirection
 import com.gpo.yoin.ui.experience.MemoryScrollPosition
 import com.gpo.yoin.ui.experience.MemoriesSessionState
 import com.gpo.yoin.ui.experience.ReportMotionPressure
+import com.gpo.yoin.ui.experience.RevealState
 import com.gpo.yoin.ui.experience.rememberDeckIndicatorTransitionState
 import com.gpo.yoin.ui.experience.rememberEdgeAdvanceState
-import com.gpo.yoin.ui.experience.rememberPullToDismissState
 import com.gpo.yoin.ui.navigation.back.BackMotionTokens
 import com.gpo.yoin.ui.theme.ProvideYoinMotionRole
 import com.gpo.yoin.ui.theme.GoogleSansFlex
@@ -100,10 +100,8 @@ private val MemoriesScoreShapeHeight = 118.dp
 @Composable
 fun MemoriesScreen(
     viewModel: MemoriesViewModel,
-    dismissFraction: Float,
-    onDismissGestureProgress: (Float) -> Unit,
-    onDismissGestureCommit: suspend () -> Unit,
-    onDismissGestureCancel: suspend () -> Unit,
+    revealState: RevealState,
+    onDismissed: () -> Unit,
     onPlayMemoryTrack: (MemoryEntry, Int) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -144,10 +142,8 @@ fun MemoriesScreen(
                     MemoriesContent(
                         contentState = state,
                         sessionState = sessionState,
-                        dismissFraction = dismissFraction,
-                        onDismissGestureProgress = onDismissGestureProgress,
-                        onDismissGestureCommit = onDismissGestureCommit,
-                        onDismissGestureCancel = onDismissGestureCancel,
+                        revealState = revealState,
+                        onDismissed = onDismissed,
                         onPlayMemoryTrack = onPlayMemoryTrack,
                         onAdvanceDeck = viewModel::advanceDeck,
                         onCurrentPageChange = viewModel::setCurrentPage,
@@ -218,29 +214,24 @@ private fun MemoriesErrorState(
 private fun MemoriesContent(
     contentState: MemoriesUiState.Content,
     sessionState: MemoriesSessionState,
-    dismissFraction: Float,
-    onDismissGestureProgress: (Float) -> Unit,
-    onDismissGestureCommit: suspend () -> Unit,
-    onDismissGestureCancel: suspend () -> Unit,
+    revealState: RevealState,
+    onDismissed: () -> Unit,
     onPlayMemoryTrack: (MemoryEntry, Int) -> Unit,
     onAdvanceDeck: (MemoryDeckDirection) -> Unit,
     onCurrentPageChange: (Int) -> Unit,
     onMemoryScrollChange: (Long, MemoryScrollPosition) -> Unit,
 ) {
     val density = LocalDensity.current
-    val dismissTriggerPx = with(density) { BackMotionTokens.MemoriesDismissTrigger.toPx() }
+    val dismissHintPx = with(density) { BackMotionTokens.MemoriesDismissTrigger.toPx() }
     val adjacentDeckTriggerPx = with(density) { MemoriesAdjacentDeckTrigger.toPx() }
     val deckEnterOffsetPx = with(density) { MemoriesDeckEnterOffset.toPx() }
     val deckEntranceProgress = remember(contentState.deckRevision) {
         Animatable(if (contentState.deckRevision <= 1) 1f else 0f)
     }
-    val dismissState = rememberPullToDismissState(triggerPx = dismissTriggerPx)
     val edgeAdvanceState = rememberEdgeAdvanceState(triggerPx = adjacentDeckTriggerPx)
     val deckEntranceSpec = YoinMotion.defaultSpatialSpec<Float>(role = YoinMotionRole.Expressive)
 
     LaunchedEffect(contentState.deckRevision) {
-        dismissState.reset()
-        onDismissGestureProgress(0f)
         edgeAdvanceState.reset()
         if (contentState.deckRevision <= 1) return@LaunchedEffect
         deckEntranceProgress.animateTo(
@@ -251,9 +242,6 @@ private fun MemoriesContent(
 
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
         val containerHeightPx = with(density) { maxHeight.toPx().coerceAtLeast(1f) }
-        // dismissFraction is now relative to the trigger (0..1), so the
-        // preview fraction is the same value — no rescaling needed.
-        val dismissPreviewFraction = dismissFraction.coerceIn(0f, 1f)
 
         key(contentState.deckRevision) {
             val memories = contentState.memories
@@ -262,7 +250,7 @@ private fun MemoriesContent(
                 pageCount = { memories.size },
             )
             val coroutineScope = rememberCoroutineScope()
-            var isDismissingToHome by remember(contentState.deckRevision) { mutableStateOf(false) }
+            var isCommittedToDismiss by remember(contentState.deckRevision) { mutableStateOf(false) }
             var latestContainerHeightPx by remember { mutableFloatStateOf(containerHeightPx) }
             val selectedIndex = pagerState.currentPage.coerceIn(0, memories.lastIndex)
             val selectedMemory = memories[selectedIndex]
@@ -387,59 +375,43 @@ private fun MemoriesContent(
                                 onMemoryScrollChange(memory.sourceActivityId, position)
                             }
                     }
-                    val dismissConnection = remember(
-                        listState,
-                        onDismissGestureCommit,
-                        onDismissGestureCancel,
-                    ) {
+                    val dismissConnection = remember(listState, revealState) {
                         object : NestedScrollConnection {
                             override fun onPreScroll(
                                 available: Offset,
                                 source: NestedScrollSource,
                             ): Offset {
-                                if (source != NestedScrollSource.UserInput || isDismissingToHome) {
+                                if (source != NestedScrollSource.UserInput) {
                                     return Offset.Zero
                                 }
-                                if (available.y < 0f && listState.isAtTop()) {
-                                    val triggered = dismissState.registerPull(deltaPx = -available.y)
-                                    onDismissGestureProgress(
-                                        dismissState.pullPx
-                                            .div(dismissTriggerPx)
-                                            .coerceIn(0f, 1f),
-                                    )
-                                    if (triggered) {
-                                        isDismissingToHome = true
-                                        coroutineScope.launch {
-                                            onDismissGestureCommit()
-                                            dismissState.reset()
-                                            isDismissingToHome = false
-                                        }
-                                    }
+                                if (isCommittedToDismiss) {
+                                    // Settle is in flight — own the rest of
+                                    // this touch sequence so a continued drag
+                                    // doesn't fight the close animation.
                                     return Offset(0f, available.y)
                                 }
-                                if (available.y > 0f && dismissState.pullPx > 0f) {
-                                    dismissState.release(available.y)
-                                    onDismissGestureProgress(
-                                        dismissState.pullPx
-                                            .div(dismissTriggerPx)
-                                            .coerceIn(0f, 1f),
-                                    )
+                                val pullingUpAtTop = available.y < 0f && listState.isAtTop()
+                                val pullingDownWhileEngaged = available.y > 0f && revealState.fraction > 0f
+                                if (pullingUpAtTop || pullingDownWhileEngaged) {
+                                    revealState.dragBy(available.y, latestContainerHeightPx)
                                     return Offset(0f, available.y)
                                 }
                                 return Offset.Zero
                             }
 
                             override suspend fun onPreFling(available: Velocity): Velocity {
-                                return when {
-                                    isDismissingToHome -> available
-                                    dismissState.pullPx > 0f -> {
-                                        onDismissGestureCancel()
-                                        dismissState.reset()
-                                        onDismissGestureProgress(0f)
-                                        available
-                                    }
-                                    else -> Velocity.Zero
+                                if (revealState.fraction <= 0f) return Velocity.Zero
+                                isCommittedToDismiss = true
+                                try {
+                                    val target = revealState.settle(
+                                        velocityPxPerSec = available.y,
+                                        containerPx = latestContainerHeightPx,
+                                    )
+                                    if (target >= 1f) onDismissed()
+                                } finally {
+                                    isCommittedToDismiss = false
                                 }
+                                return available
                             }
                         }
                     }
@@ -492,8 +464,9 @@ private fun MemoriesContent(
                 .align(Alignment.BottomCenter)
                 .padding(bottom = 28.dp)
                 .graphicsLayer {
-                    translationY = -(dismissFraction * dismissTriggerPx) * 0.3f
-                    alpha = 0.4f + dismissPreviewFraction * 0.6f
+                    val f = revealState.fraction.coerceIn(0f, 1f)
+                    translationY = -(f * dismissHintPx) * 0.3f
+                    alpha = 0.4f + f * 0.6f
                 }
                 .size(28.dp),
         )

@@ -31,9 +31,11 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
@@ -56,6 +58,7 @@ import com.gpo.yoin.ui.home.HomeViewModel
 import com.gpo.yoin.ui.library.LibraryScreen
 import com.gpo.yoin.ui.library.LibraryViewModel
 import com.gpo.yoin.ui.experience.HomeSurface
+import com.gpo.yoin.ui.experience.rememberRevealState
 import com.gpo.yoin.ui.memories.MemoryEntityType
 import com.gpo.yoin.ui.memories.MemoryEntry
 import com.gpo.yoin.ui.memories.MemoriesScreen
@@ -63,7 +66,6 @@ import com.gpo.yoin.ui.memories.MemoriesViewModel
 import com.gpo.yoin.ui.navigation.back.BackSurfaceKind
 import com.gpo.yoin.ui.navigation.back.ShellBackOwner
 import com.gpo.yoin.ui.navigation.back.YoinBackSurface
-import com.gpo.yoin.ui.navigation.back.rememberBackSurfaceController
 import com.gpo.yoin.ui.navigation.back.resolveShellBackOwner
 import com.gpo.yoin.ui.nowplaying.NowPlayingScreen
 import com.gpo.yoin.ui.nowplaying.NowPlayingViewModel
@@ -352,9 +354,10 @@ private fun YoinShell(
     val castState by app.container.castManager.castState.collectAsState()
     val nowPlayingUiState by nowPlayingViewModel.uiState.collectAsState()
     val songInfoState by nowPlayingViewModel.songInfoState.collectAsState()
-    val memoriesBackController = rememberBackSurfaceController()
-    var memoriesMounted by remember { mutableStateOf(homeSurface == HomeSurface.Memories) }
-    var isPreviewingMemories by remember { mutableStateOf(false) }
+    val memoriesReveal = rememberRevealState(
+        initialFraction = if (homeSurface == HomeSurface.Memories) 0f else 1f,
+    )
+    val memoriesMounted = homeSurface == HomeSurface.Memories || memoriesReveal.isVisible
     val shellScope = rememberCoroutineScope()
     var dismissDragPx by rememberSaveable { mutableStateOf(0f) }
     var predictiveBackProgress by rememberSaveable { mutableStateOf(0f) }
@@ -383,27 +386,26 @@ private fun YoinShell(
     val closeMemories = remember(experienceSessionStore) {
         {
             experienceSessionStore.setHomeSurface(HomeSurface.Feed)
-            memoriesMounted = false
-            Unit
         }
     }
 
-    LaunchedEffect(memoriesActive) {
-        if (memoriesActive) {
-            memoriesMounted = true
-            // If Memories is already visually open (e.g. committed via pull-to-reveal),
-            // skip the snap+cancel animation so the progressive gesture isn't interrupted.
-            if (memoriesBackController.fraction > 0.02f) {
-                memoriesBackController.snapTo(1f)
-                memoriesBackController.animateCancel()
+    // Drive open/close animation from the surface flag. If a gesture has
+    // already brought the reveal to the matching endpoint, the guard skips
+    // the no-op animation so the gesture-driven settle isn't interrupted.
+    LaunchedEffect(homeSurface) {
+        when (homeSurface) {
+            HomeSurface.Memories -> if (memoriesReveal.fraction > 0.001f) {
+                memoriesReveal.animateTo(0f)
+            }
+            HomeSurface.Feed -> if (memoriesReveal.fraction < 0.999f) {
+                memoriesReveal.animateTo(1f)
             }
         }
     }
 
     LaunchedEffect(selectedSection) {
         if (selectedSection != YoinSection.HOME) {
-            memoriesMounted = false
-            memoriesBackController.reset()
+            memoriesReveal.snapTo(1f)
         }
     }
 
@@ -453,38 +455,11 @@ private fun YoinShell(
                             activeSongId = playbackState.currentSong?.id,
                             onNavigateToSettings = onNavigateToSettings,
                             onNavigateToMemories = {
-                                // Prime the overlay off-screen so the
-                                // LaunchedEffect(memoriesActive) plays its
-                                // snap(1) → animateCancel(0) open animation.
-                                // reset() used to set fraction to 0, which
-                                // then failed the > 0.02 guard in the effect
-                                // and skipped the animation entirely.
-                                memoriesBackController.snapTo(1f)
                                 experienceSessionStore.setHomeSurface(HomeSurface.Memories)
                             },
-                            onPullToMemoriesProgress = { progress ->
-                                val clamped = progress.coerceIn(0f, 1f)
-                                if (clamped > 0f) {
-                                    memoriesMounted = true
-                                    isPreviewingMemories = true
-                                }
-                                memoriesBackController.updateFromDrag(1f - clamped)
-                            },
-                            onPullToMemoriesCommit = {
-                                shellScope.launch {
-                                    memoriesBackController.animateCancel()
-                                    experienceSessionStore.setHomeSurface(HomeSurface.Memories)
-                                    isPreviewingMemories = false
-                                }
-                            },
-                            onPullToMemoriesCancel = {
-                                shellScope.launch {
-                                    memoriesBackController.animateCommit {
-                                        memoriesMounted = false
-                                    }
-                                    memoriesBackController.reset()
-                                    isPreviewingMemories = false
-                                }
+                            memoriesRevealState = memoriesReveal,
+                            onCommitMemoriesReveal = {
+                                experienceSessionStore.setHomeSurface(HomeSurface.Memories)
                             },
                             onAlbumClick = onNavigateToAlbum,
                             onArtistClick = { artistId -> onNavigateToArtist(artistId, null) },
@@ -500,19 +475,21 @@ private fun YoinShell(
                             modifier = Modifier.fillMaxSize(),
                         )
 
-                        if (memoriesMounted || isPreviewingMemories) {
-                            YoinBackSurface(
-                                kind = BackSurfaceKind.ShellOverlayUp,
-                                enabled = shellBackOwner == ShellBackOwner.Memories,
-                                controller = memoriesBackController,
-                                onCommitBack = closeMemories,
-                            ) { backModifier, controller, requestBack ->
+                        if (memoriesMounted) {
+                            BackHandler(enabled = shellBackOwner == ShellBackOwner.Memories) {
+                                closeMemories()
+                            }
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .graphicsLayer {
+                                        translationY = -memoriesReveal.fraction * size.height
+                                    },
+                            ) {
                                 MemoriesScreen(
                                     viewModel = memoriesViewModel,
-                                    dismissFraction = controller.fraction,
-                                    onDismissGestureProgress = controller::updateFromDrag,
-                                    onDismissGestureCommit = { requestBack() },
-                                    onDismissGestureCancel = controller::animateCancel,
+                                    revealState = memoriesReveal,
+                                    onDismissed = closeMemories,
                                     onPlayMemoryTrack = { memory, trackIndex ->
                                         val queue = memory.playbackSongs
                                         if (queue.isNotEmpty()) {
@@ -536,7 +513,7 @@ private fun YoinShell(
                                             }
                                         }
                                     },
-                                    modifier = backModifier.fillMaxSize(),
+                                    modifier = Modifier.fillMaxSize(),
                                 )
                             }
                         }
@@ -651,8 +628,7 @@ private fun YoinShell(
 
         // ── Bottom navigation ────────────────────────────────────────────
         AnimatedVisibility(
-            visible = !showNowPlaying &&
-                !(selectedSection == YoinSection.HOME && homeSurface == HomeSurface.Memories),
+            visible = !showNowPlaying,
             enter = YoinMotion.fadeIn(role = YoinMotionRole.Standard) +
                 YoinMotion.slideInVertically(role = YoinMotionRole.Standard) { it },
             exit = YoinMotion.fadeOut(role = YoinMotionRole.Standard) +
@@ -661,7 +637,16 @@ private fun YoinShell(
             val bgAvScope = this
 
             Box(
-                modifier = Modifier.fillMaxSize(),
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer {
+                        // Couple the mini player to the Memories reveal so it
+                        // slides/fades out together with the open gesture
+                        // instead of waiting for the surface flip.
+                        val hide = (1f - memoriesReveal.fraction).coerceIn(0f, 1f)
+                        alpha = (1f - hide * 1.4f).coerceAtLeast(0f)
+                        translationY = hide * 120.dp.toPx()
+                    },
                 contentAlignment = Alignment.BottomCenter,
             ) {
                 YoinButtonGroup(
@@ -680,17 +665,14 @@ private fun YoinShell(
                     isPlaying = playbackState.isPlaying,
                     onHomeClick = {
                         experienceSessionStore.setSelectedSection(YoinSection.HOME)
-                        memoriesMounted = false
-                        memoriesBackController.reset()
                         experienceSessionStore.setHomeSurface(HomeSurface.Feed)
+                        // LaunchedEffect(homeSurface) handles the close animation.
                     },
                     onNowPlayingClick = {
                         experienceSessionStore.setNowPlayingExpanded(true)
                     },
                     onLibraryClick = {
                         experienceSessionStore.setSelectedSection(YoinSection.LIBRARY)
-                        memoriesMounted = false
-                        memoriesBackController.reset()
                         experienceSessionStore.setHomeSurface(HomeSurface.Feed)
                     },
                     sharedTransitionScope = sharedTransitionScope,
