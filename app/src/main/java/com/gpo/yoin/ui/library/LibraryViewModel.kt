@@ -13,6 +13,7 @@ import com.gpo.yoin.data.model.Starred
 import com.gpo.yoin.data.model.Track
 import com.gpo.yoin.data.model.artist
 import com.gpo.yoin.data.repository.YoinRepository
+import com.gpo.yoin.data.source.Capability
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -49,6 +50,7 @@ class LibraryViewModel(
     init {
         loadInitialData()
         observeSearch()
+        observeCapabilities()
     }
 
     fun refresh() {
@@ -66,6 +68,7 @@ class LibraryViewModel(
             try {
                 val artists = loadArtistsFlat()
                 cachedArtists = artists
+                val capabilities = repository.currentCapabilities()
                 _uiState.value = LibraryUiState.Content(
                     selectedTab = LibraryTab.Artists,
                     artists = artists,
@@ -76,6 +79,8 @@ class LibraryViewModel(
                     searchQuery = "",
                     searchResults = null,
                     isSearching = false,
+                    availableTabs = visibleTabs(capabilities),
+                    canCreatePlaylists = Capability.PLAYLISTS_WRITE in capabilities,
                 )
             } catch (e: Exception) {
                 _uiState.value = LibraryUiState.Error(
@@ -84,6 +89,38 @@ class LibraryViewModel(
             }
         }
     }
+
+    private fun observeCapabilities() {
+        viewModelScope.launch {
+            repository.capabilities.collectLatest { capabilities ->
+                val current = _uiState.value as? LibraryUiState.Content
+                    ?: return@collectLatest
+                val visible = visibleTabs(capabilities)
+                val normalisedSelected = current.selectedTab.takeIf { it in visible }
+                    ?: visible.firstOrNull()
+                    ?: LibraryTab.Artists
+                _uiState.value = current.copy(
+                    availableTabs = visible,
+                    selectedTab = normalisedSelected,
+                    canCreatePlaylists = Capability.PLAYLISTS_WRITE in capabilities,
+                )
+            }
+        }
+    }
+
+    /**
+     * Playlists disappear from the tab row when the provider doesn't support
+     * reading them. Other tabs are universal across both Subsonic and Spotify
+     * today; they'll gain capability gates when we add providers that
+     * genuinely lack them.
+     */
+    private fun visibleTabs(capabilities: Set<Capability>): List<LibraryTab> =
+        LibraryTab.entries.filter { tab ->
+            when (tab) {
+                LibraryTab.Playlists -> Capability.PLAYLISTS_READ in capabilities
+                else -> true
+            }
+        }
 
     fun selectTab(tab: LibraryTab) {
         val current = _uiState.value as? LibraryUiState.Content ?: return

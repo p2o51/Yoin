@@ -9,6 +9,7 @@ import com.gpo.yoin.data.model.Lyrics as SourceLyrics
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.remote.GeminiService
 import com.gpo.yoin.data.repository.YoinRepository
+import com.gpo.yoin.data.source.Capability
 import com.gpo.yoin.player.ConnectionPhase
 import com.gpo.yoin.player.PlaybackManager
 import com.gpo.yoin.ui.component.AddToPlaylistRow
@@ -78,7 +79,8 @@ class NowPlayingViewModel(
         _lyrics,
         ratingFlow,
         _isStarred,
-    ) { state, lyrics, rating, isStarred ->
+        repository.capabilities,
+    ) { state, lyrics, rating, isStarred, capabilities ->
         val song = state.currentTrack
         val pending = state.pendingTrack
         when {
@@ -113,6 +115,7 @@ class NowPlayingViewModel(
                     )
                 },
                 currentQueueIndex = state.currentIndex,
+                showLyricsTab = Capability.LYRICS in capabilities,
             )
 
             // Backend is still handshaking for the track the user tapped —

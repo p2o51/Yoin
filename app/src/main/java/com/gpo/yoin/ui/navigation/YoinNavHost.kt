@@ -53,6 +53,7 @@ import com.gpo.yoin.data.model.CoverRef
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.Track
 import com.gpo.yoin.data.repository.ActivityContext
+import com.gpo.yoin.data.source.Capability
 import com.gpo.yoin.ui.component.AddToPlaylistSheet
 import com.gpo.yoin.ui.component.YoinButtonGroup
 import com.gpo.yoin.ui.detail.AlbumDetailScreen
@@ -392,9 +393,15 @@ fun YoinNavHost(
             val addTargets by nowPlayingViewModel.addToPlaylistTarget.collectAsState()
             if (addTargets != null) {
                 val writablePlaylists by nowPlayingViewModel.writablePlaylists.collectAsState()
+                // Null out the create callback when the active source can't
+                // actually create playlists — the sheet drops the row entirely
+                // rather than showing an action that will fail downstream.
+                val canCreate = Capability.PLAYLISTS_WRITE in
+                    app.container.repository.currentCapabilities()
                 AddToPlaylistSheet(
                     writablePlaylists = writablePlaylists,
-                    onCreateAndAdd = nowPlayingViewModel::createPlaylistAndAddTargets,
+                    onCreateAndAdd = nowPlayingViewModel::createPlaylistAndAddTargets
+                        .takeIf { canCreate },
                     onAddToExisting = nowPlayingViewModel::addTargetsToExistingPlaylist,
                     onDismiss = nowPlayingViewModel::dismissAddToPlaylistSheet,
                 )

@@ -266,6 +266,7 @@ private fun LibraryContentBody(
 
         if (state.searchQuery.isBlank()) {
             LibraryFilterChips(
+                tabs = state.availableTabs,
                 selectedTab = state.selectedTab,
                 onTabSelected = onTabSelected,
             )
@@ -320,7 +321,7 @@ private fun LibraryContentBody(
                         LibraryTab.Playlists -> PlaylistsTabContent(
                             playlists = state.playlists,
                             onPlaylistClick = onPlaylistClick,
-                            onCreatePlaylist = onCreatePlaylist,
+                            onCreatePlaylist = onCreatePlaylist.takeIf { state.canCreatePlaylists },
                             coverArtUrlBuilder = coverArtUrlBuilder,
                         )
                         LibraryTab.Favorites -> FavoritesTabContent(
@@ -449,12 +450,16 @@ private fun SearchHeader(
 
 @Composable
 private fun LibraryFilterChips(
+    tabs: List<LibraryTab>,
     selectedTab: LibraryTab,
     onTabSelected: (LibraryTab) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    // Render only tabs the active source supports (e.g. drop Playlists on a
+    // provider without PLAYLISTS_READ). Callers pass
+    // `LibraryUiState.Content.availableTabs`.
     ExpressiveSegmentedTabs(
-        items = LibraryTab.entries,
+        items = tabs,
         selectedItem = selectedTab,
         label = { it.name },
         onSelectedChange = onTabSelected,
@@ -667,16 +672,22 @@ private fun SongsTabContent(
 private fun PlaylistsTabContent(
     playlists: List<Playlist>,
     onPlaylistClick: (String) -> Unit,
-    onCreatePlaylist: (name: String) -> Unit,
+    /** `null` hides the "+" FAB (provider without PLAYLISTS_WRITE). */
+    onCreatePlaylist: ((name: String) -> Unit)?,
     coverArtUrlBuilder: ((String) -> String)?,
     modifier: Modifier = Modifier,
 ) {
     var showCreateDialog by remember { mutableStateOf(false) }
+    val canCreate = onCreatePlaylist != null
 
     Box(modifier = modifier.fillMaxSize()) {
         if (playlists.isEmpty()) {
             EmptyState(
-                message = "No playlists yet. Tap + to create one.",
+                message = if (canCreate) {
+                    "No playlists yet. Tap + to create one."
+                } else {
+                    "No playlists yet."
+                },
                 modifier = Modifier.fillMaxSize(),
             )
         } else {
@@ -708,22 +719,25 @@ private fun PlaylistsTabContent(
         // "+" FAB sits in the top-right so it doesn't collide with the
         // shell bottom nav. MD3 Expressive SmallFloatingActionButton keeps
         // the affordance light and lets long playlists scroll underneath.
-        SmallFloatingActionButton(
-            onClick = { showCreateDialog = true },
-            modifier = Modifier
-                .align(Alignment.TopEnd)
-                .padding(top = 4.dp, end = 12.dp),
-            containerColor = MaterialTheme.colorScheme.primaryContainer,
-            contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-        ) {
-            Icon(
-                imageVector = Icons.Filled.Add,
-                contentDescription = "New playlist",
-            )
+        // Hidden entirely when the active source lacks PLAYLISTS_WRITE.
+        if (canCreate) {
+            SmallFloatingActionButton(
+                onClick = { showCreateDialog = true },
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(top = 4.dp, end = 12.dp),
+                containerColor = MaterialTheme.colorScheme.primaryContainer,
+                contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Add,
+                    contentDescription = "New playlist",
+                )
+            }
         }
     }
 
-    if (showCreateDialog) {
+    if (showCreateDialog && onCreatePlaylist != null) {
         CreatePlaylistDialog(
             onDismiss = { showCreateDialog = false },
             onConfirm = { name ->

@@ -71,8 +71,9 @@ data class AddToPlaylistRow(
  *
  * @param writablePlaylists Rows for playlists where the current profile
  *   user can write. Must be pre-filtered — the sheet does not gate.
- * @param onCreateAndAdd Invoked after the user types a name in the
- *   "Create new playlist…" flow. Implementation typically creates the
+ * @param onCreateAndAdd `null` hides the "Create new playlist…" row (used
+ *   when the active source lacks `Capability.PLAYLISTS_WRITE`). Invoked
+ *   after the user types a name; implementation typically creates the
  *   playlist and then adds the pending tracks.
  * @param onAddToExisting Invoked with the chosen playlist id when the
  *   user taps an existing row.
@@ -82,7 +83,7 @@ data class AddToPlaylistRow(
 @Composable
 fun AddToPlaylistSheet(
     writablePlaylists: List<AddToPlaylistRow>,
-    onCreateAndAdd: (name: String) -> Unit,
+    onCreateAndAdd: ((name: String) -> Unit)?,
     onAddToExisting: (playlistId: MediaId) -> Unit,
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
@@ -109,8 +110,10 @@ fun AddToPlaylistSheet(
                 // on long ones the LazyColumn scrolls inside the sheet.
                 modifier = Modifier.heightIn(max = 420.dp),
             ) {
-                item("create") {
-                    CreateNewRow(onClick = { showCreateDialog = true })
+                if (onCreateAndAdd != null) {
+                    item("create") {
+                        CreateNewRow(onClick = { showCreateDialog = true })
+                    }
                 }
                 items(
                     items = writablePlaylists,
@@ -125,7 +128,7 @@ fun AddToPlaylistSheet(
         }
     }
 
-    if (showCreateDialog) {
+    if (showCreateDialog && onCreateAndAdd != null) {
         CreatePlaylistDialog(
             onDismiss = { showCreateDialog = false },
             onConfirm = { name ->

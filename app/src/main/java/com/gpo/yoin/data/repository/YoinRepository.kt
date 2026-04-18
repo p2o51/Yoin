@@ -17,6 +17,7 @@ import com.gpo.yoin.data.model.PlaylistItemRef
 import com.gpo.yoin.data.model.SearchResults
 import com.gpo.yoin.data.model.Starred
 import com.gpo.yoin.data.model.Track
+import com.gpo.yoin.data.source.Capability
 import com.gpo.yoin.data.source.MusicSource
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
@@ -44,6 +45,19 @@ class YoinRepository(
     /** True when a configured profile is currently active. */
     val isConfigured: Boolean
         get() = activeSource.value != null
+
+    /**
+     * Capability set of the currently active [MusicSource], or empty when no
+     * profile is active. Single source of truth for UI gating — feature
+     * composables should collect this (e.g. via `stateIn` in a ViewModel)
+     * rather than reaching for `AppContainer.profileManager.activeSource`.
+     */
+    val capabilities: Flow<Set<Capability>> =
+        activeSource.map { source -> source?.capabilities ?: emptySet() }
+
+    /** Snapshot of [capabilities] for synchronous reads (e.g. click handlers). */
+    fun currentCapabilities(): Set<Capability> =
+        activeSource.value?.capabilities ?: emptySet()
 
     private fun requireSource(): MusicSource = activeSource.value
         ?: throw SubsonicException(

@@ -48,11 +48,22 @@ interface MusicSource {
     fun dispose() = Unit
 }
 
+/**
+ * Feature flags a [MusicSource] can declare. UI checks the active source's
+ * capability set to decide whether to render entry points for features that
+ * only some backends implement.
+ *
+ * Notes on what's *not* a capability:
+ * - Favorites / liked songs: every provider maps `setFavorite` to its native
+ *   concept (Subsonic star, Spotify saved-tracks). The UI affordance is
+ *   always shown.
+ * - 5-star ratings: local-first (`local_ratings` Room table). Every provider
+ *   stores ratings locally; Subsonic additionally pushes them to the server,
+ *   Spotify no-ops server-side. The UI control is always shown.
+ */
 enum class Capability {
     SEARCH,
     RANDOM_SONGS,
-    STAR_UNSTAR,
-    RATING_FIVE_STAR,
     PLAYLISTS_READ,
     PLAYLISTS_WRITE,
     LYRICS,

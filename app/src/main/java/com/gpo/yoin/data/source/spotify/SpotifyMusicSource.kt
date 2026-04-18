@@ -43,9 +43,9 @@ class SpotifyMusicSource(
     override val capabilities: Set<Capability> = setOf(
         Capability.SEARCH,
         Capability.RANDOM_SONGS,
-        Capability.STAR_UNSTAR,
         Capability.PLAYLISTS_READ,
         Capability.PLAYLISTS_WRITE,
+        // No LYRICS: Spotify Web API does not expose lyrics.
     )
 
     private var savedTracksCache: List<SpotifySavedTrackObject>? = null

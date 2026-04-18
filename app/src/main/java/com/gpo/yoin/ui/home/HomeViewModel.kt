@@ -10,6 +10,7 @@ import com.gpo.yoin.data.model.ArtistIndex
 import com.gpo.yoin.data.model.Track
 import com.gpo.yoin.data.model.artist
 import com.gpo.yoin.data.repository.YoinRepository
+import com.gpo.yoin.data.source.Capability
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
@@ -123,8 +124,16 @@ class HomeViewModel(
         val albumDeferred = async {
             repository.getAlbumList("random", size = JUMP_BACK_IN_ALBUM_REQUEST_SIZE)
         }
+        // Only providers that declare RANDOM_SONGS have a "pick me random
+        // tracks" endpoint. Spotify Web API has nothing equivalent, so skip
+        // the song candidate pool entirely — no empty network request, no
+        // awkward empty "random songs" hole in the jump-back-in feed.
         val songDeferred = async {
-            repository.getRandomSongs(size = JUMP_BACK_IN_SONG_REQUEST_SIZE)
+            if (Capability.RANDOM_SONGS in repository.currentCapabilities()) {
+                repository.getRandomSongs(size = JUMP_BACK_IN_SONG_REQUEST_SIZE)
+            } else {
+                emptyList()
+            }
         }
 
         buildJumpBackInBatch(

@@ -45,8 +45,6 @@ class SubsonicMusicSource(
     override val capabilities: Set<Capability> = setOf(
         Capability.SEARCH,
         Capability.RANDOM_SONGS,
-        Capability.STAR_UNSTAR,
-        Capability.RATING_FIVE_STAR,
         Capability.PLAYLISTS_READ,
         Capability.PLAYLISTS_WRITE,
         Capability.LYRICS,
