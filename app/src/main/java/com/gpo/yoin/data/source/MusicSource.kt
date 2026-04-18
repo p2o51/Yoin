@@ -8,6 +8,7 @@ import com.gpo.yoin.data.model.Lyrics
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.PlaybackHandle
 import com.gpo.yoin.data.model.Playlist
+import com.gpo.yoin.data.model.PlaylistItemRef
 import com.gpo.yoin.data.model.SearchResults
 import com.gpo.yoin.data.model.Starred
 import com.gpo.yoin.data.model.Track
@@ -85,6 +86,55 @@ interface MusicWriteActions {
 
     /** 0–5 star rating (Subsonic). Providers without this concept return failure. */
     suspend fun setRating(trackId: MediaId, rating: Int): Result<Unit>
+
+    // ── Playlist mutation ───────────────────────────────────────────────
+    //
+    // Implementations MUST gate UI affordances via [Playlist.canWrite] — some
+    // endpoints (e.g. Spotify `PUT /playlists/{id}`) will 403 on a followed-
+    // but-not-owned playlist, which the caller cannot distinguish from a
+    // transient network failure without the flag.
+
+    /** Create a new playlist owned by the current profile. */
+    suspend fun createPlaylist(name: String, description: String? = null): Result<Playlist>
+
+    /** Rename (and optionally re-describe) an existing playlist. */
+    suspend fun renamePlaylist(
+        id: MediaId,
+        name: String,
+        description: String? = null,
+    ): Result<Unit>
+
+    /**
+     * Delete a playlist. Spotify has no true delete — this is implemented as
+     * "unfollow your own playlist", which behaves the same way from the
+     * user's point of view (the playlist disappears from `/me/playlists`).
+     */
+    suspend fun deletePlaylist(id: MediaId): Result<Unit>
+
+    /**
+     * Append tracks to a playlist. Returns the new snapshot id when the
+     * provider supports optimistic concurrency (Spotify), or `null`
+     * (Subsonic). Callers should pass that id to the next mutation to
+     * detect concurrent edits.
+     */
+    suspend fun addTracksToPlaylist(
+        playlistId: MediaId,
+        tracks: List<MediaId>,
+    ): Result<String?>
+
+    /**
+     * Remove items from a playlist by [PlaylistItemRef.position]. Providers
+     * that key removal by track uri (Spotify) will convert
+     * [PlaylistItemRef.trackId] + [PlaylistItemRef.position] to their native
+     * shape. Pass the [snapshotId] returned by a previous mutation (Spotify)
+     * to detect concurrent edits; Subsonic ignores it. Returns the new
+     * snapshot id where applicable.
+     */
+    suspend fun removeTracksFromPlaylist(
+        playlistId: MediaId,
+        items: List<PlaylistItemRef>,
+        snapshotId: String? = null,
+    ): Result<String?>
 }
 
 interface MusicPlayback {

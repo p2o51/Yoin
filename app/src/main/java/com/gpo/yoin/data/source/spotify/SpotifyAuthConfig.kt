@@ -44,6 +44,28 @@ object SpotifyAuthConfig {
         // App Remote control + audio streaming — required for in-app Spotify playback.
         APP_REMOTE_CONTROL_SCOPE,
         "streaming",
+        // Playlist write — AddToPlaylistSheet / PlaylistDetail mutations.
+        "playlist-modify-private",
+        "playlist-modify-public",
+    )
+
+    /**
+     * Minimum scope set the current code depends on. A Spotify profile whose
+     * stored token is missing *any* of these should be forced through the
+     * reconnect flow — the absence of even one scope silently breaks a whole
+     * feature (e.g. no `app-remote-control` = playback fails;
+     * no `playlist-modify-*` = add-to-playlist 403s).
+     *
+     * Keep this a strict subset of [SCOPES]. When [SCOPES] grows, decide
+     * explicitly whether the new entry is "nice to have" or "required" —
+     * only required scopes belong here.
+     */
+    val REQUIRED_SCOPES: Set<String> = setOf(
+        "user-read-private",
+        APP_REMOTE_CONTROL_SCOPE,
+        "streaming",
+        "playlist-modify-private",
+        "playlist-modify-public",
     )
 
     /**

@@ -10,8 +10,10 @@ import kotlinx.serialization.json.Json
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
+import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.RequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 
@@ -40,14 +42,25 @@ class SpotifyApiClient(
     private var credentials: ProfileCredentials.Spotify = initialCredentials
     private val refreshMutex = Mutex()
 
+    @Volatile
+    private var cachedUserId: String? = null
+
     fun currentCredentials(): ProfileCredentials.Spotify = credentials
 
     suspend fun getMe(): SpotifyMe = withContext(Dispatchers.IO) {
         getDecoded(
             url = apiUrl("v1", "me"),
             deserializer = SpotifyMe.serializer(),
-        )
+        ).also { cachedUserId = it.id }
     }
+
+    /**
+     * Best-effort current-user id cache. First call hits `/v1/me` and memoises
+     * the id; subsequent calls are free. Callers that need to refresh (e.g.
+     * after an account switch) should recreate the client — the cache has
+     * the same lifetime as the credentials.
+     */
+    suspend fun getCurrentUserId(): String = cachedUserId ?: getMe().id
 
     suspend fun getSavedTracks(limit: Int = DEFAULT_COLLECTION_LIMIT): List<SpotifySavedTrackObject> =
         collectOffsetPages(
@@ -186,6 +199,87 @@ class SpotifyApiClient(
         mutateLibrary(method = "DELETE", uri = uri)
     }
 
+    // ── Playlist mutation ───────────────────────────────────────────────
+
+    suspend fun createPlaylist(
+        name: String,
+        description: String? = null,
+        public: Boolean = false,
+    ): SpotifyPlaylistObject = withContext(Dispatchers.IO) {
+        val userId = getCurrentUserId()
+        val body = JSON.encodeToString(
+            SpotifyCreatePlaylistRequest.serializer(),
+            SpotifyCreatePlaylistRequest(name = name, public = public, description = description),
+        )
+        executeWithJsonBody(
+            method = "POST",
+            url = apiUrl("v1", "users", userId, "playlists"),
+            jsonBody = body,
+            deserializer = SpotifyPlaylistObject.serializer(),
+        )
+    }
+
+    suspend fun renamePlaylist(
+        id: String,
+        name: String,
+        description: String? = null,
+    ) = withContext(Dispatchers.IO) {
+        val body = JSON.encodeToString(
+            SpotifyRenamePlaylistRequest.serializer(),
+            SpotifyRenamePlaylistRequest(name = name, description = description),
+        )
+        executeWithJsonBodyIgnoringResponse(
+            method = "PUT",
+            url = apiUrl("v1", "playlists", id),
+            jsonBody = body,
+        )
+    }
+
+    suspend fun addTracksToPlaylist(id: String, uris: List<String>): String = withContext(Dispatchers.IO) {
+        val body = JSON.encodeToString(
+            SpotifyAddTracksRequest.serializer(),
+            SpotifyAddTracksRequest(uris = uris),
+        )
+        val response = executeWithJsonBody(
+            method = "POST",
+            url = apiUrl("v1", "playlists", id, "tracks"),
+            jsonBody = body,
+            deserializer = SpotifySnapshotResponse.serializer(),
+        )
+        response.snapshotId
+    }
+
+    suspend fun removeTracksFromPlaylist(
+        id: String,
+        items: List<SpotifyRemoveTrackItem>,
+        snapshotId: String? = null,
+    ): String = withContext(Dispatchers.IO) {
+        val body = JSON.encodeToString(
+            SpotifyRemoveTracksRequest.serializer(),
+            SpotifyRemoveTracksRequest(tracks = items, snapshotId = snapshotId),
+        )
+        val response = executeWithJsonBody(
+            method = "DELETE",
+            url = apiUrl("v1", "playlists", id, "tracks"),
+            jsonBody = body,
+            deserializer = SpotifySnapshotResponse.serializer(),
+        )
+        response.snapshotId
+    }
+
+    /**
+     * "Delete" a playlist. Spotify has no true delete; unfollowing your own
+     * playlist removes it from `/me/playlists`, which is the product
+     * behaviour callers want.
+     */
+    suspend fun unfollowPlaylist(id: String) = withContext(Dispatchers.IO) {
+        executeWithJsonBodyIgnoringResponse(
+            method = "DELETE",
+            url = apiUrl("v1", "playlists", id, "followers"),
+            jsonBody = null,
+        )
+    }
+
     private suspend fun mutateLibrary(method: String, uri: String) = withContext(Dispatchers.IO) {
         val url = apiUrl("v1", "me", "library")
             .newBuilder()
@@ -206,6 +300,57 @@ class SpotifyApiClient(
                     message = "Spotify library mutation failed: ${response.code}",
                 )
             }
+        }
+    }
+
+    private suspend fun <T> executeWithJsonBody(
+        method: String,
+        url: HttpUrl,
+        jsonBody: String?,
+        deserializer: KSerializer<T>,
+    ): T {
+        val response = executeJsonRequest(method, url, jsonBody)
+        response.use {
+            val body = it.body.string()
+            if (!it.isSuccessful) {
+                throw SpotifyAuthException(
+                    code = it.code,
+                    message = "Spotify mutation failed: ${it.code}",
+                )
+            }
+            return JSON.decodeFromString(deserializer, body)
+        }
+    }
+
+    private suspend fun executeWithJsonBodyIgnoringResponse(
+        method: String,
+        url: HttpUrl,
+        jsonBody: String?,
+    ) {
+        executeJsonRequest(method, url, jsonBody).use { response ->
+            if (!response.isSuccessful) {
+                throw SpotifyAuthException(
+                    code = response.code,
+                    message = "Spotify mutation failed: ${response.code}",
+                )
+            }
+        }
+    }
+
+    private suspend fun executeJsonRequest(
+        method: String,
+        url: HttpUrl,
+        jsonBody: String?,
+    ): Response {
+        val body: RequestBody = jsonBody?.toRequestBody(JSON_MEDIA_TYPE) ?: EMPTY_BODY
+        return executeWithAuthRetry { accessToken ->
+            Request.Builder()
+                .url(url)
+                .header("Authorization", "Bearer $accessToken")
+                .method(method, body)
+                .build()
+                .let(httpClient::newCall)
+                .execute()
         }
     }
 
@@ -325,6 +470,15 @@ class SpotifyApiClient(
         private const val DEFAULT_TRACKS_LIMIT = 300
         private const val DEFAULT_SEARCH_LIMIT = 12
         private val EMPTY_BODY = ByteArray(0).toRequestBody()
+        private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
+
+        // Default `encodeDefaults = false` drops fields whose value equals the
+        // declared Kotlin default — this is deliberate for request bodies,
+        // e.g. `description: String? = null` omits the key rather than sending
+        // `"description": null`. Fields that must always be emitted (e.g.
+        // `public` on create-playlist, where Kotlin's default `false` differs
+        // from Spotify's server-side default `true`) must not declare a
+        // Kotlin default in the DTO — require callers to pass them.
         private val JSON = Json {
             ignoreUnknownKeys = true
             isLenient = true

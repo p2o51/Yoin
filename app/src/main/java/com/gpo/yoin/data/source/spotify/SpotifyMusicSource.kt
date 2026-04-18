@@ -8,6 +8,7 @@ import com.gpo.yoin.data.model.Lyrics
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.PlaybackHandle
 import com.gpo.yoin.data.model.Playlist
+import com.gpo.yoin.data.model.PlaylistItemRef
 import com.gpo.yoin.data.model.SearchResults
 import com.gpo.yoin.data.model.Starred
 import com.gpo.yoin.data.model.Track
@@ -44,6 +45,7 @@ class SpotifyMusicSource(
         Capability.RANDOM_SONGS,
         Capability.STAR_UNSTAR,
         Capability.PLAYLISTS_READ,
+        Capability.PLAYLISTS_WRITE,
     )
 
     private var savedTracksCache: List<SpotifySavedTrackObject>? = null
@@ -108,13 +110,16 @@ class SpotifyMusicSource(
             )
         }
 
-        override suspend fun getPlaylists(): List<Playlist> =
-            currentUserPlaylists()
+        override suspend fun getPlaylists(): List<Playlist> {
+            val meId = apiClient.getCurrentUserId()
+            return currentUserPlaylists()
                 .sortedBy { it.name.lowercase() }
-                .map { playlist -> playlist.toPlaylist() }
+                .map { playlist -> playlist.toPlaylist(canWrite = playlist.owner?.id == meId) }
+        }
 
         override suspend fun getPlaylist(id: MediaId): Playlist? = withSpotifyId(id) { rawId ->
             val savedTrackIds = savedTrackIds()
+            val meId = apiClient.getCurrentUserId()
             val playlist = runCatching { apiClient.getPlaylist(rawId) }
                 .getOrElse { error ->
                     if (error.isSpotifyNotFound()) return@withSpotifyId null
@@ -125,7 +130,10 @@ class SpotifyMusicSource(
                 .mapNotNull { track ->
                     runCatching { track.toTrack(savedTrackIds = savedTrackIds) }.getOrNull()
                 }
-            playlist.toPlaylist(tracks = tracks)
+            playlist.toPlaylist(
+                tracks = tracks,
+                canWrite = playlist.owner?.id == meId,
+            )
         }
 
         override suspend fun getStarred(): Starred {
@@ -180,6 +188,72 @@ class SpotifyMusicSource(
 
         override suspend fun setRating(trackId: MediaId, rating: Int): Result<Unit> =
             Result.failure(UnsupportedOperationException("Spotify has no 5-star rating"))
+
+        override suspend fun createPlaylist(
+            name: String,
+            description: String?,
+        ): Result<Playlist> = runCatching {
+            val created = apiClient.createPlaylist(name = name, description = description)
+            playlistsCache = null
+            // Freshly-created playlists are owned by the caller → canWrite = true.
+            created.toPlaylist(canWrite = true)
+        }
+
+        override suspend fun renamePlaylist(
+            id: MediaId,
+            name: String,
+            description: String?,
+        ): Result<Unit> = runCatching {
+            val rawId = requireSpotify(id).rawId
+            apiClient.renamePlaylist(id = rawId, name = name, description = description)
+            playlistsCache = null
+        }
+
+        override suspend fun deletePlaylist(id: MediaId): Result<Unit> = runCatching {
+            val rawId = requireSpotify(id).rawId
+            // Spotify has no real delete — unfollowing your own playlist removes
+            // it from /me/playlists, which is the product-level "delete".
+            apiClient.unfollowPlaylist(rawId)
+            playlistsCache = null
+        }
+
+        override suspend fun addTracksToPlaylist(
+            playlistId: MediaId,
+            tracks: List<MediaId>,
+        ): Result<String?> = runCatching {
+            if (tracks.isEmpty()) return@runCatching null
+            val rawId = requireSpotify(playlistId).rawId
+            val uris = tracks.map { "spotify:track:${requireSpotify(it).rawId}" }
+            val snapshot = apiClient.addTracksToPlaylist(id = rawId, uris = uris)
+            playlistsCache = null
+            snapshot
+        }
+
+        override suspend fun removeTracksFromPlaylist(
+            playlistId: MediaId,
+            items: List<PlaylistItemRef>,
+            snapshotId: String?,
+        ): Result<String?> = runCatching {
+            if (items.isEmpty()) return@runCatching snapshotId
+            val rawId = requireSpotify(playlistId).rawId
+            // Spotify removes by uri + positions; group positions by uri so
+            // duplicate tracks at different positions each get targeted.
+            val grouped = items
+                .groupBy { item -> "spotify:track:${requireSpotify(item.trackId).rawId}" }
+                .map { (uri, refs) ->
+                    SpotifyRemoveTrackItem(
+                        uri = uri,
+                        positions = refs.map { it.position }.sorted(),
+                    )
+                }
+            val newSnapshot = apiClient.removeTracksFromPlaylist(
+                id = rawId,
+                items = grouped,
+                snapshotId = snapshotId,
+            )
+            playlistsCache = null
+            newSnapshot
+        }
     }
 
     private val playback = object : MusicPlayback {

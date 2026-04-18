@@ -91,6 +91,8 @@ data class SpotifyPlaylistObject(
     val owner: SpotifyOwnerObject? = null,
     val public: Boolean? = null,
     val tracks: SpotifyPlaylistTracksObject? = null,
+    /** Optimistic-concurrency token returned by `/playlists/{id}` and mutations. */
+    @SerialName("snapshot_id") val snapshotId: String? = null,
 )
 
 @Serializable
@@ -145,4 +147,47 @@ data class SpotifySearchResponse(
     val albums: SpotifyPagingObject<SpotifySimplifiedAlbumObject>? = null,
     val artists: SpotifyPagingObject<SpotifyArtistObject>? = null,
     val playlists: SpotifyPagingObject<SpotifyPlaylistObject>? = null,
+)
+
+// ── Playlist write request / response bodies ────────────────────────────
+//
+// Sent to / returned by `POST /v1/me/playlists`, `PUT /v1/playlists/{id}`,
+// `POST /v1/playlists/{id}/items`, `DELETE /v1/playlists/{id}/items`.
+
+@Serializable
+data class SpotifyCreatePlaylistRequest(
+    val name: String,
+    // `public` has no Kotlin default — its Spotify server-side default is
+    // `true`, so omitting it would silently create public playlists. Callers
+    // must pass the intended value explicitly.
+    val public: Boolean,
+    val description: String? = null,
+)
+
+@Serializable
+data class SpotifyRenamePlaylistRequest(
+    val name: String,
+    val description: String? = null,
+)
+
+@Serializable
+data class SpotifyAddTracksRequest(
+    val uris: List<String>,
+)
+
+@Serializable
+data class SpotifyRemoveTrackItem(
+    val uri: String,
+    val positions: List<Int>? = null,
+)
+
+@Serializable
+data class SpotifyRemoveTracksRequest(
+    val tracks: List<SpotifyRemoveTrackItem>,
+    @SerialName("snapshot_id") val snapshotId: String? = null,
+)
+
+@Serializable
+data class SpotifySnapshotResponse(
+    @SerialName("snapshot_id") val snapshotId: String,
 )

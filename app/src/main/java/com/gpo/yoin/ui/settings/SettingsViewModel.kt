@@ -490,7 +490,11 @@ class SettingsViewModel(
 
     private fun Profile.profileRequiresSpotifyReconnect(): Boolean {
         val spotify = profileManager.decodeCredentials(this) as? ProfileCredentials.Spotify ?: return false
-        return SpotifyAuthConfig.APP_REMOTE_CONTROL_SCOPE !in spotify.scopes
+        // A profile is stuck if its token was minted against an older scope
+        // list — we check the full required-scopes set rather than any single
+        // scope, so adding new required scopes (e.g. playlist-modify-*)
+        // automatically triggers reconnect for every legacy profile.
+        return SpotifyAuthConfig.REQUIRED_SCOPES.any { required -> required !in spotify.scopes }
     }
 
     private fun buildProfileDisplayName(serverUrl: String, username: String): String {

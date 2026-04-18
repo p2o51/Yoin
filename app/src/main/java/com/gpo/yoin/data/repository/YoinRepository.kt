@@ -13,6 +13,7 @@ import com.gpo.yoin.data.model.CoverRef
 import com.gpo.yoin.data.model.Lyrics
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.Playlist
+import com.gpo.yoin.data.model.PlaylistItemRef
 import com.gpo.yoin.data.model.SearchResults
 import com.gpo.yoin.data.model.Starred
 import com.gpo.yoin.data.model.Track
@@ -91,6 +92,36 @@ class YoinRepository(
 
     suspend fun getPlaylist(id: MediaId): Playlist? =
         requireSource().library().getPlaylist(id)
+
+    suspend fun createPlaylist(name: String, description: String? = null): Result<Playlist> =
+        requireSource().writeActions().createPlaylist(name = name, description = description)
+
+    suspend fun renamePlaylist(
+        id: MediaId,
+        name: String,
+        description: String? = null,
+    ): Result<Unit> =
+        requireSource().writeActions().renamePlaylist(id = id, name = name, description = description)
+
+    suspend fun deletePlaylist(id: MediaId): Result<Unit> =
+        requireSource().writeActions().deletePlaylist(id)
+
+    suspend fun addTracksToPlaylist(
+        playlistId: MediaId,
+        tracks: List<MediaId>,
+    ): Result<String?> =
+        requireSource().writeActions().addTracksToPlaylist(playlistId = playlistId, tracks = tracks)
+
+    suspend fun removeTracksFromPlaylist(
+        playlistId: MediaId,
+        items: List<PlaylistItemRef>,
+        snapshotId: String? = null,
+    ): Result<String?> =
+        requireSource().writeActions().removeTracksFromPlaylist(
+            playlistId = playlistId,
+            items = items,
+            snapshotId = snapshotId,
+        )
 
     // ── Rating (local-first, best-effort server sync) ──────────────────
 

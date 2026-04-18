@@ -106,8 +106,15 @@ internal fun List<Artist>.toArtistIndices(): List<ArtistIndex> =
         .toSortedMap()
         .map { (name, artists) -> ArtistIndex(name = name, artists = artists) }
 
+/**
+ * @param canWrite Pass `true` only when the current profile user owns this
+ *   playlist. Source is responsible for comparing `owner.id` against
+ *   `apiClient.getCurrentUserId()`; the mapper does not reach out to the
+ *   network.
+ */
 internal fun SpotifyPlaylistObject.toPlaylist(
     tracks: List<Track> = emptyList(),
+    canWrite: Boolean = false,
 ): Playlist = Playlist(
     id = MediaId.spotify(id),
     name = name,
@@ -117,6 +124,8 @@ internal fun SpotifyPlaylistObject.toPlaylist(
     durationSec = tracks.sumOf { track -> track.durationSec ?: 0 }
         .takeIf { it > 0 },
     tracks = tracks,
+    canWrite = canWrite,
+    snapshotId = snapshotId,
 )
 
 internal fun SpotifySearchResponse.toSearchResults(

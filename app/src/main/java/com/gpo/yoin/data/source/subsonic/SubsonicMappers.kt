@@ -91,6 +91,11 @@ internal fun SubsonicPlaylist.toPlaylist(): NeutralPlaylist = NeutralPlaylist(
     songCount = songCount,
     durationSec = duration,
     tracks = entry.map { it.toTrack() },
+    // `getPlaylists.view` with no `username` param returns only the
+    // authenticated user's own playlists — always writable. Subsonic has
+    // no snapshot/etag concurrency token, so snapshotId stays null.
+    canWrite = true,
+    snapshotId = null,
 )
 
 internal fun SubsonicSearchResult.toSearchResults(): SearchResults = SearchResults(

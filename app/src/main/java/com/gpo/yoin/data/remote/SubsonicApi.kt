@@ -94,4 +94,30 @@ interface SubsonicApi {
         @Query("id") id: String,
         @Query("rating") rating: Int,
     ): SubsonicResponse
+
+    @GET("rest/createPlaylist.view")
+    suspend fun createPlaylist(
+        @Query("name") name: String,
+    ): SubsonicResponse
+
+    /**
+     * Subsonic's `updatePlaylist.view` is a swiss-army endpoint: pass
+     * [name] to rename; [comment] to re-describe; [songIdToAdd] to append
+     * tracks (repeatable); [songIndexToRemove] to delete by zero-based
+     * position (repeatable). Retrofit serialises repeated query params
+     * correctly when given a `List<String>` / `List<Int>`.
+     */
+    @GET("rest/updatePlaylist.view")
+    suspend fun updatePlaylist(
+        @Query("playlistId") playlistId: String,
+        @Query("name") name: String? = null,
+        @Query("comment") comment: String? = null,
+        @Query("songIdToAdd") songIdToAdd: List<String>? = null,
+        @Query("songIndexToRemove") songIndexToRemove: List<Int>? = null,
+    ): SubsonicResponse
+
+    @GET("rest/deletePlaylist.view")
+    suspend fun deletePlaylist(
+        @Query("id") id: String,
+    ): SubsonicResponse
 }

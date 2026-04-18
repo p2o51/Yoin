@@ -135,6 +135,131 @@ class SpotifyApiClientTest {
     }
 
     @Test
+    fun createPlaylist_posts_name_and_public_to_users_me_playlists() = runTest {
+        val responses = mutableMapOf(
+            "/v1/me" to ArrayDeque(listOf(meResponse(id = "alice"))),
+            "/v1/users/alice/playlists" to ArrayDeque(
+                listOf(
+                    MockResponse().setResponseCode(201).setBody(
+                        """{"id":"pl1","name":"Road Trip","owner":{"id":"alice"},"snapshot_id":"snap0"}""",
+                    ),
+                ),
+            ),
+        )
+        server.dispatcher = queueDispatcher(responses)
+        val client = newClient(credentials("t1", "r1", fakeNow + 10 * 60_000L))
+
+        val playlist = client.createPlaylist(name = "Road Trip", public = false)
+        assertEquals("pl1", playlist.id)
+        assertEquals("snap0", playlist.snapshotId)
+
+        // /v1/me was called once (to resolve currentUserId), then POST to
+        // the create endpoint.
+        server.takeRequest() // /v1/me
+        val create = server.takeRequest()
+        assertEquals("POST", create.method)
+        assertEquals("/v1/users/alice/playlists", create.path)
+        val body = create.body.readUtf8()
+        assertTrue("body should contain name", body.contains("\"name\":\"Road Trip\""))
+        // encodeDefaults = false, but `public` has no Kotlin default → must be emitted
+        assertTrue("body should emit public=false", body.contains("\"public\":false"))
+    }
+
+    @Test
+    fun addTracksToPlaylist_posts_uris_and_returns_snapshot() = runTest {
+        val responses = mutableMapOf(
+            "/v1/playlists/pl1/tracks" to ArrayDeque(
+                listOf(
+                    MockResponse().setResponseCode(200).setBody(
+                        """{"snapshot_id":"snap-after-add"}""",
+                    ),
+                ),
+            ),
+        )
+        server.dispatcher = queueDispatcher(responses)
+        val client = newClient(credentials("t1", "r1", fakeNow + 10 * 60_000L))
+
+        val snapshot = client.addTracksToPlaylist(
+            id = "pl1",
+            uris = listOf("spotify:track:aaa", "spotify:track:bbb"),
+        )
+        assertEquals("snap-after-add", snapshot)
+
+        val req = server.takeRequest()
+        assertEquals("POST", req.method)
+        val body = req.body.readUtf8()
+        assertTrue(body.contains("\"spotify:track:aaa\""))
+        assertTrue(body.contains("\"spotify:track:bbb\""))
+    }
+
+    @Test
+    fun removeTracksFromPlaylist_includes_snapshot_id_for_concurrency() = runTest {
+        val responses = mutableMapOf(
+            "/v1/playlists/pl1/tracks" to ArrayDeque(
+                listOf(
+                    MockResponse().setResponseCode(200).setBody(
+                        """{"snapshot_id":"snap-after-remove"}""",
+                    ),
+                ),
+            ),
+        )
+        server.dispatcher = queueDispatcher(responses)
+        val client = newClient(credentials("t1", "r1", fakeNow + 10 * 60_000L))
+
+        val snapshot = client.removeTracksFromPlaylist(
+            id = "pl1",
+            items = listOf(
+                SpotifyRemoveTrackItem(uri = "spotify:track:aaa", positions = listOf(0, 3)),
+            ),
+            snapshotId = "snap-before",
+        )
+        assertEquals("snap-after-remove", snapshot)
+
+        val req = server.takeRequest()
+        assertEquals("DELETE", req.method)
+        val body = req.body.readUtf8()
+        assertTrue("body carries snapshot_id for optimistic concurrency",
+            body.contains("\"snapshot_id\":\"snap-before\""))
+        assertTrue(body.contains("\"positions\":[0,3]"))
+    }
+
+    @Test
+    fun unfollowPlaylist_hits_followers_with_DELETE() = runTest {
+        val responses = mutableMapOf(
+            "/v1/playlists/pl1/followers" to ArrayDeque(
+                listOf(MockResponse().setResponseCode(200)),
+            ),
+        )
+        server.dispatcher = queueDispatcher(responses)
+        val client = newClient(credentials("t1", "r1", fakeNow + 10 * 60_000L))
+
+        client.unfollowPlaylist("pl1")
+        val req = server.takeRequest()
+        assertEquals("DELETE", req.method)
+        assertEquals("/v1/playlists/pl1/followers", req.path)
+    }
+
+    @Test
+    fun renamePlaylist_puts_name_to_playlist_root() = runTest {
+        val responses = mutableMapOf(
+            "/v1/playlists/pl1" to ArrayDeque(
+                listOf(MockResponse().setResponseCode(200).setBody("")),
+            ),
+        )
+        server.dispatcher = queueDispatcher(responses)
+        val client = newClient(credentials("t1", "r1", fakeNow + 10 * 60_000L))
+
+        client.renamePlaylist(id = "pl1", name = "New Name", description = null)
+        val req = server.takeRequest()
+        assertEquals("PUT", req.method)
+        assertEquals("/v1/playlists/pl1", req.path)
+        val body = req.body.readUtf8()
+        assertTrue(body.contains("\"name\":\"New Name\""))
+        // description is null + encodeDefaults=false → key should be absent.
+        assertTrue("null description omitted", !body.contains("\"description\""))
+    }
+
+    @Test
     fun should_preserve_prior_refresh_token_when_refresh_response_omits_it() = runTest {
         val responses = mutableMapOf(
             "/api/token" to ArrayDeque(

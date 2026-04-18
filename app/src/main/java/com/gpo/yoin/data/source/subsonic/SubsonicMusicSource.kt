@@ -8,6 +8,7 @@ import com.gpo.yoin.data.model.Lyrics
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.PlaybackHandle
 import com.gpo.yoin.data.model.Playlist
+import com.gpo.yoin.data.model.PlaylistItemRef
 import com.gpo.yoin.data.model.SearchResults
 import com.gpo.yoin.data.model.Starred
 import com.gpo.yoin.data.model.Track
@@ -47,6 +48,7 @@ class SubsonicMusicSource(
         Capability.STAR_UNSTAR,
         Capability.RATING_FIVE_STAR,
         Capability.PLAYLISTS_READ,
+        Capability.PLAYLISTS_WRITE,
         Capability.LYRICS,
     )
 
@@ -109,6 +111,78 @@ class SubsonicMusicSource(
                 val clamped = rating.coerceIn(0, 5)
                 unwrap(api.setRating(trackId.requireSubsonic(), clamped))
             }
+
+        override suspend fun createPlaylist(
+            name: String,
+            description: String?,
+        ): Result<Playlist> = runCatching {
+            val body = unwrap(api.createPlaylist(name = name))
+            val created = body.playlist
+                ?: throw SubsonicException(
+                    code = -1,
+                    message = "createPlaylist.view returned no playlist",
+                )
+            // Subsonic's createPlaylist has no comment/description parameter.
+            // If description is non-null, follow up with updatePlaylist to set
+            // the comment field — Subsonic reuses `comment` as description.
+            if (!description.isNullOrBlank()) {
+                unwrap(api.updatePlaylist(playlistId = created.id, comment = description))
+            }
+            created.toPlaylist()
+        }
+
+        override suspend fun renamePlaylist(
+            id: MediaId,
+            name: String,
+            description: String?,
+        ): Result<Unit> = runCatching {
+            unwrap(
+                api.updatePlaylist(
+                    playlistId = id.requireSubsonic(),
+                    name = name,
+                    comment = description,
+                ),
+            )
+        }
+
+        override suspend fun deletePlaylist(id: MediaId): Result<Unit> = runCatching {
+            unwrap(api.deletePlaylist(id.requireSubsonic()))
+        }
+
+        override suspend fun addTracksToPlaylist(
+            playlistId: MediaId,
+            tracks: List<MediaId>,
+        ): Result<String?> = runCatching {
+            if (tracks.isEmpty()) return@runCatching null
+            unwrap(
+                api.updatePlaylist(
+                    playlistId = playlistId.requireSubsonic(),
+                    songIdToAdd = tracks.map { it.requireSubsonic() },
+                ),
+            )
+            null // Subsonic has no snapshot/etag concurrency token.
+        }
+
+        override suspend fun removeTracksFromPlaylist(
+            playlistId: MediaId,
+            items: List<PlaylistItemRef>,
+            snapshotId: String?,
+        ): Result<String?> = runCatching {
+            if (items.isEmpty()) return@runCatching null
+            // Subsonic ignores snapshotId — its updatePlaylist.view is
+            // last-writer-wins. Positions must be sorted descending when
+            // removing multiple indices in one call so earlier removals
+            // don't shift later indices.
+            unwrap(
+                api.updatePlaylist(
+                    playlistId = playlistId.requireSubsonic(),
+                    songIndexToRemove = items
+                        .map { it.position }
+                        .sortedDescending(),
+                ),
+            )
+            null
+        }
     }
 
     private val playback = object : MusicPlayback {
