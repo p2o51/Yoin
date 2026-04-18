@@ -28,6 +28,7 @@ import kotlinx.coroutines.launch
 @OptIn(FlowPreview::class)
 class LibraryViewModel(
     private val repository: YoinRepository,
+    private val onPlaylistMutated: () -> Unit = {},
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow<LibraryUiState>(LibraryUiState.Loading)
@@ -208,6 +209,19 @@ class LibraryViewModel(
     fun buildCoverArtUrl(coverArtId: String): String =
         repository.resolveSubsonicCoverUrl(coverArtId, size = 256).orEmpty()
 
+    fun invalidatePlaylists() {
+        cachedPlaylists = null
+        val current = _uiState.value as? LibraryUiState.Content ?: return
+        if (current.selectedTab != LibraryTab.Playlists) return
+        viewModelScope.launch {
+            runCatching { repository.getPlaylists() }
+                .onSuccess { playlists ->
+                    cachedPlaylists = playlists
+                    updateContent { copy(playlists = playlists) }
+                }
+        }
+    }
+
     /**
      * Create an empty playlist on the active source and splice it into the
      * Playlists tab without a full reload.
@@ -225,6 +239,7 @@ class LibraryViewModel(
                         .sortedBy { it.name.lowercase() }
                     cachedPlaylists = updated
                     updateContent { copy(playlists = updated) }
+                    onPlaylistMutated()
                     _messages.tryEmit("Created \"$trimmed\"")
                 }
                 .onFailure {
@@ -236,7 +251,10 @@ class LibraryViewModel(
     class Factory(private val container: AppContainer) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T =
-            LibraryViewModel(container.repository) as T
+            LibraryViewModel(
+                repository = container.repository,
+                onPlaylistMutated = container::notifyPlaylistMutation,
+            ) as T
     }
 
     companion object {

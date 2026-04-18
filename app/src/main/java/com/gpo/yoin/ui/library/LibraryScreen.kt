@@ -122,6 +122,7 @@ fun LibraryScreen(
     onAlbumClick: (String) -> Unit,
     onPlaylistClick: (String) -> Unit,
     onSongClick: (Track) -> Unit,
+    onAddSongToPlaylist: (Track) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -139,6 +140,7 @@ fun LibraryScreen(
         onAlbumClick = onAlbumClick,
         onPlaylistClick = onPlaylistClick,
         onSongClick = onSongClick,
+        onAddSongToPlaylist = onAddSongToPlaylist,
         onCreatePlaylist = viewModel::createPlaylist,
         onRetry = viewModel::refresh,
         coverArtUrlBuilder = viewModel::buildCoverArtUrl,
@@ -160,6 +162,7 @@ fun LibraryContent(
     onAlbumClick: (String) -> Unit,
     onPlaylistClick: (String) -> Unit,
     onSongClick: (Track) -> Unit,
+    onAddSongToPlaylist: (Track) -> Unit = {},
     onCreatePlaylist: (name: String) -> Unit = {},
     onRetry: () -> Unit,
     coverArtUrlBuilder: ((String) -> String)?,
@@ -219,6 +222,8 @@ fun LibraryContent(
                         onAlbumClick = onAlbumClick,
                         onPlaylistClick = onPlaylistClick,
                         onSongClick = onSongClick,
+                        onAddSongToPlaylist = onAddSongToPlaylist,
+                        onCreatePlaylist = onCreatePlaylist,
                         coverArtUrlBuilder = coverArtUrlBuilder,
                     )
                 }
@@ -241,6 +246,8 @@ private fun LibraryContentBody(
     onAlbumClick: (String) -> Unit,
     onPlaylistClick: (String) -> Unit,
     onSongClick: (Track) -> Unit,
+    onAddSongToPlaylist: (Track) -> Unit,
+    onCreatePlaylist: (name: String) -> Unit,
     coverArtUrlBuilder: ((String) -> String)?,
 ) {
     Column(
@@ -277,6 +284,7 @@ private fun LibraryContentBody(
                     onArtistClick = onArtistClick,
                     onAlbumClick = onAlbumClick,
                     onSongClick = onSongClick,
+                    onAddSongToPlaylist = onAddSongToPlaylist,
                     coverArtUrlBuilder = coverArtUrlBuilder,
                     modifier = Modifier.fillMaxSize(),
                 )
@@ -306,6 +314,7 @@ private fun LibraryContentBody(
                             isPlaying = isPlaying,
                             playbackSignal = playbackSignal,
                             onSongClick = onSongClick,
+                            onAddSongToPlaylist = onAddSongToPlaylist,
                             coverArtUrlBuilder = coverArtUrlBuilder,
                         )
                         LibraryTab.Playlists -> PlaylistsTabContent(
@@ -322,6 +331,7 @@ private fun LibraryContentBody(
                             onArtistClick = onArtistClick,
                             onAlbumClick = onAlbumClick,
                             onSongClick = onSongClick,
+                            onAddSongToPlaylist = onAddSongToPlaylist,
                             coverArtUrlBuilder = coverArtUrlBuilder,
                         )
                     }
@@ -613,6 +623,7 @@ private fun SongsTabContent(
     isPlaying: Boolean = false,
     playbackSignal: Float = 0f,
     onSongClick: (Track) -> Unit,
+    onAddSongToPlaylist: (Track) -> Unit,
     coverArtUrlBuilder: ((String) -> String)?,
     modifier: Modifier = Modifier,
 ) {
@@ -642,6 +653,7 @@ private fun SongsTabContent(
                 durationSeconds = song.durationSec,
                 coverArtUrl = libraryCoverArtUrl(song.coverArt, coverArtUrlBuilder),
                 onClick = { onSongClick(song) },
+                onLongClick = { onAddSongToPlaylist(song) },
                 isNowPlaying = isPlaying && song.id.toString() == activeSongId,
                 playbackSignal = playbackSignal,
                 extractBackdropColors = false,
@@ -818,6 +830,7 @@ private fun FavoritesTabContent(
     onArtistClick: (String) -> Unit,
     onAlbumClick: (String) -> Unit,
     onSongClick: (Track) -> Unit,
+    onAddSongToPlaylist: (Track) -> Unit,
     coverArtUrlBuilder: ((String) -> String)?,
     modifier: Modifier = Modifier,
 ) {
@@ -907,6 +920,7 @@ private fun FavoritesTabContent(
                     durationSeconds = song.durationSec,
                     coverArtUrl = libraryCoverArtUrl(song.coverArt, coverArtUrlBuilder),
                     onClick = { onSongClick(song) },
+                    onLongClick = { onAddSongToPlaylist(song) },
                     isNowPlaying = isPlaying && song.id.toString() == activeSongId,
                     playbackSignal = playbackSignal,
                     extractBackdropColors = false,
@@ -1001,6 +1015,7 @@ private fun SearchResultsContent(
     onArtistClick: (String) -> Unit,
     onAlbumClick: (String) -> Unit,
     onSongClick: (Track) -> Unit,
+    onAddSongToPlaylist: (Track) -> Unit,
     coverArtUrlBuilder: ((String) -> String)?,
     modifier: Modifier = Modifier,
 ) {
@@ -1101,6 +1116,7 @@ private fun SearchResultsContent(
                     durationSeconds = song.durationSec,
                     coverArtUrl = libraryCoverArtUrl(song.coverArt, coverArtUrlBuilder),
                     onClick = { onSongClick(song) },
+                    onLongClick = { onAddSongToPlaylist(song) },
                     isNowPlaying = isPlaying && song.id.toString() == activeSongId,
                     playbackSignal = playbackSignal,
                     extractBackdropColors = false,

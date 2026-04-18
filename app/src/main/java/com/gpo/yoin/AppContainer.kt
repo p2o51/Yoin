@@ -44,6 +44,7 @@ class AppContainer(private val context: Context) {
     }
 
     private val _musicConfigurationRevision = MutableStateFlow(0L)
+    private val _playlistMutationRevision = MutableStateFlow(0L)
 
     /**
      * Increments whenever the active profile's configuration changes (switch,
@@ -51,9 +52,14 @@ class AppContainer(private val context: Context) {
      * subscribe via `YoinNavHost` to refresh their content.
      */
     val musicConfigurationRevision: StateFlow<Long> = _musicConfigurationRevision.asStateFlow()
+    val playlistMutationRevision: StateFlow<Long> = _playlistMutationRevision.asStateFlow()
 
     fun notifyMusicConfigurationChanged() {
         _musicConfigurationRevision.value += 1
+    }
+
+    fun notifyPlaylistMutation() {
+        _playlistMutationRevision.value += 1
     }
 
     private val credentialsCodec: ProfileCredentialsCodec = PlaintextProfileCredentialsCodec()

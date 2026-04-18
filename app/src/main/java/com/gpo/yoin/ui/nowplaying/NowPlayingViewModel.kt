@@ -35,6 +35,7 @@ class NowPlayingViewModel(
     private val repository: YoinRepository,
     private val geminiService: GeminiService,
     private val database: YoinDatabase,
+    private val onPlaylistMutated: () -> Unit = {},
 ) : ViewModel() {
 
     private val _lyrics = MutableStateFlow<List<LyricLine>>(emptyList())
@@ -216,9 +217,15 @@ class NowPlayingViewModel(
                 )
             }
 
+    fun requestAddTracksToPlaylist(trackIds: List<MediaId>) {
+        val distinctTargets = trackIds.distinct()
+        if (distinctTargets.isEmpty()) return
+        _addToPlaylistTarget.value = distinctTargets
+    }
+
     fun requestAddCurrentToPlaylist() {
         val songId = currentSongId.value ?: return
-        _addToPlaylistTarget.value = listOf(songId)
+        requestAddTracksToPlaylist(listOf(songId))
     }
 
     fun dismissAddToPlaylistSheet() {
@@ -232,7 +239,10 @@ class NowPlayingViewModel(
         _addToPlaylistTarget.value = null
         viewModelScope.launch {
             repository.addTracksToPlaylist(playlistId, targets)
-                .onSuccess { _addToPlaylistMessages.tryEmit("Added to $playlistName") }
+                .onSuccess {
+                    onPlaylistMutated()
+                    _addToPlaylistMessages.tryEmit("Added to $playlistName")
+                }
                 .onFailure {
                     _addToPlaylistMessages.tryEmit(
                         it.message ?: "Couldn't add to $playlistName",
@@ -262,9 +272,11 @@ class NowPlayingViewModel(
                     // silently rolling back the create.
                     repository.addTracksToPlaylist(playlist.id, targets)
                         .onSuccess {
+                            onPlaylistMutated()
                             _addToPlaylistMessages.tryEmit("Added to $trimmedName")
                         }
                         .onFailure {
+                            onPlaylistMutated()
                             _addToPlaylistMessages.tryEmit(
                                 it.message ?: "Created $trimmedName but couldn't add tracks",
                             )
@@ -353,6 +365,7 @@ class NowPlayingViewModel(
                 repository = container.repository,
                 geminiService = container.geminiService,
                 database = container.database,
+                onPlaylistMutated = container::notifyPlaylistMutation,
             ) as T
     }
 }

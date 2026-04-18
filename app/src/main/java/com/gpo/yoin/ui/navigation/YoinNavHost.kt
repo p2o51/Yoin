@@ -50,6 +50,7 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.toRoute
 import com.gpo.yoin.YoinApplication
 import com.gpo.yoin.data.model.CoverRef
+import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.Track
 import com.gpo.yoin.data.repository.ActivityContext
 import com.gpo.yoin.ui.component.AddToPlaylistSheet
@@ -97,19 +98,33 @@ fun YoinNavHost(
 ) {
     SharedTransitionLayout(modifier = modifier) {
         val sharedTransitionScope = this
+        val app = LocalContext.current.applicationContext as YoinApplication
+        val nowPlayingViewModel: NowPlayingViewModel = viewModel(
+            factory = NowPlayingViewModel.Factory(app.container),
+        )
+        val addToPlaylistSnackbarHostState = remember { SnackbarHostState() }
 
-        NavHost(
-            navController = navController,
-            startDestination = YoinRoute.Shell,
-            modifier = Modifier.fillMaxSize(),
-            enterTransition = { YoinMotion.navHostStableEnter },
-            exitTransition = { YoinMotion.navHostStableExit },
-            popEnterTransition = { YoinMotion.navHostStableEnter },
-            popExitTransition = { YoinMotion.navHostStableExit },
-        ) {
+        LaunchedEffect(nowPlayingViewModel) {
+            nowPlayingViewModel.addToPlaylistMessages.collect { message ->
+                addToPlaylistSnackbarHostState.showSnackbar(
+                    message = message,
+                    duration = SnackbarDuration.Short,
+                )
+            }
+        }
+
+        Box(modifier = Modifier.fillMaxSize()) {
+            NavHost(
+                navController = navController,
+                startDestination = YoinRoute.Shell,
+                modifier = Modifier.fillMaxSize(),
+                enterTransition = { YoinMotion.navHostStableEnter },
+                exitTransition = { YoinMotion.navHostStableExit },
+                popEnterTransition = { YoinMotion.navHostStableEnter },
+                popExitTransition = { YoinMotion.navHostStableExit },
+            ) {
             composable<YoinRoute.Shell> {
                 val shellAnimatedVisibilityScope = this
-                val app = LocalContext.current.applicationContext as YoinApplication
                 val homeViewModel: HomeViewModel = viewModel(
                     factory = HomeViewModel.Factory(app.container),
                 )
@@ -118,9 +133,6 @@ fun YoinNavHost(
                 )
                 val memoriesViewModel: MemoriesViewModel = viewModel(
                     factory = MemoriesViewModel.Factory(app.container),
-                )
-                val nowPlayingViewModel: NowPlayingViewModel = viewModel(
-                    factory = NowPlayingViewModel.Factory(app.container),
                 )
 
                 YoinShell(
@@ -169,7 +181,6 @@ fun YoinNavHost(
             ) { backStackEntry ->
                 val route = backStackEntry.toRoute<YoinRoute.AlbumDetail>()
                 val navAnimatedVisibilityScope = this
-                val app = LocalContext.current.applicationContext as YoinApplication
                 val viewModel: AlbumDetailViewModel = viewModel(
                     factory = AlbumDetailViewModel.Factory(route.albumId, app.container),
                 )
@@ -204,6 +215,11 @@ fun YoinNavHost(
                                 )
                             }
                         },
+                        onAddSongToPlaylist = { songId ->
+                            nowPlayingViewModel.requestAddTracksToPlaylist(
+                                listOf(MediaId.parse(songId)),
+                            )
+                        },
                         onToggleStar = viewModel::toggleStar,
                         onRetry = viewModel::retry,
                         sharedTransitionScope = sharedTransitionScope,
@@ -221,7 +237,6 @@ fun YoinNavHost(
             ) { backStackEntry ->
                 val route = backStackEntry.toRoute<YoinRoute.ArtistDetail>()
                 val navAnimatedVisibilityScope = this
-                val app = LocalContext.current.applicationContext as YoinApplication
                 val viewModel: ArtistDetailViewModel = viewModel(
                     factory = ArtistDetailViewModel.Factory(route.artistId, app.container),
                 )
@@ -253,15 +268,15 @@ fun YoinNavHost(
             ) { backStackEntry ->
                 val route = backStackEntry.toRoute<YoinRoute.PlaylistDetail>()
                 val navAnimatedVisibilityScope = this
-                val app = LocalContext.current.applicationContext as YoinApplication
                 val viewModel: PlaylistDetailViewModel = viewModel(
                     factory = PlaylistDetailViewModel.Factory(route.playlistId, app.container),
                 )
                 val uiState by viewModel.uiState.collectAsState()
+                val detailSnackbarHostState = remember { SnackbarHostState() }
                 // Surface rename/delete/remove outcomes in the shell snackbar.
                 LaunchedEffect(viewModel) {
                     viewModel.messages.collect { message ->
-                        snackbarHostState.showSnackbar(
+                        detailSnackbarHostState.showSnackbar(
                             message = message,
                             duration = SnackbarDuration.Short,
                         )
@@ -278,12 +293,35 @@ fun YoinNavHost(
                     kind = BackSurfaceKind.PushPage,
                     onCommitBack = { navController.popBackStack() },
                 ) { predictiveBackModifier, _, requestBack ->
-                    PlaylistDetailScreen(
-                        uiState = uiState,
-                        onBackClick = requestBack,
-                        onPlayAllClick = {
-                            val songs = viewModel.getPlaylistSongs()
-                            if (songs.isNotEmpty()) {
+                    Box(modifier = predictiveBackModifier.fillMaxSize()) {
+                        PlaylistDetailScreen(
+                            uiState = uiState,
+                            onBackClick = requestBack,
+                            onPlayAllClick = {
+                                val songs = viewModel.getPlaylistSongs()
+                                if (songs.isNotEmpty()) {
+                                    val activityContext = (uiState as? PlaylistDetailUiState.Content)?.let { content ->
+                                        ActivityContext.Playlist(
+                                            playlistId = route.playlistId,
+                                            playlistName = content.playlistName,
+                                            owner = content.owner.takeIf { it.isNotBlank() },
+                                            coverArtId = songs.firstNotNullOfOrNull(::trackCoverArtId),
+                                        )
+                                    } ?: ActivityContext.None
+                                    app.container.profileManager.activeSource.value?.let { source ->
+                                        app.container.playbackManager.play(
+                                            tracks = songs,
+                                            startIndex = 0,
+                                            source = source,
+                                            activityContext = activityContext,
+                                        )
+                                    }
+                                }
+                            },
+                            onSongClick = { songId ->
+                                val songs = viewModel.getPlaylistSongs()
+                                val index = songs.indexOfFirst { it.id.toString() == songId }
+                                    .coerceAtLeast(0)
                                 val activityContext = (uiState as? PlaylistDetailUiState.Content)?.let { content ->
                                     ActivityContext.Playlist(
                                         playlistId = route.playlistId,
@@ -295,43 +333,35 @@ fun YoinNavHost(
                                 app.container.profileManager.activeSource.value?.let { source ->
                                     app.container.playbackManager.play(
                                         tracks = songs,
-                                        startIndex = 0,
+                                        startIndex = index,
                                         source = source,
                                         activityContext = activityContext,
                                     )
                                 }
-                            }
-                        },
-                        onSongClick = { songId ->
-                            val songs = viewModel.getPlaylistSongs()
-                            val index = songs.indexOfFirst { it.id.toString() == songId }
-                                .coerceAtLeast(0)
-                            val activityContext = (uiState as? PlaylistDetailUiState.Content)?.let { content ->
-                                ActivityContext.Playlist(
-                                    playlistId = route.playlistId,
-                                    playlistName = content.playlistName,
-                                    owner = content.owner.takeIf { it.isNotBlank() },
-                                    coverArtId = songs.firstNotNullOfOrNull(::trackCoverArtId),
+                            },
+                            onRetry = viewModel::retry,
+                            onAddSongToPlaylist = { songId ->
+                                nowPlayingViewModel.requestAddTracksToPlaylist(
+                                    listOf(MediaId.parse(songId)),
                                 )
-                            } ?: ActivityContext.None
-                            app.container.profileManager.activeSource.value?.let { source ->
-                                app.container.playbackManager.play(
-                                    tracks = songs,
-                                    startIndex = index,
-                                    source = source,
-                                    activityContext = activityContext,
-                                )
-                            }
-                        },
-                        onRetry = viewModel::retry,
-                        onRename = viewModel::rename,
-                        onDelete = viewModel::delete,
-                        onRemoveTrack = viewModel::removeTrack,
-                        sharedTransitionKey = route.sharedTransitionKey,
-                        sharedTransitionScope = sharedTransitionScope,
-                        animatedVisibilityScope = navAnimatedVisibilityScope,
-                        modifier = predictiveBackModifier.fillMaxSize(),
-                    )
+                            },
+                            onRename = viewModel::rename,
+                            onDelete = viewModel::delete,
+                            onRemoveTrack = viewModel::removeTrack,
+                            sharedTransitionKey = route.sharedTransitionKey,
+                            sharedTransitionScope = sharedTransitionScope,
+                            animatedVisibilityScope = navAnimatedVisibilityScope,
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                        SnackbarHost(
+                            hostState = detailSnackbarHostState,
+                            modifier = Modifier
+                                .align(Alignment.BottomCenter)
+                                .padding(bottom = 24.dp, start = 12.dp, end = 12.dp),
+                        ) { data ->
+                            Snackbar(snackbarData = data)
+                        }
+                    }
                 }
             }
 
@@ -342,7 +372,6 @@ fun YoinNavHost(
                 popExitTransition = { YoinMotion.simplePushPopExit },
             ) { backStackEntry ->
                 val route: YoinRoute.Settings = backStackEntry.toRoute()
-                val app = LocalContext.current.applicationContext as YoinApplication
                 val viewModel: SettingsViewModel = viewModel(
                     factory = SettingsViewModel.Factory(app.container),
                 )
@@ -357,6 +386,27 @@ fun YoinNavHost(
                         modifier = predictiveBackModifier.fillMaxSize(),
                     )
                 }
+            }
+            }
+
+            val addTargets by nowPlayingViewModel.addToPlaylistTarget.collectAsState()
+            if (addTargets != null) {
+                val writablePlaylists by nowPlayingViewModel.writablePlaylists.collectAsState()
+                AddToPlaylistSheet(
+                    writablePlaylists = writablePlaylists,
+                    onCreateAndAdd = nowPlayingViewModel::createPlaylistAndAddTargets,
+                    onAddToExisting = nowPlayingViewModel::addTargetsToExistingPlaylist,
+                    onDismiss = nowPlayingViewModel::dismissAddToPlaylistSheet,
+                )
+            }
+
+            SnackbarHost(
+                hostState = addToPlaylistSnackbarHostState,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 24.dp, start = 12.dp, end = 12.dp),
+            ) { data ->
+                Snackbar(snackbarData = data)
             }
         }
     }
@@ -384,6 +434,7 @@ private fun YoinShell(
     val homeSurface = experienceSession.homeSurface
     val showNowPlaying = experienceSession.nowPlayingExpanded
     val musicConfigurationRevision by app.container.musicConfigurationRevision.collectAsState()
+    val playlistMutationRevision by app.container.playlistMutationRevision.collectAsState()
     val playbackState by app.container.playbackManager.playbackState.collectAsState()
     // playbackSignal is a heavily-throttled Float (≤3% change to emit); safe
     // to collect at the shell level without recomposing at ~30Hz.
@@ -422,6 +473,11 @@ private fun YoinShell(
         memoriesViewModel.refresh()
     }
 
+    LaunchedEffect(playlistMutationRevision) {
+        if (playlistMutationRevision == 0L) return@LaunchedEffect
+        libraryViewModel.invalidatePlaylists()
+    }
+
     val snackbarHostState = remember { SnackbarHostState() }
     LaunchedEffect(Unit) {
         app.container.playbackManager.events.collect { event ->
@@ -439,17 +495,6 @@ private fun YoinShell(
                     }
                 }
             }
-        }
-    }
-    // Add-to-playlist confirmations (success + failure) share the shell
-    // snackbar. The existing flow above handles typed playback failures;
-    // these are one-shot plain-text messages.
-    LaunchedEffect(Unit) {
-        nowPlayingViewModel.addToPlaylistMessages.collect { message ->
-            snackbarHostState.showSnackbar(
-                message = message,
-                duration = SnackbarDuration.Short,
-            )
         }
     }
     // Library-side playlist mutations (currently: create from the "+" FAB).
@@ -631,6 +676,9 @@ private fun YoinShell(
                             )
                         }
                     },
+                    onAddSongToPlaylist = { song ->
+                        nowPlayingViewModel.requestAddTracksToPlaylist(listOf(song.id))
+                    },
                     modifier = Modifier.fillMaxSize(),
                 )
             }
@@ -721,20 +769,6 @@ private fun YoinShell(
                         },
                 )
 
-                // Long-press ❤️ opens the sheet for the currently-playing
-                // track. The VM holds the pending target list; non-null
-                // target === open. ModalBottomSheet manages its own layering
-                // so it renders above both NP and the bottom nav.
-                val addTargets by nowPlayingViewModel.addToPlaylistTarget.collectAsState()
-                if (addTargets != null) {
-                    val writablePlaylists by nowPlayingViewModel.writablePlaylists.collectAsState()
-                    AddToPlaylistSheet(
-                        writablePlaylists = writablePlaylists,
-                        onCreateAndAdd = nowPlayingViewModel::createPlaylistAndAddTargets,
-                        onAddToExisting = nowPlayingViewModel::addTargetsToExistingPlaylist,
-                        onDismiss = nowPlayingViewModel::dismissAddToPlaylistSheet,
-                    )
-                }
             }
         }
 

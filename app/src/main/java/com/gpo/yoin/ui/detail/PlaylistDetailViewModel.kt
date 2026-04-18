@@ -24,6 +24,7 @@ import kotlinx.coroutines.launch
 class PlaylistDetailViewModel(
     private val playlistId: String,
     private val repository: YoinRepository,
+    private val onPlaylistMutated: () -> Unit = {},
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow<PlaylistDetailUiState>(PlaylistDetailUiState.Loading)
@@ -62,6 +63,7 @@ class PlaylistDetailViewModel(
         viewModelScope.launch {
             repository.renamePlaylist(MediaId.parse(playlistId), trimmed)
                 .onSuccess {
+                    onPlaylistMutated()
                     _messages.tryEmit("Renamed")
                     loadPlaylist() // refresh name + snapshot
                 }
@@ -75,6 +77,7 @@ class PlaylistDetailViewModel(
         viewModelScope.launch {
             repository.deletePlaylist(MediaId.parse(playlistId))
                 .onSuccess {
+                    onPlaylistMutated()
                     _messages.tryEmit("Playlist deleted")
                     _deleted.tryEmit(Unit)
                 }
@@ -96,6 +99,7 @@ class PlaylistDetailViewModel(
                     // Refresh to pick up the new snapshot + re-indexed positions
                     // rather than patching locally — avoids index drift with
                     // concurrent server-side edits.
+                    onPlaylistMutated()
                     snapshotId = newSnapshot
                     loadPlaylist()
                 }
@@ -156,6 +160,10 @@ class PlaylistDetailViewModel(
     ) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T =
-            PlaylistDetailViewModel(playlistId, container.repository) as T
+            PlaylistDetailViewModel(
+                playlistId = playlistId,
+                repository = container.repository,
+                onPlaylistMutated = container::notifyPlaylistMutation,
+            ) as T
     }
 }

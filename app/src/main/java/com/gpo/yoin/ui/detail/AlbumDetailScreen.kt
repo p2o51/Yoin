@@ -74,6 +74,7 @@ fun AlbumDetailScreen(
     sharedTransitionKey: String? = null,
     onBackClick: () -> Unit,
     onSongClick: (songId: String) -> Unit,
+    onAddSongToPlaylist: (songId: String) -> Unit = {},
     onToggleStar: (songId: String) -> Unit,
     onRetry: () -> Unit,
     sharedTransitionScope: SharedTransitionScope? = null,
@@ -159,6 +160,7 @@ fun AlbumDetailScreen(
                         AlbumDetailContent(
                             content = uiState,
                             onSongClick = onSongClick,
+                            onAddSongToPlaylist = onAddSongToPlaylist,
                             onToggleStar = onToggleStar,
                             sharedTransitionKey = sharedTransitionKey,
                             sharedTransitionScope = sharedTransitionScope,
@@ -177,6 +179,7 @@ fun AlbumDetailScreen(
 private fun AlbumDetailContent(
     content: AlbumDetailUiState.Content,
     onSongClick: (songId: String) -> Unit,
+    onAddSongToPlaylist: (songId: String) -> Unit,
     onToggleStar: (songId: String) -> Unit,
     sharedTransitionKey: String? = null,
     sharedTransitionScope: SharedTransitionScope? = null,
@@ -279,6 +282,7 @@ private fun AlbumDetailContent(
                 song = song,
                 coverArtUrl = content.coverArtUrl,
                 onClick = { onSongClick(song.id) },
+                onLongClick = { onAddSongToPlaylist(song.id) },
                 onToggleStar = { onToggleStar(song.id) },
                 modifier = Modifier.graphicsLayer {
                     alpha = tracksAlpha
@@ -364,6 +368,7 @@ private fun AlbumSongRow(
     song: AlbumSong,
     coverArtUrl: String?,
     onClick: () -> Unit,
+    onLongClick: () -> Unit,
     onToggleStar: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -374,6 +379,7 @@ private fun AlbumSongRow(
         durationSeconds = song.duration,
         coverArtUrl = coverArtUrl,
         onClick = onClick,
+        onLongClick = onLongClick,
         modifier = modifier,
         trailingContent = {
             IconButton(

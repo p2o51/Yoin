@@ -73,6 +73,7 @@ fun PlaylistDetailScreen(
     onBackClick: () -> Unit,
     onPlayAllClick: () -> Unit,
     onSongClick: (songId: String) -> Unit,
+    onAddSongToPlaylist: (songId: String) -> Unit = {},
     onRetry: () -> Unit,
     onRename: (name: String) -> Unit = {},
     onDelete: () -> Unit = {},
@@ -210,6 +211,7 @@ fun PlaylistDetailScreen(
                         content = uiState,
                         onPlayAllClick = onPlayAllClick,
                         onSongClick = onSongClick,
+                        onAddSongToPlaylist = onAddSongToPlaylist,
                         onRemoveTrack = onRemoveTrack,
                         sharedTransitionKey = sharedTransitionKey,
                         sharedTransitionScope = sharedTransitionScope,
@@ -292,6 +294,7 @@ private fun PlaylistDetailContent(
     content: PlaylistDetailUiState.Content,
     onPlayAllClick: () -> Unit,
     onSongClick: (songId: String) -> Unit,
+    onAddSongToPlaylist: (songId: String) -> Unit,
     onRemoveTrack: (position: Int, trackId: String) -> Unit,
     sharedTransitionKey: String? = null,
     sharedTransitionScope: SharedTransitionScope? = null,
@@ -368,6 +371,7 @@ private fun PlaylistDetailContent(
                 durationSeconds = song.duration,
                 coverArtUrl = song.coverArtUrl,
                 onClick = { onSongClick(song.id) },
+                onLongClick = { onAddSongToPlaylist(song.id) },
                 trailingContent = if (content.canWrite) {
                     {
                         SongRowOverflow(
