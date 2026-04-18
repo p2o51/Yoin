@@ -13,6 +13,8 @@ sealed interface PlaylistDetailUiState {
         val totalDuration: Int?,
         val coverArtUrl: String?,
         val songs: List<PlaylistSong>,
+        /** Source-provided write permission; gates Rename/Delete/Remove UI. */
+        val canWrite: Boolean = false,
     ) : PlaylistDetailUiState
 
     data class Error(val message: String) : PlaylistDetailUiState
@@ -25,4 +27,9 @@ data class PlaylistSong(
     val album: String,
     val duration: Int?,
     val coverArtUrl: String?,
+    /**
+     * Zero-based server-ordered position. Used by remove-by-index
+     * (Subsonic) and remove-by-uri+positions (Spotify, duplicate-safe).
+     */
+    val position: Int = 0,
 )

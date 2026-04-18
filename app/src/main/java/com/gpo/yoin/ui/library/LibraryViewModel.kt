@@ -14,8 +14,11 @@ import com.gpo.yoin.data.model.Track
 import com.gpo.yoin.data.model.artist
 import com.gpo.yoin.data.repository.YoinRepository
 import kotlinx.coroutines.FlowPreview
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.debounce
@@ -29,6 +32,10 @@ class LibraryViewModel(
 
     private val _uiState = MutableStateFlow<LibraryUiState>(LibraryUiState.Loading)
     val uiState: StateFlow<LibraryUiState> = _uiState.asStateFlow()
+
+    private val _messages = MutableSharedFlow<String>(extraBufferCapacity = 4)
+    /** One-shot toasts for playlist mutations surfaced from Library tab. */
+    val messages: SharedFlow<String> = _messages.asSharedFlow()
 
     private val searchQueryFlow = MutableStateFlow("")
 
@@ -200,6 +207,31 @@ class LibraryViewModel(
 
     fun buildCoverArtUrl(coverArtId: String): String =
         repository.resolveSubsonicCoverUrl(coverArtId, size = 256).orEmpty()
+
+    /**
+     * Create an empty playlist on the active source and splice it into the
+     * Playlists tab without a full reload.
+     */
+    fun createPlaylist(name: String) {
+        val trimmed = name.trim()
+        if (trimmed.isEmpty()) return
+        viewModelScope.launch {
+            repository.createPlaylist(trimmed)
+                .onSuccess { created ->
+                    // Merge the newcomer into the cached list so the Playlists
+                    // tab shows it immediately; a full refresh would wipe
+                    // unrelated cached tabs.
+                    val updated = (cachedPlaylists.orEmpty() + created)
+                        .sortedBy { it.name.lowercase() }
+                    cachedPlaylists = updated
+                    updateContent { copy(playlists = updated) }
+                    _messages.tryEmit("Created \"$trimmed\"")
+                }
+                .onFailure {
+                    _messages.tryEmit(it.message ?: "Couldn't create \"$trimmed\"")
+                }
+        }
+    }
 
     class Factory(private val container: AppContainer) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")

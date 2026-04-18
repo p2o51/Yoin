@@ -28,14 +28,18 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.QueueMusic
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.LibraryMusic
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.SmallFloatingActionButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -43,6 +47,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.unit.Dp
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.SolidColor
@@ -132,6 +139,7 @@ fun LibraryScreen(
         onAlbumClick = onAlbumClick,
         onPlaylistClick = onPlaylistClick,
         onSongClick = onSongClick,
+        onCreatePlaylist = viewModel::createPlaylist,
         onRetry = viewModel::refresh,
         coverArtUrlBuilder = viewModel::buildCoverArtUrl,
         modifier = modifier,
@@ -152,6 +160,7 @@ fun LibraryContent(
     onAlbumClick: (String) -> Unit,
     onPlaylistClick: (String) -> Unit,
     onSongClick: (Track) -> Unit,
+    onCreatePlaylist: (name: String) -> Unit = {},
     onRetry: () -> Unit,
     coverArtUrlBuilder: ((String) -> String)?,
     modifier: Modifier = Modifier,
@@ -302,6 +311,7 @@ private fun LibraryContentBody(
                         LibraryTab.Playlists -> PlaylistsTabContent(
                             playlists = state.playlists,
                             onPlaylistClick = onPlaylistClick,
+                            onCreatePlaylist = onCreatePlaylist,
                             coverArtUrlBuilder = coverArtUrlBuilder,
                         )
                         LibraryTab.Favorites -> FavoritesTabContent(
@@ -645,36 +655,101 @@ private fun SongsTabContent(
 private fun PlaylistsTabContent(
     playlists: List<Playlist>,
     onPlaylistClick: (String) -> Unit,
+    onCreatePlaylist: (name: String) -> Unit,
     coverArtUrlBuilder: ((String) -> String)?,
     modifier: Modifier = Modifier,
 ) {
-    if (playlists.isEmpty()) {
-        EmptyState(message = "No playlists found", modifier = modifier)
-        return
-    }
-    LazyColumn(
-        modifier = modifier.fillMaxSize(),
-        contentPadding = PaddingValues(
-            start = 4.dp,
-            top = 8.dp,
-            end = 4.dp,
-            bottom = floatingBottomGroupContentPadding(),
-        ),
-    ) {
-        itemsIndexed(playlists, key = { _, playlist -> playlist.id.toString() }) { index, playlist ->
-            val entranceProgress = rememberLibraryItemEntrance(
-                key = playlist.id,
-                index = index,
-                delayStepMillis = 24L,
+    var showCreateDialog by remember { mutableStateOf(false) }
+
+    Box(modifier = modifier.fillMaxSize()) {
+        if (playlists.isEmpty()) {
+            EmptyState(
+                message = "No playlists yet. Tap + to create one.",
+                modifier = Modifier.fillMaxSize(),
             )
-            PlaylistListItem(
-                playlist = playlist,
-                onClick = { onPlaylistClick(playlist.id.toString()) },
-                coverArtUrl = playlistBackdropArtUrl(playlist, coverArtUrlBuilder),
-                modifier = Modifier.expressiveEntrance(entranceProgress),
+        } else {
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(
+                    start = 4.dp,
+                    top = 8.dp,
+                    end = 4.dp,
+                    bottom = floatingBottomGroupContentPadding(),
+                ),
+            ) {
+                itemsIndexed(playlists, key = { _, playlist -> playlist.id.toString() }) { index, playlist ->
+                    val entranceProgress = rememberLibraryItemEntrance(
+                        key = playlist.id,
+                        index = index,
+                        delayStepMillis = 24L,
+                    )
+                    PlaylistListItem(
+                        playlist = playlist,
+                        onClick = { onPlaylistClick(playlist.id.toString()) },
+                        coverArtUrl = playlistBackdropArtUrl(playlist, coverArtUrlBuilder),
+                        modifier = Modifier.expressiveEntrance(entranceProgress),
+                    )
+                }
+            }
+        }
+
+        // "+" FAB sits in the top-right so it doesn't collide with the
+        // shell bottom nav. MD3 Expressive SmallFloatingActionButton keeps
+        // the affordance light and lets long playlists scroll underneath.
+        SmallFloatingActionButton(
+            onClick = { showCreateDialog = true },
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(top = 4.dp, end = 12.dp),
+            containerColor = MaterialTheme.colorScheme.primaryContainer,
+            contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+        ) {
+            Icon(
+                imageVector = Icons.Filled.Add,
+                contentDescription = "New playlist",
             )
         }
     }
+
+    if (showCreateDialog) {
+        CreatePlaylistDialog(
+            onDismiss = { showCreateDialog = false },
+            onConfirm = { name ->
+                showCreateDialog = false
+                onCreatePlaylist(name)
+            },
+        )
+    }
+}
+
+@Composable
+private fun CreatePlaylistDialog(
+    onDismiss: () -> Unit,
+    onConfirm: (name: String) -> Unit,
+) {
+    var name by remember { mutableStateOf("") }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("New playlist") },
+        text = {
+            OutlinedTextField(
+                value = name,
+                onValueChange = { name = it },
+                label = { Text("Name") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        },
+        confirmButton = {
+            TextButton(
+                onClick = { onConfirm(name.trim()) },
+                enabled = name.trim().isNotEmpty(),
+            ) { Text("Create") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
+        },
+    )
 }
 
 @Composable

@@ -258,6 +258,22 @@ fun YoinNavHost(
                     factory = PlaylistDetailViewModel.Factory(route.playlistId, app.container),
                 )
                 val uiState by viewModel.uiState.collectAsState()
+                // Surface rename/delete/remove outcomes in the shell snackbar.
+                LaunchedEffect(viewModel) {
+                    viewModel.messages.collect { message ->
+                        snackbarHostState.showSnackbar(
+                            message = message,
+                            duration = SnackbarDuration.Short,
+                        )
+                    }
+                }
+                // Leave the detail route after a successful delete so the
+                // user lands back on Library / whatever pushed us here.
+                LaunchedEffect(viewModel) {
+                    viewModel.deleted.collect {
+                        navController.popBackStack()
+                    }
+                }
                 YoinBackSurface(
                     kind = BackSurfaceKind.PushPage,
                     onCommitBack = { navController.popBackStack() },
@@ -308,6 +324,9 @@ fun YoinNavHost(
                             }
                         },
                         onRetry = viewModel::retry,
+                        onRename = viewModel::rename,
+                        onDelete = viewModel::delete,
+                        onRemoveTrack = viewModel::removeTrack,
                         sharedTransitionKey = route.sharedTransitionKey,
                         sharedTransitionScope = sharedTransitionScope,
                         animatedVisibilityScope = navAnimatedVisibilityScope,
@@ -427,6 +446,17 @@ private fun YoinShell(
     // these are one-shot plain-text messages.
     LaunchedEffect(Unit) {
         nowPlayingViewModel.addToPlaylistMessages.collect { message ->
+            snackbarHostState.showSnackbar(
+                message = message,
+                duration = SnackbarDuration.Short,
+            )
+        }
+    }
+    // Library-side playlist mutations (currently: create from the "+" FAB).
+    // PlaylistDetail ViewModel has its own messages flow wired at its
+    // composable scope since it's a short-lived push page.
+    LaunchedEffect(Unit) {
+        libraryViewModel.messages.collect { message ->
             snackbarHostState.showSnackbar(
                 message = message,
                 duration = SnackbarDuration.Short,
