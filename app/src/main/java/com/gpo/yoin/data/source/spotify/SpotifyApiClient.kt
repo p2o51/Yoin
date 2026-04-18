@@ -206,14 +206,15 @@ class SpotifyApiClient(
         description: String? = null,
         public: Boolean = false,
     ): SpotifyPlaylistObject = withContext(Dispatchers.IO) {
-        val userId = getCurrentUserId()
         val body = JSON.encodeToString(
             SpotifyCreatePlaylistRequest.serializer(),
             SpotifyCreatePlaylistRequest(name = name, public = public, description = description),
         )
+        // POST /v1/me/playlists (2026+) — the /users/{user_id}/playlists
+        // form is deprecated. /me infers the owning user from the token.
         executeWithJsonBody(
             method = "POST",
-            url = apiUrl("v1", "users", userId, "playlists"),
+            url = apiUrl("v1", "me", "playlists"),
             jsonBody = body,
             deserializer = SpotifyPlaylistObject.serializer(),
         )
@@ -240,9 +241,11 @@ class SpotifyApiClient(
             SpotifyAddTracksRequest.serializer(),
             SpotifyAddTracksRequest(uris = uris),
         )
+        // POST /v1/playlists/{id}/items (2026+). The /tracks alias still
+        // works as of this writing but is on track for deprecation.
         val response = executeWithJsonBody(
             method = "POST",
-            url = apiUrl("v1", "playlists", id, "tracks"),
+            url = apiUrl("v1", "playlists", id, "items"),
             jsonBody = body,
             deserializer = SpotifySnapshotResponse.serializer(),
         )
@@ -258,9 +261,11 @@ class SpotifyApiClient(
             SpotifyRemoveTracksRequest.serializer(),
             SpotifyRemoveTracksRequest(tracks = items, snapshotId = snapshotId),
         )
+        // DELETE /v1/playlists/{id}/items (2026+) — same deprecation path
+        // as the add endpoint.
         val response = executeWithJsonBody(
             method = "DELETE",
-            url = apiUrl("v1", "playlists", id, "tracks"),
+            url = apiUrl("v1", "playlists", id, "items"),
             jsonBody = body,
             deserializer = SpotifySnapshotResponse.serializer(),
         )

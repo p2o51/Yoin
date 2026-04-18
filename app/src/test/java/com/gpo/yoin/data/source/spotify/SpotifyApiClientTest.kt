@@ -135,10 +135,9 @@ class SpotifyApiClientTest {
     }
 
     @Test
-    fun createPlaylist_posts_name_and_public_to_users_me_playlists() = runTest {
+    fun createPlaylist_posts_to_me_playlists_with_name_and_public() = runTest {
         val responses = mutableMapOf(
-            "/v1/me" to ArrayDeque(listOf(meResponse(id = "alice"))),
-            "/v1/users/alice/playlists" to ArrayDeque(
+            "/v1/me/playlists" to ArrayDeque(
                 listOf(
                     MockResponse().setResponseCode(201).setBody(
                         """{"id":"pl1","name":"Road Trip","owner":{"id":"alice"},"snapshot_id":"snap0"}""",
@@ -153,12 +152,11 @@ class SpotifyApiClientTest {
         assertEquals("pl1", playlist.id)
         assertEquals("snap0", playlist.snapshotId)
 
-        // /v1/me was called once (to resolve currentUserId), then POST to
-        // the create endpoint.
-        server.takeRequest() // /v1/me
+        // Endpoint is /me/playlists (2026+); no /me resolution roundtrip
+        // required.
         val create = server.takeRequest()
         assertEquals("POST", create.method)
-        assertEquals("/v1/users/alice/playlists", create.path)
+        assertEquals("/v1/me/playlists", create.path)
         val body = create.body.readUtf8()
         assertTrue("body should contain name", body.contains("\"name\":\"Road Trip\""))
         // encodeDefaults = false, but `public` has no Kotlin default → must be emitted
@@ -168,7 +166,7 @@ class SpotifyApiClientTest {
     @Test
     fun addTracksToPlaylist_posts_uris_and_returns_snapshot() = runTest {
         val responses = mutableMapOf(
-            "/v1/playlists/pl1/tracks" to ArrayDeque(
+            "/v1/playlists/pl1/items" to ArrayDeque(
                 listOf(
                     MockResponse().setResponseCode(200).setBody(
                         """{"snapshot_id":"snap-after-add"}""",
@@ -187,6 +185,7 @@ class SpotifyApiClientTest {
 
         val req = server.takeRequest()
         assertEquals("POST", req.method)
+        assertEquals("/v1/playlists/pl1/items", req.path)
         val body = req.body.readUtf8()
         assertTrue(body.contains("\"spotify:track:aaa\""))
         assertTrue(body.contains("\"spotify:track:bbb\""))
@@ -195,7 +194,7 @@ class SpotifyApiClientTest {
     @Test
     fun removeTracksFromPlaylist_includes_snapshot_id_for_concurrency() = runTest {
         val responses = mutableMapOf(
-            "/v1/playlists/pl1/tracks" to ArrayDeque(
+            "/v1/playlists/pl1/items" to ArrayDeque(
                 listOf(
                     MockResponse().setResponseCode(200).setBody(
                         """{"snapshot_id":"snap-after-remove"}""",
@@ -217,6 +216,7 @@ class SpotifyApiClientTest {
 
         val req = server.takeRequest()
         assertEquals("DELETE", req.method)
+        assertEquals("/v1/playlists/pl1/items", req.path)
         val body = req.body.readUtf8()
         assertTrue("body carries snapshot_id for optimistic concurrency",
             body.contains("\"snapshot_id\":\"snap-before\""))
