@@ -59,6 +59,18 @@ class YoinRepository(
     fun currentCapabilities(): Set<Capability> =
         activeSource.value?.capabilities ?: emptySet()
 
+    /**
+     * Provider id of the currently active source (e.g. `"subsonic"` /
+     * `"spotify"`), or `null` when no profile is active. Exposed as a flow
+     * so backend-specific code (e.g. PlaybackManager) can react to
+     * profile switches without peeking inside ProfileManager.
+     */
+    val activeProviderId: Flow<String?> =
+        activeSource.map { source -> source?.id }
+
+    /** Synchronous snapshot of [activeProviderId]. */
+    fun currentProviderId(): String? = activeSource.value?.id
+
     private fun requireSource(): MusicSource = activeSource.value
         ?: throw SubsonicException(
             code = -1,

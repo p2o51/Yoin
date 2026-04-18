@@ -59,6 +59,22 @@ class PlaybackManager(
     private var activeBackend: ActiveBackend = ActiveBackend.NONE
     private var pendingSpotifyHandoff: Boolean = false
     private var preserveLocalUiDuringSpotifyHandoff: Boolean = false
+
+    /**
+     * Wall-clock anchor for Spotify position interpolation.
+     *
+     * App Remote only emits `PlayerState` on state transitions (play /
+     * pause / seek / track change), not continuously during playback —
+     * so between events we synthesize progress locally. The naive
+     * "position += tickInterval" loop drifts with coroutine scheduling
+     * jitter (delay is approximate, not exact). Wall-clock anchoring
+     * solves it: each real event re-pins `anchorPosition` /
+     * `anchorWallClock`, and every tick computes
+     * `anchorPosition + (now - anchorWallClock)`. Any drift gets wiped
+     * on the next real emission.
+     */
+    private var spotifyPositionAnchorMs: Long = 0L
+    private var spotifyPositionAnchorWallClock: Long = 0L
     private val spotifyRemotePlayer = SpotifyAppRemotePlayer(
         applicationContext = context.applicationContext,
         clientIdProvider = spotifyClientIdProvider,
@@ -84,6 +100,17 @@ class PlaybackManager(
                         isCasting = state is CastState.Connected,
                         castDeviceName = (state as? CastState.Connected)?.deviceName,
                     )
+                }
+            }
+        }
+        // Warm the App Remote whenever the active profile is (or becomes)
+        // Spotify and we have a live host. Lets NowPlaying reflect whatever
+        // Spotify is playing externally — the user may have been listening
+        // via car audio / smart speaker before opening the app.
+        scope.launch {
+            repository.activeProviderId.collect { providerId ->
+                if (providerId == MediaId.PROVIDER_SPOTIFY) {
+                    spotifyRemotePlayer.warmConnection()
                 }
             }
         }
@@ -125,6 +152,12 @@ class PlaybackManager(
 
     fun onHostStart(hostContext: Context) {
         spotifyRemotePlayer.onHostStart(hostContext)
+        // Host just came up — if Spotify is already active, the init-time
+        // collector may have fired before hostContext was set, so re-issue
+        // the warm connection now. `warmConnection` is idempotent.
+        if (repository.currentProviderId() == MediaId.PROVIDER_SPOTIFY) {
+            spotifyRemotePlayer.warmConnection()
+        }
     }
 
     fun onHostStop() {
@@ -386,8 +419,14 @@ class PlaybackManager(
                     ActiveBackend.SPOTIFY_REMOTE -> {
                         val state = _playbackState.value
                         if (state.isPlaying) {
-                            val advanced = (state.position + POSITION_UPDATE_INTERVAL_MS)
-                                .coerceAtMost(state.duration.takeIf { it > 0L } ?: Long.MAX_VALUE)
+                            // Wall-clock interpolation, not naive accumulation —
+                            // delay() jitter doesn't compound because we re-pin
+                            // the anchor on every incoming PlayerState.
+                            val elapsed = System.currentTimeMillis() -
+                                spotifyPositionAnchorWallClock
+                            val projected = spotifyPositionAnchorMs + elapsed
+                            val cap = state.duration.takeIf { it > 0L } ?: Long.MAX_VALUE
+                            val advanced = projected.coerceIn(0L, cap)
                             _playbackState.value = state.copy(
                                 position = advanced,
                                 bufferedPosition = state.duration.takeIf { it > 0L } ?: advanced,
@@ -438,7 +477,27 @@ class PlaybackManager(
     }
 
     private fun publishRemoteState(snapshot: SpotifyRemoteSnapshot) {
-        if (activeBackend != ActiveBackend.SPOTIFY_REMOTE && !pendingSpotifyHandoff) return
+        if (activeBackend != ActiveBackend.SPOTIFY_REMOTE && !pendingSpotifyHandoff) {
+            // Warm-connect adoption: if we're idle, the active profile is
+            // Spotify, and Spotify just pushed a real PlayerState (the
+            // subscription fired with actual track data, connection phase
+            // went Ready), claim ourselves the active backend so
+            // NowPlaying can render what Spotify is playing externally.
+            val canAdoptWarmConnect = activeBackend == ActiveBackend.NONE &&
+                snapshot.observedPlayerState &&
+                snapshot.currentTrack != null &&
+                snapshot.connectionPhase == ConnectionPhase.Ready &&
+                repository.currentProviderId() == MediaId.PROVIDER_SPOTIFY
+            if (!canAdoptWarmConnect) return
+            activeBackend = ActiveBackend.SPOTIFY_REMOTE
+        }
+        // Re-pin the position anchor on every real snapshot — any seek /
+        // pause / resume / track change re-syncs to Spotify's authoritative
+        // position and the ticker keeps interpolating from there.
+        if (snapshot.observedPlayerState) {
+            spotifyPositionAnchorMs = snapshot.positionMs
+            spotifyPositionAnchorWallClock = System.currentTimeMillis()
+        }
         val previous = _playbackState.value
         val next = PlaybackState(
             currentTrack = snapshot.currentTrack,

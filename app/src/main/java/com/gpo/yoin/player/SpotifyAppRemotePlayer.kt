@@ -112,6 +112,18 @@ internal class SpotifyAppRemotePlayer(
      */
     private var coldStartAuthRetryAvailable: Boolean = true
 
+    /**
+     * Budget for silently retrying when the client id flow hasn't emitted
+     * its stored value yet. `spotifyClientIdFlow` in AppContainer starts
+     * with `FALLBACK_CLIENT_ID` (empty when local.properties has no dev
+     * id) and only switches to the Room-stored value after the first DAO
+     * emission. If the user taps a Spotify track before that emission
+     * lands, `clientIdProvider()` returns blank → we previously published
+     * `NoClientId` and the user saw a scary banner even though their id
+     * was just about to load. Short delay-and-retry solves it.
+     */
+    private var clientIdBootstrapRetryAvailable: Boolean = true
+
     fun onHostStart(context: Context) {
         Log.d(tag, "onHostStart: host=${context.javaClass.simpleName}")
         hostContext = context
@@ -120,13 +132,33 @@ internal class SpotifyAppRemotePlayer(
         }
     }
 
+    /**
+     * Opportunistically establish a live App Remote connection without the
+     * user having tapped anything yet, so the UI can reflect whatever
+     * Spotify happens to be playing externally (e.g. the user was already
+     * listening via car audio, smart speaker, or another device).
+     *
+     * Idempotent — no-op when the remote is already connected or already
+     * connecting. Treated as a "soft" connection attempt: if we can't
+     * reach the Spotify app right now, we stay silent (no banner, no
+     * snapshot with `Error`). The real failure path still fires when the
+     * user explicitly plays something.
+     */
+    fun warmConnection() {
+        if (remote?.isConnected == true || connectJob?.isActive == true) return
+        Log.d(tag, "warmConnection: attempting soft connect for PlayerState observation")
+        wantsConnection = true
+        connectIfPossible()
+    }
+
     fun onHostStop() {
         Log.d(tag, "onHostStop")
         hostContext = null
-        // Fresh foreground cycle → restore the one-shot retry budget. If
+        // Fresh foreground cycle → restore the one-shot retry budgets. If
         // the user dismissed the app after a real auth failure, next
         // launch should get one more automatic attempt.
         coldStartAuthRetryAvailable = true
+        clientIdBootstrapRetryAvailable = true
         disconnectRemote(preserveSnapshot = true)
     }
 
@@ -275,6 +307,23 @@ internal class SpotifyAppRemotePlayer(
         val clientId = clientIdProvider().trim()
         Log.d(tag, "connectIfPossible: hasHost=true clientIdConfigured=${clientId.isNotBlank()}")
         if (clientId.isBlank()) {
+            // Blank value on cold start is usually "Room hasn't emitted the
+            // stored id yet", not "user genuinely never set one". Give the
+            // flow a brief grace period before publishing the error banner.
+            // Budget is one-shot per host session so a *genuinely* blank id
+            // still surfaces the banner on second attempt.
+            if (clientIdBootstrapRetryAvailable &&
+                wantsConnection &&
+                pendingOperations.isNotEmpty()
+            ) {
+                clientIdBootstrapRetryAvailable = false
+                Log.d(tag, "connectIfPossible: clientId blank, retrying after bootstrap grace")
+                scope.launch {
+                    kotlinx.coroutines.delay(CLIENT_ID_BOOTSTRAP_GRACE_MS)
+                    connectIfPossible()
+                }
+                return
+            }
             publish(
                 lastSnapshot.copy(
                     connectionPhase = ConnectionPhase.Error,
@@ -284,6 +333,9 @@ internal class SpotifyAppRemotePlayer(
             )
             return
         }
+        // Saw a non-blank value, so subsequent connects no longer need the
+        // bootstrap grace — refill the budget.
+        clientIdBootstrapRetryAvailable = true
         connectJob = scope.launch {
             // Host resume / retry path: if the previous attempt ended in
             // Error, move back to Connecting so UI doesn't render a stuck
@@ -564,6 +616,14 @@ internal class SpotifyAppRemotePlayer(
          * covers the slow-device case without being noticeable on a Pixel.
          */
         const val COLD_START_AUTH_RETRY_DELAY_MS = 1_200L
+
+        /**
+         * Grace window for Room → StateFlow to emit the stored client id
+         * before we declare "No Client ID". Room's first emission under
+         * normal load lands well inside 400ms; 500ms gives a margin
+         * without being perceptibly laggy to the user.
+         */
+        const val CLIENT_ID_BOOTSTRAP_GRACE_MS = 500L
     }
 
     private fun failureFor(error: Throwable): SpotifyConnectFailure = when (error) {
