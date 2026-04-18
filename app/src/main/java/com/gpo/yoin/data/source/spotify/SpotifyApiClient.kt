@@ -484,9 +484,18 @@ class SpotifyApiClient(
         // `public` on create-playlist, where Kotlin's default `false` differs
         // from Spotify's server-side default `true`) must not declare a
         // Kotlin default in the DTO — require callers to pass them.
+        //
+        // `coerceInputValues = true`: Spotify occasionally ships `"images":
+        // null` (and similar) on playlists that have no artwork yet. Without
+        // coercion kotlinx.serialization throws because
+        // `SpotifyPlaylistObject.images` is a non-nullable List with a default
+        // `emptyList()`. Coercion turns `null` on such fields into the
+        // declared default, avoiding scattered `images: List<..>? = null`
+        // declarations and unwrap-everywhere call sites.
         private val JSON = Json {
             ignoreUnknownKeys = true
             isLenient = true
+            coerceInputValues = true
         }
     }
 }

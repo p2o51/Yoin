@@ -118,9 +118,13 @@ class SpotifyAuthService(
     }
 
     companion object {
+        // Mirror SpotifyApiClient's JSON config so null-on-default fields
+        // (rare in OAuth responses but occurs in refresh edge cases like
+        // missing `scope`) don't throw a parse exception mid-auth.
         private val JSON = Json {
             ignoreUnknownKeys = true
             isLenient = true
+            coerceInputValues = true
         }
 
         private const val VERIFIER_LENGTH = 64
