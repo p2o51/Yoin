@@ -1,11 +1,11 @@
 package com.gpo.yoin.ui.library
 
-import com.gpo.yoin.data.remote.Album
-import com.gpo.yoin.data.remote.Artist
-import com.gpo.yoin.data.remote.Playlist
-import com.gpo.yoin.data.remote.SearchResult
-import com.gpo.yoin.data.remote.Song
-import com.gpo.yoin.data.remote.StarredResponse
+import com.gpo.yoin.data.model.Album
+import com.gpo.yoin.data.model.Artist
+import com.gpo.yoin.data.model.Playlist
+import com.gpo.yoin.data.model.SearchResults
+import com.gpo.yoin.data.model.Starred
+import com.gpo.yoin.data.model.Track
 
 sealed interface LibraryUiState {
     data object Loading : LibraryUiState
@@ -14,11 +14,11 @@ sealed interface LibraryUiState {
         val selectedTab: LibraryTab,
         val artists: List<Artist>,
         val albums: List<Album>,
-        val songs: List<Song>,
+        val songs: List<Track>,
         val playlists: List<Playlist>,
-        val favorites: StarredResponse?,
+        val favorites: Starred?,
         val searchQuery: String,
-        val searchResults: SearchResult?,
+        val searchResults: SearchResults?,
         val isSearching: Boolean,
     ) : LibraryUiState
 

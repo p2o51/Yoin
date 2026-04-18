@@ -13,12 +13,13 @@ import com.gpo.yoin.data.profile.ProfileLimitReachedException
 import com.gpo.yoin.data.profile.ProfileManager
 import com.gpo.yoin.data.profile.ProviderKind
 import com.gpo.yoin.data.remote.ServerCredentials
-import com.gpo.yoin.data.remote.SubsonicApiFactory
 import com.gpo.yoin.data.repository.SubsonicException
-import com.gpo.yoin.data.repository.YoinRepository
+import com.gpo.yoin.data.source.subsonic.SubsonicMusicSource
 import com.gpo.yoin.data.source.spotify.SpotifyOAuthResult
+import com.gpo.yoin.data.source.spotify.SpotifyAuthConfig
 import java.net.URI
 import java.net.UnknownServiceException
+import android.util.Log
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -35,6 +36,7 @@ import kotlinx.coroutines.launch
 class SettingsViewModel(
     private val container: AppContainer,
 ) : ViewModel() {
+    private val tag = "SettingsViewModel"
 
     private val database = container.database
     private val profileManager: ProfileManager = container.profileManager
@@ -68,8 +70,18 @@ class SettingsViewModel(
     ) { profiles, activeId, cacheSize, geminiKey, spotifyClientIds ->
         val (spotifyOverride, spotifyEffective) = spotifyClientIds
         val resolvedActiveId = activeId ?: profiles.firstOrNull()?.id
+        val spotifyReconnectProfile = profiles
+            .firstOrNull { profile ->
+                ProviderKind.fromKeyOrSubsonic(profile.provider) == ProviderKind.SPOTIFY &&
+                    profile.profileRequiresSpotifyReconnect()
+            }
         SettingsUiState.Content(
-            profileCards = profiles.map { it.toCard(resolvedActiveId) },
+            profileCards = profiles.map {
+                it.toCard(
+                    activeProfileId = resolvedActiveId,
+                    spotifyClientIdConfigured = spotifyEffective.isNotBlank(),
+                )
+            },
             activeProfileId = resolvedActiveId,
             canAddProfile = profiles.size < ProfileManager.MAX_PROFILES,
             cacheSizeBytes = cacheSize,
@@ -77,6 +89,8 @@ class SettingsViewModel(
             spotifyClientId = spotifyEffective,
             spotifyClientIdUsesFallback =
                 spotifyOverride.isBlank() && spotifyEffective.isNotBlank(),
+            spotifyReconnectProfileId = spotifyReconnectProfile?.id,
+            spotifyReconnectProfileName = spotifyReconnectProfile?.displayName,
         )
     }.stateIn(viewModelScope, SharingStarted.Eagerly, SettingsUiState.Loading)
 
@@ -136,29 +150,76 @@ class SettingsViewModel(
                     )
                     return
                 }
-                emitEvent(SettingsOneShotEvent.LaunchSpotifyOAuth)
+                viewModelScope.launch {
+                    launchSpotifyOAuth(
+                        targetProfileId = reconnectTargetProfileId() ?: null,
+                    )
+                }
             }
             ProviderKind.LOCAL -> Unit // UI disables this; defensive.
         }
     }
 
+    fun reconnectSpotifyProfile(profileId: String) {
+        if (container.spotifyClientIdFlow.value.isBlank()) {
+            emitEvent(
+                SettingsOneShotEvent.ShowError(
+                    "Spotify client id is missing. Scroll to Spotify section and save one.",
+                ),
+            )
+            return
+        }
+        launchSpotifyOAuth(targetProfileId = profileId)
+    }
+
     fun commitSpotifyProfile(result: SpotifyOAuthResult) {
+        val requestedTargetProfileId = when (result) {
+            is SpotifyOAuthResult.Success -> result.targetProfileId
+            is SpotifyOAuthResult.Failure -> result.targetProfileId
+            SpotifyOAuthResult.Cancelled -> null
+        }
+        Log.d(tag, "commitSpotifyProfile: result=${result::class.java.simpleName} targetProfileId=$requestedTargetProfileId")
         when (result) {
             SpotifyOAuthResult.Cancelled -> Unit
             is SpotifyOAuthResult.Failure ->
                 emitEvent(SettingsOneShotEvent.ShowError(result.message))
             is SpotifyOAuthResult.Success -> viewModelScope.launch {
-                val hadActiveProfile = profileManager.activeProfileId.value != null
-                val displayName = result.displayName.ifBlank { "Spotify · ${result.userId}" }
                 try {
-                    val created = profileManager.create(
-                        displayName = displayName,
-                        credentials = result.credentials,
-                    )
-                    if (hadActiveProfile) {
-                        switchToProfile(created.id)
+                    val targetProfileId = requestedTargetProfileId ?: reconnectTargetProfileId()
+                    if (targetProfileId != null) {
+                        val wasActive = profileManager.activeProfileId.value == targetProfileId
+                        val existing = profileManager.profiles.first()
+                            .firstOrNull { it.id == targetProfileId }
+                        Log.d(
+                            tag,
+                            "commitSpotifyProfile: updating existing profile=$targetProfileId scopes=${result.credentials.scopes.joinToString(",")}",
+                        )
+                        profileManager.update(
+                            id = targetProfileId,
+                            displayName = existing?.displayName
+                                ?: result.displayName.ifBlank { "Spotify · ${result.userId}" },
+                            credentials = result.credentials,
+                        )
+                        if (wasActive) {
+                            container.playbackManager.disconnect()
+                            container.notifyMusicConfigurationChanged()
+                        }
                     } else {
-                        container.notifyMusicConfigurationChanged()
+                        val hadActiveProfile = profileManager.activeProfileId.value != null
+                        val displayName = result.displayName.ifBlank { "Spotify · ${result.userId}" }
+                        Log.d(
+                            tag,
+                            "commitSpotifyProfile: creating profile displayName=$displayName scopes=${result.credentials.scopes.joinToString(",")}",
+                        )
+                        val created = profileManager.create(
+                            displayName = displayName,
+                            credentials = result.credentials,
+                        )
+                        if (hadActiveProfile) {
+                            switchToProfile(created.id)
+                        } else {
+                            container.notifyMusicConfigurationChanged()
+                        }
                     }
                 } catch (limit: ProfileLimitReachedException) {
                     emitEvent(SettingsOneShotEvent.ShowError("Profile 上限 ${limit.limit}"))
@@ -174,6 +235,19 @@ class SettingsViewModel(
     private fun emitEvent(event: SettingsOneShotEvent) {
         _events.tryEmit(event)
     }
+
+    private fun launchSpotifyOAuth(targetProfileId: String?) {
+        Log.d(tag, "launchSpotifyOAuth: targetProfileId=$targetProfileId")
+        emitEvent(SettingsOneShotEvent.LaunchSpotifyOAuth(targetProfileId))
+    }
+
+    private suspend fun reconnectTargetProfileId(): String? =
+        profileManager.profiles.first()
+            .firstOrNull { profile ->
+                ProviderKind.fromKeyOrSubsonic(profile.provider) == ProviderKind.SPOTIFY &&
+                    profile.profileRequiresSpotifyReconnect()
+            }
+            ?.id
 
     fun openEditActiveProfile() {
         viewModelScope.launch {
@@ -216,16 +290,7 @@ class SettingsViewModel(
                     username = normalized.username,
                     password = normalized.password,
                 )
-                val api = SubsonicApiFactory.create(
-                    credentialsProvider = { creds },
-                    loggingEnabled = false,
-                )
-                val repo = YoinRepository(
-                    apiProvider = { api },
-                    database = database,
-                    credentials = { creds },
-                )
-                repo.testConnection()
+                SubsonicMusicSource(credentials = creds).library().ping()
             }
             updateFormSheet { sheet ->
                 sheet.copy(
@@ -387,7 +452,10 @@ class SettingsViewModel(
         )
     }
 
-    private fun Profile.toCard(activeProfileId: String?): ProfileCard {
+    private fun Profile.toCard(
+        activeProfileId: String?,
+        spotifyClientIdConfigured: Boolean,
+    ): ProfileCard {
         val provider = ProviderKind.fromKeyOrSubsonic(provider)
         val subtitle = when (provider) {
             ProviderKind.SUBSONIC -> {
@@ -400,13 +468,29 @@ class SettingsViewModel(
             ProviderKind.SPOTIFY -> "Spotify account"
             ProviderKind.LOCAL -> "Local files"
         }
+        val unavailableReason: String? = when (provider) {
+            ProviderKind.SPOTIFY -> when {
+                !spotifyClientIdConfigured -> "No Client ID"
+                profileRequiresSpotifyReconnect() -> "Reconnect"
+                else -> null
+            }
+            else -> null
+        }
         return ProfileCard(
             id = id,
             displayName = displayName,
             subtitle = subtitle,
             provider = provider,
             isActive = id == activeProfileId,
+            unavailableReason = unavailableReason,
+            requiresReconnect = provider == ProviderKind.SPOTIFY &&
+                unavailableReason == "Reconnect",
         )
+    }
+
+    private fun Profile.profileRequiresSpotifyReconnect(): Boolean {
+        val spotify = profileManager.decodeCredentials(this) as? ProfileCredentials.Spotify ?: return false
+        return SpotifyAuthConfig.APP_REMOTE_CONTROL_SCOPE !in spotify.scopes
     }
 
     private fun buildProfileDisplayName(serverUrl: String, username: String): String {

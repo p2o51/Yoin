@@ -1,9 +1,9 @@
 package com.gpo.yoin.ui.home
 
 import com.gpo.yoin.data.local.ActivityEvent
-import com.gpo.yoin.data.remote.Album
-import com.gpo.yoin.data.remote.Artist
-import com.gpo.yoin.data.remote.Song
+import com.gpo.yoin.data.model.Album
+import com.gpo.yoin.data.model.Artist
+import com.gpo.yoin.data.model.Track
 
 sealed interface HomeUiState {
     data object Loading : HomeUiState
@@ -24,7 +24,7 @@ sealed interface HomeJumpBackInItem {
         override val stableId: String = "album:${album.id}"
     }
 
-    data class SongItem(val song: Song) : HomeJumpBackInItem {
+    data class SongItem(val song: Track) : HomeJumpBackInItem {
         override val stableId: String = "song:${song.id}"
     }
 

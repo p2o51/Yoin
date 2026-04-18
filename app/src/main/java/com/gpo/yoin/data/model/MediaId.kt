@@ -24,6 +24,8 @@ data class MediaId(val provider: String, val rawId: String) {
         const val PROVIDER_LOCAL = "local"
 
         fun subsonic(rawId: String): MediaId = MediaId(PROVIDER_SUBSONIC, rawId)
+        fun spotify(rawId: String): MediaId = MediaId(PROVIDER_SPOTIFY, rawId)
+        fun local(rawId: String): MediaId = MediaId(PROVIDER_LOCAL, rawId)
 
         fun parse(value: String): MediaId {
             val sep = value.indexOf(':')

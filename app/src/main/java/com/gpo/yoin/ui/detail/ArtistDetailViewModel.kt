@@ -4,6 +4,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.gpo.yoin.AppContainer
+import com.gpo.yoin.data.model.MediaId
+import com.gpo.yoin.data.model.album
 import com.gpo.yoin.data.repository.YoinRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -30,23 +32,23 @@ class ArtistDetailViewModel(
     private fun loadArtist() {
         viewModelScope.launch {
             try {
-                val artist = repository.getArtist(artistId)
+                val artist = repository.getArtist(MediaId.parse(artistId))
                 if (artist == null) {
                     _uiState.value = ArtistDetailUiState.Error("Artist not found")
                     return@launch
                 }
                 repository.recordArtistVisit(artist)
                 _uiState.value = ArtistDetailUiState.Content(
-                    artistId = artist.id,
+                    artistId = artist.id.toString(),
                     artistName = artist.name,
                     albumCount = artist.albumCount,
-                    coverArtId = artist.coverArt,
+                    coverArtId = null,
                     albums = artist.album.map { album ->
                         ArtistAlbum(
-                            id = album.id,
+                            id = album.id.toString(),
                             name = album.name,
                             coverArtUrl = album.coverArt?.let {
-                                repository.buildCoverArtUrl(it)
+                                repository.resolveCoverUrl(it)
                             },
                             year = album.year,
                             songCount = album.songCount,

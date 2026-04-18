@@ -4,19 +4,14 @@ import android.content.Context
 import androidx.room.Room
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
-import com.gpo.yoin.data.local.ServerConfig
 import com.gpo.yoin.data.local.YoinDatabase
 import com.gpo.yoin.data.profile.PlaintextProfileCredentialsCodec
-import com.gpo.yoin.data.profile.ProfileCredentials
 import com.gpo.yoin.data.profile.ProfileCredentialsCodec
 import com.gpo.yoin.data.profile.ProfileManager
 import com.gpo.yoin.data.profile.SharedPrefsProfileActiveIdStore
-import com.gpo.yoin.data.source.spotify.SpotifyAuthConfig
 import com.gpo.yoin.data.remote.GeminiService
-import com.gpo.yoin.data.remote.ServerCredentials
-import com.gpo.yoin.data.remote.SubsonicApi
-import com.gpo.yoin.data.remote.SubsonicApiFactory
 import com.gpo.yoin.data.repository.YoinRepository
+import com.gpo.yoin.data.source.spotify.SpotifyAuthConfig
 import com.gpo.yoin.player.AudioVisualizerManager
 import com.gpo.yoin.player.CastManager
 import com.gpo.yoin.player.PlaybackManager
@@ -30,11 +25,9 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import okhttp3.OkHttpClient
 import java.util.concurrent.TimeUnit
@@ -50,86 +43,19 @@ class AppContainer(private val context: Context) {
             .build()
     }
 
-    @Volatile
-    private var cachedCredentials: ServerCredentials? = null
-
-    @Volatile
-    private var cachedApiCredentials: ServerCredentials? = null
-
-    @Volatile
-    private var _api: SubsonicApi? = null
-
     private val _musicConfigurationRevision = MutableStateFlow(0L)
+
+    /**
+     * Increments whenever the active profile's configuration changes (switch,
+     * credential edit of the active profile, delete-of-active). Feature VMs
+     * subscribe via `YoinNavHost` to refresh their content.
+     */
     val musicConfigurationRevision: StateFlow<Long> = _musicConfigurationRevision.asStateFlow()
 
-    fun getCredentials(): ServerCredentials {
-        cachedCredentials?.let { return it }
-        val profileBacked = runBlocking { profileManager.getActiveProfileSnapshot() }
-            ?.let(profileManager::decodeCredentials)
-        val creds = when (profileBacked) {
-            is ProfileCredentials.Subsonic -> ServerCredentials(
-                serverUrl = profileBacked.serverUrl,
-                username = profileBacked.username,
-                password = profileBacked.password,
-            )
-            // Spotify profile is active — YoinRepository's Subsonic shape is
-            // unusable. Return a blank `ServerCredentials` so `isConfigured`
-            // flips false; VMs will show empty/error state. Phase 2 routes
-            // remote calls through `MusicSource` and this branch goes away.
-            is ProfileCredentials.Spotify -> ServerCredentials("", "", "")
-            null -> loadLegacyServerCredentials()
-        }
-        cachedCredentials = creds
-        return creds
-    }
-
-    fun getApi(): SubsonicApi {
-        val creds = getCredentials()
-        if (_api == null || cachedApiCredentials != creds) {
-            cachedApiCredentials = creds
-            _api = SubsonicApiFactory.create(
-                credentialsProvider = ::getCredentials,
-                loggingEnabled = false,
-            )
-        }
-        return _api!!
-    }
-
-    fun invalidateCredentials() {
-        cachedCredentials = null
-        cachedApiCredentials = null
-        _api = null
-    }
-
     fun notifyMusicConfigurationChanged() {
-        invalidateCredentials()
         _musicConfigurationRevision.value += 1
     }
 
-    val repository: YoinRepository by lazy {
-        YoinRepository(
-            apiProvider = ::getApi,
-            database = database,
-            credentials = ::getCredentials,
-        )
-    }
-
-    fun rebuildRepository(): YoinRepository {
-        invalidateCredentials()
-        return YoinRepository(
-            apiProvider = ::getApi,
-            database = database,
-            credentials = ::getCredentials,
-        )
-    }
-
-    /**
-     * Provider-agnostic account manager. Phase 1 of the multi-provider
-     * refactor wires this up and migrates any existing Subsonic config into
-     * a Profile on first boot, but the UI/VM layer still consumes
-     * [YoinRepository] (Subsonic-shaped). Phase 2 slims the Repository onto
-     * `profileManager.activeSource` and removes [getApi] / [getCredentials].
-     */
     private val credentialsCodec: ProfileCredentialsCodec = PlaintextProfileCredentialsCodec()
 
     /**
@@ -157,16 +83,13 @@ class AppContainer(private val context: Context) {
             scope = applicationScope,
             spotifyClientIdProvider = { spotifyClientIdFlow.value },
             onSwitchPrepare = {
-                // Kill the current playback session — its stream URLs and auth
-                // tokens are scoped to the outgoing profile. invalidate before
-                // the new source is built so any re-entrant getCredentials()
-                // call reads the new profile.
+                // Tear down the current playback session — its stream URLs
+                // are scoped to the outgoing profile.
                 playbackManager.disconnect()
-                invalidateCredentials()
             },
             onSwitchCommit = {
-                // Fan out to feature VMs (Home / Library / Memories) so the
-                // first render after the switch shows new-profile content.
+                // Fan out to feature VMs so the first render after the switch
+                // shows new-profile content.
                 notifyMusicConfigurationChanged()
             },
         ).also { manager ->
@@ -185,6 +108,7 @@ class AppContainer(private val context: Context) {
             context = context,
             repository = repository,
             castManager = castManager,
+            spotifyClientIdProvider = { spotifyClientIdFlow.value },
         )
     }
 
@@ -217,17 +141,11 @@ class AppContainer(private val context: Context) {
         )
     }
 
-    private fun loadLegacyServerCredentials(): ServerCredentials {
-        val config: ServerConfig? = runBlocking {
-            database.serverConfigDao().getActiveServer().first()
-        }
-        return config?.let {
-            ServerCredentials(
-                serverUrl = it.serverUrl,
-                username = it.username,
-                password = it.passwordHash,
-            )
-        } ?: ServerCredentials("", "", "")
+    val repository: YoinRepository by lazy {
+        YoinRepository(
+            activeSource = profileManager.activeSource,
+            database = database,
+        )
     }
 
     private companion object {

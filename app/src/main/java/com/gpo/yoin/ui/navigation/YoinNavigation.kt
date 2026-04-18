@@ -22,7 +22,14 @@ sealed interface YoinRoute {
     data object Library : YoinRoute
 
     @Serializable
-    data object Settings : YoinRoute
+    data class Settings(
+        /**
+         * Optional section to focus on entry. Currently honoured:
+         * `"spotify"` — scrolls to the Spotify client-id section and
+         * focuses the text field. `null` means no special focus.
+         */
+        val focusSection: String? = null,
+    ) : YoinRoute
 
     @Serializable
     data class AlbumDetail(

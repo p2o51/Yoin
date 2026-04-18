@@ -160,6 +160,14 @@ fun NowPlayingScreen(
         ) {
             when (uiState) {
                 is NowPlayingUiState.Idle -> IdleContent()
+                is NowPlayingUiState.Launching -> LaunchingContent(
+                    state = uiState,
+                    onDismiss = onDismiss,
+                )
+                is NowPlayingUiState.ConnectError -> ConnectErrorContent(
+                    state = uiState,
+                    onDismiss = onDismiss,
+                )
                 is NowPlayingUiState.Playing -> PlayingContent(
                     state = uiState,
                     onTogglePlayPause = onTogglePlayPause,
@@ -192,6 +200,146 @@ private fun IdleContent(modifier: Modifier = Modifier) {
             text = "Nothing playing",
             style = MaterialTheme.typography.titleMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+/**
+ * Backend is still negotiating (Spotify App Remote most commonly). Show the
+ * track the user tapped as "about to play", but do NOT render a playing
+ * state — no progress, no spinning controls. Dismiss collapses Now Playing.
+ */
+@Composable
+private fun LaunchingContent(
+    state: NowPlayingUiState.Launching,
+    onDismiss: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .padding(horizontal = 24.dp, vertical = 40.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
+        IconButton(
+            onClick = onDismiss,
+            modifier = Modifier.align(Alignment.Start),
+        ) {
+            Icon(
+                imageVector = Icons.Filled.KeyboardArrowDown,
+                contentDescription = "Collapse",
+            )
+        }
+        Spacer(modifier = Modifier.height(24.dp))
+        Box(
+            modifier = Modifier
+                .size(240.dp)
+                .clip(RoundedCornerShape(28.dp))
+                .background(MaterialTheme.colorScheme.surfaceContainerHighest),
+            contentAlignment = Alignment.Center,
+        ) {
+            if (state.coverArtUrl != null) {
+                AsyncImage(
+                    model = state.coverArtUrl,
+                    contentDescription = state.songTitle,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            }
+        }
+        Spacer(modifier = Modifier.height(32.dp))
+        Text(
+            text = state.songTitle,
+            style = MaterialTheme.typography.titleLarge,
+            color = MaterialTheme.colorScheme.onSurface,
+        )
+        Spacer(modifier = Modifier.height(4.dp))
+        Text(
+            text = state.artist,
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(modifier = Modifier.height(32.dp))
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            androidx.compose.material3.CircularProgressIndicator(
+                modifier = Modifier.size(18.dp),
+                strokeWidth = 2.dp,
+            )
+            Text(
+                text = state.hint,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+/**
+ * Backend refused / lost the connection mid-launch. Show the failing track
+ * with the user-facing error message. Shell snackbar also surfaces the
+ * actionable recovery (open Settings / install Spotify / reconnect); this
+ * screen just tells the user what they were trying to play and why it
+ * didn't work.
+ */
+@Composable
+private fun ConnectErrorContent(
+    state: NowPlayingUiState.ConnectError,
+    onDismiss: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .padding(horizontal = 24.dp, vertical = 40.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
+        IconButton(
+            onClick = onDismiss,
+            modifier = Modifier.align(Alignment.Start),
+        ) {
+            Icon(
+                imageVector = Icons.Filled.KeyboardArrowDown,
+                contentDescription = "Collapse",
+            )
+        }
+        Spacer(modifier = Modifier.height(24.dp))
+        Box(
+            modifier = Modifier
+                .size(200.dp)
+                .clip(RoundedCornerShape(28.dp))
+                .background(MaterialTheme.colorScheme.surfaceContainerHighest),
+            contentAlignment = Alignment.Center,
+        ) {
+            if (state.coverArtUrl != null) {
+                AsyncImage(
+                    model = state.coverArtUrl,
+                    contentDescription = state.songTitle,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            }
+        }
+        Spacer(modifier = Modifier.height(28.dp))
+        Text(
+            text = state.songTitle,
+            style = MaterialTheme.typography.titleMedium,
+            color = MaterialTheme.colorScheme.onSurface,
+        )
+        Spacer(modifier = Modifier.height(2.dp))
+        Text(
+            text = state.artist,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(modifier = Modifier.height(24.dp))
+        Text(
+            text = state.message,
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.error,
+            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
         )
     }
 }

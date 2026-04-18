@@ -5,15 +5,17 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.gpo.yoin.AppContainer
 import com.gpo.yoin.data.local.YoinDatabase
+import com.gpo.yoin.data.model.Lyrics as SourceLyrics
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.remote.GeminiService
-import com.gpo.yoin.player.PlaybackManager
 import com.gpo.yoin.data.repository.YoinRepository
+import com.gpo.yoin.player.ConnectionPhase
+import com.gpo.yoin.player.PlaybackManager
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
@@ -36,21 +38,19 @@ class NowPlayingViewModel(
     private val _songInfoState = MutableStateFlow<SongInfoUiState>(SongInfoUiState.Idle)
     val songInfoState: StateFlow<SongInfoUiState> = _songInfoState.asStateFlow()
 
-    // Track current song ID so we can reload lyrics / starred state on change
-    private val currentSongId: StateFlow<String?> = playbackManager.playbackState
-        .map { it.currentSong?.id }
+    private val currentSongId: StateFlow<MediaId?> = playbackManager.playbackState
+        .map { it.currentTrack?.id }
         .distinctUntilChanged()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     init {
-        // When song changes, load lyrics and starred state
         viewModelScope.launch {
             currentSongId.collect { songId ->
                 if (songId != null) {
                     loadLyrics(songId)
                     loadSongInfo(songId)
                     _isStarred.value =
-                        playbackManager.playbackState.value.currentSong?.starred != null
+                        playbackManager.playbackState.value.currentTrack?.isStarred == true
                 } else {
                     _lyrics.value = emptyList()
                     _isStarred.value = false
@@ -60,7 +60,6 @@ class NowPlayingViewModel(
         }
     }
 
-    // Rating flow from Room, keyed by current song
     private val ratingFlow = currentSongId.flatMapLatest { songId ->
         if (songId != null) {
             repository.getRating(songId).map { it?.rating ?: 0f }
@@ -75,35 +74,66 @@ class NowPlayingViewModel(
         ratingFlow,
         _isStarred,
     ) { state, lyrics, rating, isStarred ->
-        val song = state.currentSong
-        if (song == null) {
-            NowPlayingUiState.Idle
-        } else {
-            NowPlayingUiState.Playing(
+        val song = state.currentTrack
+        val pending = state.pendingTrack
+        when {
+            state.connectionPhase == ConnectionPhase.Error && song != null ->
+                NowPlayingUiState.ConnectError(
+                    songTitle = song.title.orEmpty(),
+                    artist = song.artist.orEmpty(),
+                    coverArtUrl = repository.resolveCoverUrl(song.coverArt),
+                    message = state.connectionErrorMessage
+                        ?: "Playback was interrupted.",
+                )
+
+            song != null -> NowPlayingUiState.Playing(
                 songTitle = song.title.orEmpty(),
                 artist = song.artist.orEmpty(),
                 albumName = song.album.orEmpty(),
-                coverArtUrl = song.coverArt?.let { repository.buildCoverArtUrl(it) },
+                coverArtUrl = repository.resolveCoverUrl(song.coverArt),
                 isPlaying = state.isPlaying,
                 positionMs = state.position,
                 durationMs = state.duration,
                 bufferedMs = state.bufferedPosition,
-                songId = song.id,
+                songId = song.id.toString(),
                 rating = rating,
                 isStarred = isStarred,
                 lyrics = lyrics,
                 queue = state.queue.map { queueSong ->
                     QueueItem(
-                        songId = queueSong.id,
+                        songId = queueSong.id.toString(),
                         title = queueSong.title.orEmpty(),
                         artist = queueSong.artist.orEmpty(),
-                        coverArtUrl = queueSong.coverArt?.let {
-                            repository.buildCoverArtUrl(it)
-                        },
+                        coverArtUrl = repository.resolveCoverUrl(queueSong.coverArt),
                     )
                 },
                 currentQueueIndex = state.currentIndex,
             )
+
+            // Backend is still handshaking for the track the user tapped —
+            // show "about to play" UI, do NOT fake playing / progress.
+            state.connectionPhase == ConnectionPhase.Connecting && pending != null ->
+                NowPlayingUiState.Launching(
+                    songTitle = pending.title.orEmpty(),
+                    artist = pending.artist.orEmpty(),
+                    albumName = pending.album.orEmpty(),
+                    coverArtUrl = repository.resolveCoverUrl(pending.coverArt),
+                    durationMs = pending.durationSec?.times(1_000L) ?: 0L,
+                    hint = "Connecting to Spotify…",
+                )
+
+            // Backend refused / lost connection mid-launch — surface the
+            // error with the track context so user knows what failed.
+            state.connectionPhase == ConnectionPhase.Error && pending != null ->
+                NowPlayingUiState.ConnectError(
+                    songTitle = pending.title.orEmpty(),
+                    artist = pending.artist.orEmpty(),
+                    coverArtUrl = repository.resolveCoverUrl(pending.coverArt),
+                    message = state.connectionErrorMessage
+                        ?: "Couldn't start playback.",
+                )
+
+            else -> NowPlayingUiState.Idle
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), NowPlayingUiState.Idle)
 
@@ -120,7 +150,6 @@ class NowPlayingViewModel(
         playbackManager.skipPrevious()
     }
 
-    /** @param fraction 0.0–1.0 mapped to current track duration. */
     fun seekTo(fraction: Float) {
         val durationMs = playbackManager.playbackState.value.duration
         if (durationMs > 0) {
@@ -137,17 +166,10 @@ class NowPlayingViewModel(
 
     fun toggleFavorite() {
         val songId = currentSongId.value ?: return
-        val starred = _isStarred.value
+        val nextFavorite = !_isStarred.value
         viewModelScope.launch {
-            try {
-                if (starred) {
-                    repository.unstar(id = songId)
-                } else {
-                    repository.star(id = songId)
-                }
-                _isStarred.value = !starred
-            } catch (_: Exception) {
-                // Revert on failure — keep UI consistent
+            repository.setFavorite(songId, nextFavorite).onSuccess {
+                _isStarred.value = nextFavorite
             }
         }
     }
@@ -161,31 +183,30 @@ class NowPlayingViewModel(
         viewModelScope.launch { loadSongInfo(songId) }
     }
 
-    private suspend fun loadSongInfo(songId: String) {
+    private suspend fun loadSongInfo(songId: MediaId) {
         _songInfoState.value = SongInfoUiState.Loading
         try {
-            // Check Room cache first
-            val cached = database.songInfoDao().getBySongId(songId, MediaId.PROVIDER_SUBSONIC)
+            val cached = database.songInfoDao().getBySongId(songId.rawId, songId.provider)
             if (cached != null) {
                 _songInfoState.value = cached.toSuccessState()
                 return
             }
-            // Check API key
+
             val config = database.geminiConfigDao().getConfig().first()
             val apiKey = config?.apiKey
             if (apiKey.isNullOrBlank()) {
                 _songInfoState.value = SongInfoUiState.ApiKeyMissing
                 return
             }
-            // Fetch from Gemini
-            val song = playbackManager.playbackState.value.currentSong
+
+            val song = playbackManager.playbackState.value.currentTrack
             val result = geminiService.generateSongInfo(
                 apiKey = apiKey,
                 title = song?.title.orEmpty(),
                 artist = song?.artist.orEmpty(),
                 album = song?.album.orEmpty(),
             )
-            val songInfo = result.copy(songId = songId)
+            val songInfo = result.copy(songId = songId.rawId, provider = songId.provider)
             database.songInfoDao().upsert(songInfo)
             _songInfoState.value = songInfo.toSuccessState()
         } catch (e: Exception) {
@@ -204,21 +225,24 @@ class NowPlayingViewModel(
         review = review,
     )
 
-    private suspend fun loadLyrics(songId: String) {
-        try {
-            val lyricsList = repository.getLyrics(songId)
-            // Prefer synced lyrics, fall back to unsynced
-            val structured = lyricsList?.structuredLyrics
-                ?.firstOrNull { it.synced }
-                ?: lyricsList?.structuredLyrics?.firstOrNull()
-            _lyrics.value = structured?.line?.map { syncedLine ->
-                LyricLine(
-                    startMs = syncedLine.start,
-                    text = syncedLine.value,
-                )
-            }.orEmpty()
+    private suspend fun loadLyrics(songId: MediaId) {
+        _lyrics.value = try {
+            when (val lyrics = repository.getLyrics(songId)) {
+                null -> emptyList()
+                is SourceLyrics.Synced -> lyrics.lines.map { syncedLine ->
+                    LyricLine(
+                        startMs = syncedLine.startMs,
+                        text = syncedLine.text,
+                    )
+                }
+                is SourceLyrics.Unsynced -> lyrics.text.lineSequence()
+                    .map(String::trim)
+                    .filter(String::isNotEmpty)
+                    .map { line -> LyricLine(startMs = null, text = line) }
+                    .toList()
+            }
         } catch (_: Exception) {
-            _lyrics.value = emptyList()
+            emptyList()
         }
     }
 

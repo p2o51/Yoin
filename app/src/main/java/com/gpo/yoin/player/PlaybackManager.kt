@@ -9,11 +9,13 @@ import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
+import com.gpo.yoin.data.model.CoverRef
+import com.gpo.yoin.data.model.MediaId
+import com.gpo.yoin.data.model.PlaybackHandle
+import com.gpo.yoin.data.model.Track
 import com.gpo.yoin.data.repository.ActivityContext
 import com.gpo.yoin.data.repository.YoinRepository
-import com.gpo.yoin.data.remote.ServerCredentials
-import com.gpo.yoin.data.remote.Song
-import com.gpo.yoin.data.remote.SubsonicApiFactory
+import com.gpo.yoin.data.source.MusicSource
 import com.google.common.util.concurrent.FutureCallback
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.MoreExecutors
@@ -22,8 +24,11 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -35,20 +40,43 @@ class PlaybackManager(
     private val context: Context,
     private val repository: YoinRepository,
     private val castManager: CastManager? = null,
+    spotifyClientIdProvider: () -> String,
 ) {
+    private enum class ActiveBackend {
+        NONE,
+        LOCAL,
+        SPOTIFY_REMOTE,
+    }
+
     private var controller: MediaController? = null
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private var positionUpdateJob: Job? = null
     private var connectJob: Job? = null
     private val pendingCommands = mutableListOf<(MediaController) -> Unit>()
-    private var lastRecordedSongId: String? = null
+    private var lastRecordedTrackId: MediaId? = null
     private var currentActivityContext: ActivityContext = ActivityContext.None
+    private var lastKnownDurationSecById: Map<MediaId, Int> = emptyMap()
+    private var activeBackend: ActiveBackend = ActiveBackend.NONE
+    private var pendingSpotifyHandoff: Boolean = false
+    private var preserveLocalUiDuringSpotifyHandoff: Boolean = false
+    private val spotifyRemotePlayer = SpotifyAppRemotePlayer(
+        applicationContext = context.applicationContext,
+        clientIdProvider = spotifyClientIdProvider,
+        onSnapshot = ::publishRemoteState,
+    )
 
     private val _playbackState = MutableStateFlow(PlaybackState())
     val playbackState: StateFlow<PlaybackState> = _playbackState.asStateFlow()
 
+    /**
+     * One-shot playback events surfaced up to the shell (see `YoinNavHost`)
+     * for actionable user prompts — typically a snackbar when Spotify
+     * App Remote refuses to connect.
+     */
+    private val _events = MutableSharedFlow<PlaybackEvent>(extraBufferCapacity = 4)
+    val events: SharedFlow<PlaybackEvent> = _events.asSharedFlow()
+
     init {
-        // Observe cast state and reflect in PlaybackState
         castManager?.let { cm ->
             scope.launch {
                 cm.castState.collect { state ->
@@ -62,15 +90,17 @@ class PlaybackManager(
     }
 
     suspend fun connect() {
+        if (activeBackend == ActiveBackend.SPOTIFY_REMOTE) return
         if (controller != null) return
         connectInBackground()
         connectJob?.join()
     }
 
     fun connectInBackground() {
+        if (activeBackend == ActiveBackend.SPOTIFY_REMOTE) return
         if (controller != null || connectJob?.isActive == true) return
         _playbackState.value = _playbackState.value.copy(
-            controllerReady = false,
+            connectionPhase = ConnectionPhase.Connecting,
             connectionErrorMessage = null,
         )
         connectJob = scope.launch {
@@ -84,7 +114,7 @@ class PlaybackManager(
                 flushPendingCommands(built)
             } catch (error: Throwable) {
                 _playbackState.value = _playbackState.value.copy(
-                    controllerReady = false,
+                    connectionPhase = ConnectionPhase.Error,
                     connectionErrorMessage = error.message ?: "Unable to initialize playback",
                 )
             } finally {
@@ -93,7 +123,19 @@ class PlaybackManager(
         }
     }
 
+    fun onHostStart(hostContext: Context) {
+        spotifyRemotePlayer.onHostStart(hostContext)
+    }
+
+    fun onHostStop() {
+        spotifyRemotePlayer.onHostStop()
+    }
+
     fun disconnect() {
+        spotifyRemotePlayer.disconnect(resetState = false)
+        activeBackend = ActiveBackend.NONE
+        pendingSpotifyHandoff = false
+        preserveLocalUiDuringSpotifyHandoff = false
         pendingCommands.clear()
         connectJob?.cancel()
         connectJob = null
@@ -102,95 +144,161 @@ class PlaybackManager(
         controller?.removeListener(playerListener)
         controller?.release()
         controller = null
-        _playbackState.value = PlaybackState()
+        _playbackState.value = PlaybackState(connectionPhase = ConnectionPhase.Idle)
     }
 
-    // ── Playback controls ───────────────────────────────────────────────
+    // ── Playback controls ─────────────────────────────────────────────
 
     fun play(
-        songs: List<Song>,
+        tracks: List<Track>,
         startIndex: Int = 0,
-        credentials: ServerCredentials,
+        source: MusicSource,
         activityContext: ActivityContext = ActivityContext.None,
     ) {
-        lastRecordedSongId = null
+        if (tracks.isEmpty() || startIndex !in tracks.indices) return
+        lastRecordedTrackId = null
         currentActivityContext = activityContext
-        executeOrQueue { player ->
-            val items = songs.map { it.toMediaItem(credentials) }
-            player.setMediaItems(items, startIndex, 0L)
-            player.prepare()
-            player.play()
+        lastKnownDurationSecById = tracks
+            .mapNotNull { track -> track.durationSec?.let { track.id to it } }
+            .toMap()
+        scope.launch {
+            when (source.playback().handleFor(tracks[startIndex])) {
+                is PlaybackHandle.DirectStream -> {
+                    pendingSpotifyHandoff = false
+                    preserveLocalUiDuringSpotifyHandoff = false
+                    activeBackend = ActiveBackend.LOCAL
+                    spotifyRemotePlayer.disconnect(resetState = false)
+                    val items = tracks.map { buildMediaItem(it, source) }
+                    executeOrQueue { player ->
+                        player.setMediaItems(items, startIndex, 0L)
+                        player.prepare()
+                        player.play()
+                    }
+                }
+
+                is PlaybackHandle.ExternalController -> {
+                    pendingSpotifyHandoff = true
+                    preserveLocalUiDuringSpotifyHandoff =
+                        activeBackend == ActiveBackend.LOCAL &&
+                            controller != null &&
+                            _playbackState.value.currentTrack != null
+                    if (!preserveLocalUiDuringSpotifyHandoff) {
+                        activeBackend = ActiveBackend.SPOTIFY_REMOTE
+                    }
+                    spotifyRemotePlayer.playQueue(tracks, startIndex)
+                }
+            }
         }
     }
 
     fun playSingle(
-        song: Song,
-        credentials: ServerCredentials,
+        track: Track,
+        source: MusicSource,
         activityContext: ActivityContext = ActivityContext.None,
     ) {
-        play(listOf(song), 0, credentials, activityContext)
+        play(listOf(track), 0, source, activityContext)
     }
 
     fun pause() {
-        executeOrQueue { it.pause() }
+        when (activeBackend) {
+            ActiveBackend.SPOTIFY_REMOTE -> spotifyRemotePlayer.pause()
+            else -> executeOrQueue { it.pause() }
+        }
     }
 
     fun resume() {
-        executeOrQueue { it.play() }
+        when (activeBackend) {
+            ActiveBackend.SPOTIFY_REMOTE -> spotifyRemotePlayer.resume()
+            else -> executeOrQueue { it.play() }
+        }
     }
 
     fun skipNext() {
-        executeOrQueue { player ->
-            if (player.hasNextMediaItem()) {
-                player.seekToNextMediaItem()
+        when (activeBackend) {
+            ActiveBackend.SPOTIFY_REMOTE -> spotifyRemotePlayer.skipNext()
+            else -> executeOrQueue { player ->
+                if (player.hasNextMediaItem()) {
+                    player.seekToNextMediaItem()
+                }
             }
         }
     }
 
     fun skipPrevious() {
-        executeOrQueue { player ->
-            if (player.hasPreviousMediaItem()) {
-                player.seekToPreviousMediaItem()
+        when (activeBackend) {
+            ActiveBackend.SPOTIFY_REMOTE -> spotifyRemotePlayer.skipPrevious()
+            else -> executeOrQueue { player ->
+                if (player.hasPreviousMediaItem()) {
+                    player.seekToPreviousMediaItem()
+                }
             }
         }
     }
 
     fun seekTo(positionMs: Long) {
-        executeOrQueue { it.seekTo(positionMs) }
+        when (activeBackend) {
+            ActiveBackend.SPOTIFY_REMOTE -> spotifyRemotePlayer.seekTo(positionMs)
+            else -> executeOrQueue { it.seekTo(positionMs) }
+        }
     }
 
     fun setRepeatMode(mode: Int) {
-        executeOrQueue { it.repeatMode = mode }
+        when (activeBackend) {
+            ActiveBackend.SPOTIFY_REMOTE -> spotifyRemotePlayer.setRepeatMode(mode)
+            else -> executeOrQueue { it.repeatMode = mode }
+        }
     }
 
     fun toggleShuffle() {
-        executeOrQueue { player ->
-            player.shuffleModeEnabled = !player.shuffleModeEnabled
-        }
-    }
-
-    // ── Queue management ────────────────────────────────────────────────
-
-    fun addToQueue(song: Song, credentials: ServerCredentials) {
-        executeOrQueue { player ->
-            player.addMediaItem(song.toMediaItem(credentials))
-        }
-    }
-
-    fun clearQueue() {
-        executeOrQueue { it.clearMediaItems() }
-    }
-
-    fun skipToQueueItem(index: Int) {
-        lastRecordedSongId = null
-        executeOrQueue { player ->
-            if (index in 0 until player.mediaItemCount) {
-                player.seekToDefaultPosition(index)
+        when (activeBackend) {
+            ActiveBackend.SPOTIFY_REMOTE -> spotifyRemotePlayer.toggleShuffle()
+            else -> executeOrQueue { player ->
+                player.shuffleModeEnabled = !player.shuffleModeEnabled
             }
         }
     }
 
-    // ── Internal ────────────────────────────────────────────────────────
+    // ── Queue management ──────────────────────────────────────────────
+
+    fun addToQueue(track: Track, source: MusicSource) {
+        scope.launch {
+            when (source.playback().handleFor(track)) {
+                is PlaybackHandle.DirectStream -> {
+                    pendingSpotifyHandoff = false
+                    preserveLocalUiDuringSpotifyHandoff = false
+                    val item = buildMediaItem(track, source)
+                    executeOrQueue { player -> player.addMediaItem(item) }
+                }
+
+                is PlaybackHandle.ExternalController -> {
+                    activeBackend = ActiveBackend.SPOTIFY_REMOTE
+                    disconnectLocalController(resetState = false)
+                    spotifyRemotePlayer.addToQueue(track)
+                }
+            }
+        }
+    }
+
+    fun clearQueue() {
+        when (activeBackend) {
+            ActiveBackend.SPOTIFY_REMOTE -> spotifyRemotePlayer.clearQueue()
+            else -> executeOrQueue { it.clearMediaItems() }
+        }
+    }
+
+    fun skipToQueueItem(index: Int) {
+        lastRecordedTrackId = null
+        when (activeBackend) {
+            ActiveBackend.SPOTIFY_REMOTE -> spotifyRemotePlayer.skipToQueueItem(index)
+            else -> executeOrQueue { player ->
+                if (index in 0 until player.mediaItemCount) {
+                    player.seekToDefaultPosition(index)
+                }
+            }
+        }
+    }
+
+    // ── Internal ──────────────────────────────────────────────────────
 
     private val playerListener = object : Player.Listener {
         override fun onIsPlayingChanged(isPlaying: Boolean) {
@@ -224,63 +332,70 @@ class PlaybackManager(
     }
 
     private fun syncState() {
+        if (activeBackend == ActiveBackend.SPOTIFY_REMOTE) return
         val player = controller ?: return
         val queue = buildList {
             for (i in 0 until player.mediaItemCount) {
-                add(player.getMediaItemAt(i).toSong())
+                add(player.getMediaItemAt(i).toTrack())
             }
         }
         val currentIndex = player.currentMediaItemIndex
-        val currentItem = player.currentMediaItem?.toSong()
-        val resolvedCurrentSong = when {
+        val currentItem = player.currentMediaItem?.toTrack()
+        val resolved = when {
             currentItem != null -> currentItem
             currentIndex in queue.indices -> queue[currentIndex]
             player.mediaItemCount == 0 -> null
-            else -> _playbackState.value.currentSong
+            else -> _playbackState.value.currentTrack
         }
-        _playbackState.value = PlaybackState(
-            currentSong = resolvedCurrentSong,
-            isPlaying = player.isPlaying,
-            position = player.currentPosition.coerceAtLeast(0L),
-            duration = player.duration.coerceAtLeast(0L),
-            bufferedPosition = player.bufferedPosition.coerceAtLeast(0L),
-            queue = queue,
-            currentIndex = currentIndex,
-            repeatMode = player.repeatMode,
-            shuffleEnabled = player.shuffleModeEnabled,
-            audioSessionId = PlaybackService.audioSessionId.value,
-            controllerReady = true,
-            connectionErrorMessage = null,
+        publishPlaybackState(
+            PlaybackState(
+                currentTrack = resolved,
+                pendingTrack = null,
+                isPlaying = player.isPlaying,
+                position = player.currentPosition.coerceAtLeast(0L),
+                duration = player.duration.coerceAtLeast(0L),
+                bufferedPosition = player.bufferedPosition.coerceAtLeast(0L),
+                queue = queue,
+                currentIndex = currentIndex,
+                repeatMode = player.repeatMode,
+                shuffleEnabled = player.shuffleModeEnabled,
+                audioSessionId = PlaybackService.audioSessionId.value,
+                isCasting = _playbackState.value.isCasting,
+                castDeviceName = _playbackState.value.castDeviceName,
+                connectionPhase = ConnectionPhase.Ready,
+                connectionErrorMessage = null,
+            ),
         )
-
-        val shouldRecord = player.isPlaying &&
-            resolvedCurrentSong != null &&
-            resolvedCurrentSong.id != lastRecordedSongId
-        if (shouldRecord) {
-            val song = checkNotNull(resolvedCurrentSong)
-            lastRecordedSongId = song.id
-            scope.launch {
-                repository.recordPlay(
-                    song = song,
-                    durationMs = player.duration.coerceAtLeast(0L).takeIf { it > 0L }
-                        ?: ((song.duration ?: 0) * 1_000L),
-                    completedPercent = 0f,
-                    activityContext = currentActivityContext,
-                )
-            }
-        }
     }
 
     private fun startPositionUpdates() {
         if (positionUpdateJob?.isActive == true) return
         positionUpdateJob = scope.launch {
             while (isActive) {
-                val player = controller
-                if (player != null && player.isPlaying) {
-                    _playbackState.value = _playbackState.value.copy(
-                        position = player.currentPosition.coerceAtLeast(0L),
-                        bufferedPosition = player.bufferedPosition.coerceAtLeast(0L),
-                    )
+                when (activeBackend) {
+                    ActiveBackend.LOCAL -> {
+                        val player = controller
+                        if (player != null && player.isPlaying) {
+                            _playbackState.value = _playbackState.value.copy(
+                                position = player.currentPosition.coerceAtLeast(0L),
+                                bufferedPosition = player.bufferedPosition.coerceAtLeast(0L),
+                            )
+                        }
+                    }
+
+                    ActiveBackend.SPOTIFY_REMOTE -> {
+                        val state = _playbackState.value
+                        if (state.isPlaying) {
+                            val advanced = (state.position + POSITION_UPDATE_INTERVAL_MS)
+                                .coerceAtMost(state.duration.takeIf { it > 0L } ?: Long.MAX_VALUE)
+                            _playbackState.value = state.copy(
+                                position = advanced,
+                                bufferedPosition = state.duration.takeIf { it > 0L } ?: advanced,
+                            )
+                        }
+                    }
+
+                    ActiveBackend.NONE -> Unit
                 }
                 delay(POSITION_UPDATE_INTERVAL_MS)
             }
@@ -308,79 +423,197 @@ class PlaybackManager(
         commands.forEach { it(player) }
     }
 
-    companion object {
-        private const val POSITION_UPDATE_INTERVAL_MS = 250L
+    private fun disconnectLocalController(resetState: Boolean) {
+        pendingCommands.clear()
+        connectJob?.cancel()
+        connectJob = null
+        controller?.removeListener(playerListener)
+        controller?.release()
+        controller = null
+        if (resetState) {
+            positionUpdateJob?.cancel()
+            positionUpdateJob = null
+            _playbackState.value = PlaybackState(connectionPhase = ConnectionPhase.Idle)
+        }
+    }
 
-        private const val EXTRA_SONG_ID = "song_id"
-        private const val EXTRA_ALBUM = "album"
-        private const val EXTRA_ALBUM_ID = "album_id"
-        private const val EXTRA_ARTIST_ID = "artist_id"
-        private const val EXTRA_COVER_ART = "cover_art"
-        private const val EXTRA_DURATION = "duration_secs"
-        private const val EXTRA_TRACK = "track"
-        private const val EXTRA_YEAR = "year"
-        private const val EXTRA_GENRE = "genre"
-        private const val EXTRA_STARRED = "starred"
-        private const val EXTRA_USER_RATING = "user_rating"
-
-        internal fun Song.toMediaItem(credentials: ServerCredentials): MediaItem {
-            val streamUrl = SubsonicApiFactory.buildStreamUrl(credentials, id)
-            val artworkUri = coverArt?.let {
-                Uri.parse(SubsonicApiFactory.buildCoverArtUrl(credentials, it))
+    private fun publishRemoteState(snapshot: SpotifyRemoteSnapshot) {
+        if (activeBackend != ActiveBackend.SPOTIFY_REMOTE && !pendingSpotifyHandoff) return
+        val previous = _playbackState.value
+        val next = PlaybackState(
+            currentTrack = snapshot.currentTrack,
+            pendingTrack = snapshot.pendingTrack,
+            isPlaying = snapshot.isPlaying,
+            position = snapshot.positionMs,
+            duration = snapshot.durationMs,
+            bufferedPosition = snapshot.durationMs.takeIf { it > 0L } ?: snapshot.positionMs,
+            queue = snapshot.queue,
+            currentIndex = snapshot.currentIndex,
+            repeatMode = snapshot.repeatMode,
+            shuffleEnabled = snapshot.shuffleEnabled,
+            audioSessionId = PlaybackService.audioSessionId.value,
+            isCasting = previous.isCasting,
+            castDeviceName = previous.castDeviceName,
+            connectionPhase = snapshot.connectionPhase,
+            connectionErrorMessage = snapshot.connectionErrorMessage,
+            connectionFailure = snapshot.connectionFailure,
+        )
+        when (snapshot.connectionPhase) {
+            ConnectionPhase.Ready -> {
+                if (pendingSpotifyHandoff) {
+                    pendingSpotifyHandoff = false
+                    preserveLocalUiDuringSpotifyHandoff = false
+                    disconnectLocalController(resetState = false)
+                    activeBackend = ActiveBackend.SPOTIFY_REMOTE
+                }
+                publishPlaybackState(next)
+                maybeEmitConnectFailure(previous, next)
             }
 
-            val extras = Bundle().apply {
-                putString(EXTRA_SONG_ID, id)
-                putString(EXTRA_ALBUM, album)
-                putString(EXTRA_ALBUM_ID, albumId)
-                putString(EXTRA_ARTIST_ID, artistId)
-                putString(EXTRA_COVER_ART, coverArt)
-                duration?.let { putInt(EXTRA_DURATION, it) }
-                track?.let { putInt(EXTRA_TRACK, it) }
-                year?.let { putInt(EXTRA_YEAR, it) }
-                putString(EXTRA_GENRE, genre)
-                putString(EXTRA_STARRED, starred)
-                userRating?.let { putInt(EXTRA_USER_RATING, it) }
+            ConnectionPhase.Error -> {
+                if (pendingSpotifyHandoff && preserveLocalUiDuringSpotifyHandoff && controller != null) {
+                    pendingSpotifyHandoff = false
+                    preserveLocalUiDuringSpotifyHandoff = false
+                    activeBackend = ActiveBackend.LOCAL
+                    maybeEmitConnectFailure(previous, next)
+                    syncState()
+                    return
+                }
+                pendingSpotifyHandoff = false
+                preserveLocalUiDuringSpotifyHandoff = false
+                publishPlaybackState(next)
+                maybeEmitConnectFailure(previous, next)
             }
 
-            val metadata = MediaMetadata.Builder()
-                .setTitle(title)
-                .setArtist(artist)
-                .setAlbumTitle(album)
-                .setArtworkUri(artworkUri)
-                .setTrackNumber(track)
-                .setExtras(extras)
-                .build()
+            ConnectionPhase.Connecting -> {
+                if (pendingSpotifyHandoff && preserveLocalUiDuringSpotifyHandoff && controller != null) {
+                    return
+                }
+                publishPlaybackState(next)
+                maybeEmitConnectFailure(previous, next)
+            }
 
-            return MediaItem.Builder()
-                .setMediaId(id)
-                .setUri(streamUrl)
-                .setMediaMetadata(metadata)
-                .build()
+            ConnectionPhase.Idle -> {
+                publishPlaybackState(next)
+                maybeEmitConnectFailure(previous, next)
+            }
+        }
+    }
+
+    /**
+     * Emit a one-shot [PlaybackEvent.SpotifyConnectError] when the remote
+     * connection transitions into an error state (or changes to a different
+     * failure kind). Doesn't emit on steady-state error re-publishes so the
+     * shell snackbar doesn't thrash.
+     */
+    private fun maybeEmitConnectFailure(previous: PlaybackState, next: PlaybackState) {
+        if (next.connectionPhase != ConnectionPhase.Error) return
+        val failure = next.connectionFailure ?: return
+        val sameAsBefore = previous.connectionPhase == ConnectionPhase.Error &&
+            previous.connectionFailure == failure
+        if (sameAsBefore) return
+        val message = next.connectionErrorMessage ?: failure.userMessage()
+        scope.launch {
+            _events.emit(PlaybackEvent.SpotifyConnectError(failure = failure, message = message))
+        }
+    }
+
+    private fun publishPlaybackState(state: PlaybackState) {
+        _playbackState.value = state
+        if (state.isPlaying) {
+            startPositionUpdates()
+        } else {
+            stopPositionUpdates()
         }
 
-        internal fun MediaItem.toSong(): Song {
-            val extras = mediaMetadata.extras
-            return Song(
-                id = mediaId,
-                title = mediaMetadata.title?.toString(),
-                artist = mediaMetadata.artist?.toString(),
-                album = extras?.getString(EXTRA_ALBUM),
-                albumId = extras?.getString(EXTRA_ALBUM_ID),
-                artistId = extras?.getString(EXTRA_ARTIST_ID),
-                coverArt = extras?.getString(EXTRA_COVER_ART),
-                duration = extras?.takeIf { it.containsKey(EXTRA_DURATION) }
-                    ?.getInt(EXTRA_DURATION),
-                track = extras?.takeIf { it.containsKey(EXTRA_TRACK) }
-                    ?.getInt(EXTRA_TRACK),
-                year = extras?.takeIf { it.containsKey(EXTRA_YEAR) }
-                    ?.getInt(EXTRA_YEAR),
-                genre = extras?.getString(EXTRA_GENRE),
-                starred = extras?.getString(EXTRA_STARRED),
-                userRating = extras?.takeIf { it.containsKey(EXTRA_USER_RATING) }
-                    ?.getInt(EXTRA_USER_RATING),
+        val track = state.currentTrack ?: return
+        if (track.id == lastRecordedTrackId || !state.isPlaying) return
+        lastRecordedTrackId = track.id
+        val fallbackDurationSec = track.durationSec ?: lastKnownDurationSecById[track.id]
+        scope.launch {
+            repository.recordPlay(
+                track = track,
+                durationMs = state.duration.coerceAtLeast(0L).takeIf { it > 0L }
+                    ?: ((fallbackDurationSec ?: 0) * 1_000L),
+                completedPercent = 0f,
+                activityContext = currentActivityContext,
             )
         }
+    }
+
+    /**
+     * Build a Media3 [MediaItem] for a [Track], routing through the owning
+     * [MusicSource]'s [PlaybackHandle]. Subsonic returns [DirectStream] and
+     * goes through Media3 directly. External-controller providers are handled
+     * before this method is called.
+     */
+    private suspend fun buildMediaItem(track: Track, source: MusicSource): MediaItem {
+        val handle = source.playback().handleFor(track)
+        val streamUrl = when (handle) {
+            is PlaybackHandle.DirectStream -> handle.uri
+            is PlaybackHandle.ExternalController ->
+                throw UnsupportedOperationException(
+                    "ExternalController playback lands in phase 3 (Spotify App Remote)",
+                )
+        }
+        val artworkUri = track.coverArt
+            ?.let { ref -> source.resolveCoverUrl(ref) }
+            ?.let(Uri::parse)
+
+        val extras = Bundle().apply {
+            putString(EXTRA_MEDIA_ID, track.id.toString())
+            putString(EXTRA_PROVIDER, track.id.provider)
+            putString(EXTRA_ARTIST_ID, track.artistId?.toString())
+            putString(EXTRA_ALBUM_ID, track.albumId?.toString())
+            putString(EXTRA_COVER_ART, (track.coverArt as? CoverRef.SourceRelative)?.coverArtId)
+            putString(EXTRA_COVER_URL, (track.coverArt as? CoverRef.Url)?.url)
+            track.durationSec?.let { putInt(EXTRA_DURATION, it) }
+            track.trackNumber?.let { putInt(EXTRA_TRACK, it) }
+            track.year?.let { putInt(EXTRA_YEAR, it) }
+            putString(EXTRA_GENRE, track.genre)
+            putBoolean(EXTRA_STARRED, track.isStarred)
+            track.userRating?.let { putInt(EXTRA_USER_RATING, it) }
+        }
+
+        val metadata = MediaMetadata.Builder()
+            .setTitle(track.title)
+            .setArtist(track.artist)
+            .setAlbumTitle(track.album)
+            .setArtworkUri(artworkUri)
+            .setTrackNumber(track.trackNumber)
+            .setExtras(extras)
+            .build()
+
+        return MediaItem.Builder()
+            .setMediaId(track.id.toString())
+            .setUri(streamUrl)
+            .setMediaMetadata(metadata)
+            .build()
+    }
+
+    private fun MediaItem.toTrack(): Track {
+        val extras = mediaMetadata.extras
+        val idString = extras?.getString(EXTRA_MEDIA_ID) ?: mediaId
+        val id = MediaId.parseOrNull(idString)
+            ?: MediaId.subsonic(mediaId)  // legacy session fallback
+        val coverRef: CoverRef? = extras?.getString(EXTRA_COVER_URL)?.let(CoverRef::Url)
+            ?: extras?.getString(EXTRA_COVER_ART)?.let(CoverRef::SourceRelative)
+        return Track(
+            id = id,
+            title = mediaMetadata.title?.toString(),
+            artist = mediaMetadata.artist?.toString(),
+            artistId = extras?.getString(EXTRA_ARTIST_ID)?.let(MediaId::parseOrNull),
+            album = mediaMetadata.albumTitle?.toString(),
+            albumId = extras?.getString(EXTRA_ALBUM_ID)?.let(MediaId::parseOrNull),
+            coverArt = coverRef,
+            durationSec = extras?.takeIf { it.containsKey(EXTRA_DURATION) }?.getInt(EXTRA_DURATION),
+            trackNumber = extras?.takeIf { it.containsKey(EXTRA_TRACK) }?.getInt(EXTRA_TRACK),
+            year = extras?.takeIf { it.containsKey(EXTRA_YEAR) }?.getInt(EXTRA_YEAR),
+            genre = extras?.getString(EXTRA_GENRE),
+            userRating = extras?.takeIf { it.containsKey(EXTRA_USER_RATING) }
+                ?.getInt(EXTRA_USER_RATING),
+            isStarred = extras?.getBoolean(EXTRA_STARRED, false) == true,
+        )
     }
 
     private suspend fun buildController(): MediaController {
@@ -404,5 +637,22 @@ class PlaybackManager(
                 MoreExecutors.directExecutor(),
             )
         }
+    }
+
+    companion object {
+        private const val POSITION_UPDATE_INTERVAL_MS = 250L
+
+        private const val EXTRA_MEDIA_ID = "media_id"
+        private const val EXTRA_PROVIDER = "provider"
+        private const val EXTRA_ALBUM_ID = "album_id"
+        private const val EXTRA_ARTIST_ID = "artist_id"
+        private const val EXTRA_COVER_ART = "cover_art"
+        private const val EXTRA_COVER_URL = "cover_url"
+        private const val EXTRA_DURATION = "duration_secs"
+        private const val EXTRA_TRACK = "track"
+        private const val EXTRA_YEAR = "year"
+        private const val EXTRA_GENRE = "genre"
+        private const val EXTRA_STARRED = "starred"
+        private const val EXTRA_USER_RATING = "user_rating"
     }
 }

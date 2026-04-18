@@ -5,30 +5,26 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.KSerializer
 import kotlinx.serialization.json.Json
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 
 /**
- * Owns the in-memory mutable copy of a Spotify profile's
- * [ProfileCredentials.Spotify] and handles the Bearer auth + auto-refresh
- * behaviour. On refresh, fires [onCredentialsRefreshed] upward so the hosting
- * [SpotifyMusicSource] can persist the new tokens (silently, via
- * `ProfileManager.persistCredentialsSilently` — we never rebuild the active
- * source for a token rotation).
+ * Spotify Web API wrapper used by [SpotifyMusicSource].
  *
- * Design notes:
- * - Proactive refresh: if the access token expires within [REFRESH_BUFFER_MS],
- *   refresh before firing the request.
- * - Reactive retry: on a 401, force-refresh once and re-issue. Second 401
- *   bubbles up.
- * - Refresh is serialised by [refreshMutex]; concurrent callers dog-pile a
- *   single `/api/token` call rather than five.
- * - All HTTP is moved to [Dispatchers.IO] so callers can stay on the main
- *   dispatcher without blocking.
+ * This layer owns:
+ * - in-memory mutable credentials + refresh
+ * - authenticated HTTP
+ * - pagination helpers
+ * - JSON decoding into Spotify DTOs
+ *
+ * Mapping into provider-agnostic models stays in `SpotifyMappers.kt`.
  */
 class SpotifyApiClient(
     private val httpClient: OkHttpClient,
@@ -47,10 +43,210 @@ class SpotifyApiClient(
     fun currentCredentials(): ProfileCredentials.Spotify = credentials
 
     suspend fun getMe(): SpotifyMe = withContext(Dispatchers.IO) {
-        val url = apiBaseUrl.newBuilder()
-            .addPathSegment("v1")
-            .addPathSegment("me")
+        getDecoded(
+            url = apiUrl("v1", "me"),
+            deserializer = SpotifyMe.serializer(),
+        )
+    }
+
+    suspend fun getSavedTracks(limit: Int = DEFAULT_COLLECTION_LIMIT): List<SpotifySavedTrackObject> =
+        collectOffsetPages(
+            initialUrl = apiUrl("v1", "me", "tracks")
+                .newBuilder()
+                .addQueryParameter("limit", PAGE_LIMIT.toString())
+                .build(),
+            maxItems = limit,
+            deserializer = SpotifyPagingObject.serializer(SpotifySavedTrackObject.serializer()),
+            items = { page -> page.items },
+            next = { page -> page.next },
+        )
+
+    suspend fun getSavedAlbums(limit: Int = DEFAULT_COLLECTION_LIMIT): List<SpotifySavedAlbumObject> =
+        collectOffsetPages(
+            initialUrl = apiUrl("v1", "me", "albums")
+                .newBuilder()
+                .addQueryParameter("limit", PAGE_LIMIT.toString())
+                .build(),
+            maxItems = limit,
+            deserializer = SpotifyPagingObject.serializer(SpotifySavedAlbumObject.serializer()),
+            items = { page -> page.items },
+            next = { page -> page.next },
+        )
+
+    suspend fun getCurrentUserPlaylists(limit: Int = DEFAULT_COLLECTION_LIMIT): List<SpotifyPlaylistObject> =
+        collectOffsetPages(
+            initialUrl = apiUrl("v1", "me", "playlists")
+                .newBuilder()
+                .addQueryParameter("limit", PAGE_LIMIT.toString())
+                .build(),
+            maxItems = limit,
+            deserializer = SpotifyPagingObject.serializer(SpotifyPlaylistObject.serializer()),
+            items = { page -> page.items },
+            next = { page -> page.next },
+        )
+
+    suspend fun getFollowedArtists(limit: Int = DEFAULT_COLLECTION_LIMIT): List<SpotifyArtistObject> =
+        collectCursorPages(
+            initialUrl = apiUrl("v1", "me", "following")
+                .newBuilder()
+                .addQueryParameter("type", "artist")
+                .addQueryParameter("limit", PAGE_LIMIT.toString())
+                .build(),
+            maxItems = limit,
+            deserializer = SpotifyFollowedArtistsResponse.serializer(),
+            items = { response -> response.artists.items },
+            next = { response -> response.artists.next },
+        )
+
+    suspend fun getAlbum(id: String): SpotifyAlbumObject = withContext(Dispatchers.IO) {
+        getDecoded(
+            url = apiUrl("v1", "albums", id),
+            deserializer = SpotifyAlbumObject.serializer(),
+        )
+    }
+
+    suspend fun getAlbumTracks(
+        id: String,
+        limit: Int = DEFAULT_TRACKS_LIMIT,
+    ): List<SpotifyTrackObject> = collectOffsetPages(
+        initialUrl = apiUrl("v1", "albums", id, "tracks")
+            .newBuilder()
+            .addQueryParameter("limit", PAGE_LIMIT.toString())
+            .build(),
+        maxItems = limit,
+        deserializer = SpotifyPagingObject.serializer(SpotifyTrackObject.serializer()),
+        items = { page -> page.items },
+        next = { page -> page.next },
+    )
+
+    suspend fun getArtist(id: String): SpotifyArtistObject = withContext(Dispatchers.IO) {
+        getDecoded(
+            url = apiUrl("v1", "artists", id),
+            deserializer = SpotifyArtistObject.serializer(),
+        )
+    }
+
+    suspend fun getArtistAlbums(
+        id: String,
+        limit: Int = DEFAULT_COLLECTION_LIMIT,
+    ): List<SpotifySimplifiedAlbumObject> = collectOffsetPages(
+        initialUrl = apiUrl("v1", "artists", id, "albums")
+            .newBuilder()
+            .addQueryParameter("limit", PAGE_LIMIT.toString())
+            .addQueryParameter("include_groups", "album,single,compilation,appears_on")
+            .build(),
+        maxItems = limit,
+        deserializer = SpotifyPagingObject.serializer(SpotifySimplifiedAlbumObject.serializer()),
+        items = { page -> page.items },
+        next = { page -> page.next },
+    )
+
+    suspend fun getPlaylist(id: String): SpotifyPlaylistObject = withContext(Dispatchers.IO) {
+        getDecoded(
+            url = apiUrl("v1", "playlists", id),
+            deserializer = SpotifyPlaylistObject.serializer(),
+        )
+    }
+
+    suspend fun getPlaylistItems(
+        id: String,
+        limit: Int = DEFAULT_TRACKS_LIMIT,
+    ): List<SpotifyPlaylistItemObject> = collectOffsetPages(
+        initialUrl = apiUrl("v1", "playlists", id, "items")
+            .newBuilder()
+            .addQueryParameter("limit", PAGE_LIMIT.toString())
+            .addQueryParameter("additional_types", "track")
+            .build(),
+        maxItems = limit,
+        deserializer = SpotifyPagingObject.serializer(SpotifyPlaylistItemObject.serializer()),
+        items = { page -> page.items },
+        next = { page -> page.next },
+    )
+
+    suspend fun search(
+        query: String,
+        limitPerType: Int = DEFAULT_SEARCH_LIMIT,
+    ): SpotifySearchResponse = withContext(Dispatchers.IO) {
+        getDecoded(
+            url = apiUrl("v1", "search")
+                .newBuilder()
+                .addQueryParameter("q", query)
+                .addQueryParameter("type", "track,album,artist,playlist")
+                .addQueryParameter("limit", limitPerType.toString())
+                .build(),
+            deserializer = SpotifySearchResponse.serializer(),
+        )
+    }
+
+    suspend fun saveToLibrary(uri: String) {
+        mutateLibrary(method = "PUT", uri = uri)
+    }
+
+    suspend fun removeFromLibrary(uri: String) {
+        mutateLibrary(method = "DELETE", uri = uri)
+    }
+
+    private suspend fun mutateLibrary(method: String, uri: String) = withContext(Dispatchers.IO) {
+        val url = apiUrl("v1", "me", "library")
+            .newBuilder()
+            .addQueryParameter("uris", uri)
             .build()
+        executeWithAuthRetry { accessToken ->
+            Request.Builder()
+                .url(url)
+                .header("Authorization", "Bearer $accessToken")
+                .method(method, EMPTY_BODY)
+                .build()
+                .let(httpClient::newCall)
+                .execute()
+        }.use { response ->
+            if (!response.isSuccessful) {
+                throw SpotifyAuthException(
+                    code = response.code,
+                    message = "Spotify library mutation failed: ${response.code}",
+                )
+            }
+        }
+    }
+
+    private suspend fun <T> collectOffsetPages(
+        initialUrl: HttpUrl,
+        maxItems: Int,
+        deserializer: KSerializer<SpotifyPagingObject<T>>,
+        items: (SpotifyPagingObject<T>) -> List<T>,
+        next: (SpotifyPagingObject<T>) -> String?,
+    ): List<T> = withContext(Dispatchers.IO) {
+        val results = mutableListOf<T>()
+        var nextUrl: HttpUrl? = initialUrl
+        while (nextUrl != null && results.size < maxItems) {
+            val page = getDecoded(nextUrl, deserializer)
+            results += items(page)
+            nextUrl = next(page)?.toHttpUrlOrNull()
+        }
+        results.take(maxItems)
+    }
+
+    private suspend fun <T> collectCursorPages(
+        initialUrl: HttpUrl,
+        maxItems: Int,
+        deserializer: KSerializer<SpotifyFollowedArtistsResponse>,
+        items: (SpotifyFollowedArtistsResponse) -> List<T>,
+        next: (SpotifyFollowedArtistsResponse) -> String?,
+    ): List<T> = withContext(Dispatchers.IO) {
+        val results = mutableListOf<T>()
+        var nextUrl: HttpUrl? = initialUrl
+        while (nextUrl != null && results.size < maxItems) {
+            val page = getDecoded(nextUrl, deserializer)
+            results += items(page)
+            nextUrl = next(page)?.toHttpUrlOrNull()
+        }
+        results.take(maxItems)
+    }
+
+    private suspend fun <T> getDecoded(
+        url: HttpUrl,
+        deserializer: KSerializer<T>,
+    ): T {
         val response = executeWithAuthRetry { accessToken ->
             val req = Request.Builder()
                 .url(url)
@@ -63,18 +259,23 @@ class SpotifyApiClient(
             if (!it.isSuccessful) {
                 throw SpotifyAuthException(
                     code = it.code,
-                    message = "Spotify /me failed: ${it.code}",
+                    message = "Spotify request failed: ${it.code}",
                 )
             }
-            JSON.decodeFromString(SpotifyMe.serializer(), body)
+            return JSON.decodeFromString(deserializer, body)
         }
+    }
+
+    private fun apiUrl(vararg pathSegments: String): HttpUrl {
+        val builder = apiBaseUrl.newBuilder()
+        pathSegments.forEach(builder::addPathSegment)
+        return builder.build()
     }
 
     /**
      * Runs [block] with the current (possibly refreshed) access token. On a
      * 401 response, force-refreshes the credentials and retries once. The
-     * second response is returned verbatim whether it's another 401 or not —
-     * callers handle non-2xx shapes themselves.
+     * second response is returned verbatim whether it's another 401 or not.
      */
     private suspend fun executeWithAuthRetry(block: (accessToken: String) -> Response): Response {
         ensureFreshCredentials()
@@ -89,16 +290,6 @@ class SpotifyApiClient(
 
     private suspend fun forceRefresh() = coalescedRefresh(force = true)
 
-    /**
-     * Serialises refresh calls through [refreshMutex] and coalesces dog-piled
-     * callers by snapshotting the access token BEFORE waiting on the lock —
-     * if another coroutine refreshed while we queued, their new token is
-     * visible and this caller can skip.
-     *
-     * When [force] is false, also skip when the token is still comfortably
-     * fresh (proactive-refresh path). When [force] is true (401 retry path),
-     * we refresh unless someone else just did.
-     */
     private suspend fun coalescedRefresh(force: Boolean) {
         val before = credentials
         if (!force && before.expiresAtEpochMs - now() > REFRESH_BUFFER_MS) return
@@ -128,8 +319,12 @@ class SpotifyApiClient(
 
     companion object {
         private const val HTTP_UNAUTHORIZED = 401
-        /** Start proactively refreshing when less than this much lifetime remains. */
         private const val REFRESH_BUFFER_MS = 60_000L
+        private const val PAGE_LIMIT = 50
+        private const val DEFAULT_COLLECTION_LIMIT = 200
+        private const val DEFAULT_TRACKS_LIMIT = 300
+        private const val DEFAULT_SEARCH_LIMIT = 12
+        private val EMPTY_BODY = ByteArray(0).toRequestBody()
         private val JSON = Json {
             ignoreUnknownKeys = true
             isLenient = true

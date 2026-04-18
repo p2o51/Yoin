@@ -84,9 +84,10 @@ explicitly asks for them.
 ## Multi-Provider Architecture
 
 The data layer is built to support multiple music backends behind a single
-provider-agnostic interface. Phase 1 (landed) wires the abstraction and the
-Profile/Room plumbing; phase 2 will migrate the ViewModel/Composable layer to
-consume neutral models.
+provider-agnostic interface. The abstraction, Profile/Room plumbing, neutral
+domain models, Repository migration, playback handle split, and Settings
+profile switcher are all landed. The remaining provider work is Spotify
+content/playback, capability-gated UI, and shipping hardening.
 
 ### Core abstractions
 
@@ -101,9 +102,18 @@ consume neutral models.
   support (e.g. five-star rating for Spotify). `MusicPlayback.handleFor(track)`
   returns a `PlaybackHandle`: `DirectStream(uri)` for servers the player can
   stream directly (Subsonic), or `ExternalController(...)` for providers that
-  require delegation (Spotify App Remote, phase 2).
-- `data/source/subsonic/SubsonicMusicSource` — the only shipped implementation
-  today. New providers (Spotify, etc.) go next to it: `data/source/spotify/`.
+  require delegation (Spotify App Remote).
+- `data/source/subsonic/SubsonicMusicSource` — first provider. Ships.
+- `data/source/spotify/SpotifyMusicSource` — second provider. Owns OAuth via
+  `SpotifyOAuthActivity`, read-only Web API integration (search, playlists,
+  saved items, album/artist detail), and App Remote playback through
+  `player/SpotifyAppRemotePlayer`. The App Remote base infrastructure is
+  landed; remaining Spotify work is robustness, capability gating, re-auth,
+  and QA.
+- `data/model/LegacyViewCompat.kt` — temporary presentation-layer aliases
+  (`album.song`, `playlist.entry`, etc.) kept only to reduce churn while the
+  UI settles on canonical neutral names. New code should prefer the real
+  neutral fields directly.
 
 ### Profiles & credentials
 
@@ -154,15 +164,40 @@ When adding a new table that references remote ids, always include a
 4. Gate UI affordances on `source.capabilities.contains(Capability.X)` so
    providers that don't support the feature degrade gracefully.
 
-### Phase 2 (not yet done — tracked here to keep the intent visible)
+### Current landed state
 
-- Slim `YoinRepository` onto `ProfileManager.activeSource`; signatures switch
-  to `MediaId` + neutral models.
-- Migrate all ViewModels and Composables off `data.remote.*` DTOs onto
-  `data.model.*`.
-- Split `PlaybackManager.buildMediaItem` on `PlaybackHandle` so Spotify's
-  `ExternalController` path can land without touching the Media3 flow.
-- Add Profile list / switch / create UI to `SettingsScreen`.
+- `YoinRepository` is already slimmed onto `ProfileManager.activeSource`.
+- ViewModels and Composables consume `data.model.*` neutral models.
+- `PlaybackManager` branches on `PlaybackHandle` and routes
+  `ExternalController` to `SpotifyAppRemotePlayer`. The `PlaybackState`
+  carries a `connectionPhase` (`Idle` / `Connecting` / `Ready` / `Error`)
+  plus `pendingTrack` so Spotify doesn't fake "already playing" before the
+  first real `PlayerState` arrives from App Remote.
+- Spotify connect failures are typed (`SpotifyConnectFailure.NoClientId`,
+  `SpotifyAppMissing`, `PremiumRequired`, `AuthFailure`, `TransportFailure`)
+  and surface through `PlaybackManager.events` — `YoinNavHost` collects
+  them into an actionable snackbar at the shell level.
+- `SettingsScreen` exposes profile list / switch / create / edit / delete
+  UI, Spotify OAuth bootstrap, runtime Spotify Client ID config with a
+  deep-linkable `focusSection = "spotify"` entry point, and "No Client ID"
+  badge on unavailable profile cards.
+
+### Remaining phases
+
+- Phase A (**done**) — Spotify read-only content in `SpotifyMusicSource`.
+- Phase B (**done: base**) — App Remote plumbing (connection lifecycle,
+  typed failures, `ExternalController` dispatch, Launching / ConnectError
+  UI states, shell snackbar actions, Client ID onboarding).
+- Phase C — capability-gated UI: hide five-star rating / lyrics tab /
+  random-songs / favorite toggle etc. based on `source.capabilities`. Pass
+  the active `Set<Capability>` through `PlaybackState` (or a parallel
+  `ActiveProviderState` flow) — feature composables must not reach up to
+  `AppContainer`.
+- Phase D — encrypted `ProfileCredentialsCodec`, Spotify `invalid_grant`
+  re-auth UX (`ProfileState.NeedsReconnect` + `Reconnect(profileId)` mode
+  on `SpotifyOAuthActivity`), QA pass on real device, and removal of
+  legacy migration shims (`LegacyViewCompat.kt`, `server_config` write
+  path).
 
 ## Testing
 

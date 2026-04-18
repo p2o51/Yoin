@@ -15,6 +15,8 @@ sealed interface SettingsUiState {
         val geminiApiKey: String = "",
         val spotifyClientId: String = "",
         val spotifyClientIdUsesFallback: Boolean = false,
+        val spotifyReconnectProfileId: String? = null,
+        val spotifyReconnectProfileName: String? = null,
     ) : SettingsUiState
 }
 
@@ -25,6 +27,14 @@ data class ProfileCard(
     val subtitle: String?,
     val provider: ProviderKind,
     val isActive: Boolean,
+    /**
+     * When non-null, this profile is configured but can't currently be used
+     * (e.g. Spotify profile without a Client ID). UI renders it desaturated
+     * with the reason as a badge so the user understands why switching to
+     * it would fail. Tapping still routes to the relevant recovery flow.
+     */
+    val unavailableReason: String? = null,
+    val requiresReconnect: Boolean = false,
 )
 
 /** Bottom-sheet state for creating or editing a profile. */
@@ -65,7 +75,7 @@ sealed interface ConnectionResult {
 /** One-shot VM → Screen events. Delivered via `MutableSharedFlow(replay = 0)`. */
 sealed interface SettingsOneShotEvent {
     /** Ask the Screen to launch the Spotify OAuth `ActivityResultContract`. */
-    data object LaunchSpotifyOAuth : SettingsOneShotEvent
+    data class LaunchSpotifyOAuth(val targetProfileId: String? = null) : SettingsOneShotEvent
 
     /** Show a transient error snackbar; used when there's no form sheet to put the error in. */
     data class ShowError(val message: String) : SettingsOneShotEvent

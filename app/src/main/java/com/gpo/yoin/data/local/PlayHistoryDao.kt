@@ -7,8 +7,12 @@ import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface PlayHistoryDao {
-    @Query("SELECT * FROM play_history ORDER BY playedAt DESC LIMIT :limit")
-    fun getRecentHistory(limit: Int): Flow<List<PlayHistory>>
+    @Query(
+        "SELECT * FROM play_history " +
+            "WHERE provider = :provider " +
+            "ORDER BY playedAt DESC LIMIT :limit",
+    )
+    fun getRecentHistory(provider: String, limit: Int): Flow<List<PlayHistory>>
 
     @Query(
         "SELECT * FROM play_history WHERE songId = :songId AND provider = :provider " +

@@ -15,3 +15,5 @@ local.properties
 *.jks
 *.keystore
 .kotlin/
+.gradle-local/
+/projects/

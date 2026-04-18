@@ -4,7 +4,13 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.gpo.yoin.AppContainer
-import com.gpo.yoin.data.remote.Song
+import com.gpo.yoin.data.model.CoverRef
+import com.gpo.yoin.data.model.MediaId
+import com.gpo.yoin.data.model.Track
+import com.gpo.yoin.data.model.duration
+import com.gpo.yoin.data.model.song
+import com.gpo.yoin.data.model.starred
+import com.gpo.yoin.data.model.track
 import com.gpo.yoin.data.repository.YoinRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -19,13 +25,13 @@ class AlbumDetailViewModel(
     private val _uiState = MutableStateFlow<AlbumDetailUiState>(AlbumDetailUiState.Loading)
     val uiState: StateFlow<AlbumDetailUiState> = _uiState.asStateFlow()
 
-    private var albumSongs: List<Song> = emptyList()
+    private var albumSongs: List<Track> = emptyList()
 
     init {
         loadAlbum()
     }
 
-    fun getAlbumSongs(): List<Song> = albumSongs
+    fun getAlbumSongs(): List<Track> = albumSongs
 
     fun retry() {
         _uiState.value = AlbumDetailUiState.Loading
@@ -35,7 +41,8 @@ class AlbumDetailViewModel(
     private fun loadAlbum() {
         viewModelScope.launch {
             try {
-                val album = repository.getAlbum(albumId)
+                val parsedAlbumId = MediaId.parse(albumId)
+                val album = repository.getAlbum(parsedAlbumId)
                 if (album == null) {
                     _uiState.value = AlbumDetailUiState.Error("Album not found")
                     return@launch
@@ -43,18 +50,18 @@ class AlbumDetailViewModel(
                 albumSongs = album.song
                 repository.recordAlbumVisit(album)
                 _uiState.value = AlbumDetailUiState.Content(
-                    albumId = album.id,
+                    albumId = album.id.toString(),
                     albumName = album.name,
                     artistName = album.artist.orEmpty(),
-                    artistId = album.artistId,
-                    coverArtId = album.coverArt,
-                    coverArtUrl = album.coverArt?.let { repository.buildCoverArtUrl(it) },
+                    artistId = album.artistId?.toString(),
+                    coverArtId = (album.coverArt as? CoverRef.SourceRelative)?.coverArtId,
+                    coverArtUrl = album.coverArt?.let { repository.resolveCoverUrl(it) },
                     year = album.year,
                     songCount = album.songCount,
                     totalDuration = album.duration,
                     songs = album.song.map { song ->
                         AlbumSong(
-                            id = song.id,
+                            id = song.id.toString(),
                             title = song.title.orEmpty(),
                             artist = song.artist.orEmpty(),
                             trackNumber = song.track,
@@ -76,11 +83,7 @@ class AlbumDetailViewModel(
         val song = current.songs.find { it.id == songId } ?: return
         viewModelScope.launch {
             try {
-                if (song.isStarred) {
-                    repository.unstar(id = songId)
-                } else {
-                    repository.star(id = songId)
-                }
+                repository.setFavorite(MediaId.parse(songId), favorite = !song.isStarred)
                 _uiState.value = current.copy(
                     songs = current.songs.map {
                         if (it.id == songId) it.copy(isStarred = !it.isStarred) else it

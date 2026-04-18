@@ -10,6 +10,7 @@ import com.gpo.yoin.BuildConfig
  * seed only, read from `spotifyClientId` in `local.properties`.
  */
 object SpotifyAuthConfig {
+    const val APP_REMOTE_CONTROL_SCOPE: String = "app-remote-control"
     const val AUTH_HOST: String = "accounts.spotify.com"
     const val API_HOST: String = "api.spotify.com"
 
@@ -18,12 +19,32 @@ object SpotifyAuthConfig {
     const val REDIRECT_SCHEME: String = "yoin"
     const val REDIRECT_HOST: String = "auth"
     const val REDIRECT_PATH_PREFIX: String = "/spotify/callback"
+    const val APP_REMOTE_REDIRECT_URI: String = "yoin://auth/spotify/app-remote"
+    const val APP_REMOTE_REDIRECT_PATH_PREFIX: String = "/spotify/app-remote"
 
     /**
-     * B2 scope set: only what `/me` needs. Phase 2 adds incremental scopes as
-     * features land — Spotify's consent dialog handles the delta cleanly.
+     * Current scope set. Includes App Remote grants (`app-remote-control`
+     * and `streaming`) so the Android App Remote SDK can actually control
+     * the Spotify app — without these, `SpotifyAppRemote.connect(...)`
+     * throws `UserNotAuthorizedException`, which our code surfaces (since
+     * the "premium-required" mapping fix) as the generic auth-failure
+     * banner.
+     *
+     * Existing Spotify profiles that were authorised before this scope
+     * bump still carry a token minted against the old scope list. They
+     * must be re-authorized so Yoin can request App Remote control.
      */
-    val SCOPES: List<String> = listOf("user-read-private")
+    val SCOPES: List<String> = listOf(
+        "user-read-private",
+        "user-library-read",
+        "user-library-modify",
+        "playlist-read-private",
+        "playlist-read-collaborative",
+        "user-follow-read",
+        // App Remote control + audio streaming — required for in-app Spotify playback.
+        APP_REMOTE_CONTROL_SCOPE,
+        "streaming",
+    )
 
     /**
      * Dev-time fallback injected via Gradle `buildConfigField`. Empty when

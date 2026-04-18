@@ -4,6 +4,35 @@ sealed interface NowPlayingUiState {
 
     data object Idle : NowPlayingUiState
 
+    /**
+     * User tapped a track on a provider whose playback backend is still
+     * coming up (e.g. Spotify App Remote negotiating the connection).
+     * Display the target track's title/cover as "about to play" but do NOT
+     * render controls as active, do NOT advance progress. A successful
+     * first PlayerState transitions to [Playing]; a failure transitions to
+     * [ConnectError].
+     */
+    data class Launching(
+        val songTitle: String,
+        val artist: String,
+        val albumName: String,
+        val coverArtUrl: String?,
+        val durationMs: Long,
+        val hint: String,
+    ) : NowPlayingUiState
+
+    /**
+     * Backend refused / lost the connection while trying to play the
+     * target track. Surface a dedicated error state so UI can render a
+     * clear message instead of faking a playing-but-stuck screen.
+     */
+    data class ConnectError(
+        val songTitle: String,
+        val artist: String,
+        val coverArtUrl: String?,
+        val message: String,
+    ) : NowPlayingUiState
+
     data class Playing(
         val songTitle: String,
         val artist: String,

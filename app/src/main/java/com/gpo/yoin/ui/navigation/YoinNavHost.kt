@@ -18,7 +18,13 @@ import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Snackbar
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -43,6 +49,8 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.toRoute
 import com.gpo.yoin.YoinApplication
+import com.gpo.yoin.data.model.CoverRef
+import com.gpo.yoin.data.model.Track
 import com.gpo.yoin.data.repository.ActivityContext
 import com.gpo.yoin.ui.component.YoinButtonGroup
 import com.gpo.yoin.ui.detail.AlbumDetailScreen
@@ -67,6 +75,8 @@ import com.gpo.yoin.ui.navigation.back.BackSurfaceKind
 import com.gpo.yoin.ui.navigation.back.ShellBackOwner
 import com.gpo.yoin.ui.navigation.back.YoinBackSurface
 import com.gpo.yoin.ui.navigation.back.resolveShellBackOwner
+import com.gpo.yoin.player.PlaybackEvent
+import com.gpo.yoin.player.SpotifyConnectFailure
 import com.gpo.yoin.ui.nowplaying.NowPlayingScreen
 import com.gpo.yoin.ui.nowplaying.NowPlayingViewModel
 import com.gpo.yoin.ui.settings.SettingsScreen
@@ -118,7 +128,9 @@ fun YoinNavHost(
                     libraryViewModel = libraryViewModel,
                     memoriesViewModel = memoriesViewModel,
                     nowPlayingViewModel = nowPlayingViewModel,
-                    onNavigateToSettings = { navController.navigate(YoinRoute.Settings) },
+                    onNavigateToSettings = { focusSection ->
+                        navController.navigate(YoinRoute.Settings(focusSection = focusSection))
+                    },
                     onNavigateToAlbum = { albumId, sharedTransitionKey ->
                         navController.navigate(
                             YoinRoute.AlbumDetail(
@@ -171,7 +183,8 @@ fun YoinNavHost(
                         onBackClick = requestBack,
                         onSongClick = { songId ->
                             val songs = viewModel.getAlbumSongs()
-                            val index = songs.indexOfFirst { it.id == songId }.coerceAtLeast(0)
+                            val index = songs.indexOfFirst { it.id.toString() == songId }
+                                .coerceAtLeast(0)
                             val activityContext = (uiState as? AlbumDetailUiState.Content)?.let { content ->
                                 ActivityContext.Album(
                                     albumId = content.albumId,
@@ -181,12 +194,14 @@ fun YoinNavHost(
                                     coverArtId = content.coverArtId,
                                 )
                             } ?: ActivityContext.None
-                            app.container.playbackManager.play(
-                                songs = songs,
-                                startIndex = index,
-                                credentials = app.container.getCredentials(),
-                                activityContext = activityContext,
-                            )
+                            app.container.profileManager.activeSource.value?.let { source ->
+                                app.container.playbackManager.play(
+                                    tracks = songs,
+                                    startIndex = index,
+                                    source = source,
+                                    activityContext = activityContext,
+                                )
+                            }
                         },
                         onToggleStar = viewModel::toggleStar,
                         onRetry = viewModel::retry,
@@ -257,38 +272,39 @@ fun YoinNavHost(
                                         playlistId = route.playlistId,
                                         playlistName = content.playlistName,
                                         owner = content.owner.takeIf { it.isNotBlank() },
-                                        coverArtId = songs.firstNotNullOfOrNull { song ->
-                                            song.coverArt ?: song.albumId
-                                        },
+                                        coverArtId = songs.firstNotNullOfOrNull(::trackCoverArtId),
                                     )
                                 } ?: ActivityContext.None
-                                app.container.playbackManager.play(
-                                    songs = songs,
-                                    startIndex = 0,
-                                    credentials = app.container.getCredentials(),
-                                    activityContext = activityContext,
-                                )
+                                app.container.profileManager.activeSource.value?.let { source ->
+                                    app.container.playbackManager.play(
+                                        tracks = songs,
+                                        startIndex = 0,
+                                        source = source,
+                                        activityContext = activityContext,
+                                    )
+                                }
                             }
                         },
                         onSongClick = { songId ->
                             val songs = viewModel.getPlaylistSongs()
-                            val index = songs.indexOfFirst { it.id == songId }.coerceAtLeast(0)
+                            val index = songs.indexOfFirst { it.id.toString() == songId }
+                                .coerceAtLeast(0)
                             val activityContext = (uiState as? PlaylistDetailUiState.Content)?.let { content ->
                                 ActivityContext.Playlist(
                                     playlistId = route.playlistId,
                                     playlistName = content.playlistName,
                                     owner = content.owner.takeIf { it.isNotBlank() },
-                                    coverArtId = songs.firstNotNullOfOrNull { song ->
-                                        song.coverArt ?: song.albumId
-                                    },
+                                    coverArtId = songs.firstNotNullOfOrNull(::trackCoverArtId),
                                 )
                             } ?: ActivityContext.None
-                            app.container.playbackManager.play(
-                                songs = songs,
-                                startIndex = index,
-                                credentials = app.container.getCredentials(),
-                                activityContext = activityContext,
-                            )
+                            app.container.profileManager.activeSource.value?.let { source ->
+                                app.container.playbackManager.play(
+                                    tracks = songs,
+                                    startIndex = index,
+                                    source = source,
+                                    activityContext = activityContext,
+                                )
+                            }
                         },
                         onRetry = viewModel::retry,
                         sharedTransitionKey = route.sharedTransitionKey,
@@ -304,7 +320,8 @@ fun YoinNavHost(
                 exitTransition = { YoinMotion.simplePushExit },
                 popEnterTransition = { YoinMotion.simplePushPopEnter },
                 popExitTransition = { YoinMotion.simplePushPopExit },
-            ) {
+            ) { backStackEntry ->
+                val route: YoinRoute.Settings = backStackEntry.toRoute()
                 val app = LocalContext.current.applicationContext as YoinApplication
                 val viewModel: SettingsViewModel = viewModel(
                     factory = SettingsViewModel.Factory(app.container),
@@ -316,6 +333,7 @@ fun YoinNavHost(
                     SettingsScreen(
                         viewModel = viewModel,
                         onBackClick = requestBack,
+                        focusSection = route.focusSection,
                         modifier = predictiveBackModifier.fillMaxSize(),
                     )
                 }
@@ -332,7 +350,7 @@ private fun YoinShell(
     libraryViewModel: LibraryViewModel,
     memoriesViewModel: MemoriesViewModel,
     nowPlayingViewModel: NowPlayingViewModel,
-    onNavigateToSettings: () -> Unit,
+    onNavigateToSettings: (focusSection: String?) -> Unit,
     onNavigateToAlbum: (String, String?) -> Unit,
     onNavigateToArtist: (String, String?) -> Unit,
     onNavigateToPlaylist: (String, String?) -> Unit,
@@ -369,8 +387,8 @@ private fun YoinShell(
         label = "overlayOffsetPx",
     )
 
-    val coverArtUrl = playbackState.currentSong?.coverArt?.let {
-        app.container.repository.buildCoverArtUrl(it)
+    val coverArtUrl = playbackState.currentTrack?.coverArt?.let { coverArt ->
+        app.container.repository.resolveCoverUrl(coverArt)
     }
 
     LaunchedEffect(Unit) {
@@ -382,6 +400,26 @@ private fun YoinShell(
         homeViewModel.refresh()
         libraryViewModel.refresh()
         memoriesViewModel.refresh()
+    }
+
+    val snackbarHostState = remember { SnackbarHostState() }
+    LaunchedEffect(Unit) {
+        app.container.playbackManager.events.collect { event ->
+            when (event) {
+                is PlaybackEvent.SpotifyConnectError -> {
+                    val actionLabel = actionLabelForFailure(event.failure)
+                    val result = snackbarHostState.showSnackbar(
+                        message = event.message,
+                        actionLabel = actionLabel,
+                        withDismissAction = actionLabel == null,
+                        duration = SnackbarDuration.Long,
+                    )
+                    if (result == SnackbarResult.ActionPerformed && event.failure is SpotifyConnectFailure.NoClientId) {
+                        onNavigateToSettings("spotify")
+                    }
+                }
+            }
+        }
     }
 
     val shellBackOwner = resolveShellBackOwner(
@@ -460,8 +498,8 @@ private fun YoinShell(
                             viewModel = homeViewModel,
                             isPlaying = playbackState.isPlaying,
                             playbackSignal = if (playbackState.isPlaying) playbackSignal else 0f,
-                            activeSongId = playbackState.currentSong?.id,
-                            onNavigateToSettings = onNavigateToSettings,
+                            activeSongId = playbackState.currentTrack?.id?.toString(),
+                            onNavigateToSettings = { onNavigateToSettings(null) },
                             onNavigateToMemories = {
                                 experienceSessionStore.setHomeSurface(HomeSurface.Memories)
                             },
@@ -473,10 +511,12 @@ private fun YoinShell(
                             onArtistClick = { artistId -> onNavigateToArtist(artistId, null) },
                             onPlaylistClick = { playlistId -> onNavigateToPlaylist(playlistId, null) },
                             onSongClick = { song ->
-                                app.container.playbackManager.playSingle(
-                                    song,
-                                    app.container.getCredentials(),
-                                )
+                                app.container.profileManager.activeSource.value?.let { source ->
+                                    app.container.playbackManager.playSingle(
+                                        track = song,
+                                        source = source,
+                                    )
+                                }
                             },
                             sharedTransitionScope = sharedTransitionScope,
                             animatedVisibilityScope = shellAnimatedVisibilityScope,
@@ -506,18 +546,22 @@ private fun YoinShell(
                                             val activityContext = memory.toPlaybackActivityContext()
 
                                             if (memory.entityType == MemoryEntityType.SONG || queue.size <= 1) {
-                                                app.container.playbackManager.playSingle(
-                                                    song = selectedSong,
-                                                    credentials = app.container.getCredentials(),
-                                                    activityContext = activityContext,
-                                                )
+                                                app.container.profileManager.activeSource.value?.let { source ->
+                                                    app.container.playbackManager.playSingle(
+                                                        track = selectedSong,
+                                                        source = source,
+                                                        activityContext = activityContext,
+                                                    )
+                                                }
                                             } else {
-                                                app.container.playbackManager.play(
-                                                    songs = queue,
-                                                    startIndex = startIndex,
-                                                    credentials = app.container.getCredentials(),
-                                                    activityContext = activityContext,
-                                                )
+                                                app.container.profileManager.activeSource.value?.let { source ->
+                                                    app.container.playbackManager.play(
+                                                        tracks = queue,
+                                                        startIndex = startIndex,
+                                                        source = source,
+                                                        activityContext = activityContext,
+                                                    )
+                                                }
                                             }
                                         }
                                     },
@@ -530,18 +574,20 @@ private fun YoinShell(
 
                 YoinSection.LIBRARY -> LibraryScreen(
                     viewModel = libraryViewModel,
-                    activeSongId = playbackState.currentSong?.id,
+                    activeSongId = playbackState.currentTrack?.id?.toString(),
                     isPlaying = playbackState.isPlaying,
                     playbackSignal = if (playbackState.isPlaying) playbackSignal else 0f,
-                    onNavigateToSettings = onNavigateToSettings,
+                    onNavigateToSettings = { onNavigateToSettings(null) },
                     onArtistClick = { artistId -> onNavigateToArtist(artistId, null) },
                     onAlbumClick = { albumId -> onNavigateToAlbum(albumId, null) },
                     onPlaylistClick = { playlistId -> onNavigateToPlaylist(playlistId, null) },
                     onSongClick = { song ->
-                        app.container.playbackManager.playSingle(
-                            song,
-                            app.container.getCredentials(),
-                        )
+                        app.container.profileManager.activeSource.value?.let { source ->
+                            app.container.playbackManager.playSingle(
+                                track = song,
+                                source = source,
+                            )
+                        }
                     },
                     modifier = Modifier.fillMaxSize(),
                 )
@@ -659,8 +705,8 @@ private fun YoinShell(
             ) {
                 YoinButtonGroup(
                     selectedSection = selectedSection,
-                    currentTrackTitle = playbackState.currentSong?.title,
-                    currentTrackArtist = playbackState.currentSong?.artist,
+                    currentTrackTitle = playbackState.currentTrack?.title,
+                    currentTrackArtist = playbackState.currentTrack?.artist,
                     currentTrackCoverArtUrl = coverArtUrl,
                     isPlaybackReady = playbackState.controllerReady,
                     connectionErrorMessage = playbackState.connectionErrorMessage,
@@ -688,21 +734,44 @@ private fun YoinShell(
                 )
             }
         }
+
+        // ── Shell-level snackbar host ────────────────────────────────────
+        // Anchored bottom, overlaid above Now Playing / bottom nav. Spotify
+        // connect failures surface here with actionable labels.
+        SnackbarHost(
+            hostState = snackbarHostState,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = 96.dp, start = 12.dp, end = 12.dp),
+        ) { data ->
+            Snackbar(snackbarData = data)
+        }
     }
+}
+
+/**
+ * Action label shown on the shell snackbar for a given Spotify connect
+ * failure. Returns null when the failure has no user-actionable recovery
+ * yet (UX will just show a dismiss affordance instead).
+ */
+private fun actionLabelForFailure(failure: SpotifyConnectFailure): String? = when (failure) {
+    SpotifyConnectFailure.NoClientId -> "Open Settings"
+    SpotifyConnectFailure.SpotifyAppMissing -> null // phase 3 wires Play Store intent
+    SpotifyConnectFailure.PremiumRequired -> null
+    is SpotifyConnectFailure.AuthFailure -> null // phase 3 wires Reconnect
+    is SpotifyConnectFailure.TransportFailure -> null
 }
 
 private fun MemoryEntry.toPlaybackActivityContext(): ActivityContext {
     val firstSong = playbackSongs.firstOrNull()
-    val coverArtId = playbackSongs.firstNotNullOfOrNull { song ->
-        song.coverArt ?: song.albumId
-    }
+    val coverArtId = playbackSongs.firstNotNullOfOrNull(::trackCoverArtId)
 
     return when (entityType) {
         MemoryEntityType.ALBUM -> ActivityContext.Album(
             albumId = entityId,
             albumName = title,
             artistName = firstSong?.artist,
-            artistId = firstSong?.artistId,
+            artistId = firstSong?.artistId?.rawId,
             coverArtId = coverArtId ?: entityId,
         )
 
@@ -715,6 +784,9 @@ private fun MemoryEntry.toPlaybackActivityContext(): ActivityContext {
         MemoryEntityType.SONG -> ActivityContext.None
     }
 }
+
+private fun trackCoverArtId(track: Track): String? =
+    (track.coverArt as? CoverRef.SourceRelative)?.coverArtId ?: track.albumId?.rawId
 
 @Preview(showBackground = true, backgroundColor = 0xFF1C1B1F)
 @Composable

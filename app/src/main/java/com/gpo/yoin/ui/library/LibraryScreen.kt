@@ -49,12 +49,18 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
-import com.gpo.yoin.data.remote.Album
-import com.gpo.yoin.data.remote.Artist
-import com.gpo.yoin.data.remote.Playlist
-import com.gpo.yoin.data.remote.SearchResult
-import com.gpo.yoin.data.remote.Song
-import com.gpo.yoin.data.remote.StarredResponse
+import com.gpo.yoin.data.model.Album
+import com.gpo.yoin.data.model.Artist
+import com.gpo.yoin.data.model.CoverRef
+import com.gpo.yoin.data.model.MediaId
+import com.gpo.yoin.data.model.Playlist
+import com.gpo.yoin.data.model.SearchResults
+import com.gpo.yoin.data.model.Starred
+import com.gpo.yoin.data.model.Track
+import com.gpo.yoin.data.model.album
+import com.gpo.yoin.data.model.artist
+import com.gpo.yoin.data.model.entry
+import com.gpo.yoin.data.model.song
 // VisualizerData intentionally removed: LibraryScreen consumes a
 // pre-smoothed playbackSignal from AudioVisualizerManager instead.
 import com.gpo.yoin.ui.component.ExpressiveBackdropArtwork
@@ -108,7 +114,7 @@ fun LibraryScreen(
     onArtistClick: (String) -> Unit,
     onAlbumClick: (String) -> Unit,
     onPlaylistClick: (String) -> Unit,
-    onSongClick: (Song) -> Unit,
+    onSongClick: (Track) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -145,7 +151,7 @@ fun LibraryContent(
     onArtistClick: (String) -> Unit,
     onAlbumClick: (String) -> Unit,
     onPlaylistClick: (String) -> Unit,
-    onSongClick: (Song) -> Unit,
+    onSongClick: (Track) -> Unit,
     onRetry: () -> Unit,
     coverArtUrlBuilder: ((String) -> String)?,
     modifier: Modifier = Modifier,
@@ -225,7 +231,7 @@ private fun LibraryContentBody(
     onArtistClick: (String) -> Unit,
     onAlbumClick: (String) -> Unit,
     onPlaylistClick: (String) -> Unit,
-    onSongClick: (Song) -> Unit,
+    onSongClick: (Track) -> Unit,
     coverArtUrlBuilder: ((String) -> String)?,
 ) {
     Column(
@@ -457,7 +463,7 @@ private fun ArtistsTabContent(
             bottom = floatingBottomGroupContentPadding(),
         ),
     ) {
-        itemsIndexed(artists, key = { _, artist -> artist.id }) { index, artist ->
+        itemsIndexed(artists, key = { _, artist -> artist.id.toString() }) { index, artist ->
             val entranceProgress = rememberLibraryItemEntrance(
                 key = artist.id,
                 index = index,
@@ -465,7 +471,7 @@ private fun ArtistsTabContent(
             )
             ArtistListItem(
                 artist = artist,
-                onClick = { onArtistClick(artist.id) },
+                onClick = { onArtistClick(artist.id.toString()) },
                 modifier = Modifier.expressiveEntrance(entranceProgress),
             )
         }
@@ -549,7 +555,7 @@ private fun AlbumsTabContent(
         horizontalArrangement = Arrangement.spacedBy(10.dp),
         verticalArrangement = Arrangement.spacedBy(18.dp),
     ) {
-        itemsIndexed(albums, key = { _, album -> album.id }) { index, album ->
+        itemsIndexed(albums, key = { _, album -> album.id.toString() }) { index, album ->
             val entranceProgress = rememberLibraryItemEntrance(
                 key = album.id,
                 index = index,
@@ -557,10 +563,11 @@ private fun AlbumsTabContent(
             )
             AlbumGridItem(
                 album = album,
-                onClick = { onAlbumClick(album.id) },
+                onClick = { onAlbumClick(album.id.toString()) },
                 coverArtUrl =
-                    album.coverArt?.let { coverArtUrlBuilder?.invoke(it) }
-                        ?: coverArtUrlBuilder?.invoke(album.id),
+                    libraryCoverArtUrl(album.coverArt, coverArtUrlBuilder)
+                        ?: album.id.takeIf { it.provider == MediaId.PROVIDER_SUBSONIC }
+                            ?.rawId?.let { coverArtUrlBuilder?.invoke(it) },
                 modifier = Modifier.expressiveEntrance(
                     progress = entranceProgress,
                     initialOffsetY = 22.dp,
@@ -591,11 +598,11 @@ private fun AlbumGridItem(
 
 @Composable
 private fun SongsTabContent(
-    songs: List<Song>,
+    songs: List<Track>,
     activeSongId: String? = null,
     isPlaying: Boolean = false,
     playbackSignal: Float = 0f,
-    onSongClick: (Song) -> Unit,
+    onSongClick: (Track) -> Unit,
     coverArtUrlBuilder: ((String) -> String)?,
     modifier: Modifier = Modifier,
 ) {
@@ -612,7 +619,7 @@ private fun SongsTabContent(
             bottom = floatingBottomGroupContentPadding(),
         ),
     ) {
-        itemsIndexed(songs, key = { _, song -> song.id }) { index, song ->
+        itemsIndexed(songs, key = { _, song -> song.id.toString() }) { index, song ->
             val entranceProgress = rememberLibraryItemEntrance(
                 key = song.id,
                 index = index,
@@ -622,10 +629,10 @@ private fun SongsTabContent(
                 title = song.title.orEmpty(),
                 artist = song.artist.orEmpty(),
                 album = song.album.orEmpty(),
-                durationSeconds = song.duration,
-                coverArtUrl = song.coverArt?.let { coverArtUrlBuilder?.invoke(it) },
+                durationSeconds = song.durationSec,
+                coverArtUrl = libraryCoverArtUrl(song.coverArt, coverArtUrlBuilder),
                 onClick = { onSongClick(song) },
-                isNowPlaying = isPlaying && song.id == activeSongId,
+                isNowPlaying = isPlaying && song.id.toString() == activeSongId,
                 playbackSignal = playbackSignal,
                 extractBackdropColors = false,
                 modifier = Modifier.expressiveEntrance(entranceProgress),
@@ -654,7 +661,7 @@ private fun PlaylistsTabContent(
             bottom = floatingBottomGroupContentPadding(),
         ),
     ) {
-        itemsIndexed(playlists, key = { _, playlist -> playlist.id }) { index, playlist ->
+        itemsIndexed(playlists, key = { _, playlist -> playlist.id.toString() }) { index, playlist ->
             val entranceProgress = rememberLibraryItemEntrance(
                 key = playlist.id,
                 index = index,
@@ -662,7 +669,7 @@ private fun PlaylistsTabContent(
             )
             PlaylistListItem(
                 playlist = playlist,
-                onClick = { onPlaylistClick(playlist.id) },
+                onClick = { onPlaylistClick(playlist.id.toString()) },
                 coverArtUrl = playlistBackdropArtUrl(playlist, coverArtUrlBuilder),
                 modifier = Modifier.expressiveEntrance(entranceProgress),
             )
@@ -729,13 +736,13 @@ private fun PlaylistListItem(
 
 @Composable
 private fun FavoritesTabContent(
-    favorites: StarredResponse?,
+    favorites: Starred?,
     activeSongId: String? = null,
     isPlaying: Boolean = false,
     playbackSignal: Float = 0f,
     onArtistClick: (String) -> Unit,
     onAlbumClick: (String) -> Unit,
-    onSongClick: (Song) -> Unit,
+    onSongClick: (Track) -> Unit,
     coverArtUrlBuilder: ((String) -> String)?,
     modifier: Modifier = Modifier,
 ) {
@@ -776,7 +783,7 @@ private fun FavoritesTabContent(
                 )
                 ArtistListItem(
                     artist = artist,
-                    onClick = { onArtistClick(artist.id) },
+                    onClick = { onArtistClick(artist.id.toString()) },
                     modifier = Modifier.expressiveEntrance(entranceProgress),
                 )
             }
@@ -796,10 +803,11 @@ private fun FavoritesTabContent(
                 )
                 AlbumListItem(
                     album = album,
-                    onClick = { onAlbumClick(album.id) },
+                    onClick = { onAlbumClick(album.id.toString()) },
                     coverArtUrl =
-                        album.coverArt?.let { coverArtUrlBuilder?.invoke(it) }
-                            ?: coverArtUrlBuilder?.invoke(album.id),
+                        libraryCoverArtUrl(album.coverArt, coverArtUrlBuilder)
+                            ?: album.id.takeIf { it.provider == MediaId.PROVIDER_SUBSONIC }
+                                ?.rawId?.let { coverArtUrlBuilder?.invoke(it) },
                     modifier = Modifier.expressiveEntrance(entranceProgress),
                 )
             }
@@ -821,10 +829,10 @@ private fun FavoritesTabContent(
                     title = song.title.orEmpty(),
                     artist = song.artist.orEmpty(),
                     album = song.album.orEmpty(),
-                    durationSeconds = song.duration,
-                    coverArtUrl = song.coverArt?.let { coverArtUrlBuilder?.invoke(it) },
+                    durationSeconds = song.durationSec,
+                    coverArtUrl = libraryCoverArtUrl(song.coverArt, coverArtUrlBuilder),
                     onClick = { onSongClick(song) },
-                    isNowPlaying = isPlaying && song.id == activeSongId,
+                    isNowPlaying = isPlaying && song.id.toString() == activeSongId,
                     playbackSignal = playbackSignal,
                     extractBackdropColors = false,
                     modifier = Modifier.expressiveEntrance(entranceProgress),
@@ -895,8 +903,7 @@ private fun buildPlaylistMeta(playlist: Playlist): String {
     val parts = mutableListOf<String>()
     playlist.owner?.takeIf { it.isNotBlank() }?.let(parts::add)
     playlist.songCount?.let { parts.add("$it tracks") }
-    playlist.duration?.takeIf { it > 0 }?.let { parts.add(formatPlaylistDuration(it)) }
-    playlist.isPublic?.let { parts.add(if (it) "Public" else "Private") }
+    playlist.durationSec?.takeIf { it > 0 }?.let { parts.add(formatPlaylistDuration(it)) }
     return parts.joinToString(" · ").ifBlank { "Playlist" }
 }
 
@@ -911,14 +918,14 @@ private fun formatPlaylistDuration(seconds: Int): String {
 
 @Composable
 private fun SearchResultsContent(
-    searchResults: SearchResult?,
+    searchResults: SearchResults?,
     isSearching: Boolean,
     activeSongId: String? = null,
     isPlaying: Boolean = false,
     playbackSignal: Float = 0f,
     onArtistClick: (String) -> Unit,
     onAlbumClick: (String) -> Unit,
-    onSongClick: (Song) -> Unit,
+    onSongClick: (Track) -> Unit,
     coverArtUrlBuilder: ((String) -> String)?,
     modifier: Modifier = Modifier,
 ) {
@@ -968,7 +975,7 @@ private fun SearchResultsContent(
                 )
                 ArtistListItem(
                     artist = artist,
-                    onClick = { onArtistClick(artist.id) },
+                    onClick = { onArtistClick(artist.id.toString()) },
                     modifier = Modifier.expressiveEntrance(entranceProgress),
                 )
             }
@@ -989,10 +996,11 @@ private fun SearchResultsContent(
                 )
                 AlbumListItem(
                     album = album,
-                    onClick = { onAlbumClick(album.id) },
+                    onClick = { onAlbumClick(album.id.toString()) },
                     coverArtUrl =
-                        album.coverArt?.let { coverArtUrlBuilder?.invoke(it) }
-                            ?: coverArtUrlBuilder?.invoke(album.id),
+                        libraryCoverArtUrl(album.coverArt, coverArtUrlBuilder)
+                            ?: album.id.takeIf { it.provider == MediaId.PROVIDER_SUBSONIC }
+                                ?.rawId?.let { coverArtUrlBuilder?.invoke(it) },
                     modifier = Modifier.expressiveEntrance(entranceProgress),
                 )
             }
@@ -1015,10 +1023,10 @@ private fun SearchResultsContent(
                     title = song.title.orEmpty(),
                     artist = song.artist.orEmpty(),
                     album = song.album.orEmpty(),
-                    durationSeconds = song.duration,
-                    coverArtUrl = song.coverArt?.let { coverArtUrlBuilder?.invoke(it) },
+                    durationSeconds = song.durationSec,
+                    coverArtUrl = libraryCoverArtUrl(song.coverArt, coverArtUrlBuilder),
                     onClick = { onSongClick(song) },
-                    isNowPlaying = isPlaying && song.id == activeSongId,
+                    isNowPlaying = isPlaying && song.id.toString() == activeSongId,
                     playbackSignal = playbackSignal,
                     extractBackdropColors = false,
                     modifier = Modifier.expressiveEntrance(entranceProgress),
@@ -1032,12 +1040,72 @@ private fun playlistBackdropArtUrl(
     playlist: Playlist,
     coverArtUrlBuilder: ((String) -> String)?,
 ): String? {
+    playlist.coverArt?.let { coverArt ->
+        libraryCoverArtUrl(coverArt, coverArtUrlBuilder)?.let { return it }
+    }
     if (coverArtUrlBuilder == null) return null
     return playlist.entry.firstNotNullOfOrNull { song ->
-        song.coverArt?.let(coverArtUrlBuilder)
-            ?: song.albumId?.let(coverArtUrlBuilder)
+        libraryCoverArtUrl(song.coverArt, coverArtUrlBuilder)
+            ?: song.albumId?.takeIf { it.provider == MediaId.PROVIDER_SUBSONIC }?.rawId?.let(coverArtUrlBuilder)
     }
 }
+
+private fun libraryCoverArtUrl(
+    ref: CoverRef?,
+    coverArtUrlBuilder: ((String) -> String)?,
+): String? = when (ref) {
+    null -> null
+    is CoverRef.Url -> ref.url
+    is CoverRef.SourceRelative -> coverArtUrlBuilder?.invoke(ref.coverArtId)
+}
+
+private fun previewArtist(
+    rawId: String,
+    name: String,
+    albumCount: Int,
+): Artist = Artist(
+    id = MediaId.subsonic(rawId),
+    name = name,
+    albumCount = albumCount,
+    coverArt = null,
+)
+
+private fun previewAlbum(
+    rawId: String,
+    name: String,
+    artist: String,
+): Album = Album(
+    id = MediaId.subsonic(rawId),
+    name = name,
+    artist = artist,
+    artistId = null,
+    coverArt = null,
+    songCount = null,
+    durationSec = null,
+    year = null,
+    genre = null,
+)
+
+private fun previewTrack(
+    rawId: String,
+    title: String,
+    artist: String,
+    album: String,
+    durationSec: Int,
+): Track = Track(
+    id = MediaId.subsonic(rawId),
+    title = title,
+    artist = artist,
+    artistId = null,
+    album = album,
+    albumId = null,
+    coverArt = null,
+    durationSec = durationSec,
+    trackNumber = null,
+    year = null,
+    genre = null,
+    userRating = null,
+)
 
 @Composable
 private fun SectionHeader(
@@ -1090,9 +1158,9 @@ private fun LibraryContentArtistsPreview() {
             uiState = LibraryUiState.Content(
                 selectedTab = LibraryTab.Artists,
                 artists = listOf(
-                    Artist(id = "1", name = "Radiohead", albumCount = 9),
-                    Artist(id = "2", name = "Pink Floyd", albumCount = 15),
-                    Artist(id = "3", name = "Led Zeppelin", albumCount = 9),
+                    previewArtist(rawId = "1", name = "Radiohead", albumCount = 9),
+                    previewArtist(rawId = "2", name = "Pink Floyd", albumCount = 15),
+                    previewArtist(rawId = "3", name = "Led Zeppelin", albumCount = 9),
                 ),
                 albums = emptyList(),
                 songs = emptyList(),
@@ -1125,8 +1193,12 @@ private fun LibraryContentAlbumsPreview() {
                 selectedTab = LibraryTab.Albums,
                 artists = emptyList(),
                 albums = listOf(
-                    Album(id = "1", name = "OK Computer", artist = "Radiohead"),
-                    Album(id = "2", name = "The Dark Side of the Moon", artist = "Pink Floyd"),
+                    previewAlbum(rawId = "1", name = "OK Computer", artist = "Radiohead"),
+                    previewAlbum(
+                        rawId = "2",
+                        name = "The Dark Side of the Moon",
+                        artist = "Pink Floyd",
+                    ),
                 ),
                 songs = emptyList(),
                 playlists = emptyList(),
@@ -1159,19 +1231,19 @@ private fun LibraryContentSongsPreview() {
                 artists = emptyList(),
                 albums = emptyList(),
                 songs = listOf(
-                    Song(
-                        id = "1",
+                    previewTrack(
+                        rawId = "1",
                         title = "Paranoid Android",
                         artist = "Radiohead",
                         album = "OK Computer",
-                        duration = 386,
+                        durationSec = 386,
                     ),
-                    Song(
-                        id = "2",
+                    previewTrack(
+                        rawId = "2",
                         title = "Comfortably Numb",
                         artist = "Pink Floyd",
                         album = "The Wall",
-                        duration = 382,
+                        durationSec = 382,
                     ),
                 ),
                 playlists = emptyList(),
@@ -1247,20 +1319,20 @@ private fun LibraryContentSearchPreview() {
                 playlists = emptyList(),
                 favorites = null,
                 searchQuery = "radio",
-                searchResults = SearchResult(
-                    artist = listOf(
-                        Artist(id = "1", name = "Radiohead", albumCount = 9),
+                searchResults = SearchResults(
+                    artists = listOf(
+                        previewArtist(rawId = "1", name = "Radiohead", albumCount = 9),
                     ),
-                    album = listOf(
-                        Album(id = "1", name = "OK Computer", artist = "Radiohead"),
+                    albums = listOf(
+                        previewAlbum(rawId = "1", name = "OK Computer", artist = "Radiohead"),
                     ),
-                    song = listOf(
-                        Song(
-                            id = "1",
+                    tracks = listOf(
+                        previewTrack(
+                            rawId = "1",
                             title = "Radio Ga Ga",
                             artist = "Queen",
                             album = "The Works",
-                            duration = 347,
+                            durationSec = 347,
                         ),
                     ),
                 ),

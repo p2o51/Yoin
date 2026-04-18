@@ -21,6 +21,11 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInParent
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
@@ -89,6 +94,7 @@ import kotlinx.coroutines.launch
 fun SettingsScreen(
     viewModel: SettingsViewModel,
     onBackClick: () -> Unit,
+    focusSection: String? = null,
     modifier: Modifier = Modifier,
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -106,8 +112,8 @@ fun SettingsScreen(
     LaunchedEffect(viewModel) {
         viewModel.events.collect { event ->
             when (event) {
-                SettingsOneShotEvent.LaunchSpotifyOAuth ->
-                    spotifyOAuthLauncher.launch(Unit)
+                is SettingsOneShotEvent.LaunchSpotifyOAuth ->
+                    spotifyOAuthLauncher.launch(event.targetProfileId)
                 is SettingsOneShotEvent.ShowError ->
                     scope.launch { snackbarHostState.showSnackbar(event.message) }
             }
@@ -121,10 +127,12 @@ fun SettingsScreen(
         providerPickerVisible = providerPicker.visible,
         deleteConfirmState = deleteConfirm,
         snackbarHostState = snackbarHostState,
+        focusSection = focusSection,
         onBackClick = onBackClick,
         onSwitchToProfile = viewModel::switchToProfile,
         onEditProfile = viewModel::openEditProfile,
         onRequestDeleteProfile = viewModel::requestDeleteProfile,
+        onReconnectProfile = viewModel::reconnectSpotifyProfile,
         onShowProviderPicker = viewModel::showProviderPicker,
         onHideProviderPicker = viewModel::hideProviderPicker,
         onPickProvider = viewModel::pickProviderForNewProfile,
@@ -150,10 +158,12 @@ fun SettingsContent(
     providerPickerVisible: Boolean,
     deleteConfirmState: DeleteConfirmState,
     snackbarHostState: SnackbarHostState = remember { SnackbarHostState() },
+    focusSection: String? = null,
     onBackClick: () -> Unit,
     onSwitchToProfile: (String) -> Unit,
     onEditProfile: (String) -> Unit,
     onRequestDeleteProfile: (String) -> Unit,
+    onReconnectProfile: (String) -> Unit,
     onShowProviderPicker: () -> Unit,
     onHideProviderPicker: () -> Unit,
     onPickProvider: (ProviderKind) -> Unit,
@@ -202,10 +212,19 @@ fun SettingsContent(
                 ) { innerPadding ->
                     val navBottom = WindowInsets.navigationBars.asPaddingValues()
                         .calculateBottomPadding()
+                    val scrollState = rememberScrollState()
+                    var spotifySectionTopPx by remember { mutableIntStateOf(-1) }
+                    val spotifyClientIdFocusRequester = remember { FocusRequester() }
+                    LaunchedEffect(focusSection, spotifySectionTopPx) {
+                        if (focusSection == "spotify" && spotifySectionTopPx >= 0) {
+                            scrollState.animateScrollTo(spotifySectionTopPx)
+                            runCatching { spotifyClientIdFocusRequester.requestFocus() }
+                        }
+                    }
                     Column(
                         modifier = Modifier
                             .fillMaxSize()
-                            .verticalScroll(rememberScrollState())
+                            .verticalScroll(scrollState)
                             .padding(innerPadding)
                             .padding(
                                 start = 16.dp,
@@ -230,6 +249,7 @@ fun SettingsContent(
                                     onSwitchToProfile = onSwitchToProfile,
                                     onEditProfile = onEditProfile,
                                     onRequestDeleteProfile = onRequestDeleteProfile,
+                                    onReconnectProfile = onReconnectProfile,
                                     onShowProviderPicker = onShowProviderPicker,
                                 )
                                 GeminiSection(
@@ -239,7 +259,16 @@ fun SettingsContent(
                                 SpotifySection(
                                     initialClientId = uiState.spotifyClientId,
                                     usesFallback = uiState.spotifyClientIdUsesFallback,
+                                    reconnectProfileId = uiState.spotifyReconnectProfileId,
+                                    reconnectProfileName = uiState.spotifyReconnectProfileName,
                                     onSaveClientId = onSaveSpotifyClientId,
+                                    onReconnectProfile = onReconnectProfile,
+                                    clientIdFocusRequester = spotifyClientIdFocusRequester,
+                                    modifier = Modifier.onGloballyPositioned { coords ->
+                                        spotifySectionTopPx = coords.positionInParent().y
+                                            .toInt()
+                                            .coerceAtLeast(0)
+                                    },
                                 )
                                 CacheSection(
                                     cacheSizeBytes = uiState.cacheSizeBytes,
@@ -301,6 +330,7 @@ private fun ProfileSwitcherSection(
     onSwitchToProfile: (String) -> Unit,
     onEditProfile: (String) -> Unit,
     onRequestDeleteProfile: (String) -> Unit,
+    onReconnectProfile: (String) -> Unit,
     onShowProviderPicker: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -349,12 +379,15 @@ private fun ProfileSwitcherSection(
                     ProfileCardTile(
                         card = card,
                         onTap = {
-                            if (card.isActive) {
+                            if (card.requiresReconnect) {
+                                onReconnectProfile(card.id)
+                            } else if (card.isActive) {
                                 onEditProfile(card.id)
                             } else {
                                 onSwitchToProfile(card.id)
                             }
                         },
+                        onReconnect = { onReconnectProfile(card.id) },
                         onEdit = { onEditProfile(card.id) },
                         onDelete = { onRequestDeleteProfile(card.id) },
                     )
@@ -382,6 +415,7 @@ private fun ProfileSwitcherSection(
 private fun ProfileCardTile(
     card: ProfileCard,
     onTap: () -> Unit,
+    onReconnect: () -> Unit,
     onEdit: () -> Unit,
     onDelete: () -> Unit,
     modifier: Modifier = Modifier,
@@ -454,6 +488,15 @@ private fun ProfileCardTile(
                         expanded = menuOpen,
                         onDismissRequest = { menuOpen = false },
                     ) {
+                        if (card.requiresReconnect) {
+                            DropdownMenuItem(
+                                text = { Text("Reconnect") },
+                                onClick = {
+                                    menuOpen = false
+                                    onReconnect()
+                                },
+                            )
+                        }
                         DropdownMenuItem(
                             text = { Text("Edit") },
                             onClick = {
@@ -497,8 +540,19 @@ private fun ProfileCardTile(
                     style = MaterialTheme.typography.labelSmall,
                     color = contentColor.copy(alpha = 0.66f),
                 )
-                if (card.isActive) {
-                    Text(
+                when {
+                    card.unavailableReason != null -> Surface(
+                        shape = YoinShapeTokens.Small,
+                        color = MaterialTheme.colorScheme.errorContainer,
+                        contentColor = MaterialTheme.colorScheme.onErrorContainer,
+                    ) {
+                        Text(
+                            text = card.unavailableReason,
+                            style = MaterialTheme.typography.labelSmall,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                        )
+                    }
+                    card.isActive -> Text(
                         text = "Active",
                         style = MaterialTheme.typography.labelSmall,
                         color = contentColor,
@@ -1073,7 +1127,11 @@ private fun GeminiSection(
 private fun SpotifySection(
     initialClientId: String,
     usesFallback: Boolean,
+    reconnectProfileId: String?,
+    reconnectProfileName: String?,
     onSaveClientId: (String) -> Unit,
+    onReconnectProfile: (String) -> Unit,
+    clientIdFocusRequester: FocusRequester? = null,
     modifier: Modifier = Modifier,
 ) {
     var clientId by rememberSaveable { mutableStateOf(initialClientId) }
@@ -1094,7 +1152,8 @@ private fun SpotifySection(
             ExpressiveHeaderBlock(title = "Spotify")
             Text(
                 text = "Paste the Client ID from your Spotify Developer app. " +
-                    "Redirect URI to register: yoin://auth/spotify/callback",
+                    "Redirect URIs to register: " +
+                    "yoin://auth/spotify/callback and yoin://auth/spotify/app-remote",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -1105,12 +1164,57 @@ private fun SpotifySection(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
+            if (reconnectProfileId != null) {
+                Surface(
+                    shape = YoinShapeTokens.Large,
+                    color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.72f),
+                    contentColor = MaterialTheme.colorScheme.onErrorContainer,
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(14.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        Text(
+                            text = "Spotify playback needs re-authorization.",
+                            style = MaterialTheme.typography.titleSmall,
+                        )
+                        Text(
+                            text = buildString {
+                                append("The current Spotify profile")
+                                if (!reconnectProfileName.isNullOrBlank()) {
+                                    append(" (")
+                                    append(reconnectProfileName)
+                                    append(")")
+                                }
+                                append(" was authorized before App Remote control was added.")
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onErrorContainer.copy(alpha = 0.88f),
+                        )
+                        OutlinedButton(
+                            onClick = { onReconnectProfile(reconnectProfileId) },
+                        ) {
+                            Text("Reconnect Spotify")
+                        }
+                    }
+                }
+            }
             ExpressiveTextField(
                 value = clientId,
                 onValueChange = { clientId = it },
                 label = "Spotify Client ID",
                 placeholder = "32-char hex from developer.spotify.com",
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .then(
+                        if (clientIdFocusRequester != null) {
+                            Modifier.focusRequester(clientIdFocusRequester)
+                        } else {
+                            Modifier
+                        },
+                    ),
             )
             Button(
                 onClick = { onSaveClientId(clientId) },
@@ -1216,6 +1320,8 @@ fun SettingsContentPreview() {
                 canAddProfile = true,
                 cacheSizeBytes = 52_428_800L,
                 geminiApiKey = "",
+                spotifyReconnectProfileId = "spotify-old",
+                spotifyReconnectProfileName = "51",
             ),
             switchingState = ProfileManager.SwitchState.Idle,
             profileFormSheet = ProfileFormSheet.Hidden,
@@ -1225,6 +1331,7 @@ fun SettingsContentPreview() {
             onSwitchToProfile = {},
             onEditProfile = {},
             onRequestDeleteProfile = {},
+            onReconnectProfile = {},
             onShowProviderPicker = {},
             onHideProviderPicker = {},
             onPickProvider = {},
@@ -1254,6 +1361,7 @@ fun SettingsContentLoadingPreview() {
             onSwitchToProfile = {},
             onEditProfile = {},
             onRequestDeleteProfile = {},
+            onReconnectProfile = {},
             onShowProviderPicker = {},
             onHideProviderPicker = {},
             onPickProvider = {},

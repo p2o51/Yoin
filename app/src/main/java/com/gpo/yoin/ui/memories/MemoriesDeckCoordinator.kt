@@ -3,7 +3,9 @@ package com.gpo.yoin.ui.memories
 import com.gpo.yoin.data.local.ActivityEntityType
 import com.gpo.yoin.data.local.ActivityEvent
 import com.gpo.yoin.data.local.LocalRating
-import com.gpo.yoin.data.remote.Song
+import com.gpo.yoin.data.model.CoverRef
+import com.gpo.yoin.data.model.MediaId
+import com.gpo.yoin.data.model.Track
 import com.gpo.yoin.data.repository.YoinRepository
 import com.gpo.yoin.ui.experience.ExperienceSessionStore
 import kotlinx.coroutines.async
@@ -139,24 +141,37 @@ class MemoriesDeckCoordinator(
     }
 
     private suspend fun resolveSongMemory(activity: ActivityEvent): MemoryEntry {
-        val songId = activity.songId ?: activity.entityId
-        val rating = repository.getRating(songId).first()?.rating
-        val mostRecentPlay = repository.getMostRecentPlay(songId)
-        val song = Song(
-            id = songId,
+        val provider = activity.provider
+        val rawSongId = activity.songId ?: activity.entityId
+        val trackId = MediaId(provider, rawSongId)
+        val rating = repository.getRating(trackId).first()?.rating
+        val mostRecentPlay = repository.getMostRecentPlay(trackId)
+        val rawAlbumId = activity.albumId
+            ?.takeIf(String::isNotBlank)
+            ?: mostRecentPlay?.albumId?.takeIf(String::isNotBlank)
+        val rawArtistId = activity.artistId?.takeIf(String::isNotBlank)
+        val coverArtId = activity.coverArtId ?: mostRecentPlay?.coverArtId
+        val song = Track(
+            id = trackId,
             title = activity.title,
             artist = activity.subtitle.takeIf { subtitle -> subtitle.isNotBlank() },
-            albumId = activity.albumId?.takeIf { albumId -> albumId.isNotBlank() },
-            artistId = activity.artistId?.takeIf { artistId -> artistId.isNotBlank() },
-            coverArt = activity.coverArtId,
-            duration = mostRecentPlay?.durationMs?.let { durationMs -> (durationMs / 1000L).toInt() },
+            artistId = rawArtistId?.let { MediaId(provider, it) },
+            album = mostRecentPlay?.album?.takeIf(String::isNotBlank),
+            albumId = rawAlbumId?.let { MediaId(provider, it) },
+            coverArt = coverArtId?.let(CoverRef::SourceRelative),
+            durationSec = mostRecentPlay?.durationMs?.let { durationMs -> (durationMs / 1000L).toInt() },
+            trackNumber = null,
+            year = null,
+            genre = null,
+            userRating = null,
+            isStarred = false,
         )
 
         return MemoryEntry(
-            stableId = "song:$songId:${activity.id}",
+            stableId = "song:$rawSongId:${activity.id}",
             sourceActivityId = activity.id,
             entityType = MemoryEntityType.SONG,
-            entityId = songId,
+            entityId = rawSongId,
             title = activity.title,
             supportingText = buildString {
                 append("Single")
@@ -166,11 +181,8 @@ class MemoriesDeckCoordinator(
                 }
             },
             metaText = null,
-            coverArtUrl = activity.coverArtId?.let { coverArtId ->
-                repository.buildCoverArtUrl(coverArtId, size = 480)
-            } ?: activity.albumId?.takeIf { albumId -> albumId.isNotBlank() }?.let { albumId ->
-                repository.buildCoverArtUrl(albumId, size = 480)
-            },
+            coverArtUrl = coverArtId?.let(::sourceRelativeCoverArtUrl)
+                ?: rawAlbumId?.let(::sourceRelativeCoverArtUrl),
             timestamp = activity.timestamp,
             scoreText = rating.formatScore(),
             scoreSupportingText = null,
@@ -180,7 +192,7 @@ class MemoriesDeckCoordinator(
             playbackSongs = listOf(song),
             tracks = listOf(
                 MemoryTrack(
-                    stableId = "song:$songId",
+                    stableId = "song:$rawSongId",
                     title = activity.title,
                     artist = activity.subtitle,
                     durationSeconds = mostRecentPlay?.durationMs?.let { durationMs ->
@@ -193,9 +205,10 @@ class MemoriesDeckCoordinator(
     }
 
     private suspend fun resolveAlbumMemory(activity: ActivityEvent): MemoryEntry {
-        val album = runCatching { repository.getAlbum(activity.entityId) }.getOrNull()
-        val songs = album?.song.orEmpty()
-        val ratings = repository.getRatings(songs.map(Song::id))
+        val albumId = MediaId(activity.provider, activity.entityId)
+        val album = runCatching { repository.getAlbum(albumId) }.getOrNull()
+        val songs = album?.tracks.orEmpty()
+        val ratings = repository.getRatings(songs.map(Track::id))
         val rated = songs.mapNotNull { song ->
             ratings[song.id]?.takeIf { localRating -> localRating.rating > 0f }
         }
@@ -219,14 +232,16 @@ class MemoriesDeckCoordinator(
                 }
             },
             metaText = null,
-            coverArtUrl = (album?.coverArt ?: activity.coverArtId ?: album?.id)
-                ?.let { coverArtId -> repository.buildCoverArtUrl(coverArtId, size = 480) },
+            coverArtUrl = album?.coverArt?.let { repository.resolveCoverUrl(it, size = 480) }
+                ?: activity.coverArtId?.let(::sourceRelativeCoverArtUrl)
+                ?: album?.id?.takeIf { it.provider == MediaId.PROVIDER_SUBSONIC }
+                    ?.rawId?.let(::sourceRelativeCoverArtUrl),
             timestamp = activity.timestamp,
             scoreText = rated.averageScoreText(),
             scoreSupportingText = ratedSummaryText(rated.size, songs.size),
             footerText = buildCollectionFooter(
                 songCount = album?.songCount ?: songs.size,
-                durationSeconds = album?.duration,
+                durationSeconds = album?.durationSec,
             ),
             playbackSongs = songs,
             tracks = songs.mapIndexed { index, song ->
@@ -234,7 +249,7 @@ class MemoriesDeckCoordinator(
                     stableId = "album:${activity.entityId}:song:${song.id}",
                     title = song.title.orEmpty(),
                     artist = song.artist.orEmpty(),
-                    durationSeconds = song.duration,
+                    durationSeconds = song.durationSec,
                     rating = ratings[song.id]?.rating?.takeIf { rating -> rating > 0f },
                 ).withIndexFallback(index)
             },
@@ -242,14 +257,17 @@ class MemoriesDeckCoordinator(
     }
 
     private suspend fun resolvePlaylistMemory(activity: ActivityEvent): MemoryEntry {
-        val playlist = runCatching { repository.getPlaylist(activity.entityId) }.getOrNull()
-        val songs = playlist?.entry.orEmpty()
-        val ratings = repository.getRatings(songs.map(Song::id))
+        val playlistId = MediaId(activity.provider, activity.entityId)
+        val playlist = runCatching { repository.getPlaylist(playlistId) }.getOrNull()
+        val songs = playlist?.tracks.orEmpty()
+        val ratings = repository.getRatings(songs.map(Track::id))
         val rated = songs.mapNotNull { song ->
             ratings[song.id]?.takeIf { localRating -> localRating.rating > 0f }
         }
-        val coverArtId = songs.firstNotNullOfOrNull { song -> song.coverArt ?: song.albumId }
-            ?: activity.coverArtId
+
+        val coverArtUrl = playlist?.coverArt?.let { repository.resolveCoverUrl(it, size = 480) }
+            ?: songs.firstNotNullOfOrNull(::trackCoverArtUrl)
+            ?: activity.coverArtId?.let(::sourceRelativeCoverArtUrl)
 
         return MemoryEntry(
             stableId = "playlist:${activity.entityId}:${activity.id}",
@@ -266,13 +284,13 @@ class MemoriesDeckCoordinator(
                 }
             },
             metaText = null,
-            coverArtUrl = coverArtId?.let { repository.buildCoverArtUrl(it, size = 480) },
+            coverArtUrl = coverArtUrl,
             timestamp = activity.timestamp,
             scoreText = rated.averageScoreText(),
             scoreSupportingText = ratedSummaryText(rated.size, songs.size),
             footerText = buildCollectionFooter(
                 songCount = playlist?.songCount ?: songs.size,
-                durationSeconds = playlist?.duration,
+                durationSeconds = playlist?.durationSec,
             ),
             playbackSongs = songs,
             tracks = songs.mapIndexed { index, song ->
@@ -280,12 +298,22 @@ class MemoriesDeckCoordinator(
                     stableId = "playlist:${activity.entityId}:song:${song.id}",
                     title = song.title.orEmpty(),
                     artist = song.artist.orEmpty(),
-                    durationSeconds = song.duration,
+                    durationSeconds = song.durationSec,
                     rating = ratings[song.id]?.rating?.takeIf { rating -> rating > 0f },
                 ).withIndexFallback(index)
             },
         )
     }
+
+    private fun sourceRelativeCoverArtUrl(rawId: String): String? =
+        repository.resolveCoverUrl(CoverRef.SourceRelative(rawId), size = 480)
+
+    private fun trackCoverArtUrl(track: Track): String? =
+        repository.resolveCoverUrl(track.coverArt, size = 480)
+            ?: track.albumId
+                ?.takeIf { it.provider == MediaId.PROVIDER_SUBSONIC }
+                ?.rawId
+                ?.let(::sourceRelativeCoverArtUrl)
 }
 
 internal const val MEMORY_DECK_SIZE = 6

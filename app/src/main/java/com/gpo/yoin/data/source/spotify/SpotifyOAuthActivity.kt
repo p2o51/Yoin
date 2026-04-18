@@ -4,6 +4,7 @@ import android.content.Intent
 import android.content.SharedPreferences
 import android.net.Uri
 import android.os.Bundle
+import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.browser.customtabs.CustomTabsIntent
 import androidx.core.content.edit
@@ -27,6 +28,7 @@ import okhttp3.OkHttpClient
  *   on process death; a file is the only reliable survivor.
  */
 class SpotifyOAuthActivity : ComponentActivity() {
+    private val tag = "SpotifyOAuthActivity"
 
     private val prefs: SharedPreferences by lazy {
         applicationContext.getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
@@ -73,6 +75,11 @@ class SpotifyOAuthActivity : ComponentActivity() {
 
     private fun startAuthorization() {
         val clientId = resolveClientId()
+        val targetProfileId = intent?.getStringExtra(SpotifyOAuthContract.EXTRA_TARGET_PROFILE_ID)
+        Log.d(
+            tag,
+            "startAuthorization: targetProfileId=$targetProfileId clientIdConfigured=${clientId.isNotBlank()}",
+        )
         if (clientId.isBlank()) {
             finishWithFailure(
                 "Spotify client id not set. Open Settings → Spotify to enter one.",
@@ -85,6 +92,7 @@ class SpotifyOAuthActivity : ComponentActivity() {
             putString(KEY_VERIFIER, pkce.verifier)
             putString(KEY_STATE, state)
             putString(KEY_CLIENT_ID, clientId)
+            putString(KEY_TARGET_PROFILE_ID, targetProfileId)
         }
         launchedAuthorization = true
         val authUrl = SpotifyAuthService(OkHttpClient())
@@ -102,6 +110,9 @@ class SpotifyOAuthActivity : ComponentActivity() {
         (application as? YoinApplication)?.container?.spotifyClientIdFlow?.value.orEmpty()
 
     private fun processRedirect(data: Uri) {
+        val hasCode = !data.getQueryParameter("code").isNullOrBlank()
+        val hasError = data.getQueryParameter("error") != null
+        Log.d(tag, "processRedirect: hasCode=$hasCode hasError=$hasError")
         val error = data.getQueryParameter("error")
         if (error != null) {
             finishWithFailure("Spotify auth error: $error")
@@ -140,6 +151,10 @@ class SpotifyOAuthActivity : ComponentActivity() {
                 val me = withContext(Dispatchers.IO) {
                     authService.fetchMe(token.accessToken)
                 }
+                Log.d(
+                    tag,
+                    "processRedirect: token exchange success scopes=${token.scope.orEmpty()} userId=${me.id}",
+                )
                 finishWithSuccess(
                     accessToken = token.accessToken,
                     refreshToken = token.refreshToken
@@ -153,6 +168,7 @@ class SpotifyOAuthActivity : ComponentActivity() {
                     userId = me.id,
                 )
             } catch (t: Throwable) {
+                Log.w(tag, "processRedirect: failed", t)
                 finishWithFailure(t.message ?: "Spotify auth failed")
             }
         }
@@ -163,8 +179,13 @@ class SpotifyOAuthActivity : ComponentActivity() {
             remove(KEY_VERIFIER)
             remove(KEY_STATE)
             remove(KEY_CLIENT_ID)
+            remove(KEY_TARGET_PROFILE_ID)
         }
     }
+
+    private fun currentTargetProfileId(): String? =
+        prefs.getString(KEY_TARGET_PROFILE_ID, null)
+            ?: intent?.getStringExtra(SpotifyOAuthContract.EXTRA_TARGET_PROFILE_ID)
 
     private fun isSpotifyCallback(data: Uri?): Boolean =
         data?.scheme == SpotifyAuthConfig.REDIRECT_SCHEME &&
@@ -178,6 +199,7 @@ class SpotifyOAuthActivity : ComponentActivity() {
         displayName: String,
         userId: String,
     ) {
+        val targetProfileId = currentTargetProfileId()
         val result = Intent().apply {
             putExtra(SpotifyOAuthContract.EXTRA_ACCESS_TOKEN, accessToken)
             putExtra(SpotifyOAuthContract.EXTRA_REFRESH_TOKEN, refreshToken)
@@ -185,7 +207,12 @@ class SpotifyOAuthActivity : ComponentActivity() {
             putExtra(SpotifyOAuthContract.EXTRA_SCOPES, scopes.toTypedArray())
             putExtra(SpotifyOAuthContract.EXTRA_DISPLAY_NAME, displayName)
             putExtra(SpotifyOAuthContract.EXTRA_USER_ID, userId)
+            putExtra(SpotifyOAuthContract.EXTRA_TARGET_PROFILE_ID, targetProfileId)
         }
+        Log.d(
+            tag,
+            "finishWithSuccess: targetProfileId=$targetProfileId scopes=${scopes.joinToString(",")}",
+        )
         clearStoredInitiatorState()
         terminalResultSent = true
         setResult(RESULT_OK, result)
@@ -193,9 +220,15 @@ class SpotifyOAuthActivity : ComponentActivity() {
     }
 
     private fun finishWithFailure(message: String) {
+        val targetProfileId = currentTargetProfileId()
         val result = Intent().apply {
             putExtra(SpotifyOAuthContract.EXTRA_FAILURE_MESSAGE, message)
+            putExtra(SpotifyOAuthContract.EXTRA_TARGET_PROFILE_ID, targetProfileId)
         }
+        Log.w(
+            tag,
+            "finishWithFailure: targetProfileId=$targetProfileId message=$message",
+        )
         clearStoredInitiatorState()
         terminalResultSent = true
         setResult(RESULT_OK, result)
@@ -203,6 +236,11 @@ class SpotifyOAuthActivity : ComponentActivity() {
     }
 
     private fun finishCancelled() {
+        val targetProfileId = currentTargetProfileId()
+        Log.d(
+            tag,
+            "finishCancelled: targetProfileId=$targetProfileId",
+        )
         clearStoredInitiatorState()
         terminalResultSent = true
         setResult(RESULT_CANCELED)
@@ -219,5 +257,6 @@ class SpotifyOAuthActivity : ComponentActivity() {
         private const val KEY_VERIFIER = "pkce_verifier"
         private const val KEY_STATE = "state_nonce"
         private const val KEY_CLIENT_ID = "client_id_snapshot"
+        private const val KEY_TARGET_PROFILE_ID = "target_profile_id"
     }
 }

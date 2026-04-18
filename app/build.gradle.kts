@@ -104,6 +104,8 @@ dependencies {
     implementation(libs.retrofit)
     implementation(libs.retrofit.kotlinx.serialization)
     implementation(libs.kotlinx.serialization.json)
+    implementation(libs.gson)
+    implementation(files("libs/spotify-app-remote-release-0.8.0.aar"))
 
     // Image loading
     implementation(libs.coil.compose)

@@ -4,10 +4,11 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.gpo.yoin.AppContainer
-import com.gpo.yoin.data.remote.Album
-import com.gpo.yoin.data.remote.Artist
-import com.gpo.yoin.data.remote.ArtistIndex
-import com.gpo.yoin.data.remote.Song
+import com.gpo.yoin.data.model.Album
+import com.gpo.yoin.data.model.Artist
+import com.gpo.yoin.data.model.ArtistIndex
+import com.gpo.yoin.data.model.Track
+import com.gpo.yoin.data.model.artist
 import com.gpo.yoin.data.repository.YoinRepository
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
@@ -95,7 +96,7 @@ class HomeViewModel(
     }
 
     fun buildCoverArtUrl(coverArtId: String): String =
-        repository.buildCoverArtUrl(coverArtId, size = 320)
+        repository.resolveSubsonicCoverUrl(coverArtId, size = 320).orEmpty()
 
     private suspend fun loadHomeContent(): HomeUiState.Content =
         coroutineScope {
@@ -146,7 +147,7 @@ class HomeViewModel(
 
     private suspend fun buildJumpBackInBatch(
         albumCandidates: List<Album>,
-        songCandidates: List<Song>,
+        songCandidates: List<Track>,
         artistCandidates: List<Artist>,
         existingIds: Set<String>,
         batchSize: Int,

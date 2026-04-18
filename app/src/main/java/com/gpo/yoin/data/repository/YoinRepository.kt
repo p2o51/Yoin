@@ -6,229 +6,183 @@ import com.gpo.yoin.data.local.ActivityEvent
 import com.gpo.yoin.data.local.LocalRating
 import com.gpo.yoin.data.local.PlayHistory
 import com.gpo.yoin.data.local.YoinDatabase
+import com.gpo.yoin.data.model.Album
+import com.gpo.yoin.data.model.ArtistDetail
+import com.gpo.yoin.data.model.ArtistIndex
+import com.gpo.yoin.data.model.CoverRef
+import com.gpo.yoin.data.model.Lyrics
 import com.gpo.yoin.data.model.MediaId
-import com.gpo.yoin.data.remote.Album
-import com.gpo.yoin.data.remote.ArtistDetail
-import com.gpo.yoin.data.remote.ArtistIndex
-import com.gpo.yoin.data.remote.LyricsList
-import com.gpo.yoin.data.remote.Playlist
-import com.gpo.yoin.data.remote.SearchResult
-import com.gpo.yoin.data.remote.Song
-import com.gpo.yoin.data.remote.StarredResponse
-import com.gpo.yoin.data.remote.SubsonicApi
-import com.gpo.yoin.data.remote.SubsonicApiFactory
-import com.gpo.yoin.data.remote.SubsonicResponse
-import com.gpo.yoin.data.remote.SubsonicResponseBody
-import com.gpo.yoin.data.remote.ServerCredentials
+import com.gpo.yoin.data.model.Playlist
+import com.gpo.yoin.data.model.SearchResults
+import com.gpo.yoin.data.model.Starred
+import com.gpo.yoin.data.model.Track
+import com.gpo.yoin.data.source.MusicSource
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlin.math.roundToInt
 
 /**
- * Subsonic-shaped repository used by v1 ViewModels.
+ * Provider-agnostic orchestrator over local Room + the currently active
+ * [MusicSource]. Remote calls are dispatched through `activeSource`; local
+ * persistence (ratings, history, activity, song info) stays in Room.
  *
- * The provider-agnostic [com.gpo.yoin.data.source.MusicSource] interface and
- * Profile system are already wired (see `AppContainer.profileManager`), but
- * the UI layer has not been migrated to consume neutral models yet. That is
- * phase 2 of the multi-provider refactor (see `docs/design.md` — Provider
- * abstraction). Internal DB calls tag all rows with
- * [MediaId.PROVIDER_SUBSONIC].
+ * Adding a new backend means implementing [MusicSource] — nothing in this
+ * class should need to change.
  */
+@OptIn(ExperimentalCoroutinesApi::class)
 class YoinRepository(
-    private val apiProvider: () -> SubsonicApi,
+    private val activeSource: StateFlow<MusicSource?>,
     private val database: YoinDatabase,
-    private val credentials: () -> ServerCredentials,
 ) {
-    /** True when a server URL has been configured. */
+
+    /** True when a configured profile is currently active. */
     val isConfigured: Boolean
-        get() = credentials().serverUrl.isNotBlank()
+        get() = activeSource.value != null
 
-    private fun requireConfigured() {
-        if (!isConfigured) {
-            throw SubsonicException(
-                code = -1,
-                message = "No server configured. Go to Settings to add a server.",
-            )
-        }
-    }
-
-    private fun api(): SubsonicApi = apiProvider()
-
-    // ── Albums ──────────────────────────────────────────────────────────
-
-    suspend fun getAlbumList(type: String, size: Int = 20, offset: Int = 0): List<Album> {
-        requireConfigured()
-        val body = unwrap(api().getAlbumList2(type, size, offset))
-        return body.albumList2?.album.orEmpty()
-    }
-
-    suspend fun getAlbum(id: String): Album? {
-        requireConfigured()
-        val body = unwrap(api().getAlbum(id))
-        return body.album
-    }
-
-    // ── Artists ─────────────────────────────────────────────────────────
-
-    suspend fun getArtists(): List<ArtistIndex> {
-        requireConfigured()
-        val body = unwrap(api().getArtists())
-        return body.artists?.index.orEmpty()
-    }
-
-    suspend fun getArtist(id: String): ArtistDetail? {
-        requireConfigured()
-        val body = unwrap(api().getArtist(id))
-        return body.artist
-    }
-
-    // ── Search ──────────────────────────────────────────────────────────
-
-    suspend fun search(query: String): SearchResult? {
-        requireConfigured()
-        val body = unwrap(api().search3(query))
-        return body.searchResult3
-    }
-
-    // ── Favorites ───────────────────────────────────────────────────────
-
-    suspend fun star(id: String? = null, albumId: String? = null, artistId: String? = null) {
-        requireConfigured()
-        unwrap(api().star(id, albumId, artistId))
-    }
-
-    suspend fun unstar(id: String? = null, albumId: String? = null, artistId: String? = null) {
-        requireConfigured()
-        unwrap(api().unstar(id, albumId, artistId))
-    }
-
-    suspend fun getStarred(): StarredResponse? {
-        requireConfigured()
-        val body = unwrap(api().getStarred2())
-        return body.starred2
-    }
-
-    // ── Random ──────────────────────────────────────────────────────────
-
-    suspend fun getRandomSongs(size: Int = 20): List<Song> {
-        requireConfigured()
-        val body = unwrap(api().getRandomSongs(size))
-        return body.randomSongs?.song.orEmpty()
-    }
-
-    // ── Playlists ───────────────────────────────────────────────────────
-
-    suspend fun getPlaylists(username: String? = null): List<Playlist> {
-        requireConfigured()
-        val body = unwrap(api().getPlaylists(username))
-        return body.playlists?.playlist.orEmpty()
-    }
-
-    suspend fun getPlaylist(id: String): Playlist? {
-        requireConfigured()
-        val body = unwrap(api().getPlaylist(id))
-        return body.playlist
-    }
-
-    // ── Rating (local float + server sync) ──────────────────────────────
-
-    suspend fun setRating(songId: String, rating: Float) {
-        val serverRating = rating.roundToInt().coerceIn(0, 5)
-        database.localRatingDao().upsert(
-            LocalRating(
-                songId = songId,
-                provider = MediaId.PROVIDER_SUBSONIC,
-                rating = rating,
-                serverRating = serverRating,
-                needsSync = true,
-            ),
+    private fun requireSource(): MusicSource = activeSource.value
+        ?: throw SubsonicException(
+            code = -1,
+            message = "No profile configured. Open Settings to add one.",
         )
-        if (!isConfigured) return
-        try {
-            unwrap(api().setRating(songId, serverRating))
-            database.localRatingDao().upsert(
-                LocalRating(
-                    songId = songId,
-                    provider = MediaId.PROVIDER_SUBSONIC,
-                    rating = rating,
-                    serverRating = serverRating,
-                    needsSync = false,
-                ),
-            )
-        } catch (_: Exception) {
-            // Will be synced later via syncPendingRatings
+
+    // ── Albums ─────────────────────────────────────────────────────────
+
+    suspend fun getAlbumList(type: String, size: Int = 20, offset: Int = 0): List<Album> =
+        requireSource().library().getAlbumList(type, size, offset)
+
+    suspend fun getAlbum(id: MediaId): Album? =
+        requireSource().library().getAlbum(id)
+
+    // ── Artists ────────────────────────────────────────────────────────
+
+    suspend fun getArtists(): List<ArtistIndex> =
+        requireSource().library().getArtists()
+
+    suspend fun getArtist(id: MediaId): ArtistDetail? =
+        requireSource().library().getArtist(id)
+
+    // ── Search ─────────────────────────────────────────────────────────
+
+    suspend fun search(query: String): SearchResults =
+        requireSource().library().search(query)
+
+    // ── Favorites ──────────────────────────────────────────────────────
+
+    suspend fun setFavorite(id: MediaId, favorite: Boolean): Result<Unit> =
+        requireSource().writeActions().setFavorite(id, favorite)
+
+    suspend fun getStarred(): Starred =
+        requireSource().library().getStarred()
+
+    // ── Random ─────────────────────────────────────────────────────────
+
+    suspend fun getRandomSongs(size: Int = 20): List<Track> =
+        requireSource().library().getRandomSongs(size)
+
+    // ── Playlists ──────────────────────────────────────────────────────
+
+    suspend fun getPlaylists(): List<Playlist> =
+        requireSource().library().getPlaylists()
+
+    suspend fun getPlaylist(id: MediaId): Playlist? =
+        requireSource().library().getPlaylist(id)
+
+    // ── Rating (local-first, best-effort server sync) ──────────────────
+
+    suspend fun setRating(trackId: MediaId, rating: Float) {
+        val serverRating = rating.roundToInt().coerceIn(0, 5)
+        val pending = LocalRating(
+            songId = trackId.rawId,
+            provider = trackId.provider,
+            rating = rating,
+            serverRating = serverRating,
+            needsSync = true,
+        )
+        database.localRatingDao().upsert(pending)
+        val source = activeSource.value ?: return
+        if (source.id != trackId.provider) return
+        source.writeActions().setRating(trackId, serverRating).onSuccess {
+            database.localRatingDao().upsert(pending.copy(needsSync = false))
         }
     }
 
-    fun getRating(songId: String): Flow<LocalRating?> =
-        database.localRatingDao().getRating(songId, MediaId.PROVIDER_SUBSONIC)
+    fun getRating(trackId: MediaId): Flow<LocalRating?> =
+        database.localRatingDao().getRating(trackId.rawId, trackId.provider)
 
-    suspend fun getRatings(songIds: Collection<String>): Map<String, LocalRating> {
-        if (songIds.isEmpty()) return emptyMap()
-        return database.localRatingDao()
-            .getRatings(songIds.distinct(), MediaId.PROVIDER_SUBSONIC)
-            .associateBy { it.songId }
+    suspend fun getRatings(trackIds: Collection<MediaId>): Map<MediaId, LocalRating> {
+        if (trackIds.isEmpty()) return emptyMap()
+        return trackIds.asSequence()
+            .distinct()
+            .groupBy { it.provider }
+            .flatMap { (provider, ids) ->
+                database.localRatingDao().getRatings(ids.map { it.rawId }, provider)
+            }
+            .associateBy { MediaId(it.provider, it.songId) }
     }
 
     suspend fun syncPendingRatings() {
+        val source = activeSource.value ?: return
         val pending = database.localRatingDao().getRatingsNeedingSync().first()
         for (rating in pending) {
-            if (rating.provider != MediaId.PROVIDER_SUBSONIC) continue
-            try {
-                unwrap(api().setRating(rating.songId, rating.serverRating))
+            if (rating.provider != source.id) continue
+            val trackId = MediaId(rating.provider, rating.songId)
+            source.writeActions().setRating(trackId, rating.serverRating).onSuccess {
                 database.localRatingDao().upsert(rating.copy(needsSync = false))
-            } catch (_: Exception) {
-                // Skip this rating, will retry next sync
             }
         }
     }
 
-    // ── Lyrics ──────────────────────────────────────────────────────────
+    // ── Lyrics ─────────────────────────────────────────────────────────
 
-    suspend fun getLyrics(songId: String): LyricsList? {
-        requireConfigured()
-        val body = unwrap(api().getLyricsBySongId(songId))
-        return body.lyricsList
-    }
+    suspend fun getLyrics(trackId: MediaId): Lyrics? =
+        requireSource().metadata().getLyrics(trackId)
 
-    // ── Play History ────────────────────────────────────────────────────
+    // ── Play history / activity ────────────────────────────────────────
 
     suspend fun recordPlay(
-        song: Song,
+        track: Track,
         durationMs: Long,
         completedPercent: Float,
         activityContext: ActivityContext = ActivityContext.None,
     ) {
         database.playHistoryDao().insert(
             PlayHistory(
-                songId = song.id,
-                provider = MediaId.PROVIDER_SUBSONIC,
-                title = song.title.orEmpty(),
-                artist = song.artist.orEmpty(),
-                album = song.album.orEmpty(),
-                albumId = song.albumId.orEmpty(),
-                coverArtId = song.coverArt,
+                songId = track.id.rawId,
+                provider = track.id.provider,
+                title = track.title.orEmpty(),
+                artist = track.artist.orEmpty(),
+                album = track.album.orEmpty(),
+                albumId = track.albumId?.rawId.orEmpty(),
+                coverArtId = (track.coverArt as? CoverRef.SourceRelative)?.coverArtId,
                 durationMs = durationMs,
                 completedPercent = completedPercent,
             ),
         )
-        database.activityEventDao().insert(
-            buildPlaybackActivity(song = song, activityContext = activityContext),
-        )
+        database.activityEventDao().insert(buildPlaybackActivity(track, activityContext))
     }
 
     fun getRecentHistory(limit: Int = 50): Flow<List<PlayHistory>> =
-        database.playHistoryDao().getRecentHistory(limit)
+        activeSource.flatMapLatest { source ->
+            val provider = source?.id ?: return@flatMapLatest flowOf(emptyList())
+            database.playHistoryDao().getRecentHistory(provider, limit)
+        }
 
     fun getRecentActivities(limit: Int = 20): Flow<List<ActivityEvent>> =
-        database.activityEventDao()
-            .getRecentEvents(limit * 8)
+        activeSource.flatMapLatest { source ->
+            val provider = source?.id ?: return@flatMapLatest flowOf(emptyList())
+            database.activityEventDao().getRecentEvents(provider, limit * 8)
+        }
             .map { events -> collapseToLatestUnique(events).take(limit) }
 
-    suspend fun getRecentMemoryActivities(limit: Int = 48): List<ActivityEvent> =
-        database.activityEventDao()
-            .getRecentEvents(limit * 10)
+    suspend fun getRecentMemoryActivities(limit: Int = 48): List<ActivityEvent> {
+        val provider = activeSource.value?.id ?: return emptyList()
+        return database.activityEventDao()
+            .getRecentEvents(provider, limit * 10)
             .first()
             .filter { it.actionType == ActivityActionType.PLAYED.name }
             .filter {
@@ -240,22 +194,24 @@ class YoinRepository(
             .asSequence()
             .take(limit)
             .toList()
+    }
 
-    suspend fun getMostRecentPlay(songId: String): PlayHistory? =
-        database.playHistoryDao().getMostRecentPlay(songId, MediaId.PROVIDER_SUBSONIC)
+    suspend fun getMostRecentPlay(trackId: MediaId): PlayHistory? =
+        database.playHistoryDao().getMostRecentPlay(trackId.rawId, trackId.provider)
 
     suspend fun recordAlbumVisit(album: Album) {
         database.activityEventDao().insert(
             ActivityEvent(
                 entityType = ActivityEntityType.ALBUM.name,
                 actionType = ActivityActionType.VISITED.name,
-                entityId = album.id,
-                provider = MediaId.PROVIDER_SUBSONIC,
+                entityId = album.id.rawId,
+                provider = album.id.provider,
                 title = album.name,
                 subtitle = album.artist.orEmpty(),
-                coverArtId = album.coverArt ?: album.id,
-                albumId = album.id,
-                artistId = album.artistId,
+                coverArtId = (album.coverArt as? CoverRef.SourceRelative)?.coverArtId
+                    ?: album.id.rawId,
+                albumId = album.id.rawId,
+                artistId = album.artistId?.rawId,
             ),
         )
     }
@@ -265,108 +221,105 @@ class YoinRepository(
             ActivityEvent(
                 entityType = ActivityEntityType.ARTIST.name,
                 actionType = ActivityActionType.VISITED.name,
-                entityId = artist.id,
-                provider = MediaId.PROVIDER_SUBSONIC,
+                entityId = artist.id.rawId,
+                provider = artist.id.provider,
                 title = artist.name,
                 subtitle = "Artist",
-                coverArtId = artist.coverArt,
-                artistId = artist.id,
+                coverArtId = (artist.coverArt as? CoverRef.SourceRelative)?.coverArtId,
+                artistId = artist.id.rawId,
             ),
         )
     }
 
-    // ── URLs (pass-through) ─────────────────────────────────────────────
+    // ── URLs (provider-agnostic) ───────────────────────────────────────
 
-    fun buildStreamUrl(songId: String): String =
-        SubsonicApiFactory.buildStreamUrl(credentials(), songId)
+    fun resolveCoverUrl(ref: CoverRef?, size: Int? = null): String? =
+        ref?.let { activeSource.value?.resolveCoverUrl(it, size) }
 
-    fun buildCoverArtUrl(coverArtId: String, size: Int? = null): String =
-        SubsonicApiFactory.buildCoverArtUrl(credentials(), coverArtId, size)
+    /** Convenience for legacy Subsonic cover-art-id callers that haven't
+     *  migrated to [CoverRef] yet — wraps as [CoverRef.SourceRelative]. */
+    fun resolveSubsonicCoverUrl(coverArtId: String?, size: Int? = null): String? =
+        coverArtId?.let { resolveCoverUrl(CoverRef.SourceRelative(it), size) }
 
-    // ── Server test ─────────────────────────────────────────────────────
+    // ── Server test ────────────────────────────────────────────────────
 
-    suspend fun testConnection(): Boolean {
-        requireConfigured()
-        unwrap(api().ping())
-        return true
-    }
+    suspend fun testConnection(): Boolean =
+        requireSource().library().ping()
 
-    // ── Internal helpers ────────────────────────────────────────────────
-
-    private fun unwrap(response: SubsonicResponse): SubsonicResponseBody {
-        val body = response.subsonicResponse
-        if (body.status != "ok") {
-            val error = body.error
-            throw SubsonicException(
-                code = error?.code ?: -1,
-                message = error?.message,
-            )
-        }
-        return body
-    }
+    // ── Internal helpers ───────────────────────────────────────────────
 
     private fun buildPlaybackActivity(
-        song: Song,
+        track: Track,
         activityContext: ActivityContext,
-    ): ActivityEvent = when (activityContext) {
-        is ActivityContext.Album -> ActivityEvent(
-            entityType = ActivityEntityType.ALBUM.name,
-            actionType = ActivityActionType.PLAYED.name,
-            entityId = activityContext.albumId,
-            provider = MediaId.PROVIDER_SUBSONIC,
-            title = activityContext.albumName,
-            subtitle = activityContext.artistName.orEmpty().ifBlank { song.artist.orEmpty() },
-            coverArtId = activityContext.coverArtId ?: song.coverArt ?: song.albumId,
-            songId = song.id,
-            albumId = activityContext.albumId,
-            artistId = activityContext.artistId ?: song.artistId,
-        )
+    ): ActivityEvent {
+        val trackProvider = track.id.provider
+        return when (activityContext) {
+            is ActivityContext.Album -> ActivityEvent(
+                entityType = ActivityEntityType.ALBUM.name,
+                actionType = ActivityActionType.PLAYED.name,
+                entityId = activityContext.albumId,
+                provider = trackProvider,
+                title = activityContext.albumName,
+                subtitle = activityContext.artistName.orEmpty()
+                    .ifBlank { track.artist.orEmpty() },
+                coverArtId = activityContext.coverArtId
+                    ?: (track.coverArt as? CoverRef.SourceRelative)?.coverArtId
+                    ?: track.albumId?.rawId,
+                songId = track.id.rawId,
+                albumId = activityContext.albumId,
+                artistId = activityContext.artistId ?: track.artistId?.rawId,
+            )
 
-        is ActivityContext.Artist -> ActivityEvent(
-            entityType = ActivityEntityType.ARTIST.name,
-            actionType = ActivityActionType.PLAYED.name,
-            entityId = activityContext.artistId,
-            provider = MediaId.PROVIDER_SUBSONIC,
-            title = activityContext.artistName,
-            subtitle = "Artist",
-            coverArtId = activityContext.coverArtId ?: song.coverArt,
-            songId = song.id,
-            albumId = song.albumId,
-            artistId = activityContext.artistId,
-        )
+            is ActivityContext.Artist -> ActivityEvent(
+                entityType = ActivityEntityType.ARTIST.name,
+                actionType = ActivityActionType.PLAYED.name,
+                entityId = activityContext.artistId,
+                provider = trackProvider,
+                title = activityContext.artistName,
+                subtitle = "Artist",
+                coverArtId = activityContext.coverArtId
+                    ?: (track.coverArt as? CoverRef.SourceRelative)?.coverArtId,
+                songId = track.id.rawId,
+                albumId = track.albumId?.rawId,
+                artistId = activityContext.artistId,
+            )
 
-        is ActivityContext.Playlist -> ActivityEvent(
-            entityType = ActivityEntityType.PLAYLIST.name,
-            actionType = ActivityActionType.PLAYED.name,
-            entityId = activityContext.playlistId,
-            provider = MediaId.PROVIDER_SUBSONIC,
-            title = activityContext.playlistName,
-            subtitle = activityContext.owner.orEmpty().ifBlank { "Playlist" },
-            coverArtId = activityContext.coverArtId ?: song.coverArt ?: song.albumId,
-            songId = song.id,
-            albumId = song.albumId,
-            artistId = song.artistId,
-        )
+            is ActivityContext.Playlist -> ActivityEvent(
+                entityType = ActivityEntityType.PLAYLIST.name,
+                actionType = ActivityActionType.PLAYED.name,
+                entityId = activityContext.playlistId,
+                provider = trackProvider,
+                title = activityContext.playlistName,
+                subtitle = activityContext.owner.orEmpty().ifBlank { "Playlist" },
+                coverArtId = activityContext.coverArtId
+                    ?: (track.coverArt as? CoverRef.SourceRelative)?.coverArtId
+                    ?: track.albumId?.rawId,
+                songId = track.id.rawId,
+                albumId = track.albumId?.rawId,
+                artistId = track.artistId?.rawId,
+            )
 
-        ActivityContext.None -> ActivityEvent(
-            entityType = ActivityEntityType.SONG.name,
-            actionType = ActivityActionType.PLAYED.name,
-            entityId = song.id,
-            provider = MediaId.PROVIDER_SUBSONIC,
-            title = song.title.orEmpty(),
-            subtitle = song.artist.orEmpty(),
-            coverArtId = song.coverArt ?: song.albumId,
-            songId = song.id,
-            albumId = song.albumId,
-            artistId = song.artistId,
-        )
+            ActivityContext.None -> ActivityEvent(
+                entityType = ActivityEntityType.SONG.name,
+                actionType = ActivityActionType.PLAYED.name,
+                entityId = track.id.rawId,
+                provider = trackProvider,
+                title = track.title.orEmpty(),
+                subtitle = track.artist.orEmpty(),
+                coverArtId = (track.coverArt as? CoverRef.SourceRelative)?.coverArtId
+                    ?: track.albumId?.rawId,
+                songId = track.id.rawId,
+                albumId = track.albumId?.rawId,
+                artistId = track.artistId?.rawId,
+            )
+        }
     }
 
     private fun collapseToLatestUnique(events: List<ActivityEvent>): List<ActivityEvent> {
         val seenKeys = mutableSetOf<String>()
         val collapsed = mutableListOf<ActivityEvent>()
         events.forEach { event ->
-            val stableKey = "${event.actionType}:${event.entityType}:${event.entityId}"
+            val stableKey = "${event.actionType}:${event.entityType}:${event.entityId}:${event.provider}"
             if (seenKeys.add(stableKey)) {
                 collapsed += event
             }

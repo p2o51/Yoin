@@ -57,6 +57,22 @@
             </intent-filter>
         </activity>
 
+        <activity
+            android:name=".data.source.spotify.SpotifyAppRemoteCallbackActivity"
+            android:exported="true"
+            android:launchMode="singleTask"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data
+                    android:scheme="yoin"
+                    android:host="auth"
+                    android:pathPrefix="/spotify/app-remote" />
+            </intent-filter>
+        </activity>
+
     </application>
 
 </manifest>

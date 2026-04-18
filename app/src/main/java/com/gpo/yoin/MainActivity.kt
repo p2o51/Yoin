@@ -41,6 +41,16 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
+
+    override fun onStart() {
+        super.onStart()
+        (application as? YoinApplication)?.container?.playbackManager?.onHostStart(this)
+    }
+
+    override fun onStop() {
+        (application as? YoinApplication)?.container?.playbackManager?.onHostStop()
+        super.onStop()
+    }
 }
 
 @Composable
@@ -58,11 +68,11 @@ fun YoinApp(modifier: Modifier = Modifier) {
         val context = LocalContext.current
         val imageLoader = remember { ImageLoader(context) }
         val playbackState by app.container.playbackManager.playbackState.collectAsState()
-        val coverArtId = playbackState.currentSong?.coverArt
+        val coverArt = playbackState.currentTrack?.coverArt
 
-        LaunchedEffect(coverArtId, playbackState.queue.size) {
-            if (coverArtId != null) {
-                val url = app.container.repository.buildCoverArtUrl(coverArtId)
+        LaunchedEffect(coverArt, playbackState.queue.size) {
+            if (coverArt != null) {
+                val url = app.container.repository.resolveCoverUrl(coverArt)
                 val request = ImageRequest.Builder(context)
                     .data(url)
                     .size(Size(200, 200))

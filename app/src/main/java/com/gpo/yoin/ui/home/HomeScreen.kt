@@ -49,8 +49,11 @@ import com.gpo.yoin.data.local.ActivityActionType
 import com.gpo.yoin.data.local.ActivityEntityType
 import com.gpo.yoin.data.local.ActivityEvent
 import com.gpo.yoin.data.local.PlayHistory
-import com.gpo.yoin.data.remote.Album
-import com.gpo.yoin.data.remote.Song
+import com.gpo.yoin.data.model.Album
+import com.gpo.yoin.data.model.Artist
+import com.gpo.yoin.data.model.CoverRef
+import com.gpo.yoin.data.model.MediaId
+import com.gpo.yoin.data.model.Track
 // VisualizerData intentionally removed: HomeScreen consumes a pre-smoothed
 // playbackSignal from AudioVisualizerManager instead.
 import com.gpo.yoin.ui.component.AlbumCard
@@ -85,7 +88,7 @@ fun HomeScreen(
     onAlbumClick: (albumId: String, sharedTransitionKey: String?) -> Unit,
     onArtistClick: (artistId: String) -> Unit,
     onPlaylistClick: (playlistId: String) -> Unit,
-    onSongClick: (Song) -> Unit,
+    onSongClick: (Track) -> Unit,
     sharedTransitionScope: SharedTransitionScope? = null,
     animatedVisibilityScope: AnimatedVisibilityScope? = null,
     modifier: Modifier = Modifier,
@@ -128,7 +131,7 @@ fun HomeContent(
     onAlbumClick: (albumId: String, sharedTransitionKey: String?) -> Unit,
     onArtistClick: (artistId: String) -> Unit,
     onPlaylistClick: (playlistId: String) -> Unit,
-    onSongClick: (Song) -> Unit,
+    onSongClick: (Track) -> Unit,
     onRetry: () -> Unit,
     onLoadMoreJumpBackIn: () -> Unit,
     buildCoverArtUrl: (String) -> String,
@@ -256,10 +259,10 @@ private fun HomeContentSections(
     recentlyAdded: List<Album>,
     mixForYou: List<Album>,
     mostPlayed: List<Album>,
-    quickPlaySongs: List<Song>,
+    quickPlaySongs: List<Track>,
     quickPlayAlbums: List<Album>,
     onAlbumClick: (albumId: String) -> Unit,
-    onSongClick: (Song) -> Unit,
+    onSongClick: (Track) -> Unit,
     buildCoverArtUrl: (String) -> String,
     modifier: Modifier = Modifier,
 ) {
@@ -335,9 +338,9 @@ private fun SectionHeader(
 
 @Composable
 private fun QuickPlayRow(
-    songs: List<Song>,
+    songs: List<Track>,
     albums: List<Album>,
-    onSongClick: (Song) -> Unit,
+    onSongClick: (Track) -> Unit,
     onAlbumClick: (albumId: String) -> Unit,
     buildCoverArtUrl: (String) -> String,
     modifier: Modifier = Modifier,
@@ -352,13 +355,13 @@ private fun QuickPlayRow(
             items = albums,
             key = { _, album -> "qp_album_${album.id}" },
         ) { _, album ->
-            val coverUrl = album.coverArt?.let { buildCoverArtUrl(it) }
-                ?: buildCoverArtUrl(album.id)
+            val coverUrl = coverArtUrlFor(album.coverArt, buildCoverArtUrl)
+                ?: buildCoverArtUrl(album.id.rawId)
 
             QuickPlayAlbumCard(
                 album = album,
                 coverArtUrl = coverUrl,
-                onClick = { onAlbumClick(album.id) },
+                onClick = { onAlbumClick(album.id.toString()) },
             )
         }
 
@@ -367,7 +370,7 @@ private fun QuickPlayRow(
             items = songs,
             key = { _, song -> "qp_song_${song.id}" },
         ) { _, song ->
-            val coverUrl = song.coverArt?.let { buildCoverArtUrl(it) }
+            val coverUrl = coverArtUrlFor(song.coverArt, buildCoverArtUrl)
 
             QuickPlayCard(
                 song = song,
@@ -438,7 +441,7 @@ private fun QuickPlayAlbumCard(
 
 @Composable
 private fun QuickPlayCard(
-    song: Song,
+    song: Track,
     coverArtUrl: String?,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
@@ -509,16 +512,16 @@ private fun AlbumsRow(
     ) {
         itemsIndexed(
             items = albums,
-            key = { _, album -> album.id },
+            key = { _, album -> album.id.toString() },
         ) { _, album ->
-            val coverUrl = album.coverArt?.let { buildCoverArtUrl(it) }
-                ?: buildCoverArtUrl(album.id)
+            val coverUrl = coverArtUrlFor(album.coverArt, buildCoverArtUrl)
+                ?: buildCoverArtUrl(album.id.rawId)
 
             AlbumCard(
                 coverArtUrl = coverUrl,
                 title = album.name,
                 subtitle = album.artist.orEmpty(),
-                onClick = { onAlbumClick(album.id) },
+                onClick = { onAlbumClick(album.id.toString()) },
             )
         }
     }
@@ -527,7 +530,7 @@ private fun AlbumsRow(
 @Composable
 private fun ActivitiesRow(
     activities: List<PlayHistory>,
-    onSongClick: (Song) -> Unit,
+    onSongClick: (Track) -> Unit,
     buildCoverArtUrl: (String) -> String,
     modifier: Modifier = Modifier,
 ) {
@@ -545,13 +548,21 @@ private fun ActivitiesRow(
                 coverArtUrl = history.coverArtId?.let { buildCoverArtUrl(it) },
                 onClick = {
                     onSongClick(
-                        Song(
-                            id = history.songId,
+                        Track(
+                            id = MediaId(history.provider, history.songId),
                             title = history.title,
                             artist = history.artist,
                             album = history.album,
-                            albumId = history.albumId.takeIf { it.isNotBlank() },
-                            coverArt = history.coverArtId,
+                            albumId = history.albumId.takeIf { it.isNotBlank() }?.let {
+                                MediaId(history.provider, it)
+                            },
+                            artistId = null,
+                            coverArt = history.coverArtId?.let { CoverRef.SourceRelative(it) },
+                            durationSec = history.durationMs.takeIf { it > 0L }?.let { (it / 1000L).toInt() },
+                            trackNumber = null,
+                            year = null,
+                            genre = null,
+                            userRating = null,
                         ),
                     )
                 },
@@ -628,6 +639,15 @@ private fun formatTimeAgo(playedAtMillis: Long): String {
         days < 7L -> "${days}d ago"
         else -> "${days / 7}w ago"
     }
+}
+
+private fun coverArtUrlFor(
+    ref: CoverRef?,
+    buildCoverArtUrl: (String) -> String,
+): String? = when (ref) {
+    null -> null
+    is CoverRef.Url -> ref.url
+    is CoverRef.SourceRelative -> buildCoverArtUrl(ref.coverArtId)
 }
 
 // Previews
@@ -724,28 +744,38 @@ private fun HomeContentPreview() {
                 jumpBackInItems = listOf(
                     HomeJumpBackInItem.AlbumItem(
                         Album(
-                            id = "ja1",
+                            id = MediaId.subsonic("ja1"),
                             name = "Describe",
                             artist = "Hannah Jadagu",
-                            coverArt = "cover-ja1",
+                            artistId = null,
+                            coverArt = CoverRef.SourceRelative("cover-ja1"),
                             songCount = 12,
+                            durationSec = null,
+                            year = null,
+                            genre = null,
                         ),
                     ),
                     HomeJumpBackInItem.SongItem(
-                        Song(
-                            id = "js1",
+                        Track(
+                            id = MediaId.subsonic("js1"),
                             title = "Little House",
                             artist = "Rachel Chinouriri",
                             album = "Little House",
-                            albumId = "album-js1",
-                            coverArt = "cover-js1",
+                            artistId = null,
+                            albumId = MediaId.subsonic("album-js1"),
+                            coverArt = CoverRef.SourceRelative("cover-js1"),
+                            durationSec = null,
+                            trackNumber = null,
+                            year = null,
+                            genre = null,
+                            userRating = null,
                         ),
                     ),
                     HomeJumpBackInItem.ArtistItem(
-                        com.gpo.yoin.data.remote.Artist(
-                            id = "artist-ja1",
+                        Artist(
+                            id = MediaId.subsonic("artist-ja1"),
                             name = "Daft Punk",
-                            coverArt = "artist-cover-1",
+                            coverArt = CoverRef.SourceRelative("artist-cover-1"),
                             albumCount = 4,
                         ),
                     ),

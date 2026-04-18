@@ -1,6 +1,6 @@
 package com.gpo.yoin.ui.memories
 
-import com.gpo.yoin.data.remote.Song
+import com.gpo.yoin.data.model.Track
 
 sealed interface MemoriesUiState {
     data object Loading : MemoriesUiState
@@ -41,7 +41,7 @@ data class MemoryEntry(
     val scoreText: String,
     val scoreSupportingText: String?,
     val footerText: String?,
-    val playbackSongs: List<Song>,
+    val playbackSongs: List<Track>,
     val tracks: List<MemoryTrack>,
 )
 

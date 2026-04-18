@@ -21,15 +21,6 @@ import com.gpo.yoin.data.source.MusicWriteActions
 import java.util.concurrent.TimeUnit
 import okhttp3.OkHttpClient
 
-/**
- * B2 skeleton: validates the [MusicSource] abstraction against a second
- * provider. Only [MusicLibrary.ping] does real work today (hits Spotify Web
- * API `/v1/me`). Everything else throws `NotImplementedError` so phase-2 code
- * lights up implementations one method at a time.
- *
- * [capabilities] is deliberately empty — gating UI on capability sets should
- * stay truthful. Phase 2 adds entries as methods become real.
- */
 class SpotifyMusicSource(
     initialCredentials: ProfileCredentials.Spotify,
     clientIdProvider: () -> String,
@@ -48,7 +39,17 @@ class SpotifyMusicSource(
 
     override val id: String = MediaId.PROVIDER_SPOTIFY
 
-    override val capabilities: Set<Capability> = emptySet()
+    override val capabilities: Set<Capability> = setOf(
+        Capability.SEARCH,
+        Capability.RANDOM_SONGS,
+        Capability.STAR_UNSTAR,
+        Capability.PLAYLISTS_READ,
+    )
+
+    private var savedTracksCache: List<SpotifySavedTrackObject>? = null
+    private var savedAlbumsCache: List<SpotifySavedAlbumObject>? = null
+    private var playlistsCache: List<SpotifyPlaylistObject>? = null
+    private var followedArtistsCache: List<SpotifyArtistObject>? = null
 
     private val library = object : MusicLibrary {
         override suspend fun ping(): Boolean {
@@ -56,42 +57,126 @@ class SpotifyMusicSource(
             return true
         }
 
-        override suspend fun getAlbumList(type: String, size: Int, offset: Int): List<Album> =
-            throw NotImplementedError(NOT_IMPLEMENTED_MESSAGE)
+        override suspend fun getAlbumList(type: String, size: Int, offset: Int): List<Album> {
+            val albums = savedAlbums()
+            val savedAlbumIds = savedAlbumIds()
+            val mapped = when (type) {
+                "alphabeticalByName" -> albums.sortedBy { it.album?.name?.lowercase().orEmpty() }
+                "recent" -> albums.sortedByDescending { it.addedAt.orEmpty() }
+                "random" -> albums.shuffled()
+                else -> albums
+            }.mapNotNull { savedAlbum ->
+                savedAlbum.album?.toSimplifiedAlbum()?.toAlbum(savedAlbumIds = savedAlbumIds)
+            }
+            return mapped.drop(offset.coerceAtLeast(0)).take(size.coerceAtLeast(0))
+        }
 
-        override suspend fun getAlbum(id: MediaId): Album? =
-            throw NotImplementedError(NOT_IMPLEMENTED_MESSAGE)
+        override suspend fun getAlbum(id: MediaId): Album? = withSpotifyId(id) { rawId ->
+            val savedAlbumIds = savedAlbumIds()
+            val savedTrackIds = savedTrackIds()
+            val album = runCatching { apiClient.getAlbum(rawId) }
+                .getOrElse { error ->
+                    if (error.isSpotifyNotFound()) return@withSpotifyId null
+                    throw error
+                }
+            val tracks = apiClient.getAlbumTracks(rawId)
+            album.toAlbum(
+                savedAlbumIds = savedAlbumIds,
+                savedTrackIds = savedTrackIds,
+                tracksOverride = tracks,
+            )
+        }
 
         override suspend fun getArtists(): List<ArtistIndex> =
-            throw NotImplementedError(NOT_IMPLEMENTED_MESSAGE)
+            libraryArtists().toArtistIndices()
 
-        override suspend fun getArtist(id: MediaId): ArtistDetail? =
-            throw NotImplementedError(NOT_IMPLEMENTED_MESSAGE)
+        override suspend fun getArtist(id: MediaId): ArtistDetail? = withSpotifyId(id) { rawId ->
+            val savedAlbumIds = savedAlbumIds()
+            val followedArtistIds = followedArtistIds()
+            val artist = runCatching { apiClient.getArtist(rawId) }
+                .getOrElse { error ->
+                    if (error.isSpotifyNotFound()) return@withSpotifyId null
+                    throw error
+                }
+            val albums = apiClient.getArtistAlbums(rawId)
+                .distinctBy(SpotifySimplifiedAlbumObject::id)
+                .map { it.toAlbum(savedAlbumIds = savedAlbumIds) }
+                .sortedWith(compareByDescending<Album> { it.year ?: Int.MIN_VALUE }.thenBy { it.name.lowercase() })
+            artist.toArtistDetail(
+                albums = albums,
+                isStarred = rawId in followedArtistIds,
+            )
+        }
 
         override suspend fun getPlaylists(): List<Playlist> =
-            throw NotImplementedError(NOT_IMPLEMENTED_MESSAGE)
+            currentUserPlaylists()
+                .sortedBy { it.name.lowercase() }
+                .map { playlist -> playlist.toPlaylist() }
 
-        override suspend fun getPlaylist(id: MediaId): Playlist? =
-            throw NotImplementedError(NOT_IMPLEMENTED_MESSAGE)
+        override suspend fun getPlaylist(id: MediaId): Playlist? = withSpotifyId(id) { rawId ->
+            val savedTrackIds = savedTrackIds()
+            val playlist = runCatching { apiClient.getPlaylist(rawId) }
+                .getOrElse { error ->
+                    if (error.isSpotifyNotFound()) return@withSpotifyId null
+                    throw error
+                }
+            val tracks = apiClient.getPlaylistItems(rawId)
+                .mapNotNull(SpotifyPlaylistItemObject::track)
+                .mapNotNull { track ->
+                    runCatching { track.toTrack(savedTrackIds = savedTrackIds) }.getOrNull()
+                }
+            playlist.toPlaylist(tracks = tracks)
+        }
 
-        override suspend fun getStarred(): Starred =
-            throw NotImplementedError(NOT_IMPLEMENTED_MESSAGE)
+        override suspend fun getStarred(): Starred {
+            val savedTrackIds = savedTrackIds()
+            val savedAlbumIds = savedAlbumIds()
+            val followedArtistIds = followedArtistIds()
+            val tracks = savedTracks()
+                .mapNotNull { savedTrack -> savedTrack.track?.toTrack(savedTrackIds = savedTrackIds) }
+            val albums = savedAlbums()
+                .mapNotNull { savedAlbum ->
+                    savedAlbum.album?.toSimplifiedAlbum()?.toAlbum(savedAlbumIds = savedAlbumIds)
+                }
+            val artists = followedArtists()
+                .map { artist -> artist.toArtist(isStarred = artist.id in followedArtistIds) }
+            return toStarred(tracks = tracks, albums = albums, artists = artists)
+        }
 
         override suspend fun getRandomSongs(size: Int): List<Track> =
-            throw NotImplementedError(NOT_IMPLEMENTED_MESSAGE)
+            savedTracks()
+                .mapNotNull { savedTrack -> savedTrack.track?.let { track ->
+                    track.toTrack(savedTrackIds = setOf(track.id).filterNotNull().toSet())
+                } }
+                .shuffled()
+                .take(size.coerceAtLeast(0))
 
         override suspend fun search(query: String): SearchResults =
-            throw NotImplementedError(NOT_IMPLEMENTED_MESSAGE)
+            apiClient.search(query = query).toSearchResults(
+                savedTrackIds = savedTrackIds(),
+                savedAlbumIds = savedAlbumIds(),
+                followedArtistIds = followedArtistIds(),
+            )
     }
 
     private val metadata = object : MusicMetadata {
-        override suspend fun getLyrics(trackId: MediaId): Lyrics? =
-            throw NotImplementedError(NOT_IMPLEMENTED_MESSAGE)
+        override suspend fun getLyrics(trackId: MediaId): Lyrics? = null
     }
 
     private val writeActions = object : MusicWriteActions {
-        override suspend fun setFavorite(id: MediaId, favorite: Boolean): Result<Unit> =
-            Result.failure(NotImplementedError(NOT_IMPLEMENTED_MESSAGE))
+        override suspend fun setFavorite(id: MediaId, favorite: Boolean): Result<Unit> = runCatching {
+            val rawId = requireSpotify(id).rawId
+            // Current callsites only toggle favorite for tracks. If future UI
+            // starts starring albums/artists/playlists, this interface needs an
+            // explicit entity type rather than a bare MediaId.
+            val uri = "spotify:track:$rawId"
+            if (favorite) {
+                apiClient.saveToLibrary(uri)
+            } else {
+                apiClient.removeFromLibrary(uri)
+            }
+            savedTracksCache = null
+        }
 
         override suspend fun setRating(trackId: MediaId, rating: Int): Result<Unit> =
             Result.failure(UnsupportedOperationException("Spotify has no 5-star rating"))
@@ -112,15 +197,110 @@ class SpotifyMusicSource(
     override fun writeActions(): MusicWriteActions = writeActions
     override fun playback(): MusicPlayback = playback
 
+    override suspend fun prime() {
+        runCatching { library.getAlbumList(type = "recent", size = 20, offset = 0) }
+        runCatching { library.getArtists() }
+    }
+
     override fun resolveCoverUrl(ref: CoverRef, size: Int?): String? = when (ref) {
         is CoverRef.Url -> ref.url
         // Spotify entities never emit SourceRelative — defensive.
         is CoverRef.SourceRelative -> null
     }
 
+    private suspend fun savedTracks(): List<SpotifySavedTrackObject> =
+        savedTracksCache ?: apiClient.getSavedTracks().also { savedTracksCache = it }
+
+    private suspend fun savedAlbums(): List<SpotifySavedAlbumObject> =
+        savedAlbumsCache ?: apiClient.getSavedAlbums().also { savedAlbumsCache = it }
+
+    private suspend fun currentUserPlaylists(): List<SpotifyPlaylistObject> =
+        playlistsCache ?: apiClient.getCurrentUserPlaylists().also { playlistsCache = it }
+
+    private suspend fun followedArtists(): List<SpotifyArtistObject> =
+        followedArtistsCache ?: apiClient.getFollowedArtists().also { followedArtistsCache = it }
+
+    private suspend fun savedTrackIds(): Set<String> =
+        savedTracks().mapNotNullTo(linkedSetOf()) { savedTrack -> savedTrack.track?.id }
+
+    private suspend fun savedAlbumIds(): Set<String> =
+        savedAlbums().mapNotNullTo(linkedSetOf()) { savedAlbum -> savedAlbum.album?.id }
+
+    private suspend fun followedArtistIds(): Set<String> =
+        followedArtists().mapTo(linkedSetOf(), SpotifyArtistObject::id)
+
+    private suspend fun libraryArtists(): List<com.gpo.yoin.data.model.Artist> {
+        val followed = followedArtists()
+        val followedArtistIds = followed.mapTo(linkedSetOf(), SpotifyArtistObject::id)
+        val merged = linkedMapOf<MediaId, com.gpo.yoin.data.model.Artist>()
+
+        fun absorb(artist: com.gpo.yoin.data.model.Artist) {
+            val existing = merged[artist.id]
+            merged[artist.id] = if (existing == null) {
+                artist
+            } else {
+                existing.copy(
+                    albumCount = existing.albumCount ?: artist.albumCount,
+                    coverArt = existing.coverArt ?: artist.coverArt,
+                    isStarred = existing.isStarred || artist.isStarred,
+                )
+            }
+        }
+
+        followed.forEach { artist ->
+            absorb(artist.toArtist(isStarred = true))
+        }
+
+        savedAlbums().forEach { savedAlbum ->
+            val album = savedAlbum.album ?: return@forEach
+            val coverArt = album.bestImageUrl()?.let(CoverRef::Url)
+            album.artists.forEach { artist ->
+                absorb(
+                    com.gpo.yoin.data.model.Artist(
+                        id = MediaId.spotify(artist.id),
+                        name = artist.name,
+                        albumCount = null,
+                        coverArt = coverArt,
+                        isStarred = artist.id in followedArtistIds,
+                    ),
+                )
+            }
+        }
+
+        savedTracks().forEach { savedTrack ->
+            val track = savedTrack.track ?: return@forEach
+            val coverArt = track.album?.bestImageUrl()?.let(CoverRef::Url)
+            track.artists.forEach { artist ->
+                absorb(
+                    com.gpo.yoin.data.model.Artist(
+                        id = MediaId.spotify(artist.id),
+                        name = artist.name,
+                        albumCount = null,
+                        coverArt = coverArt,
+                        isStarred = artist.id in followedArtistIds,
+                    ),
+                )
+            }
+        }
+
+        return merged.values.toList()
+    }
+
+    private fun requireSpotify(id: MediaId): MediaId {
+        require(id.provider == MediaId.PROVIDER_SPOTIFY) {
+            "SpotifyMusicSource received a non-Spotify MediaId: $id"
+        }
+        return id
+    }
+
+    private suspend fun <T> withSpotifyId(id: MediaId, block: suspend (String) -> T): T =
+        block(requireSpotify(id).rawId)
+
+    private fun Throwable.isSpotifyNotFound(): Boolean =
+        this is SpotifyAuthException && code == HTTP_NOT_FOUND
+
     companion object {
-        private const val NOT_IMPLEMENTED_MESSAGE =
-            "Spotify provider is a B2 skeleton — this method lands in phase 2"
+        private const val HTTP_NOT_FOUND = 404
 
         private fun defaultHttpClient(): OkHttpClient = OkHttpClient.Builder()
             .connectTimeout(15, TimeUnit.SECONDS)

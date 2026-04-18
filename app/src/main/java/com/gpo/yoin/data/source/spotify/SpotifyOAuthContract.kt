@@ -18,20 +18,29 @@ import com.gpo.yoin.data.profile.ProfileCredentials
  * - [SpotifyOAuthResult.Failure] — something network- or protocol-level went
  *   wrong. Surface the message.
  */
-class SpotifyOAuthContract : ActivityResultContract<Unit, SpotifyOAuthResult>() {
+class SpotifyOAuthContract : ActivityResultContract<String?, SpotifyOAuthResult>() {
 
-    override fun createIntent(context: Context, input: Unit): Intent =
-        Intent(context, SpotifyOAuthActivity::class.java)
+    override fun createIntent(context: Context, input: String?): Intent =
+        Intent(context, SpotifyOAuthActivity::class.java).apply {
+            putExtra(EXTRA_TARGET_PROFILE_ID, input)
+        }
 
     override fun parseResult(resultCode: Int, intent: Intent?): SpotifyOAuthResult {
+        val targetProfileId = intent?.getStringExtra(EXTRA_TARGET_PROFILE_ID)
         if (resultCode == Activity.RESULT_CANCELED) {
             return SpotifyOAuthResult.Cancelled
         }
-        intent ?: return SpotifyOAuthResult.Failure("Spotify returned no result intent")
+        intent ?: return SpotifyOAuthResult.Failure(
+            message = "Spotify returned no result intent",
+            targetProfileId = targetProfileId,
+        )
 
         val failureMessage = intent.getStringExtra(EXTRA_FAILURE_MESSAGE)
         if (failureMessage != null) {
-            return SpotifyOAuthResult.Failure(failureMessage)
+            return SpotifyOAuthResult.Failure(
+                message = failureMessage,
+                targetProfileId = targetProfileId,
+            )
         }
 
         val accessToken = intent.getStringExtra(EXTRA_ACCESS_TOKEN)
@@ -42,7 +51,10 @@ class SpotifyOAuthContract : ActivityResultContract<Unit, SpotifyOAuthResult>() 
         val userId = intent.getStringExtra(EXTRA_USER_ID).orEmpty()
 
         if (accessToken.isNullOrBlank() || refreshToken.isNullOrBlank() || expiresAt < 0L) {
-            return SpotifyOAuthResult.Failure("Spotify returned incomplete credentials")
+            return SpotifyOAuthResult.Failure(
+                message = "Spotify returned incomplete credentials",
+                targetProfileId = targetProfileId,
+            )
         }
         return SpotifyOAuthResult.Success(
             credentials = ProfileCredentials.Spotify(
@@ -53,6 +65,7 @@ class SpotifyOAuthContract : ActivityResultContract<Unit, SpotifyOAuthResult>() 
             ),
             displayName = displayName.ifBlank { userId },
             userId = userId,
+            targetProfileId = targetProfileId,
         )
     }
 
@@ -64,6 +77,7 @@ class SpotifyOAuthContract : ActivityResultContract<Unit, SpotifyOAuthResult>() 
         internal const val EXTRA_DISPLAY_NAME = "yoin.spotify.display_name"
         internal const val EXTRA_USER_ID = "yoin.spotify.user_id"
         internal const val EXTRA_FAILURE_MESSAGE = "yoin.spotify.failure"
+        internal const val EXTRA_TARGET_PROFILE_ID = "yoin.spotify.target_profile_id"
     }
 }
 
@@ -72,9 +86,13 @@ sealed interface SpotifyOAuthResult {
         val credentials: ProfileCredentials.Spotify,
         val displayName: String,
         val userId: String,
+        val targetProfileId: String?,
     ) : SpotifyOAuthResult
 
-    data class Failure(val message: String) : SpotifyOAuthResult
+    data class Failure(
+        val message: String,
+        val targetProfileId: String?,
+    ) : SpotifyOAuthResult
 
     data object Cancelled : SpotifyOAuthResult
 }

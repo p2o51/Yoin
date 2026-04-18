@@ -75,7 +75,10 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.gpo.yoin.data.local.ActivityEntityType
 import com.gpo.yoin.data.local.ActivityEvent
-import com.gpo.yoin.data.remote.Song
+import com.gpo.yoin.data.model.Artist
+import com.gpo.yoin.data.model.CoverRef
+import com.gpo.yoin.data.model.MediaId
+import com.gpo.yoin.data.model.Track
 import com.gpo.yoin.ui.component.ExpressiveBackdrop
 import com.gpo.yoin.ui.component.ExpressiveBackdropVariant
 import com.gpo.yoin.ui.component.ExpressiveMediaArtwork
@@ -104,7 +107,7 @@ internal sealed interface HomeEntryTarget {
     data class Album(val albumId: String, val sharedTransitionKey: String?) : HomeEntryTarget
     data class Artist(val artistId: String) : HomeEntryTarget
     data class Playlist(val playlistId: String) : HomeEntryTarget
-    data class SongTarget(val song: Song) : HomeEntryTarget
+    data class SongTarget(val song: Track) : HomeEntryTarget
 }
 
 private data class HomeMomentEntry(
@@ -155,7 +158,7 @@ internal fun HomeEditorialContent(
     onAlbumClick: (albumId: String, sharedTransitionKey: String?) -> Unit,
     onArtistClick: (artistId: String) -> Unit,
     onPlaylistClick: (playlistId: String) -> Unit,
-    onSongClick: (Song) -> Unit,
+    onSongClick: (Track) -> Unit,
     onLoadMoreJumpBackIn: () -> Unit,
     buildCoverArtUrl: (String) -> String,
     sharedTransitionScope: SharedTransitionScope? = null,
@@ -843,8 +846,8 @@ private fun HomeEmptyCard(
         modifier = modifier,
         shape = YoinShapeTokens.ExtraLarge,
         containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
-        tonalElevation = 2.dp,
-        shadowElevation = 8.dp,
+        tonalElevation = 1.dp,
+        shadowElevation = 0.dp,
     ) {
         Column(
             modifier = Modifier.padding(18.dp),
@@ -919,14 +922,15 @@ private fun buildJumpBackInEntry(
         title = item.album.name,
         subtitle = item.album.artist,
         metaText = item.album.songCount?.let { "$it tracks" },
-        coverArtUrl = item.album.coverArt?.let(buildCoverArtUrl) ?: buildCoverArtUrl(item.album.id),
-        sharedAlbumId = item.album.id,
+        coverArtUrl = resolveHomeCoverArtUrl(item.album.coverArt, buildCoverArtUrl)
+            ?: buildCoverArtUrl(item.album.id.rawId),
+        sharedAlbumId = item.album.id.toString(),
         sharedSourceKey = item.stableId,
         songId = null,
         variant = ExpressiveBackdropVariant.Bun,
         shape = YoinShapeTokens.Medium,
         fallbackIcon = Icons.Filled.LibraryMusic,
-        target = HomeEntryTarget.Album(item.album.id, item.stableId),
+        target = HomeEntryTarget.Album(item.album.id.toString(), item.stableId),
     )
 
     is HomeJumpBackInItem.SongItem -> JumpBackInVisualEntry(
@@ -934,11 +938,11 @@ private fun buildJumpBackInEntry(
         title = item.song.title.orEmpty(),
         subtitle = item.song.artist,
         metaText = "Single",
-        coverArtUrl = item.song.coverArt?.let(buildCoverArtUrl)
-            ?: item.song.albumId?.let(buildCoverArtUrl),
+        coverArtUrl = resolveHomeCoverArtUrl(item.song.coverArt, buildCoverArtUrl)
+            ?: item.song.albumId?.let { buildCoverArtUrl(it.rawId) },
         sharedAlbumId = null,
         sharedSourceKey = null,
-        songId = item.song.id,
+        songId = item.song.id.toString(),
         variant = ExpressiveBackdropVariant.Circle,
         shape = YoinShapeTokens.Medium,
         fallbackIcon = Icons.Filled.LibraryMusic,
@@ -950,14 +954,14 @@ private fun buildJumpBackInEntry(
         title = item.artist.name,
         subtitle = "Artist",
         metaText = null,
-        coverArtUrl = item.artist.coverArt?.let(buildCoverArtUrl),
+        coverArtUrl = resolveHomeCoverArtUrl(item.artist.coverArt, buildCoverArtUrl),
         sharedAlbumId = null,
         sharedSourceKey = null,
         songId = null,
         variant = ExpressiveBackdropVariant.SoftBoom,
         shape = CircleShape,
         fallbackIcon = Icons.Filled.Person,
-        target = HomeEntryTarget.Artist(item.artist.id),
+        target = HomeEntryTarget.Artist(item.artist.id.toString()),
     )
 }
 
@@ -981,13 +985,19 @@ private fun artworkFallbackIconForEntityType(
     else -> Icons.Filled.LibraryMusic
 }
 
-private fun ActivityEvent.asSong(): Song = Song(
-    id = songId ?: entityId,
+private fun ActivityEvent.asSong(): Track = Track(
+    id = MediaId(provider, songId ?: entityId),
     title = title,
     artist = subtitle,
-    albumId = albumId.takeIf { !it.isNullOrBlank() },
-    coverArt = coverArtId,
-    artistId = artistId,
+    artistId = artistId?.takeIf { !it.isNullOrBlank() }?.let { MediaId(provider, it) },
+    album = null,
+    albumId = albumId.takeIf { !it.isNullOrBlank() }?.let { MediaId(provider, it) },
+    coverArt = coverArtId?.let { CoverRef.SourceRelative(it) },
+    durationSec = null,
+    trackNumber = null,
+    year = null,
+    genre = null,
+    userRating = null,
 )
 
 private fun buildActivityCoverArtUrl(
@@ -998,6 +1008,15 @@ private fun buildActivityCoverArtUrl(
     activity.entityType == ActivityEntityType.ALBUM.name -> buildCoverArtUrl(activity.entityId)
     !activity.albumId.isNullOrBlank() -> buildCoverArtUrl(activity.albumId)
     else -> null
+}
+
+private fun resolveHomeCoverArtUrl(
+    ref: CoverRef?,
+    buildCoverArtUrl: (String) -> String,
+): String? = when (ref) {
+    null -> null
+    is CoverRef.Url -> ref.url
+    is CoverRef.SourceRelative -> buildCoverArtUrl(ref.coverArtId)
 }
 
 private fun buildActivityFootnote(activity: ActivityEvent): String {

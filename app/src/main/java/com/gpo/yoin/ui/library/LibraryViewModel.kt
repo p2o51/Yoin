@@ -4,13 +4,14 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.gpo.yoin.AppContainer
-import com.gpo.yoin.data.remote.Album
-import com.gpo.yoin.data.remote.Artist
-import com.gpo.yoin.data.remote.ArtistIndex
-import com.gpo.yoin.data.remote.Playlist
-import com.gpo.yoin.data.remote.SearchResult
-import com.gpo.yoin.data.remote.Song
-import com.gpo.yoin.data.remote.StarredResponse
+import com.gpo.yoin.data.model.Album
+import com.gpo.yoin.data.model.Artist
+import com.gpo.yoin.data.model.ArtistIndex
+import com.gpo.yoin.data.model.Playlist
+import com.gpo.yoin.data.model.SearchResults
+import com.gpo.yoin.data.model.Starred
+import com.gpo.yoin.data.model.Track
+import com.gpo.yoin.data.model.artist
 import com.gpo.yoin.data.repository.YoinRepository
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -33,9 +34,9 @@ class LibraryViewModel(
 
     private var cachedArtists: List<Artist>? = null
     private var cachedAlbums: List<Album>? = null
-    private var cachedSongs: List<Song>? = null
+    private var cachedSongs: List<Track>? = null
     private var cachedPlaylists: List<Playlist>? = null
-    private var cachedFavorites: StarredResponse? = null
+    private var cachedFavorites: Starred? = null
 
     init {
         loadInitialData()
@@ -198,7 +199,7 @@ class LibraryViewModel(
     }
 
     fun buildCoverArtUrl(coverArtId: String): String =
-        repository.buildCoverArtUrl(coverArtId, size = 256)
+        repository.resolveSubsonicCoverUrl(coverArtId, size = 256).orEmpty()
 
     class Factory(private val container: AppContainer) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
