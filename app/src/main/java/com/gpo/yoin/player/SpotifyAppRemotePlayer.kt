@@ -525,7 +525,8 @@ internal class SpotifyAppRemotePlayer(
                 ?.let(MediaId::spotify),
             album = album?.name,
             albumId = album?.uri?.substringAfterLast(':')?.takeIf(String::isNotBlank)?.let(MediaId::spotify),
-            coverArt = imageUri?.raw?.takeIf(String::isNotBlank)?.let { CoverRef.Url("https://i.scdn.co/image/$it") },
+            coverArt = imageUri?.raw?.takeIf(String::isNotBlank)?.let(::spotifyImageUrlFromProtocolUri)
+                ?.let(CoverRef::Url),
             durationSec = (duration / 1_000L).toInt(),
             trackNumber = null,
             year = null,
@@ -654,6 +655,27 @@ internal class SpotifyAppRemotePlayer(
         lastSnapshot = snapshot
         onSnapshot(snapshot)
     }
+}
+
+/**
+ * Turn a Spotify App Remote [com.spotify.protocol.types.ImageUri.raw] string
+ * (e.g. `"spotify:image:ab67616d0000b273..."`) into a public CDN URL Coil
+ * can fetch directly (`"https://i.scdn.co/image/ab67616d0000b273..."`).
+ *
+ * Naively concatenating the whole protocol URI onto the CDN prefix yields
+ * a 404 — the CDN wants just the trailing image id. Returns `null` for
+ * blank input and passes through values that are already URLs (defensive
+ * against SDK version drift).
+ */
+internal fun spotifyImageUrlFromProtocolUri(raw: String): String? {
+    val trimmed = raw.trim()
+    if (trimmed.isBlank()) return null
+    if (trimmed.startsWith("http://", ignoreCase = true) ||
+        trimmed.startsWith("https://", ignoreCase = true)
+    ) return trimmed
+    val imageId = trimmed.substringAfterLast(':').trim()
+    if (imageId.isBlank()) return null
+    return "https://i.scdn.co/image/$imageId"
 }
 
 internal fun userNotAuthorizedFailure(rawMessage: String?): SpotifyConnectFailure {
