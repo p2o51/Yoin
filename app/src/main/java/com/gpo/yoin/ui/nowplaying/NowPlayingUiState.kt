@@ -48,12 +48,6 @@ sealed interface NowPlayingUiState {
         val lyrics: List<LyricLine>,
         val queue: List<QueueItem>,
         val currentQueueIndex: Int,
-        /**
-         * Whether the active source declares [Capability.LYRICS]. When false
-         * the lyrics pager tab is hidden entirely — Spotify has no Web API
-         * lyrics endpoint, so showing an empty tab would be misleading.
-         */
-        val showLyricsTab: Boolean = true,
     ) : NowPlayingUiState
 }
 

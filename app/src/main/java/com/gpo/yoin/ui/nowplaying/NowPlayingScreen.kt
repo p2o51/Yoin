@@ -503,90 +503,73 @@ private fun PlayingContent(
 
             // ── 2. Lyrics / Song Info pager ───────────────────────────────────
             //
-            // When the active source doesn't declare `Capability.LYRICS`
-            // (Spotify Web API has no lyrics endpoint), collapse to an
-            // About-only view — no empty "Lyrics" tab, no swipeable page that
-            // would just render "No lyrics".
-            if (state.showLyricsTab) {
-                val pagerState = rememberPagerState(pageCount = { 2 })
-                val pagerScope = rememberCoroutineScope()
-                val lyricsAlpha by animateFloatAsState(
-                    targetValue = if (pagerState.currentPage == 0) 1f else 0.5f,
-                    animationSpec = YoinMotion.defaultEffectsSpec(),
-                    label = "lyricsTabAlpha",
-                )
-                val aboutAlpha by animateFloatAsState(
-                    targetValue = if (pagerState.currentPage == 1) 1f else 0.5f,
-                    animationSpec = YoinMotion.defaultEffectsSpec(),
-                    label = "aboutTabAlpha",
-                )
+            // Lyrics tab stays visible for every provider. Sources that can't
+            // serve lyrics (Spotify Web API) just produce an empty
+            // [LyricsDisplay] — the "No lyrics" empty state is the correct
+            // affordance, rather than hiding the tab and surprising users who
+            // switch profiles.
+            val pagerState = rememberPagerState(pageCount = { 2 })
+            val pagerScope = rememberCoroutineScope()
+            val lyricsAlpha by animateFloatAsState(
+                targetValue = if (pagerState.currentPage == 0) 1f else 0.5f,
+                animationSpec = YoinMotion.defaultEffectsSpec(),
+                label = "lyricsTabAlpha",
+            )
+            val aboutAlpha by animateFloatAsState(
+                targetValue = if (pagerState.currentPage == 1) 1f else 0.5f,
+                animationSpec = YoinMotion.defaultEffectsSpec(),
+                label = "aboutTabAlpha",
+            )
 
-                Row(
-                    modifier = Modifier.padding(bottom = 4.dp),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    Text(
-                        text = "Lyrics",
-                        style = MaterialTheme.typography.labelLarge.let {
-                            if (pagerState.currentPage == 0) it.copy(fontWeight = FontWeight.Bold) else it
-                        },
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier
-                            .graphicsLayer { alpha = lyricsAlpha }
-                            .clickable {
-                                pagerScope.launch { pagerState.animateScrollToPage(0) }
-                            },
-                    )
-                    Text(
-                        text = "About",
-                        style = MaterialTheme.typography.labelLarge.let {
-                            if (pagerState.currentPage == 1) it.copy(fontWeight = FontWeight.Bold) else it
-                        },
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier
-                            .graphicsLayer { alpha = aboutAlpha }
-                            .clickable {
-                                pagerScope.launch { pagerState.animateScrollToPage(1) }
-                            },
-                    )
-                }
-
-                HorizontalPager(
-                    state = pagerState,
-                    beyondViewportPageCount = 1,
+            Row(
+                modifier = Modifier.padding(bottom = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Text(
+                    text = "Lyrics",
+                    style = MaterialTheme.typography.labelLarge.let {
+                        if (pagerState.currentPage == 0) it.copy(fontWeight = FontWeight.Bold) else it
+                    },
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier
-                        .fillMaxWidth()
-                        .weight(1f),
-                ) { page ->
-                    when (page) {
-                        0 -> LyricsDisplay(
-                            lyrics = state.lyrics,
-                            positionMs = state.positionMs,
-                            modifier = Modifier.fillMaxSize(),
-                        )
-                        1 -> SongInfoDisplay(
-                            songInfoState = songInfoState,
-                            onRetry = onRetryFetchSongInfo,
-                            modifier = Modifier.fillMaxSize(),
-                        )
-                    }
-                }
-            } else {
+                        .graphicsLayer { alpha = lyricsAlpha }
+                        .clickable {
+                            pagerScope.launch { pagerState.animateScrollToPage(0) }
+                        },
+                )
                 Text(
                     text = "About",
-                    style = MaterialTheme.typography.labelLarge.copy(
-                        fontWeight = FontWeight.Bold,
-                    ),
+                    style = MaterialTheme.typography.labelLarge.let {
+                        if (pagerState.currentPage == 1) it.copy(fontWeight = FontWeight.Bold) else it
+                    },
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(bottom = 4.dp),
-                )
-                SongInfoDisplay(
-                    songInfoState = songInfoState,
-                    onRetry = onRetryFetchSongInfo,
                     modifier = Modifier
-                        .fillMaxWidth()
-                        .weight(1f),
+                        .graphicsLayer { alpha = aboutAlpha }
+                        .clickable {
+                            pagerScope.launch { pagerState.animateScrollToPage(1) }
+                        },
                 )
+            }
+
+            HorizontalPager(
+                state = pagerState,
+                beyondViewportPageCount = 1,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f),
+            ) { page ->
+                when (page) {
+                    0 -> LyricsDisplay(
+                        lyrics = state.lyrics,
+                        positionMs = state.positionMs,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                    1 -> SongInfoDisplay(
+                        songInfoState = songInfoState,
+                        onRetry = onRetryFetchSongInfo,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                }
             }
 
             Spacer(modifier = Modifier.height(16.dp))

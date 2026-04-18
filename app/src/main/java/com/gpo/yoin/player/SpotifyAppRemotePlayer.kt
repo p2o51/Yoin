@@ -97,6 +97,21 @@ internal class SpotifyAppRemotePlayer(
     private var lastSnapshot: SpotifyRemoteSnapshot = SpotifyRemoteSnapshot()
     private val pendingOperations = mutableListOf<suspend (SpotifyAppRemote) -> Unit>()
 
+    /**
+     * Budget for silently retrying a cold-start [UserNotAuthorizedException].
+     *
+     * On a fresh app launch the first `SpotifyAppRemote.connect(...)` call
+     * sometimes returns `UserNotAuthorizedException` *even with
+     * `showAuthView(true)`*: the SDK pops the auth view, Spotify records
+     * consent, but our first continuation has already resumed with the
+     * exception. The next connect then succeeds because consent is
+     * cached. Auto-retrying once makes the user's first tap on a track
+     * "just work" instead of requiring them to dismiss a fake error and
+     * tap again. Budget refills on any successful connect + on host stop
+     * so every app-foreground cycle gets a fresh attempt.
+     */
+    private var coldStartAuthRetryAvailable: Boolean = true
+
     fun onHostStart(context: Context) {
         Log.d(tag, "onHostStart: host=${context.javaClass.simpleName}")
         hostContext = context
@@ -108,6 +123,10 @@ internal class SpotifyAppRemotePlayer(
     fun onHostStop() {
         Log.d(tag, "onHostStop")
         hostContext = null
+        // Fresh foreground cycle → restore the one-shot retry budget. If
+        // the user dismissed the app after a real auth failure, next
+        // launch should get one more automatic attempt.
+        coldStartAuthRetryAvailable = true
         disconnectRemote(preserveSnapshot = true)
     }
 
@@ -283,6 +302,10 @@ internal class SpotifyAppRemotePlayer(
             }.onSuccess { connected ->
                 Log.d(tag, "connectIfPossible: connected")
                 remote = connected
+                // Successful connect — if a cold-start auth retry had been
+                // consumed, refill the budget so a later hiccup in the same
+                // session can also get one free attempt.
+                coldStartAuthRetryAvailable = true
                 subscribeToPlayerState(connected)
                 // Connect succeeded, but we do NOT move to Ready yet — we
                 // wait for the first real PlayerState via the subscription.
@@ -469,6 +492,32 @@ internal class SpotifyAppRemotePlayer(
 
     private fun handleRemoteError(error: Throwable) {
         Log.w(tag, "handleRemoteError: ${error::class.java.simpleName}", error)
+
+        // Cold-start `UserNotAuthorizedException` quirk: the SDK's first
+        // connect call after a fresh app launch often returns this even
+        // though Spotify has just recorded consent behind the scenes. The
+        // next connect succeeds. Silently retry once rather than flashing
+        // a scary "needs authorization" banner that the user has to
+        // dismiss before tapping the same track again.
+        if (error is UserNotAuthorizedException &&
+            coldStartAuthRetryAvailable &&
+            wantsConnection &&
+            pendingOperations.isNotEmpty()
+        ) {
+            coldStartAuthRetryAvailable = false
+            Log.d(tag, "handleRemoteError: silently retrying cold-start UserNotAuthorizedException")
+            // Keep UI in Connecting during the retry window. Do NOT publish
+            // an Error snapshot — if the retry succeeds the user never
+            // sees a flash of failure. If the retry also fails we'll fall
+            // back through this same method and publish Error then.
+            disconnectRemote(preserveSnapshot = true)
+            scope.launch {
+                kotlinx.coroutines.delay(COLD_START_AUTH_RETRY_DELAY_MS)
+                connectIfPossible()
+            }
+            return
+        }
+
         val failure = failureFor(error)
         val message = failure.userMessage()
         // If the user had already been watching something play (observed
@@ -505,6 +554,16 @@ internal class SpotifyAppRemotePlayer(
             disconnectRemote(preserveSnapshot = true)
             connectIfPossible()
         }
+    }
+
+    private companion object {
+        /**
+         * Gap between the failing connect and the silent retry. Long enough
+         * for the SDK's auth flow to finish persisting consent, short enough
+         * that the user doesn't perceive a visible hang. 1.2s empirically
+         * covers the slow-device case without being noticeable on a Pixel.
+         */
+        const val COLD_START_AUTH_RETRY_DELAY_MS = 1_200L
     }
 
     private fun failureFor(error: Throwable): SpotifyConnectFailure = when (error) {
