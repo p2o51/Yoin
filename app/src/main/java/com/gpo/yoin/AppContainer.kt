@@ -5,16 +5,20 @@ import androidx.room.Room
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import com.gpo.yoin.data.local.YoinDatabase
+import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.profile.PlaintextProfileCredentialsCodec
 import com.gpo.yoin.data.profile.ProfileCredentialsCodec
 import com.gpo.yoin.data.profile.ProfileManager
 import com.gpo.yoin.data.profile.SharedPrefsProfileActiveIdStore
+import com.gpo.yoin.data.profile.SpotifyProviderStatus
 import com.gpo.yoin.data.remote.GeminiService
 import com.gpo.yoin.data.repository.YoinRepository
 import com.gpo.yoin.data.source.spotify.SpotifyAuthConfig
 import com.gpo.yoin.player.AudioVisualizerManager
 import com.gpo.yoin.player.CastManager
+import com.gpo.yoin.player.PlaybackEvent
 import com.gpo.yoin.player.PlaybackManager
+import com.gpo.yoin.player.SpotifyConnectFailure
 import com.gpo.yoin.ui.experience.ExperienceSessionStore
 import com.gpo.yoin.ui.experience.MotionCapabilityProvider
 import com.gpo.yoin.ui.memories.MemoriesDeckCoordinator
@@ -25,6 +29,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -78,6 +83,84 @@ class AppContainer(private val context: Context) {
                 started = SharingStarted.Eagerly,
                 initialValue = SpotifyAuthConfig.FALLBACK_CLIENT_ID,
             )
+    }
+
+    /**
+     * Latest non-transient connect failure for the Spotify backend. Drives
+     * the sticky parts of [spotifyProviderStatus] (app-missing / premium
+     * required / auth failure). Transient transport errors are kept out of
+     * this store so retrying a connection doesn't need a manual reset.
+     */
+    private val _lastSpotifyStickyFailure = MutableStateFlow<SpotifyConnectFailure?>(null)
+
+    /**
+     * Single source of truth for "can the user use Spotify right now?".
+     * Composed from:
+     *  - active profile's provider (only evaluated when Spotify is active)
+     *  - [spotifyClientIdFlow]: any blank value produces [SpotifyProviderStatus.NoClientId]
+     *  - [_lastSpotifyStickyFailure]: mapped into the corresponding status
+     *    variant, or `Ready` when nothing sticky has been observed
+     *
+     * UI consumers should read this rather than independently deriving
+     * equivalent checks from `spotifyClientIdFlow` +
+     * `PlaybackEvent.SpotifyConnectError`.
+     */
+    val spotifyProviderStatus: StateFlow<SpotifyProviderStatus> by lazy {
+        // Listen once — events come through PlaybackManager as the SDK
+        // dispatches them; the sticky slot is the only cache we want.
+        applicationScope.launch {
+            playbackManager.events.collect { event ->
+                when (event) {
+                    is PlaybackEvent.SpotifyConnectError -> {
+                        // Drop TransportFailure from the sticky slot — those
+                        // usually recover on the next connect, no point
+                        // surfacing a persistent badge for them.
+                        val failure = event.failure
+                        if (failure !is SpotifyConnectFailure.TransportFailure) {
+                            _lastSpotifyStickyFailure.value = failure
+                        }
+                    }
+                }
+            }
+        }
+        // Clear the sticky slot when the client id becomes non-blank — user
+        // probably just fixed the obvious cause, and we don't want a stale
+        // AuthFailure to linger through the next successful connect.
+        applicationScope.launch {
+            spotifyClientIdFlow.collect { clientId ->
+                if (clientId.isNotBlank() &&
+                    _lastSpotifyStickyFailure.value == SpotifyConnectFailure.NoClientId
+                ) {
+                    _lastSpotifyStickyFailure.value = null
+                }
+            }
+        }
+
+        combine(
+            profileManager.activeSource,
+            spotifyClientIdFlow,
+            _lastSpotifyStickyFailure,
+        ) { source, clientId, lastFailure ->
+            val isSpotify = source?.id == MediaId.PROVIDER_SPOTIFY
+            when {
+                !isSpotify -> SpotifyProviderStatus.Ready
+                clientId.isBlank() -> SpotifyProviderStatus.NoClientId
+                lastFailure == null -> SpotifyProviderStatus.Ready
+                lastFailure is SpotifyConnectFailure.NoClientId ->
+                    SpotifyProviderStatus.NoClientId
+                lastFailure is SpotifyConnectFailure.SpotifyAppMissing ->
+                    SpotifyProviderStatus.SpotifyAppMissing
+                lastFailure is SpotifyConnectFailure.PremiumRequired ->
+                    SpotifyProviderStatus.NoPremium
+                lastFailure is SpotifyConnectFailure.AuthFailure ->
+                    SpotifyProviderStatus.AuthFailure(lastFailure.message)
+                else -> SpotifyProviderStatus.Ready
+            }
+        }.stateIn(
+            scope = applicationScope,
+            started = SharingStarted.Eagerly,
+            initialValue = SpotifyProviderStatus.Ready,
+        )
     }
 
     val profileManager: ProfileManager by lazy {

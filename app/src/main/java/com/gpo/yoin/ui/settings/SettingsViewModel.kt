@@ -12,6 +12,7 @@ import com.gpo.yoin.data.profile.ProfileCredentials
 import com.gpo.yoin.data.profile.ProfileLimitReachedException
 import com.gpo.yoin.data.profile.ProfileManager
 import com.gpo.yoin.data.profile.ProviderKind
+import com.gpo.yoin.data.profile.SpotifyProviderStatus
 import com.gpo.yoin.data.remote.ServerCredentials
 import com.gpo.yoin.data.repository.SubsonicException
 import com.gpo.yoin.data.source.subsonic.SubsonicMusicSource
@@ -51,24 +52,41 @@ class SettingsViewModel(
             .stateIn(viewModelScope, SharingStarted.Eagerly, "")
 
     /**
-     * Pair the raw Room-row value with the effective (fallback-aware) value so
-     * the 6-way `combine` can collapse back into a 5-parameter form —
-     * `kotlinx.coroutines.flow.combine` only ships direct overloads up to 5.
+     * Fan three Spotify signals into one bundle so the top-level `combine`
+     * stays inside the 5-arity typed overload:
+     *  1. raw Room-row client id (for the "using fallback" badge)
+     *  2. effective (fallback-aware) client id
+     *  3. `SpotifyProviderStatus` — the single-source runtime status
+     *     reflected in profile-card badges (NoClientId / NoPremium / etc)
      */
-    private val spotifyClientIdPairFlow: StateFlow<Pair<String, String>> = combine(
+    private data class SpotifySettingsBundle(
+        val overrideClientId: String,
+        val effectiveClientId: String,
+        val status: SpotifyProviderStatus,
+    )
+
+    private val spotifySettingsBundleFlow: StateFlow<SpotifySettingsBundle> = combine(
         database.spotifyConfigDao().getConfig().map { it?.clientId.orEmpty() },
         container.spotifyClientIdFlow,
-    ) { override, effective -> override to effective }
-        .stateIn(viewModelScope, SharingStarted.Eagerly, "" to "")
+        container.spotifyProviderStatus,
+    ) { override, effective, status ->
+        SpotifySettingsBundle(override, effective, status)
+    }.stateIn(
+        viewModelScope,
+        SharingStarted.Eagerly,
+        SpotifySettingsBundle("", "", SpotifyProviderStatus.Ready),
+    )
 
     val uiState: StateFlow<SettingsUiState> = combine(
         profileManager.profiles,
         profileManager.activeProfileId,
         cacheSizeFlow,
         geminiKeyFlow,
-        spotifyClientIdPairFlow,
-    ) { profiles, activeId, cacheSize, geminiKey, spotifyClientIds ->
-        val (spotifyOverride, spotifyEffective) = spotifyClientIds
+        spotifySettingsBundleFlow,
+    ) { profiles, activeId, cacheSize, geminiKey, spotifyBundle ->
+        val spotifyOverride = spotifyBundle.overrideClientId
+        val spotifyEffective = spotifyBundle.effectiveClientId
+        val spotifyStatus = spotifyBundle.status
         val resolvedActiveId = activeId ?: profiles.firstOrNull()?.id
         val spotifyReconnectProfile = profiles
             .firstOrNull { profile ->
@@ -79,7 +97,7 @@ class SettingsViewModel(
             profileCards = profiles.map {
                 it.toCard(
                     activeProfileId = resolvedActiveId,
-                    spotifyClientIdConfigured = spotifyEffective.isNotBlank(),
+                    spotifyStatus = spotifyStatus,
                 )
             },
             activeProfileId = resolvedActiveId,
@@ -454,7 +472,7 @@ class SettingsViewModel(
 
     private fun Profile.toCard(
         activeProfileId: String?,
-        spotifyClientIdConfigured: Boolean,
+        spotifyStatus: SpotifyProviderStatus,
     ): ProfileCard {
         val provider = ProviderKind.fromKeyOrSubsonic(provider)
         val subtitle = when (provider) {
@@ -468,9 +486,22 @@ class SettingsViewModel(
             ProviderKind.SPOTIFY -> "Spotify account"
             ProviderKind.LOCAL -> "Local files"
         }
+        // Per-Spotify-profile scope drift (legacy profile missing newly-
+        // required scopes) is a static credential check that
+        // [SpotifyProviderStatus] doesn't capture — it describes the
+        // *runtime* backend. Combine the two: runtime status first (a
+        // global blocker like missing client id is more urgent than a
+        // per-profile reconnect), then per-profile scope check.
         val unavailableReason: String? = when (provider) {
             ProviderKind.SPOTIFY -> when {
-                !spotifyClientIdConfigured -> "No Client ID"
+                spotifyStatus is SpotifyProviderStatus.NoClientId ->
+                    spotifyStatus.userLabel
+                spotifyStatus is SpotifyProviderStatus.SpotifyAppMissing ->
+                    spotifyStatus.userLabel
+                spotifyStatus is SpotifyProviderStatus.NoPremium ->
+                    spotifyStatus.userLabel
+                spotifyStatus is SpotifyProviderStatus.AuthFailure ->
+                    spotifyStatus.userLabel
                 profileRequiresSpotifyReconnect() -> "Reconnect"
                 else -> null
             }
