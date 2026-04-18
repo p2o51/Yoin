@@ -11,10 +11,14 @@ import com.gpo.yoin.data.remote.GeminiService
 import com.gpo.yoin.data.repository.YoinRepository
 import com.gpo.yoin.player.ConnectionPhase
 import com.gpo.yoin.player.PlaybackManager
+import com.gpo.yoin.ui.component.AddToPlaylistRow
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -171,6 +175,101 @@ class NowPlayingViewModel(
             repository.setFavorite(songId, nextFavorite).onSuccess {
                 _isStarred.value = nextFavorite
             }
+        }
+    }
+
+    // ── Add-to-playlist (long-press on ❤️) ─────────────────────────────
+    //
+    // The sheet has a single entry point: user long-presses the heart, we
+    // snapshot the current song id into [addToPlaylistTarget], the
+    // composable observes the non-null value and opens the sheet. When the
+    // user picks a playlist or cancels, we null the target again.
+    //
+    // [writablePlaylists] refetches whenever the target changes from null
+    // to non-null — the sheet always shows fresh data even if the user
+    // created a playlist elsewhere in the same session.
+
+    private val _addToPlaylistTarget = MutableStateFlow<List<MediaId>?>(null)
+    val addToPlaylistTarget: StateFlow<List<MediaId>?> = _addToPlaylistTarget.asStateFlow()
+
+    private val _addToPlaylistMessages = MutableSharedFlow<String>(extraBufferCapacity = 4)
+    /** One-shot confirmations / errors for the shell SnackbarHost to surface. */
+    val addToPlaylistMessages: SharedFlow<String> = _addToPlaylistMessages.asSharedFlow()
+
+    val writablePlaylists: StateFlow<List<AddToPlaylistRow>> = _addToPlaylistTarget
+        .flatMapLatest { target ->
+            if (target == null) flowOf(emptyList())
+            else flowOf(fetchWritablePlaylists())
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    private suspend fun fetchWritablePlaylists(): List<AddToPlaylistRow> =
+        runCatching { repository.getPlaylists() }
+            .getOrDefault(emptyList())
+            .filter { it.canWrite }
+            .map { playlist ->
+                AddToPlaylistRow(
+                    id = playlist.id,
+                    name = playlist.name,
+                    songCount = playlist.songCount,
+                    coverArtUrl = repository.resolveCoverUrl(playlist.coverArt),
+                )
+            }
+
+    fun requestAddCurrentToPlaylist() {
+        val songId = currentSongId.value ?: return
+        _addToPlaylistTarget.value = listOf(songId)
+    }
+
+    fun dismissAddToPlaylistSheet() {
+        _addToPlaylistTarget.value = null
+    }
+
+    fun addTargetsToExistingPlaylist(playlistId: MediaId) {
+        val targets = _addToPlaylistTarget.value ?: return
+        val playlistName = writablePlaylists.value.firstOrNull { it.id == playlistId }?.name
+            ?: "playlist"
+        _addToPlaylistTarget.value = null
+        viewModelScope.launch {
+            repository.addTracksToPlaylist(playlistId, targets)
+                .onSuccess { _addToPlaylistMessages.tryEmit("Added to $playlistName") }
+                .onFailure {
+                    _addToPlaylistMessages.tryEmit(
+                        it.message ?: "Couldn't add to $playlistName",
+                    )
+                }
+        }
+    }
+
+    fun createPlaylistAndAddTargets(name: String) {
+        val targets = _addToPlaylistTarget.value ?: return
+        val trimmedName = name.trim()
+        if (trimmedName.isEmpty()) {
+            _addToPlaylistTarget.value = null
+            return
+        }
+        _addToPlaylistTarget.value = null
+        viewModelScope.launch {
+            repository.createPlaylist(trimmedName)
+                .onFailure {
+                    _addToPlaylistMessages.tryEmit(
+                        it.message ?: "Couldn't create \"$trimmedName\"",
+                    )
+                }
+                .onSuccess { playlist ->
+                    // Best effort — even if addTracks fails the empty playlist
+                    // still exists, which matches user intent better than
+                    // silently rolling back the create.
+                    repository.addTracksToPlaylist(playlist.id, targets)
+                        .onSuccess {
+                            _addToPlaylistMessages.tryEmit("Added to $trimmedName")
+                        }
+                        .onFailure {
+                            _addToPlaylistMessages.tryEmit(
+                                it.message ?: "Created $trimmedName but couldn't add tracks",
+                            )
+                        }
+                }
         }
     }
 

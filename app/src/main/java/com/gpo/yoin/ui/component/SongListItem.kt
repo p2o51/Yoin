@@ -1,5 +1,7 @@
 package com.gpo.yoin.ui.component
 
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -15,6 +17,7 @@ import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -27,6 +30,7 @@ import com.gpo.yoin.ui.theme.YoinShapeTokens
 import com.gpo.yoin.ui.theme.YoinTheme
 import com.gpo.yoin.ui.theme.withTabularFigures
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun SongListItem(
     title: String,
@@ -35,6 +39,7 @@ fun SongListItem(
     durationSeconds: Int?,
     coverArtUrl: String?,
     onClick: () -> Unit,
+    onLongClick: (() -> Unit)? = null,
     isNowPlaying: Boolean = false,
     playbackSignal: Float = 0f,
     extractBackdropColors: Boolean = true,
@@ -43,14 +48,24 @@ fun SongListItem(
 ) {
     val interactionSource = remember { MutableInteractionSource() }
 
+    // We drop Surface's `onClick = ...` overload and handle both gestures on
+    // the same clickable boundary via combinedClickable. Layering a separate
+    // pointerInput over an already-clickable Surface consumes events
+    // inconsistently on some API levels — single-click ripples stop firing or
+    // long-press accidentally propagates as a click.
     Surface(
-        onClick = onClick,
-        modifier = modifier.fillMaxWidth(),
+        modifier = modifier
+            .fillMaxWidth()
+            .combinedClickable(
+                interactionSource = interactionSource,
+                indication = ripple(),
+                onClick = onClick,
+                onLongClick = onLongClick,
+            ),
         shape = YoinShapeTokens.ExtraLarge,
         color = Color.Transparent,
         tonalElevation = 0.dp,
         shadowElevation = 0.dp,
-        interactionSource = interactionSource,
     ) {
         Row(
             modifier = Modifier

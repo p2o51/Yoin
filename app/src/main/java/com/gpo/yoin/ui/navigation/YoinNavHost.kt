@@ -52,6 +52,7 @@ import com.gpo.yoin.YoinApplication
 import com.gpo.yoin.data.model.CoverRef
 import com.gpo.yoin.data.model.Track
 import com.gpo.yoin.data.repository.ActivityContext
+import com.gpo.yoin.ui.component.AddToPlaylistSheet
 import com.gpo.yoin.ui.component.YoinButtonGroup
 import com.gpo.yoin.ui.detail.AlbumDetailScreen
 import com.gpo.yoin.ui.detail.AlbumDetailUiState
@@ -421,6 +422,17 @@ private fun YoinShell(
             }
         }
     }
+    // Add-to-playlist confirmations (success + failure) share the shell
+    // snackbar. The existing flow above handles typed playback failures;
+    // these are one-shot plain-text messages.
+    LaunchedEffect(Unit) {
+        nowPlayingViewModel.addToPlaylistMessages.collect { message ->
+            snackbarHostState.showSnackbar(
+                message = message,
+                duration = SnackbarDuration.Short,
+            )
+        }
+    }
 
     val shellBackOwner = resolveShellBackOwner(
         showNowPlaying = showNowPlaying,
@@ -660,6 +672,7 @@ private fun YoinShell(
                     onSeek = nowPlayingViewModel::seekTo,
                     onRatingChange = nowPlayingViewModel::setRating,
                     onToggleFavorite = nowPlayingViewModel::toggleFavorite,
+                    onAddCurrentToPlaylist = nowPlayingViewModel::requestAddCurrentToPlaylist,
                     onSkipToQueueItem = nowPlayingViewModel::skipToQueueItem,
                     onDismiss = closeNowPlaying,
                     songInfoState = songInfoState,
@@ -677,6 +690,21 @@ private fun YoinShell(
                             )
                         },
                 )
+
+                // Long-press ❤️ opens the sheet for the currently-playing
+                // track. The VM holds the pending target list; non-null
+                // target === open. ModalBottomSheet manages its own layering
+                // so it renders above both NP and the bottom nav.
+                val addTargets by nowPlayingViewModel.addToPlaylistTarget.collectAsState()
+                if (addTargets != null) {
+                    val writablePlaylists by nowPlayingViewModel.writablePlaylists.collectAsState()
+                    AddToPlaylistSheet(
+                        writablePlaylists = writablePlaylists,
+                        onCreateAndAdd = nowPlayingViewModel::createPlaylistAndAddTargets,
+                        onAddToExisting = nowPlayingViewModel::addTargetsToExistingPlaylist,
+                        onDismiss = nowPlayingViewModel::dismissAddToPlaylistSheet,
+                    )
+                }
             }
         }
 

@@ -8,8 +8,11 @@ import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.background
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
@@ -61,6 +64,8 @@ import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.ripple
+import androidx.compose.ui.semantics.Role
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -128,6 +133,7 @@ fun NowPlayingScreen(
     onSeek: (Float) -> Unit,
     onRatingChange: (Float) -> Unit,
     onToggleFavorite: () -> Unit,
+    onAddCurrentToPlaylist: () -> Unit,
     onSkipToQueueItem: (Int) -> Unit,
     onDismiss: () -> Unit = {},
     songInfoState: SongInfoUiState = SongInfoUiState.Idle,
@@ -176,6 +182,7 @@ fun NowPlayingScreen(
                     onSeek = onSeek,
                     onRatingChange = onRatingChange,
                     onToggleFavorite = onToggleFavorite,
+                    onAddCurrentToPlaylist = onAddCurrentToPlaylist,
                     onSkipToQueueItem = onSkipToQueueItem,
                     onDismiss = onDismiss,
                     songInfoState = songInfoState,
@@ -354,6 +361,7 @@ private fun PlayingContent(
     onSeek: (Float) -> Unit,
     onRatingChange: (Float) -> Unit,
     onToggleFavorite: () -> Unit,
+    onAddCurrentToPlaylist: () -> Unit,
     onSkipToQueueItem: (Int) -> Unit,
     onDismiss: () -> Unit = {},
     songInfoState: SongInfoUiState = SongInfoUiState.Idle,
@@ -486,6 +494,7 @@ private fun PlayingContent(
                     FavoriteButton(
                         isStarred = state.isStarred,
                         onClick = onToggleFavorite,
+                        onLongClick = onAddCurrentToPlaylist,
                     )
                 }
             }
@@ -665,10 +674,12 @@ private fun PlayingContent(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun FavoriteButton(
     isStarred: Boolean,
     onClick: () -> Unit,
+    onLongClick: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     ProvideYoinMotionRole(role = YoinMotionRole.Standard) {
@@ -691,15 +702,26 @@ private fun FavoriteButton(
             label = "heartContainerColor",
         )
 
-        FilledIconButton(
-            onClick = onClick,
+        // Drop FilledIconButton's single-click overload — a secondary
+        // pointerInput layered on top breaks the ripple on some API levels.
+        // Replicate its look (44dp circle, filled-tonal palette) with a Box
+        // and put both click + long-click on the same combinedClickable so
+        // gesture dispatch stays on one clickable node.
+        val interactionSource = remember { MutableInteractionSource() }
+        Box(
             modifier = modifier
                 .size(44.dp)
-                .minimumTouchTarget(),
-            colors = IconButtonDefaults.filledIconButtonColors(
-                containerColor = heartContainerColor,
-                contentColor = heartColor,
-            ),
+                .minimumTouchTarget()
+                .clip(CircleShape)
+                .background(heartContainerColor)
+                .combinedClickable(
+                    interactionSource = interactionSource,
+                    indication = ripple(),
+                    onClick = onClick,
+                    onLongClick = onLongClick,
+                    role = Role.Button,
+                ),
+            contentAlignment = Alignment.Center,
         ) {
             Icon(
                 imageVector = if (isStarred) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder,
@@ -1225,6 +1247,7 @@ private fun NowPlayingScreenPlayingPreview() {
             onSeek = {},
             onRatingChange = {},
             onToggleFavorite = {},
+            onAddCurrentToPlaylist = {},
             onSkipToQueueItem = {},
         )
     }
@@ -1243,6 +1266,7 @@ private fun NowPlayingScreenIdlePreview() {
             onSeek = {},
             onRatingChange = {},
             onToggleFavorite = {},
+            onAddCurrentToPlaylist = {},
             onSkipToQueueItem = {},
         )
     }
