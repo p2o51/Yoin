@@ -543,9 +543,19 @@ private fun ActivitiesRow(
             items = activities,
             key = { _, history -> history.id },
         ) { _, history ->
+            // `history.coverArtId` is a storage-key string: direct URL for
+            // Spotify rows, Subsonic raw id for Subsonic. Parse once and
+            // branch on the resulting CoverRef variant.
+            val historyCoverRef = CoverRef.fromStorageKey(history.coverArtId)
+            val historyCoverUrl = when (historyCoverRef) {
+                is CoverRef.Url -> historyCoverRef.url
+                is CoverRef.SourceRelative -> buildCoverArtUrl(historyCoverRef.coverArtId)
+                    .takeIf { it.isNotBlank() }
+                null -> null
+            }
             ActivityCard(
                 history = history,
-                coverArtUrl = history.coverArtId?.let { buildCoverArtUrl(it) },
+                coverArtUrl = historyCoverUrl,
                 onClick = {
                     onSongClick(
                         Track(
@@ -557,7 +567,7 @@ private fun ActivitiesRow(
                                 MediaId(history.provider, it)
                             },
                             artistId = null,
-                            coverArt = history.coverArtId?.let { CoverRef.SourceRelative(it) },
+                            coverArt = historyCoverRef,
                             durationSec = history.durationMs.takeIf { it > 0L }?.let { (it / 1000L).toInt() },
                             trackNumber = null,
                             year = null,

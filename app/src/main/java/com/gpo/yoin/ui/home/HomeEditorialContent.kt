@@ -992,7 +992,9 @@ private fun ActivityEvent.asSong(): Track = Track(
     artistId = artistId?.takeIf { !it.isNullOrBlank() }?.let { MediaId(provider, it) },
     album = null,
     albumId = albumId.takeIf { !it.isNullOrBlank() }?.let { MediaId(provider, it) },
-    coverArt = coverArtId?.let { CoverRef.SourceRelative(it) },
+    // Reconstitute the stored key into the right CoverRef variant. URLs round-
+    // trip as Url (Spotify), everything else as SourceRelative (Subsonic).
+    coverArt = CoverRef.fromStorageKey(coverArtId),
     durationSec = null,
     trackNumber = null,
     year = null,
@@ -1000,14 +1002,32 @@ private fun ActivityEvent.asSong(): Track = Track(
     userRating = null,
 )
 
+/**
+ * Stored `coverArtId` is a storage-key string: either a direct URL
+ * (Spotify) or a Subsonic raw id. Direct URLs bypass the Subsonic resolver.
+ * The fallback cascade (coverArtId → album entityId → albumId) only makes
+ * sense on Subsonic; Spotify provider rows without a storage key have no
+ * useful id to hand to `buildCoverArtUrl`.
+ */
 private fun buildActivityCoverArtUrl(
     activity: ActivityEvent,
     buildCoverArtUrl: (String) -> String,
-): String? = when {
-    activity.coverArtId != null -> buildCoverArtUrl(activity.coverArtId)
-    activity.entityType == ActivityEntityType.ALBUM.name -> buildCoverArtUrl(activity.entityId)
-    !activity.albumId.isNullOrBlank() -> buildCoverArtUrl(activity.albumId)
-    else -> null
+): String? {
+    val key = activity.coverArtId
+        ?: activity.entityId.takeIf {
+            activity.entityType == ActivityEntityType.ALBUM.name &&
+                activity.provider == MediaId.PROVIDER_SUBSONIC
+        }
+        ?: activity.albumId?.takeIf {
+            it.isNotBlank() && activity.provider == MediaId.PROVIDER_SUBSONIC
+        }
+        ?: return null
+
+    return when (val ref = CoverRef.fromStorageKey(key)) {
+        is CoverRef.Url -> ref.url
+        is CoverRef.SourceRelative -> buildCoverArtUrl(ref.coverArtId).takeIf { it.isNotBlank() }
+        null -> null
+    }
 }
 
 private fun resolveHomeCoverArtUrl(

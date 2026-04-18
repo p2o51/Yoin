@@ -54,7 +54,10 @@ class AlbumDetailViewModel(
                     albumName = album.name,
                     artistName = album.artist.orEmpty(),
                     artistId = album.artistId?.toString(),
-                    coverArtId = (album.coverArt as? CoverRef.SourceRelative)?.coverArtId,
+                    // Storage-key shape (URL for Spotify, raw id for Subsonic)
+                    // so downstream `ActivityContext.Album` → `ActivityEvent`
+                    // persistence round-trips via CoverRef.{to,from}StorageKey.
+                    coverArtId = CoverRef.toStorageKey(album.coverArt),
                     coverArtUrl = album.coverArt?.let { repository.resolveCoverUrl(it) },
                     year = album.year,
                     songCount = album.songCount,

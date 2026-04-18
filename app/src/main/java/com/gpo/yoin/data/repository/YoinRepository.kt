@@ -189,7 +189,10 @@ class YoinRepository(
                 artist = track.artist.orEmpty(),
                 album = track.album.orEmpty(),
                 albumId = track.albumId?.rawId.orEmpty(),
-                coverArtId = (track.coverArt as? CoverRef.SourceRelative)?.coverArtId,
+                // Store URL for Spotify (CoverRef.Url) or raw id for Subsonic
+                // (CoverRef.SourceRelative). Readers use CoverRef.fromStorageKey
+                // to reconstitute, so both providers round-trip correctly.
+                coverArtId = CoverRef.toStorageKey(track.coverArt),
                 durationMs = durationMs,
                 completedPercent = completedPercent,
             ),
@@ -239,8 +242,12 @@ class YoinRepository(
                 provider = album.id.provider,
                 title = album.name,
                 subtitle = album.artist.orEmpty(),
-                coverArtId = (album.coverArt as? CoverRef.SourceRelative)?.coverArtId
-                    ?: album.id.rawId,
+                // Storage key encodes both provider flavours — URL for Spotify,
+                // raw id for Subsonic. Fallback to the album's raw id only when
+                // a SourceRelative artwork ref was missing (legacy Subsonic
+                // path where cover id == album id).
+                coverArtId = CoverRef.toStorageKey(album.coverArt)
+                    ?: album.id.rawId.takeIf { album.id.provider == MediaId.PROVIDER_SUBSONIC },
                 albumId = album.id.rawId,
                 artistId = album.artistId?.rawId,
             ),
@@ -256,7 +263,7 @@ class YoinRepository(
                 provider = artist.id.provider,
                 title = artist.name,
                 subtitle = "Artist",
-                coverArtId = (artist.coverArt as? CoverRef.SourceRelative)?.coverArtId,
+                coverArtId = CoverRef.toStorageKey(artist.coverArt),
                 artistId = artist.id.rawId,
             ),
         )
@@ -294,8 +301,8 @@ class YoinRepository(
                 subtitle = activityContext.artistName.orEmpty()
                     .ifBlank { track.artist.orEmpty() },
                 coverArtId = activityContext.coverArtId
-                    ?: (track.coverArt as? CoverRef.SourceRelative)?.coverArtId
-                    ?: track.albumId?.rawId,
+                    ?: CoverRef.toStorageKey(track.coverArt)
+                    ?: fallbackCoverKeyForSubsonic(trackProvider, track.albumId?.rawId),
                 songId = track.id.rawId,
                 albumId = activityContext.albumId,
                 artistId = activityContext.artistId ?: track.artistId?.rawId,
@@ -309,7 +316,7 @@ class YoinRepository(
                 title = activityContext.artistName,
                 subtitle = "Artist",
                 coverArtId = activityContext.coverArtId
-                    ?: (track.coverArt as? CoverRef.SourceRelative)?.coverArtId,
+                    ?: CoverRef.toStorageKey(track.coverArt),
                 songId = track.id.rawId,
                 albumId = track.albumId?.rawId,
                 artistId = activityContext.artistId,
@@ -323,8 +330,8 @@ class YoinRepository(
                 title = activityContext.playlistName,
                 subtitle = activityContext.owner.orEmpty().ifBlank { "Playlist" },
                 coverArtId = activityContext.coverArtId
-                    ?: (track.coverArt as? CoverRef.SourceRelative)?.coverArtId
-                    ?: track.albumId?.rawId,
+                    ?: CoverRef.toStorageKey(track.coverArt)
+                    ?: fallbackCoverKeyForSubsonic(trackProvider, track.albumId?.rawId),
                 songId = track.id.rawId,
                 albumId = track.albumId?.rawId,
                 artistId = track.artistId?.rawId,
@@ -337,14 +344,25 @@ class YoinRepository(
                 provider = trackProvider,
                 title = track.title.orEmpty(),
                 subtitle = track.artist.orEmpty(),
-                coverArtId = (track.coverArt as? CoverRef.SourceRelative)?.coverArtId
-                    ?: track.albumId?.rawId,
+                coverArtId = CoverRef.toStorageKey(track.coverArt)
+                    ?: fallbackCoverKeyForSubsonic(trackProvider, track.albumId?.rawId),
                 songId = track.id.rawId,
                 albumId = track.albumId?.rawId,
                 artistId = track.artistId?.rawId,
             )
         }
     }
+
+    /**
+     * Last-resort fallback for activity rows whose track ships without any
+     * cover-art ref. On Subsonic the album id is usable as a cover-art id
+     * (they're the same namespace on most servers), but on Spotify the
+     * album id is a bare Spotify id with no URL shape — using it would
+     * poison the storage key, so we return null instead and let the UI
+     * render a placeholder.
+     */
+    private fun fallbackCoverKeyForSubsonic(provider: String, albumRawId: String?): String? =
+        albumRawId?.takeIf { provider == MediaId.PROVIDER_SUBSONIC }
 
     private fun collapseToLatestUnique(events: List<ActivityEvent>): List<ActivityEvent> {
         val seenKeys = mutableSetOf<String>()

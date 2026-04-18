@@ -158,7 +158,9 @@ class MemoriesDeckCoordinator(
             artistId = rawArtistId?.let { MediaId(provider, it) },
             album = mostRecentPlay?.album?.takeIf(String::isNotBlank),
             albumId = rawAlbumId?.let { MediaId(provider, it) },
-            coverArt = coverArtId?.let(CoverRef::SourceRelative),
+            // `coverArtId` is a storage key, not always a Subsonic raw id —
+            // Spotify rows carry the full URL here.
+            coverArt = CoverRef.fromStorageKey(coverArtId),
             durationSec = mostRecentPlay?.durationMs?.let { durationMs -> (durationMs / 1000L).toInt() },
             trackNumber = null,
             year = null,
@@ -181,8 +183,10 @@ class MemoriesDeckCoordinator(
                 }
             },
             metaText = null,
-            coverArtUrl = coverArtId?.let(::sourceRelativeCoverArtUrl)
-                ?: rawAlbumId?.let(::sourceRelativeCoverArtUrl),
+            coverArtUrl = coverArtId?.let(::resolveStorageKeyCoverUrl)
+                ?: rawAlbumId
+                    ?.takeIf { provider == MediaId.PROVIDER_SUBSONIC }
+                    ?.let(::sourceRelativeCoverArtUrl),
             timestamp = activity.timestamp,
             scoreText = rating.formatScore(),
             scoreSupportingText = null,
@@ -233,7 +237,7 @@ class MemoriesDeckCoordinator(
             },
             metaText = null,
             coverArtUrl = album?.coverArt?.let { repository.resolveCoverUrl(it, size = 480) }
-                ?: activity.coverArtId?.let(::sourceRelativeCoverArtUrl)
+                ?: activity.coverArtId?.let(::resolveStorageKeyCoverUrl)
                 ?: album?.id?.takeIf { it.provider == MediaId.PROVIDER_SUBSONIC }
                     ?.rawId?.let(::sourceRelativeCoverArtUrl),
             timestamp = activity.timestamp,
@@ -267,7 +271,7 @@ class MemoriesDeckCoordinator(
 
         val coverArtUrl = playlist?.coverArt?.let { repository.resolveCoverUrl(it, size = 480) }
             ?: songs.firstNotNullOfOrNull(::trackCoverArtUrl)
-            ?: activity.coverArtId?.let(::sourceRelativeCoverArtUrl)
+            ?: activity.coverArtId?.let(::resolveStorageKeyCoverUrl)
 
         return MemoryEntry(
             stableId = "playlist:${activity.entityId}:${activity.id}",
@@ -307,6 +311,16 @@ class MemoriesDeckCoordinator(
 
     private fun sourceRelativeCoverArtUrl(rawId: String): String? =
         repository.resolveCoverUrl(CoverRef.SourceRelative(rawId), size = 480)
+
+    /**
+     * Resolve a stored `coverArtId` (ActivityEvent / PlayHistory column).
+     * The column holds storage-key strings: direct URL for Spotify, raw id
+     * for Subsonic. [CoverRef.fromStorageKey] routes each into the right
+     * variant so the active source's `resolveCoverUrl` picks the correct
+     * branch.
+     */
+    private fun resolveStorageKeyCoverUrl(key: String): String? =
+        repository.resolveCoverUrl(CoverRef.fromStorageKey(key), size = 480)
 
     private fun trackCoverArtUrl(track: Track): String? =
         repository.resolveCoverUrl(track.coverArt, size = 480)

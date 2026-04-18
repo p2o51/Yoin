@@ -877,8 +877,16 @@ private fun MemoryEntry.toPlaybackActivityContext(): ActivityContext {
     }
 }
 
+/**
+ * Flatten a track's cover art into the storage-key shape used by
+ * `ActivityEvent` / `PlayHistory`. On Subsonic this is the classic raw id;
+ * on Spotify it's the direct image URL. Falls back to the Subsonic album
+ * id only when the track has no cover ref *and* the provider is Subsonic
+ * (Spotify album ids aren't URL-shaped and would poison the storage key).
+ */
 private fun trackCoverArtId(track: Track): String? =
-    (track.coverArt as? CoverRef.SourceRelative)?.coverArtId ?: track.albumId?.rawId
+    CoverRef.toStorageKey(track.coverArt)
+        ?: track.albumId?.rawId?.takeIf { track.id.provider == MediaId.PROVIDER_SUBSONIC }
 
 @Preview(showBackground = true, backgroundColor = 0xFF1C1B1F)
 @Composable
