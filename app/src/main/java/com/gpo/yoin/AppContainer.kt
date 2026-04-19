@@ -38,6 +38,8 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
+import java.io.File
+import okhttp3.Cache
 import okhttp3.OkHttpClient
 import java.util.concurrent.TimeUnit
 
@@ -48,7 +50,14 @@ class AppContainer(private val context: Context) {
 
     val database: YoinDatabase by lazy {
         Room.databaseBuilder(context, YoinDatabase::class.java, "yoin-database")
-            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
+            .addMigrations(
+                MIGRATION_1_2,
+                MIGRATION_2_3,
+                MIGRATION_3_4,
+                MIGRATION_4_5,
+                MIGRATION_5_6,
+                MIGRATION_6_7,
+            )
             .build()
     }
 
@@ -98,6 +107,30 @@ class AppContainer(private val context: Context) {
                 cipher = AndroidKeyStoreCredentialsCipher(),
             ),
         )
+    }
+
+    private val spotifyHttpClient: OkHttpClient by lazy {
+        OkHttpClient.Builder()
+            .cache(
+                Cache(
+                    directory = File(context.cacheDir, "http/spotify"),
+                    maxSize = ProviderHttpCacheBytes,
+                ),
+            )
+            .connectTimeout(15, TimeUnit.SECONDS)
+            .readTimeout(15, TimeUnit.SECONDS)
+            .build()
+    }
+
+    private val subsonicBaseHttpClient: OkHttpClient by lazy {
+        OkHttpClient.Builder()
+            .cache(
+                Cache(
+                    directory = File(context.cacheDir, "http/subsonic"),
+                    maxSize = ProviderHttpCacheBytes,
+                ),
+            )
+            .build()
     }
 
     /**
@@ -216,6 +249,8 @@ class AppContainer(private val context: Context) {
             legacyCodec = legacyCredentialsCodec,
             scope = applicationScope,
             spotifyClientIdProvider = { spotifyClientIdFlow.value },
+            spotifyHttpClientProvider = { spotifyHttpClient },
+            subsonicBaseHttpClientProvider = { subsonicBaseHttpClient },
             onSwitchPrepare = {
                 // Tear down the current playback session — its stream URLs
                 // are scoped to the outgoing profile.
@@ -280,6 +315,7 @@ class AppContainer(private val context: Context) {
     val repository: YoinRepository by lazy {
         YoinRepository(
             activeSource = profileManager.activeSource,
+            activeProfileId = profileManager.activeProfileId,
             database = database,
             geminiService = geminiService,
             songInfoDao = database.songInfoDao(),
@@ -287,10 +323,12 @@ class AppContainer(private val context: Context) {
         )
     }
 
-    private companion object {
+    companion object {
+        const val ProviderHttpCacheBytes: Long = 50L * 1024L * 1024L
+
         val MIGRATION_1_2 = object : Migration(1, 2) {
-            override fun migrate(database: SupportSQLiteDatabase) {
-                database.execSQL(
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
                     """
                     CREATE TABLE IF NOT EXISTS `activity_events` (
                         `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
@@ -311,8 +349,8 @@ class AppContainer(private val context: Context) {
         }
 
         val MIGRATION_2_3 = object : Migration(2, 3) {
-            override fun migrate(database: SupportSQLiteDatabase) {
-                database.execSQL(
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
                     """
                     CREATE TABLE IF NOT EXISTS `song_info` (
                         `songId` TEXT NOT NULL PRIMARY KEY,
@@ -326,7 +364,7 @@ class AppContainer(private val context: Context) {
                     )
                     """.trimIndent(),
                 )
-                database.execSQL(
+                db.execSQL(
                     """
                     CREATE TABLE IF NOT EXISTS `gemini_config` (
                         `id` INTEGER NOT NULL PRIMARY KEY,
@@ -341,9 +379,9 @@ class AppContainer(private val context: Context) {
         // entity id, so Subsonic / Spotify / ... data can coexist. Existing
         // rows are tagged "subsonic". Also introduces the `profiles` table.
         val MIGRATION_3_4 = object : Migration(3, 4) {
-            override fun migrate(database: SupportSQLiteDatabase) {
+            override fun migrate(db: SupportSQLiteDatabase) {
                 // local_ratings: rebuild with composite PK (songId, provider)
-                database.execSQL(
+                db.execSQL(
                     """
                     CREATE TABLE `local_ratings_new` (
                         `songId` TEXT NOT NULL,
@@ -356,7 +394,7 @@ class AppContainer(private val context: Context) {
                     )
                     """.trimIndent(),
                 )
-                database.execSQL(
+                db.execSQL(
                     """
                     INSERT INTO `local_ratings_new`
                         (`songId`, `provider`, `rating`, `serverRating`, `needsSync`, `updatedAt`)
@@ -364,11 +402,11 @@ class AppContainer(private val context: Context) {
                     FROM `local_ratings`
                     """.trimIndent(),
                 )
-                database.execSQL("DROP TABLE `local_ratings`")
-                database.execSQL("ALTER TABLE `local_ratings_new` RENAME TO `local_ratings`")
+                db.execSQL("DROP TABLE `local_ratings`")
+                db.execSQL("ALTER TABLE `local_ratings_new` RENAME TO `local_ratings`")
 
                 // song_info: rebuild with composite PK
-                database.execSQL(
+                db.execSQL(
                     """
                     CREATE TABLE `song_info_new` (
                         `songId` TEXT NOT NULL,
@@ -384,7 +422,7 @@ class AppContainer(private val context: Context) {
                     )
                     """.trimIndent(),
                 )
-                database.execSQL(
+                db.execSQL(
                     """
                     INSERT INTO `song_info_new`
                         (`songId`, `provider`, `creationTime`, `creationLocation`,
@@ -394,11 +432,11 @@ class AppContainer(private val context: Context) {
                     FROM `song_info`
                     """.trimIndent(),
                 )
-                database.execSQL("DROP TABLE `song_info`")
-                database.execSQL("ALTER TABLE `song_info_new` RENAME TO `song_info`")
+                db.execSQL("DROP TABLE `song_info`")
+                db.execSQL("ALTER TABLE `song_info_new` RENAME TO `song_info`")
 
                 // cache_metadata: rebuild with composite PK
-                database.execSQL(
+                db.execSQL(
                     """
                     CREATE TABLE `cache_metadata_new` (
                         `songId` TEXT NOT NULL,
@@ -413,7 +451,7 @@ class AppContainer(private val context: Context) {
                     )
                     """.trimIndent(),
                 )
-                database.execSQL(
+                db.execSQL(
                     """
                     INSERT INTO `cache_metadata_new`
                         (`songId`, `provider`, `title`, `artist`, `album`,
@@ -423,11 +461,11 @@ class AppContainer(private val context: Context) {
                     FROM `cache_metadata`
                     """.trimIndent(),
                 )
-                database.execSQL("DROP TABLE `cache_metadata`")
-                database.execSQL("ALTER TABLE `cache_metadata_new` RENAME TO `cache_metadata`")
+                db.execSQL("DROP TABLE `cache_metadata`")
+                db.execSQL("ALTER TABLE `cache_metadata_new` RENAME TO `cache_metadata`")
 
                 // play_history: add `provider` column in place
-                database.execSQL(
+                db.execSQL(
                     """
                     ALTER TABLE `play_history`
                     ADD COLUMN `provider` TEXT NOT NULL DEFAULT 'subsonic'
@@ -435,7 +473,7 @@ class AppContainer(private val context: Context) {
                 )
 
                 // activity_events: add `provider` column in place
-                database.execSQL(
+                db.execSQL(
                     """
                     ALTER TABLE `activity_events`
                     ADD COLUMN `provider` TEXT NOT NULL DEFAULT 'subsonic'
@@ -443,7 +481,7 @@ class AppContainer(private val context: Context) {
                 )
 
                 // profiles: new table
-                database.execSQL(
+                db.execSQL(
                     """
                     CREATE TABLE IF NOT EXISTS `profiles` (
                         `id` TEXT NOT NULL PRIMARY KEY,
@@ -459,8 +497,8 @@ class AppContainer(private val context: Context) {
 
         // v4 → v5: single-row spotify_config table for user-supplied OAuth client id.
         val MIGRATION_4_5 = object : Migration(4, 5) {
-            override fun migrate(database: SupportSQLiteDatabase) {
-                database.execSQL(
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
                     """
                     CREATE TABLE IF NOT EXISTS `spotify_config` (
                         `id` INTEGER NOT NULL PRIMARY KEY,
@@ -476,8 +514,43 @@ class AppContainer(private val context: Context) {
         // migration tolerates inline profile blobs, but we no longer carry the
         // pre-profile plaintext table forward.
         val MIGRATION_5_6 = object : Migration(5, 6) {
-            override fun migrate(database: SupportSQLiteDatabase) {
-                database.execSQL("DROP TABLE IF EXISTS `server_config`")
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("DROP TABLE IF EXISTS `server_config`")
+            }
+        }
+
+        val MIGRATION_6_7 = object : Migration(6, 7) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `spotify_home_album_cache` (
+                        `profileId` TEXT NOT NULL,
+                        `albumId` TEXT NOT NULL,
+                        `name` TEXT NOT NULL,
+                        `artist` TEXT,
+                        `artistId` TEXT,
+                        `coverArtKey` TEXT,
+                        `songCount` INTEGER,
+                        `year` INTEGER,
+                        `sortOrder` INTEGER NOT NULL,
+                        `cachedAt` INTEGER NOT NULL,
+                        PRIMARY KEY(`profileId`, `albumId`)
+                    )
+                    """.trimIndent(),
+                )
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `spotify_home_artist_cache` (
+                        `profileId` TEXT NOT NULL,
+                        `artistId` TEXT NOT NULL,
+                        `name` TEXT NOT NULL,
+                        `coverArtKey` TEXT,
+                        `sortOrder` INTEGER NOT NULL,
+                        `cachedAt` INTEGER NOT NULL,
+                        PRIMARY KEY(`profileId`, `artistId`)
+                    )
+                    """.trimIndent(),
+                )
             }
         }
     }

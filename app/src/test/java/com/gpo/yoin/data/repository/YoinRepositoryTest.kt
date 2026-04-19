@@ -32,6 +32,7 @@ class YoinRepositoryTest {
 
     private val repository = YoinRepository(
         activeSource = MutableStateFlow(source),
+        activeProfileId = MutableStateFlow("spotify-profile"),
         database = database,
         geminiService = geminiService,
         songInfoDao = songInfoDao,

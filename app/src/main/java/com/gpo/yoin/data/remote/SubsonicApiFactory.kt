@@ -18,6 +18,7 @@ object SubsonicApiFactory {
     fun create(
         credentialsProvider: () -> ServerCredentials,
         loggingEnabled: Boolean = false,
+        baseHttpClient: OkHttpClient? = null,
     ): SubsonicApi {
         val credentials = credentialsProvider()
         val rawUrl = credentials.serverUrl.trim().trimEnd('/')
@@ -25,7 +26,7 @@ object SubsonicApiFactory {
         val baseUrl = rawUrl.ifBlank { "http://localhost" }
 
         val client =
-            OkHttpClient.Builder()
+            (baseHttpClient?.newBuilder() ?: OkHttpClient.Builder())
                 .addInterceptor(SubsonicInterceptor(credentialsProvider))
                 .apply {
                     if (loggingEnabled) {

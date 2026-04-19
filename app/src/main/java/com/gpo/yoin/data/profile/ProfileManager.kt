@@ -3,6 +3,7 @@ package com.gpo.yoin.data.profile
 import com.gpo.yoin.data.local.Profile
 import com.gpo.yoin.data.local.ProfileDao
 import com.gpo.yoin.data.remote.ServerCredentials
+import com.gpo.yoin.data.remote.SubsonicApiFactory
 import com.gpo.yoin.data.source.MusicSource
 import com.gpo.yoin.data.source.subsonic.SubsonicMusicSource
 import java.util.UUID
@@ -18,6 +19,7 @@ import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
+import okhttp3.OkHttpClient
 
 /**
  * Owns the list of configured [Profile]s and the currently active
@@ -45,6 +47,8 @@ class ProfileManager(
     private val legacyCodec: ProfileCredentialsCodec,
     private val scope: CoroutineScope,
     private val spotifyClientIdProvider: () -> String = { "" },
+    private val spotifyHttpClientProvider: () -> OkHttpClient = { OkHttpClient() },
+    private val subsonicBaseHttpClientProvider: () -> OkHttpClient = { OkHttpClient() },
     private val onSwitchPrepare: suspend () -> Unit = {},
     private val onSwitchCommit: suspend () -> Unit = {},
 ) {
@@ -296,10 +300,18 @@ class ProfileManager(
                     username = credentials.username,
                     password = credentials.password,
                 ),
+                apiFactory = { provider ->
+                    SubsonicApiFactory.create(
+                        credentialsProvider = provider,
+                        loggingEnabled = false,
+                        baseHttpClient = subsonicBaseHttpClientProvider(),
+                    )
+                },
             )
             is ProfileCredentials.Spotify -> com.gpo.yoin.data.source.spotify.SpotifyMusicSource(
                 initialCredentials = credentials,
                 clientIdProvider = spotifyClientIdProvider,
+                httpClient = spotifyHttpClientProvider(),
                 onCredentialsPersisted = { refreshed ->
                     scope.launch {
                         persistCredentialsSilently(profile.id, refreshed)

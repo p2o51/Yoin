@@ -1,5 +1,6 @@
 package com.gpo.yoin.data.repository
 
+import androidx.room.withTransaction
 import com.gpo.yoin.data.local.ActivityActionType
 import com.gpo.yoin.data.local.ActivityEntityType
 import com.gpo.yoin.data.local.ActivityEvent
@@ -8,6 +9,8 @@ import com.gpo.yoin.data.local.LocalRating
 import com.gpo.yoin.data.local.PlayHistory
 import com.gpo.yoin.data.local.SongInfo
 import com.gpo.yoin.data.local.SongInfoDao
+import com.gpo.yoin.data.local.SpotifyHomeAlbumCache
+import com.gpo.yoin.data.local.SpotifyHomeArtistCache
 import com.gpo.yoin.data.local.YoinDatabase
 import com.gpo.yoin.data.model.Album
 import com.gpo.yoin.data.model.ArtistDetail
@@ -43,11 +46,17 @@ import kotlin.math.roundToInt
 @OptIn(ExperimentalCoroutinesApi::class)
 class YoinRepository(
     private val activeSource: StateFlow<MusicSource?>,
+    private val activeProfileId: StateFlow<String?>,
     private val database: YoinDatabase,
     private val geminiService: GeminiService,
     private val songInfoDao: SongInfoDao,
     private val geminiConfigDao: GeminiConfigDao,
 ) {
+
+    data class SpotifyHomeJumpBackInCacheSnapshot(
+        val albums: List<Album>,
+        val artists: List<com.gpo.yoin.data.model.Artist>,
+    )
 
     sealed interface SongInfoLoadResult {
         data class Success(val songInfo: SongInfo) : SongInfoLoadResult
@@ -83,6 +92,9 @@ class YoinRepository(
 
     /** Synchronous snapshot of [activeProviderId]. */
     fun currentProviderId(): String? = activeSource.value?.id
+
+    /** Synchronous snapshot of the active profile id. */
+    fun currentProfileId(): String? = activeProfileId.value
 
     private fun requireSource(): MusicSource = activeSource.value
         ?: throw SubsonicException(
@@ -123,6 +135,55 @@ class YoinRepository(
 
     suspend fun getRandomSongs(size: Int = 20): List<Track> =
         requireSource().library().getRandomSongs(size)
+
+    // ── Spotify Home cache ────────────────────────────────────────────
+
+    suspend fun getCachedSpotifyHomeJumpBackIn(
+        profileId: String,
+        maxAgeMs: Long,
+    ): SpotifyHomeJumpBackInCacheSnapshot {
+        val minCachedAt = System.currentTimeMillis() - maxAgeMs
+        val dao = database.spotifyHomeCacheDao()
+        return SpotifyHomeJumpBackInCacheSnapshot(
+            albums = dao.getFreshAlbums(profileId, minCachedAt).map(SpotifyHomeAlbumCache::toAlbum),
+            artists = dao.getFreshArtists(profileId, minCachedAt).map(SpotifyHomeArtistCache::toArtist),
+        )
+    }
+
+    suspend fun replaceSpotifyHomeJumpBackInCache(
+        profileId: String,
+        albums: List<Album>,
+        artists: List<com.gpo.yoin.data.model.Artist>,
+        cachedAt: Long = System.currentTimeMillis(),
+    ) {
+        database.withTransaction {
+            val dao = database.spotifyHomeCacheDao()
+            dao.deleteAlbumsForProfile(profileId)
+            dao.deleteArtistsForProfile(profileId)
+            dao.insertAlbums(
+                albums
+                    .distinctBy { album -> album.id }
+                    .mapIndexed { index, album ->
+                        album.toSpotifyHomeAlbumCache(
+                            profileId = profileId,
+                            sortOrder = index,
+                            cachedAt = cachedAt,
+                        )
+                    },
+            )
+            dao.insertArtists(
+                artists
+                    .distinctBy { artist -> artist.id }
+                    .mapIndexed { index, artist ->
+                        artist.toSpotifyHomeArtistCache(
+                            profileId = profileId,
+                            sortOrder = index,
+                            cachedAt = cachedAt,
+                        )
+                    },
+            )
+        }
+    }
 
     // ── Playlists ──────────────────────────────────────────────────────
 
@@ -434,7 +495,7 @@ class YoinRepository(
     private fun fallbackCoverKeyForSubsonic(provider: String, albumRawId: String?): String? =
         albumRawId?.takeIf { provider == MediaId.PROVIDER_SUBSONIC }
 
-    private fun collapseToLatestUnique(events: List<ActivityEvent>): List<ActivityEvent> {
+private fun collapseToLatestUnique(events: List<ActivityEvent>): List<ActivityEvent> {
         val seenKeys = mutableSetOf<String>()
         val collapsed = mutableListOf<ActivityEvent>()
         events.forEach { event ->
@@ -446,3 +507,55 @@ class YoinRepository(
         return collapsed
     }
 }
+
+private fun Album.toSpotifyHomeAlbumCache(
+    profileId: String,
+    sortOrder: Int,
+    cachedAt: Long,
+): SpotifyHomeAlbumCache = SpotifyHomeAlbumCache(
+    profileId = profileId,
+    albumId = id.toString(),
+    name = name,
+    artist = artist,
+    artistId = artistId?.toString(),
+    coverArtKey = CoverRef.toStorageKey(coverArt),
+    songCount = songCount,
+    year = year,
+    sortOrder = sortOrder,
+    cachedAt = cachedAt,
+)
+
+private fun SpotifyHomeAlbumCache.toAlbum(): Album = Album(
+    id = MediaId.parse(albumId),
+    name = name,
+    artist = artist,
+    artistId = artistId?.let(MediaId::parse),
+    coverArt = CoverRef.fromStorageKey(coverArtKey),
+    songCount = songCount,
+    durationSec = null,
+    year = year,
+    genre = null,
+    tracks = emptyList(),
+)
+
+private fun com.gpo.yoin.data.model.Artist.toSpotifyHomeArtistCache(
+    profileId: String,
+    sortOrder: Int,
+    cachedAt: Long,
+): SpotifyHomeArtistCache = SpotifyHomeArtistCache(
+    profileId = profileId,
+    artistId = id.toString(),
+    name = name,
+    coverArtKey = CoverRef.toStorageKey(coverArt),
+    sortOrder = sortOrder,
+    cachedAt = cachedAt,
+)
+
+private fun SpotifyHomeArtistCache.toArtist(): com.gpo.yoin.data.model.Artist =
+    com.gpo.yoin.data.model.Artist(
+        id = MediaId.parse(artistId),
+        name = name,
+        albumCount = null,
+        coverArt = CoverRef.fromStorageKey(coverArtKey),
+        isStarred = false,
+    )

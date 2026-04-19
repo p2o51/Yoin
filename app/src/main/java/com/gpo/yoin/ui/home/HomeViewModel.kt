@@ -7,21 +7,23 @@ import com.gpo.yoin.AppContainer
 import com.gpo.yoin.data.model.Album
 import com.gpo.yoin.data.model.Artist
 import com.gpo.yoin.data.model.ArtistIndex
+import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.Track
 import com.gpo.yoin.data.repository.YoinRepository
 import com.gpo.yoin.data.source.Capability
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 class HomeViewModel(
     private val repository: YoinRepository,
+    private val activeProfileId: StateFlow<String?>,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow<HomeUiState>(HomeUiState.Loading)
@@ -36,17 +38,42 @@ class HomeViewModel(
     }
 
     fun refresh() {
+        val providerId = repository.currentProviderId()
+        val profileId = activeProfileId.value
+        artistPoolWarmupJob?.cancel()
+        artistPoolWarmupJob = null
+        artistPool = emptyList()
         viewModelScope.launch {
-            if (_uiState.value !is HomeUiState.Content) {
-                _uiState.value = HomeUiState.Loading
+            val cachedSpotifyContent = if (
+                providerId == MediaId.PROVIDER_SPOTIFY &&
+                !profileId.isNullOrBlank()
+            ) {
+                loadCachedSpotifyHomeContent(profileId)
+            } else {
+                null
             }
+
+            _uiState.value = cachedSpotifyContent ?: HomeUiState.Loading
+
             try {
-                _uiState.value = loadHomeContent()
-                warmArtistPool()
+                val freshContent = when {
+                    providerId == MediaId.PROVIDER_SPOTIFY && !profileId.isNullOrBlank() ->
+                        loadSpotifyHomeContent(profileId)
+
+                    else -> loadHomeContent()
+                }
+                if (!matchesCurrentScope(providerId, profileId)) return@launch
+                _uiState.value = freshContent
+                if (providerId != MediaId.PROVIDER_SPOTIFY) {
+                    warmArtistPool()
+                }
             } catch (e: Exception) {
-                _uiState.value = HomeUiState.Error(
-                    e.message ?: "Failed to load home content",
-                )
+                if (!matchesCurrentScope(providerId, profileId)) return@launch
+                if (cachedSpotifyContent == null) {
+                    _uiState.value = HomeUiState.Error(
+                        e.message ?: "Failed to load home content",
+                    )
+                }
             }
         }
     }
@@ -63,7 +90,6 @@ class HomeViewModel(
                             .coerceAtLeast(INITIAL_JUMP_BACK_IN_BATCH_SIZE),
                     ),
                 )
-                warmArtistPool()
             } catch (_: Exception) {
                 // Keep the current section stable if recommendation refresh fails.
             }
@@ -72,6 +98,8 @@ class HomeViewModel(
 
     fun loadMoreJumpBackIn() {
         val currentContent = _uiState.value as? HomeUiState.Content ?: return
+        val providerId = repository.currentProviderId()
+        val profileId = activeProfileId.value
         if (isLoadingMoreJumpBackIn) return
         isLoadingMoreJumpBackIn = true
         _uiState.value = currentContent.copy(isLoadingMoreJumpBackIn = true)
@@ -81,12 +109,14 @@ class HomeViewModel(
                     existingIds = currentContent.jumpBackInItems.mapTo(mutableSetOf()) { it.stableId },
                     batchSize = JUMP_BACK_IN_BATCH_SIZE,
                 )
+                if (!matchesCurrentScope(providerId, profileId)) return@launch
                 val latest = _uiState.value as? HomeUiState.Content ?: return@launch
                 _uiState.value = latest.copy(
                     jumpBackInItems = latest.jumpBackInItems + nextBatch,
                     isLoadingMoreJumpBackIn = false,
                 )
             } catch (_: Exception) {
+                if (!matchesCurrentScope(providerId, profileId)) return@launch
                 val latest = _uiState.value as? HomeUiState.Content ?: return@launch
                 _uiState.value = latest.copy(isLoadingMoreJumpBackIn = false)
             } finally {
@@ -115,6 +145,84 @@ class HomeViewModel(
                 jumpBackInItems = jumpBackInDeferred.await(),
             )
         }
+
+    private suspend fun loadCachedSpotifyHomeContent(
+        profileId: String,
+    ): HomeUiState.Content? = coroutineScope {
+        val activitiesDeferred = async {
+            repository.getRecentActivities(limit = 20).first()
+        }
+        val cacheSnapshotDeferred = async {
+            repository.getCachedSpotifyHomeJumpBackIn(
+                profileId = profileId,
+                maxAgeMs = SpotifyHomeCacheTtlMillis,
+            )
+        }
+
+        val activities = activitiesDeferred.await()
+        val cacheSnapshot = cacheSnapshotDeferred.await()
+        val jumpBackInItems = buildJumpBackInBatch(
+            albumCandidates = cacheSnapshot.albums,
+            songCandidates = emptyList(),
+            artistCandidates = cacheSnapshot.artists,
+            existingIds = emptySet(),
+            batchSize = INITIAL_JUMP_BACK_IN_BATCH_SIZE,
+            shuffleCandidates = false,
+        )
+
+        if (activities.isEmpty() && jumpBackInItems.isEmpty()) {
+            null
+        } else {
+            HomeUiState.Content(
+                activities = activities,
+                jumpBackInItems = jumpBackInItems,
+            )
+        }
+    }
+
+    private suspend fun loadSpotifyHomeContent(
+        profileId: String,
+    ): HomeUiState.Content = coroutineScope {
+        val activitiesDeferred = async {
+            repository.getRecentActivities(limit = 20).first()
+        }
+        val albumDeferred = async {
+            repository.getAlbumList("random", size = JUMP_BACK_IN_ALBUM_REQUEST_SIZE)
+        }
+        val artistsDeferred = async {
+            loadArtistsFlat()
+        }
+
+        val activities = activitiesDeferred.await()
+        val shuffledAlbums = albumDeferred.await()
+            .distinctBy { album -> album.id }
+            .shuffled()
+            .take(SpotifyHomeCacheCandidateCount)
+        val allArtists = artistsDeferred.await()
+        artistPool = allArtists
+        val shuffledArtists = allArtists
+            .distinctBy { artist -> artist.id }
+            .shuffled()
+            .take(SpotifyHomeCacheCandidateCount)
+
+        repository.replaceSpotifyHomeJumpBackInCache(
+            profileId = profileId,
+            albums = shuffledAlbums,
+            artists = shuffledArtists,
+        )
+
+        HomeUiState.Content(
+            activities = activities,
+            jumpBackInItems = buildJumpBackInBatch(
+                albumCandidates = shuffledAlbums,
+                songCandidates = emptyList(),
+                artistCandidates = shuffledArtists,
+                existingIds = emptySet(),
+                batchSize = INITIAL_JUMP_BACK_IN_BATCH_SIZE,
+                shuffleCandidates = false,
+            ),
+        )
+    }
 
     private suspend fun loadJumpBackInItems(
         existingIds: Set<String>,
@@ -153,29 +261,31 @@ class HomeViewModel(
         }
     }
 
-    private suspend fun buildJumpBackInBatch(
+    private fun buildJumpBackInBatch(
         albumCandidates: List<Album>,
         songCandidates: List<Track>,
         artistCandidates: List<Artist>,
         existingIds: Set<String>,
         batchSize: Int,
+        shuffleCandidates: Boolean = true,
     ): List<HomeJumpBackInItem> {
-        val albumItems = albumCandidates
-            .shuffled()
+        val orderedAlbums = if (shuffleCandidates) albumCandidates.shuffled() else albumCandidates
+        val orderedSongs = if (shuffleCandidates) songCandidates.shuffled() else songCandidates
+        val orderedArtists = if (shuffleCandidates) artistCandidates.shuffled() else artistCandidates
+
+        val albumItems = orderedAlbums
             .map { HomeJumpBackInItem.AlbumItem(it) }
             .distinctBy { it.stableId }
             .filterNot { it.stableId in existingIds }
             .take(batchSize)
 
-        val songItems = songCandidates
-            .shuffled()
+        val songItems = orderedSongs
             .map { HomeJumpBackInItem.SongItem(it) }
             .distinctBy { it.stableId }
             .filterNot { it.stableId in existingIds }
             .take(batchSize)
 
-        val artistItems = artistCandidates
-            .shuffled()
+        val artistItems = orderedArtists
             .map { HomeJumpBackInItem.ArtistItem(it) }
             .distinctBy { it.stableId }
             .filterNot { it.stableId in existingIds }
@@ -247,10 +357,19 @@ class HomeViewModel(
         return indices.flatMap { it.artists }
     }
 
+    private fun matchesCurrentScope(
+        providerId: String?,
+        profileId: String?,
+    ): Boolean = repository.currentProviderId() == providerId &&
+        activeProfileId.value == profileId
+
     class Factory(private val container: AppContainer) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T =
-            HomeViewModel(container.repository) as T
+            HomeViewModel(
+                repository = container.repository,
+                activeProfileId = container.profileManager.activeProfileId,
+            ) as T
     }
 
     private companion object {
@@ -258,5 +377,7 @@ class HomeViewModel(
         private const val JUMP_BACK_IN_BATCH_SIZE = 18
         private const val JUMP_BACK_IN_ALBUM_REQUEST_SIZE = 18
         private const val JUMP_BACK_IN_SONG_REQUEST_SIZE = 18
+        private const val SpotifyHomeCacheCandidateCount = 18
+        private const val SpotifyHomeCacheTtlMillis = 60L * 60L * 1000L
     }
 }
