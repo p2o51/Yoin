@@ -124,6 +124,18 @@ internal class SpotifyAppRemotePlayer(
      */
     private var clientIdBootstrapRetryAvailable: Boolean = true
 
+    /**
+     * Budget for silently retrying transient transport failures. Spotify's
+     * SDK reports `SpotifyAppRemoteException: Result was not delivered on
+     * time` after a ~30s bound-service timeout when the Spotify process
+     * is cold-starting; the second attempt almost always succeeds because
+     * Spotify is now running. Other TransportFailure causes (disconnect
+     * mid-session, transient IPC errors) follow the same recover-on-next
+     * pattern. One free retry per session, refilled on any successful
+     * connect and on `onHostStop`.
+     */
+    private var transportRetryAvailable: Boolean = true
+
     fun onHostStart(context: Context) {
         Log.d(tag, "onHostStart: host=${context.javaClass.simpleName}")
         hostContext = context
@@ -159,6 +171,7 @@ internal class SpotifyAppRemotePlayer(
         // launch should get one more automatic attempt.
         coldStartAuthRetryAvailable = true
         clientIdBootstrapRetryAvailable = true
+        transportRetryAvailable = true
         disconnectRemote(preserveSnapshot = true)
     }
 
@@ -311,17 +324,26 @@ internal class SpotifyAppRemotePlayer(
             // stored id yet", not "user genuinely never set one". Give the
             // flow a brief grace period before publishing the error banner.
             // Budget is one-shot per host session so a *genuinely* blank id
-            // still surfaces the banner on second attempt.
-            if (clientIdBootstrapRetryAvailable &&
-                wantsConnection &&
-                pendingOperations.isNotEmpty()
-            ) {
+            // still surfaces the banner on second attempt. We retry whether
+            // there's a pending op or just a warm connect — both paths
+            // deserve to wait for Room.
+            if (clientIdBootstrapRetryAvailable && wantsConnection) {
                 clientIdBootstrapRetryAvailable = false
                 Log.d(tag, "connectIfPossible: clientId blank, retrying after bootstrap grace")
                 scope.launch {
                     kotlinx.coroutines.delay(CLIENT_ID_BOOTSTRAP_GRACE_MS)
                     connectIfPossible()
                 }
+                return
+            }
+            // No user is actively waiting on us (warm connect with no
+            // queued ops, never observed real PlayerState) — silently
+            // bail rather than flashing a NoClientId banner. The user
+            // will trigger a real connect when they tap something, at
+            // which point we'll have a pending op and the banner is
+            // appropriate.
+            if (!isUserWaitingOnConnection()) {
+                Log.d(tag, "connectIfPossible: clientId blank with no user waiting — silent abort")
                 return
             }
             publish(
@@ -354,10 +376,11 @@ internal class SpotifyAppRemotePlayer(
             }.onSuccess { connected ->
                 Log.d(tag, "connectIfPossible: connected")
                 remote = connected
-                // Successful connect — if a cold-start auth retry had been
-                // consumed, refill the budget so a later hiccup in the same
-                // session can also get one free attempt.
+                // Successful connect — refill all single-shot retry budgets so
+                // a later hiccup in the same session can also get one free
+                // attempt at each recovery path.
                 coldStartAuthRetryAvailable = true
+                transportRetryAvailable = true
                 subscribeToPlayerState(connected)
                 // Connect succeeded, but we do NOT move to Ready yet — we
                 // wait for the first real PlayerState via the subscription.
@@ -572,6 +595,38 @@ internal class SpotifyAppRemotePlayer(
         }
 
         val failure = failureFor(error)
+
+        // Transient transport failures (network blip, IPC timeout, SDK's
+        // 30s bound-service `SpotifyAppRemoteException` cold-start timeout,
+        // mid-session disconnect, etc.) — auto-retry once. The SDK's parent
+        // `SpotifyAppRemoteException` falls through `failureFor`'s `else`
+        // branch into `TransportFailure`, so this catches the timeout case
+        // we previously missed (only the two named subclasses retried).
+        if (failure is SpotifyConnectFailure.TransportFailure &&
+            transportRetryAvailable &&
+            wantsConnection
+        ) {
+            transportRetryAvailable = false
+            Log.d(tag, "handleRemoteError: silently retrying transport failure after ${TRANSPORT_RETRY_DELAY_MS}ms")
+            disconnectRemote(preserveSnapshot = true)
+            scope.launch {
+                kotlinx.coroutines.delay(TRANSPORT_RETRY_DELAY_MS)
+                connectIfPossible()
+            }
+            return
+        }
+
+        // Warm-connect-only failure: nobody's actively waiting on us
+        // (no queued ops, no PlayerState ever observed). Surfacing an
+        // Error banner here is just noise — the user wasn't trying to do
+        // anything Spotify-related yet. Stay quiet and let the next user
+        // action retrigger the connect attempt naturally.
+        if (!isUserWaitingOnConnection()) {
+            Log.d(tag, "handleRemoteError: warm-connect failure, suppressing Error banner")
+            disconnectRemote(preserveSnapshot = true)
+            return
+        }
+
         val message = failure.userMessage()
         // If the user had already been watching something play (observed
         // at least one real PlayerState), preserve `currentTrack` and let
@@ -597,17 +652,17 @@ internal class SpotifyAppRemotePlayer(
             )
         }
         publish(errorSnapshot)
-        if (!wantsConnection) return
-        // Transient transport errors can be recovered by reconnecting.
-        // Permanent failures (no Spotify app, non-Premium, bad auth) must not
-        // retry — it would just churn and keep the error state flashing.
-        if (failure is SpotifyConnectFailure.TransportFailure &&
-            (error is SpotifyDisconnectedException || error is SpotifyRemoteServiceException)
-        ) {
-            disconnectRemote(preserveSnapshot = true)
-            connectIfPossible()
-        }
     }
+
+    /**
+     * True when the user has either queued an operation that's waiting on
+     * the connection (`pendingOperations`) or already observed a real
+     * PlayerState in this session. Used to decide whether a connect
+     * failure is worth surfacing to UI — warm/speculative connects with
+     * neither shouldn't flash banners.
+     */
+    private fun isUserWaitingOnConnection(): Boolean =
+        pendingOperations.isNotEmpty() || lastSnapshot.observedPlayerState
 
     private companion object {
         /**
@@ -625,6 +680,14 @@ internal class SpotifyAppRemotePlayer(
          * without being perceptibly laggy to the user.
          */
         const val CLIENT_ID_BOOTSTRAP_GRACE_MS = 500L
+
+        /**
+         * Backoff before retrying after a transient transport failure.
+         * Mostly covers the Spotify SDK's ~30s bound-service cold-start
+         * timeout — by the time we land here Spotify is almost certainly
+         * up, but a small pause gives the IPC channel a moment to reset.
+         */
+        const val TRANSPORT_RETRY_DELAY_MS = 800L
     }
 
     private fun failureFor(error: Throwable): SpotifyConnectFailure = when (error) {
