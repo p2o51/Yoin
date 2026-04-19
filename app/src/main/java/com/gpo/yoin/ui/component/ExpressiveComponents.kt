@@ -54,16 +54,24 @@ import com.gpo.yoin.ui.theme.YoinShapeTokens
 
 @Composable
 internal fun ExpressivePageBackground(
+    accentColor: androidx.compose.ui.graphics.Color? = null,
     modifier: Modifier = Modifier,
     content: @Composable BoxScope.() -> Unit,
 ) {
+    val topColor = accentColor?.let { accent ->
+        androidx.compose.ui.graphics.lerp(
+            start = MaterialTheme.colorScheme.surfaceContainer,
+            stop = accent,
+            fraction = 0.18f,
+        )
+    } ?: MaterialTheme.colorScheme.surfaceContainer
     Box(
         modifier = modifier
             .fillMaxSize()
             .background(
                 Brush.verticalGradient(
                     colors = listOf(
-                        MaterialTheme.colorScheme.surfaceContainer,
+                        topColor,
                         MaterialTheme.colorScheme.background,
                         MaterialTheme.colorScheme.surfaceContainerLow,
                     ),
@@ -325,10 +333,6 @@ internal fun ExpressiveMetaPill(
         modifier = modifier,
         shape = YoinShapeTokens.Full,
         color = MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.9f),
-        border = BorderStroke(
-            width = 1.dp,
-            color = MaterialTheme.colorScheme.outline.copy(alpha = 0.1f),
-        ),
     ) {
         Text(
             text = text,

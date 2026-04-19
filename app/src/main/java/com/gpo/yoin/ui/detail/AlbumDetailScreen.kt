@@ -58,6 +58,7 @@ import com.gpo.yoin.ui.component.ExpressiveSectionPanel
 import com.gpo.yoin.ui.component.SongListItem
 import com.gpo.yoin.ui.component.YoinLoadingIndicator
 import com.gpo.yoin.ui.component.minimumTouchTarget
+import com.gpo.yoin.ui.component.rememberExpressiveBackdropColors
 import com.gpo.yoin.ui.navigation.albumCoverSharedKey
 import com.gpo.yoin.ui.theme.ProvideYoinMotionRole
 import com.gpo.yoin.ui.theme.YoinMotion
@@ -82,7 +83,17 @@ fun AlbumDetailScreen(
     modifier: Modifier = Modifier,
 ) {
     ProvideYoinMotionRole(role = YoinMotionRole.Expressive) {
-        ExpressivePageBackground(modifier = modifier) {
+        val accentColor = (uiState as? AlbumDetailUiState.Content)?.coverArtUrl?.let { coverArtUrl ->
+            rememberExpressiveBackdropColors(
+                model = coverArtUrl,
+                fallbackBaseColor = MaterialTheme.colorScheme.surfaceContainer,
+                fallbackAccentColor = MaterialTheme.colorScheme.secondaryContainer,
+            ).accentColor
+        }
+        ExpressivePageBackground(
+            accentColor = accentColor,
+            modifier = modifier,
+        ) {
             Scaffold(
                 modifier = Modifier.fillMaxSize(),
                 containerColor = Color.Transparent,

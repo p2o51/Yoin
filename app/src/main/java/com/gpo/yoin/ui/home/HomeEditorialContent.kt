@@ -816,7 +816,6 @@ private fun ExpressiveArtwork(
                         boundsTransform = { _, _ -> sharedArtworkBoundsSpec },
                         zIndexInOverlay = 1f,
                     )
-                    .clip(shape)
             }
         } else {
             Modifier.fillMaxSize()

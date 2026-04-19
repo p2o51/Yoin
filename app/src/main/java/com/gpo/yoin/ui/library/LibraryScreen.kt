@@ -53,6 +53,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
@@ -60,6 +61,7 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import coil3.compose.AsyncImage
 import com.gpo.yoin.data.model.Album
 import com.gpo.yoin.data.model.Artist
 import com.gpo.yoin.data.model.CoverRef
@@ -303,6 +305,7 @@ private fun LibraryContentBody(
                         LibraryTab.Artists -> ArtistsTabContent(
                             artists = state.artists,
                             onArtistClick = onArtistClick,
+                            coverArtUrlBuilder = coverArtUrlBuilder,
                         )
                         LibraryTab.Albums -> AlbumsTabContent(
                             albums = state.albums,
@@ -473,6 +476,7 @@ private fun LibraryFilterChips(
 private fun ArtistsTabContent(
     artists: List<Artist>,
     onArtistClick: (String) -> Unit,
+    coverArtUrlBuilder: ((String) -> String)?,
     modifier: Modifier = Modifier,
 ) {
     if (artists.isEmpty()) {
@@ -496,6 +500,7 @@ private fun ArtistsTabContent(
             )
             ArtistListItem(
                 artist = artist,
+                coverArtUrl = libraryCoverArtUrl(artist.coverArt, coverArtUrlBuilder),
                 onClick = { onArtistClick(artist.id.toString()) },
                 modifier = Modifier.expressiveEntrance(entranceProgress),
             )
@@ -506,6 +511,7 @@ private fun ArtistsTabContent(
 @Composable
 private fun ArtistListItem(
     artist: Artist,
+    coverArtUrl: String?,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -528,16 +534,25 @@ private fun ArtistListItem(
                 shape = CircleShape,
                 color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.84f),
             ) {
-                Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Icon(
-                        imageVector = Icons.Filled.Person,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onSecondaryContainer,
-                        modifier = Modifier.size(22.dp),
+                if (coverArtUrl != null) {
+                    AsyncImage(
+                        model = coverArtUrl,
+                        contentDescription = artist.name,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize(),
                     )
+                } else {
+                    Box(
+                        modifier = Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.Person,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                            modifier = Modifier.size(22.dp),
+                        )
+                    }
                 }
             }
             Spacer(modifier = Modifier.width(12.dp))
@@ -921,6 +936,7 @@ private fun FavoritesTabContent(
                 )
                 ArtistListItem(
                     artist = artist,
+                    coverArtUrl = libraryCoverArtUrl(artist.coverArt, coverArtUrlBuilder),
                     onClick = { onArtistClick(artist.id.toString()) },
                     modifier = Modifier.expressiveEntrance(entranceProgress),
                 )
@@ -1115,6 +1131,7 @@ private fun SearchResultsContent(
                 )
                 ArtistListItem(
                     artist = artist,
+                    coverArtUrl = libraryCoverArtUrl(artist.coverArt, coverArtUrlBuilder),
                     onClick = { onArtistClick(artist.id.toString()) },
                     modifier = Modifier.expressiveEntrance(entranceProgress),
                 )
