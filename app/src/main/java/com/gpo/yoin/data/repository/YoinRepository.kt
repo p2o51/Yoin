@@ -3,8 +3,11 @@ package com.gpo.yoin.data.repository
 import com.gpo.yoin.data.local.ActivityActionType
 import com.gpo.yoin.data.local.ActivityEntityType
 import com.gpo.yoin.data.local.ActivityEvent
+import com.gpo.yoin.data.local.GeminiConfigDao
 import com.gpo.yoin.data.local.LocalRating
 import com.gpo.yoin.data.local.PlayHistory
+import com.gpo.yoin.data.local.SongInfo
+import com.gpo.yoin.data.local.SongInfoDao
 import com.gpo.yoin.data.local.YoinDatabase
 import com.gpo.yoin.data.model.Album
 import com.gpo.yoin.data.model.ArtistDetail
@@ -17,6 +20,7 @@ import com.gpo.yoin.data.model.PlaylistItemRef
 import com.gpo.yoin.data.model.SearchResults
 import com.gpo.yoin.data.model.Starred
 import com.gpo.yoin.data.model.Track
+import com.gpo.yoin.data.remote.GeminiService
 import com.gpo.yoin.data.source.Capability
 import com.gpo.yoin.data.source.MusicSource
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -40,7 +44,16 @@ import kotlin.math.roundToInt
 class YoinRepository(
     private val activeSource: StateFlow<MusicSource?>,
     private val database: YoinDatabase,
+    private val geminiService: GeminiService,
+    private val songInfoDao: SongInfoDao,
+    private val geminiConfigDao: GeminiConfigDao,
 ) {
+
+    sealed interface SongInfoLoadResult {
+        data class Success(val songInfo: SongInfo) : SongInfoLoadResult
+        data object ApiKeyMissing : SongInfoLoadResult
+        data class Error(val message: String) : SongInfoLoadResult
+    }
 
     /** True when a configured profile is currently active. */
     val isConfigured: Boolean
@@ -198,6 +211,37 @@ class YoinRepository(
 
     suspend fun getLyrics(trackId: MediaId): Lyrics? =
         requireSource().metadata().getLyrics(trackId)
+
+    suspend fun loadSongInfo(
+        songId: MediaId,
+        title: String,
+        artist: String,
+        album: String,
+    ): SongInfoLoadResult {
+        val cached = songInfoDao.getBySongId(songId.rawId, songId.provider)
+        if (cached != null) {
+            return SongInfoLoadResult.Success(cached)
+        }
+
+        val config = geminiConfigDao.getConfig().first()
+        val apiKey = config?.apiKey
+        if (apiKey.isNullOrBlank()) {
+            return SongInfoLoadResult.ApiKeyMissing
+        }
+
+        return runCatching {
+            val generated = geminiService.generateSongInfo(
+                apiKey = apiKey,
+                title = title,
+                artist = artist,
+                album = album,
+            ).copy(songId = songId.rawId, provider = songId.provider)
+            songInfoDao.upsert(generated)
+            SongInfoLoadResult.Success(generated)
+        }.getOrElse { error ->
+            SongInfoLoadResult.Error(error.message ?: "Failed to load song info")
+        }
+    }
 
     // ── Play history / activity ────────────────────────────────────────
 

@@ -4,10 +4,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.gpo.yoin.AppContainer
-import com.gpo.yoin.data.local.YoinDatabase
 import com.gpo.yoin.data.model.Lyrics as SourceLyrics
 import com.gpo.yoin.data.model.MediaId
-import com.gpo.yoin.data.remote.GeminiService
 import com.gpo.yoin.data.repository.YoinRepository
 import com.gpo.yoin.player.ConnectionPhase
 import com.gpo.yoin.player.PlaybackManager
@@ -24,7 +22,6 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -33,8 +30,6 @@ import kotlinx.coroutines.launch
 class NowPlayingViewModel(
     private val playbackManager: PlaybackManager,
     private val repository: YoinRepository,
-    private val geminiService: GeminiService,
-    private val database: YoinDatabase,
     private val onPlaylistMutated: () -> Unit = {},
 ) : ViewModel() {
 
@@ -296,34 +291,26 @@ class NowPlayingViewModel(
 
     private suspend fun loadSongInfo(songId: MediaId) {
         _songInfoState.value = SongInfoUiState.Loading
-        try {
-            val cached = database.songInfoDao().getBySongId(songId.rawId, songId.provider)
-            if (cached != null) {
-                _songInfoState.value = cached.toSuccessState()
-                return
-            }
-
-            val config = database.geminiConfigDao().getConfig().first()
-            val apiKey = config?.apiKey
-            if (apiKey.isNullOrBlank()) {
-                _songInfoState.value = SongInfoUiState.ApiKeyMissing
-                return
-            }
-
-            val song = playbackManager.playbackState.value.currentTrack
-            val result = geminiService.generateSongInfo(
-                apiKey = apiKey,
+        val song = playbackManager.playbackState.value.currentTrack
+        when (
+            val result = repository.loadSongInfo(
+                songId = songId,
                 title = song?.title.orEmpty(),
                 artist = song?.artist.orEmpty(),
                 album = song?.album.orEmpty(),
             )
-            val songInfo = result.copy(songId = songId.rawId, provider = songId.provider)
-            database.songInfoDao().upsert(songInfo)
-            _songInfoState.value = songInfo.toSuccessState()
-        } catch (e: Exception) {
-            _songInfoState.value = SongInfoUiState.Error(
-                e.message ?: "Failed to load song info",
-            )
+        ) {
+            is YoinRepository.SongInfoLoadResult.Success -> {
+                _songInfoState.value = result.songInfo.toSuccessState()
+            }
+
+            YoinRepository.SongInfoLoadResult.ApiKeyMissing -> {
+                _songInfoState.value = SongInfoUiState.ApiKeyMissing
+            }
+
+            is YoinRepository.SongInfoLoadResult.Error -> {
+                _songInfoState.value = SongInfoUiState.Error(result.message)
+            }
         }
     }
 
@@ -363,8 +350,6 @@ class NowPlayingViewModel(
             NowPlayingViewModel(
                 playbackManager = container.playbackManager,
                 repository = container.repository,
-                geminiService = container.geminiService,
-                database = container.database,
                 onPlaylistMutated = container::notifyPlaylistMutation,
             ) as T
     }
