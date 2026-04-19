@@ -169,26 +169,32 @@ internal fun ExpressiveBackdrop(
         label = "expressiveBackdropColor",
     )
 
+    // Modifier order matters here. `graphicsLayer` must be the
+    // *outermost* draw modifier so that both the shape clip and the
+    // background color rendering happen **inside** the layer and get
+    // properly scaled + self-clipped. Putting it at the end of the
+    // chain (after `.clip.background`) creates a dead layer: the
+    // color is already rasterised to the parent canvas by the time
+    // the layer opens, so `scaleX/scaleY` animates nothing visible
+    // and `clip = true` has nothing to clip — meaning the playback
+    // pulse's spring overshoot still bleeds past the halo rect onto
+    // the sibling cover's shape edge.
+    //
+    // With `graphicsLayer` first, the layer wraps the entire halo
+    // draw, the scale animation actually moves pixels, and
+    // `clip = true` keeps those pixels inside the halo's own layout
+    // rect — so the tile's cover shape stays untouched on every
+    // playback pulse. The halo's static negative-offset glow is a
+    // layout-level concern (not scale-time), so it's untouched.
     Box(
         modifier = modifier
-            .clip(shape)
-            .background(animatedColor)
             .graphicsLayer(
                 scaleX = animatedScale,
                 scaleY = animatedScale,
-                // clip = true: keep the playback pulse contained inside the
-                // halo's own layer rect. The default `clip = false` lets the
-                // shape's rounded edges bleed outward when `animatedScale`
-                // overshoots 1 on the bouncy spring, and that bleed lands
-                // right on top of the sibling cover's shape in the Home
-                // Jump Back In tile — users perceived it as "a sliver of
-                // the album art's shape edge is cut off while playing",
-                // then popping back when the animation settles. The
-                // halo's static negative offset (the designed outer glow)
-                // is unaffected because it's a layout position, not a
-                // scale-time bleed.
                 clip = true,
-            ),
+            )
+            .clip(shape)
+            .background(animatedColor),
     )
 }
 
