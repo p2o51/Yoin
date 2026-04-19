@@ -30,6 +30,21 @@ import kotlinx.coroutines.withContext
 internal data class ExpressiveBackdropColors(
     val baseColor: Color,
     val accentColor: Color,
+    /**
+     * `true` if `baseColor` / `accentColor` came from palette extraction on
+     * the source image; `false` if they are still (or stuck on) the caller-
+     * supplied fallback (image not yet loaded, palette found no significant
+     * swatch, or motion profile disabled extraction).
+     *
+     * Callers that want to *render* the extracted colors but fall back to a
+     * neutral surface when extraction failed (AlbumDetail / PlaylistDetail
+     * pass `null` to `ExpressivePageBackground` in that case) should gate
+     * on this flag — otherwise the animated transition from fallbackAccent
+     * to extracted accent lerps them indistinguishably from
+     * `surfaceContainer` on specifically the "no palette resolved" path,
+     * which surfaced as "a lot of albums don't look tinted".
+     */
+    val isResolvedFromPalette: Boolean = false,
 )
 
 internal const val ExpressiveBackdropArtworkScale = 0.8f
@@ -120,6 +135,7 @@ internal fun rememberExpressiveBackdropColors(
     return ExpressiveBackdropColors(
         baseColor = animatedBase,
         accentColor = animatedAccent,
+        isResolvedFromPalette = resolvedColors.isResolvedFromPalette,
     )
 }
 
@@ -173,6 +189,7 @@ private fun extractBackdropColors(bitmap: Bitmap): ExpressiveBackdropColors? {
     return ExpressiveBackdropColors(
         baseColor = baseColor,
         accentColor = toneBackdropAccent(accentSource),
+        isResolvedFromPalette = true,
     )
 }
 

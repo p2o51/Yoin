@@ -83,12 +83,23 @@ fun AlbumDetailScreen(
     modifier: Modifier = Modifier,
 ) {
     ProvideYoinMotionRole(role = YoinMotionRole.Expressive) {
+        // Palette extraction is async and sometimes returns no significant
+        // swatch (low-saturation / monochrome covers). In both cases the
+        // `accentColor` lingers on `fallbackAccentColor`, which — being
+        // `secondaryContainer` — lerps almost invisibly against
+        // `surfaceContainer` on the page background. Gate on the
+        // `isResolvedFromPalette` flag so we only pass a concrete accent
+        // to `ExpressivePageBackground` once the palette actually resolved;
+        // until then (and for covers that yield no swatch), the background
+        // stays on its neutral static gradient instead of looking "almost
+        // but not quite" tinted.
         val accentColor = (uiState as? AlbumDetailUiState.Content)?.coverArtUrl?.let { coverArtUrl ->
-            rememberExpressiveBackdropColors(
+            val colors = rememberExpressiveBackdropColors(
                 model = coverArtUrl,
                 fallbackBaseColor = MaterialTheme.colorScheme.surfaceContainer,
                 fallbackAccentColor = MaterialTheme.colorScheme.secondaryContainer,
-            ).accentColor
+            )
+            colors.accentColor.takeIf { colors.isResolvedFromPalette }
         }
         ExpressivePageBackground(
             accentColor = accentColor,

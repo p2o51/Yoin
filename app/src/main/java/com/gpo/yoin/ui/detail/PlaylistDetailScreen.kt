@@ -91,12 +91,14 @@ fun PlaylistDetailScreen(
     var showDeleteConfirm by remember { mutableStateOf(false) }
     val content = uiState as? PlaylistDetailUiState.Content
 
+    // See AlbumDetailScreen for why we gate on isResolvedFromPalette.
     val accentColor = (uiState as? PlaylistDetailUiState.Content)?.coverArtUrl?.let { coverArtUrl ->
-        rememberExpressiveBackdropColors(
+        val colors = rememberExpressiveBackdropColors(
             model = coverArtUrl,
             fallbackBaseColor = MaterialTheme.colorScheme.surfaceContainer,
             fallbackAccentColor = MaterialTheme.colorScheme.secondaryContainer,
-        ).accentColor
+        )
+        colors.accentColor.takeIf { colors.isResolvedFromPalette }
     }
     ExpressivePageBackground(
         accentColor = accentColor,
