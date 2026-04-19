@@ -12,6 +12,7 @@ import com.gpo.yoin.data.model.PlaylistItemRef
 import com.gpo.yoin.data.model.SearchResults
 import com.gpo.yoin.data.model.Starred
 import com.gpo.yoin.data.model.Track
+import com.gpo.yoin.data.profile.ProfileCredentials
 import com.gpo.yoin.data.remote.ServerCredentials
 import com.gpo.yoin.data.remote.SubsonicApi
 import com.gpo.yoin.data.remote.SubsonicApiFactory
@@ -245,6 +246,16 @@ class SubsonicMusicSource(
     }
 
     companion object {
+        fun fromProfileCredentials(
+            credentials: ProfileCredentials.Subsonic,
+        ): SubsonicMusicSource = SubsonicMusicSource(
+            credentials = ServerCredentials(
+                serverUrl = credentials.serverUrl,
+                username = credentials.username,
+                password = credentials.password,
+            ),
+        )
+
         /** Convert a UI-level 0..5 float rating to a Subsonic integer rating. */
         fun toServerRating(rating: Float): Int = rating.roundToInt().coerceIn(0, 5)
     }
