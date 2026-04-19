@@ -30,7 +30,6 @@ class HomeViewModel(
     val uiState: StateFlow<HomeUiState> = _uiState.asStateFlow()
     private var artistPool: List<Artist> = emptyList()
     private var artistPoolWarmupJob: Job? = null
-    private var isLoadingMoreJumpBackIn = false
 
     init {
         refresh()
@@ -85,42 +84,11 @@ class HomeViewModel(
                 _uiState.value = currentContent.copy(
                     jumpBackInItems = loadJumpBackInItems(
                         existingIds = emptySet(),
-                        batchSize = currentContent.jumpBackInItems
-                            .size
-                            .coerceAtLeast(INITIAL_JUMP_BACK_IN_BATCH_SIZE),
+                        batchSize = JUMP_BACK_IN_FIXED_COUNT,
                     ),
                 )
             } catch (_: Exception) {
                 // Keep the current section stable if recommendation refresh fails.
-            }
-        }
-    }
-
-    fun loadMoreJumpBackIn() {
-        val currentContent = _uiState.value as? HomeUiState.Content ?: return
-        val providerId = repository.currentProviderId()
-        val profileId = activeProfileId.value
-        if (isLoadingMoreJumpBackIn) return
-        isLoadingMoreJumpBackIn = true
-        _uiState.value = currentContent.copy(isLoadingMoreJumpBackIn = true)
-        viewModelScope.launch {
-            try {
-                val nextBatch = loadJumpBackInItems(
-                    existingIds = currentContent.jumpBackInItems.mapTo(mutableSetOf()) { it.stableId },
-                    batchSize = JUMP_BACK_IN_BATCH_SIZE,
-                )
-                if (!matchesCurrentScope(providerId, profileId)) return@launch
-                val latest = _uiState.value as? HomeUiState.Content ?: return@launch
-                _uiState.value = latest.copy(
-                    jumpBackInItems = latest.jumpBackInItems + nextBatch,
-                    isLoadingMoreJumpBackIn = false,
-                )
-            } catch (_: Exception) {
-                if (!matchesCurrentScope(providerId, profileId)) return@launch
-                val latest = _uiState.value as? HomeUiState.Content ?: return@launch
-                _uiState.value = latest.copy(isLoadingMoreJumpBackIn = false)
-            } finally {
-                isLoadingMoreJumpBackIn = false
             }
         }
     }
@@ -136,7 +104,7 @@ class HomeViewModel(
             val jumpBackInDeferred = async {
                 loadJumpBackInItems(
                     existingIds = emptySet(),
-                    batchSize = INITIAL_JUMP_BACK_IN_BATCH_SIZE,
+                    batchSize = JUMP_BACK_IN_FIXED_COUNT,
                 )
             }
 
@@ -166,7 +134,7 @@ class HomeViewModel(
             songCandidates = emptyList(),
             artistCandidates = cacheSnapshot.artists,
             existingIds = emptySet(),
-            batchSize = INITIAL_JUMP_BACK_IN_BATCH_SIZE,
+            batchSize = JUMP_BACK_IN_FIXED_COUNT,
             shuffleCandidates = false,
         )
 
@@ -218,7 +186,7 @@ class HomeViewModel(
                 songCandidates = emptyList(),
                 artistCandidates = shuffledArtists,
                 existingIds = emptySet(),
-                batchSize = INITIAL_JUMP_BACK_IN_BATCH_SIZE,
+                batchSize = JUMP_BACK_IN_FIXED_COUNT,
                 shuffleCandidates = false,
             ),
         )
@@ -373,8 +341,14 @@ class HomeViewModel(
     }
 
     private companion object {
-        private const val INITIAL_JUMP_BACK_IN_BATCH_SIZE = 12
-        private const val JUMP_BACK_IN_BATCH_SIZE = 18
+        // 3-column grid × 6 rows = 18 Jump Back In cards, fixed. No paged
+        // "load more" — previous implementation fired a new network batch
+        // each time the user scrolled near the bottom, and the palette-
+        // extracting render cost piled up so fast that the whole list
+        // felt like it was fighting for frames. A fixed recommendation
+        // block is enough signal for the user; refreshJumpBackIn() is
+        // still wired through for pull-to-reshuffle.
+        private const val JUMP_BACK_IN_FIXED_COUNT = 18
         private const val JUMP_BACK_IN_ALBUM_REQUEST_SIZE = 18
         private const val JUMP_BACK_IN_SONG_REQUEST_SIZE = 18
         private const val SpotifyHomeCacheCandidateCount = 18

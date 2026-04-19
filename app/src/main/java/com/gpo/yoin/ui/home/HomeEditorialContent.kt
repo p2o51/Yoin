@@ -83,7 +83,6 @@ import com.gpo.yoin.ui.component.ExpressiveBackdrop
 import com.gpo.yoin.ui.component.ExpressiveBackdropVariant
 import com.gpo.yoin.ui.component.ExpressiveMediaArtwork
 import com.gpo.yoin.ui.component.ExpressiveSectionPanel
-import com.gpo.yoin.ui.component.YoinLoadingIndicator
 import com.gpo.yoin.ui.component.elasticPress
 import com.gpo.yoin.ui.component.expressiveEntrance
 import com.gpo.yoin.ui.component.rememberExpressiveEntranceProgress
@@ -100,8 +99,6 @@ import com.gpo.yoin.ui.theme.YoinMotionRole
 import com.gpo.yoin.ui.theme.YoinShapeTokens
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
-import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.filter
 
 internal sealed interface HomeEntryTarget {
     data class Album(val albumId: String, val sharedTransitionKey: String?) : HomeEntryTarget
@@ -147,7 +144,6 @@ private const val HomeBackdropPaletteWarmupDelayMillis = 350L
 internal fun HomeEditorialContent(
     activities: List<ActivityEvent>,
     jumpBackInItems: List<HomeJumpBackInItem>,
-    isLoadingMoreJumpBackIn: Boolean,
     isPlaying: Boolean,
     playbackSignal: Float,
     activeSongId: String? = null,
@@ -159,7 +155,6 @@ internal fun HomeEditorialContent(
     onArtistClick: (artistId: String) -> Unit,
     onPlaylistClick: (playlistId: String) -> Unit,
     onSongClick: (Track) -> Unit,
-    onLoadMoreJumpBackIn: () -> Unit,
     buildCoverArtUrl: (String) -> String,
     sharedTransitionScope: SharedTransitionScope? = null,
     animatedVisibilityScope: AnimatedVisibilityScope? = null,
@@ -255,23 +250,6 @@ internal fun HomeEditorialContent(
         }
     }
 
-    // Pagination trigger: watch the last visible item index instead of
-    // relying on an item-scoped LaunchedEffect, so a single stable observer
-    // handles all fling-induced index changes without spawning per-row
-    // effects. HomeViewModel.loadMoreJumpBackIn() is single-flight.
-    val onLoadMoreState = rememberUpdatedState(onLoadMoreJumpBackIn)
-    LaunchedEffect(listState, jumpRows.isNotEmpty()) {
-        if (jumpRows.isEmpty()) return@LaunchedEffect
-        snapshotFlow {
-            val info = listState.layoutInfo
-            val lastVisible = info.visibleItemsInfo.lastOrNull()?.index ?: -1
-            val total = info.totalItemsCount
-            total > 0 && lastVisible >= total - 2
-        }
-            .distinctUntilChanged()
-            .filter { it }
-            .collect { onLoadMoreState.value() }
-    }
     val shouldExtractBackdropColors = allowBackdropPalette && !listState.isScrollInProgress
 
     val navBarBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
@@ -356,18 +334,6 @@ internal fun HomeEditorialContent(
             }
         }
 
-        if (isLoadingMoreJumpBackIn) {
-            item {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 8.dp),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    YoinLoadingIndicator()
-                }
-            }
-        }
     }
 }
 

@@ -11,7 +11,6 @@ sealed interface HomeUiState {
     data class Content(
         val activities: List<ActivityEvent>,
         val jumpBackInItems: List<HomeJumpBackInItem>,
-        val isLoadingMoreJumpBackIn: Boolean = false,
     ) : HomeUiState
 
     data class Error(val message: String) : HomeUiState

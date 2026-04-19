@@ -109,7 +109,6 @@ fun HomeScreen(
         onPlaylistClick = onPlaylistClick,
         onSongClick = onSongClick,
         onRetry = viewModel::refresh,
-        onLoadMoreJumpBackIn = viewModel::loadMoreJumpBackIn,
         buildCoverArtUrl = viewModel::buildCoverArtUrl,
         sharedTransitionScope = sharedTransitionScope,
         animatedVisibilityScope = animatedVisibilityScope,
@@ -133,7 +132,6 @@ fun HomeContent(
     onPlaylistClick: (playlistId: String) -> Unit,
     onSongClick: (Track) -> Unit,
     onRetry: () -> Unit,
-    onLoadMoreJumpBackIn: () -> Unit,
     buildCoverArtUrl: (String) -> String,
     sharedTransitionScope: SharedTransitionScope? = null,
     animatedVisibilityScope: AnimatedVisibilityScope? = null,
@@ -141,8 +139,7 @@ fun HomeContent(
 ) {
     ReportMotionPressure(
         tag = "home",
-        isHighPressure = uiState is HomeUiState.Loading ||
-            (uiState as? HomeUiState.Content)?.isLoadingMoreJumpBackIn == true,
+        isHighPressure = uiState is HomeUiState.Loading,
     )
 
     ProvideYoinMotionRole(role = YoinMotionRole.Expressive) {
@@ -228,7 +225,6 @@ fun HomeContent(
                         HomeEditorialContent(
                             activities = uiState.activities,
                             jumpBackInItems = uiState.jumpBackInItems,
-                            isLoadingMoreJumpBackIn = uiState.isLoadingMoreJumpBackIn,
                             isPlaying = isPlaying,
                             playbackSignal = playbackSignal,
                             activeSongId = activeSongId,
@@ -240,7 +236,6 @@ fun HomeContent(
                             onArtistClick = onArtistClick,
                             onPlaylistClick = onPlaylistClick,
                             onSongClick = onSongClick,
-                            onLoadMoreJumpBackIn = onLoadMoreJumpBackIn,
                             buildCoverArtUrl = buildCoverArtUrl,
                             sharedTransitionScope = sharedTransitionScope,
                             animatedVisibilityScope = animatedVisibilityScope,
@@ -678,7 +673,6 @@ private fun HomeContentLoadingPreview() {
             onPlaylistClick = {},
             onSongClick = { _ -> },
             onRetry = {},
-            onLoadMoreJumpBackIn = {},
             buildCoverArtUrl = { "" },
         )
     }
@@ -700,7 +694,6 @@ private fun HomeContentErrorPreview() {
             onPlaylistClick = {},
             onSongClick = { _ -> },
             onRetry = {},
-            onLoadMoreJumpBackIn = {},
             buildCoverArtUrl = { "" },
         )
     }
@@ -801,7 +794,6 @@ private fun HomeContentPreview() {
             onPlaylistClick = {},
             onSongClick = { _ -> },
             onRetry = {},
-            onLoadMoreJumpBackIn = {},
             buildCoverArtUrl = { "" },
         )
     }
