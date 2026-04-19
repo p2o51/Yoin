@@ -9,14 +9,20 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.material3.BottomSheetDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
@@ -58,17 +64,32 @@ fun QueueSheet(
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = false)
 
-    // Convention for every ModalBottomSheet in this codebase: NO outer
-    // bottom padding on the wrapping Column, NO `heightIn` cap on the
-    // LazyColumn. Material3's ModalBottomSheet limits its own height,
-    // and a fixed cap creates a visible empty band once content reaches
-    // it. Any breathing room belongs *inside* the LazyColumn's
-    // `contentPadding` so it collapses naturally on short lists and
-    // becomes part of the scrollable area on long ones.
+    // Conventions for every ModalBottomSheet in this codebase:
+    //  • NO outer bottom padding on the wrapping Column, NO `heightIn`
+    //    cap on the LazyColumn. Material3's ModalBottomSheet limits its
+    //    own height, and a fixed cap creates a visible empty band once
+    //    content reaches it. Any breathing room belongs *inside* the
+    //    LazyColumn's `contentPadding` so it collapses naturally on
+    //    short lists and becomes part of the scrollable area on long
+    //    ones.
+    //  • Strip the navigation-bar inset off `contentWindowInsets` and
+    //    fold it into the LazyColumn's `contentPadding` instead. The
+    //    default `BottomSheetDefaults.windowInsets` applies the nav-bar
+    //    bottom inset as a hard gutter under the sheet content, which
+    //    shows up as a visible empty strip at the screen bottom when
+    //    the sheet is fully expanded. Feeding it to `contentPadding`
+    //    keeps the same safe-area offset for the last row, but makes
+    //    the nav-bar space part of the scrollable region so the sheet
+    //    truly goes edge-to-edge against the screen boundary.
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
         containerColor = MaterialTheme.colorScheme.surfaceContainer,
+        contentWindowInsets = {
+            BottomSheetDefaults.modalWindowInsets.only(
+                WindowInsetsSides.Top + WindowInsetsSides.Horizontal,
+            )
+        },
         modifier = modifier,
     ) {
         Column {
@@ -86,9 +107,12 @@ fun QueueSheet(
                 }
             }
 
+            val navBottom = WindowInsets.navigationBars
+                .asPaddingValues()
+                .calculateBottomPadding()
             LazyColumn(
                 state = listState,
-                contentPadding = PaddingValues(bottom = 16.dp),
+                contentPadding = PaddingValues(bottom = 16.dp + navBottom),
             ) {
                 itemsIndexed(queue) { index, item ->
                     QueueListItem(

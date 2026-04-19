@@ -8,8 +8,13 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -19,6 +24,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.LibraryMusic
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.BottomSheetDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -95,6 +101,14 @@ fun AddToPlaylistSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
         containerColor = MaterialTheme.colorScheme.surfaceContainer,
+        // See convention comment on `QueueSheet` for why we strip the
+        // navigation-bar inset off `contentWindowInsets` and fold it
+        // into the LazyColumn's `contentPadding` below.
+        contentWindowInsets = {
+            BottomSheetDefaults.modalWindowInsets.only(
+                WindowInsetsSides.Top + WindowInsetsSides.Horizontal,
+            )
+        },
         modifier = modifier,
     ) {
         Column {
@@ -105,13 +119,17 @@ fun AddToPlaylistSheet(
                 modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp),
             )
 
+            val navBottom = WindowInsets.navigationBars
+                .asPaddingValues()
+                .calculateBottomPadding()
             LazyColumn(
                 // No height cap and no outer bottom padding — the sheet is
                 // free to grow up to its natural max and the list runs
-                // edge-to-edge against the sheet boundary. The 16dp inside
-                // `contentPadding` is the only bottom space, and it
-                // collapses naturally when the list is short.
-                contentPadding = PaddingValues(bottom = 16.dp),
+                // edge-to-edge against the sheet boundary. The nav-bar
+                // safe-area inset is added here (not on the sheet) so the
+                // bar space is scrollable and the expanded sheet truly
+                // reaches the screen bottom instead of leaving a gutter.
+                contentPadding = PaddingValues(bottom = 16.dp + navBottom),
             ) {
                 if (onCreateAndAdd != null) {
                     item("create") {
