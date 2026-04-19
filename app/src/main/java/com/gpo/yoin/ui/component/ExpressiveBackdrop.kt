@@ -176,6 +176,18 @@ internal fun ExpressiveBackdrop(
             .graphicsLayer(
                 scaleX = animatedScale,
                 scaleY = animatedScale,
+                // clip = true: keep the playback pulse contained inside the
+                // halo's own layer rect. The default `clip = false` lets the
+                // shape's rounded edges bleed outward when `animatedScale`
+                // overshoots 1 on the bouncy spring, and that bleed lands
+                // right on top of the sibling cover's shape in the Home
+                // Jump Back In tile — users perceived it as "a sliver of
+                // the album art's shape edge is cut off while playing",
+                // then popping back when the animation settles. The
+                // halo's static negative offset (the designed outer glow)
+                // is unaffected because it's a layout position, not a
+                // scale-time bleed.
+                clip = true,
             ),
     )
 }

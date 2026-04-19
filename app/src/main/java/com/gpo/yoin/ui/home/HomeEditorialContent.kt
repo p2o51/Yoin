@@ -733,18 +733,7 @@ private fun ExpressiveArtwork(
     )
     val scaledFillFraction = (fillFraction * ExpressiveBackdropArtworkScale).coerceIn(0.36f, 1f)
 
-    // `ExpressiveBackdrop`'s playback animation does a graphicsLayer
-    // `scaleX/scaleY` up to ~1.05 on an already 88%-filled halo layer,
-    // and the spring spec overshoots a little past that. Without the
-    // clip here, the halo briefly bleeds past the tile's own rect
-    // during the pulse and gets chopped by whatever external clip it
-    // happens to land on (LazyColumn item / Row weight boundary),
-    // which reads as "a small edge of the shape gets cut off during
-    // playback and then pops back". Clipping at the tile's own rect
-    // turns that external accident into a predictable boundary and
-    // leaves the shared-element transition untouched (that one draws
-    // into the global overlay layer, above this clip).
-    BoxWithConstraints(modifier = modifier.clipToBounds()) {
+    BoxWithConstraints(modifier = modifier) {
         val opticalShift = minOf(maxWidth, maxHeight) * 0.08f
         ExpressiveBackdrop(
             baseColor = backdropColors.baseColor,
