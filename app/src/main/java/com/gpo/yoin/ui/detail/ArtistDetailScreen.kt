@@ -205,13 +205,21 @@ private fun ArtistDetailContent(
                 ArtistHeroArtwork(
                     artistId = content.artistId,
                     sharedTransitionKey = sharedTransitionKey,
-                    coverArtUrl = content.albums.firstOrNull()?.coverArtUrl,
+                    // Prefer the artist's own portrait; fall back to
+                    // the first album cover so Subsonic servers that
+                    // don't expose artist.jpg still render something.
+                    coverArtUrl = content.heroCoverArtUrl
+                        ?: content.albums.firstOrNull()?.coverArtUrl,
                     artistName = content.artistName,
                     sharedTransitionScope = sharedTransitionScope,
                     animatedVisibilityScope = animatedVisibilityScope,
+                    // Must be 1:1 — the hero clips to `CircleShape`.
+                    // Any other ratio produces an ellipse and quietly
+                    // breaks the "artists are circles" convention
+                    // (Library row avatars, Home tiles, activity grid).
                     modifier = Modifier
                         .fillMaxWidth()
-                        .aspectRatio(1.2f),
+                        .aspectRatio(1f),
                 )
                 androidx.compose.foundation.layout.Column(
                     modifier = Modifier.padding(top = 2.dp, bottom = 10.dp),
@@ -320,7 +328,7 @@ private fun ArtistDetailScreenContentPreview() {
                 artistId = "artist-1",
                 artistName = "Daft Punk",
                 albumCount = 4,
-                coverArtId = "cover-artist-1",
+                heroCoverArtUrl = null,
                 albums = listOf(
                     ArtistAlbum(
                         id = "1",

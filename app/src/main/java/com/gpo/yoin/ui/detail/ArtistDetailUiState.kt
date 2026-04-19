@@ -7,7 +7,15 @@ sealed interface ArtistDetailUiState {
         val artistId: String,
         val artistName: String,
         val albumCount: Int?,
-        val coverArtId: String?,
+        /**
+         * Resolved URL for the artist's own portrait (from the
+         * provider's artist endpoint — Spotify always returns one,
+         * Subsonic/Navidrome only if the server has `artist.jpg`
+         * uploaded). `null` when the provider doesn't supply one;
+         * callers should fall back to the first album cover so the
+         * hero never goes blank on older Subsonic installs.
+         */
+        val heroCoverArtUrl: String?,
         val albums: List<ArtistAlbum>,
     ) : ArtistDetailUiState
 

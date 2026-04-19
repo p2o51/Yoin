@@ -2,6 +2,8 @@ package com.gpo.yoin.ui.library
 
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
@@ -758,10 +760,18 @@ private fun PlaylistsTabContent(
         // AnimatedVisibility on scroll-down so users see more of their
         // playlists while scanning.
         if (canCreate) {
+            // Bouncy spring scale on enter/exit — MD3 Expressive leans into
+            // overshoot springs over flat easing curves. Medium-bouncy on
+            // low-stiffness gives a visible "pop" without being restless
+            // when the user keeps scrolling back and forth.
+            val bouncySpec = spring<Float>(
+                dampingRatio = Spring.DampingRatioMediumBouncy,
+                stiffness = Spring.StiffnessLow,
+            )
             AnimatedVisibility(
                 visible = fabVisible,
-                enter = scaleIn() + fadeIn(),
-                exit = scaleOut() + fadeOut(),
+                enter = scaleIn(animationSpec = bouncySpec) + fadeIn(),
+                exit = scaleOut(animationSpec = bouncySpec) + fadeOut(),
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
                     .padding(

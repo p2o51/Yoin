@@ -42,7 +42,15 @@ class ArtistDetailViewModel(
                     artistId = artist.id.toString(),
                     artistName = artist.name,
                     albumCount = artist.albumCount,
-                    coverArtId = null,
+                    // The provider's artist endpoint carries the real
+                    // portrait when one exists (Spotify always, Subsonic
+                    // only when the server has `artist.jpg`). The Screen
+                    // falls back to the first album cover when this is
+                    // null, so Subsonic installs without portraits still
+                    // render something sensible.
+                    heroCoverArtUrl = artist.coverArt?.let {
+                        repository.resolveCoverUrl(it)
+                    },
                     albums = artist.album.map { album ->
                         ArtistAlbum(
                             id = album.id.toString(),
