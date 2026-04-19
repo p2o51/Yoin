@@ -5,7 +5,6 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.gpo.yoin.AppContainer
 import com.gpo.yoin.data.model.MediaId
-import com.gpo.yoin.data.model.album
 import com.gpo.yoin.data.repository.YoinRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -51,7 +50,7 @@ class ArtistDetailViewModel(
                     heroCoverArtUrl = artist.coverArt?.let {
                         repository.resolveCoverUrl(it)
                     },
-                    albums = artist.album.map { album ->
+                    albums = artist.albums.map { album ->
                         ArtistAlbum(
                             id = album.id.toString(),
                             name = album.name,

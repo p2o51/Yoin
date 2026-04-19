@@ -7,10 +7,6 @@ import com.gpo.yoin.AppContainer
 import com.gpo.yoin.data.model.CoverRef
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.Track
-import com.gpo.yoin.data.model.duration
-import com.gpo.yoin.data.model.song
-import com.gpo.yoin.data.model.starred
-import com.gpo.yoin.data.model.track
 import com.gpo.yoin.data.repository.YoinRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -47,7 +43,7 @@ class AlbumDetailViewModel(
                     _uiState.value = AlbumDetailUiState.Error("Album not found")
                     return@launch
                 }
-                albumSongs = album.song
+                albumSongs = album.tracks
                 repository.recordAlbumVisit(album)
                 _uiState.value = AlbumDetailUiState.Content(
                     albumId = album.id.toString(),
@@ -61,15 +57,15 @@ class AlbumDetailViewModel(
                     coverArtUrl = album.coverArt?.let { repository.resolveCoverUrl(it) },
                     year = album.year,
                     songCount = album.songCount,
-                    totalDuration = album.duration,
-                    songs = album.song.map { song ->
+                    totalDuration = album.durationSec,
+                    songs = album.tracks.map { song ->
                         AlbumSong(
                             id = song.id.toString(),
                             title = song.title.orEmpty(),
                             artist = song.artist.orEmpty(),
-                            trackNumber = song.track,
-                            duration = song.duration,
-                            isStarred = song.starred != null,
+                            trackNumber = song.trackNumber,
+                            duration = song.durationSec,
+                            isStarred = song.isStarred,
                         )
                     },
                 )

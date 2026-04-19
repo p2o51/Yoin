@@ -8,10 +8,6 @@ import com.gpo.yoin.data.model.CoverRef
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.PlaylistItemRef
 import com.gpo.yoin.data.model.Track
-import com.gpo.yoin.data.model.comment
-import com.gpo.yoin.data.model.duration
-import com.gpo.yoin.data.model.entry
-import com.gpo.yoin.data.model.isPublic
 import com.gpo.yoin.data.repository.YoinRepository
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -117,27 +113,27 @@ class PlaylistDetailViewModel(
                     _uiState.value = PlaylistDetailUiState.Error("Playlist not found")
                     return@launch
                 }
-                playlistSongs = playlist.entry
+                playlistSongs = playlist.tracks
                 snapshotId = playlist.snapshotId
-                val heroSong = playlist.entry.firstOrNull()
+                val heroSong = playlist.tracks.firstOrNull()
                 val heroCoverRef = heroSong?.coverArt ?: heroSong?.albumId?.let { CoverRef.SourceRelative(it.rawId) }
                 _uiState.value = PlaylistDetailUiState.Content(
                     playlistId = playlist.id.toString(),
                     playlistName = playlist.name,
                     owner = playlist.owner.orEmpty(),
-                    comment = playlist.comment,
-                    isPublic = playlist.isPublic,
+                    comment = null,
+                    isPublic = null,
                     songCount = playlist.songCount,
-                    totalDuration = playlist.duration,
+                    totalDuration = playlist.durationSec,
                     coverArtUrl = heroCoverRef?.let { repository.resolveCoverUrl(it) },
                     canWrite = playlist.canWrite,
-                    songs = playlist.entry.mapIndexed { index, song ->
+                    songs = playlist.tracks.mapIndexed { index, song ->
                         PlaylistSong(
                             id = song.id.toString(),
                             title = song.title.orEmpty(),
                             artist = song.artist.orEmpty(),
                             album = song.album.orEmpty(),
-                            duration = song.duration,
+                            duration = song.durationSec,
                             coverArtUrl = (song.coverArt
                                 ?: song.albumId?.let { albumId -> CoverRef.SourceRelative(albumId.rawId) })?.let {
                                 repository.resolveCoverUrl(it, size = 320)

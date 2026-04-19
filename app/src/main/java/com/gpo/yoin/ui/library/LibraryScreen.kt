@@ -68,10 +68,6 @@ import com.gpo.yoin.data.model.Playlist
 import com.gpo.yoin.data.model.SearchResults
 import com.gpo.yoin.data.model.Starred
 import com.gpo.yoin.data.model.Track
-import com.gpo.yoin.data.model.album
-import com.gpo.yoin.data.model.artist
-import com.gpo.yoin.data.model.entry
-import com.gpo.yoin.data.model.song
 // VisualizerData intentionally removed: LibraryScreen consumes a
 // pre-smoothed playbackSignal from AudioVisualizerManager instead.
 import com.gpo.yoin.ui.component.ExpressiveBackdropArtwork
@@ -892,9 +888,9 @@ private fun FavoritesTabContent(
         EmptyState(message = "Loading favorites…", modifier = modifier)
         return
     }
-    val hasContent = favorites.artist.isNotEmpty() ||
-        favorites.album.isNotEmpty() ||
-        favorites.song.isNotEmpty()
+    val hasContent = favorites.artists.isNotEmpty() ||
+        favorites.albums.isNotEmpty() ||
+        favorites.tracks.isNotEmpty()
 
     if (!hasContent) {
         EmptyState(message = "No favorites yet", modifier = modifier)
@@ -910,12 +906,12 @@ private fun FavoritesTabContent(
             bottom = floatingBottomGroupContentPadding(),
         ),
     ) {
-        if (favorites.artist.isNotEmpty()) {
+        if (favorites.artists.isNotEmpty()) {
             item {
                 SectionHeader(title = "Artists")
             }
             itemsIndexed(
-                items = favorites.artist,
+                items = favorites.artists,
                 key = { _, artist -> "fav-artist-${artist.id}" },
             ) { index, artist ->
                 val entranceProgress = rememberLibraryItemEntrance(
@@ -930,12 +926,12 @@ private fun FavoritesTabContent(
                 )
             }
         }
-        if (favorites.album.isNotEmpty()) {
+        if (favorites.albums.isNotEmpty()) {
             item {
                 SectionHeader(title = "Albums")
             }
             itemsIndexed(
-                items = favorites.album,
+                items = favorites.albums,
                 key = { _, album -> "fav-album-${album.id}" },
             ) { index, album ->
                 val entranceProgress = rememberLibraryItemEntrance(
@@ -954,12 +950,12 @@ private fun FavoritesTabContent(
                 )
             }
         }
-        if (favorites.song.isNotEmpty()) {
+        if (favorites.tracks.isNotEmpty()) {
             item {
                 SectionHeader(title = "Songs")
             }
             itemsIndexed(
-                items = favorites.song,
+                items = favorites.tracks,
                 key = { _, song -> "fav-song-${song.id}" },
             ) { index, song ->
                 val entranceProgress = rememberLibraryItemEntrance(
@@ -1085,9 +1081,9 @@ private fun SearchResultsContent(
 
     if (searchResults == null) return
 
-    val hasResults = searchResults.artist.isNotEmpty() ||
-        searchResults.album.isNotEmpty() ||
-        searchResults.song.isNotEmpty()
+    val hasResults = searchResults.artists.isNotEmpty() ||
+        searchResults.albums.isNotEmpty() ||
+        searchResults.tracks.isNotEmpty()
 
     if (!hasResults) {
         EmptyState(message = "No results found", modifier = modifier)
@@ -1103,12 +1099,12 @@ private fun SearchResultsContent(
             bottom = floatingBottomGroupContentPadding(),
         ),
     ) {
-        if (searchResults.artist.isNotEmpty()) {
+        if (searchResults.artists.isNotEmpty()) {
             item {
                 SectionHeader(title = "Artists")
             }
             itemsIndexed(
-                items = searchResults.artist,
+                items = searchResults.artists,
                 key = { _, artist -> "search-artist-${artist.id}" },
             ) { index, artist ->
                 val entranceProgress = rememberLibraryItemEntrance(
@@ -1124,12 +1120,12 @@ private fun SearchResultsContent(
                 )
             }
         }
-        if (searchResults.album.isNotEmpty()) {
+        if (searchResults.albums.isNotEmpty()) {
             item {
                 SectionHeader(title = "Albums")
             }
             itemsIndexed(
-                items = searchResults.album,
+                items = searchResults.albums,
                 key = { _, album -> "search-album-${album.id}" },
             ) { index, album ->
                 val entranceProgress = rememberLibraryItemEntrance(
@@ -1149,12 +1145,12 @@ private fun SearchResultsContent(
                 )
             }
         }
-        if (searchResults.song.isNotEmpty()) {
+        if (searchResults.tracks.isNotEmpty()) {
             item {
                 SectionHeader(title = "Songs")
             }
             itemsIndexed(
-                items = searchResults.song,
+                items = searchResults.tracks,
                 key = { _, song -> "search-song-${song.id}" },
             ) { index, song ->
                 val entranceProgress = rememberLibraryItemEntrance(
@@ -1189,7 +1185,7 @@ private fun playlistBackdropArtUrl(
         libraryCoverArtUrl(coverArt, coverArtUrlBuilder)?.let { return it }
     }
     if (coverArtUrlBuilder == null) return null
-    return playlist.entry.firstNotNullOfOrNull { song ->
+    return playlist.tracks.firstNotNullOfOrNull { song ->
         libraryCoverArtUrl(song.coverArt, coverArtUrlBuilder)
             ?: song.albumId?.takeIf { it.provider == MediaId.PROVIDER_SUBSONIC }?.rawId?.let(coverArtUrlBuilder)
     }
