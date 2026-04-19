@@ -283,6 +283,9 @@ class AppContainer(private val context: Context) {
         YoinRepository(
             activeSource = profileManager.activeSource,
             database = database,
+            geminiService = geminiService,
+            songInfoDao = database.songInfoDao(),
+            geminiConfigDao = database.geminiConfigDao(),
         )
     }
 
