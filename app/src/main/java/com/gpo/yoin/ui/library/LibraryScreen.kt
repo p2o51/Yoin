@@ -1,13 +1,6 @@
 package com.gpo.yoin.ui.library
 
 import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.spring
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.scaleIn
-import androidx.compose.animation.scaleOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -42,7 +35,7 @@ import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -753,43 +746,34 @@ private fun PlaylistsTabContent(
             }
         }
 
-        // Bottom-right FAB, sized for emphasis (regular `FloatingActionButton`
-        // = 56dp; `SmallFloatingActionButton` 40dp felt apologetic). Sits at
-        // the same vertical baseline as the last visible list item so it
-        // never collides with the shell's floating bottom nav. Hidden via
-        // AnimatedVisibility on scroll-down so users see more of their
-        // playlists while scanning.
+        // Bottom-right FAB. Instead of fully hiding on scroll, we use
+        // Material's scroll-aware `ExtendedFloatingActionButton` pattern:
+        // `expanded = fabVisible` keeps the button on screen the whole
+        // time, but collapses the "New playlist" label away and slides
+        // back to a bare icon when the user scrolls down. The label
+        // re-expands the moment they scroll up or stop. It's the M3
+        // canonical answer for "hide a FAB while browsing a list
+        // without making it feel like the entry point vanished."
         if (canCreate) {
-            // Bouncy spring scale on enter/exit — MD3 Expressive leans into
-            // overshoot springs over flat easing curves. Medium-bouncy on
-            // low-stiffness gives a visible "pop" without being restless
-            // when the user keeps scrolling back and forth.
-            val bouncySpec = spring<Float>(
-                dampingRatio = Spring.DampingRatioMediumBouncy,
-                stiffness = Spring.StiffnessLow,
-            )
-            AnimatedVisibility(
-                visible = fabVisible,
-                enter = scaleIn(animationSpec = bouncySpec) + fadeIn(),
-                exit = scaleOut(animationSpec = bouncySpec) + fadeOut(),
+            ExtendedFloatingActionButton(
+                onClick = { showCreateDialog = true },
+                expanded = fabVisible,
+                icon = {
+                    Icon(
+                        imageVector = Icons.Filled.Add,
+                        contentDescription = null,
+                    )
+                },
+                text = { Text("New playlist") },
+                containerColor = MaterialTheme.colorScheme.primaryContainer,
+                contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
                     .padding(
                         end = 16.dp,
                         bottom = floatingBottomGroupContentPadding(),
                     ),
-            ) {
-                FloatingActionButton(
-                    onClick = { showCreateDialog = true },
-                    containerColor = MaterialTheme.colorScheme.primaryContainer,
-                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                ) {
-                    Icon(
-                        imageVector = Icons.Filled.Add,
-                        contentDescription = "New playlist",
-                    )
-                }
-            }
+            )
         }
     }
 
