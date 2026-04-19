@@ -8,7 +8,6 @@ import com.gpo.yoin.data.model.Album
 import com.gpo.yoin.data.model.Artist
 import com.gpo.yoin.data.model.ArtistIndex
 import com.gpo.yoin.data.model.Track
-import com.gpo.yoin.data.model.artist
 import com.gpo.yoin.data.repository.YoinRepository
 import com.gpo.yoin.data.source.Capability
 import kotlinx.coroutines.Job
@@ -245,7 +244,7 @@ class HomeViewModel(
 
     private suspend fun loadArtistsFlat(): List<Artist> {
         val indices: List<ArtistIndex> = repository.getArtists()
-        return indices.flatMap { it.artist }
+        return indices.flatMap { it.artists }
     }
 
     class Factory(private val container: AppContainer) : ViewModelProvider.Factory {

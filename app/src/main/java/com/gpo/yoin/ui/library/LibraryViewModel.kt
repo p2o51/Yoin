@@ -11,7 +11,6 @@ import com.gpo.yoin.data.model.Playlist
 import com.gpo.yoin.data.model.SearchResults
 import com.gpo.yoin.data.model.Starred
 import com.gpo.yoin.data.model.Track
-import com.gpo.yoin.data.model.artist
 import com.gpo.yoin.data.repository.YoinRepository
 import com.gpo.yoin.data.source.Capability
 import kotlinx.coroutines.FlowPreview
@@ -233,7 +232,7 @@ class LibraryViewModel(
 
     private suspend fun loadArtistsFlat(): List<Artist> {
         val indices: List<ArtistIndex> = repository.getArtists()
-        return indices.flatMap { it.artist }
+        return indices.flatMap { it.artists }
     }
 
     private inline fun updateContent(
