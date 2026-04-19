@@ -12,7 +12,6 @@ import com.gpo.yoin.data.profile.ProfileLimitReachedException
 import com.gpo.yoin.data.profile.ProfileManager
 import com.gpo.yoin.data.profile.ProviderKind
 import com.gpo.yoin.data.profile.SpotifyProviderStatus
-import com.gpo.yoin.data.remote.ServerCredentials
 import com.gpo.yoin.data.repository.SubsonicException
 import com.gpo.yoin.data.source.subsonic.SubsonicMusicSource
 import com.gpo.yoin.data.source.spotify.SpotifyOAuthResult
@@ -295,12 +294,12 @@ class SettingsViewModel(
         updateFormSheet { it.copy(isTesting = true, testResult = null, saveError = null) }
         viewModelScope.launch {
             val result = runCatching {
-                val creds = ServerCredentials(
+                val credentials = ProfileCredentials.Subsonic(
                     serverUrl = normalized.url,
                     username = normalized.username,
                     password = normalized.password,
                 )
-                SubsonicMusicSource(credentials = creds).library().ping()
+                SubsonicMusicSource.fromProfileCredentials(credentials).library().ping()
             }
             updateFormSheet { sheet ->
                 sheet.copy(
