@@ -253,8 +253,31 @@ class ProfileManager(
                         persistCredentialsSilently(profile.id, refreshed)
                     }
                 },
+                onCredentialsRevoked = {
+                    scope.launch {
+                        markSpotifyProfileRevoked(profile.id)
+                    }
+                },
             )
         }
+    }
+
+    /**
+     * Mark a Spotify profile's stored credentials as revoked so the next
+     * UI render knows to surface a Reconnect affordance. Decoded blob is
+     * re-encoded with `revoked = true` and written back via
+     * [persistCredentialsSilently] so the active source isn't rebuilt
+     * (the in-memory tokens are already useless either way).
+     *
+     * No-op if the profile no longer exists, was deleted, or is not a
+     * Spotify profile.
+     */
+    suspend fun markSpotifyProfileRevoked(id: String) {
+        val profile = profileDao.getById(id) ?: return
+        val credentials = decodeCredentials(profile) as? ProfileCredentials.Spotify
+            ?: return
+        if (credentials.revoked) return
+        persistCredentialsSilently(id, credentials.copy(revoked = true))
     }
 
     private fun defaultDisplayName(serverUrl: String, username: String): String {

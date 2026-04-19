@@ -514,10 +514,15 @@ class SettingsViewModel(
 
     private fun Profile.profileRequiresSpotifyReconnect(): Boolean {
         val spotify = profileManager.decodeCredentials(this) as? ProfileCredentials.Spotify ?: return false
-        // A profile is stuck if its token was minted against an older scope
-        // list — we check the full required-scopes set rather than any single
-        // scope, so adding new required scopes (e.g. playlist-modify-*)
-        // automatically triggers reconnect for every legacy profile.
+        // Two independent reasons a Spotify profile needs the user to redo
+        // the OAuth flow:
+        //   1. Runtime token revocation — the refresh endpoint last responded
+        //      with `error: "invalid_grant"`, persisted as `revoked = true`.
+        //   2. Static scope drift — the profile was authorised before the
+        //      current `REQUIRED_SCOPES` set existed (e.g. before
+        //      `playlist-modify-*` was added). Any missing required scope
+        //      means the next API call against that scope will 403.
+        if (spotify.revoked) return true
         return SpotifyAuthConfig.REQUIRED_SCOPES.any { required -> required !in spotify.scopes }
     }
 

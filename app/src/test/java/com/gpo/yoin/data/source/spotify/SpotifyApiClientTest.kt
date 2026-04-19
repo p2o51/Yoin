@@ -18,6 +18,7 @@ class SpotifyApiClientTest {
 
     private lateinit var server: MockWebServer
     private val callbacks = mutableListOf<ProfileCredentials.Spotify>()
+    private var revokeCallbacks: Int = 0
     private var fakeNow: Long = BASE_EPOCH
 
     @Before
@@ -295,6 +296,94 @@ class SpotifyApiClientTest {
         )
     }
 
+    @Test
+    fun should_fire_revoked_callback_when_refresh_returns_invalid_grant() = runTest {
+        val responses = mutableMapOf(
+            "/api/token" to ArrayDeque(
+                listOf(
+                    MockResponse()
+                        .setResponseCode(400)
+                        .setBody("""{"error":"invalid_grant","error_description":"Refresh token revoked"}"""),
+                ),
+            ),
+            "/v1/me" to ArrayDeque(listOf(meResponse(id = "alice"))),
+        )
+        server.dispatcher = queueDispatcher(responses)
+
+        val client = newClient(
+            initialCredentials = credentials(
+                accessToken = "t1",
+                refreshToken = "r1",
+                expiresAtEpochMs = fakeNow + 30_000L, // inside refresh buffer
+            ),
+        )
+
+        val thrown = runCatching { client.getMe() }.exceptionOrNull()
+        assertTrue(thrown is SpotifyAuthException)
+        assertTrue(
+            "exception should flag a revoked refresh token",
+            (thrown as SpotifyAuthException).isRefreshTokenRevoked,
+        )
+        assertEquals(1, revokeCallbacks)
+        assertEquals(0, callbacks.size) // no successful refresh → no persist
+    }
+
+    @Test
+    fun should_not_fire_revoked_callback_on_unrelated_token_failure() = runTest {
+        val responses = mutableMapOf(
+            "/api/token" to ArrayDeque(
+                listOf(
+                    MockResponse()
+                        .setResponseCode(503)
+                        .setBody("""{"error":"server_error","error_description":"upstream down"}"""),
+                ),
+            ),
+            "/v1/me" to ArrayDeque(listOf(meResponse(id = "alice"))),
+        )
+        server.dispatcher = queueDispatcher(responses)
+
+        val client = newClient(
+            initialCredentials = credentials(
+                accessToken = "t1",
+                refreshToken = "r1",
+                expiresAtEpochMs = fakeNow + 30_000L,
+            ),
+        )
+
+        val thrown = runCatching { client.getMe() }.exceptionOrNull()
+        assertTrue(thrown is SpotifyAuthException)
+        assertTrue(
+            "server_error must not flag as revoked — UI would wrongly send user to OAuth",
+            !(thrown as SpotifyAuthException).isRefreshTokenRevoked,
+        )
+        assertEquals(0, revokeCallbacks)
+    }
+
+    @Test
+    fun successful_refresh_clears_revoked_flag_on_new_credentials() = runTest {
+        val responses = mutableMapOf(
+            "/api/token" to ArrayDeque(listOf(tokenResponse(accessToken = "t2", refreshToken = "r2"))),
+            "/v1/me" to ArrayDeque(listOf(meResponse(id = "alice"))),
+        )
+        server.dispatcher = queueDispatcher(responses)
+
+        val client = newClient(
+            initialCredentials = credentials(
+                accessToken = "t1",
+                refreshToken = "r1",
+                expiresAtEpochMs = fakeNow + 30_000L,
+            ).copy(revoked = true), // simulate "was previously marked revoked"
+        )
+
+        client.getMe()
+        assertEquals(1, callbacks.size)
+        assertTrue(
+            "refresh success must clear the revoked marker",
+            !callbacks[0].revoked,
+        )
+        assertEquals(0, revokeCallbacks)
+    }
+
     // ── Helpers ────────────────────────────────────────────────────────
 
     private fun newClient(initialCredentials: ProfileCredentials.Spotify): SpotifyApiClient {
@@ -311,6 +400,7 @@ class SpotifyApiClientTest {
             initialCredentials = initialCredentials,
             clientIdProvider = { "test-client" },
             onCredentialsRefreshed = { callbacks += it },
+            onCredentialsRevoked = { revokeCallbacks += 1 },
             now = { fakeNow },
             apiBaseUrl = baseUrl,
         )

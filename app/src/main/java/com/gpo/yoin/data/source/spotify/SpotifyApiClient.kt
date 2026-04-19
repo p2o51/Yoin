@@ -34,6 +34,17 @@ class SpotifyApiClient(
     initialCredentials: ProfileCredentials.Spotify,
     private val clientIdProvider: () -> String,
     private val onCredentialsRefreshed: suspend (ProfileCredentials.Spotify) -> Unit,
+    /**
+     * Invoked exactly once when the OAuth token endpoint rejects our
+     * refresh attempt with `error: "invalid_grant"` — i.e. the refresh
+     * token is dead (user revoked access from the Spotify dashboard,
+     * scope-bump invalidated it, etc). Wiring should mark the active
+     * profile as needing reconnect so UI can surface a Reconnect
+     * affordance instead of silently 401-ing on every API call.
+     *
+     * Default is no-op for tests / call sites that don't yet care.
+     */
+    private val onCredentialsRevoked: suspend () -> Unit = {},
     private val now: () -> Long = System::currentTimeMillis,
     private val apiBaseUrl: HttpUrl = "https://${SpotifyAuthConfig.API_HOST}/".toHttpUrl(),
 ) {
@@ -453,14 +464,30 @@ class SpotifyApiClient(
                     message = "Spotify client id is not configured. Open Settings → Spotify.",
                 )
             }
-            val response = withContext(Dispatchers.IO) {
-                authService.refreshToken(inside.refreshToken, clientId = clientId)
+            val response = try {
+                withContext(Dispatchers.IO) {
+                    authService.refreshToken(inside.refreshToken, clientId = clientId)
+                }
+            } catch (e: SpotifyAuthException) {
+                if (e.isRefreshTokenRevoked) {
+                    // Refresh token is dead — user revoked from the dashboard,
+                    // password reset invalidated tokens, or a previous app
+                    // version was uninstalled then reinstalled with stale
+                    // creds. Notify upstream so the profile gets marked,
+                    // then re-throw so the originating call (which will most
+                    // likely 401 next anyway) sees a typed failure.
+                    runCatching { onCredentialsRevoked() }
+                }
+                throw e
             }
             val refreshed = inside.copy(
                 accessToken = response.accessToken,
                 refreshToken = response.refreshToken ?: inside.refreshToken,
                 expiresAtEpochMs = now() + response.expiresInSec * 1_000,
                 scopes = response.scope?.split(' ')?.filter { it.isNotBlank() } ?: inside.scopes,
+                // Successful refresh implicitly clears any prior revoked
+                // marker — the credentials are alive again.
+                revoked = false,
             )
             credentials = refreshed
             onCredentialsRefreshed(refreshed)

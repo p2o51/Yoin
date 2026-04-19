@@ -108,6 +108,11 @@ class SpotifyAuthService(
                 }.getOrNull()
                 throw SpotifyAuthException(
                     code = response.code,
+                    // Preserve the OAuth `error` field so callers can branch
+                    // on it without re-parsing the body — `invalid_grant`
+                    // indicates a revoked refresh token, distinct from
+                    // garden-variety 5xx / network failures.
+                    oauthError = error?.error,
                     message = error?.errorDescription
                         ?: error?.error
                         ?: "Spotify token endpoint failed: ${response.code}",
@@ -182,7 +187,22 @@ data class SpotifyMe(
     val email: String? = null,
 )
 
+/**
+ * Auth-layer failure surfaced to API / playback callers.
+ *
+ * @property code HTTP status code, or `0` for client-side preconditions
+ *   (e.g. blank client id).
+ * @property oauthError The OAuth 2.0 `error` field from the token endpoint
+ *   response when present. Use this to distinguish a revoked refresh token
+ *   (`"invalid_grant"`) from generic network / server failures without
+ *   re-parsing the response body.
+ */
 class SpotifyAuthException(
     val code: Int,
     message: String,
-) : Exception(message)
+    val oauthError: String? = null,
+) : Exception(message) {
+    /** True when the OAuth response identified a dead refresh token. */
+    val isRefreshTokenRevoked: Boolean
+        get() = oauthError == "invalid_grant"
+}

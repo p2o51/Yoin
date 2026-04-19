@@ -26,6 +26,14 @@ class SpotifyMusicSource(
     initialCredentials: ProfileCredentials.Spotify,
     clientIdProvider: () -> String,
     onCredentialsPersisted: suspend (ProfileCredentials.Spotify) -> Unit,
+    /**
+     * Invoked exactly once when the API client detects the refresh token
+     * is dead (`error: "invalid_grant"`). Owners typically forward this
+     * to [com.gpo.yoin.data.profile.ProfileManager] so the active
+     * profile gets a `revoked = true` marker and UI surfaces a Reconnect
+     * affordance. Defaults to no-op for tests.
+     */
+    onCredentialsRevoked: suspend () -> Unit = {},
     httpClient: OkHttpClient = defaultHttpClient(),
     authService: SpotifyAuthService = SpotifyAuthService(httpClient),
 ) : MusicSource {
@@ -36,6 +44,7 @@ class SpotifyMusicSource(
         initialCredentials = initialCredentials,
         clientIdProvider = clientIdProvider,
         onCredentialsRefreshed = onCredentialsPersisted,
+        onCredentialsRevoked = onCredentialsRevoked,
     )
 
     override val id: String = MediaId.PROVIDER_SPOTIFY
