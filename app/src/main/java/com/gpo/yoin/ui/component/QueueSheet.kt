@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -57,13 +58,20 @@ fun QueueSheet(
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = false)
 
+    // Convention for every ModalBottomSheet in this codebase: NO outer
+    // bottom padding on the wrapping Column, NO `heightIn` cap on the
+    // LazyColumn. Material3's ModalBottomSheet limits its own height,
+    // and a fixed cap creates a visible empty band once content reaches
+    // it. Any breathing room belongs *inside* the LazyColumn's
+    // `contentPadding` so it collapses naturally on short lists and
+    // becomes part of the scrollable area on long ones.
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
         containerColor = MaterialTheme.colorScheme.surfaceContainer,
         modifier = modifier,
     ) {
-        Column(modifier = Modifier.padding(bottom = 16.dp)) {
+        Column {
             Text(
                 text = "Queue",
                 style = MaterialTheme.typography.titleMedium,
@@ -80,7 +88,7 @@ fun QueueSheet(
 
             LazyColumn(
                 state = listState,
-                modifier = Modifier.height(400.dp),
+                contentPadding = PaddingValues(bottom = 16.dp),
             ) {
                 itemsIndexed(queue) { index, item ->
                     QueueListItem(

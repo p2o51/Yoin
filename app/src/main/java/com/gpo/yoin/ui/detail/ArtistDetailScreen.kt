@@ -19,6 +19,7 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.LibraryMusic
@@ -255,7 +256,11 @@ private fun ArtistHeroArtwork(
     animatedVisibilityScope: AnimatedVisibilityScope?,
     modifier: Modifier = Modifier,
 ) {
-    val shape = YoinShapeTokens.ExtraLarge
+    // Artists are always circular across the app (Library row avatars,
+    // Home jump-back-in tiles, activity grid). The hero needs to match —
+    // anything else gives away that this used to be the album-detail
+    // shape borrowed wholesale during the multi-provider port.
+    val shape = CircleShape
     val artworkBoundsSpec = YoinMotion.defaultSpatialSpec<Rect>(
         role = YoinMotionRole.Expressive,
         expressiveScheme = MaterialTheme.motionScheme,
