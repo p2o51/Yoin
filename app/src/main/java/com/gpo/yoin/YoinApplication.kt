@@ -1,6 +1,7 @@
 package com.gpo.yoin
 
 import android.app.Application
+import androidx.annotation.VisibleForTesting
 
 class YoinApplication : Application() {
     lateinit var container: AppContainer
@@ -8,6 +9,11 @@ class YoinApplication : Application() {
 
     override fun onCreate() {
         super.onCreate()
-        container = AppContainer(this)
+        container = containerOverrideForTests ?: AppContainer(this)
+    }
+
+    companion object {
+        @VisibleForTesting
+        internal var containerOverrideForTests: AppContainer? = null
     }
 }

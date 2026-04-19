@@ -71,6 +71,7 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.tooling.preview.Preview
@@ -1175,6 +1176,7 @@ private fun SpotifySection(
                 label = "Spotify Client ID",
                 placeholder = "32-char hex from developer.spotify.com",
                 modifier = Modifier
+                    .testTag("spotify_client_id_field")
                     .fillMaxWidth()
                     .then(
                         if (clientIdFocusRequester != null) {
