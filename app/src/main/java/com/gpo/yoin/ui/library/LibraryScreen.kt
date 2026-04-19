@@ -625,17 +625,19 @@ private fun AlbumGridItem(
     coverArtUrl: String?,
     modifier: Modifier = Modifier,
 ) {
-    // Let AlbumCard default to `extractBackdropColors = true` so the
-    // per-card backdrop tint actually renders, matching Home's Jump
-    // Back In row and the ArtistDetail album grid. Palette extraction
-    // runs on Dispatchers.IO inside `rememberExpressiveBackdropColors`,
-    // so enabling it in this LazyVerticalGrid does not stall the
-    // scroll thread; the LruCache handles repeat scrolls.
+    // `extractBackdropColors = false` is intentional here. Enabling
+    // palette extraction on a LazyVerticalGrid with many cards triggers
+    // the same frame-drop issue that already plagues the Home Jump Back
+    // In row (independent-loader Coil requests + unbounded parallel
+    // Palette.generate() calls). Until that palette-extractor
+    // performance is fixed in its own PR, Library stays tint-less to
+    // keep the grid smooth. See `@palette-perf` follow-up.
     com.gpo.yoin.ui.component.AlbumCard(
         coverArtUrl = coverArtUrl,
         title = album.name,
         subtitle = album.artist,
         onClick = onClick,
+        extractBackdropColors = false,
         modifier = modifier.fillMaxWidth(),
         fixedWidth = null,
     )
