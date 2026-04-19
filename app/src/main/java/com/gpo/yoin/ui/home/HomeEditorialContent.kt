@@ -870,10 +870,28 @@ internal fun dedupeActivitiesForHome(
     activities: List<ActivityEvent>,
 ): List<ActivityEvent> = activities.distinctBy(::homeActivityDedupKey)
 
+/**
+ * `ActivityEvent.entityId` / `songId` 历史上存过两种形态：
+ *   • 裸 rawId — 当前所有写入路径（`YoinRepository.recordAlbumVisit` /
+ *     `recordArtistVisit` 等）统一写入这个形态
+ *   • 带 provider 前缀的 MediaId 字符串（形如 `"spotify:xxxxxx"`）— 来自
+ *     老版本或某些 Subsonic 路径的遗留
+ *
+ * Home 聚合（去重 + MediaId 构造）必须先 normalize 到纯 rawId，否则:
+ *   1. 两种格式的同一实体会被 `distinctBy` 当成不同 key，导致同一张专辑
+ *      在 Activities 列表里出现两次
+ *   2. 拼 `"${activity.provider}:$entityId"` 时如果 entityId 已经含前缀，
+ *      就会得到 `"spotify:spotify:xxx"` 被 Spotify API 当成 rawId 塞进
+ *      `/v1/albums/...` 返回 400
+ */
+private fun activityEntityRawId(raw: String): String =
+    if (raw.contains(':')) raw.substringAfter(':') else raw
+
 private fun homeActivityDedupKey(activity: ActivityEvent): String {
     val canonicalEntityId = when (activity.entityType) {
-        ActivityEntityType.SONG.name -> activity.songId ?: activity.entityId
-        else -> activity.entityId
+        ActivityEntityType.SONG.name ->
+            activityEntityRawId(activity.songId ?: activity.entityId)
+        else -> activityEntityRawId(activity.entityId)
     }
     return "${activity.entityType}:$canonicalEntityId"
 }
@@ -883,7 +901,8 @@ private fun buildActivityEntries(
     buildCoverArtUrl: (String) -> String,
 ): List<HomeMomentEntry> = dedupeActivitiesForHome(activities).take(6).map { activity ->
     val stableId = "activity:${activity.id}:${activity.entityType}:${activity.entityId}:${activity.actionType}"
-    val entityMediaId = "${activity.provider}:${activity.entityId}"
+    val rawEntityId = activityEntityRawId(activity.entityId)
+    val entityMediaId = "${activity.provider}:$rawEntityId"
     val target: HomeEntryTarget = when (activity.entityType) {
         ActivityEntityType.ALBUM.name -> HomeEntryTarget.Album(entityMediaId, stableId)
         ActivityEntityType.ARTIST.name -> HomeEntryTarget.Artist(entityMediaId)
@@ -904,7 +923,7 @@ private fun buildActivityEntries(
         sharedAlbumId = entityMediaId.takeIf { activity.entityType == ActivityEntityType.ALBUM.name },
         sharedSourceKey = stableId.takeIf { activity.entityType == ActivityEntityType.ALBUM.name },
         songId = activity.takeIf { activity.entityType == ActivityEntityType.SONG.name }
-            ?.let { "${it.provider}:${it.songId ?: it.entityId}" },
+            ?.let { "${it.provider}:${activityEntityRawId(it.songId ?: it.entityId)}" },
         variant = backdropVariantForActivity(activity.entityType),
         shape = artworkShapeForEntityType(activity.entityType),
         fallbackIcon = artworkFallbackIconForEntityType(activity.entityType),
