@@ -7,9 +7,9 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -97,7 +97,7 @@ fun AddToPlaylistSheet(
         containerColor = MaterialTheme.colorScheme.surfaceContainer,
         modifier = modifier,
     ) {
-        Column(modifier = Modifier.padding(bottom = 16.dp)) {
+        Column {
             Text(
                 text = "Add to playlist",
                 style = MaterialTheme.typography.titleMedium,
@@ -106,9 +106,12 @@ fun AddToPlaylistSheet(
             )
 
             LazyColumn(
-                // Cap height so the sheet never runs edge-to-edge on short lists;
-                // on long ones the LazyColumn scrolls inside the sheet.
-                modifier = Modifier.heightIn(max = 420.dp),
+                // No height cap and no outer bottom padding — the sheet is
+                // free to grow up to its natural max and the list runs
+                // edge-to-edge against the sheet boundary. The 16dp inside
+                // `contentPadding` is the only bottom space, and it
+                // collapses naturally when the list is short.
+                contentPadding = PaddingValues(bottom = 16.dp),
             ) {
                 if (onCreateAndAdd != null) {
                     item("create") {
