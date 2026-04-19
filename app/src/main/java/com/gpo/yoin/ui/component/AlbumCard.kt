@@ -44,6 +44,13 @@ fun AlbumCard(
 ) {
     val interactionSource = remember { MutableInteractionSource() }
 
+    // Surface intentionally has no `shape` (defaults to RectangleShape).
+    // A rounded outer shape used to clip the inner Column, which chewed
+    // into the metaPill / title / subtitle at the corners — most visible
+    // as the "left-bottom corner being cut off" in the Library albums
+    // grid and ArtistDetail. The cover artwork is clipped to its own
+    // shape internally by `ExpressiveBackdropArtwork`, so the outer
+    // container doesn't need to clip anything.
     Surface(
         modifier = modifier.then(
             if (fixedWidth != null) {
@@ -52,7 +59,6 @@ fun AlbumCard(
                 Modifier
             },
         ),
-        shape = YoinShapeTokens.ExtraLarge,
         color = Color.Transparent,
         tonalElevation = 0.dp,
         shadowElevation = 0.dp,
