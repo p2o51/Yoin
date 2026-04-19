@@ -88,4 +88,38 @@ class FileBackedProfileCredentialsStoreTest {
             !onDisk.contains("hunter2"),
         )
     }
+
+    @Test
+    fun read_falls_back_to_backup_when_primary_file_is_missing() {
+        val storageDir = tempFolder.newFolder("profile_credentials")
+        val codec = EncryptedProfileCredentialsCodec(InMemoryCredentialsCipher())
+        val store = FileBackedProfileCredentialsStore(
+            storageDir = storageDir,
+            codec = codec,
+        )
+        val creds = ProfileCredentials.Subsonic("https://music.example", "alice", "hunter2")
+        java.io.File(storageDir, "p.bin.bak").writeText(codec.encode(creds), Charsets.UTF_8)
+
+        assertEquals(creds, store.read("p"))
+    }
+
+    @Test
+    fun delete_removes_backup_file_too() {
+        val storageDir = tempFolder.newFolder("profile_credentials")
+        val codec = EncryptedProfileCredentialsCodec(InMemoryCredentialsCipher())
+        val store = FileBackedProfileCredentialsStore(
+            storageDir = storageDir,
+            codec = codec,
+        )
+        val backup = java.io.File(storageDir, "p.bin.bak")
+        backup.writeText(
+            codec.encode(ProfileCredentials.Subsonic("https://music.example", "alice", "hunter2")),
+            Charsets.UTF_8,
+        )
+
+        store.delete("p")
+
+        assertTrue(!backup.exists())
+        assertNull(store.read("p"))
+    }
 }

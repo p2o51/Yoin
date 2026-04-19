@@ -507,34 +507,32 @@ class SettingsViewModel(
         val decoded = profileManager.decodeCredentials(this)
         // Three independent reasons a Spotify profile needs the user to redo
         // the OAuth flow:
-        //   1. Post-restore / missing-file: the Room row is on the Batch 3D
-        //      `store:v1` marker but no credentials file exists (device
-        //      restore moved metadata but not secrets; crashed mid-write
-        //      erased the file). Recover by running OAuth again — same
-        //      profile id, new token.
+        //   1. Credentials unavailable: either the Batch 3D file-backed
+        //      secret is missing (post-restore / interrupted write) or a
+        //      legacy inline blob is corrupt. Recover by running OAuth
+        //      again — same profile id, new token.
         //   2. Runtime token revocation — the refresh endpoint last responded
         //      with `error: "invalid_grant"`, persisted as `revoked = true`.
         //   3. Static scope drift — the profile was authorised before the
         //      current `REQUIRED_SCOPES` set existed (e.g. before
         //      `playlist-modify-*` was added). Any missing required scope
         //      means the next API call against that scope will 403.
-        if (credentialsJson == ProfileManager.STORE_MARKER_V1 && decoded == null) return true
+        if (decoded == null) return true
         val spotify = decoded as? ProfileCredentials.Spotify ?: return false
         if (spotify.revoked) return true
         return SpotifyAuthConfig.REQUIRED_SCOPES.any { required -> required !in spotify.scopes }
     }
 
     /**
-     * Subsonic analogue to the Spotify missing-file recovery case. After
-     * a device restore, the `profiles` row comes back but the encrypted
-     * credential file doesn't (it lives under `noBackupFilesDir`). UI
-     * surfaces "Credentials missing" and taps into the edit form so the
-     * user can re-enter URL + username + password.
+     * Subsonic analogue to the Spotify recovery case. This covers both
+     * post-restore missing files and pre-3D inline blobs that are now
+     * corrupt / undecodable. UI surfaces "Credentials missing" and taps
+     * into the edit form so the user can re-enter URL + username +
+     * password against the same profile id.
      */
     private fun Profile.profileHasMissingSubsonicCredentials(): Boolean {
         if (ProviderKind.fromKeyOrSubsonic(provider) != ProviderKind.SUBSONIC) return false
-        return credentialsJson == ProfileManager.STORE_MARKER_V1 &&
-            profileManager.decodeCredentials(this) == null
+        return profileManager.decodeCredentials(this) == null
     }
 
     private fun buildProfileDisplayName(serverUrl: String, username: String): String {
