@@ -15,8 +15,6 @@ sealed interface SettingsUiState {
         val geminiApiKey: String = "",
         val spotifyClientId: String = "",
         val spotifyClientIdUsesFallback: Boolean = false,
-        val spotifyReconnectProfileId: String? = null,
-        val spotifyReconnectProfileName: String? = null,
     ) : SettingsUiState
 }
 

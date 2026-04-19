@@ -259,10 +259,7 @@ fun SettingsContent(
                                 SpotifySection(
                                     initialClientId = uiState.spotifyClientId,
                                     usesFallback = uiState.spotifyClientIdUsesFallback,
-                                    reconnectProfileId = uiState.spotifyReconnectProfileId,
-                                    reconnectProfileName = uiState.spotifyReconnectProfileName,
                                     onSaveClientId = onSaveSpotifyClientId,
-                                    onReconnectProfile = onReconnectProfile,
                                     clientIdFocusRequester = spotifyClientIdFocusRequester,
                                     modifier = Modifier.onGloballyPositioned { coords ->
                                         spotifySectionTopPx = coords.positionInParent().y
@@ -1127,10 +1124,7 @@ private fun GeminiSection(
 private fun SpotifySection(
     initialClientId: String,
     usesFallback: Boolean,
-    reconnectProfileId: String?,
-    reconnectProfileName: String?,
     onSaveClientId: (String) -> Unit,
-    onReconnectProfile: (String) -> Unit,
     clientIdFocusRequester: FocusRequester? = null,
     modifier: Modifier = Modifier,
 ) {
@@ -1164,43 +1158,10 @@ private fun SpotifySection(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            if (reconnectProfileId != null) {
-                Surface(
-                    shape = YoinShapeTokens.Large,
-                    color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.72f),
-                    contentColor = MaterialTheme.colorScheme.onErrorContainer,
-                ) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(14.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp),
-                    ) {
-                        Text(
-                            text = "Spotify playback needs re-authorization.",
-                            style = MaterialTheme.typography.titleSmall,
-                        )
-                        Text(
-                            text = buildString {
-                                append("The current Spotify profile")
-                                if (!reconnectProfileName.isNullOrBlank()) {
-                                    append(" (")
-                                    append(reconnectProfileName)
-                                    append(")")
-                                }
-                                append(" was authorized before App Remote control was added.")
-                            },
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onErrorContainer.copy(alpha = 0.88f),
-                        )
-                        OutlinedButton(
-                            onClick = { onReconnectProfile(reconnectProfileId) },
-                        ) {
-                            Text("Reconnect Spotify")
-                        }
-                    }
-                }
-            }
+            // Reconnect lives on the per-profile card's overflow menu now —
+            // that's where users expect "this profile needs attention"
+            // affordances. Settings → Spotify is for global settings only
+            // (Client ID), not per-profile actions.
             ExpressiveTextField(
                 value = clientId,
                 onValueChange = { clientId = it },
@@ -1320,8 +1281,6 @@ fun SettingsContentPreview() {
                 canAddProfile = true,
                 cacheSizeBytes = 52_428_800L,
                 geminiApiKey = "",
-                spotifyReconnectProfileId = "spotify-old",
-                spotifyReconnectProfileName = "51",
             ),
             switchingState = ProfileManager.SwitchState.Idle,
             profileFormSheet = ProfileFormSheet.Hidden,

@@ -88,11 +88,6 @@ class SettingsViewModel(
         val spotifyEffective = spotifyBundle.effectiveClientId
         val spotifyStatus = spotifyBundle.status
         val resolvedActiveId = activeId ?: profiles.firstOrNull()?.id
-        val spotifyReconnectProfile = profiles
-            .firstOrNull { profile ->
-                ProviderKind.fromKeyOrSubsonic(profile.provider) == ProviderKind.SPOTIFY &&
-                    profile.profileRequiresSpotifyReconnect()
-            }
         SettingsUiState.Content(
             profileCards = profiles.map {
                 it.toCard(
@@ -107,8 +102,6 @@ class SettingsViewModel(
             spotifyClientId = spotifyEffective,
             spotifyClientIdUsesFallback =
                 spotifyOverride.isBlank() && spotifyEffective.isNotBlank(),
-            spotifyReconnectProfileId = spotifyReconnectProfile?.id,
-            spotifyReconnectProfileName = spotifyReconnectProfile?.displayName,
         )
     }.stateIn(viewModelScope, SharingStarted.Eagerly, SettingsUiState.Loading)
 
