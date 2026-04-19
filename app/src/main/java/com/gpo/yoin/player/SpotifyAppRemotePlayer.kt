@@ -675,11 +675,17 @@ internal class SpotifyAppRemotePlayer(
 
         /**
          * Grace window for Room → StateFlow to emit the stored client id
-         * before we declare "No Client ID". Room's first emission under
-         * normal load lands well inside 400ms; 500ms gives a margin
-         * without being perceptibly laggy to the user.
+         * before we declare "No Client ID". Room's first emission by
+         * itself lands well inside 400ms, but Batch 3D added a startup
+         * migration coroutine that can keep the IO dispatcher busy with
+         * its first `AndroidKeyStore` key-generation (200-1000ms on
+         * upgrade; one-time per install). Bumping the grace to 1500ms
+         * absorbs that without pushing a scary "Client ID not configured"
+         * banner at users who were mid-first-launch after a build
+         * upgrade. Budget is still one-shot per host session so a
+         * *genuinely* blank id still surfaces on second attempt.
          */
-        const val CLIENT_ID_BOOTSTRAP_GRACE_MS = 500L
+        const val CLIENT_ID_BOOTSTRAP_GRACE_MS = 1_500L
 
         /**
          * Backoff before retrying after a transient transport failure.
