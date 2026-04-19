@@ -19,6 +19,7 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.LibraryMusic
@@ -204,13 +205,21 @@ private fun ArtistDetailContent(
                 ArtistHeroArtwork(
                     artistId = content.artistId,
                     sharedTransitionKey = sharedTransitionKey,
-                    coverArtUrl = content.albums.firstOrNull()?.coverArtUrl,
+                    // Prefer the artist's own portrait; fall back to
+                    // the first album cover so Subsonic servers that
+                    // don't expose artist.jpg still render something.
+                    coverArtUrl = content.heroCoverArtUrl
+                        ?: content.albums.firstOrNull()?.coverArtUrl,
                     artistName = content.artistName,
                     sharedTransitionScope = sharedTransitionScope,
                     animatedVisibilityScope = animatedVisibilityScope,
+                    // Must be 1:1 — the hero clips to `CircleShape`.
+                    // Any other ratio produces an ellipse and quietly
+                    // breaks the "artists are circles" convention
+                    // (Library row avatars, Home tiles, activity grid).
                     modifier = Modifier
                         .fillMaxWidth()
-                        .aspectRatio(1.2f),
+                        .aspectRatio(1f),
                 )
                 androidx.compose.foundation.layout.Column(
                     modifier = Modifier.padding(top = 2.dp, bottom = 10.dp),
@@ -255,7 +264,11 @@ private fun ArtistHeroArtwork(
     animatedVisibilityScope: AnimatedVisibilityScope?,
     modifier: Modifier = Modifier,
 ) {
-    val shape = YoinShapeTokens.ExtraLarge
+    // Artists are always circular across the app (Library row avatars,
+    // Home jump-back-in tiles, activity grid). The hero needs to match —
+    // anything else gives away that this used to be the album-detail
+    // shape borrowed wholesale during the multi-provider port.
+    val shape = CircleShape
     val artworkBoundsSpec = YoinMotion.defaultSpatialSpec<Rect>(
         role = YoinMotionRole.Expressive,
         expressiveScheme = MaterialTheme.motionScheme,
@@ -315,7 +328,7 @@ private fun ArtistDetailScreenContentPreview() {
                 artistId = "artist-1",
                 artistName = "Daft Punk",
                 albumCount = 4,
-                coverArtId = "cover-artist-1",
+                heroCoverArtUrl = null,
                 albums = listOf(
                     ArtistAlbum(
                         id = "1",
