@@ -6,8 +6,12 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import com.gpo.yoin.data.local.YoinDatabase
 import com.gpo.yoin.data.model.MediaId
+import com.gpo.yoin.data.profile.AndroidKeyStoreCredentialsCipher
+import com.gpo.yoin.data.profile.EncryptedProfileCredentialsCodec
+import com.gpo.yoin.data.profile.FileBackedProfileCredentialsStore
 import com.gpo.yoin.data.profile.PlaintextProfileCredentialsCodec
 import com.gpo.yoin.data.profile.ProfileCredentialsCodec
+import com.gpo.yoin.data.profile.ProfileCredentialsStore
 import com.gpo.yoin.data.profile.ProfileManager
 import com.gpo.yoin.data.profile.SharedPrefsProfileActiveIdStore
 import com.gpo.yoin.data.profile.SpotifyProviderStatus
@@ -67,7 +71,34 @@ class AppContainer(private val context: Context) {
         _playlistMutationRevision.value += 1
     }
 
-    private val credentialsCodec: ProfileCredentialsCodec = PlaintextProfileCredentialsCodec()
+    /**
+     * Legacy plaintext codec — used only by the one-shot startup
+     * migration to thaw inline `credentialsJson` blobs persisted by
+     * pre-3D builds. Steady-state read/write traffic goes through
+     * [credentialsStore], not this codec.
+     */
+    private val legacyCredentialsCodec: ProfileCredentialsCodec = PlaintextProfileCredentialsCodec()
+
+    /**
+     * Encrypted credential persistence (Batch 3D).
+     *
+     * Files live under `noBackupFilesDir/profile_credentials/` so
+     * Android's auto-backup pipeline excludes them — secrets stay
+     * device-local and require re-authorisation after a device restore,
+     * even though the profile metadata in Room rides the backup.
+     *
+     * Wire-up order: [AndroidKeyStoreCredentialsCipher] (raw AES-GCM) →
+     * [EncryptedProfileCredentialsCodec] (envelope) →
+     * [FileBackedProfileCredentialsStore] (per-profile `.bin` files).
+     */
+    private val credentialsStore: ProfileCredentialsStore by lazy {
+        FileBackedProfileCredentialsStore(
+            storageDir = java.io.File(context.noBackupFilesDir, "profile_credentials"),
+            codec = EncryptedProfileCredentialsCodec(
+                cipher = AndroidKeyStoreCredentialsCipher(),
+            ),
+        )
+    }
 
     /**
      * Current Spotify OAuth client id. Resolves user-entered value from the
@@ -168,7 +199,8 @@ class AppContainer(private val context: Context) {
             profileDao = database.profileDao(),
             serverConfigDao = database.serverConfigDao(),
             activeIdStore = SharedPrefsProfileActiveIdStore(context),
-            codec = credentialsCodec,
+            credentialsStore = credentialsStore,
+            legacyCodec = legacyCredentialsCodec,
             scope = applicationScope,
             spotifyClientIdProvider = { spotifyClientIdFlow.value },
             onSwitchPrepare = {
@@ -183,7 +215,10 @@ class AppContainer(private val context: Context) {
             },
         ).also { manager ->
             applicationScope.launch {
-                manager.migrateLegacyServerConfigIfNeeded()
+                // Three steps: legacy server_config → profile,
+                // pre-3D inline credentials → encrypted store,
+                // wipe server_config plaintext.
+                manager.runStartupMigrations()
             }
         }
     }

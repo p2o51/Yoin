@@ -6,7 +6,6 @@ import androidx.lifecycle.viewModelScope
 import com.gpo.yoin.AppContainer
 import com.gpo.yoin.data.local.GeminiConfig
 import com.gpo.yoin.data.local.Profile
-import com.gpo.yoin.data.local.ServerConfig
 import com.gpo.yoin.data.local.SpotifyConfig
 import com.gpo.yoin.data.profile.ProfileCredentials
 import com.gpo.yoin.data.profile.ProfileLimitReachedException
@@ -333,7 +332,6 @@ class SettingsViewModel(
                     is ProfileFormSheet.Visible.Mode.Create -> {
                         val hadActiveProfile = profileManager.activeProfileId.value != null
                         val created = profileManager.create(displayName, credentials)
-                        syncLegacyServerConfig(normalized)
                         closeProfileFormSheet()
                         if (hadActiveProfile) {
                             switchToProfile(created.id)
@@ -349,7 +347,6 @@ class SettingsViewModel(
                             credentials = credentials,
                         )
                         if (wasActive) {
-                            syncLegacyServerConfig(normalized)
                             // Kill playback bound to the stale stream URL and
                             // fan out to downstream VMs.
                             container.playbackManager.disconnect()
@@ -450,19 +447,6 @@ class SettingsViewModel(
         return NormalizedCredentials(normalizedUrl, normalizedUsername, password)
     }
 
-    private suspend fun syncLegacyServerConfig(creds: NormalizedCredentials) {
-        // Phase 1 keeps writing the legacy `server_config` row because
-        // `YoinRepository` still reads via `AppContainer.getCredentials()`
-        // which falls back to it. Phase 2 of the refactor removes this.
-        database.serverConfigDao().insert(
-            ServerConfig(
-                serverUrl = creds.url,
-                username = creds.username,
-                passwordHash = creds.password,
-            ),
-        )
-    }
-
     private fun Profile.toCard(
         activeProfileId: String?,
         spotifyStatus: SpotifyProviderStatus,
@@ -485,6 +469,7 @@ class SettingsViewModel(
         // *runtime* backend. Combine the two: runtime status first (a
         // global blocker like missing client id is more urgent than a
         // per-profile reconnect), then per-profile scope check.
+        val needsCredentialsReentry = profileHasMissingSubsonicCredentials()
         val unavailableReason: String? = when (provider) {
             ProviderKind.SPOTIFY -> when {
                 spotifyStatus is SpotifyProviderStatus.NoClientId ->
@@ -498,6 +483,10 @@ class SettingsViewModel(
                 profileRequiresSpotifyReconnect() -> "Reconnect"
                 else -> null
             }
+            ProviderKind.SUBSONIC -> when {
+                needsCredentialsReentry -> "Credentials missing"
+                else -> null
+            }
             else -> null
         }
         return ProfileCard(
@@ -509,21 +498,43 @@ class SettingsViewModel(
             unavailableReason = unavailableReason,
             requiresReconnect = provider == ProviderKind.SPOTIFY &&
                 unavailableReason == "Reconnect",
+            requiresCredentialsReentry = needsCredentialsReentry,
         )
     }
 
     private fun Profile.profileRequiresSpotifyReconnect(): Boolean {
-        val spotify = profileManager.decodeCredentials(this) as? ProfileCredentials.Spotify ?: return false
-        // Two independent reasons a Spotify profile needs the user to redo
+        if (ProviderKind.fromKeyOrSubsonic(provider) != ProviderKind.SPOTIFY) return false
+        val decoded = profileManager.decodeCredentials(this)
+        // Three independent reasons a Spotify profile needs the user to redo
         // the OAuth flow:
-        //   1. Runtime token revocation — the refresh endpoint last responded
+        //   1. Post-restore / missing-file: the Room row is on the Batch 3D
+        //      `store:v1` marker but no credentials file exists (device
+        //      restore moved metadata but not secrets; crashed mid-write
+        //      erased the file). Recover by running OAuth again — same
+        //      profile id, new token.
+        //   2. Runtime token revocation — the refresh endpoint last responded
         //      with `error: "invalid_grant"`, persisted as `revoked = true`.
-        //   2. Static scope drift — the profile was authorised before the
+        //   3. Static scope drift — the profile was authorised before the
         //      current `REQUIRED_SCOPES` set existed (e.g. before
         //      `playlist-modify-*` was added). Any missing required scope
         //      means the next API call against that scope will 403.
+        if (credentialsJson == ProfileManager.STORE_MARKER_V1 && decoded == null) return true
+        val spotify = decoded as? ProfileCredentials.Spotify ?: return false
         if (spotify.revoked) return true
         return SpotifyAuthConfig.REQUIRED_SCOPES.any { required -> required !in spotify.scopes }
+    }
+
+    /**
+     * Subsonic analogue to the Spotify missing-file recovery case. After
+     * a device restore, the `profiles` row comes back but the encrypted
+     * credential file doesn't (it lives under `noBackupFilesDir`). UI
+     * surfaces "Credentials missing" and taps into the edit form so the
+     * user can re-enter URL + username + password.
+     */
+    private fun Profile.profileHasMissingSubsonicCredentials(): Boolean {
+        if (ProviderKind.fromKeyOrSubsonic(provider) != ProviderKind.SUBSONIC) return false
+        return credentialsJson == ProfileManager.STORE_MARKER_V1 &&
+            profileManager.decodeCredentials(this) == null
     }
 
     private fun buildProfileDisplayName(serverUrl: String, username: String): String {

@@ -33,6 +33,15 @@ data class ProfileCard(
      */
     val unavailableReason: String? = null,
     val requiresReconnect: Boolean = false,
+    /**
+     * Subsonic post-restore / missing-file recovery flag — Room row exists
+     * on the `store:v1` marker but the encrypted credentials file isn't
+     * on disk (most commonly: the user restored the app from a Google
+     * backup, which doesn't carry secrets). Tap routes to the edit form
+     * so the user can re-enter URL + username + password against the
+     * same profile id.
+     */
+    val requiresCredentialsReentry: Boolean = false,
 )
 
 /** Bottom-sheet state for creating or editing a profile. */

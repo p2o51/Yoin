@@ -376,12 +376,19 @@ private fun ProfileSwitcherSection(
                     ProfileCardTile(
                         card = card,
                         onTap = {
-                            if (card.requiresReconnect) {
-                                onReconnectProfile(card.id)
-                            } else if (card.isActive) {
-                                onEditProfile(card.id)
-                            } else {
-                                onSwitchToProfile(card.id)
+                            when {
+                                card.requiresReconnect ->
+                                    onReconnectProfile(card.id)
+                                // Subsonic missing-credentials recovery: edit
+                                // form regardless of active state so the user
+                                // can re-enter URL + username + password
+                                // without first activating a broken profile.
+                                card.requiresCredentialsReentry ->
+                                    onEditProfile(card.id)
+                                card.isActive ->
+                                    onEditProfile(card.id)
+                                else ->
+                                    onSwitchToProfile(card.id)
                             }
                         },
                         onReconnect = { onReconnectProfile(card.id) },

@@ -37,11 +37,13 @@ class ProfileManagerPersistenceTest {
         val scope = TestScope(dispatcher)
         val profileDao = InMemoryProfileDao()
         val activeIdStore = InMemoryActiveIdStore()
+        val credentialsStore = InMemoryProfileCredentialsStore()
         val manager = ProfileManager(
             profileDao = profileDao,
             serverConfigDao = EmptyServerConfigDao,
             activeIdStore = activeIdStore,
-            codec = PlaintextProfileCredentialsCodec(),
+            credentialsStore = credentialsStore,
+            legacyCodec = PlaintextProfileCredentialsCodec(),
             scope = scope,
         )
 
@@ -73,7 +75,14 @@ class ProfileManagerPersistenceTest {
         assertSame("silent persist must not rebuild the active source", sourceBefore, sourceAfter)
 
         val stored = profileDao.getById(original.id)!!
-        assertTrue("Room row must reflect the new token", stored.credentialsJson.contains("t2"))
+        assertEquals(
+            "Room row holds only the marker now; secret lives in the store",
+            ProfileManager.STORE_MARKER_V1,
+            stored.credentialsJson,
+        )
+        val updatedCreds = credentialsStore.snapshot(original.id) as ProfileCredentials.Spotify
+        assertEquals("store must reflect the new access token", "t2", updatedCreds.accessToken)
+        assertEquals("store must reflect the new refresh token", "r2", updatedCreds.refreshToken)
         scope.cancelChildren()
     }
 
@@ -83,11 +92,13 @@ class ProfileManagerPersistenceTest {
         val scope = TestScope(dispatcher)
         val profileDao = InMemoryProfileDao()
         val activeIdStore = InMemoryActiveIdStore()
+        val credentialsStore = InMemoryProfileCredentialsStore()
         val manager = ProfileManager(
             profileDao = profileDao,
             serverConfigDao = EmptyServerConfigDao,
             activeIdStore = activeIdStore,
-            codec = PlaintextProfileCredentialsCodec(),
+            credentialsStore = credentialsStore,
+            legacyCodec = PlaintextProfileCredentialsCodec(),
             scope = scope,
         )
 
