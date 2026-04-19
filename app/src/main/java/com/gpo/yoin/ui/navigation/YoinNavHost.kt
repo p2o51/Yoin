@@ -804,6 +804,7 @@ private fun YoinShell(
             ) {
                 YoinButtonGroup(
                     selectedSection = selectedSection,
+                    currentTrackId = playbackState.currentTrack?.id?.toString(),
                     currentTrackTitle = playbackState.currentTrack?.title,
                     currentTrackArtist = playbackState.currentTrack?.artist,
                     currentTrackCoverArtUrl = coverArtUrl,

@@ -884,10 +884,11 @@ private fun buildActivityEntries(
     buildCoverArtUrl: (String) -> String,
 ): List<HomeMomentEntry> = dedupeActivitiesForHome(activities).take(6).map { activity ->
     val stableId = "activity:${activity.id}:${activity.entityType}:${activity.entityId}:${activity.actionType}"
+    val entityMediaId = "${activity.provider}:${activity.entityId}"
     val target: HomeEntryTarget = when (activity.entityType) {
-        ActivityEntityType.ALBUM.name -> HomeEntryTarget.Album(activity.entityId, stableId)
-        ActivityEntityType.ARTIST.name -> HomeEntryTarget.Artist(activity.entityId)
-        ActivityEntityType.PLAYLIST.name -> HomeEntryTarget.Playlist(activity.entityId)
+        ActivityEntityType.ALBUM.name -> HomeEntryTarget.Album(entityMediaId, stableId)
+        ActivityEntityType.ARTIST.name -> HomeEntryTarget.Artist(entityMediaId)
+        ActivityEntityType.PLAYLIST.name -> HomeEntryTarget.Playlist(entityMediaId)
         else -> HomeEntryTarget.SongTarget(activity.asSong())
     }
     HomeMomentEntry(
@@ -901,11 +902,10 @@ private fun buildActivityEntries(
         },
         footnote = buildActivityFootnote(activity),
         coverArtUrl = buildActivityCoverArtUrl(activity, buildCoverArtUrl),
-        sharedAlbumId = activity.entityId.takeIf { activity.entityType == ActivityEntityType.ALBUM.name },
+        sharedAlbumId = entityMediaId.takeIf { activity.entityType == ActivityEntityType.ALBUM.name },
         sharedSourceKey = stableId.takeIf { activity.entityType == ActivityEntityType.ALBUM.name },
-        songId = (activity.songId ?: activity.entityId).takeIf {
-            activity.entityType == ActivityEntityType.SONG.name
-        },
+        songId = activity.takeIf { activity.entityType == ActivityEntityType.SONG.name }
+            ?.let { "${it.provider}:${it.songId ?: it.entityId}" },
         variant = backdropVariantForActivity(activity.entityType),
         shape = artworkShapeForEntityType(activity.entityType),
         fallbackIcon = artworkFallbackIconForEntityType(activity.entityType),

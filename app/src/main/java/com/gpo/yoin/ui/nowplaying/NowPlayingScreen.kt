@@ -106,6 +106,7 @@ import com.gpo.yoin.ui.component.QueueSheet
 import com.gpo.yoin.ui.component.RatingSlider
 import com.gpo.yoin.ui.component.WaveProgressBar
 import com.gpo.yoin.ui.component.minimumTouchTarget
+import com.gpo.yoin.ui.navigation.nowPlayingCoverSharedKey
 import com.gpo.yoin.ui.experience.LocalMotionProfile
 import com.gpo.yoin.ui.experience.MotionProfile
 import com.gpo.yoin.ui.experience.ReportMotionPressure
@@ -471,6 +472,7 @@ private fun PlayingContent(
                 verticalAlignment = Alignment.Top,
             ) {
                 AlbumCover(
+                    songId = state.songId,
                     coverArtUrl = state.coverArtUrl,
                     sharedTransitionScope = sharedTransitionScope,
                     animatedVisibilityScope = animatedVisibilityScope,
@@ -742,6 +744,7 @@ private fun FavoriteButton(
 @OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
 private fun AlbumCover(
+    songId: String,
     coverArtUrl: String?,
     sharedTransitionScope: SharedTransitionScope? = null,
     animatedVisibilityScope: AnimatedVisibilityScope? = null,
@@ -760,7 +763,9 @@ private fun AlbumCover(
     ) {
         with(sharedTransitionScope) {
             baseModifier.sharedBounds(
-                sharedContentState = rememberSharedContentState(key = "np_cover"),
+                sharedContentState = rememberSharedContentState(
+                    key = nowPlayingCoverSharedKey(songId),
+                ),
                 animatedVisibilityScope = animatedVisibilityScope,
                 boundsTransform = { _, _ -> coverBoundsSpec },
             )
@@ -1307,6 +1312,7 @@ private fun PlaybackControlsPreview() {
 private fun AlbumCoverPreview() {
     YoinTheme {
         AlbumCover(
+            songId = "preview-song",
             coverArtUrl = null,
             modifier = Modifier.size(300.dp),
         )

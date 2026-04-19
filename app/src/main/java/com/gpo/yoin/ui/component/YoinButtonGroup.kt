@@ -59,6 +59,7 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.gpo.yoin.ui.navigation.nowPlayingCoverSharedKey
 import com.gpo.yoin.ui.navigation.YoinSection
 import com.gpo.yoin.ui.theme.ProvideYoinMotionRole
 import com.gpo.yoin.ui.theme.YoinMotion
@@ -75,6 +76,7 @@ import kotlin.math.sin
 @Composable
 fun YoinButtonGroup(
     selectedSection: YoinSection,
+    currentTrackId: String?,
     currentTrackTitle: String?,
     currentTrackArtist: String?,
     currentTrackCoverArtUrl: String?,
@@ -295,6 +297,7 @@ fun YoinButtonGroup(
                                     verticalAlignment = Alignment.CenterVertically,
                                 ) {
                                     NowPlayingArtwork(
+                                        currentTrackId = currentTrackId,
                                         currentTrackCoverArtUrl = currentTrackCoverArtUrl,
                                         currentTrackTitle = currentTrackTitle,
                                         sharedTransitionScope = sharedTransitionScope,
@@ -428,6 +431,7 @@ private fun rememberButtonGroupInteractionSource() =
 @OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
 private fun NowPlayingArtwork(
+    currentTrackId: String?,
     currentTrackCoverArtUrl: String?,
     currentTrackTitle: String?,
     sharedTransitionScope: SharedTransitionScope? = null,
@@ -446,7 +450,9 @@ private fun NowPlayingArtwork(
     ) {
         with(sharedTransitionScope) {
             baseModifier.sharedBounds(
-                sharedContentState = rememberSharedContentState(key = "np_cover"),
+                sharedContentState = rememberSharedContentState(
+                    key = nowPlayingCoverSharedKey(currentTrackId),
+                ),
                 animatedVisibilityScope = animatedVisibilityScope,
                 boundsTransform = { _, _ -> sharedBoundsSpec },
             )

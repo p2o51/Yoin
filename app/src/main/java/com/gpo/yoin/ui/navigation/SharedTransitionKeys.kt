@@ -26,3 +26,10 @@ internal fun playlistCoverSharedKey(
 } else {
     "playlist-cover:$playlistId:$sourceKey"
 }
+
+internal fun nowPlayingCoverSharedKey(songId: String?): String =
+    if (songId.isNullOrBlank()) {
+        "np_cover"
+    } else {
+        "np_cover:$songId"
+    }
