@@ -1,12 +1,9 @@
 package com.gpo.yoin.ui.component
 
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.InteractionSource
 import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.sizeIn
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.composed
@@ -19,7 +16,6 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import com.gpo.yoin.ui.theme.YoinMotion
 
 internal fun Modifier.noRippleClickable(
     interactionSource: MutableInteractionSource,
@@ -32,22 +28,20 @@ internal fun Modifier.noRippleClickable(
     onClick = onClick,
 )
 
+/**
+ * Previously animated a bouncy-spring scale on press (1 → 0.97 → overshoot
+ * back to 1). That overshoot was the root cause of the Home Jump Back In
+ * "shape edge nipped during playback" saga when combined with the halo's
+ * own playback pulse. Project-wide decision: kill on-card press feedback
+ * entirely for now — the whole app behaves like a flat static surface on
+ * press. If you want the elastic feedback back, restore the previous
+ * `composed { ... graphicsLayer { scaleX = scale; scaleY = scale } }`
+ * body.
+ */
 internal fun Modifier.elasticPress(
-    interactionSource: InteractionSource,
-    pressedScale: Float = 0.97f,
-): Modifier = composed {
-    val isPressed by interactionSource.collectIsPressedAsState()
-    val scale by animateFloatAsState(
-        targetValue = if (isPressed) pressedScale else 1f,
-        animationSpec = YoinMotion.bouncySpatialSpring(),
-        label = "elasticPressScale",
-    )
-
-    graphicsLayer {
-        scaleX = scale
-        scaleY = scale
-    }
-}
+    @Suppress("UNUSED_PARAMETER") interactionSource: InteractionSource,
+    @Suppress("UNUSED_PARAMETER") pressedScale: Float = 0.97f,
+): Modifier = this
 
 internal fun Modifier.minimumTouchTarget(
     minSize: Dp = 44.dp,

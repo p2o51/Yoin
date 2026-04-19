@@ -96,105 +96,41 @@ private class ExpressiveMorphShape(
     }
 }
 
+/**
+ * All playback-driven halo animation (morph / scale / color lerp) is
+ * intentionally disabled project-wide. The halo now renders as a flat,
+ * static shape fill: no pulse on `isPlaybackActive`, no spring
+ * overshoot, no color drift. This was the right trade for shipping —
+ * the halo's scale-time geometry kept bleeding onto the sibling cover's
+ * shape edge (the Jump Back In playback edge-nip saga) and every
+ * attempted clip / reorder / parameter tweak left some visual
+ * regression on the table. Static halo = no geometry bleed + no frame
+ * cost.
+ *
+ * `accentColor`, `isPlaybackActive`, `playbackSignal`, and
+ * `interactionSource` are kept in the signature so call sites don't
+ * have to change; they're currently ignored. If the pulse is wanted
+ * back, restore the previous `animateFloatAsState(morphProgress/scale)`
+ * + `animateColorAsState` body and wrap the draw in
+ * `.graphicsLayer(scaleX/scaleY, clip=true).clip(shape).background(animatedColor)`
+ * with `graphicsLayer` as the outermost modifier (git history on this
+ * file shows the last known-good animated variant).
+ */
 @Composable
 internal fun ExpressiveBackdrop(
     baseColor: Color,
-    accentColor: Color,
+    @Suppress("UNUSED_PARAMETER") accentColor: Color,
     modifier: Modifier = Modifier,
     variant: ExpressiveBackdropVariant = ExpressiveBackdropVariant.Bun,
-    interactionSource: MutableInteractionSource? = null,
-    isPlaybackActive: Boolean = false,
-    playbackSignal: Float = 0f,
+    @Suppress("UNUSED_PARAMETER") interactionSource: MutableInteractionSource? = null,
+    @Suppress("UNUSED_PARAMETER") isPlaybackActive: Boolean = false,
+    @Suppress("UNUSED_PARAMETER") playbackSignal: Float = 0f,
 ) {
-    val motionProfile = LocalMotionProfile.current
-    val morphProgress by animateFloatAsState(
-        targetValue = if (
-            variant == ExpressiveBackdropVariant.Circle &&
-            isPlaybackActive &&
-            motionProfile == MotionProfile.Full
-        ) {
-            1f
-        } else {
-            0f
-        },
-        animationSpec = if (motionProfile == MotionProfile.Full) {
-            YoinMotion.bouncySpatialSpring()
-        } else {
-            YoinMotion.spatialSpring()
-        },
-        label = "expressiveBackdropMorphProgress",
-    )
-    val shape = if (variant == ExpressiveBackdropVariant.Circle) {
-        val morph = rememberCircleArrowMorph()
-        val path = remember<Path>(morph, morphProgress) {
-            MaterialShapeInterop.morphToPath(
-                morph,
-                morphProgress,
-                Path(),
-                0,
-            )
-        }
-        remember(path) { ExpressiveMorphShape(path) }
-    } else {
-        expressiveBackdropShape(variant)
-    }
-    val animatedScale by animateFloatAsState(
-        targetValue = if (isPlaybackActive) {
-            if (motionProfile == MotionProfile.Full) {
-                1.02f + playbackSignal * 0.03f
-            } else {
-                1.01f + playbackSignal * 0.012f
-            }
-        } else {
-            1f
-        },
-        animationSpec = if (motionProfile == MotionProfile.Full) {
-            YoinMotion.expressiveSpatialSpring()
-        } else {
-            YoinMotion.spatialSpring()
-        },
-        label = "expressiveBackdropScale",
-    )
-    val animatedColor by animateColorAsState(
-        targetValue = if (isPlaybackActive) {
-            if (motionProfile == MotionProfile.Full) {
-                lerp(baseColor, accentColor, 0.16f + playbackSignal * 0.16f)
-            } else {
-                lerp(baseColor, accentColor, 0.08f + playbackSignal * 0.08f)
-            }
-        } else {
-            baseColor.copy(alpha = 0.9f)
-        },
-        animationSpec = YoinMotion.effectsSpring(),
-        label = "expressiveBackdropColor",
-    )
-
-    // Modifier order matters here. `graphicsLayer` must be the
-    // *outermost* draw modifier so that both the shape clip and the
-    // background color rendering happen **inside** the layer and get
-    // properly scaled + self-clipped. Putting it at the end of the
-    // chain (after `.clip.background`) creates a dead layer: the
-    // color is already rasterised to the parent canvas by the time
-    // the layer opens, so `scaleX/scaleY` animates nothing visible
-    // and `clip = true` has nothing to clip — meaning the playback
-    // pulse's spring overshoot still bleeds past the halo rect onto
-    // the sibling cover's shape edge.
-    //
-    // With `graphicsLayer` first, the layer wraps the entire halo
-    // draw, the scale animation actually moves pixels, and
-    // `clip = true` keeps those pixels inside the halo's own layout
-    // rect — so the tile's cover shape stays untouched on every
-    // playback pulse. The halo's static negative-offset glow is a
-    // layout-level concern (not scale-time), so it's untouched.
+    val shape = expressiveBackdropShape(variant)
     Box(
         modifier = modifier
-            .graphicsLayer(
-                scaleX = animatedScale,
-                scaleY = animatedScale,
-                clip = true,
-            )
             .clip(shape)
-            .background(animatedColor),
+            .background(baseColor.copy(alpha = 0.9f)),
     )
 }
 
