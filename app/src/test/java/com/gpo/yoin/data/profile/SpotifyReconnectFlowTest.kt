@@ -2,8 +2,6 @@ package com.gpo.yoin.data.profile
 
 import com.gpo.yoin.data.local.Profile
 import com.gpo.yoin.data.local.ProfileDao
-import com.gpo.yoin.data.local.ServerConfig
-import com.gpo.yoin.data.local.ServerConfigDao
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
@@ -31,7 +29,6 @@ class SpotifyReconnectFlowTest {
         val credentialsStore = InMemoryProfileCredentialsStore()
         val manager = ProfileManager(
             profileDao = profileDao,
-            serverConfigDao = EmptyServerConfigDao,
             activeIdStore = InMemoryActiveIdStore(),
             credentialsStore = credentialsStore,
             legacyCodec = PlaintextProfileCredentialsCodec(),
@@ -94,12 +91,5 @@ class SpotifyReconnectFlowTest {
         override fun write(id: String?) {
             value = id
         }
-    }
-
-    private object EmptyServerConfigDao : ServerConfigDao {
-        override fun getActiveServer(): Flow<ServerConfig?> = MutableStateFlow(null).asStateFlow()
-        override suspend fun insert(config: ServerConfig) = Unit
-        override suspend fun update(config: ServerConfig) = Unit
-        override suspend fun deleteAll() = Unit
     }
 }

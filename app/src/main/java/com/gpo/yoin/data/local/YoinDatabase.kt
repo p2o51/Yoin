@@ -5,7 +5,6 @@ import androidx.room.RoomDatabase
 
 @Database(
     entities = [
-        ServerConfig::class,
         LocalRating::class,
         CacheMetadata::class,
         PlayHistory::class,
@@ -15,12 +14,10 @@ import androidx.room.RoomDatabase
         Profile::class,
         SpotifyConfig::class,
     ],
-    version = 5,
+    version = 6,
     exportSchema = true,
 )
 abstract class YoinDatabase : RoomDatabase() {
-    abstract fun serverConfigDao(): ServerConfigDao
-
     abstract fun localRatingDao(): LocalRatingDao
 
     abstract fun cacheMetadataDao(): CacheMetadataDao
