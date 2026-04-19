@@ -2,8 +2,6 @@ package com.gpo.yoin.data.profile
 
 import com.gpo.yoin.data.local.Profile
 import com.gpo.yoin.data.local.ProfileDao
-import com.gpo.yoin.data.local.ServerConfig
-import com.gpo.yoin.data.local.ServerConfigDao
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -17,61 +15,9 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/**
- * Covers the Batch 3D startup migration:
- *
- *  1. Pre-multi-profile: legacy `server_config` row → Subsonic profile
- *     with credentials in the file store + `STORE_MARKER_V1` row.
- *  2. Pre-3D multi-profile: inline `credentialsJson` blobs → file store
- *     + marker, idempotent across launches.
- *  3. After (1) succeeds the legacy `server_config` row is wiped so the
- *     plaintext password doesn't linger in the database.
- */
+/** Covers the remaining pre-3D inline-blob startup migration. */
 @OptIn(ExperimentalCoroutinesApi::class)
 class ProfileManagerMigrationTest {
-
-    @Test
-    fun legacy_server_config_is_migrated_into_profile_then_cleared() = runTest {
-        val dispatcher = StandardTestDispatcher(testScheduler)
-        val scope = TestScope(dispatcher)
-        val profileDao = InMemoryProfileDao()
-        val serverConfigDao = InMemoryServerConfigDao().apply {
-            insert(
-                ServerConfig(
-                    serverUrl = "https://music.example",
-                    username = "alice",
-                    passwordHash = "hunter2",
-                    isActive = true,
-                ),
-            )
-        }
-        val credentialsStore = InMemoryProfileCredentialsStore()
-        val manager = ProfileManager(
-            profileDao = profileDao,
-            serverConfigDao = serverConfigDao,
-            activeIdStore = InMemoryActiveIdStore(),
-            credentialsStore = credentialsStore,
-            legacyCodec = PlaintextProfileCredentialsCodec(),
-            scope = scope,
-        )
-
-        manager.runStartupMigrations()
-        scope.advanceUntilIdle()
-
-        val profile = profileDao.getAll().single()
-        assertEquals(
-            "row should be on the Batch 3D marker, no inline JSON",
-            ProfileManager.STORE_MARKER_V1,
-            profile.credentialsJson,
-        )
-        val moved = credentialsStore.snapshot(profile.id) as ProfileCredentials.Subsonic
-        assertEquals("https://music.example", moved.serverUrl)
-        assertEquals("hunter2", moved.password)
-        assertNull(
-            "server_config must be cleared so the plaintext password isn't preserved",
-            serverConfigDao.currentValue,
-        )
-    }
 
     @Test
     fun pre_3D_inline_blob_is_moved_into_store() = runTest {
@@ -96,7 +42,6 @@ class ProfileManagerMigrationTest {
         val credentialsStore = InMemoryProfileCredentialsStore()
         val manager = ProfileManager(
             profileDao = profileDao,
-            serverConfigDao = InMemoryServerConfigDao(), // empty
             activeIdStore = InMemoryActiveIdStore(),
             credentialsStore = credentialsStore,
             legacyCodec = codec,
@@ -133,7 +78,6 @@ class ProfileManagerMigrationTest {
         )
         val manager = ProfileManager(
             profileDao = profileDao,
-            serverConfigDao = InMemoryServerConfigDao(),
             activeIdStore = InMemoryActiveIdStore(),
             credentialsStore = credentialsStore,
             legacyCodec = PlaintextProfileCredentialsCodec(),
@@ -166,7 +110,6 @@ class ProfileManagerMigrationTest {
         val credentialsStore = InMemoryProfileCredentialsStore()
         val manager = ProfileManager(
             profileDao = profileDao,
-            serverConfigDao = InMemoryServerConfigDao(),
             activeIdStore = InMemoryActiveIdStore(),
             credentialsStore = credentialsStore,
             legacyCodec = codec,
@@ -220,12 +163,4 @@ class ProfileManagerMigrationTest {
         }
     }
 
-    private class InMemoryServerConfigDao : ServerConfigDao {
-        private val state = MutableStateFlow<ServerConfig?>(null)
-        val currentValue: ServerConfig? get() = state.value
-        override fun getActiveServer(): Flow<ServerConfig?> = state.asStateFlow()
-        override suspend fun insert(config: ServerConfig) { state.value = config }
-        override suspend fun update(config: ServerConfig) { state.value = config }
-        override suspend fun deleteAll() { state.value = null }
-    }
 }

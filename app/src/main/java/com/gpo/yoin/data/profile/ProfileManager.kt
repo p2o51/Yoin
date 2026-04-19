@@ -2,11 +2,9 @@ package com.gpo.yoin.data.profile
 
 import com.gpo.yoin.data.local.Profile
 import com.gpo.yoin.data.local.ProfileDao
-import com.gpo.yoin.data.local.ServerConfigDao
 import com.gpo.yoin.data.remote.ServerCredentials
 import com.gpo.yoin.data.source.MusicSource
 import com.gpo.yoin.data.source.subsonic.SubsonicMusicSource
-import java.net.URI
 import java.util.UUID
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.Flow
@@ -42,7 +40,6 @@ import kotlinx.coroutines.withTimeoutOrNull
  */
 class ProfileManager(
     private val profileDao: ProfileDao,
-    private val serverConfigDao: ServerConfigDao,
     private val activeIdStore: ProfileActiveIdStore,
     private val credentialsStore: ProfileCredentialsStore,
     private val legacyCodec: ProfileCredentialsCodec,
@@ -262,47 +259,14 @@ class ProfileManager(
     suspend fun profileCount(): Int = profileDao.count()
 
     /**
-     * One-shot startup migration. Runs three steps in order:
+     * One-shot startup migration for pre-3D inline `credentialsJson` blobs.
      *
-     *  1. Legacy `server_config` → Subsonic profile (pre-multi-profile
-     *     installs). Skipped when `profiles` already has rows.
-     *  2. Inline `credentialsJson` blobs (pre-3D installs) → encrypted
-     *     file store + `STORE_MARKER_V1` row. Idempotent — rows already
-     *     on the marker are skipped.
-     *  3. Clear `server_config` so the next launch doesn't keep the
-     *     plaintext password row alive after we've copied it forward.
-     *
-     * All-in-one method so callers don't have to think about ordering.
-     * Crash mid-migration is recoverable — each step is idempotent on
-     * the next launch.
+     * Rows already on [STORE_MARKER_V1] are skipped; corrupt inline blobs are
+     * left untouched so one broken row does not block the rest of the
+     * migration. Idempotent across launches.
      */
     suspend fun runStartupMigrations() {
-        migrateLegacyServerConfigIfNeeded()
         migrateInlineCredentialsIfNeeded()
-        clearLegacyServerConfig()
-    }
-
-    private suspend fun migrateLegacyServerConfigIfNeeded() {
-        if (profileDao.count() > 0) return
-        val legacy = serverConfigDao.getActiveServer().firstOrNull() ?: return
-        if (legacy.serverUrl.isBlank()) return
-        val creds = ProfileCredentials.Subsonic(
-            serverUrl = legacy.serverUrl,
-            username = legacy.username,
-            password = legacy.passwordHash,
-        )
-        val profileId = UUID.randomUUID().toString()
-        credentialsStore.write(profileId, creds)
-        val profile = Profile(
-            id = profileId,
-            provider = ProviderKind.SUBSONIC.key,
-            displayName = defaultDisplayName(legacy.serverUrl, legacy.username),
-            credentialsJson = STORE_MARKER_V1,
-            createdAt = System.currentTimeMillis(),
-        )
-        profileDao.upsert(profile)
-        setActive(profile.id)
-        _activeSource.value = buildSource(profile)
     }
 
     /**
@@ -321,16 +285,6 @@ class ProfileManager(
             credentialsStore.write(profile.id, decoded)
             profileDao.upsert(profile.copy(credentialsJson = STORE_MARKER_V1))
         }
-    }
-
-    /**
-     * Wipe the legacy `server_config` table once the migration has
-     * forwarded the password into a profile. Keeping the row would
-     * leave a plaintext Subsonic password sitting in the database
-     * forever — exactly the leak Batch 3D is here to close.
-     */
-    private suspend fun clearLegacyServerConfig() {
-        serverConfigDao.deleteAll()
     }
 
     private fun buildSource(profile: Profile): MusicSource? {
@@ -376,16 +330,6 @@ class ProfileManager(
             ?: return
         if (credentials.revoked) return
         persistCredentialsSilently(id, credentials.copy(revoked = true))
-    }
-
-    private fun defaultDisplayName(serverUrl: String, username: String): String {
-        val host = runCatching { URI(serverUrl).host }.getOrNull()?.takeIf { it.isNotBlank() }
-        return when {
-            host != null && username.isNotBlank() -> "$username @ $host"
-            host != null -> host
-            username.isNotBlank() -> username
-            else -> serverUrl
-        }
     }
 
     sealed interface SwitchState {

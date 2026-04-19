@@ -2,8 +2,6 @@ package com.gpo.yoin.data.profile
 
 import com.gpo.yoin.data.local.Profile
 import com.gpo.yoin.data.local.ProfileDao
-import com.gpo.yoin.data.local.ServerConfig
-import com.gpo.yoin.data.local.ServerConfigDao
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
@@ -40,7 +38,6 @@ class ProfileManagerPersistenceTest {
         val credentialsStore = InMemoryProfileCredentialsStore()
         val manager = ProfileManager(
             profileDao = profileDao,
-            serverConfigDao = EmptyServerConfigDao,
             activeIdStore = activeIdStore,
             credentialsStore = credentialsStore,
             legacyCodec = PlaintextProfileCredentialsCodec(),
@@ -95,7 +92,6 @@ class ProfileManagerPersistenceTest {
         val credentialsStore = InMemoryProfileCredentialsStore()
         val manager = ProfileManager(
             profileDao = profileDao,
-            serverConfigDao = EmptyServerConfigDao,
             activeIdStore = activeIdStore,
             credentialsStore = credentialsStore,
             legacyCodec = PlaintextProfileCredentialsCodec(),
@@ -168,12 +164,5 @@ class ProfileManagerPersistenceTest {
         override fun write(id: String?) {
             value = id
         }
-    }
-
-    private object EmptyServerConfigDao : ServerConfigDao {
-        override fun getActiveServer(): Flow<ServerConfig?> = MutableStateFlow(null).asStateFlow()
-        override suspend fun insert(config: ServerConfig) = Unit
-        override suspend fun update(config: ServerConfig) = Unit
-        override suspend fun deleteAll() = Unit
     }
 }

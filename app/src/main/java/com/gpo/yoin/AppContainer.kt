@@ -48,7 +48,7 @@ class AppContainer(private val context: Context) {
 
     val database: YoinDatabase by lazy {
         Room.databaseBuilder(context, YoinDatabase::class.java, "yoin-database")
-            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
+            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
             .build()
     }
 
@@ -211,7 +211,6 @@ class AppContainer(private val context: Context) {
     val profileManager: ProfileManager by lazy {
         ProfileManager(
             profileDao = database.profileDao(),
-            serverConfigDao = database.serverConfigDao(),
             activeIdStore = SharedPrefsProfileActiveIdStore(context),
             credentialsStore = credentialsStore,
             legacyCodec = legacyCredentialsCodec,
@@ -229,9 +228,8 @@ class AppContainer(private val context: Context) {
             },
         ).also { manager ->
             applicationScope.launch {
-                // Three steps: legacy server_config → profile,
-                // pre-3D inline credentials → encrypted store,
-                // wipe server_config plaintext.
+                // One-shot carry-forward: pre-3D inline credentialsJson
+                // blobs → encrypted file store + marker rows.
                 manager.runStartupMigrations()
             }
         }
@@ -470,6 +468,16 @@ class AppContainer(private val context: Context) {
                     )
                     """.trimIndent(),
                 )
+            }
+        }
+
+        // v5 → v6: drop legacy single-row server_config table. Batch 3D moved
+        // credentials into profile rows + encrypted file store; the remaining
+        // migration tolerates inline profile blobs, but we no longer carry the
+        // pre-profile plaintext table forward.
+        val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL("DROP TABLE IF EXISTS `server_config`")
             }
         }
     }
