@@ -12,6 +12,8 @@ import com.gpo.yoin.data.local.SongInfoDao
 import com.gpo.yoin.data.local.SpotifyHomeAlbumCache
 import com.gpo.yoin.data.local.SpotifyHomeArtistCache
 import com.gpo.yoin.data.local.YoinDatabase
+import com.gpo.yoin.data.lyrics.LrcParser
+import com.gpo.yoin.data.lyrics.LyricsProviderRegistry
 import com.gpo.yoin.data.model.Album
 import com.gpo.yoin.data.model.ArtistDetail
 import com.gpo.yoin.data.model.ArtistIndex
@@ -51,6 +53,7 @@ class YoinRepository(
     private val geminiService: GeminiService,
     private val songInfoDao: SongInfoDao,
     private val geminiConfigDao: GeminiConfigDao,
+    private val lyricsProviderRegistry: LyricsProviderRegistry = LyricsProviderRegistry(),
 ) {
 
     data class SpotifyHomeJumpBackInCacheSnapshot(
@@ -270,8 +273,26 @@ class YoinRepository(
 
     // ── Lyrics ─────────────────────────────────────────────────────────
 
-    suspend fun getLyrics(trackId: MediaId): Lyrics? =
-        requireSource().metadata().getLyrics(trackId)
+    /**
+     * Subsonic 走自家 `getLyricsBySongId.view`；其他 provider（目前只有 Spotify）
+     * 没有服务器歌词，走 [LyricsProviderRegistry] 串行兜底（QQ → 网易云）。
+     * 需要 [title] + [artist] 做搜索；任一为空就直接返回 null。
+     */
+    suspend fun getLyrics(
+        trackId: MediaId,
+        title: String? = null,
+        artist: String? = null,
+    ): Lyrics? {
+        val source = requireSource()
+        if (source.id == MediaId.PROVIDER_SUBSONIC) {
+            return source.metadata().getLyrics(trackId)
+        }
+        val t = title?.trim().orEmpty()
+        val a = artist?.trim().orEmpty()
+        if (t.isEmpty() || a.isEmpty()) return null
+        val lrc = lyricsProviderRegistry.fetchLyric(t, a) ?: return null
+        return LrcParser.parse(lrc)
+    }
 
     suspend fun loadSongInfo(
         songId: MediaId,
