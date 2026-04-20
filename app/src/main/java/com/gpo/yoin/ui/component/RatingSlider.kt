@@ -1,5 +1,6 @@
 package com.gpo.yoin.ui.component
 
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectDragGestures
@@ -21,8 +22,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.tooling.preview.Preview
@@ -99,27 +99,25 @@ fun RatingSlider(
                 .background(MaterialTheme.colorScheme.primary),
         )
 
-        // Top gradient overlay for rating label readability
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .fillMaxHeight(0.35f)
-                .align(Alignment.TopCenter)
-                .background(
-                    Brush.verticalGradient(
-                        colors = listOf(
-                            MaterialTheme.colorScheme.surfaceVariant,
-                            Color.Transparent,
-                        ),
-                    ),
-                ),
+        // Rating label inside the bar (top). Cross-fade the label color
+        // from onSurfaceVariant → onPrimary as the primary fill rises
+        // behind it: the label sits in the top ~20% of the track, so the
+        // crossover starts once the fill height exceeds 80% (rating ≥ 4).
+        val labelCrossoverT = ((animatedFraction - 0.80f) / 0.20f).coerceIn(0f, 1f)
+        val labelTarget = lerp(
+            MaterialTheme.colorScheme.onSurfaceVariant,
+            MaterialTheme.colorScheme.onPrimary,
+            labelCrossoverT,
         )
-
-        // Rating label inside the bar (top)
+        val labelColor by animateColorAsState(
+            targetValue = labelTarget,
+            animationSpec = YoinMotion.defaultEffectsSpec(),
+            label = "ratingLabelColor",
+        )
         Text(
             text = "%.1f".format(rating),
             style = MaterialTheme.typography.titleLarge.withTabularFigures(),
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            color = labelColor,
             modifier = Modifier
                 .align(Alignment.TopCenter)
                 .padding(top = 8.dp),

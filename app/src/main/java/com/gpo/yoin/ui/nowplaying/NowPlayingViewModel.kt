@@ -80,13 +80,18 @@ class NowPlayingViewModel(
         }
     }
 
-    val uiState: StateFlow<NowPlayingUiState> = combine(
+    private val playbackAndContext = combine(
         playbackManager.playbackState,
+        playbackManager.currentActivityContext,
+    ) { state, ctx -> state to ctx }
+
+    val uiState: StateFlow<NowPlayingUiState> = combine(
+        playbackAndContext,
         _lyrics,
         _lyricsLoading,
         ratingFlow,
         _isStarred,
-    ) { state, lyrics, lyricsLoading, rating, isStarred ->
+    ) { (state, activityContext), lyrics, lyricsLoading, rating, isStarred ->
         val song = state.currentTrack
         val pending = state.pendingTrack
         when {
@@ -122,6 +127,10 @@ class NowPlayingViewModel(
                     )
                 },
                 currentQueueIndex = state.currentIndex,
+                shuffleEnabled = state.shuffleEnabled,
+                albumId = song.albumId?.toString(),
+                artistId = song.artistId?.toString(),
+                activityContext = activityContext,
             )
 
             // Backend is still handshaking for the track the user tapped —
@@ -154,6 +163,10 @@ class NowPlayingViewModel(
     fun togglePlayPause() {
         val state = playbackManager.playbackState.value
         if (state.isPlaying) playbackManager.pause() else playbackManager.resume()
+    }
+
+    fun toggleShuffle() {
+        playbackManager.toggleShuffle()
     }
 
     fun skipNext() {

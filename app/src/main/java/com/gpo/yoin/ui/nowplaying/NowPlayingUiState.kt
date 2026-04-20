@@ -1,5 +1,7 @@
 package com.gpo.yoin.ui.nowplaying
 
+import com.gpo.yoin.data.repository.ActivityContext
+
 sealed interface NowPlayingUiState {
 
     data object Idle : NowPlayingUiState
@@ -54,6 +56,10 @@ sealed interface NowPlayingUiState {
         val lyricsLoading: Boolean,
         val queue: List<QueueItem>,
         val currentQueueIndex: Int,
+        val shuffleEnabled: Boolean,
+        val albumId: String?,
+        val artistId: String?,
+        val activityContext: ActivityContext,
     ) : NowPlayingUiState
 }
 

@@ -55,7 +55,8 @@ class PlaybackManager(
     private var connectJob: Job? = null
     private val pendingCommands = mutableListOf<(MediaController) -> Unit>()
     private var lastRecordedTrackId: MediaId? = null
-    private var currentActivityContext: ActivityContext = ActivityContext.None
+    private val _currentActivityContext = MutableStateFlow<ActivityContext>(ActivityContext.None)
+    val currentActivityContext: StateFlow<ActivityContext> = _currentActivityContext.asStateFlow()
     private var lastKnownDurationSecById: Map<MediaId, Int> = emptyMap()
     private var activeBackend: ActiveBackend = ActiveBackend.NONE
     private var pendingSpotifyHandoff: Boolean = false
@@ -192,7 +193,7 @@ class PlaybackManager(
     ) {
         if (tracks.isEmpty() || startIndex !in tracks.indices) return
         lastRecordedTrackId = null
-        currentActivityContext = activityContext
+        _currentActivityContext.value = activityContext
         lastKnownDurationSecById = tracks
             .mapNotNull { track -> track.durationSec?.let { track.id to it } }
             .toMap()
@@ -615,7 +616,7 @@ class PlaybackManager(
                 durationMs = state.duration.coerceAtLeast(0L).takeIf { it > 0L }
                     ?: ((fallbackDurationSec ?: 0) * 1_000L),
                 completedPercent = 0f,
-                activityContext = currentActivityContext,
+                activityContext = _currentActivityContext.value,
             )
         }
     }

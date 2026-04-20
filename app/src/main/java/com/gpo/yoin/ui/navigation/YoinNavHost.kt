@@ -824,7 +824,24 @@ private fun YoinShell(
                     onToggleFavorite = nowPlayingViewModel::toggleFavorite,
                     onAddCurrentToPlaylist = nowPlayingViewModel::requestAddCurrentToPlaylist,
                     onSkipToQueueItem = nowPlayingViewModel::skipToQueueItem,
+                    onToggleShuffle = nowPlayingViewModel::toggleShuffle,
+                    onAlbumClick = { albumId ->
+                        closeNowPlaying()
+                        onNavigateToAlbum(albumId, null)
+                    },
+                    onArtistClick = { artistId ->
+                        closeNowPlaying()
+                        onNavigateToArtist(artistId, null)
+                    },
+                    onPlaylistClick = { playlistId ->
+                        closeNowPlaying()
+                        onNavigateToPlaylist(playlistId, null)
+                    },
                     onDismiss = closeNowPlaying,
+                    dismissFraction = {
+                        val dragProgress = (dismissDragPx / 240f).coerceIn(0f, 1f)
+                        maxOf(dragProgress, predictiveBackProgress).coerceIn(0f, 1f)
+                    },
                     songInfoState = songInfoState,
                     onRetryFetchSongInfo = nowPlayingViewModel::retryFetchSongInfo,
                     castState = castState,

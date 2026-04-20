@@ -1,5 +1,6 @@
 package com.gpo.yoin.ui.component
 
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
@@ -32,6 +33,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import com.gpo.yoin.ui.nowplaying.formatTime
+import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinShapeTokens
 import com.gpo.yoin.ui.theme.YoinTheme
 import com.gpo.yoin.ui.theme.withTabularFigures
@@ -94,6 +96,16 @@ fun WaveProgressBar(
             previewFraction = null
         }
     }
+
+    // Fade the wave amplitude in/out on play-state changes rather than
+    // hard-toggling between zero and full. Also fixes the "flat bar on
+    // first open" moment — if isPlaying briefly emits false before the
+    // backend settles, the amplitude eases in rather than popping.
+    val amplitudeMultiplier by animateFloatAsState(
+        targetValue = if (isPlaying) 1f else 0f,
+        animationSpec = YoinMotion.defaultEffectsSpec(),
+        label = "waveAmp",
+    )
 
     Box(
         modifier = modifier
@@ -167,12 +179,9 @@ fun WaveProgressBar(
             gapSize = 1.dp,
             stopSize = 0.dp,
             amplitude = { progressValue ->
-                if (isPlaying) {
-                    WavyProgressIndicatorDefaults.indicatorAmplitude(progressValue) *
-                        SeekWaveAmplitudeScale
-                } else {
-                    0f
-                }
+                WavyProgressIndicatorDefaults.indicatorAmplitude(progressValue) *
+                    SeekWaveAmplitudeScale *
+                    amplitudeMultiplier
             },
             wavelength = SeekWaveLength,
             waveSpeed = if (isPlaying) SeekWaveLength else 0.dp,

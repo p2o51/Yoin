@@ -6,8 +6,10 @@ import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
@@ -41,16 +43,16 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Favorite
-import androidx.compose.material.icons.filled.FavoriteBorder
-import androidx.compose.material.icons.filled.KeyboardArrowDown
-import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.automirrored.filled.QueueMusic
-import androidx.compose.material.icons.filled.Devices
-import androidx.compose.material.icons.filled.Shuffle
-import androidx.compose.material.icons.filled.SkipNext
-import androidx.compose.material.icons.filled.SkipPrevious
-import androidx.compose.material.icons.automirrored.filled.StickyNote2
+import androidx.compose.material.icons.rounded.Favorite
+import androidx.compose.material.icons.rounded.FavoriteBorder
+import androidx.compose.material.icons.rounded.KeyboardArrowDown
+import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material.icons.automirrored.rounded.QueueMusic
+import androidx.compose.material.icons.rounded.Devices
+import androidx.compose.material.icons.rounded.Shuffle
+import androidx.compose.material.icons.rounded.SkipNext
+import androidx.compose.material.icons.rounded.SkipPrevious
+import androidx.compose.material.icons.automirrored.rounded.StickyNote2
 import androidx.compose.material3.ButtonGroup
 import androidx.compose.material3.ButtonGroupDefaults
 import androidx.compose.material3.ButtonDefaults
@@ -67,7 +69,9 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.ripple
 import androidx.compose.ui.semantics.Role
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -92,9 +96,11 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import kotlin.math.roundToInt
 import kotlinx.coroutines.launch
 import coil3.compose.AsyncImage
+import com.gpo.yoin.data.repository.ActivityContext
 import com.gpo.yoin.player.CastState
 import com.gpo.yoin.player.VisualizerData
 import com.gpo.yoin.ui.component.CastButton
@@ -137,7 +143,12 @@ fun NowPlayingScreen(
     onToggleFavorite: () -> Unit,
     onAddCurrentToPlaylist: () -> Unit,
     onSkipToQueueItem: (Int) -> Unit,
+    onToggleShuffle: () -> Unit = {},
+    onAlbumClick: (String) -> Unit = {},
+    onArtistClick: (String) -> Unit = {},
+    onPlaylistClick: (String) -> Unit = {},
     onDismiss: () -> Unit = {},
+    dismissFraction: () -> Float = { 0f },
     songInfoState: SongInfoUiState = SongInfoUiState.Idle,
     onRetryFetchSongInfo: () -> Unit = {},
     castState: CastState = CastState.NotAvailable,
@@ -171,10 +182,12 @@ fun NowPlayingScreen(
                 is NowPlayingUiState.Launching -> LaunchingContent(
                     state = uiState,
                     onDismiss = onDismiss,
+                    dismissFraction = dismissFraction,
                 )
                 is NowPlayingUiState.ConnectError -> ConnectErrorContent(
                     state = uiState,
                     onDismiss = onDismiss,
+                    dismissFraction = dismissFraction,
                 )
                 is NowPlayingUiState.Playing -> PlayingContent(
                     state = uiState,
@@ -186,7 +199,12 @@ fun NowPlayingScreen(
                     onToggleFavorite = onToggleFavorite,
                     onAddCurrentToPlaylist = onAddCurrentToPlaylist,
                     onSkipToQueueItem = onSkipToQueueItem,
+                    onToggleShuffle = onToggleShuffle,
+                    onAlbumClick = onAlbumClick,
+                    onArtistClick = onArtistClick,
+                    onPlaylistClick = onPlaylistClick,
                     onDismiss = onDismiss,
+                    dismissFraction = dismissFraction,
                     songInfoState = songInfoState,
                     onRetryFetchSongInfo = onRetryFetchSongInfo,
                     castState = castState,
@@ -222,6 +240,7 @@ private fun IdleContent(modifier: Modifier = Modifier) {
 private fun LaunchingContent(
     state: NowPlayingUiState.Launching,
     onDismiss: () -> Unit,
+    dismissFraction: () -> Float = { 0f },
     modifier: Modifier = Modifier,
 ) {
     Column(
@@ -236,8 +255,9 @@ private fun LaunchingContent(
             modifier = Modifier.align(Alignment.Start),
         ) {
             Icon(
-                imageVector = Icons.Filled.KeyboardArrowDown,
+                imageVector = Icons.Rounded.KeyboardArrowDown,
                 contentDescription = "Collapse",
+                modifier = Modifier.graphicsLayer { rotationZ = 180f * dismissFraction() },
             )
         }
         Spacer(modifier = Modifier.height(24.dp))
@@ -297,6 +317,7 @@ private fun LaunchingContent(
 private fun ConnectErrorContent(
     state: NowPlayingUiState.ConnectError,
     onDismiss: () -> Unit,
+    dismissFraction: () -> Float = { 0f },
     modifier: Modifier = Modifier,
 ) {
     Column(
@@ -311,8 +332,9 @@ private fun ConnectErrorContent(
             modifier = Modifier.align(Alignment.Start),
         ) {
             Icon(
-                imageVector = Icons.Filled.KeyboardArrowDown,
+                imageVector = Icons.Rounded.KeyboardArrowDown,
                 contentDescription = "Collapse",
+                modifier = Modifier.graphicsLayer { rotationZ = 180f * dismissFraction() },
             )
         }
         Spacer(modifier = Modifier.height(24.dp))
@@ -365,7 +387,12 @@ private fun PlayingContent(
     onToggleFavorite: () -> Unit,
     onAddCurrentToPlaylist: () -> Unit,
     onSkipToQueueItem: (Int) -> Unit,
+    onToggleShuffle: () -> Unit = {},
+    onAlbumClick: (String) -> Unit = {},
+    onArtistClick: (String) -> Unit = {},
+    onPlaylistClick: (String) -> Unit = {},
     onDismiss: () -> Unit = {},
+    dismissFraction: () -> Float = { 0f },
     songInfoState: SongInfoUiState = SongInfoUiState.Idle,
     onRetryFetchSongInfo: () -> Unit = {},
     castState: CastState = CastState.NotAvailable,
@@ -448,19 +475,21 @@ private fun PlayingContent(
             ) {
                 IconButton(onClick = onDismiss) {
                     Icon(
-                        imageVector = Icons.Filled.KeyboardArrowDown,
+                        imageVector = Icons.Rounded.KeyboardArrowDown,
                         contentDescription = "Close Now Playing",
                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(28.dp),
+                        modifier = Modifier
+                            .size(28.dp)
+                            .graphicsLayer { rotationZ = 180f * dismissFraction() },
                     )
                 }
                 Spacer(modifier = Modifier.width(4.dp))
-                Text(
-                    text = "Playing from ${state.albumName}",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
+                PlayingFromLabel(
+                    activityContext = state.activityContext,
+                    fallbackAlbumName = state.albumName,
+                    onAlbumClick = onAlbumClick,
+                    onArtistClick = onArtistClick,
+                    onPlaylistClick = onPlaylistClick,
                     modifier = Modifier.weight(1f),
                 )
             }
@@ -593,6 +622,8 @@ private fun PlayingContent(
                 nextInteractionSource = nextInteractionSource,
                 playPressed = playPressed,
                 nextPressed = nextPressed,
+                shuffleEnabled = state.shuffleEnabled,
+                onToggleShuffle = onToggleShuffle,
             )
 
             Spacer(modifier = Modifier.height(12.dp))
@@ -621,7 +652,10 @@ private fun PlayingContent(
             } else {
                 Modifier.fillMaxWidth()
             }
-            Box(modifier = titleModifier) {
+            val titleClickModifier = state.albumId?.let { albumId ->
+                Modifier.clickable { onAlbumClick(albumId) }
+            } ?: Modifier
+            Box(modifier = titleModifier.then(titleClickModifier)) {
                 NowPlayingMarqueeTitle(
                     text = state.songTitle,
                     style = MaterialTheme.typography.displaySmall,
@@ -655,6 +689,9 @@ private fun PlayingContent(
             } else {
                 Modifier.fillMaxWidth()
             }
+            val artistClickModifier = state.artistId?.let { artistId ->
+                Modifier.clickable { onArtistClick(artistId) }
+            } ?: Modifier
             Text(
                 text = state.artist,
                 style = MaterialTheme.typography.titleMedium.copy(
@@ -663,10 +700,12 @@ private fun PlayingContent(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
-                modifier = artistModifier.graphicsLayer {
-                    scaleX = artistStretchScale
-                    transformOrigin = TransformOrigin(0f, 0.5f)
-                },
+                modifier = artistModifier
+                    .then(artistClickModifier)
+                    .graphicsLayer {
+                        scaleX = artistStretchScale
+                        transformOrigin = TransformOrigin(0f, 0.5f)
+                    },
             )
 
             Spacer(modifier = Modifier.height(12.dp))
@@ -693,6 +732,78 @@ private fun PlayingContent(
                     showQueue = false
                 },
                 onDismiss = { showQueue = false },
+            )
+        }
+    }
+}
+
+@Composable
+private fun PlayingFromLabel(
+    activityContext: ActivityContext,
+    fallbackAlbumName: String,
+    onAlbumClick: (String) -> Unit,
+    onArtistClick: (String) -> Unit,
+    onPlaylistClick: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val kindLabel: String?
+    val nameLabel: String
+    val clickAction: (() -> Unit)?
+    when (activityContext) {
+        is ActivityContext.Album -> {
+            kindLabel = "PLAYING FROM ALBUM"
+            nameLabel = activityContext.albumName
+            clickAction = { onAlbumClick(activityContext.albumId) }
+        }
+        is ActivityContext.Playlist -> {
+            kindLabel = "PLAYING FROM PLAYLIST"
+            nameLabel = activityContext.playlistName
+            clickAction = { onPlaylistClick(activityContext.playlistId) }
+        }
+        is ActivityContext.Artist -> {
+            kindLabel = "PLAYING FROM ARTIST"
+            nameLabel = activityContext.artistName
+            clickAction = { onArtistClick(activityContext.artistId) }
+        }
+        ActivityContext.None -> {
+            kindLabel = null
+            nameLabel = fallbackAlbumName
+            clickAction = null
+        }
+    }
+
+    val columnModifier = if (clickAction != null) {
+        modifier
+            .clip(RoundedCornerShape(8.dp))
+            .clickable(onClick = clickAction)
+            .padding(vertical = 2.dp, horizontal = 4.dp)
+    } else {
+        modifier.padding(vertical = 2.dp, horizontal = 4.dp)
+    }
+
+    Column(modifier = columnModifier) {
+        if (kindLabel != null) {
+            Text(
+                text = kindLabel,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                text = nameLabel,
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        } else {
+            Text(
+                text = "Playing from $nameLabel",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
         }
     }
@@ -732,23 +843,42 @@ private fun FavoriteButton(
         // and put both click + long-click on the same combinedClickable so
         // gesture dispatch stays on one clickable node.
         val interactionSource = remember { MutableInteractionSource() }
+        var tapPulse by remember { mutableIntStateOf(0) }
+        val bounce = remember { Animatable(1f) }
+        val bounceSpec = YoinMotion.defaultSpatialSpec<Float>()
+        // tapPulse drives a short squish-and-spring-back. Peak is higher
+        // when transitioning into starred — the "fill" moment — so the
+        // feedback reads as a heart pop rather than a generic tap.
+        LaunchedEffect(tapPulse) {
+            if (tapPulse == 0) return@LaunchedEffect
+            val peak = if (isStarred) 1.25f else 1.15f
+            bounce.animateTo(peak, tween(durationMillis = 90))
+            bounce.animateTo(1f, bounceSpec)
+        }
         Box(
             modifier = modifier
                 .size(44.dp)
                 .minimumTouchTarget()
+                .graphicsLayer {
+                    scaleX = bounce.value
+                    scaleY = bounce.value
+                }
                 .clip(CircleShape)
                 .background(heartContainerColor)
                 .combinedClickable(
                     interactionSource = interactionSource,
                     indication = ripple(),
-                    onClick = onClick,
+                    onClick = {
+                        tapPulse++
+                        onClick()
+                    },
                     onLongClick = onLongClick,
                     role = Role.Button,
                 ),
             contentAlignment = Alignment.Center,
         ) {
             Icon(
-                imageVector = if (isStarred) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder,
+                imageVector = if (isStarred) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder,
                 contentDescription = if (isStarred) "Remove from favorites" else "Add to favorites",
                 tint = heartColor,
                 modifier = Modifier.size(24.dp),
@@ -798,7 +928,7 @@ private fun AlbumCover(
         contentDescription = "Album cover",
         modifier = finalModifier,
         shape = YoinShapeTokens.ExtraLarge,
-        fallbackIcon = Icons.Filled.PlayArrow,
+        fallbackIcon = Icons.Rounded.PlayArrow,
         tonalElevation = 4.dp,
         shadowElevation = 0.dp,
     )
@@ -885,6 +1015,8 @@ private fun PlaybackControls(
     nextInteractionSource: MutableInteractionSource,
     playPressed: Boolean,
     nextPressed: Boolean,
+    shuffleEnabled: Boolean = false,
+    onToggleShuffle: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     ProvideYoinMotionRole(role = YoinMotionRole.Standard) {
@@ -916,8 +1048,8 @@ private fun PlaybackControls(
         )
         val textStretchScale by animateFloatAsState(
             targetValue = when {
-                playPressed -> 1.08f
-                isPlaying -> 1.02f
+                playPressed -> 1.10f
+                isPlaying -> 1.06f
                 else -> 0.97f
             },
             animationSpec = textStretchSpec,
@@ -958,6 +1090,8 @@ private fun PlaybackControls(
                                     text = if (isPlaying) "PAUSE" else "PLAY",
                                     style = MaterialTheme.typography.titleLarge.copy(
                                         fontSize = MaterialTheme.typography.titleLarge.fontSize * 0.9f,
+                                        fontWeight = if (isPlaying) FontWeight.Bold else FontWeight.Medium,
+                                        letterSpacing = if (isPlaying) 0.5.sp else 0.sp,
                                     ),
                                     maxLines = 1,
                                     softWrap = false,
@@ -986,7 +1120,7 @@ private fun PlaybackControls(
                                 ),
                             ) {
                                 Icon(
-                                    imageVector = Icons.Filled.SkipNext,
+                                    imageVector = Icons.Rounded.SkipNext,
                                     contentDescription = "Skip next",
                                     modifier = Modifier.size(28.dp),
                                 )
@@ -998,17 +1132,35 @@ private fun PlaybackControls(
 
                 Spacer(modifier = Modifier.weight(1f))
 
+                val shuffleContainer by animateColorAsState(
+                    targetValue = if (shuffleEnabled) {
+                        MaterialTheme.colorScheme.primary
+                    } else {
+                        MaterialTheme.colorScheme.tertiaryContainer
+                    },
+                    animationSpec = YoinMotion.defaultEffectsSpec(),
+                    label = "shuffleContainer",
+                )
+                val shuffleContent by animateColorAsState(
+                    targetValue = if (shuffleEnabled) {
+                        MaterialTheme.colorScheme.onPrimary
+                    } else {
+                        MaterialTheme.colorScheme.onTertiaryContainer
+                    },
+                    animationSpec = YoinMotion.defaultEffectsSpec(),
+                    label = "shuffleContent",
+                )
                 FilledIconButton(
-                    onClick = { /* TODO: implement playback mode toggle */ },
+                    onClick = onToggleShuffle,
                     modifier = Modifier.size(56.dp),
                     colors = IconButtonDefaults.filledIconButtonColors(
-                        containerColor = MaterialTheme.colorScheme.tertiaryContainer,
-                        contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
+                        containerColor = shuffleContainer,
+                        contentColor = shuffleContent,
                     ),
                 ) {
                     Icon(
-                        imageVector = Icons.Filled.Shuffle,
-                        contentDescription = "Shuffle",
+                        imageVector = Icons.Rounded.Shuffle,
+                        contentDescription = if (shuffleEnabled) "Disable shuffle" else "Enable shuffle",
                         modifier = Modifier.size(28.dp),
                     )
                 }
@@ -1030,7 +1182,7 @@ private fun PlaybackControls(
                     ),
                 ) {
                     Icon(
-                        imageVector = Icons.Filled.SkipPrevious,
+                        imageVector = Icons.Rounded.SkipPrevious,
                         contentDescription = "Skip previous",
                         modifier = Modifier.size(28.dp),
                     )
@@ -1094,7 +1246,10 @@ private fun BottomPills(
         val devicesPressed by devicesInteraction.collectIsPressedAsState()
         val notesPressed by notesInteraction.collectIsPressedAsState()
 
-        val anyPressed = queuePressed || devicesPressed || notesPressed
+        // Label only collapses on its own press — neighbors keep their
+        // labels to anchor the row geometry. Original rule collapsed all
+        // non-pressed labels, which let the ButtonGroup re-pack leftward
+        // and yanked the rightmost button out from under the finger.
 
         Row(
             modifier = modifier.fillMaxWidth(),
@@ -1116,9 +1271,9 @@ private fun BottomPills(
                     buttonGroupContent = {
                         PillButton(
                             onClick = onQueueClick,
-                            icon = Icons.AutoMirrored.Filled.QueueMusic,
+                            icon = Icons.AutoMirrored.Rounded.QueueMusic,
                             label = "Queue",
-                            showLabel = !anyPressed || queuePressed,
+                            showLabel = !queuePressed,
                             interactionSource = queueInteraction,
                             shape = YoinShapeTokens.Full,
                         )
@@ -1129,9 +1284,9 @@ private fun BottomPills(
                     buttonGroupContent = {
                         PillButton(
                             onClick = { /* TODO: device selector */ },
-                            icon = Icons.Filled.Devices,
+                            icon = Icons.Rounded.Devices,
                             label = "Devices",
-                            showLabel = !anyPressed || devicesPressed,
+                            showLabel = !devicesPressed,
                             interactionSource = devicesInteraction,
                             shape = RoundedCornerShape(20.dp),
                         )
@@ -1142,9 +1297,9 @@ private fun BottomPills(
                     buttonGroupContent = {
                         PillButton(
                             onClick = { /* TODO: notes */ },
-                            icon = Icons.AutoMirrored.Filled.StickyNote2,
+                            icon = Icons.AutoMirrored.Rounded.StickyNote2,
                             label = "Notes",
-                            showLabel = !anyPressed || notesPressed,
+                            showLabel = !notesPressed,
                             interactionSource = notesInteraction,
                             shape = YoinShapeTokens.Full,
                         )
@@ -1255,6 +1410,10 @@ private val previewPlayingState = NowPlayingUiState.Playing(
         QueueItem("3", "Map of the Problematique", "Muse", null),
     ),
     currentQueueIndex = 0,
+    shuffleEnabled = false,
+    albumId = null,
+    artistId = null,
+    activityContext = ActivityContext.None,
 )
 
 private val previewVisualizerData = VisualizerData(
