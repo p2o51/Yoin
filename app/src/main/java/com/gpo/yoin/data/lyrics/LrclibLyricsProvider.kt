@@ -47,7 +47,7 @@ class LrclibLyricsProvider(
         val request = Request.Builder().url(url).get().headers(HEADERS).build()
 
         runCatching {
-            client.newCall(request).execute().use { response ->
+            client.awaitResponse(request).use { response ->
                 if (!response.isSuccessful) {
                     Log.w(TAG, "LRCLIB search failed: ${response.code}")
                     return@use emptyList<SongMatch>()
@@ -73,7 +73,7 @@ class LrclibLyricsProvider(
         val request = Request.Builder().url(url).get().headers(HEADERS).build()
 
         runCatching {
-            client.newCall(request).execute().use { response ->
+            client.awaitResponse(request).use { response ->
                 if (!response.isSuccessful) {
                     Log.w(TAG, "LRCLIB fetch failed: ${response.code}")
                     return@use null

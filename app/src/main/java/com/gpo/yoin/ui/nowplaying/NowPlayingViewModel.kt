@@ -18,6 +18,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
@@ -46,14 +47,21 @@ class NowPlayingViewModel(
 
     init {
         viewModelScope.launch {
-            currentSongId.collect { songId ->
+            // collectLatest（不是 collect）：切歌时立刻取消前一首的 loadLyrics /
+            // loadSongInfo —— 否则前一首的 provider fetch（10 秒 callTimeout）会把
+            // 整条 pipeline 串行阻塞住，连星标都要等前一首的 HTTP 超时才刷新。
+            currentSongId.collectLatest { songId ->
                 if (songId != null) {
-                    // Pull title/artist from the current track — Provider 兜底需要它们
-                    // 搜索（非 Subsonic 路径），Subsonic 路径只用 songId、忽略这两个。
+                    // 切歌瞬间就应该生效的状态（星标 / 歌词清空 / loading on）
+                    // 必须在任何 suspend 调用之前更新，否则一 suspend 就可能被下一次
+                    // collectLatest 取消掉，用户看到的就是「上一首内容原地不动」。
                     val track = playbackManager.playbackState.value.currentTrack
+                    _isStarred.value = track?.isStarred == true
+                    _lyrics.value = emptyList()
+                    _lyricsLoading.value = true
+
                     loadLyrics(songId, track?.title, track?.artist)
                     loadSongInfo(songId)
-                    _isStarred.value = track?.isStarred == true
                 } else {
                     _lyrics.value = emptyList()
                     _lyricsLoading.value = false
@@ -330,9 +338,10 @@ class NowPlayingViewModel(
     )
 
     private suspend fun loadLyrics(songId: MediaId, title: String?, artist: String?) {
-        // 切歌时先清空旧歌词并置 loading，避免上一首歌词短暂残留。
-        _lyrics.value = emptyList()
-        _lyricsLoading.value = true
+        // 调用方（collectLatest 入口）已经把 _lyrics 清空 + loading=true。这里只在
+        // 实际完成 / 失败时把 loading 关掉。若被 collectLatest 取消，让
+        // CancellationException 透传，并且**不**碰 loading —— 紧接着新的 handler
+        // 会把 loading 再次设成 true，避免中间闪一下 "No lyrics available"。
         try {
             _lyrics.value = when (val lyrics = repository.getLyrics(songId, title, artist)) {
                 null -> emptyList()
@@ -348,9 +357,11 @@ class NowPlayingViewModel(
                     .map { line -> LyricLine(startMs = null, text = line) }
                     .toList()
             }
+            _lyricsLoading.value = false
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (_: Exception) {
             _lyrics.value = emptyList()
-        } finally {
             _lyricsLoading.value = false
         }
     }

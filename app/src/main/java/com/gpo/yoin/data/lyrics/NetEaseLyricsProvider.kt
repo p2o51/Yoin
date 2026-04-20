@@ -47,7 +47,7 @@ class NetEaseLyricsProvider(
         val request = Request.Builder().url(url).get().build()
 
         runCatching {
-            client.newCall(request).execute().use { response ->
+            client.awaitResponse(request).use { response ->
                 if (!response.isSuccessful) {
                     Log.w(TAG, "NetEase search failed: ${response.code}")
                     return@use emptyList<SongMatch>()
@@ -80,7 +80,7 @@ class NetEaseLyricsProvider(
         val request = Request.Builder().url(url).get().build()
 
         runCatching {
-            client.newCall(request).execute().use { response ->
+            client.awaitResponse(request).use { response ->
                 if (!response.isSuccessful) {
                     Log.w(TAG, "NetEase lyric failed: ${response.code}")
                     return@use null

@@ -75,7 +75,7 @@ class QQLyricsProvider(
             .build()
 
         runCatching {
-            client.newCall(request).execute().use { response ->
+            client.awaitResponse(request).use { response ->
                 if (!response.isSuccessful) {
                     Log.w(TAG, "QQ search failed: ${response.code}")
                     return@use emptyList<SongMatch>()
@@ -125,7 +125,7 @@ class QQLyricsProvider(
             .build()
 
         runCatching {
-            client.newCall(request).execute().use { response ->
+            client.awaitResponse(request).use { response ->
                 if (response.code == 403 || response.code == 429) {
                     Log.w(TAG, "QQ lyric blocked (${response.code}), flipping to backup domain")
                     useBackupDomain = !useBackupDomain
