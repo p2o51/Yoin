@@ -58,6 +58,7 @@ class AppContainer(private val context: Context) {
                 MIGRATION_4_5,
                 MIGRATION_5_6,
                 MIGRATION_6_7,
+                MIGRATION_7_8,
             )
             .build()
     }
@@ -323,6 +324,7 @@ class AppContainer(private val context: Context) {
             geminiService = geminiService,
             songInfoDao = database.songInfoDao(),
             geminiConfigDao = database.geminiConfigDao(),
+            lyricsCacheDao = database.lyricsCacheDao(),
             lyricsProviderRegistry = lyricsProviderRegistry,
         )
     }
@@ -552,6 +554,23 @@ class AppContainer(private val context: Context) {
                         `sortOrder` INTEGER NOT NULL,
                         `cachedAt` INTEGER NOT NULL,
                         PRIMARY KEY(`profileId`, `artistId`)
+                    )
+                    """.trimIndent(),
+                )
+            }
+        }
+
+        val MIGRATION_7_8 = object : Migration(7, 8) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `lyrics_cache` (
+                        `trackProvider` TEXT NOT NULL,
+                        `trackRawId` TEXT NOT NULL,
+                        `lyricsProvider` TEXT NOT NULL,
+                        `lrc` TEXT NOT NULL,
+                        `cachedAt` INTEGER NOT NULL,
+                        PRIMARY KEY(`trackProvider`, `trackRawId`)
                     )
                     """.trimIndent(),
                 )

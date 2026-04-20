@@ -15,8 +15,9 @@ import androidx.room.RoomDatabase
         SpotifyConfig::class,
         SpotifyHomeAlbumCache::class,
         SpotifyHomeArtistCache::class,
+        LyricsCache::class,
     ],
-    version = 7,
+    version = 8,
     exportSchema = true,
 )
 abstract class YoinDatabase : RoomDatabase() {
@@ -37,4 +38,6 @@ abstract class YoinDatabase : RoomDatabase() {
     abstract fun spotifyConfigDao(): SpotifyConfigDao
 
     abstract fun spotifyHomeCacheDao(): SpotifyHomeCacheDao
+
+    abstract fun lyricsCacheDao(): LyricsCacheDao
 }

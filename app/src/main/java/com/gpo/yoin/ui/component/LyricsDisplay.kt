@@ -38,6 +38,8 @@ import com.gpo.yoin.ui.theme.YoinTheme
  *
  * @param lyrics list of lyric lines (may be synced or unsynced)
  * @param positionMs current playback position in milliseconds
+ * @param loading true while the ViewModel's fetch is in flight; renders the
+ *  expressive [YoinLoadingIndicator] instead of the "No lyrics available" text
  * @param visibleLines how many lines to show (including current)
  * @param fixedHeight the fixed height of the lyrics container
  */
@@ -46,6 +48,7 @@ fun LyricsDisplay(
     lyrics: List<LyricLine>,
     positionMs: Long,
     modifier: Modifier = Modifier,
+    loading: Boolean = false,
     visibleLines: Int = 5,
     fixedHeight: Dp = 160.dp,
 ) {
@@ -56,11 +59,15 @@ fun LyricsDisplay(
                 .heightIn(min = 48.dp),
             contentAlignment = Alignment.CenterStart,
         ) {
-            Text(
-                text = "No lyrics available",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+            if (loading) {
+                YoinLoadingIndicator(size = 32.dp)
+            } else {
+                Text(
+                    text = "No lyrics available",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
         }
         return
     }
@@ -200,6 +207,18 @@ private fun LyricsDisplayEmptyPreview() {
         LyricsDisplay(
             lyrics = emptyList(),
             positionMs = 0L,
+        )
+    }
+}
+
+@Preview(showBackground = true, backgroundColor = 0xFF1C1B1F)
+@Composable
+private fun LyricsDisplayLoadingPreview() {
+    YoinTheme {
+        LyricsDisplay(
+            lyrics = emptyList(),
+            positionMs = 0L,
+            loading = true,
         )
     }
 }

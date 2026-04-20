@@ -6,6 +6,8 @@ import com.gpo.yoin.data.local.ActivityEntityType
 import com.gpo.yoin.data.local.ActivityEvent
 import com.gpo.yoin.data.local.GeminiConfigDao
 import com.gpo.yoin.data.local.LocalRating
+import com.gpo.yoin.data.local.LyricsCache
+import com.gpo.yoin.data.local.LyricsCacheDao
 import com.gpo.yoin.data.local.PlayHistory
 import com.gpo.yoin.data.local.SongInfo
 import com.gpo.yoin.data.local.SongInfoDao
@@ -53,7 +55,9 @@ class YoinRepository(
     private val geminiService: GeminiService,
     private val songInfoDao: SongInfoDao,
     private val geminiConfigDao: GeminiConfigDao,
+    private val lyricsCacheDao: LyricsCacheDao,
     private val lyricsProviderRegistry: LyricsProviderRegistry = LyricsProviderRegistry(),
+    private val clock: () -> Long = System::currentTimeMillis,
 ) {
 
     data class SpotifyHomeJumpBackInCacheSnapshot(
@@ -274,8 +278,11 @@ class YoinRepository(
     // ── Lyrics ─────────────────────────────────────────────────────────
 
     /**
-     * Subsonic 走自家 `getLyricsBySongId.view`；其他 provider（目前只有 Spotify）
-     * 没有服务器歌词，走 [LyricsProviderRegistry] 串行兜底（QQ → 网易云）。
+     * Subsonic 走自家 `getLyricsBySongId.view`（服务端快，不走本地缓存）；其他
+     * provider（目前只有 Spotify）没有服务器歌词，先查 [lyricsCacheDao] 30 天
+     * 内的命中，否则走 [LyricsProviderRegistry] 串行兜底（QQ → 网易云 → LRCLIB）
+     * 并把原始 LRC 落表。
+     *
      * 需要 [title] + [artist] 做搜索；任一为空就直接返回 null。
      */
     suspend fun getLyrics(
@@ -290,8 +297,24 @@ class YoinRepository(
         val t = title?.trim().orEmpty()
         val a = artist?.trim().orEmpty()
         if (t.isEmpty() || a.isEmpty()) return null
-        val lrc = lyricsProviderRegistry.fetchLyric(t, a) ?: return null
-        return LrcParser.parse(lrc)
+
+        val now = clock()
+        val minCachedAt = now - LYRICS_CACHE_TTL_MS
+        lyricsCacheDao
+            .getFresh(trackId.provider, trackId.rawId, minCachedAt)
+            ?.let { return LrcParser.parse(it.lrc) }
+
+        val hit = lyricsProviderRegistry.fetchLyric(t, a) ?: return null
+        lyricsCacheDao.upsert(
+            LyricsCache(
+                trackProvider = trackId.provider,
+                trackRawId = trackId.rawId,
+                lyricsProvider = hit.providerName,
+                lrc = hit.lrc,
+                cachedAt = now,
+            ),
+        )
+        return LrcParser.parse(hit.lrc)
     }
 
     suspend fun loadSongInfo(
@@ -526,6 +549,11 @@ private fun collapseToLatestUnique(events: List<ActivityEvent>): List<ActivityEv
             }
         }
         return collapsed
+    }
+
+    companion object {
+        /** 歌词缓存 TTL：30 天。Provider 返回的内容在这个窗口内复用不重拉。 */
+        private val LYRICS_CACHE_TTL_MS: Long = 30L * 24L * 60L * 60L * 1000L
     }
 }
 

@@ -25,6 +25,7 @@ import okhttp3.Request
 class NetEaseLyricsProvider(
     private val client: OkHttpClient = defaultClient(),
     private val json: Json = Json { ignoreUnknownKeys = true; isLenient = true },
+    private val baseUrl: String = DEFAULT_BASE_URL,
 ) : LyricProvider() {
 
     override val name: String = "netease"
@@ -38,7 +39,7 @@ class NetEaseLyricsProvider(
         limit: Int = 3,
     ): List<SongMatch> = withContext(Dispatchers.IO) {
         val keyword = "$title $artist"
-        val url = "$BASE_URL/cloudsearch".toHttpUrl().newBuilder()
+        val url = "$baseUrl/cloudsearch".toHttpUrl().newBuilder()
             .addQueryParameter("keywords", keyword)
             .addQueryParameter("limit", limit.toString())
             .build()
@@ -73,7 +74,7 @@ class NetEaseLyricsProvider(
     }
 
     override suspend fun fetchLyric(songId: String): String? = withContext(Dispatchers.IO) {
-        val url = "$BASE_URL/lyric/new".toHttpUrl().newBuilder()
+        val url = "$baseUrl/lyric/new".toHttpUrl().newBuilder()
             .addQueryParameter("id", songId)
             .build()
         val request = Request.Builder().url(url).get().build()
@@ -145,7 +146,7 @@ class NetEaseLyricsProvider(
 
     companion object {
         private const val TAG = "NetEaseLyricsProvider"
-        private const val BASE_URL = "https://api.spotoolfy.gojyuplus.com"
+        private const val DEFAULT_BASE_URL = "https://api.spotoolfy.gojyuplus.com"
 
         private val METADATA_KEYWORDS = listOf(
             "歌词贡献者", "翻译贡献者", "作词", "作曲", "编曲",

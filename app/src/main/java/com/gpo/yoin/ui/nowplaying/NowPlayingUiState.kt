@@ -46,6 +46,12 @@ sealed interface NowPlayingUiState {
         val rating: Float,
         val isStarred: Boolean,
         val lyrics: List<LyricLine>,
+        /**
+         * True while the lyrics fetch is in flight (cache miss → provider
+         * fallback). UI renders a loading affordance instead of the
+         * "No lyrics available" empty state.
+         */
+        val lyricsLoading: Boolean,
         val queue: List<QueueItem>,
         val currentQueueIndex: Int,
     ) : NowPlayingUiState

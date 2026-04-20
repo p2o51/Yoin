@@ -34,6 +34,7 @@ class NowPlayingViewModel(
 ) : ViewModel() {
 
     private val _lyrics = MutableStateFlow<List<LyricLine>>(emptyList())
+    private val _lyricsLoading = MutableStateFlow(false)
     private val _isStarred = MutableStateFlow(false)
     private val _songInfoState = MutableStateFlow<SongInfoUiState>(SongInfoUiState.Idle)
     val songInfoState: StateFlow<SongInfoUiState> = _songInfoState.asStateFlow()
@@ -55,6 +56,7 @@ class NowPlayingViewModel(
                     _isStarred.value = track?.isStarred == true
                 } else {
                     _lyrics.value = emptyList()
+                    _lyricsLoading.value = false
                     _isStarred.value = false
                     _songInfoState.value = SongInfoUiState.Idle
                 }
@@ -73,9 +75,10 @@ class NowPlayingViewModel(
     val uiState: StateFlow<NowPlayingUiState> = combine(
         playbackManager.playbackState,
         _lyrics,
+        _lyricsLoading,
         ratingFlow,
         _isStarred,
-    ) { state, lyrics, rating, isStarred ->
+    ) { state, lyrics, lyricsLoading, rating, isStarred ->
         val song = state.currentTrack
         val pending = state.pendingTrack
         when {
@@ -101,6 +104,7 @@ class NowPlayingViewModel(
                 rating = rating,
                 isStarred = isStarred,
                 lyrics = lyrics,
+                lyricsLoading = lyricsLoading,
                 queue = state.queue.map { queueSong ->
                     QueueItem(
                         songId = queueSong.id.toString(),
@@ -326,8 +330,11 @@ class NowPlayingViewModel(
     )
 
     private suspend fun loadLyrics(songId: MediaId, title: String?, artist: String?) {
-        _lyrics.value = try {
-            when (val lyrics = repository.getLyrics(songId, title, artist)) {
+        // 切歌时先清空旧歌词并置 loading，避免上一首歌词短暂残留。
+        _lyrics.value = emptyList()
+        _lyricsLoading.value = true
+        try {
+            _lyrics.value = when (val lyrics = repository.getLyrics(songId, title, artist)) {
                 null -> emptyList()
                 is SourceLyrics.Synced -> lyrics.lines.map { syncedLine ->
                     LyricLine(
@@ -342,7 +349,9 @@ class NowPlayingViewModel(
                     .toList()
             }
         } catch (_: Exception) {
-            emptyList()
+            _lyrics.value = emptyList()
+        } finally {
+            _lyricsLoading.value = false
         }
     }
 

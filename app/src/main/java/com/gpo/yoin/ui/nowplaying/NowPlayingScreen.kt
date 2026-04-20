@@ -564,6 +564,7 @@ private fun PlayingContent(
                     0 -> LyricsDisplay(
                         lyrics = state.lyrics,
                         positionMs = state.positionMs,
+                        loading = state.lyricsLoading,
                         modifier = Modifier.fillMaxSize(),
                     )
                     1 -> SongInfoDisplay(
@@ -1229,6 +1230,7 @@ private val previewPlayingState = NowPlayingUiState.Playing(
         LyricLine(startMs = 120_000, text = "Far away from the memories"),
         LyricLine(startMs = 180_000, text = "Of the people who care if I live or die"),
     ),
+    lyricsLoading = false,
     queue = listOf(
         QueueItem("1", "Starlight", "Muse", null),
         QueueItem("2", "Supermassive Black Hole", "Muse", null),

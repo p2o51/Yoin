@@ -29,6 +29,9 @@ import okhttp3.RequestBody.Companion.toRequestBody
 class QQLyricsProvider(
     private val client: OkHttpClient = defaultClient(),
     private val json: Json = Json { ignoreUnknownKeys = true; isLenient = true },
+    private val searchUrl: String = DEFAULT_SEARCH_URL,
+    private val primaryLyricUrl: String = DEFAULT_PRIMARY_LYRIC_URL,
+    private val backupLyricUrl: String = DEFAULT_BACKUP_LYRIC_URL,
 ) : LyricProvider() {
 
     @Volatile
@@ -66,7 +69,7 @@ class QQLyricsProvider(
         val body = payload.toString().toRequestBody(JSON_MEDIA_TYPE)
 
         val request = Request.Builder()
-            .url(SEARCH_URL)
+            .url(searchUrl)
             .post(body)
             .headers(SEARCH_HEADERS)
             .build()
@@ -108,7 +111,7 @@ class QQLyricsProvider(
     }
 
     override suspend fun fetchLyric(songId: String): String? = withContext(Dispatchers.IO) {
-        val base = if (useBackupDomain) BACKUP_LYRIC_URL else PRIMARY_LYRIC_URL
+        val base = if (useBackupDomain) backupLyricUrl else primaryLyricUrl
         val url = base.toHttpUrl().newBuilder()
             .addQueryParameter("songmid", songId)
             .addQueryParameter("format", "json")
@@ -150,10 +153,10 @@ class QQLyricsProvider(
 
     companion object {
         private const val TAG = "QQLyricsProvider"
-        private const val SEARCH_URL = "https://u.y.qq.com/cgi-bin/musicu.fcg"
-        private const val PRIMARY_LYRIC_URL =
+        private const val DEFAULT_SEARCH_URL = "https://u.y.qq.com/cgi-bin/musicu.fcg"
+        private const val DEFAULT_PRIMARY_LYRIC_URL =
             "https://c.y.qq.com/lyric/fcgi-bin/fcg_query_lyric_new.fcg"
-        private const val BACKUP_LYRIC_URL =
+        private const val DEFAULT_BACKUP_LYRIC_URL =
             "https://u6.y.qq.com/lyric/fcgi-bin/fcg_query_lyric_new.fcg"
 
         private val JSON_MEDIA_TYPE = "application/json;charset=utf-8".toMediaType()
