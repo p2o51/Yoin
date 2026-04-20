@@ -497,7 +497,24 @@ private fun YoinShell(
                         withDismissAction = actionLabel == null,
                         duration = SnackbarDuration.Long,
                     )
-                    if (result == SnackbarResult.ActionPerformed && event.failure is SpotifyConnectFailure.NoClientId) {
+                    if (result == SnackbarResult.ActionPerformed &&
+                        event.failure.shouldOpenSpotifySettings()
+                    ) {
+                        onNavigateToSettings("spotify")
+                    }
+                }
+
+                is PlaybackEvent.SpotifyActionRequired -> {
+                    val actionLabel = actionLabelForFailure(event.failure)
+                    val result = snackbarHostState.showSnackbar(
+                        message = event.message,
+                        actionLabel = actionLabel,
+                        withDismissAction = actionLabel == null,
+                        duration = SnackbarDuration.Long,
+                    )
+                    if (result == SnackbarResult.ActionPerformed &&
+                        event.failure.shouldOpenSpotifySettings()
+                    ) {
                         onNavigateToSettings("spotify")
                     }
                 }
@@ -858,8 +875,16 @@ private fun actionLabelForFailure(failure: SpotifyConnectFailure): String? = whe
     SpotifyConnectFailure.NoClientId -> "Open Settings"
     SpotifyConnectFailure.SpotifyAppMissing -> null // phase 3 wires Play Store intent
     SpotifyConnectFailure.PremiumRequired -> null
-    is SpotifyConnectFailure.AuthFailure -> null // phase 3 wires Reconnect
+    is SpotifyConnectFailure.AuthFailure -> "Open Settings"
     is SpotifyConnectFailure.TransportFailure -> null
+}
+
+private fun SpotifyConnectFailure.shouldOpenSpotifySettings(): Boolean = when (this) {
+    SpotifyConnectFailure.NoClientId -> true
+    is SpotifyConnectFailure.AuthFailure -> true
+    SpotifyConnectFailure.SpotifyAppMissing -> false
+    SpotifyConnectFailure.PremiumRequired -> false
+    is SpotifyConnectFailure.TransportFailure -> false
 }
 
 private fun MemoryEntry.toPlaybackActivityContext(): ActivityContext {

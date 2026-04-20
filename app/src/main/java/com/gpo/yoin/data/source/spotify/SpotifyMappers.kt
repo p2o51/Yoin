@@ -128,6 +128,15 @@ internal fun SpotifyPlaylistObject.toPlaylist(
     snapshotId = snapshotId,
 )
 
+internal fun List<SpotifyPlaylistItemObject>.toTracksWithPlaylistOffsets(
+    savedTrackIds: Set<String> = emptySet(),
+): List<Pair<Int, Track>> = mapIndexedNotNull { rawOffset, item ->
+    val track = item.track ?: return@mapIndexedNotNull null
+    runCatching { track.toTrack(savedTrackIds = savedTrackIds) }
+        .getOrNull()
+        ?.let { rawOffset to it }
+}
+
 internal fun SpotifySearchResponse.toSearchResults(
     savedTrackIds: Set<String> = emptySet(),
     savedAlbumIds: Set<String> = emptySet(),

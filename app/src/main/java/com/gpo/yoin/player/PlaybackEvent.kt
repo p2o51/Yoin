@@ -17,4 +17,17 @@ sealed interface PlaybackEvent {
         val failure: SpotifyConnectFailure,
         val message: String,
     ) : PlaybackEvent
+
+    /**
+     * Spotify playback succeeded via a degraded fallback path, but the user
+     * still needs to take action to restore the intended behavior.
+     *
+     * Example: context-aware Web API playback failed because the current
+     * profile is missing a newly-required scope, so Yoin fell back to bare
+     * App Remote `play(uri)` to avoid interrupting playback.
+     */
+    data class SpotifyActionRequired(
+        val failure: SpotifyConnectFailure,
+        val message: String,
+    ) : PlaybackEvent
 }

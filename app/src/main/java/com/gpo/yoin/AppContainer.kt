@@ -200,6 +200,7 @@ class AppContainer(private val context: Context) {
                             _lastSpotifyStickyFailure.value = failure
                         }
                     }
+                    is PlaybackEvent.SpotifyActionRequired -> Unit
                 }
             }
         }

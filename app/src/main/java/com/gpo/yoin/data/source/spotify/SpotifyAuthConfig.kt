@@ -47,6 +47,11 @@ object SpotifyAuthConfig {
         // Playlist write — AddToPlaylistSheet / PlaylistDetail mutations.
         "playlist-modify-private",
         "playlist-modify-public",
+        // Web API PUT /me/player/play — required for context-aware playback
+        // (playing *from* an album / playlist so Spotify's own UI shows the
+        // right "playing from X" context and recommendations work). Without
+        // this scope we fall back to App Remote's bare-track-uri path.
+        "user-modify-playback-state",
     )
 
     /**
@@ -66,6 +71,7 @@ object SpotifyAuthConfig {
         "streaming",
         "playlist-modify-private",
         "playlist-modify-public",
+        "user-modify-playback-state",
     )
 
     /**

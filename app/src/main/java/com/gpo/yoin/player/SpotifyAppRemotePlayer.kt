@@ -6,6 +6,7 @@ import androidx.media3.common.Player
 import com.gpo.yoin.data.model.CoverRef
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.Track
+import com.gpo.yoin.data.source.spotify.SpotifyAuthException
 import com.gpo.yoin.data.source.spotify.SpotifyAuthConfig
 import com.spotify.android.appremote.api.ConnectionParams
 import com.spotify.android.appremote.api.Connector
@@ -83,6 +84,7 @@ internal class SpotifyAppRemotePlayer(
     private val applicationContext: Context,
     private val clientIdProvider: () -> String,
     private val onSnapshot: (SpotifyRemoteSnapshot) -> Unit,
+    private val onActionRequired: (SpotifyConnectFailure, String) -> Unit = { _, _ -> },
 ) {
     private val tag = "SpotifyAppRemotePlayer"
 
@@ -188,9 +190,26 @@ internal class SpotifyAppRemotePlayer(
         }
     }
 
-    fun playQueue(tracks: List<Track>, startIndex: Int) {
+    /**
+     * @param startContextPlayback optional — when provided (i.e. the caller
+     *  has an album / playlist / artist context), Yoin first attempts the
+     *  Web API `PUT /me/player/play` via this callback so Spotify's own UI
+     *  shows "playing from <context>" and recommendations get proper
+     *  signal. On failure (typically `NO_ACTIVE_DEVICE` / `PREMIUM_REQUIRED`
+     *  / transport error) we silently fall back to the bare App Remote
+     *  `play(uri) + queue(uri)` path that already works.
+     */
+    fun playQueue(
+        tracks: List<Track>,
+        startIndex: Int,
+        startContextPlayback: (suspend () -> Unit)? = null,
+    ) {
         if (tracks.isEmpty() || startIndex !in tracks.indices) return
-        Log.d(tag, "playQueue: size=${tracks.size} startIndex=$startIndex track=${tracks[startIndex].id}")
+        Log.d(
+            tag,
+            "playQueue: size=${tracks.size} startIndex=$startIndex track=${tracks[startIndex].id} " +
+                "hasContext=${startContextPlayback != null}",
+        )
         mirroredQueue = tracks
         // Hold the tap-target as `pendingTrack`. Do NOT write `currentTrack`
         // / `isPlaying = true` / a non-zero position before App Remote
@@ -213,6 +232,30 @@ internal class SpotifyAppRemotePlayer(
             ),
         )
         enqueueOperation(replacePending = true) { connected ->
+            if (startContextPlayback != null) {
+                val contextSucceeded = runCatching { startContextPlayback() }
+                    .onFailure { e ->
+                        emitContextPlaybackActionIfNeeded(e)
+                        Log.w(
+                            tag,
+                            "Web API context playback failed, falling back to App Remote: " +
+                                "${e.javaClass.simpleName}: ${e.message}",
+                        )
+                    }
+                    .isSuccess
+                if (contextSucceeded) {
+                    // Spotify started via Web API — App Remote's PlayerState
+                    // subscription will fire shortly with the new track/queue
+                    // state, which replaces our pending snapshot. No need to
+                    // also pump play+queue on App Remote; doing both would
+                    // double-start (the second `play` cancels the first).
+                    return@enqueueOperation
+                }
+            }
+            // Fallback / no-context path: bare App Remote `play(uri)` followed
+            // by `queue(uri)` for each remaining track. This is what the app
+            // did before context-aware playback landed — loses Spotify-side
+            // context but always works as long as App Remote is connected.
             val current = tracks[startIndex]
             connected.playerApi.play(current.spotifyUri()).awaitUnit()
             tracks.drop(startIndex + 1).forEach { track ->
@@ -724,6 +767,23 @@ internal class SpotifyAppRemotePlayer(
         lastSnapshot = snapshot
         onSnapshot(snapshot)
     }
+
+    private fun emitContextPlaybackActionIfNeeded(error: Throwable) {
+        val failure = contextPlaybackActionFailure(error) ?: return
+        onActionRequired(failure, failure.userMessage())
+    }
+
+    private fun contextPlaybackActionFailure(error: Throwable): SpotifyConnectFailure? =
+        when (error) {
+            is SpotifyAuthException -> when (error.code) {
+                HTTP_UNAUTHORIZED, HTTP_FORBIDDEN -> SpotifyConnectFailure.AuthFailure(
+                    "Spotify playback fell back to track-only mode. Open Settings → Spotify and reconnect to restore album / playlist context.",
+                )
+                else -> null
+            }
+
+            else -> null
+        }
 }
 
 /**
@@ -792,3 +852,6 @@ private suspend fun CallResult<Empty>.awaitUnit() {
         }
     }
 }
+
+private const val HTTP_UNAUTHORIZED = 401
+private const val HTTP_FORBIDDEN = 403

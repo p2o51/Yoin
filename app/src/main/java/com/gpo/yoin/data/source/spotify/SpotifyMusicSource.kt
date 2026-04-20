@@ -61,6 +61,7 @@ class SpotifyMusicSource(
     private var savedAlbumsCache: List<SpotifySavedAlbumObject>? = null
     private var playlistsCache: List<SpotifyPlaylistObject>? = null
     private var followedArtistsCache: List<SpotifyArtistObject>? = null
+    private val playlistTrackOffsetsById = mutableMapOf<String, List<Int>>()
 
     private val library = object : MusicLibrary {
         override suspend fun ping(): Boolean {
@@ -131,16 +132,17 @@ class SpotifyMusicSource(
             val meId = apiClient.getCurrentUserId()
             val playlist = runCatching { apiClient.getPlaylist(rawId) }
                 .getOrElse { error ->
-                    if (error.isSpotifyNotFound()) return@withSpotifyId null
+                    if (error.isSpotifyNotFound()) {
+                        playlistTrackOffsetsById.remove(rawId)
+                        return@withSpotifyId null
+                    }
                     throw error
                 }
-            val tracks = apiClient.getPlaylistItems(rawId)
-                .mapNotNull(SpotifyPlaylistItemObject::track)
-                .mapNotNull { track ->
-                    runCatching { track.toTrack(savedTrackIds = savedTrackIds) }.getOrNull()
-                }
+            val indexedTracks = apiClient.getPlaylistItems(rawId)
+                .toTracksWithPlaylistOffsets(savedTrackIds = savedTrackIds)
+            playlistTrackOffsetsById[rawId] = indexedTracks.map { it.first }
             playlist.toPlaylist(
-                tracks = tracks,
+                tracks = indexedTracks.map { it.second },
                 canWrite = playlist.owner?.id == meId,
             )
         }
@@ -223,6 +225,7 @@ class SpotifyMusicSource(
             // Spotify has no real delete — unfollowing your own playlist removes
             // it from /me/playlists, which is the product-level "delete".
             apiClient.unfollowPlaylist(rawId)
+            playlistTrackOffsetsById.remove(rawId)
             playlistsCache = null
         }
 
@@ -234,6 +237,7 @@ class SpotifyMusicSource(
             val rawId = requireSpotify(playlistId).rawId
             val uris = tracks.map { "spotify:track:${requireSpotify(it).rawId}" }
             val snapshot = apiClient.addTracksToPlaylist(id = rawId, uris = uris)
+            playlistTrackOffsetsById.remove(rawId)
             playlistsCache = null
             snapshot
         }
@@ -260,6 +264,7 @@ class SpotifyMusicSource(
                 items = grouped,
                 snapshotId = snapshotId,
             )
+            playlistTrackOffsetsById.remove(rawId)
             playlistsCache = null
             newSnapshot
         }
@@ -283,6 +288,39 @@ class SpotifyMusicSource(
     override suspend fun prime() {
         runCatching { library.getAlbumList(type = "recent", size = 20, offset = 0) }
         runCatching { library.getArtists() }
+    }
+
+    /**
+     * Web API `PUT /me/player/play` — used by [com.gpo.yoin.player.PlaybackManager]
+     * when the user taps a track inside an album / playlist / artist page. The
+     * Web API preserves the *context* (unlike App Remote's `play(uri)` which
+     * only takes a bare URI and always starts at position 0), so Spotify's own
+     * UI shows "playing from <album>" / "playing from <playlist>" and
+     * recommendations get the right signal.
+     *
+     * [contextUri] must be a `spotify:album:...` / `spotify:playlist:...` /
+     * `spotify:artist:...`. [offsetPosition] is the zero-based index into the
+     * context where playback should start. Throws [SpotifyAuthException] —
+     * callers should fall back to App Remote's bare-URI path on failure
+     * (typically 404 NO_ACTIVE_DEVICE on a cold Spotify app).
+     */
+    suspend fun startContextPlayback(contextUri: String, offsetPosition: Int?) {
+        apiClient.startPlayback(contextUri = contextUri, offsetPosition = offsetPosition)
+    }
+
+    /**
+     * Translate the visible row index in Yoin's filtered playlist view back
+     * to Spotify's raw playlist offset. Returns null when the source no
+     * longer has a trustworthy mapping (e.g. stale cache after a mutation),
+     * so callers can safely fall back to bare App Remote playback.
+     */
+    fun resolvePlaylistContextOffset(
+        playlistId: MediaId,
+        visibleStartIndex: Int,
+    ): Int? {
+        val rawId = requireSpotify(playlistId).rawId
+        val offsets = playlistTrackOffsetsById[rawId] ?: return null
+        return offsets.getOrNull(visibleStartIndex)
     }
 
     override fun resolveCoverUrl(ref: CoverRef, size: Int?): String? = when (ref) {
