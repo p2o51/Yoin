@@ -47,10 +47,12 @@ class NowPlayingViewModel(
         viewModelScope.launch {
             currentSongId.collect { songId ->
                 if (songId != null) {
-                    loadLyrics(songId)
+                    // Pull title/artist from the current track — Provider 兜底需要它们
+                    // 搜索（非 Subsonic 路径），Subsonic 路径只用 songId、忽略这两个。
+                    val track = playbackManager.playbackState.value.currentTrack
+                    loadLyrics(songId, track?.title, track?.artist)
                     loadSongInfo(songId)
-                    _isStarred.value =
-                        playbackManager.playbackState.value.currentTrack?.isStarred == true
+                    _isStarred.value = track?.isStarred == true
                 } else {
                     _lyrics.value = emptyList()
                     _isStarred.value = false
@@ -323,9 +325,9 @@ class NowPlayingViewModel(
         review = review,
     )
 
-    private suspend fun loadLyrics(songId: MediaId) {
+    private suspend fun loadLyrics(songId: MediaId, title: String?, artist: String?) {
         _lyrics.value = try {
-            when (val lyrics = repository.getLyrics(songId)) {
+            when (val lyrics = repository.getLyrics(songId, title, artist)) {
                 null -> emptyList()
                 is SourceLyrics.Synced -> lyrics.lines.map { syncedLine ->
                     LyricLine(

@@ -5,6 +5,7 @@ import androidx.room.Room
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import com.gpo.yoin.data.local.YoinDatabase
+import com.gpo.yoin.data.lyrics.LyricsProviderRegistry
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.profile.AndroidKeyStoreCredentialsCipher
 import com.gpo.yoin.data.profile.EncryptedProfileCredentialsCodec
@@ -312,6 +313,8 @@ class AppContainer(private val context: Context) {
         )
     }
 
+    val lyricsProviderRegistry: LyricsProviderRegistry by lazy { LyricsProviderRegistry() }
+
     val repository: YoinRepository by lazy {
         YoinRepository(
             activeSource = profileManager.activeSource,
@@ -320,6 +323,7 @@ class AppContainer(private val context: Context) {
             geminiService = geminiService,
             songInfoDao = database.songInfoDao(),
             geminiConfigDao = database.geminiConfigDao(),
+            lyricsProviderRegistry = lyricsProviderRegistry,
         )
     }
 
