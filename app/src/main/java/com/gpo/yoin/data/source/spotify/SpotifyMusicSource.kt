@@ -285,6 +285,24 @@ class SpotifyMusicSource(
         runCatching { library.getArtists() }
     }
 
+    /**
+     * Web API `PUT /me/player/play` — used by [com.gpo.yoin.player.PlaybackManager]
+     * when the user taps a track inside an album / playlist / artist page. The
+     * Web API preserves the *context* (unlike App Remote's `play(uri)` which
+     * only takes a bare URI and always starts at position 0), so Spotify's own
+     * UI shows "playing from <album>" / "playing from <playlist>" and
+     * recommendations get the right signal.
+     *
+     * [contextUri] must be a `spotify:album:...` / `spotify:playlist:...` /
+     * `spotify:artist:...`. [offsetPosition] is the zero-based index into the
+     * context where playback should start. Throws [SpotifyAuthException] —
+     * callers should fall back to App Remote's bare-URI path on failure
+     * (typically 404 NO_ACTIVE_DEVICE on a cold Spotify app).
+     */
+    suspend fun startContextPlayback(contextUri: String, offsetPosition: Int?) {
+        apiClient.startPlayback(contextUri = contextUri, offsetPosition = offsetPosition)
+    }
+
     override fun resolveCoverUrl(ref: CoverRef, size: Int?): String? = when (ref) {
         is CoverRef.Url -> ref.url
         // Spotify entities never emit SourceRelative — defensive.

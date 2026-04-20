@@ -16,6 +16,7 @@ import com.gpo.yoin.data.model.Track
 import com.gpo.yoin.data.repository.ActivityContext
 import com.gpo.yoin.data.repository.YoinRepository
 import com.gpo.yoin.data.source.MusicSource
+import com.gpo.yoin.data.source.spotify.SpotifyMusicSource
 import com.google.common.util.concurrent.FutureCallback
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.MoreExecutors
@@ -218,7 +219,19 @@ class PlaybackManager(
                     if (!preserveLocalUiDuringSpotifyHandoff) {
                         activeBackend = ActiveBackend.SPOTIFY_REMOTE
                     }
-                    spotifyRemotePlayer.playQueue(tracks, startIndex)
+                    // If the user tapped inside an album / playlist / artist,
+                    // route through Spotify's Web API so the context sticks
+                    // ("playing from X" in Spotify's own UI + proper
+                    // recommendation signal). Bare-track entry points (queue,
+                    // search result, memories single track) keep the
+                    // non-context App Remote path — playQueue falls back
+                    // transparently on Web API failure too.
+                    val startContextPlayback = buildSpotifyContextPlaybackFn(
+                        source = source,
+                        activityContext = activityContext,
+                        startIndex = startIndex,
+                    )
+                    spotifyRemotePlayer.playQueue(tracks, startIndex, startContextPlayback)
                 }
             }
         }
@@ -673,6 +686,48 @@ class PlaybackManager(
                 ?.getInt(EXTRA_USER_RATING),
             isStarred = extras?.getBoolean(EXTRA_STARRED, false) == true,
         )
+    }
+
+    /**
+     * Translate an [ActivityContext] + owning [source] into a suspend lambda
+     * that calls Spotify Web API's `PUT /me/player/play` preserving the
+     * playback context. Returns `null` when:
+     * - the source isn't Spotify (Subsonic has its own end-to-end queue);
+     * - the context is `None` (bare-track entry points — search, queue tap,
+     *   memories single); the non-context App Remote path is correct here;
+     * - the context id isn't in Spotify's provider namespace (shouldn't
+     *   happen when source is Spotify, but defensive for mixed-provider
+     *   futures).
+     *
+     * `spotify:artist:...` isn't wired — Spotify's Web API treats artist
+     * context as "artist radio", not "top tracks in order", so offsets
+     * don't align with our `tracks` list. Drop to the App Remote path.
+     */
+    private fun buildSpotifyContextPlaybackFn(
+        source: MusicSource,
+        activityContext: ActivityContext,
+        startIndex: Int,
+    ): (suspend () -> Unit)? {
+        val spotifySource = source as? SpotifyMusicSource ?: return null
+        val rawContextId = when (activityContext) {
+            is ActivityContext.Album -> activityContext.albumId
+            is ActivityContext.Playlist -> activityContext.playlistId
+            is ActivityContext.Artist, ActivityContext.None -> return null
+        }
+        val parsed = MediaId.parseOrNull(rawContextId)
+            ?.takeIf { it.provider == MediaId.PROVIDER_SPOTIFY }
+            ?: return null
+        val contextUri = when (activityContext) {
+            is ActivityContext.Album -> "spotify:album:${parsed.rawId}"
+            is ActivityContext.Playlist -> "spotify:playlist:${parsed.rawId}"
+            else -> return null
+        }
+        return {
+            spotifySource.startContextPlayback(
+                contextUri = contextUri,
+                offsetPosition = startIndex,
+            )
+        }
     }
 
     private suspend fun buildController(): MediaController {

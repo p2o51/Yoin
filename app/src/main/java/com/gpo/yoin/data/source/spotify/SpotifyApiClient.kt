@@ -296,6 +296,54 @@ class SpotifyApiClient(
         )
     }
 
+    /**
+     * Start context-aware playback on the user's current active Spotify
+     * device — the Web API counterpart to App Remote's `PlayerApi.play(uri)`.
+     * Unlike App Remote (which only accepts a bare URI and always starts at
+     * the first track), this preserves the *context* (album / playlist /
+     * artist radio) with a specific starting offset, so Spotify's own UI
+     * shows "playing from <context>" and its recommendation engine gets the
+     * right signal.
+     *
+     * @param contextUri spotify URI of the context: `spotify:album:...`,
+     *   `spotify:playlist:...`, or `spotify:artist:...`.
+     * @param offsetPosition zero-based index into the context; null means
+     *   start from the first item.
+     * @param deviceId optional; when null Spotify uses the current active
+     *   device. Callers should ensure App Remote is connected first (that
+     *   makes the Spotify app the active device).
+     *
+     * Throws [SpotifyAuthException] on 4xx/5xx. The typical failure mode
+     * worth recovering from is 404 NO_ACTIVE_DEVICE — caller should fall
+     * back to the App Remote `play(uri) + queue(uri)` path.
+     */
+    suspend fun startPlayback(
+        contextUri: String,
+        offsetPosition: Int? = null,
+        deviceId: String? = null,
+    ) = withContext(Dispatchers.IO) {
+        val url = apiUrl("v1", "me", "player", "play")
+            .newBuilder()
+            .apply { if (deviceId != null) addQueryParameter("device_id", deviceId) }
+            .build()
+
+        // Hand-rolled JSON keeps us off a dedicated serializer — the shape is
+        // tiny and stable.
+        val body = buildString {
+            append('{')
+            append("\"context_uri\":\"").append(contextUri).append('"')
+            if (offsetPosition != null) {
+                append(",\"offset\":{\"position\":").append(offsetPosition).append('}')
+            }
+            append('}')
+        }
+        executeWithJsonBodyIgnoringResponse(
+            method = "PUT",
+            url = url,
+            jsonBody = body,
+        )
+    }
+
     private suspend fun mutateLibrary(method: String, uri: String) = withContext(Dispatchers.IO) {
         val url = apiUrl("v1", "me", "library")
             .newBuilder()
