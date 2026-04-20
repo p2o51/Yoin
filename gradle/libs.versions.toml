@@ -7,7 +7,8 @@ ksp = "2.3.6"
 # Compose
 composeBom = "2026.03.01"
 material3Expressive = "1.5.0-alpha16"
-navigationCompose = "2.9.0"
+nav3Core = "1.1.0"
+lifecycleViewmodelNav3 = "2.10.0"
 activityCompose = "1.10.1"
 lifecycleCompose = "2.9.0"
 
@@ -60,8 +61,10 @@ material3 = { group = "androidx.compose.material3", name = "material3" }
 material3-expressive = { group = "androidx.compose.material3", name = "material3", version.ref = "material3Expressive" }
 material-icons-extended = { group = "androidx.compose.material", name = "material-icons-extended" }
 
-# Navigation
-navigation-compose = { group = "androidx.navigation", name = "navigation-compose", version.ref = "navigationCompose" }
+# Navigation 3
+androidx-navigation3-runtime = { group = "androidx.navigation3", name = "navigation3-runtime", version.ref = "nav3Core" }
+androidx-navigation3-ui = { group = "androidx.navigation3", name = "navigation3-ui", version.ref = "nav3Core" }
+androidx-lifecycle-viewmodel-navigation3 = { group = "androidx.lifecycle", name = "lifecycle-viewmodel-navigation3", version.ref = "lifecycleViewmodelNav3" }
 
 # Activity & Lifecycle
 activity-compose = { group = "androidx.activity", name = "activity-compose", version.ref = "activityCompose" }

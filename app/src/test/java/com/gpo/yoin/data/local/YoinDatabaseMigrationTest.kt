@@ -55,7 +55,7 @@ class YoinDatabaseMigrationTest {
         helper.close()
 
         val migrated = Room.databaseBuilder(context, YoinDatabase::class.java, dbName)
-            .addMigrations(AppContainer.MIGRATION_6_7)
+            .addMigrations(AppContainer.MIGRATION_6_7, AppContainer.MIGRATION_7_8)
             .allowMainThreadQueries()
             .build()
 

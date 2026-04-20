@@ -345,6 +345,7 @@ private fun AlbumHeroArtwork(
                     ),
                     animatedVisibilityScope = animatedVisibilityScope,
                     boundsTransform = { _, _ -> artworkBoundsSpec },
+                    renderInOverlayDuringTransition = false,
                     zIndexInOverlay = 1f,
                 )
                 .clip(shape)

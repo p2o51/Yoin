@@ -780,6 +780,7 @@ private fun ExpressiveArtwork(
                         ),
                         animatedVisibilityScope = animatedVisibilityScope,
                         boundsTransform = { _, _ -> sharedArtworkBoundsSpec },
+                        renderInOverlayDuringTransition = false,
                         zIndexInOverlay = 1f,
                     )
             }

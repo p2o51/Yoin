@@ -12,7 +12,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.tooling.preview.Preview
-import androidx.navigation.compose.rememberNavController
 import coil3.ImageLoader
 import coil3.request.ImageRequest
 import coil3.request.SuccessResult
@@ -55,8 +54,6 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 fun YoinApp(modifier: Modifier = Modifier) {
-    val navController = rememberNavController()
-
     // ── Cover color extraction driven by playback state ──────────────────
     val app = LocalContext.current.applicationContext as? YoinApplication
     val coverColorState = LocalCoverColorState.current
@@ -94,10 +91,7 @@ fun YoinApp(modifier: Modifier = Modifier) {
         LocalMotionCapabilityProvider provides motionCapabilityProvider,
         LocalMotionProfile provides motionProfile,
     ) {
-        YoinNavHost(
-            navController = navController,
-            modifier = modifier,
-        )
+        YoinNavHost(modifier = modifier)
     }
 }
 

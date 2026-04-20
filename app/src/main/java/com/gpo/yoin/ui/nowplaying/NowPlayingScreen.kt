@@ -106,6 +106,7 @@ import com.gpo.yoin.ui.component.QueueSheet
 import com.gpo.yoin.ui.component.RatingSlider
 import com.gpo.yoin.ui.component.WaveProgressBar
 import com.gpo.yoin.ui.component.minimumTouchTarget
+import com.gpo.yoin.ui.navigation.rememberActiveOnlySharedContentConfig
 import com.gpo.yoin.ui.navigation.nowPlayingCoverSharedKey
 import com.gpo.yoin.ui.experience.LocalMotionProfile
 import com.gpo.yoin.ui.experience.MotionProfile
@@ -601,10 +602,17 @@ private fun PlayingContent(
                 sharedTransitionScope != null &&
                 animatedVisibilityScope != null
             ) {
+                val sharedContentConfig =
+                    rememberActiveOnlySharedContentConfig(
+                        animatedVisibilityScope = animatedVisibilityScope,
+                    )
                 with(sharedTransitionScope) {
                     Modifier
                         .sharedBounds(
-                            sharedContentState = rememberSharedContentState(key = "np_title"),
+                            sharedContentState = rememberSharedContentState(
+                                key = "np_title",
+                                config = sharedContentConfig,
+                            ),
                             animatedVisibilityScope = animatedVisibilityScope,
                             boundsTransform = { _, _ -> heroBoundsSpec },
                         )
@@ -628,10 +636,17 @@ private fun PlayingContent(
                 sharedTransitionScope != null &&
                 animatedVisibilityScope != null
             ) {
+                val sharedContentConfig =
+                    rememberActiveOnlySharedContentConfig(
+                        animatedVisibilityScope = animatedVisibilityScope,
+                    )
                 with(sharedTransitionScope) {
                     Modifier
                         .sharedBounds(
-                            sharedContentState = rememberSharedContentState(key = "np_artist"),
+                            sharedContentState = rememberSharedContentState(
+                                key = "np_artist",
+                                config = sharedContentConfig,
+                            ),
                             animatedVisibilityScope = animatedVisibilityScope,
                             boundsTransform = { _, _ -> heroBoundsSpec },
                         )
@@ -762,10 +777,13 @@ private fun AlbumCover(
         sharedTransitionScope != null &&
         animatedVisibilityScope != null
     ) {
+        val sharedContentConfig =
+            rememberActiveOnlySharedContentConfig(animatedVisibilityScope = animatedVisibilityScope)
         with(sharedTransitionScope) {
             baseModifier.sharedBounds(
                 sharedContentState = rememberSharedContentState(
                     key = nowPlayingCoverSharedKey(songId),
+                    config = sharedContentConfig,
                 ),
                 animatedVisibilityScope = animatedVisibilityScope,
                 boundsTransform = { _, _ -> coverBoundsSpec },

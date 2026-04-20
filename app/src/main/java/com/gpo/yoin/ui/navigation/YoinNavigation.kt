@@ -1,25 +1,23 @@
 package com.gpo.yoin.ui.navigation
 
+import androidx.navigation3.runtime.NavKey
 import kotlinx.serialization.Serializable
 
 /**
  * Type-safe navigation routes for Yoin.
  *
- * The app now boots into a single Shell route that owns the floating button group plus the
- * Home/Library section switch. Settings and details still use pushed routes; Now Playing and
+ * The app boots into a single Shell route that owns the floating button group plus the
+ * Home/Library section switch. Settings and details use pushed routes; Now Playing and
  * Memories live as shell-owned overlays instead of separate top-level destinations.
+ *
+ * All subtypes are [NavKey] so they can ride in [androidx.navigation3.runtime.rememberNavBackStack]
+ * and survive process death thanks to [@Serializable].
  */
 @Serializable
-sealed interface YoinRoute {
+sealed interface YoinRoute : NavKey {
 
     @Serializable
     data object Shell : YoinRoute
-
-    @Serializable
-    data object Home : YoinRoute
-
-    @Serializable
-    data object Library : YoinRoute
 
     @Serializable
     data class Settings(

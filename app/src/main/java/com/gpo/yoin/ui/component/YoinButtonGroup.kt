@@ -59,6 +59,7 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.gpo.yoin.ui.navigation.rememberActiveOnlySharedContentConfig
 import com.gpo.yoin.ui.navigation.nowPlayingCoverSharedKey
 import com.gpo.yoin.ui.navigation.YoinSection
 import com.gpo.yoin.ui.theme.ProvideYoinMotionRole
@@ -319,10 +320,15 @@ fun YoinButtonGroup(
                                             animatedVisibilityScope != null &&
                                             currentTrackTitle != null
                                         ) {
+                                            val sharedContentConfig =
+                                                rememberActiveOnlySharedContentConfig(
+                                                    animatedVisibilityScope = animatedVisibilityScope,
+                                                )
                                             with(sharedTransitionScope) {
                                                 Modifier.sharedBounds(
                                                     sharedContentState = rememberSharedContentState(
                                                         key = "np_title",
+                                                        config = sharedContentConfig,
                                                     ),
                                                     animatedVisibilityScope = animatedVisibilityScope,
                                                     boundsTransform = { _, _ -> sharedBoundsSpec },
@@ -354,10 +360,15 @@ fun YoinButtonGroup(
                                             animatedVisibilityScope != null &&
                                             currentTrackArtist != null
                                         ) {
+                                            val sharedContentConfig =
+                                                rememberActiveOnlySharedContentConfig(
+                                                    animatedVisibilityScope = animatedVisibilityScope,
+                                                )
                                             with(sharedTransitionScope) {
                                                 Modifier.sharedBounds(
                                                     sharedContentState = rememberSharedContentState(
                                                         key = "np_artist",
+                                                        config = sharedContentConfig,
                                                     ),
                                                     animatedVisibilityScope = animatedVisibilityScope,
                                                     boundsTransform = { _, _ -> sharedBoundsSpec },
@@ -448,10 +459,13 @@ private fun NowPlayingArtwork(
         animatedVisibilityScope != null &&
         currentTrackCoverArtUrl != null
     ) {
+        val sharedContentConfig =
+            rememberActiveOnlySharedContentConfig(animatedVisibilityScope = animatedVisibilityScope)
         with(sharedTransitionScope) {
             baseModifier.sharedBounds(
                 sharedContentState = rememberSharedContentState(
                     key = nowPlayingCoverSharedKey(currentTrackId),
+                    config = sharedContentConfig,
                 ),
                 animatedVisibilityScope = animatedVisibilityScope,
                 boundsTransform = { _, _ -> sharedBoundsSpec },
