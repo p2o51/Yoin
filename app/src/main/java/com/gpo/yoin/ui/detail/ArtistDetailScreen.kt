@@ -55,6 +55,7 @@ import com.gpo.yoin.ui.component.ExpressivePageBackground
 import com.gpo.yoin.ui.component.ExpressiveSectionPanel
 import com.gpo.yoin.ui.component.YoinLoadingIndicator
 import com.gpo.yoin.ui.navigation.artistCoverSharedKey
+import com.gpo.yoin.ui.navigation.rememberActiveOnlySharedContentConfig
 import com.gpo.yoin.ui.theme.ProvideYoinMotionRole
 import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinMotionRole
@@ -277,15 +278,19 @@ private fun ArtistHeroArtwork(
         sharedTransitionScope != null &&
         animatedVisibilityScope != null
     ) {
+        val sharedContentConfig =
+            rememberActiveOnlySharedContentConfig(
+                animatedVisibilityScope = animatedVisibilityScope,
+            )
         with(sharedTransitionScope) {
             modifier
                 .sharedElement(
                     sharedContentState = rememberSharedContentState(
                         key = artistCoverSharedKey(artistId, sharedTransitionKey),
+                        config = sharedContentConfig,
                     ),
                     animatedVisibilityScope = animatedVisibilityScope,
                     boundsTransform = { _, _ -> artworkBoundsSpec },
-                    renderInOverlayDuringTransition = false,
                     zIndexInOverlay = 1f,
                 )
                 .clip(shape)

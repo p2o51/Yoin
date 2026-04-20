@@ -62,6 +62,7 @@ import com.gpo.yoin.ui.component.SongListItem
 import com.gpo.yoin.ui.component.YoinLoadingIndicator
 import com.gpo.yoin.ui.component.rememberExpressiveBackdropColors
 import com.gpo.yoin.ui.navigation.playlistCoverSharedKey
+import com.gpo.yoin.ui.navigation.rememberActiveOnlySharedContentConfig
 import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinMotionRole
 import com.gpo.yoin.ui.theme.YoinShapeTokens
@@ -419,15 +420,19 @@ private fun PlaylistHeroArtwork(
         sharedTransitionScope != null &&
         animatedVisibilityScope != null
     ) {
+        val sharedContentConfig =
+            rememberActiveOnlySharedContentConfig(
+                animatedVisibilityScope = animatedVisibilityScope,
+            )
         with(sharedTransitionScope) {
             modifier
                 .sharedElement(
                     sharedContentState = rememberSharedContentState(
                         key = playlistCoverSharedKey(playlistId, sharedTransitionKey),
+                        config = sharedContentConfig,
                     ),
                     animatedVisibilityScope = animatedVisibilityScope,
                     boundsTransform = { _, _ -> artworkBoundsSpec },
-                    renderInOverlayDuringTransition = false,
                     zIndexInOverlay = 1f,
                 )
                 .clip(shape)

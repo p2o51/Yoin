@@ -60,6 +60,7 @@ import com.gpo.yoin.ui.component.YoinLoadingIndicator
 import com.gpo.yoin.ui.component.minimumTouchTarget
 import com.gpo.yoin.ui.component.rememberExpressiveBackdropColors
 import com.gpo.yoin.ui.navigation.albumCoverSharedKey
+import com.gpo.yoin.ui.navigation.rememberActiveOnlySharedContentConfig
 import com.gpo.yoin.ui.theme.ProvideYoinMotionRole
 import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinMotionRole
@@ -337,15 +338,19 @@ private fun AlbumHeroArtwork(
         sharedTransitionScope != null &&
         animatedVisibilityScope != null
     ) {
+        val sharedContentConfig =
+            rememberActiveOnlySharedContentConfig(
+                animatedVisibilityScope = animatedVisibilityScope,
+            )
         with(sharedTransitionScope) {
             modifier
                 .sharedElement(
                     sharedContentState = rememberSharedContentState(
                         key = albumCoverSharedKey(albumId, sharedTransitionKey),
+                        config = sharedContentConfig,
                     ),
                     animatedVisibilityScope = animatedVisibilityScope,
                     boundsTransform = { _, _ -> artworkBoundsSpec },
-                    renderInOverlayDuringTransition = false,
                     zIndexInOverlay = 1f,
                 )
                 .clip(shape)

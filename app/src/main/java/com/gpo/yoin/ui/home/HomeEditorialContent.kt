@@ -94,6 +94,7 @@ import com.gpo.yoin.ui.component.rememberExpressiveBackdropColors
 import com.gpo.yoin.ui.experience.RevealState
 import com.gpo.yoin.ui.experience.rememberRevealState
 import com.gpo.yoin.ui.navigation.albumCoverSharedKey
+import com.gpo.yoin.ui.navigation.rememberActiveOnlySharedContentConfig
 import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinMotionRole
 import com.gpo.yoin.ui.theme.YoinShapeTokens
@@ -771,16 +772,20 @@ private fun ExpressiveArtwork(
             sharedTransitionScope != null &&
             animatedVisibilityScope != null
         ) {
+            val sharedContentConfig =
+                rememberActiveOnlySharedContentConfig(
+                    animatedVisibilityScope = animatedVisibilityScope,
+                )
             with(sharedTransitionScope) {
                 Modifier
                     .fillMaxSize()
                     .sharedElement(
                         sharedContentState = rememberSharedContentState(
                             key = albumCoverSharedKey(sharedAlbumId, sharedSourceKey),
+                            config = sharedContentConfig,
                         ),
                         animatedVisibilityScope = animatedVisibilityScope,
                         boundsTransform = { _, _ -> sharedArtworkBoundsSpec },
-                        renderInOverlayDuringTransition = false,
                         zIndexInOverlay = 1f,
                     )
             }
