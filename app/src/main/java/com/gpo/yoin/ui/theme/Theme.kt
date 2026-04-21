@@ -2,9 +2,6 @@ package com.gpo.yoin.ui.theme
 
 import android.graphics.Bitmap
 import android.os.Build
-import androidx.activity.ComponentActivity
-import androidx.activity.SystemBarStyle
-import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -19,12 +16,10 @@ import androidx.compose.material3.MotionScheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
-import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -60,33 +55,17 @@ fun YoinTheme(
     content: @Composable () -> Unit,
 ) {
     val context = LocalContext.current
-    val resolvedDarkTheme by rememberUpdatedState(darkTheme)
     val defaultScheme = colorSchemeOverride ?: if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
         if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
     } else {
         if (darkTheme) YoinDarkColorScheme else YoinLightColorScheme
     }
 
-    SideEffect {
-        (context as? ComponentActivity)?.enableEdgeToEdge(
-            statusBarStyle = if (resolvedDarkTheme) {
-                SystemBarStyle.dark(android.graphics.Color.TRANSPARENT)
-            } else {
-                SystemBarStyle.light(
-                    android.graphics.Color.TRANSPARENT,
-                    android.graphics.Color.TRANSPARENT,
-                )
-            },
-            navigationBarStyle = if (resolvedDarkTheme) {
-                SystemBarStyle.dark(android.graphics.Color.TRANSPARENT)
-            } else {
-                SystemBarStyle.light(
-                    android.graphics.Color.TRANSPARENT,
-                    android.graphics.Color.TRANSPARENT,
-                )
-            },
-        )
-    }
+    // Edge-to-edge + system bar icon colors are set up once in
+    // MainActivity.onCreate via enableEdgeToEdge(SystemBarStyle.auto(...)). The
+    // theme composable intentionally doesn't touch the window — doing it here
+    // (in a SideEffect) was running post-composition and caused a first-frame
+    // status-bar height jump on cold start.
 
     // Resolve a single seed from cover art, then build a SPEC_2025 expressive scheme.
     var extractedScheme by remember { mutableStateOf<ColorScheme?>(null) }

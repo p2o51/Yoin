@@ -1,8 +1,10 @@
 package com.gpo.yoin
 
 import android.os.Bundle
-import androidx.activity.compose.setContent
 import androidx.activity.ComponentActivity
+import androidx.activity.SystemBarStyle
+import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
@@ -31,6 +33,22 @@ import kotlinx.coroutines.delay
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Edge-to-edge. Transparent on both bars; `SystemBarStyle.auto` lets
+        // the system flip icon colors against the device light/dark theme so
+        // we don't have to touch WindowInsetsController manually.
+        // Must be called before setContent so the window is configured
+        // before the first frame — avoids status bar height jumps on cold
+        // start. Previously done in YoinTheme's SideEffect (post-composition).
+        enableEdgeToEdge(
+            statusBarStyle = SystemBarStyle.auto(
+                android.graphics.Color.TRANSPARENT,
+                android.graphics.Color.TRANSPARENT,
+            ),
+            navigationBarStyle = SystemBarStyle.auto(
+                android.graphics.Color.TRANSPARENT,
+                android.graphics.Color.TRANSPARENT,
+            ),
+        )
         setContent {
             val coverColorState = remember { CoverColorState() }
             CompositionLocalProvider(LocalCoverColorState provides coverColorState) {
