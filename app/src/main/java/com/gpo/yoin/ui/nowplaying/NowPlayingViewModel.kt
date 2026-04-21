@@ -4,9 +4,13 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.gpo.yoin.AppContainer
+import com.gpo.yoin.data.local.SongNote
 import com.gpo.yoin.data.model.Lyrics as SourceLyrics
 import com.gpo.yoin.data.model.MediaId
+import com.gpo.yoin.data.model.YoinDevice
 import com.gpo.yoin.data.repository.YoinRepository
+import com.gpo.yoin.player.CastManager
+import com.gpo.yoin.player.CastState
 import com.gpo.yoin.player.ConnectionPhase
 import com.gpo.yoin.player.PlaybackManager
 import com.gpo.yoin.ui.component.AddToPlaylistRow
@@ -31,6 +35,7 @@ import kotlinx.coroutines.launch
 class NowPlayingViewModel(
     private val playbackManager: PlaybackManager,
     private val repository: YoinRepository,
+    private val castManager: CastManager,
     private val onPlaylistMutated: () -> Unit = {},
 ) : ViewModel() {
 
@@ -79,6 +84,19 @@ class NowPlayingViewModel(
             flowOf(0f)
         }
     }
+
+    val notesState: StateFlow<List<SongNote>> = currentSongId
+        .flatMapLatest { songId ->
+            if (songId != null) {
+                repository.observeNotes(songId)
+            } else {
+                flowOf(emptyList())
+            }
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    private val _devicesState = MutableStateFlow(DevicesSheetState())
+    val devicesState: StateFlow<DevicesSheetState> = _devicesState.asStateFlow()
 
     private val playbackAndContext = combine(
         playbackManager.playbackState,
@@ -198,6 +216,73 @@ class NowPlayingViewModel(
             repository.setFavorite(songId, nextFavorite).onSuccess {
                 _isStarred.value = nextFavorite
             }
+        }
+    }
+
+    fun saveCurrentNote(content: String) {
+        if (content.isBlank()) return
+        val track = playbackManager.playbackState.value.currentTrack ?: return
+        viewModelScope.launch {
+            repository.addNote(track, content)
+        }
+    }
+
+    fun deleteNote(id: String) {
+        viewModelScope.launch {
+            repository.deleteNoteById(id)
+        }
+    }
+
+    fun refreshDevices() {
+        viewModelScope.launch {
+            val providerId = repository.currentProviderId()
+            val castState = castManager.castState.value
+            _devicesState.value = _devicesState.value.copy(
+                providerId = providerId,
+                devices = fallbackDevices(providerId, castState),
+                loading = true,
+                errorMessage = null,
+            )
+            runCatching {
+                when (providerId) {
+                    MediaId.PROVIDER_SPOTIFY -> repository.listSpotifyDevices()
+                    else -> emptyList()
+                }
+            }.onSuccess { spotifyDevices ->
+                _devicesState.value = DevicesSheetState(
+                    providerId = providerId,
+                    devices = buildDevices(providerId, spotifyDevices, castState),
+                    loading = false,
+                )
+            }.onFailure { error ->
+                _devicesState.value = DevicesSheetState(
+                    providerId = providerId,
+                    devices = fallbackDevices(providerId, castState),
+                    loading = false,
+                    errorMessage = error.message ?: "Couldn't load devices.",
+                )
+            }
+        }
+    }
+
+    fun selectDevice(device: YoinDevice) {
+        if (!device.isSelectable) return
+        viewModelScope.launch {
+            _devicesState.value = _devicesState.value.copy(busyDeviceId = device.id)
+            runCatching {
+                when (device) {
+                    is YoinDevice.SpotifyConnect ->
+                        repository.transferSpotifyPlayback(device.id)
+                    is YoinDevice.LocalPlayback,
+                    is YoinDevice.Chromecast -> Unit
+                }
+            }.onFailure { error ->
+                _devicesState.value = _devicesState.value.copy(
+                    busyDeviceId = null,
+                    errorMessage = error.message ?: "Couldn't switch devices.",
+                )
+            }
+            refreshDevices()
         }
     }
 
@@ -385,7 +470,64 @@ class NowPlayingViewModel(
             NowPlayingViewModel(
                 playbackManager = container.playbackManager,
                 repository = container.repository,
+                castManager = container.castManager,
                 onPlaylistMutated = container::notifyPlaylistMutation,
             ) as T
     }
+}
+
+data class DevicesSheetState(
+    val providerId: String? = null,
+    val devices: List<YoinDevice> = emptyList(),
+    val loading: Boolean = false,
+    val busyDeviceId: String? = null,
+    val errorMessage: String? = null,
+)
+
+private fun buildDevices(
+    providerId: String?,
+    spotifyDevices: List<YoinDevice.SpotifyConnect>,
+    castState: CastState,
+): List<YoinDevice> = when (providerId) {
+    MediaId.PROVIDER_SPOTIFY -> spotifyDevices
+    else -> fallbackDevices(providerId, castState)
+}
+
+private fun fallbackDevices(
+    providerId: String?,
+    castState: CastState,
+): List<YoinDevice> = when (providerId) {
+    MediaId.PROVIDER_SUBSONIC, MediaId.PROVIDER_LOCAL, null -> buildList {
+        add(
+            YoinDevice.LocalPlayback(
+                isActive = castState !is CastState.Connected,
+                isSelectable = false,
+                statusText = if (castState is CastState.Connected) {
+                    "Switch back from the Cast pill"
+                } else {
+                    null
+                },
+            ),
+        )
+        when (castState) {
+            is CastState.Connected -> add(
+                YoinDevice.Chromecast(
+                    id = "cast-connected",
+                    name = castState.deviceName,
+                    isActive = true,
+                    statusText = "Connected through Cast",
+                ),
+            )
+            CastState.Available -> add(
+                YoinDevice.Chromecast(
+                    id = "cast-available",
+                    name = "Chromecast",
+                    isActive = false,
+                    statusText = "Use the Cast pill to choose a device",
+                ),
+            )
+            CastState.NotAvailable -> Unit
+        }
+    }
+    else -> emptyList()
 }

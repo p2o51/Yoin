@@ -3,6 +3,7 @@ package com.gpo.yoin.data.repository
 import com.gpo.yoin.data.local.YoinDatabase
 import com.gpo.yoin.data.local.GeminiConfigDao
 import com.gpo.yoin.data.local.LyricsCacheDao
+import com.gpo.yoin.data.local.SongNoteDao
 import com.gpo.yoin.data.local.SongInfoDao
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.Playlist
@@ -31,6 +32,7 @@ class YoinRepositoryTest {
     private val songInfoDao = mockk<SongInfoDao>(relaxed = true)
     private val geminiConfigDao = mockk<GeminiConfigDao>(relaxed = true)
     private val lyricsCacheDao = mockk<LyricsCacheDao>(relaxed = true)
+    private val songNoteDao = mockk<SongNoteDao>(relaxed = true)
 
     private val repository = YoinRepository(
         activeSource = MutableStateFlow(source),
@@ -40,6 +42,7 @@ class YoinRepositoryTest {
         songInfoDao = songInfoDao,
         geminiConfigDao = geminiConfigDao,
         lyricsCacheDao = lyricsCacheDao,
+        songNoteDao = songNoteDao,
     )
 
     init {

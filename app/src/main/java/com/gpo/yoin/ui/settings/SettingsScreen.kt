@@ -37,8 +37,6 @@ import androidx.compose.material.icons.filled.Headphones
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -83,6 +81,8 @@ import com.gpo.yoin.ui.component.ExpressiveHeaderBlock
 import com.gpo.yoin.ui.component.ExpressivePageBackground
 import com.gpo.yoin.ui.component.ExpressiveSectionPanel
 import com.gpo.yoin.ui.component.ExpressiveTextField
+import com.gpo.yoin.ui.component.YoinDropdownMenu
+import com.gpo.yoin.ui.component.YoinDropdownMenuItem
 import com.gpo.yoin.ui.component.YoinLoadingIndicator
 import com.gpo.yoin.ui.theme.ProvideYoinMotionRole
 import com.gpo.yoin.ui.theme.YoinMotion
@@ -489,28 +489,28 @@ private fun ProfileCardTile(
                             modifier = Modifier.size(18.dp),
                         )
                     }
-                    DropdownMenu(
+                    YoinDropdownMenu(
                         expanded = menuOpen,
                         onDismissRequest = { menuOpen = false },
                     ) {
                         if (card.requiresReconnect) {
-                            DropdownMenuItem(
-                                text = { Text("Reconnect") },
+                            YoinDropdownMenuItem(
+                                text = "Reconnect",
                                 onClick = {
                                     menuOpen = false
                                     onReconnect()
                                 },
                             )
                         }
-                        DropdownMenuItem(
-                            text = { Text("Edit") },
+                        YoinDropdownMenuItem(
+                            text = "Edit",
                             onClick = {
                                 menuOpen = false
                                 onEdit()
                             },
                         )
-                        DropdownMenuItem(
-                            text = { Text("Delete") },
+                        YoinDropdownMenuItem(
+                            text = "Delete",
                             onClick = {
                                 menuOpen = false
                                 onDelete()

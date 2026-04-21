@@ -202,6 +202,28 @@ class SpotifyApiClient(
         )
     }
 
+    suspend fun listDevices(): List<SpotifyDevice> = withContext(Dispatchers.IO) {
+        getDecoded(
+            url = apiUrl("v1", "me", "player", "devices"),
+            deserializer = SpotifyDevicesResponse.serializer(),
+        ).devices
+    }
+
+    suspend fun transferPlayback(deviceId: String, play: Boolean = true) = withContext(Dispatchers.IO) {
+        val body = JSON.encodeToString(
+            SpotifyTransferPlaybackRequest.serializer(),
+            SpotifyTransferPlaybackRequest(
+                deviceIds = listOf(deviceId),
+                play = play,
+            ),
+        )
+        executeWithJsonBodyIgnoringResponse(
+            method = "PUT",
+            url = apiUrl("v1", "me", "player"),
+            jsonBody = body,
+        )
+    }
+
     suspend fun saveToLibrary(uri: String) {
         mutateLibrary(method = "PUT", uri = uri)
     }

@@ -8,6 +8,7 @@ import androidx.test.core.app.ApplicationProvider
 import com.gpo.yoin.AppContainer
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.testutil.MainDispatcherRule
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -55,7 +56,12 @@ class YoinDatabaseMigrationTest {
         helper.close()
 
         val migrated = Room.databaseBuilder(context, YoinDatabase::class.java, dbName)
-            .addMigrations(AppContainer.MIGRATION_6_7, AppContainer.MIGRATION_7_8)
+            .addMigrations(
+                AppContainer.MIGRATION_6_7,
+                AppContainer.MIGRATION_7_8,
+                AppContainer.MIGRATION_8_9,
+                AppContainer.MIGRATION_9_10,
+            )
             .allowMainThreadQueries()
             .build()
 
@@ -103,6 +109,110 @@ class YoinDatabaseMigrationTest {
             1,
             migrated.spotifyHomeCacheDao().getFreshArtists("spotify-a", 0L).size,
         )
+
+        migrated.close()
+    }
+
+    @Test
+    fun should_create_song_notes_table_when_migrating_8_to_10() = runTest {
+        val helper = FrameworkSQLiteOpenHelperFactory().create(
+            SupportSQLiteOpenHelper.Configuration.builder(context)
+                .name(dbName)
+                .callback(
+                    object : SupportSQLiteOpenHelper.Callback(8) {
+                        override fun onCreate(db: SupportSQLiteDatabase) {
+                            createVersion8Schema(db)
+                        }
+
+                        override fun onUpgrade(
+                            db: SupportSQLiteDatabase,
+                            oldVersion: Int,
+                            newVersion: Int,
+                        ) = Unit
+                    },
+                )
+                .build(),
+        )
+        helper.writableDatabase.close()
+        helper.close()
+
+        val migrated = Room.databaseBuilder(context, YoinDatabase::class.java, dbName)
+            .addMigrations(AppContainer.MIGRATION_8_9, AppContainer.MIGRATION_9_10)
+            .allowMainThreadQueries()
+            .build()
+
+        migrated.openHelper.writableDatabase
+
+        migrated.songNoteDao().insert(
+            SongNote(
+                id = "note-1",
+                trackId = "track-1",
+                provider = MediaId.PROVIDER_SUBSONIC,
+                content = "hello",
+                createdAt = 100L,
+                updatedAt = 100L,
+                title = "Song",
+                artist = "Artist",
+            ),
+        )
+
+        val observed = migrated.songNoteDao()
+            .observeForTrack("track-1", MediaId.PROVIDER_SUBSONIC)
+            .first()
+
+        assertEquals(listOf("hello"), observed.map(SongNote::content))
+
+        migrated.close()
+    }
+
+    @Test
+    fun should_preserve_v9_note_rows_when_migrating_9_to_10() = runTest {
+        val helper = FrameworkSQLiteOpenHelperFactory().create(
+            SupportSQLiteOpenHelper.Configuration.builder(context)
+                .name(dbName)
+                .callback(
+                    object : SupportSQLiteOpenHelper.Callback(9) {
+                        override fun onCreate(db: SupportSQLiteDatabase) {
+                            createVersion9Schema(db)
+                            db.execSQL(
+                                """
+                                INSERT INTO `song_notes`
+                                    (trackId, provider, content, createdAt, updatedAt, title, artist)
+                                VALUES
+                                    ('track-1', 'subsonic', 'legacy note', 100, 200, 'Song', 'Artist')
+                                """.trimIndent(),
+                            )
+                        }
+
+                        override fun onUpgrade(
+                            db: SupportSQLiteDatabase,
+                            oldVersion: Int,
+                            newVersion: Int,
+                        ) = Unit
+                    },
+                )
+                .build(),
+        )
+        helper.writableDatabase.close()
+        helper.close()
+
+        val migrated = Room.databaseBuilder(context, YoinDatabase::class.java, dbName)
+            .addMigrations(AppContainer.MIGRATION_9_10)
+            .allowMainThreadQueries()
+            .build()
+
+        migrated.openHelper.writableDatabase
+
+        val rows = migrated.songNoteDao()
+            .observeForTrack("track-1", MediaId.PROVIDER_SUBSONIC)
+            .first()
+
+        assertEquals(1, rows.size)
+        val preserved = rows.single()
+        assertEquals("legacy note", preserved.content)
+        assertEquals(100L, preserved.createdAt)
+        assertEquals(200L, preserved.updatedAt)
+        assertTrue("migration must assign a non-empty synthetic id", preserved.id.isNotBlank())
 
         migrated.close()
     }
@@ -212,6 +322,76 @@ class YoinDatabaseMigrationTest {
                 `id` INTEGER NOT NULL PRIMARY KEY,
                 `clientId` TEXT NOT NULL
             )
+            """.trimIndent(),
+        )
+    }
+
+    private fun createVersion8Schema(db: SupportSQLiteDatabase) {
+        createVersion6Schema(db)
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS `spotify_home_album_cache` (
+                `profileId` TEXT NOT NULL,
+                `albumId` TEXT NOT NULL,
+                `name` TEXT NOT NULL,
+                `artist` TEXT,
+                `artistId` TEXT,
+                `coverArtKey` TEXT,
+                `songCount` INTEGER,
+                `year` INTEGER,
+                `sortOrder` INTEGER NOT NULL,
+                `cachedAt` INTEGER NOT NULL,
+                PRIMARY KEY(`profileId`, `albumId`)
+            )
+            """.trimIndent(),
+        )
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS `spotify_home_artist_cache` (
+                `profileId` TEXT NOT NULL,
+                `artistId` TEXT NOT NULL,
+                `name` TEXT NOT NULL,
+                `coverArtKey` TEXT,
+                `sortOrder` INTEGER NOT NULL,
+                `cachedAt` INTEGER NOT NULL,
+                PRIMARY KEY(`profileId`, `artistId`)
+            )
+            """.trimIndent(),
+        )
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS `lyrics_cache` (
+                `trackProvider` TEXT NOT NULL,
+                `trackRawId` TEXT NOT NULL,
+                `lyricsProvider` TEXT NOT NULL,
+                `lrc` TEXT NOT NULL,
+                `cachedAt` INTEGER NOT NULL,
+                PRIMARY KEY(`trackProvider`, `trackRawId`)
+            )
+            """.trimIndent(),
+        )
+    }
+
+    private fun createVersion9Schema(db: SupportSQLiteDatabase) {
+        createVersion8Schema(db)
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS `song_notes` (
+                `trackId` TEXT NOT NULL,
+                `provider` TEXT NOT NULL DEFAULT 'subsonic',
+                `content` TEXT NOT NULL,
+                `createdAt` INTEGER NOT NULL,
+                `updatedAt` INTEGER NOT NULL,
+                `title` TEXT NOT NULL,
+                `artist` TEXT NOT NULL,
+                PRIMARY KEY(`trackId`, `provider`)
+            )
+            """.trimIndent(),
+        )
+        db.execSQL(
+            """
+            CREATE INDEX IF NOT EXISTS `index_song_notes_title_artist`
+            ON `song_notes` (`title`, `artist`)
             """.trimIndent(),
         )
     }

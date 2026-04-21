@@ -59,6 +59,8 @@ class AppContainer(private val context: Context) {
                 MIGRATION_5_6,
                 MIGRATION_6_7,
                 MIGRATION_7_8,
+                MIGRATION_8_9,
+                MIGRATION_9_10,
             )
             .build()
     }
@@ -326,6 +328,7 @@ class AppContainer(private val context: Context) {
             songInfoDao = database.songInfoDao(),
             geminiConfigDao = database.geminiConfigDao(),
             lyricsCacheDao = database.lyricsCacheDao(),
+            songNoteDao = database.songNoteDao(),
             lyricsProviderRegistry = lyricsProviderRegistry,
         )
     }
@@ -573,6 +576,77 @@ class AppContainer(private val context: Context) {
                         `cachedAt` INTEGER NOT NULL,
                         PRIMARY KEY(`trackProvider`, `trackRawId`)
                     )
+                    """.trimIndent(),
+                )
+            }
+        }
+
+        val MIGRATION_8_9 = object : Migration(8, 9) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `song_notes` (
+                        `trackId` TEXT NOT NULL,
+                        `provider` TEXT NOT NULL DEFAULT 'subsonic',
+                        `content` TEXT NOT NULL,
+                        `createdAt` INTEGER NOT NULL,
+                        `updatedAt` INTEGER NOT NULL,
+                        `title` TEXT NOT NULL,
+                        `artist` TEXT NOT NULL,
+                        PRIMARY KEY(`trackId`, `provider`)
+                    )
+                    """.trimIndent(),
+                )
+                db.execSQL(
+                    """
+                    CREATE INDEX IF NOT EXISTS `index_song_notes_title_artist`
+                    ON `song_notes` (`title`, `artist`)
+                    """.trimIndent(),
+                )
+            }
+        }
+
+        // v10: 笔记支持多条 per 单曲。主键从 (trackId, provider) 组合换成独立
+        // UUID `id`；(trackId, provider) 降级成普通索引。现有单条笔记通过
+        // `hex(randomblob(16))` 赋 id 保留下来。
+        val MIGRATION_9_10 = object : Migration(9, 10) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `song_notes_new` (
+                        `id` TEXT NOT NULL,
+                        `trackId` TEXT NOT NULL,
+                        `provider` TEXT NOT NULL DEFAULT 'subsonic',
+                        `content` TEXT NOT NULL,
+                        `createdAt` INTEGER NOT NULL,
+                        `updatedAt` INTEGER NOT NULL,
+                        `title` TEXT NOT NULL,
+                        `artist` TEXT NOT NULL,
+                        PRIMARY KEY(`id`)
+                    )
+                    """.trimIndent(),
+                )
+                db.execSQL(
+                    """
+                    INSERT INTO `song_notes_new`
+                        (id, trackId, provider, content, createdAt, updatedAt, title, artist)
+                    SELECT lower(hex(randomblob(16))), trackId, provider, content,
+                           createdAt, updatedAt, title, artist
+                    FROM `song_notes`
+                    """.trimIndent(),
+                )
+                db.execSQL("DROP TABLE `song_notes`")
+                db.execSQL("ALTER TABLE `song_notes_new` RENAME TO `song_notes`")
+                db.execSQL(
+                    """
+                    CREATE INDEX IF NOT EXISTS `index_song_notes_title_artist`
+                    ON `song_notes` (`title`, `artist`)
+                    """.trimIndent(),
+                )
+                db.execSQL(
+                    """
+                    CREATE INDEX IF NOT EXISTS `index_song_notes_trackId_provider`
+                    ON `song_notes` (`trackId`, `provider`)
                     """.trimIndent(),
                 )
             }

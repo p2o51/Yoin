@@ -308,6 +308,12 @@ class SpotifyMusicSource(
         apiClient.startPlayback(contextUri = contextUri, offsetPosition = offsetPosition)
     }
 
+    suspend fun listDevices(): List<SpotifyDevice> = apiClient.listDevices()
+
+    suspend fun transferPlayback(deviceId: String, play: Boolean = true) {
+        apiClient.transferPlayback(deviceId = deviceId, play = play)
+    }
+
     /**
      * Translate the visible row index in Yoin's filtered playlist view back
      * to Spotify's raw playlist offset. Returns null when the source no

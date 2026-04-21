@@ -128,12 +128,14 @@ fun LibraryScreen(
     modifier: Modifier = Modifier,
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    val notedSongIds by viewModel.notedSongIds.collectAsState()
 
     LibraryContent(
         uiState = uiState,
         activeSongId = activeSongId,
         isPlaying = isPlaying,
         playbackSignal = playbackSignal,
+        notedSongIds = notedSongIds,
         onTabSelected = viewModel::selectTab,
         onSearchQueryChanged = viewModel::search,
         onClearSearch = viewModel::clearSearch,
@@ -156,6 +158,7 @@ fun LibraryContent(
     activeSongId: String? = null,
     isPlaying: Boolean = false,
     playbackSignal: Float = 0f,
+    notedSongIds: Set<String> = emptySet(),
     onTabSelected: (LibraryTab) -> Unit,
     onSearchQueryChanged: (String) -> Unit,
     onClearSearch: () -> Unit,
@@ -216,6 +219,7 @@ fun LibraryContent(
                         activeSongId = activeSongId,
                         isPlaying = isPlaying,
                         playbackSignal = playbackSignal,
+                        notedSongIds = notedSongIds,
                         onTabSelected = onTabSelected,
                         onSearchQueryChanged = onSearchQueryChanged,
                         onClearSearch = onClearSearch,
@@ -240,6 +244,7 @@ private fun LibraryContentBody(
     activeSongId: String? = null,
     isPlaying: Boolean = false,
     playbackSignal: Float = 0f,
+    notedSongIds: Set<String>,
     onTabSelected: (LibraryTab) -> Unit,
     onSearchQueryChanged: (String) -> Unit,
     onClearSearch: () -> Unit,
@@ -284,6 +289,7 @@ private fun LibraryContentBody(
                     activeSongId = activeSongId,
                     isPlaying = isPlaying,
                     playbackSignal = playbackSignal,
+                    notedSongIds = notedSongIds,
                     onArtistClick = onArtistClick,
                     onAlbumClick = onAlbumClick,
                     onSongClick = onSongClick,
@@ -317,6 +323,7 @@ private fun LibraryContentBody(
                             activeSongId = activeSongId,
                             isPlaying = isPlaying,
                             playbackSignal = playbackSignal,
+                            notedSongIds = notedSongIds,
                             onSongClick = onSongClick,
                             onAddSongToPlaylist = onAddSongToPlaylist,
                             coverArtUrlBuilder = coverArtUrlBuilder,
@@ -332,6 +339,7 @@ private fun LibraryContentBody(
                             activeSongId = activeSongId,
                             isPlaying = isPlaying,
                             playbackSignal = playbackSignal,
+                            notedSongIds = notedSongIds,
                             onArtistClick = onArtistClick,
                             onAlbumClick = onAlbumClick,
                             onSongClick = onSongClick,
@@ -649,6 +657,7 @@ private fun SongsTabContent(
     activeSongId: String? = null,
     isPlaying: Boolean = false,
     playbackSignal: Float = 0f,
+    notedSongIds: Set<String>,
     onSongClick: (Track) -> Unit,
     onAddSongToPlaylist: (Track) -> Unit,
     coverArtUrlBuilder: ((String) -> String)?,
@@ -684,6 +693,7 @@ private fun SongsTabContent(
                 isNowPlaying = isPlaying && song.id.toString() == activeSongId,
                 playbackSignal = playbackSignal,
                 extractBackdropColors = false,
+                hasNote = song.id.toString() in notedSongIds,
                 modifier = Modifier.expressiveEntrance(entranceProgress),
             )
         }
@@ -899,6 +909,7 @@ private fun FavoritesTabContent(
     activeSongId: String? = null,
     isPlaying: Boolean = false,
     playbackSignal: Float = 0f,
+    notedSongIds: Set<String>,
     onArtistClick: (String) -> Unit,
     onAlbumClick: (String) -> Unit,
     onSongClick: (Track) -> Unit,
@@ -997,6 +1008,7 @@ private fun FavoritesTabContent(
                     isNowPlaying = isPlaying && song.id.toString() == activeSongId,
                     playbackSignal = playbackSignal,
                     extractBackdropColors = false,
+                    hasNote = song.id.toString() in notedSongIds,
                     modifier = Modifier.expressiveEntrance(entranceProgress),
                 )
             }
@@ -1085,6 +1097,7 @@ private fun SearchResultsContent(
     activeSongId: String? = null,
     isPlaying: Boolean = false,
     playbackSignal: Float = 0f,
+    notedSongIds: Set<String>,
     onArtistClick: (String) -> Unit,
     onAlbumClick: (String) -> Unit,
     onSongClick: (Track) -> Unit,
@@ -1194,6 +1207,7 @@ private fun SearchResultsContent(
                     isNowPlaying = isPlaying && song.id.toString() == activeSongId,
                     playbackSignal = playbackSignal,
                     extractBackdropColors = false,
+                    hasNote = song.id.toString() in notedSongIds,
                     modifier = Modifier.expressiveEntrance(entranceProgress),
                 )
             }

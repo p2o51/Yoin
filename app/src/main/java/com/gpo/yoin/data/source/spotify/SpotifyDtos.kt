@@ -149,6 +149,22 @@ data class SpotifySearchResponse(
     val playlists: SpotifyPagingObject<SpotifyPlaylistObject>? = null,
 )
 
+@Serializable
+data class SpotifyDevicesResponse(
+    val devices: List<SpotifyDevice> = emptyList(),
+)
+
+@Serializable
+data class SpotifyDevice(
+    val id: String? = null,
+    val name: String,
+    val type: String,
+    @SerialName("is_active") val isActive: Boolean = false,
+    @SerialName("is_private_session") val isPrivateSession: Boolean = false,
+    @SerialName("is_restricted") val isRestricted: Boolean = false,
+    @SerialName("volume_percent") val volumePercent: Int? = null,
+)
+
 // ── Playlist write request / response bodies ────────────────────────────
 //
 // Sent to / returned by `POST /v1/me/playlists`, `PUT /v1/playlists/{id}`,
@@ -190,4 +206,10 @@ data class SpotifyRemoveTracksRequest(
 @Serializable
 data class SpotifySnapshotResponse(
     @SerialName("snapshot_id") val snapshotId: String,
+)
+
+@Serializable
+data class SpotifyTransferPlaybackRequest(
+    @SerialName("device_ids") val deviceIds: List<String>,
+    val play: Boolean,
 )

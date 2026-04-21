@@ -9,14 +9,20 @@ import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.PlaylistItemRef
 import com.gpo.yoin.data.model.Track
 import com.gpo.yoin.data.repository.YoinRepository
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 
+@OptIn(ExperimentalCoroutinesApi::class)
 class PlaylistDetailViewModel(
     private val playlistId: String,
     private val repository: YoinRepository,
@@ -38,9 +44,15 @@ class PlaylistDetailViewModel(
     val deleted: SharedFlow<Unit> = _deleted.asSharedFlow()
 
     private var playlistSongs: List<Track> = emptyList()
+    private val playlistTrackIds = MutableStateFlow<List<MediaId>>(emptyList())
     // Spotify snapshot for concurrency on subsequent mutations. Refreshed on
     // every [loadPlaylist]; ignored by Subsonic (always null there).
     private var snapshotId: String? = null
+
+    val notedSongIds: StateFlow<Set<String>> = playlistTrackIds
+        .flatMapLatest(repository::observeTracksWithNotes)
+        .map { ids -> ids.mapTo(linkedSetOf(), MediaId::toString) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptySet())
 
     init {
         loadPlaylist()
@@ -114,6 +126,7 @@ class PlaylistDetailViewModel(
                     return@launch
                 }
                 playlistSongs = playlist.tracks
+                playlistTrackIds.value = playlistSongs.map(Track::id)
                 snapshotId = playlist.snapshotId
                 val heroSong = playlist.tracks.firstOrNull()
                 val heroCoverRef = heroSong?.coverArt ?: heroSong?.albumId?.let { CoverRef.SourceRelative(it.rawId) }

@@ -1,5 +1,6 @@
 package com.gpo.yoin.ui.detail
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionScope
@@ -76,8 +77,11 @@ fun AlbumDetailScreen(
     sharedTransitionKey: String? = null,
     onBackClick: () -> Unit,
     onSongClick: (songId: String) -> Unit,
-    onAddSongToPlaylist: (songId: String) -> Unit = {},
     onToggleStar: (songId: String) -> Unit,
+    notedSongIds: Set<String> = emptySet(),
+    expandedSongId: String? = null,
+    expandedNoteBundle: AlbumExpandedNoteBundle? = null,
+    onToggleExpandedSong: (songId: String) -> Unit = {},
     onRetry: () -> Unit,
     sharedTransitionScope: SharedTransitionScope? = null,
     animatedVisibilityScope: AnimatedVisibilityScope? = null,
@@ -183,8 +187,11 @@ fun AlbumDetailScreen(
                         AlbumDetailContent(
                             content = uiState,
                             onSongClick = onSongClick,
-                            onAddSongToPlaylist = onAddSongToPlaylist,
                             onToggleStar = onToggleStar,
+                            notedSongIds = notedSongIds,
+                            expandedSongId = expandedSongId,
+                            expandedNoteBundle = expandedNoteBundle,
+                            onToggleExpandedSong = onToggleExpandedSong,
                             sharedTransitionKey = sharedTransitionKey,
                             sharedTransitionScope = sharedTransitionScope,
                             animatedVisibilityScope = animatedVisibilityScope,
@@ -202,8 +209,11 @@ fun AlbumDetailScreen(
 private fun AlbumDetailContent(
     content: AlbumDetailUiState.Content,
     onSongClick: (songId: String) -> Unit,
-    onAddSongToPlaylist: (songId: String) -> Unit,
     onToggleStar: (songId: String) -> Unit,
+    notedSongIds: Set<String>,
+    expandedSongId: String?,
+    expandedNoteBundle: AlbumExpandedNoteBundle?,
+    onToggleExpandedSong: (songId: String) -> Unit,
     sharedTransitionKey: String? = null,
     sharedTransitionScope: SharedTransitionScope? = null,
     animatedVisibilityScope: AnimatedVisibilityScope? = null,
@@ -301,17 +311,27 @@ private fun AlbumDetailContent(
         }
 
         itemsIndexed(content.songs, key = { _, song -> song.id }) { _, song ->
-            AlbumSongRow(
-                song = song,
-                coverArtUrl = content.coverArtUrl,
-                onClick = { onSongClick(song.id) },
-                onLongClick = { onAddSongToPlaylist(song.id) },
-                onToggleStar = { onToggleStar(song.id) },
+            androidx.compose.foundation.layout.Column(
                 modifier = Modifier.graphicsLayer {
                     alpha = tracksAlpha
                     translationY = tracksOffsetY
                 },
-            )
+            ) {
+                AlbumSongRow(
+                    song = song,
+                    coverArtUrl = content.coverArtUrl,
+                    hasNote = song.id in notedSongIds,
+                    onClick = { onSongClick(song.id) },
+                    onLongClick = { onToggleExpandedSong(song.id) },
+                    onToggleStar = { onToggleStar(song.id) },
+                )
+                AnimatedVisibility(visible = expandedSongId == song.id) {
+                    AlbumSongNotes(
+                        bundle = expandedNoteBundle?.takeIf { it.songId == song.id },
+                        modifier = Modifier.padding(start = 82.dp, end = 14.dp, bottom = 10.dp),
+                    )
+                }
+            }
         }
 
         item { Spacer(modifier = Modifier.height(24.dp)) }
@@ -395,6 +415,7 @@ private fun AlbumMetaRow(
 private fun AlbumSongRow(
     song: AlbumSong,
     coverArtUrl: String?,
+    hasNote: Boolean,
     onClick: () -> Unit,
     onLongClick: () -> Unit,
     onToggleStar: () -> Unit,
@@ -408,6 +429,7 @@ private fun AlbumSongRow(
         coverArtUrl = coverArtUrl,
         onClick = onClick,
         onLongClick = onLongClick,
+        hasNote = hasNote,
         modifier = modifier,
         trailingContent = {
             IconButton(
@@ -435,10 +457,44 @@ private fun AlbumSongRow(
     )
 }
 
-private fun formatDuration(seconds: Int): String {
-    val mins = seconds / 60
-    val secs = seconds % 60
-    return "%d:%02d".format(mins, secs)
+@Composable
+private fun AlbumSongNotes(
+    bundle: AlbumExpandedNoteBundle?,
+    modifier: Modifier = Modifier,
+) {
+    androidx.compose.foundation.layout.Column(
+        modifier = modifier,
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Text(
+            text = "Notes",
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        val primary = bundle?.primaryNotes.orEmpty()
+        if (primary.isEmpty()) {
+            Text(
+                text = "\u6ca1\u6709\u7b14\u8bb0",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        } else {
+            primary.forEach { note ->
+                Text(
+                    text = note.content,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+            }
+        }
+        bundle?.crossProviderNotes?.forEach { note ->
+            Text(
+                text = "${note.providerLabel}: ${note.content}",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
 }
 
 @Preview(showBackground = true, backgroundColor = 0xFF1C1B1F)

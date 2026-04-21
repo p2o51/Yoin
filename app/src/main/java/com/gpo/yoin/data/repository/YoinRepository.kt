@@ -9,6 +9,9 @@ import com.gpo.yoin.data.local.LocalRating
 import com.gpo.yoin.data.local.LyricsCache
 import com.gpo.yoin.data.local.LyricsCacheDao
 import com.gpo.yoin.data.local.PlayHistory
+import com.gpo.yoin.data.local.SongNote
+import com.gpo.yoin.data.local.SongNoteDao
+import com.gpo.yoin.data.local.SongNoteKey
 import com.gpo.yoin.data.local.SongInfo
 import com.gpo.yoin.data.local.SongInfoDao
 import com.gpo.yoin.data.local.SpotifyHomeAlbumCache
@@ -27,12 +30,15 @@ import com.gpo.yoin.data.model.PlaylistItemRef
 import com.gpo.yoin.data.model.SearchResults
 import com.gpo.yoin.data.model.Starred
 import com.gpo.yoin.data.model.Track
+import com.gpo.yoin.data.model.YoinDevice
 import com.gpo.yoin.data.remote.GeminiService
 import com.gpo.yoin.data.source.Capability
 import com.gpo.yoin.data.source.MusicSource
+import com.gpo.yoin.data.source.spotify.SpotifyMusicSource
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
@@ -56,6 +62,7 @@ class YoinRepository(
     private val songInfoDao: SongInfoDao,
     private val geminiConfigDao: GeminiConfigDao,
     private val lyricsCacheDao: LyricsCacheDao,
+    private val songNoteDao: SongNoteDao,
     private val lyricsProviderRegistry: LyricsProviderRegistry = LyricsProviderRegistry(),
     private val clock: () -> Long = System::currentTimeMillis,
 ) {
@@ -273,6 +280,117 @@ class YoinRepository(
                 database.localRatingDao().upsert(rating.copy(needsSync = false))
             }
         }
+    }
+
+    // ── Notes ──────────────────────────────────────────────────────────
+
+    fun observeNotes(trackId: MediaId): Flow<List<SongNote>> =
+        songNoteDao.observeForTrack(trackId.rawId, trackId.provider)
+
+    fun observeCrossProviderNotes(
+        trackId: MediaId,
+        title: String,
+        artist: String,
+    ): Flow<List<SongNote>> {
+        val normalizedTitle = title.trim()
+        val normalizedArtist = artist.trim()
+        if (normalizedTitle.isEmpty() || normalizedArtist.isEmpty()) {
+            return flowOf(emptyList())
+        }
+        return songNoteDao.observeCrossProvider(
+            title = normalizedTitle,
+            artist = normalizedArtist,
+            trackId = trackId.rawId,
+            provider = trackId.provider,
+        )
+    }
+
+    fun observeTracksWithNotes(trackIds: Collection<MediaId>): Flow<Set<MediaId>> {
+        val distinctTrackIds = trackIds.distinct()
+        if (distinctTrackIds.isEmpty()) {
+            return flowOf(emptySet())
+        }
+
+        val groupedFlows = distinctTrackIds
+            .groupBy(MediaId::provider)
+            .map { (provider, ids) ->
+                songNoteDao.observeKeys(
+                    trackIds = ids.map(MediaId::rawId),
+                    provider = provider,
+                )
+            }
+
+        if (groupedFlows.size == 1) {
+            return groupedFlows.first().map { keys -> keys.toMediaIdSet() }
+        }
+
+        return combine(groupedFlows) { groups ->
+            buildSet {
+                groups.forEach { keys ->
+                    addAll(keys.toMediaIdSet())
+                }
+            }
+        }
+    }
+
+    /** User tapped Save —— 为当前曲目追加一条新的笔记。content 空串会被忽略。 */
+    suspend fun addNote(track: Track, content: String): SongNote? {
+        val trimmed = content.trim()
+        if (trimmed.isEmpty()) return null
+        val now = clock()
+        val note = SongNote(
+            id = java.util.UUID.randomUUID().toString(),
+            trackId = track.id.rawId,
+            provider = track.id.provider,
+            content = trimmed,
+            createdAt = now,
+            updatedAt = now,
+            title = track.title.orEmpty(),
+            artist = track.artist.orEmpty(),
+        )
+        songNoteDao.insert(note)
+        return note
+    }
+
+    suspend fun updateNote(note: SongNote, content: String) {
+        val trimmed = content.trim()
+        if (trimmed.isEmpty()) {
+            songNoteDao.deleteById(note.id)
+            return
+        }
+        songNoteDao.update(note.copy(content = trimmed, updatedAt = clock()))
+    }
+
+    suspend fun deleteNoteById(id: String) {
+        songNoteDao.deleteById(id)
+    }
+
+    // ── Devices ───────────────────────────────────────────────────────
+
+    suspend fun listSpotifyDevices(): List<YoinDevice.SpotifyConnect> {
+        val source = activeSource.value as? SpotifyMusicSource ?: return emptyList()
+        return source.listDevices()
+            .mapNotNull { device ->
+                val id = device.id ?: return@mapNotNull null
+                YoinDevice.SpotifyConnect(
+                    id = id,
+                    name = device.name,
+                    isActive = device.isActive,
+                    spotifyType = device.type,
+                    isSelectable = !device.isRestricted,
+                    statusText = when {
+                        device.isRestricted -> "Unavailable from Spotify"
+                        device.isPrivateSession -> "Private session"
+                        else -> null
+                    },
+                )
+            }
+            .sortedByDescending(YoinDevice.SpotifyConnect::isActive)
+    }
+
+    suspend fun transferSpotifyPlayback(deviceId: String, play: Boolean = true) {
+        val source = activeSource.value as? SpotifyMusicSource ?: return
+        source.transferPlayback(deviceId = deviceId, play = play)
     }
 
     // ── Lyrics ─────────────────────────────────────────────────────────
@@ -556,6 +674,9 @@ private fun collapseToLatestUnique(events: List<ActivityEvent>): List<ActivityEv
         private val LYRICS_CACHE_TTL_MS: Long = 30L * 24L * 60L * 60L * 1000L
     }
 }
+
+private fun List<SongNoteKey>.toMediaIdSet(): Set<MediaId> =
+    mapTo(linkedSetOf()) { key -> MediaId(key.provider, key.trackId) }
 
 private fun Album.toSpotifyHomeAlbumCache(
     profileId: String,

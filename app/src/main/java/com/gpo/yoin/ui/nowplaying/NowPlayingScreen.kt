@@ -100,13 +100,17 @@ import androidx.compose.ui.unit.sp
 import kotlin.math.roundToInt
 import kotlinx.coroutines.launch
 import coil3.compose.AsyncImage
+import com.gpo.yoin.data.model.YoinDevice
 import com.gpo.yoin.data.repository.ActivityContext
 import com.gpo.yoin.player.CastState
+import com.gpo.yoin.data.local.SongNote
 import com.gpo.yoin.player.VisualizerData
 import com.gpo.yoin.ui.component.CastButton
+import com.gpo.yoin.ui.component.DevicesSheet
 import com.gpo.yoin.ui.component.ExpressiveMediaArtwork
 import com.gpo.yoin.ui.component.horizontalFadeMask
 import com.gpo.yoin.ui.component.LyricsDisplay
+import com.gpo.yoin.ui.component.NoteEditorSheet
 import com.gpo.yoin.ui.component.SongInfoDisplay
 import com.gpo.yoin.ui.component.QueueSheet
 import com.gpo.yoin.ui.component.RatingSlider
@@ -151,6 +155,12 @@ fun NowPlayingScreen(
     dismissFraction: () -> Float = { 0f },
     songInfoState: SongInfoUiState = SongInfoUiState.Idle,
     onRetryFetchSongInfo: () -> Unit = {},
+    notesState: List<SongNote> = emptyList(),
+    onSaveNote: (String) -> Unit = {},
+    onDeleteNote: (String) -> Unit = {},
+    devicesState: DevicesSheetState = DevicesSheetState(),
+    onRefreshDevices: () -> Unit = {},
+    onSelectDevice: (YoinDevice) -> Unit = {},
     castState: CastState = CastState.NotAvailable,
     onCastClick: () -> Unit = {},
     sharedTransitionScope: SharedTransitionScope? = null,
@@ -207,6 +217,12 @@ fun NowPlayingScreen(
                     dismissFraction = dismissFraction,
                     songInfoState = songInfoState,
                     onRetryFetchSongInfo = onRetryFetchSongInfo,
+                    notesState = notesState,
+                    onSaveNote = onSaveNote,
+                    onDeleteNote = onDeleteNote,
+                    devicesState = devicesState,
+                    onRefreshDevices = onRefreshDevices,
+                    onSelectDevice = onSelectDevice,
                     castState = castState,
                     onCastClick = onCastClick,
                     sharedTransitionScope = sharedTransitionScope,
@@ -395,6 +411,12 @@ private fun PlayingContent(
     dismissFraction: () -> Float = { 0f },
     songInfoState: SongInfoUiState = SongInfoUiState.Idle,
     onRetryFetchSongInfo: () -> Unit = {},
+    notesState: List<SongNote> = emptyList(),
+    onSaveNote: (String) -> Unit = {},
+    onDeleteNote: (String) -> Unit = {},
+    devicesState: DevicesSheetState = DevicesSheetState(),
+    onRefreshDevices: () -> Unit = {},
+    onSelectDevice: (YoinDevice) -> Unit = {},
     castState: CastState = CastState.NotAvailable,
     onCastClick: () -> Unit = {},
     sharedTransitionScope: SharedTransitionScope? = null,
@@ -423,6 +445,8 @@ private fun PlayingContent(
     }
 
     var showQueue by remember { mutableStateOf(false) }
+    var showNotesSheet by remember(state.songId) { mutableStateOf(false) }
+    var showDevicesSheet by remember(state.songId) { mutableStateOf(false) }
     val playInteractionSource = rememberNowPlayingButtonGroupInteractionSource()
     val nextInteractionSource = rememberNowPlayingButtonGroupInteractionSource()
     val playPressed by playInteractionSource.collectIsPressedAsState()
@@ -713,6 +737,11 @@ private fun PlayingContent(
             // ── 5. Bottom pills ───────────────────────────────────────────────
             BottomPills(
                 onQueueClick = { showQueue = true },
+                onDevicesClick = {
+                    showDevicesSheet = true
+                    onRefreshDevices()
+                },
+                onNotesClick = { showNotesSheet = true },
                 castState = castState,
                 onCastClick = onCastClick,
             )
@@ -732,6 +761,33 @@ private fun PlayingContent(
                     showQueue = false
                 },
                 onDismiss = { showQueue = false },
+            )
+        }
+    }
+
+    if (showNotesSheet) {
+        ProvideYoinMotionRole(role = YoinMotionRole.Standard) {
+            NoteEditorSheet(
+                songTitle = state.songTitle,
+                notes = notesState,
+                onSave = onSaveNote,
+                onDelete = onDeleteNote,
+                onDismiss = { showNotesSheet = false },
+            )
+        }
+    }
+
+    if (showDevicesSheet) {
+        ProvideYoinMotionRole(role = YoinMotionRole.Standard) {
+            DevicesSheet(
+                providerId = devicesState.providerId,
+                devices = devicesState.devices,
+                loading = devicesState.loading,
+                busyDeviceId = devicesState.busyDeviceId,
+                errorMessage = devicesState.errorMessage,
+                onRefresh = onRefreshDevices,
+                onSelect = onSelectDevice,
+                onDismiss = { showDevicesSheet = false },
             )
         }
     }
@@ -1233,6 +1289,8 @@ private fun PlaybackTimeLabel(
 @Composable
 private fun BottomPills(
     onQueueClick: () -> Unit,
+    onDevicesClick: () -> Unit,
+    onNotesClick: () -> Unit,
     castState: CastState = CastState.NotAvailable,
     onCastClick: () -> Unit = {},
     modifier: Modifier = Modifier,
@@ -1283,7 +1341,7 @@ private fun BottomPills(
                 customItem(
                     buttonGroupContent = {
                         PillButton(
-                            onClick = { /* TODO: device selector */ },
+                            onClick = onDevicesClick,
                             icon = Icons.Rounded.Devices,
                             label = "Devices",
                             showLabel = !devicesPressed,
@@ -1296,7 +1354,7 @@ private fun BottomPills(
                 customItem(
                     buttonGroupContent = {
                         PillButton(
-                            onClick = { /* TODO: notes */ },
+                            onClick = onNotesClick,
                             icon = Icons.AutoMirrored.Rounded.StickyNote2,
                             label = "Notes",
                             showLabel = !notesPressed,
@@ -1515,6 +1573,8 @@ private fun BottomPillsPreview() {
     YoinTheme {
         BottomPills(
             onQueueClick = {},
+            onDevicesClick = {},
+            onNotesClick = {},
         )
     }
 }

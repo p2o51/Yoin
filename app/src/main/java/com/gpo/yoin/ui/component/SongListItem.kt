@@ -13,7 +13,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.StickyNote2
 import androidx.compose.material.icons.filled.MusicNote
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -43,6 +45,7 @@ fun SongListItem(
     isNowPlaying: Boolean = false,
     playbackSignal: Float = 0f,
     extractBackdropColors: Boolean = true,
+    hasNote: Boolean = false,
     modifier: Modifier = Modifier,
     trailingContent: (@Composable RowScope.() -> Unit)? = null,
 ) {
@@ -95,13 +98,27 @@ fun SongListItem(
                 modifier = Modifier.weight(1f),
                 verticalArrangement = Arrangement.spacedBy(3.dp),
             ) {
-                Text(
-                    text = title,
-                    style = MaterialTheme.typography.titleSmall,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    Text(
+                        text = title,
+                        style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false),
+                    )
+                    if (hasNote) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Rounded.StickyNote2,
+                            contentDescription = "Has note",
+                            tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.72f),
+                            modifier = Modifier.size(12.dp),
+                        )
+                    }
+                }
                 Text(
                     text = buildString {
                         append(artist)
@@ -151,6 +168,7 @@ private fun SongListItemPreview() {
             durationSeconds = 354,
             coverArtUrl = null,
             onClick = {},
+            hasNote = true,
         )
     }
 }

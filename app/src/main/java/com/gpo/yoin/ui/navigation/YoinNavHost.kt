@@ -215,6 +215,9 @@ fun YoinNavHost(
                             factory = AlbumDetailViewModel.Factory(route.albumId, app.container),
                         )
                         val uiState by viewModel.uiState.collectAsState()
+                        val notedSongIds by viewModel.notedSongIds.collectAsState()
+                        val expandedSongId by viewModel.expandedSongId.collectAsState()
+                        val expandedNoteBundle by viewModel.expandedNoteBundle.collectAsState()
                         YoinBackSurface(
                             kind = BackSurfaceKind.PushPage,
                             onCommitBack = { backStack.removeLastOrNull() },
@@ -245,12 +248,11 @@ fun YoinNavHost(
                                         )
                                     }
                                 },
-                                onAddSongToPlaylist = { songId ->
-                                    nowPlayingViewModel.requestAddTracksToPlaylist(
-                                        listOf(MediaId.parse(songId)),
-                                    )
-                                },
                                 onToggleStar = viewModel::toggleStar,
+                                notedSongIds = notedSongIds,
+                                expandedSongId = expandedSongId,
+                                expandedNoteBundle = expandedNoteBundle,
+                                onToggleExpandedSong = viewModel::toggleExpandedSong,
                                 onRetry = viewModel::retry,
                                 sharedTransitionScope = sharedTransitionScope,
                                 animatedVisibilityScope = navAnimatedVisibilityScope,
@@ -314,6 +316,7 @@ fun YoinNavHost(
                             factory = PlaylistDetailViewModel.Factory(route.playlistId, app.container),
                         )
                         val uiState by viewModel.uiState.collectAsState()
+                        val notedSongIds by viewModel.notedSongIds.collectAsState()
                         val detailSnackbarHostState = remember { SnackbarHostState() }
                         // Surface rename/delete/remove outcomes in the shell snackbar.
                         LaunchedEffect(viewModel) {
@@ -390,6 +393,7 @@ fun YoinNavHost(
                                     onRename = viewModel::rename,
                                     onDelete = viewModel::delete,
                                     onRemoveTrack = viewModel::removeTrack,
+                                    notedSongIds = notedSongIds,
                                     sharedTransitionKey = route.sharedTransitionKey,
                                     sharedTransitionScope = sharedTransitionScope,
                                     animatedVisibilityScope = navAnimatedVisibilityScope,
@@ -499,6 +503,8 @@ private fun YoinShell(
     val castState by app.container.castManager.castState.collectAsState()
     val nowPlayingUiState by nowPlayingViewModel.uiState.collectAsState()
     val songInfoState by nowPlayingViewModel.songInfoState.collectAsState()
+    val notesState by nowPlayingViewModel.notesState.collectAsState()
+    val devicesState by nowPlayingViewModel.devicesState.collectAsState()
     val memoriesReveal = rememberRevealState(
         initialFraction = if (homeSurface == HomeSurface.Memories) 0f else 1f,
     )
@@ -844,6 +850,12 @@ private fun YoinShell(
                     },
                     songInfoState = songInfoState,
                     onRetryFetchSongInfo = nowPlayingViewModel::retryFetchSongInfo,
+                    notesState = notesState,
+                    onSaveNote = nowPlayingViewModel::saveCurrentNote,
+                    onDeleteNote = nowPlayingViewModel::deleteNote,
+                    devicesState = devicesState,
+                    onRefreshDevices = nowPlayingViewModel::refreshDevices,
+                    onSelectDevice = nowPlayingViewModel::selectDevice,
                     castState = castState,
                     onCastClick = { },
                     sharedTransitionScope = sharedTransitionScope,

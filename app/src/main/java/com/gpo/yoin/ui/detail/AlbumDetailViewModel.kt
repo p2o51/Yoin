@@ -9,10 +9,18 @@ import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.Track
 import com.gpo.yoin.data.repository.YoinRepository
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 
+@OptIn(ExperimentalCoroutinesApi::class)
 class AlbumDetailViewModel(
     private val albumId: String,
     private val repository: YoinRepository,
@@ -22,6 +30,45 @@ class AlbumDetailViewModel(
     val uiState: StateFlow<AlbumDetailUiState> = _uiState.asStateFlow()
 
     private var albumSongs: List<Track> = emptyList()
+    private val albumTrackIds = MutableStateFlow<List<MediaId>>(emptyList())
+    private val _expandedSongId = MutableStateFlow<String?>(null)
+    val expandedSongId: StateFlow<String?> = _expandedSongId.asStateFlow()
+
+    val notedSongIds: StateFlow<Set<String>> = albumTrackIds
+        .flatMapLatest(repository::observeTracksWithNotes)
+        .map { ids -> ids.mapTo(linkedSetOf(), MediaId::toString) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptySet())
+
+    val expandedNoteBundle: StateFlow<AlbumExpandedNoteBundle?> = _expandedSongId
+        .flatMapLatest { songId ->
+            val track = albumSongs.firstOrNull { it.id.toString() == songId }
+                ?: return@flatMapLatest flowOf(null)
+            combine(
+                repository.observeNotes(track.id),
+                repository.observeCrossProviderNotes(
+                    trackId = track.id,
+                    title = track.title.orEmpty(),
+                    artist = track.artist.orEmpty(),
+                ),
+            ) { primary, crossProvider ->
+                AlbumExpandedNoteBundle(
+                    songId = track.id.toString(),
+                    primaryNotes = primary
+                        .filter { it.content.isNotBlank() }
+                        .map { AlbumPrimaryNote(id = it.id, content = it.content, createdAt = it.createdAt) },
+                    crossProviderNotes = crossProvider
+                        .mapNotNull { note ->
+                            note.content.takeIf(String::isNotBlank)?.let { content ->
+                                AlbumCrossProviderNote(
+                                    providerLabel = note.provider.toProviderLabel(),
+                                    content = content,
+                                )
+                            }
+                        },
+                )
+            }
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     init {
         loadAlbum()
@@ -44,15 +91,13 @@ class AlbumDetailViewModel(
                     return@launch
                 }
                 albumSongs = album.tracks
+                albumTrackIds.value = albumSongs.map(Track::id)
                 repository.recordAlbumVisit(album)
                 _uiState.value = AlbumDetailUiState.Content(
                     albumId = album.id.toString(),
                     albumName = album.name,
                     artistName = album.artist.orEmpty(),
                     artistId = album.artistId?.toString(),
-                    // Storage-key shape (URL for Spotify, raw id for Subsonic)
-                    // so downstream `ActivityContext.Album` → `ActivityEvent`
-                    // persistence round-trips via CoverRef.{to,from}StorageKey.
                     coverArtId = CoverRef.toStorageKey(album.coverArt),
                     coverArtUrl = album.coverArt?.let { repository.resolveCoverUrl(it) },
                     year = album.year,
@@ -94,6 +139,10 @@ class AlbumDetailViewModel(
         }
     }
 
+    fun toggleExpandedSong(songId: String) {
+        _expandedSongId.value = if (_expandedSongId.value == songId) null else songId
+    }
+
     class Factory(
         private val albumId: String,
         private val container: AppContainer,
@@ -102,4 +151,28 @@ class AlbumDetailViewModel(
         override fun <T : ViewModel> create(modelClass: Class<T>): T =
             AlbumDetailViewModel(albumId, container.repository) as T
     }
+}
+
+data class AlbumExpandedNoteBundle(
+    val songId: String,
+    val primaryNotes: List<AlbumPrimaryNote>,
+    val crossProviderNotes: List<AlbumCrossProviderNote>,
+)
+
+data class AlbumPrimaryNote(
+    val id: String,
+    val content: String,
+    val createdAt: Long,
+)
+
+data class AlbumCrossProviderNote(
+    val providerLabel: String,
+    val content: String,
+)
+
+private fun String.toProviderLabel(): String = when (this) {
+    MediaId.PROVIDER_SPOTIFY -> "Spotify"
+    MediaId.PROVIDER_SUBSONIC -> "Subsonic"
+    MediaId.PROVIDER_LOCAL -> "Local"
+    else -> replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() }
 }

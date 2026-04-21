@@ -25,8 +25,8 @@ import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
+import com.gpo.yoin.ui.component.YoinDropdownMenu
+import com.gpo.yoin.ui.component.YoinDropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -80,6 +80,7 @@ fun PlaylistDetailScreen(
     onRename: (name: String) -> Unit = {},
     onDelete: () -> Unit = {},
     onRemoveTrack: (position: Int, trackId: String) -> Unit = { _, _ -> },
+    notedSongIds: Set<String> = emptySet(),
     sharedTransitionKey: String? = null,
     sharedTransitionScope: SharedTransitionScope? = null,
     animatedVisibilityScope: AnimatedVisibilityScope? = null,
@@ -141,12 +142,12 @@ fun PlaylistDetailScreen(
                                         contentDescription = "More actions",
                                     )
                                 }
-                                DropdownMenu(
+                                YoinDropdownMenu(
                                     expanded = showOverflow,
                                     onDismissRequest = { showOverflow = false },
                                 ) {
-                                    DropdownMenuItem(
-                                        text = { Text("Rename") },
+                                    YoinDropdownMenuItem(
+                                        text = "Rename",
                                         leadingIcon = {
                                             Icon(Icons.Filled.Edit, contentDescription = null)
                                         },
@@ -155,8 +156,8 @@ fun PlaylistDetailScreen(
                                             showRenameDialog = true
                                         },
                                     )
-                                    DropdownMenuItem(
-                                        text = { Text("Delete") },
+                                    YoinDropdownMenuItem(
+                                        text = "Delete",
                                         leadingIcon = {
                                             Icon(Icons.Filled.Delete, contentDescription = null)
                                         },
@@ -227,6 +228,7 @@ fun PlaylistDetailScreen(
                         onSongClick = onSongClick,
                         onAddSongToPlaylist = onAddSongToPlaylist,
                         onRemoveTrack = onRemoveTrack,
+                        notedSongIds = notedSongIds,
                         sharedTransitionKey = sharedTransitionKey,
                         sharedTransitionScope = sharedTransitionScope,
                         animatedVisibilityScope = animatedVisibilityScope,
@@ -310,6 +312,7 @@ private fun PlaylistDetailContent(
     onSongClick: (songId: String) -> Unit,
     onAddSongToPlaylist: (songId: String) -> Unit,
     onRemoveTrack: (position: Int, trackId: String) -> Unit,
+    notedSongIds: Set<String>,
     sharedTransitionKey: String? = null,
     sharedTransitionScope: SharedTransitionScope? = null,
     animatedVisibilityScope: AnimatedVisibilityScope? = null,
@@ -386,6 +389,7 @@ private fun PlaylistDetailContent(
                 coverArtUrl = song.coverArtUrl,
                 onClick = { onSongClick(song.id) },
                 onLongClick = { onAddSongToPlaylist(song.id) },
+                hasNote = song.id in notedSongIds,
                 trailingContent = if (content.canWrite) {
                     {
                         SongRowOverflow(
@@ -481,12 +485,12 @@ private fun SongRowOverflow(onRemove: () -> Unit) {
                 contentDescription = "Track actions",
             )
         }
-        DropdownMenu(
+        YoinDropdownMenu(
             expanded = expanded,
             onDismissRequest = { expanded = false },
         ) {
-            DropdownMenuItem(
-                text = { Text("Remove from playlist") },
+            YoinDropdownMenuItem(
+                text = "Remove from playlist",
                 leadingIcon = {
                     Icon(Icons.Filled.Delete, contentDescription = null)
                 },

@@ -7,6 +7,7 @@ import com.gpo.yoin.AppContainer
 import com.gpo.yoin.data.model.Album
 import com.gpo.yoin.data.model.Artist
 import com.gpo.yoin.data.model.ArtistIndex
+import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.Playlist
 import com.gpo.yoin.data.model.SearchResults
 import com.gpo.yoin.data.model.Starred
@@ -17,15 +18,21 @@ import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 
-@OptIn(FlowPreview::class)
+@OptIn(FlowPreview::class, ExperimentalCoroutinesApi::class)
 class LibraryViewModel(
     private val repository: YoinRepository,
     private val onPlaylistMutated: () -> Unit = {},
@@ -45,6 +52,29 @@ class LibraryViewModel(
     private var cachedSongs: List<Track>? = null
     private var cachedPlaylists: List<Playlist>? = null
     private var cachedFavorites: Starred? = null
+
+    val notedSongIds: StateFlow<Set<String>> = uiState
+        .flatMapLatest { state ->
+            val visibleTrackIds = when (state) {
+                is LibraryUiState.Content -> when {
+                    state.searchQuery.isNotBlank() ->
+                        state.searchResults?.tracks.orEmpty().map(Track::id)
+                    state.selectedTab == LibraryTab.Songs ->
+                        state.songs.map(Track::id)
+                    state.selectedTab == LibraryTab.Favorites ->
+                        state.favorites?.tracks.orEmpty().map(Track::id)
+                    else -> emptyList()
+                }
+                else -> emptyList()
+            }
+            if (visibleTrackIds.isEmpty()) {
+                flowOf(emptySet())
+            } else {
+                repository.observeTracksWithNotes(visibleTrackIds)
+            }
+        }
+        .map { ids -> ids.mapTo(linkedSetOf(), MediaId::toString) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptySet())
 
     init {
         loadInitialData()
