@@ -41,6 +41,11 @@ data class MemoryEntry(
     val scoreText: String,
     val scoreSupportingText: String?,
     val footerText: String?,
+    /**
+     * 「余音 Gemini 文案」—— 专辑卡的感性短评。未开 BYOK 或生成失败时为
+     * null；UI 层判 null 决定是否渲染该行，不显示占位。
+     */
+    val narrativeCopy: String? = null,
     val playbackSongs: List<Track>,
     val tracks: List<MemoryTrack>,
 )

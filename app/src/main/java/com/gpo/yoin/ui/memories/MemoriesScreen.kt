@@ -617,6 +617,10 @@ private fun MemoriesHero(
     } else {
         Color.White
     }
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
+    ) {
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(16.dp),
@@ -708,6 +712,17 @@ private fun MemoriesHero(
                     textAlign = TextAlign.Center,
                 )
             }
+        }
+    }
+        // 「余音 Gemini 文案」独占一行，贴合卡片宽度。空时不占位 —— 没开
+        // BYOK 或生成失败的专辑保持和 0.2 视觉一致。
+        memory.narrativeCopy?.takeIf(String::isNotBlank)?.let { narrative ->
+            Text(
+                text = narrative,
+                modifier = Modifier.fillMaxWidth(),
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.84f),
+            )
         }
     }
 }

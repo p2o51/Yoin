@@ -61,6 +61,7 @@ class YoinDatabaseMigrationTest {
                 AppContainer.MIGRATION_7_8,
                 AppContainer.MIGRATION_8_9,
                 AppContainer.MIGRATION_9_10,
+                AppContainer.MIGRATION_10_11,
             )
             .allowMainThreadQueries()
             .build()
@@ -137,7 +138,11 @@ class YoinDatabaseMigrationTest {
         helper.close()
 
         val migrated = Room.databaseBuilder(context, YoinDatabase::class.java, dbName)
-            .addMigrations(AppContainer.MIGRATION_8_9, AppContainer.MIGRATION_9_10)
+            .addMigrations(
+                AppContainer.MIGRATION_8_9,
+                AppContainer.MIGRATION_9_10,
+                AppContainer.MIGRATION_10_11,
+            )
             .allowMainThreadQueries()
             .build()
 
@@ -197,7 +202,10 @@ class YoinDatabaseMigrationTest {
         helper.close()
 
         val migrated = Room.databaseBuilder(context, YoinDatabase::class.java, dbName)
-            .addMigrations(AppContainer.MIGRATION_9_10)
+            .addMigrations(
+                AppContainer.MIGRATION_9_10,
+                AppContainer.MIGRATION_10_11,
+            )
             .allowMainThreadQueries()
             .build()
 
@@ -215,6 +223,110 @@ class YoinDatabaseMigrationTest {
         assertTrue("migration must assign a non-empty synthetic id", preserved.id.isNotBlank())
 
         migrated.close()
+    }
+
+    @Test
+    fun should_create_album_notes_and_ratings_when_migrating_10_to_11() = runTest {
+        val helper = FrameworkSQLiteOpenHelperFactory().create(
+            SupportSQLiteOpenHelper.Configuration.builder(context)
+                .name(dbName)
+                .callback(
+                    object : SupportSQLiteOpenHelper.Callback(10) {
+                        override fun onCreate(db: SupportSQLiteDatabase) {
+                            createVersion10Schema(db)
+                        }
+
+                        override fun onUpgrade(
+                            db: SupportSQLiteDatabase,
+                            oldVersion: Int,
+                            newVersion: Int,
+                        ) = Unit
+                    },
+                )
+                .build(),
+        )
+        helper.writableDatabase.close()
+        helper.close()
+
+        val migrated = Room.databaseBuilder(context, YoinDatabase::class.java, dbName)
+            .addMigrations(AppContainer.MIGRATION_10_11)
+            .allowMainThreadQueries()
+            .build()
+
+        migrated.openHelper.writableDatabase
+
+        migrated.albumNoteDao().insert(
+            AlbumNote(
+                id = "album-note-1",
+                albumId = "album-1",
+                provider = MediaId.PROVIDER_SUBSONIC,
+                content = "draft review",
+                createdAt = 100L,
+                updatedAt = 100L,
+                albumName = "Album One",
+                artist = "Artist One",
+            ),
+        )
+
+        val notes = migrated.albumNoteDao()
+            .observeForAlbum("album-1", MediaId.PROVIDER_SUBSONIC)
+            .first()
+        assertEquals(listOf("draft review"), notes.map(AlbumNote::content))
+
+        migrated.albumRatingDao().upsert(
+            AlbumRating(
+                albumId = "album-1",
+                provider = MediaId.PROVIDER_SUBSONIC,
+                rating = 7.5f,
+                review = "long review body",
+                neoDbReviewUuid = null,
+                ratingNeedsSync = true,
+                reviewNeedsSync = true,
+            ),
+        )
+        val rating = migrated.albumRatingDao()
+            .observe("album-1", MediaId.PROVIDER_SUBSONIC)
+            .first()
+        assertEquals(7.5f, rating?.rating ?: 0f, 0.001f)
+        assertEquals("long review body", rating?.review)
+        assertTrue(rating?.ratingNeedsSync == true)
+        assertTrue(rating?.reviewNeedsSync == true)
+
+        migrated.close()
+    }
+
+    private fun createVersion10Schema(db: SupportSQLiteDatabase) {
+        createVersion9Schema(db)
+        // v9 song_notes → v10 UUID-keyed song_notes. Minimal form needed
+        // for migration-level tests that don't touch song_notes rows.
+        db.execSQL("DROP TABLE IF EXISTS `song_notes`")
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS `song_notes` (
+                `id` TEXT NOT NULL,
+                `trackId` TEXT NOT NULL,
+                `provider` TEXT NOT NULL DEFAULT 'subsonic',
+                `content` TEXT NOT NULL,
+                `createdAt` INTEGER NOT NULL,
+                `updatedAt` INTEGER NOT NULL,
+                `title` TEXT NOT NULL,
+                `artist` TEXT NOT NULL,
+                PRIMARY KEY(`id`)
+            )
+            """.trimIndent(),
+        )
+        db.execSQL(
+            """
+            CREATE INDEX IF NOT EXISTS `index_song_notes_title_artist`
+            ON `song_notes` (`title`, `artist`)
+            """.trimIndent(),
+        )
+        db.execSQL(
+            """
+            CREATE INDEX IF NOT EXISTS `index_song_notes_trackId_provider`
+            ON `song_notes` (`trackId`, `provider`)
+            """.trimIndent(),
+        )
     }
 
     private fun createVersion6Schema(db: SupportSQLiteDatabase) {

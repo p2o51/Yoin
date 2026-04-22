@@ -17,6 +17,8 @@ import com.gpo.yoin.data.profile.ProfileManager
 import com.gpo.yoin.data.profile.SharedPrefsProfileActiveIdStore
 import com.gpo.yoin.data.profile.SpotifyProviderStatus
 import com.gpo.yoin.data.remote.GeminiService
+import com.gpo.yoin.data.remote.neodb.NeoDBApi
+import com.gpo.yoin.data.remote.neodb.NeoDBSyncService
 import com.gpo.yoin.data.repository.YoinRepository
 import com.gpo.yoin.data.source.spotify.SpotifyAuthConfig
 import com.gpo.yoin.player.AudioVisualizerManager
@@ -61,7 +63,12 @@ class AppContainer(private val context: Context) {
                 MIGRATION_7_8,
                 MIGRATION_8_9,
                 MIGRATION_9_10,
+                MIGRATION_10_11,
             )
+            // v11 冻结了 0.3 schema；0.5 上架前的备份降级保险（用户拿着 v11
+            // 备份在旧版设备恢复）走这条：数据丢但应用不崩。没数据丢失比
+            // 崩溃到用户面前可接受。
+            .fallbackToDestructiveMigrationOnDowngrade(dropAllTables = false)
             .build()
     }
 
@@ -223,10 +230,14 @@ class AppContainer(private val context: Context) {
             profileManager.activeSource,
             spotifyClientIdFlow,
             _lastSpotifyStickyFailure,
-        ) { source, clientId, lastFailure ->
+            profileManager.reconnectReason,
+        ) { source, clientId, lastFailure, reconnectReason ->
             val isSpotify = source?.id == MediaId.PROVIDER_SPOTIFY
             when {
                 !isSpotify -> SpotifyProviderStatus.Ready
+                // NeedsReconnect 优先级高于 clientId / lastFailure：换机恢复
+                // 和 invalid_grant 都要求重授权，UI 走统一入口。
+                reconnectReason != null -> SpotifyProviderStatus.NeedsReconnect(reconnectReason)
                 clientId.isBlank() -> SpotifyProviderStatus.NoClientId
                 lastFailure == null -> SpotifyProviderStatus.Ready
                 lastFailure is SpotifyConnectFailure.NoClientId ->
@@ -310,6 +321,28 @@ class AppContainer(private val context: Context) {
         )
     }
 
+    private val neoDbJson: Json = Json { ignoreUnknownKeys = true; isLenient = true }
+
+    private val neoDbHttpClient: OkHttpClient by lazy {
+        OkHttpClient.Builder()
+            .connectTimeout(15, TimeUnit.SECONDS)
+            .readTimeout(30, TimeUnit.SECONDS)
+            .build()
+    }
+
+    val neoDbApi: NeoDBApi by lazy {
+        NeoDBApi(client = neoDbHttpClient, json = neoDbJson)
+    }
+
+    val neoDbSyncService: NeoDBSyncService by lazy {
+        NeoDBSyncService(
+            api = neoDbApi,
+            configDao = database.neoDbConfigDao(),
+            mappingDao = database.externalMappingDao(),
+            albumRatingDao = database.albumRatingDao(),
+        )
+    }
+
     val memoriesDeckCoordinator: MemoriesDeckCoordinator by lazy {
         MemoriesDeckCoordinator(
             repository = repository,
@@ -329,6 +362,10 @@ class AppContainer(private val context: Context) {
             geminiConfigDao = database.geminiConfigDao(),
             lyricsCacheDao = database.lyricsCacheDao(),
             songNoteDao = database.songNoteDao(),
+            albumNoteDao = database.albumNoteDao(),
+            albumRatingDao = database.albumRatingDao(),
+            memoryCopyCacheDao = database.memoryCopyCacheDao(),
+            neoDbSyncService = neoDbSyncService,
             lyricsProviderRegistry = lyricsProviderRegistry,
         )
     }
@@ -605,6 +642,154 @@ class AppContainer(private val context: Context) {
                 )
             }
         }
+
+        /**
+         * v10 → v11（0.3 冻结 schema，为 0.4 抛光期打基础）：
+         *
+         *  - `album_notes`: 专辑级多条笔记（镜像 song_notes 结构）。
+         *  - `album_ratings`: 专辑 rating + review；NeoDB 双向同步的本地真源，
+         *    分离 ratingNeedsSync / reviewNeedsSync 因为 Mark vs Review
+         *    是两个 NeoDB 资源，离线写入时可能只脏一边。
+         *  - `external_mappings`: Yoin 实体 ↔ 第三方 uuid（目前仅 NeoDB），
+         *    复合 PK (provider, entityType, entityId, externalService)。
+         *  - `memory_copy_cache`: 「余音 Gemini 文案」缓存；按
+         *    (provider, entityType, entityId) 唯一。
+         *  - `neodb_config`: 单行 BYOK token + instance。
+         *  - activity_events 加 index(provider, timestamp) 跑 Memory 抽样时
+         *    不再全表扫；加 AFTER INSERT trigger 强制总条数 ≤ 10000
+         *    （按 provider 分别滚动淘汰）。
+         *  - play_history 加 index(provider, playedAt) 辅助历史页。
+         */
+        val MIGRATION_10_11 = object : Migration(10, 11) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `album_notes` (
+                        `id` TEXT NOT NULL,
+                        `albumId` TEXT NOT NULL,
+                        `provider` TEXT NOT NULL DEFAULT 'subsonic',
+                        `content` TEXT NOT NULL,
+                        `createdAt` INTEGER NOT NULL,
+                        `updatedAt` INTEGER NOT NULL,
+                        `albumName` TEXT NOT NULL,
+                        `artist` TEXT NOT NULL,
+                        PRIMARY KEY(`id`)
+                    )
+                    """.trimIndent(),
+                )
+                // v11 新表的 DEFAULT 只出现在 provider 列（和 entity 上的
+                // `@ColumnInfo(defaultValue = …)` 对齐）。其它列故意不带
+                // SQL DEFAULT，防止 Room schema 校验报 "expected DEFAULT …"。
+                db.execSQL(
+                    """
+                    CREATE INDEX IF NOT EXISTS `index_album_notes_albumId_provider`
+                    ON `album_notes` (`albumId`, `provider`)
+                    """.trimIndent(),
+                )
+                db.execSQL(
+                    """
+                    CREATE INDEX IF NOT EXISTS `index_album_notes_albumName_artist`
+                    ON `album_notes` (`albumName`, `artist`)
+                    """.trimIndent(),
+                )
+
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `album_ratings` (
+                        `albumId` TEXT NOT NULL,
+                        `provider` TEXT NOT NULL DEFAULT 'subsonic',
+                        `rating` REAL NOT NULL,
+                        `review` TEXT,
+                        `neoDbReviewUuid` TEXT,
+                        `ratingNeedsSync` INTEGER NOT NULL,
+                        `reviewNeedsSync` INTEGER NOT NULL,
+                        `updatedAt` INTEGER NOT NULL,
+                        PRIMARY KEY(`albumId`, `provider`)
+                    )
+                    """.trimIndent(),
+                )
+
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `external_mappings` (
+                        `provider` TEXT NOT NULL,
+                        `entityType` TEXT NOT NULL,
+                        `entityId` TEXT NOT NULL,
+                        `externalService` TEXT NOT NULL,
+                        `externalId` TEXT NOT NULL,
+                        `syncedAt` INTEGER NOT NULL,
+                        PRIMARY KEY(`provider`, `entityType`, `entityId`, `externalService`)
+                    )
+                    """.trimIndent(),
+                )
+                db.execSQL(
+                    """
+                    CREATE INDEX IF NOT EXISTS `index_external_mappings_externalService_externalId`
+                    ON `external_mappings` (`externalService`, `externalId`)
+                    """.trimIndent(),
+                )
+
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `memory_copy_cache` (
+                        `provider` TEXT NOT NULL,
+                        `entityType` TEXT NOT NULL,
+                        `entityId` TEXT NOT NULL,
+                        `copy` TEXT NOT NULL,
+                        `promptHash` TEXT NOT NULL,
+                        `generatedAt` INTEGER NOT NULL,
+                        PRIMARY KEY(`provider`, `entityType`, `entityId`)
+                    )
+                    """.trimIndent(),
+                )
+
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `neodb_config` (
+                        `id` INTEGER NOT NULL PRIMARY KEY,
+                        `instance` TEXT NOT NULL DEFAULT 'https://neodb.social',
+                        `accessToken` TEXT NOT NULL DEFAULT ''
+                    )
+                    """.trimIndent(),
+                )
+
+                db.execSQL(
+                    """
+                    CREATE INDEX IF NOT EXISTS `index_activity_events_provider_timestamp`
+                    ON `activity_events` (`provider`, `timestamp`)
+                    """.trimIndent(),
+                )
+                db.execSQL(
+                    """
+                    CREATE INDEX IF NOT EXISTS `index_play_history_provider_playedAt`
+                    ON `play_history` (`provider`, `playedAt`)
+                    """.trimIndent(),
+                )
+
+                // 滚动淘汰：每插一条新 activity_event，若总数超过 10000
+                // 就按 (timestamp ASC, id ASC) 顺序淘汰最老的。触发器
+                // 全局（不按 provider 分），因为 Memory 的候选池由 provider
+                // 过滤决定；整表容量才是真正的上限。
+                db.execSQL(
+                    """
+                    CREATE TRIGGER IF NOT EXISTS `trg_activity_events_cap`
+                    AFTER INSERT ON `activity_events`
+                    WHEN (SELECT COUNT(*) FROM `activity_events`) > $ACTIVITY_EVENTS_CAP
+                    BEGIN
+                        DELETE FROM `activity_events`
+                        WHERE `id` IN (
+                            SELECT `id` FROM `activity_events`
+                            ORDER BY `timestamp` ASC, `id` ASC
+                            LIMIT ((SELECT COUNT(*) FROM `activity_events`) - $ACTIVITY_EVENTS_CAP)
+                        );
+                    END
+                    """.trimIndent(),
+                )
+            }
+        }
+
+        /** 滚动淘汰 activity_events 的目标上限。 */
+        const val ACTIVITY_EVENTS_CAP: Int = 10_000
 
         // v10: 笔记支持多条 per 单曲。主键从 (trackId, provider) 组合换成独立
         // UUID `id`；(trackId, provider) 降级成普通索引。现有单条笔记通过

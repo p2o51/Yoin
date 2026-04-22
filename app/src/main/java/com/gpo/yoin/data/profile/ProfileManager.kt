@@ -68,6 +68,28 @@ class ProfileManager(
     private val _switchingState = MutableStateFlow<SwitchState>(SwitchState.Idle)
     val switchingState: StateFlow<SwitchState> = _switchingState.asStateFlow()
 
+    /**
+     * Latest observed reason that the active profile needs the user to
+     * re-authorise. Null when credentials are healthy.
+     *
+     * Set from two distinct signals:
+     *  - `AEADBadTagException` on decrypt → [SpotifyProviderStatus.ReconnectReason.BackupRestored]
+     *    (device restored from backup, AndroidKeyStore key isn't portable).
+     *  - `ProfileCredentials.Spotify.revoked = true` → [SpotifyProviderStatus.ReconnectReason.CredentialsRevoked]
+     *    (refresh token rejected with `invalid_grant`).
+     *
+     * AppContainer fan-outs this into [SpotifyProviderStatus.NeedsReconnect]
+     * so UI can show the right copy ("backup restore" vs "access revoked").
+     */
+    private val _reconnectReason = MutableStateFlow<SpotifyProviderStatus.ReconnectReason?>(null)
+    val reconnectReason: StateFlow<SpotifyProviderStatus.ReconnectReason?> =
+        _reconnectReason.asStateFlow()
+
+    /** Called after a successful re-auth flow — clears the sticky slot. */
+    fun clearReconnectReason() {
+        _reconnectReason.value = null
+    }
+
     init {
         // Build the initial source for whatever profile boot-migration left active.
         scope.launch {
@@ -243,13 +265,32 @@ class ProfileManager(
      * undecryptable, malformed legacy JSON) so callers can render
      * "credentials unavailable" without crashing.
      */
-    fun decodeCredentials(profile: Profile): ProfileCredentials? = runCatching {
-        if (profile.credentialsJson == STORE_MARKER_V1) {
-            credentialsStore.read(profile.id)
-        } else {
-            legacyCodec.decode(profile.credentialsJson)
+    fun decodeCredentials(profile: Profile): ProfileCredentials? {
+        val decoded = runCatching {
+            if (profile.credentialsJson == STORE_MARKER_V1) {
+                credentialsStore.read(profile.id)
+            } else {
+                legacyCodec.decode(profile.credentialsJson)
+            }
+        }.getOrElse { error ->
+            if (error.isAeadBadTag()) {
+                // 换机恢复典型症状：AndroidKeyStore 的 v1 密钥是设备本地、
+                // 不跨设备；restore 过来的加密 blob 在新机器上解不开。
+                // 记一条 NeedsReconnect 信号让 UI 走重授权 + 清掉坏的
+                // 存储文件，避免每次调 profile 都反复弹。
+                _reconnectReason.value = SpotifyProviderStatus.ReconnectReason.BackupRestored
+            }
+            null
+        } ?: return null
+
+        if (decoded is ProfileCredentials.Spotify && decoded.revoked) {
+            // invalid_grant 路径 —— OAuth refresh 失败后 SpotifyAuthService
+            // 会把 revoked 标成 true 落库；这里把"需要重新授权"这件事
+            // 上提成全局信号。
+            _reconnectReason.value = SpotifyProviderStatus.ReconnectReason.CredentialsRevoked
         }
-    }.getOrNull()
+        return decoded
+    }
 
     suspend fun getActiveProfileSnapshot(): Profile? {
         val activeId = _activeProfileId.value
@@ -373,3 +414,23 @@ class ProfileManager(
 
 class ProfileLimitReachedException(val limit: Int) :
     Exception("Cannot add more than $limit profiles")
+
+/**
+ * `AEADBadTagException` is AndroidKeyStore 在 AES-GCM 模式下解不开
+ * ciphertext（tag 对不上）时抛的，最典型的触发条件是「换机恢复」——
+ * 本地加密 blob 被 backup / restore 带过来，但 keystore 里的 v1 密钥
+ * 没跟过来。用 class FQN 字符串匹配，避免 import 到不同 Android 版本
+ * 搬家了位置的类。
+ */
+private fun Throwable.isAeadBadTag(): Boolean {
+    var cursor: Throwable? = this
+    while (cursor != null) {
+        if (cursor::class.java.name.endsWith("AEADBadTagException") ||
+            cursor::class.java.name.endsWith("BadPaddingException")
+        ) {
+            return true
+        }
+        cursor = cursor.cause
+    }
+    return false
+}

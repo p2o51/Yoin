@@ -4,10 +4,17 @@ import androidx.room.withTransaction
 import com.gpo.yoin.data.local.ActivityActionType
 import com.gpo.yoin.data.local.ActivityEntityType
 import com.gpo.yoin.data.local.ActivityEvent
+import com.gpo.yoin.data.local.AlbumNote
+import com.gpo.yoin.data.local.AlbumNoteDao
+import com.gpo.yoin.data.local.AlbumNoteKey
+import com.gpo.yoin.data.local.AlbumRating
+import com.gpo.yoin.data.local.AlbumRatingDao
 import com.gpo.yoin.data.local.GeminiConfigDao
 import com.gpo.yoin.data.local.LocalRating
 import com.gpo.yoin.data.local.LyricsCache
 import com.gpo.yoin.data.local.LyricsCacheDao
+import com.gpo.yoin.data.local.MemoryCopyCache
+import com.gpo.yoin.data.local.MemoryCopyCacheDao
 import com.gpo.yoin.data.local.PlayHistory
 import com.gpo.yoin.data.local.SongNote
 import com.gpo.yoin.data.local.SongNoteDao
@@ -17,6 +24,7 @@ import com.gpo.yoin.data.local.SongInfoDao
 import com.gpo.yoin.data.local.SpotifyHomeAlbumCache
 import com.gpo.yoin.data.local.SpotifyHomeArtistCache
 import com.gpo.yoin.data.local.YoinDatabase
+import com.gpo.yoin.data.remote.neodb.NeoDBSyncService
 import com.gpo.yoin.data.lyrics.LrcParser
 import com.gpo.yoin.data.lyrics.LyricsProviderRegistry
 import com.gpo.yoin.data.model.Album
@@ -63,6 +71,10 @@ class YoinRepository(
     private val geminiConfigDao: GeminiConfigDao,
     private val lyricsCacheDao: LyricsCacheDao,
     private val songNoteDao: SongNoteDao,
+    private val albumNoteDao: AlbumNoteDao,
+    private val albumRatingDao: AlbumRatingDao,
+    private val memoryCopyCacheDao: MemoryCopyCacheDao,
+    private val neoDbSyncService: NeoDBSyncService,
     private val lyricsProviderRegistry: LyricsProviderRegistry = LyricsProviderRegistry(),
     private val clock: () -> Long = System::currentTimeMillis,
 ) {
@@ -363,6 +375,181 @@ class YoinRepository(
 
     suspend fun deleteNoteById(id: String) {
         songNoteDao.deleteById(id)
+    }
+
+    // ── Album notes ────────────────────────────────────────────────────
+
+    fun observeAlbumNotes(albumId: MediaId): Flow<List<AlbumNote>> =
+        albumNoteDao.observeForAlbum(albumId.rawId, albumId.provider)
+
+    fun observeAlbumsWithNotes(albumIds: Collection<MediaId>): Flow<Set<MediaId>> {
+        val distinct = albumIds.distinct()
+        if (distinct.isEmpty()) return flowOf(emptySet())
+        val grouped = distinct.groupBy(MediaId::provider)
+            .map { (provider, ids) ->
+                albumNoteDao.observeKeys(ids.map(MediaId::rawId), provider)
+            }
+        if (grouped.size == 1) {
+            return grouped.first().map { keys -> keys.toAlbumMediaIdSet() }
+        }
+        return combine(grouped) { groups ->
+            buildSet { groups.forEach { addAll(it.toAlbumMediaIdSet()) } }
+        }
+    }
+
+    suspend fun addAlbumNote(album: Album, content: String): AlbumNote? {
+        val trimmed = content.trim()
+        if (trimmed.isEmpty()) return null
+        val now = clock()
+        val note = AlbumNote(
+            id = java.util.UUID.randomUUID().toString(),
+            albumId = album.id.rawId,
+            provider = album.id.provider,
+            content = trimmed,
+            createdAt = now,
+            updatedAt = now,
+            albumName = album.name,
+            artist = album.artist.orEmpty(),
+        )
+        albumNoteDao.insert(note)
+        return note
+    }
+
+    suspend fun updateAlbumNote(note: AlbumNote, content: String) {
+        val trimmed = content.trim()
+        if (trimmed.isEmpty()) {
+            albumNoteDao.deleteById(note.id)
+            return
+        }
+        albumNoteDao.update(note.copy(content = trimmed, updatedAt = clock()))
+    }
+
+    suspend fun deleteAlbumNoteById(id: String) {
+        albumNoteDao.deleteById(id)
+    }
+
+    /**
+     * 把该专辑的单曲笔记原文按 (曲目序 → content) 拼起来 —— 只用于 AlbumDetail
+     * 的默认聚合展示和 Review 草稿灵感。不推到 NeoDB。
+     */
+    suspend fun aggregateSongNotesForAlbum(album: Album): String {
+        if (album.tracks.isEmpty()) return ""
+        val trackIds = album.tracks.map(Track::id)
+        return trackIds.asSequence()
+            .distinct()
+            .groupBy(MediaId::provider)
+            .flatMap { (provider, ids) ->
+                ids.flatMap { id ->
+                    songNoteDao.observeForTrack(id.rawId, provider).first()
+                }
+            }
+            .sortedBy(SongNote::createdAt)
+            .joinToString(separator = "\n\n") { note -> note.content }
+    }
+
+    // ── Album ratings / review ─────────────────────────────────────────
+
+    fun observeAlbumRating(albumId: MediaId): Flow<AlbumRating?> =
+        albumRatingDao.observe(albumId.rawId, albumId.provider)
+
+    suspend fun setAlbumRating(album: Album, rating: Float) {
+        val existing = albumRatingDao.get(album.id.rawId, album.id.provider)
+        val entry = (existing ?: AlbumRating(
+            albumId = album.id.rawId,
+            provider = album.id.provider,
+            rating = 0f,
+            review = null,
+            neoDbReviewUuid = null,
+        )).copy(
+            rating = rating.coerceIn(0f, 10f),
+            ratingNeedsSync = true,
+            updatedAt = clock(),
+        )
+        albumRatingDao.upsert(entry)
+    }
+
+    suspend fun setAlbumReview(album: Album, review: String?) {
+        val normalized = review?.trim().takeUnless { it.isNullOrEmpty() }
+        val existing = albumRatingDao.get(album.id.rawId, album.id.provider)
+        val entry = (existing ?: AlbumRating(
+            albumId = album.id.rawId,
+            provider = album.id.provider,
+            rating = 0f,
+            review = null,
+            neoDbReviewUuid = null,
+        )).copy(
+            review = normalized,
+            reviewNeedsSync = true,
+            updatedAt = clock(),
+        )
+        albumRatingDao.upsert(entry)
+    }
+
+    suspend fun pushAlbumToNeoDB(album: Album): Result<Unit> =
+        neoDbSyncService.pushAlbum(album)
+
+    suspend fun pullAlbumFromNeoDB(album: Album): Result<AlbumRating?> =
+        neoDbSyncService.pullAlbum(album)
+
+    suspend fun isNeoDBConfigured(): Boolean = neoDbSyncService.isConfigured()
+
+    // ── Memory copy cache (Gemini 感性文案) ─────────────────────────────
+
+    /**
+     * 读/生成 Memory 专辑卡片的 Gemini 短评。命中缓存直接返回；否则
+     * 后台调用 Gemini 并落库。Key 为 (albumId, provider, signal hash)；
+     * signal 变了会重算（如均分或覆盖数变化）。
+     *
+     * 返回 null 表示无 API key / 没开 BYOK —— 调用方应默默降级，不弹错。
+     */
+    suspend fun getOrGenerateAlbumMemoryCopy(
+        album: Album,
+        averageRating: Float?,
+        ratedSongCount: Int,
+        totalSongCount: Int,
+    ): String? {
+        val signal = buildString {
+            append(album.id.toString()).append('|')
+            append(album.name).append('|')
+            append(album.artist.orEmpty()).append('|')
+            append(album.year ?: 0).append('|')
+            append(averageRating ?: 0f).append('|')
+            append(ratedSongCount).append('/').append(totalSongCount)
+        }
+        val hash = signal.hashCode().toString()
+
+        val cached = memoryCopyCacheDao.get(
+            provider = album.id.provider,
+            entityType = MemoryCopyCache.ENTITY_ALBUM,
+            entityId = album.id.rawId,
+        )
+        if (cached != null && cached.promptHash == hash) return cached.copy
+
+        val apiKey = geminiConfigDao.getConfig().first()?.apiKey
+        if (apiKey.isNullOrBlank()) return cached?.copy
+
+        return runCatching {
+            val generated = geminiService.generateAlbumMemoryCopy(
+                apiKey = apiKey,
+                albumName = album.name,
+                artist = album.artist,
+                year = album.year,
+                averageRating = averageRating,
+                ratedSongCount = ratedSongCount,
+                totalSongCount = totalSongCount,
+            )
+            memoryCopyCacheDao.upsert(
+                MemoryCopyCache(
+                    provider = album.id.provider,
+                    entityType = MemoryCopyCache.ENTITY_ALBUM,
+                    entityId = album.id.rawId,
+                    copy = generated,
+                    promptHash = hash,
+                    generatedAt = clock(),
+                ),
+            )
+            generated
+        }.getOrElse { cached?.copy }
     }
 
     // ── Devices ───────────────────────────────────────────────────────
@@ -677,6 +864,9 @@ private fun collapseToLatestUnique(events: List<ActivityEvent>): List<ActivityEv
 
 private fun List<SongNoteKey>.toMediaIdSet(): Set<MediaId> =
     mapTo(linkedSetOf()) { key -> MediaId(key.provider, key.trackId) }
+
+private fun List<AlbumNoteKey>.toAlbumMediaIdSet(): Set<MediaId> =
+    mapTo(linkedSetOf()) { key -> MediaId(key.provider, key.albumId) }
 
 private fun Album.toSpotifyHomeAlbumCache(
     profileId: String,

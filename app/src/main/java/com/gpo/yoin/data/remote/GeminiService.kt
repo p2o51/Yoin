@@ -52,6 +52,94 @@ class GeminiService(
         parseTaggedResponse(rawText, songId = "")
     }
 
+    /**
+     * 「余音 Gemini 文案」—— 给 Memory 卡片生成一句 40–80 字的感性短评，
+     * 把 Memory 从「事实回顾」升格为「情绪回响」。
+     *
+     * 输入信号保留到最低：专辑名、艺人、年份、已评曲目均分、评过的曲目
+     * 数量。不传播 song_notes / review 原文给 Gemini —— 笔记是本地私密。
+     *
+     * 返回的是纯文本（没有 tag），调用方直接落 `memory_copy_cache.copy`。
+     */
+    suspend fun generateAlbumMemoryCopy(
+        apiKey: String,
+        albumName: String,
+        artist: String?,
+        year: Int?,
+        averageRating: Float?,
+        ratedSongCount: Int,
+        totalSongCount: Int,
+    ): String = withContext(Dispatchers.IO) {
+        val prompt = buildMemoryPrompt(
+            albumName = albumName,
+            artist = artist,
+            year = year,
+            averageRating = averageRating,
+            ratedSongCount = ratedSongCount,
+            totalSongCount = totalSongCount,
+        )
+        val requestBody = GeminiRequest(
+            contents = listOf(GeminiContent(parts = listOf(GeminiPart(text = prompt)))),
+            // Memory 文案不走 search tool —— 只要 LLM 基于 embedding 给感性
+            // 回响，不需要外网事实核对；更快也更便宜。
+            tools = null,
+        )
+
+        val bodyJson = json.encodeToString(requestBody)
+        val request = Request.Builder()
+            .url("$BASE_URL$MODEL:generateContent?key=$apiKey")
+            .post(bodyJson.toRequestBody(JSON_MEDIA_TYPE))
+            .build()
+
+        val response = client.newCall(request).execute()
+        val responseBody = response.body?.string()
+            ?: throw GeminiException("Empty response from Gemini API")
+
+        if (!response.isSuccessful) {
+            throw GeminiException(
+                "Gemini API error (${response.code}): ${extractErrorMessage(responseBody)}",
+            )
+        }
+
+        val geminiResponse = json.decodeFromString<GeminiResponse>(responseBody)
+        geminiResponse.candidates
+            ?.firstOrNull()?.content?.parts?.firstOrNull()?.text
+            ?.trim()
+            ?.removeSurrounding("\"")
+            ?.takeIf { it.isNotEmpty() }
+            ?: throw GeminiException("No content in Gemini response")
+    }
+
+    private fun buildMemoryPrompt(
+        albumName: String,
+        artist: String?,
+        year: Int?,
+        averageRating: Float?,
+        ratedSongCount: Int,
+        totalSongCount: Int,
+    ): String {
+        val artistLine = artist?.takeIf(String::isNotBlank) ?: "Unknown artist"
+        val yearLine = year?.toString() ?: "Unknown year"
+        val ratingLine = averageRating
+            ?.takeIf { it > 0f }
+            ?.let { "%.1f / 10, based on %d of %d songs rated".format(it, ratedSongCount, totalSongCount) }
+            ?: "User hasn't rated this album yet"
+        return """
+You are writing a single short line of poetic Chinese reflection for a music
+memory card. The user is revisiting this album on a private music journal.
+
+Album: $albumName
+Artist: $artistLine
+Year: $yearLine
+User rating signal: $ratingLine
+
+Write ONE line in Simplified Chinese, 30 to 60 characters, no quotes, no
+emoji, no hashtags, no english, no line break. Evoke the emotional echo of
+this album — not a factual summary. Avoid clichés like "经典" or "神专".
+Output only the line itself.
+        """.trimIndent()
+    }
+
     private fun buildPrompt(title: String, artist: String, album: String): String = """
 Search for and provide detailed information about the following song:
 

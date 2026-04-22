@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  targetSdk 36 必须显式声明 Auto Backup / Device-to-Device 过滤规则。
+
+  原则：
+    - 包含：YoinDatabase.db（评分 / 专辑评分 / 笔记 / 播放历史 / Memory 候选池）
+    - 排除：所有加密凭据、对端可重拉的缓存、WebView 副产物
+  换机恢复后：加密凭据换机后解不开（AndroidKeyStore 换锁），UI 会走
+  `SpotifyProviderStatus.NeedsReconnect(BackupRestored)` 引导用户重授权；
+  Subsonic / Spotify / NeoDB 都走同一条重授权路径。
+-->
+<data-extraction-rules>
+    <cloud-backup>
+        <include domain="database" path="yoin-database" />
+        <include domain="database" path="yoin-database-shm" />
+        <include domain="database" path="yoin-database-wal" />
+
+        <!-- Profile 行元数据保留（作为重连引导的线索），但凭据文件不会被打进 -->
+        <include domain="sharedpref" path="profile_active_id.xml" />
+
+        <exclude domain="file" path="profile_credentials" />
+        <exclude domain="database" path="yoin-database-journal" />
+        <exclude domain="cache" path="." />
+    </cloud-backup>
+
+    <device-transfer>
+        <include domain="database" path="yoin-database" />
+        <include domain="database" path="yoin-database-shm" />
+        <include domain="database" path="yoin-database-wal" />
+        <include domain="sharedpref" path="profile_active_id.xml" />
+
+        <exclude domain="file" path="profile_credentials" />
+        <exclude domain="database" path="yoin-database-journal" />
+        <exclude domain="cache" path="." />
+    </device-transfer>
+</data-extraction-rules>

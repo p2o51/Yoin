@@ -45,6 +45,28 @@ sealed interface SpotifyProviderStatus {
      */
     data class AuthFailure(val message: String) : SpotifyProviderStatus
 
+    /**
+     * User needs to re-authorise with the upstream provider. Carries
+     * [reason] so UI can tailor the copy:
+     *
+     *  - [ReconnectReason.CredentialsRevoked] — Spotify refresh token
+     *    returned `invalid_grant` (user revoked access, password reset,
+     *    scope-bump). Prompt: "Your Spotify session expired — reconnect".
+     *  - [ReconnectReason.BackupRestored] — AndroidKeyStore decrypt threw
+     *    `AEADBadTagException` after a device-to-device restore. The old
+     *    key material didn't migrate; credentials are unrecoverable.
+     *    Prompt: "Detected a restore from backup — please sign in again".
+     *
+     * 0.4 UI gates re-auth flows on this signal before silently 401-ing
+     * every API call.
+     */
+    data class NeedsReconnect(val reason: ReconnectReason) : SpotifyProviderStatus
+
+    enum class ReconnectReason {
+        CredentialsRevoked,
+        BackupRestored,
+    }
+
     /** Short label for badges / buttons. */
     val userLabel: String
         get() = when (this) {
@@ -53,6 +75,10 @@ sealed interface SpotifyProviderStatus {
             SpotifyAppMissing -> "Install Spotify"
             NoPremium -> "Premium required"
             is AuthFailure -> "Reconnect"
+            is NeedsReconnect -> when (reason) {
+                ReconnectReason.CredentialsRevoked -> "Reconnect"
+                ReconnectReason.BackupRestored -> "Restore sign-in"
+            }
         }
 
     /** True when UI should gate Spotify-requiring affordances. */

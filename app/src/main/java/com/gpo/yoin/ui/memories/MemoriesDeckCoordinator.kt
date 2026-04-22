@@ -216,6 +216,23 @@ class MemoriesDeckCoordinator(
         val rated = songs.mapNotNull { song ->
             ratings[song.id]?.takeIf { localRating -> localRating.rating > 0f }
         }
+        val averageRating = rated
+            .map(LocalRating::rating)
+            .takeIf(List<Float>::isNotEmpty)
+            ?.average()
+            ?.toFloat()
+        // 「余音 Gemini 文案」：没专辑元数据（冷加载失败）时跳过，避免给
+        // Gemini 送空名字；有 API key 时命中缓存或后台生成。失败静默降级。
+        val narrative = album?.let { resolved ->
+            runCatching {
+                repository.getOrGenerateAlbumMemoryCopy(
+                    album = resolved,
+                    averageRating = averageRating,
+                    ratedSongCount = rated.size,
+                    totalSongCount = songs.size,
+                )
+            }.getOrNull()
+        }
 
         return MemoryEntry(
             stableId = "album:${activity.entityId}:${activity.id}",
@@ -247,6 +264,7 @@ class MemoriesDeckCoordinator(
                 songCount = album?.songCount ?: songs.size,
                 durationSeconds = album?.durationSec,
             ),
+            narrativeCopy = narrative,
             playbackSongs = songs,
             tracks = songs.mapIndexed { index, song ->
                 MemoryTrack(
