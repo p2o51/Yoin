@@ -2,11 +2,17 @@ package com.gpo.yoin.data.local
 
 import androidx.room.ColumnInfo
 import androidx.room.Entity
+import androidx.room.Index
 import androidx.room.PrimaryKey
 
 import com.gpo.yoin.data.model.MediaId
 
-@Entity(tableName = "activity_events")
+@Entity(
+    tableName = "activity_events",
+    indices = [
+        Index(value = ["provider", "timestamp"], name = "index_activity_events_provider_timestamp"),
+    ],
+)
 data class ActivityEvent(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val entityType: String,

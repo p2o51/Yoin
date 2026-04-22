@@ -1,10 +1,14 @@
 package com.gpo.yoin.data.repository
 
 import com.gpo.yoin.data.local.YoinDatabase
+import com.gpo.yoin.data.local.AlbumNoteDao
+import com.gpo.yoin.data.local.AlbumRatingDao
 import com.gpo.yoin.data.local.GeminiConfigDao
 import com.gpo.yoin.data.local.LyricsCacheDao
+import com.gpo.yoin.data.local.MemoryCopyCacheDao
 import com.gpo.yoin.data.local.SongNoteDao
 import com.gpo.yoin.data.local.SongInfoDao
+import com.gpo.yoin.data.integration.neodb.NeoDBSyncService
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.Playlist
 import com.gpo.yoin.data.model.PlaylistItemRef
@@ -33,6 +37,10 @@ class YoinRepositoryTest {
     private val geminiConfigDao = mockk<GeminiConfigDao>(relaxed = true)
     private val lyricsCacheDao = mockk<LyricsCacheDao>(relaxed = true)
     private val songNoteDao = mockk<SongNoteDao>(relaxed = true)
+    private val albumNoteDao = mockk<AlbumNoteDao>(relaxed = true)
+    private val albumRatingDao = mockk<AlbumRatingDao>(relaxed = true)
+    private val memoryCopyCacheDao = mockk<MemoryCopyCacheDao>(relaxed = true)
+    private val neoDbSyncService = mockk<NeoDBSyncService>(relaxed = true)
 
     private val repository = YoinRepository(
         activeSource = MutableStateFlow(source),
@@ -43,6 +51,10 @@ class YoinRepositoryTest {
         geminiConfigDao = geminiConfigDao,
         lyricsCacheDao = lyricsCacheDao,
         songNoteDao = songNoteDao,
+        albumNoteDao = albumNoteDao,
+        albumRatingDao = albumRatingDao,
+        memoryCopyCacheDao = memoryCopyCacheDao,
+        neoDbSyncService = neoDbSyncService,
     )
 
     init {

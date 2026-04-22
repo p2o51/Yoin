@@ -342,7 +342,7 @@ class AppContainer(private val context: Context) {
      * NeoDB token 落在 `noBackupFilesDir/neodb/token.bin`，换机恢复后需要
      * 重新登录 —— 和 profile credentials 对齐，走同一把 AES-GCM key。
      */
-    val neoDbTokenStore: NeoDbTokenStore by lazy {
+    internal val neoDbTokenStore: NeoDbTokenStore by lazy {
         NeoDbTokenStore(
             cipher = AndroidKeyStoreCredentialsCipher(),
             storageDir = java.io.File(context.noBackupFilesDir, "neodb"),

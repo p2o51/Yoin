@@ -2,11 +2,17 @@ package com.gpo.yoin.data.local
 
 import androidx.room.ColumnInfo
 import androidx.room.Entity
+import androidx.room.Index
 import androidx.room.PrimaryKey
 
 import com.gpo.yoin.data.model.MediaId
 
-@Entity(tableName = "play_history")
+@Entity(
+    tableName = "play_history",
+    indices = [
+        Index(value = ["provider", "playedAt"], name = "index_play_history_provider_playedAt"),
+    ],
+)
 data class PlayHistory(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val songId: String,

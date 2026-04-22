@@ -27,7 +27,7 @@ import kotlin.math.roundToInt
  * 所有方法在未登录时直接返回 [Result.success] / no-op，让调用方不用分叉
  * 逻辑；UI 层需要时再读 [isConfigured] 判能不能触发同步。
  */
-class NeoDBSyncService(
+class NeoDBSyncService internal constructor(
     private val api: NeoDBApi,
     private val configDao: NeoDBConfigDao,
     private val tokenStore: NeoDbTokenStore,
