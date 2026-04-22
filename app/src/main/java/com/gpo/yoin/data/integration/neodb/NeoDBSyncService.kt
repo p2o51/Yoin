@@ -1,4 +1,4 @@
-package com.gpo.yoin.data.remote.neodb
+package com.gpo.yoin.data.integration.neodb
 
 import com.gpo.yoin.data.local.AlbumRating
 import com.gpo.yoin.data.local.AlbumRatingDao
@@ -49,6 +49,12 @@ class NeoDBSyncService(
      *     - 本地 reviewUuid 为空 → POST 创建新 Review，回写 uuid。
      *     - 已有 uuid → PUT 覆写 body。
      *     - 本地 review 清空 → DELETE。
+     *
+     * **多对一复用**：`external_mappings` 表允许多条 Yoin 实体指向同一
+     * `externalId`，所以同一张专辑的 Subsonic 版和 Spotify 版 push 时 uuid
+     * 是同一个，NeoDB 侧 Mark/Review 只会被覆写一次（POST shelf item 是幂
+     * 等的）。跨 provider 的「自动绑定到已有 uuid」走 0.5 的映射校验 UI，
+     * 这里先做反查兜底 —— 本 provider 有映射就直接用。
      */
     suspend fun pushAlbum(album: Album): Result<Unit> = runCatching {
         val cfg = configDao.get() ?: error("NeoDB 未配置")
@@ -167,13 +173,21 @@ class NeoDBSyncService(
     }
 
     /**
-     * 查 / 建 Yoin album ↔ NeoDB uuid 映射。先读 `external_mappings`；
-     * 没命中时按 "name artist" 搜第一条 album result 作为匹配，并把
-     * 结果落库 —— 匹配准确度不够的专辑（小众 / 同名）由用户在 0.5 的
-     * 映射校验 UI 里手动修。
+     * 查 / 建 Yoin album ↔ NeoDB uuid 映射。
+     *
+     * 走两级缓存：
+     *  1. **反查当前 Yoin 实体** —— `findForYoinEntity` 命中就直接复用。
+     *  2. **搜 NeoDB** —— name + artist 模糊搜索第一条结果；命中后落
+     *     `external_mappings`，**同时允许和已有其它 provider 的映射共享同
+     *     一个 uuid**（表结构改成多对一后，Subsonic 版和 Spotify 版可以各
+     *     自存一行，共同指向同一个 uuid X，这样下次 push 任一版本都会直接
+     *     命中 step 1，不重复搜索也不重复推）。
+     *
+     * 跨源模糊匹配（例如在 Subsonic 版已映射的前提下，把 Spotify 版也自动
+     * 绑到同一个 uuid）留给 0.5 的映射校验 UI 做 —— 这里保持搜索兜底即可。
      */
     private suspend fun resolveAlbumUuid(album: Album): String? {
-        val cached = mappingDao.get(
+        val cached = mappingDao.findForYoinEntity(
             provider = album.id.provider,
             entityType = ExternalMapping.ENTITY_ALBUM,
             entityId = album.id.rawId,

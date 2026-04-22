@@ -295,6 +295,75 @@ class YoinDatabaseMigrationTest {
         migrated.close()
     }
 
+    @Test
+    fun should_allow_multiple_yoin_entities_to_share_one_external_uuid() = runTest {
+        val helper = FrameworkSQLiteOpenHelperFactory().create(
+            SupportSQLiteOpenHelper.Configuration.builder(context)
+                .name(dbName)
+                .callback(
+                    object : SupportSQLiteOpenHelper.Callback(10) {
+                        override fun onCreate(db: SupportSQLiteDatabase) {
+                            createVersion10Schema(db)
+                        }
+
+                        override fun onUpgrade(
+                            db: SupportSQLiteDatabase,
+                            oldVersion: Int,
+                            newVersion: Int,
+                        ) = Unit
+                    },
+                )
+                .build(),
+        )
+        helper.writableDatabase.close()
+        helper.close()
+
+        val migrated = Room.databaseBuilder(context, YoinDatabase::class.java, dbName)
+            .addMigrations(AppContainer.MIGRATION_10_11)
+            .allowMainThreadQueries()
+            .build()
+
+        migrated.openHelper.writableDatabase
+        val dao = migrated.externalMappingDao()
+
+        // 同一张专辑的 Subsonic 版 + Spotify 版共享同一个 NeoDB uuid。
+        dao.upsert(
+            ExternalMapping(
+                externalService = ExternalMapping.SERVICE_NEODB,
+                externalId = "uuid-shared",
+                provider = MediaId.PROVIDER_SUBSONIC,
+                entityType = ExternalMapping.ENTITY_ALBUM,
+                entityId = "subsonic-album-1",
+            ),
+        )
+        dao.upsert(
+            ExternalMapping(
+                externalService = ExternalMapping.SERVICE_NEODB,
+                externalId = "uuid-shared",
+                provider = MediaId.PROVIDER_SPOTIFY,
+                entityType = ExternalMapping.ENTITY_ALBUM,
+                entityId = "spotify-album-1",
+            ),
+        )
+
+        // 正查：uuid → 所有挂在下面的 Yoin 实体
+        val all = dao.findAllForExternalId(ExternalMapping.SERVICE_NEODB, "uuid-shared")
+        assertEquals(2, all.size)
+        assertTrue(all.any { it.provider == MediaId.PROVIDER_SUBSONIC })
+        assertTrue(all.any { it.provider == MediaId.PROVIDER_SPOTIFY })
+
+        // 反查：Yoin 实体 → uuid
+        val subsonic = dao.findForYoinEntity(
+            provider = MediaId.PROVIDER_SUBSONIC,
+            entityType = ExternalMapping.ENTITY_ALBUM,
+            entityId = "subsonic-album-1",
+            service = ExternalMapping.SERVICE_NEODB,
+        )
+        assertEquals("uuid-shared", subsonic?.externalId)
+
+        migrated.close()
+    }
+
     private fun createVersion10Schema(db: SupportSQLiteDatabase) {
         createVersion9Schema(db)
         // v9 song_notes → v10 UUID-keyed song_notes. Minimal form needed

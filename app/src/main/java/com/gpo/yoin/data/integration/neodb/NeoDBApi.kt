@@ -1,4 +1,4 @@
-package com.gpo.yoin.data.remote.neodb
+package com.gpo.yoin.data.integration.neodb
 
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext

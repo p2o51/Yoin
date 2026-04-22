@@ -24,7 +24,7 @@ import com.gpo.yoin.data.local.SongInfoDao
 import com.gpo.yoin.data.local.SpotifyHomeAlbumCache
 import com.gpo.yoin.data.local.SpotifyHomeArtistCache
 import com.gpo.yoin.data.local.YoinDatabase
-import com.gpo.yoin.data.remote.neodb.NeoDBSyncService
+import com.gpo.yoin.data.integration.neodb.NeoDBSyncService
 import com.gpo.yoin.data.lyrics.LrcParser
 import com.gpo.yoin.data.lyrics.LyricsProviderRegistry
 import com.gpo.yoin.data.model.Album

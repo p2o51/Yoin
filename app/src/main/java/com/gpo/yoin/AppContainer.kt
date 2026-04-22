@@ -16,9 +16,9 @@ import com.gpo.yoin.data.profile.ProfileCredentialsStore
 import com.gpo.yoin.data.profile.ProfileManager
 import com.gpo.yoin.data.profile.SharedPrefsProfileActiveIdStore
 import com.gpo.yoin.data.profile.SpotifyProviderStatus
+import com.gpo.yoin.data.integration.neodb.NeoDBApi
+import com.gpo.yoin.data.integration.neodb.NeoDBSyncService
 import com.gpo.yoin.data.remote.GeminiService
-import com.gpo.yoin.data.remote.neodb.NeoDBApi
-import com.gpo.yoin.data.remote.neodb.NeoDBSyncService
 import com.gpo.yoin.data.repository.YoinRepository
 import com.gpo.yoin.data.source.spotify.SpotifyAuthConfig
 import com.gpo.yoin.player.AudioVisualizerManager
@@ -709,23 +709,28 @@ class AppContainer(private val context: Context) {
                     """.trimIndent(),
                 )
 
+                // external_mappings 是「多对一」关联表：多个 Yoin 实体可以
+                // 共享同一个 externalId（Subsonic 版 + Spotify 版同一张专辑
+                // 指向同一个 NeoDB uuid）。PK 以 (externalService, externalId,
+                // ...) 打头锚定 external 侧，正查走 PK 前缀；反查走
+                // UNIQUE INDEX 保证「每个 Yoin 实体 per service 最多一个 uuid」。
                 db.execSQL(
                     """
                     CREATE TABLE IF NOT EXISTS `external_mappings` (
+                        `externalService` TEXT NOT NULL,
+                        `externalId` TEXT NOT NULL,
                         `provider` TEXT NOT NULL,
                         `entityType` TEXT NOT NULL,
                         `entityId` TEXT NOT NULL,
-                        `externalService` TEXT NOT NULL,
-                        `externalId` TEXT NOT NULL,
                         `syncedAt` INTEGER NOT NULL,
-                        PRIMARY KEY(`provider`, `entityType`, `entityId`, `externalService`)
+                        PRIMARY KEY(`externalService`, `externalId`, `provider`, `entityType`, `entityId`)
                     )
                     """.trimIndent(),
                 )
                 db.execSQL(
                     """
-                    CREATE INDEX IF NOT EXISTS `index_external_mappings_externalService_externalId`
-                    ON `external_mappings` (`externalService`, `externalId`)
+                    CREATE UNIQUE INDEX IF NOT EXISTS `index_external_mappings_yoin_entity`
+                    ON `external_mappings` (`provider`, `entityType`, `entityId`, `externalService`)
                     """.trimIndent(),
                 )
 

@@ -1,4 +1,4 @@
-package com.gpo.yoin.data.remote.neodb
+package com.gpo.yoin.data.integration.neodb
 
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
