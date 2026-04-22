@@ -703,6 +703,10 @@ private fun YoinShell(
                                     viewModel = memoriesViewModel,
                                     revealState = memoriesReveal,
                                     onDismissed = closeMemories,
+                                    onNavigateToNeoDbSettings = {
+                                        closeMemories()
+                                        onNavigateToSettings("neodb")
+                                    },
                                     onPlayMemoryTrack = { memory, trackIndex ->
                                         val queue = memory.playbackSongs
                                         if (queue.isNotEmpty()) {

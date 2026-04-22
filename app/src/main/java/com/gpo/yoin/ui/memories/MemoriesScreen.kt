@@ -27,12 +27,18 @@ import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.LibraryMusic
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialShapes
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.toShape
@@ -103,13 +109,49 @@ fun MemoriesScreen(
     revealState: RevealState,
     onDismissed: () -> Unit,
     onPlayMemoryTrack: (MemoryEntry, Int) -> Unit,
+    onNavigateToNeoDbSettings: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val sessionState by viewModel.sessionState.collectAsStateWithLifecycle()
+    val syncingIds by viewModel.syncingEntityIds.collectAsStateWithLifecycle()
+    val snackbarHostState = remember { SnackbarHostState() }
 
     LaunchedEffect(viewModel) {
         viewModel.ensureLoaded()
+    }
+
+    // One-shot NeoDB 同步事件 → snackbar。未登录事件带一个 "Sign in" action，
+    // 点击后通过 [onNavigateToNeoDbSettings] 退出 Memory 层、跳 Settings。
+    LaunchedEffect(viewModel) {
+        viewModel.events.collect { event ->
+            when (event) {
+                MemoriesOneShotEvent.NeoDBNotConfigured -> {
+                    val result = snackbarHostState.showSnackbar(
+                        message = "Sign in to NeoDB first to push ratings and reviews.",
+                        actionLabel = "Sign in",
+                        duration = SnackbarDuration.Long,
+                    )
+                    if (result == SnackbarResult.ActionPerformed) {
+                        onNavigateToNeoDbSettings()
+                    }
+                }
+
+                MemoriesOneShotEvent.NeoDBNothingToSync -> {
+                    snackbarHostState.showSnackbar(
+                        message = "Rate the album or write a review first.",
+                        duration = SnackbarDuration.Short,
+                    )
+                }
+
+                is MemoriesOneShotEvent.NeoDBSyncResult -> {
+                    snackbarHostState.showSnackbar(
+                        message = event.message,
+                        duration = SnackbarDuration.Short,
+                    )
+                }
+            }
+        }
     }
 
     ReportMotionPressure(
@@ -148,9 +190,18 @@ fun MemoriesScreen(
                         onAdvanceDeck = viewModel::advanceDeck,
                         onCurrentPageChange = viewModel::setCurrentPage,
                         onMemoryScrollChange = viewModel::setMemoryScroll,
+                        syncingEntityIds = syncingIds,
+                        onSyncToNeoDb = viewModel::pushToNeoDb,
                     )
                 }
             }
+            SnackbarHost(
+                hostState = snackbarHostState,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 96.dp),
+            )
         }
     }
 }
@@ -220,6 +271,8 @@ private fun MemoriesContent(
     onAdvanceDeck: (MemoryDeckDirection) -> Unit,
     onCurrentPageChange: (Int) -> Unit,
     onMemoryScrollChange: (Long, MemoryScrollPosition) -> Unit,
+    syncingEntityIds: Set<String> = emptySet(),
+    onSyncToNeoDb: (MemoryEntry) -> Unit = {},
 ) {
     val density = LocalDensity.current
     val dismissHintPx = with(density) { BackMotionTokens.MemoriesDismissTrigger.toPx() }
@@ -434,6 +487,8 @@ private fun MemoriesContent(
                             MemoriesHero(
                                 memory = memory,
                                 seedColor = pageColors.baseColor,
+                                isSyncingToNeoDb = memory.entityId in syncingEntityIds,
+                                onSyncToNeoDb = { onSyncToNeoDb(memory) },
                             )
                         }
 
@@ -606,6 +661,8 @@ private fun MemoriesDots(
 private fun MemoriesHero(
     memory: MemoryEntry,
     seedColor: Color,
+    isSyncingToNeoDb: Boolean = false,
+    onSyncToNeoDb: () -> Unit = {},
 ) {
     val scoreContainerColor = lerp(
         start = seedColor,
@@ -723,6 +780,30 @@ private fun MemoriesHero(
                 style = MaterialTheme.typography.bodyLarge,
                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.84f),
             )
+        }
+        // 同步到 NeoDB 按钮 —— 只在专辑卡显示（单曲 / 歌单不推）。未登录时
+        // ViewModel 会发 one-shot event 引导去 Settings；不在按钮上做二次
+        // 判断，保持按钮态单一。
+        if (memory.entityType == MemoryEntityType.ALBUM) {
+            FilledTonalButton(
+                onClick = onSyncToNeoDb,
+                enabled = !isSyncingToNeoDb,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.CloudUpload,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp),
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = if (isSyncingToNeoDb) {
+                        "Syncing to NeoDB…"
+                    } else {
+                        "Sync rating & review to NeoDB"
+                    },
+                )
+            }
         }
     }
 }

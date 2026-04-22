@@ -15,6 +15,8 @@ sealed interface SettingsUiState {
         val geminiApiKey: String = "",
         val spotifyClientId: String = "",
         val spotifyClientIdUsesFallback: Boolean = false,
+        val neoDbInstance: String = "",
+        val neoDbAccessToken: String = "",
     ) : SettingsUiState
 }
 

@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.gpo.yoin.AppContainer
 import com.gpo.yoin.data.local.GeminiConfig
+import com.gpo.yoin.data.local.NeoDBConfig
 import com.gpo.yoin.data.local.Profile
 import com.gpo.yoin.data.local.SpotifyConfig
 import com.gpo.yoin.data.profile.ProfileCredentials
@@ -50,6 +51,30 @@ class SettingsViewModel(
             .stateIn(viewModelScope, SharingStarted.Eagerly, "")
 
     /**
+     * NeoDB 的 instance + token 两个字段打成一个 bundle，省一路 combine 位子
+     * —— 上游 `uiState` 的 5-arity combine 已经用满了，再加就要退化到 Array
+     * 变长版本，readability 差。
+     */
+    private data class NeoDBSettingsBundle(
+        val instance: String,
+        val accessToken: String,
+    )
+
+    private val neoDbSettingsBundleFlow: StateFlow<NeoDBSettingsBundle> =
+        database.neoDbConfigDao().observe()
+            .map { cfg ->
+                NeoDBSettingsBundle(
+                    instance = cfg?.instance ?: NeoDBConfig.DEFAULT_INSTANCE,
+                    accessToken = cfg?.accessToken.orEmpty(),
+                )
+            }
+            .stateIn(
+                viewModelScope,
+                SharingStarted.Eagerly,
+                NeoDBSettingsBundle(NeoDBConfig.DEFAULT_INSTANCE, ""),
+            )
+
+    /**
      * Fan three Spotify signals into one bundle so the top-level `combine`
      * stays inside the 5-arity typed overload:
      *  1. raw Room-row client id (for the "using fallback" badge)
@@ -75,13 +100,30 @@ class SettingsViewModel(
         SpotifySettingsBundle("", "", SpotifyProviderStatus.Ready),
     )
 
+    // Gemini key + NeoDB config 合并成一条 pair flow，腾出 combine 位子给
+    // NeoDB section 而不用退到 Array 变长 combine。
+    private data class MiscSettingsBundle(
+        val geminiApiKey: String,
+        val neoDb: NeoDBSettingsBundle,
+    )
+
+    private val miscSettingsBundleFlow: StateFlow<MiscSettingsBundle> = combine(
+        geminiKeyFlow,
+        neoDbSettingsBundleFlow,
+    ) { geminiKey, neoDb -> MiscSettingsBundle(geminiKey, neoDb) }
+        .stateIn(
+            viewModelScope,
+            SharingStarted.Eagerly,
+            MiscSettingsBundle("", NeoDBSettingsBundle(NeoDBConfig.DEFAULT_INSTANCE, "")),
+        )
+
     val uiState: StateFlow<SettingsUiState> = combine(
         profileManager.profiles,
         profileManager.activeProfileId,
         cacheSizeFlow,
-        geminiKeyFlow,
+        miscSettingsBundleFlow,
         spotifySettingsBundleFlow,
-    ) { profiles, activeId, cacheSize, geminiKey, spotifyBundle ->
+    ) { profiles, activeId, cacheSize, misc, spotifyBundle ->
         val spotifyOverride = spotifyBundle.overrideClientId
         val spotifyEffective = spotifyBundle.effectiveClientId
         val spotifyStatus = spotifyBundle.status
@@ -96,10 +138,12 @@ class SettingsViewModel(
             activeProfileId = resolvedActiveId,
             canAddProfile = profiles.size < ProfileManager.MAX_PROFILES,
             cacheSizeBytes = cacheSize,
-            geminiApiKey = geminiKey,
+            geminiApiKey = misc.geminiApiKey,
             spotifyClientId = spotifyEffective,
             spotifyClientIdUsesFallback =
                 spotifyOverride.isBlank() && spotifyEffective.isNotBlank(),
+            neoDbInstance = misc.neoDb.instance,
+            neoDbAccessToken = misc.neoDb.accessToken,
         )
     }.stateIn(viewModelScope, SharingStarted.Eagerly, SettingsUiState.Loading)
 
@@ -404,6 +448,40 @@ class SettingsViewModel(
     fun saveSpotifyClientId(clientId: String) {
         viewModelScope.launch {
             database.spotifyConfigDao().upsert(SpotifyConfig(clientId = clientId.trim()))
+        }
+    }
+
+    /**
+     * 保存 NeoDB BYOK 配置。允许只改 instance（留空 token 仍然会落库 ——
+     * 调用方通过 [NeoDBSyncService.isConfigured] 判是否能推）。
+     *
+     * instance 留空时回 [NeoDBConfig.DEFAULT_INSTANCE]（`https://neodb.social`），
+     * 省得用户把默认 instance 不小心清掉。
+     */
+    fun saveNeoDbConfig(instance: String, accessToken: String) {
+        viewModelScope.launch {
+            val normalizedInstance = instance.trim().trimEnd('/')
+                .takeIf(String::isNotEmpty)
+                ?: NeoDBConfig.DEFAULT_INSTANCE
+            database.neoDbConfigDao().upsert(
+                NeoDBConfig(
+                    instance = normalizedInstance,
+                    accessToken = accessToken.trim(),
+                ),
+            )
+        }
+    }
+
+    /** 「登出 NeoDB」—— 清空 token 但保留 instance，省得用户下次登录又填一遍。 */
+    fun clearNeoDbToken() {
+        viewModelScope.launch {
+            val existing = database.neoDbConfigDao().get()
+            database.neoDbConfigDao().upsert(
+                NeoDBConfig(
+                    instance = existing?.instance ?: NeoDBConfig.DEFAULT_INSTANCE,
+                    accessToken = "",
+                ),
+            )
         }
     }
 

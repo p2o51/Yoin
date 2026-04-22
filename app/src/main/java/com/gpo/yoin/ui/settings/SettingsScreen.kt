@@ -145,6 +145,8 @@ fun SettingsScreen(
         onConfirmDeleteProfile = viewModel::confirmDeleteProfile,
         onSaveGeminiApiKey = viewModel::saveGeminiApiKey,
         onSaveSpotifyClientId = viewModel::saveSpotifyClientId,
+        onSaveNeoDbConfig = viewModel::saveNeoDbConfig,
+        onClearNeoDbToken = viewModel::clearNeoDbToken,
         onClearCache = viewModel::clearCache,
         modifier = modifier,
     )
@@ -176,6 +178,8 @@ fun SettingsContent(
     onConfirmDeleteProfile: () -> Unit,
     onSaveGeminiApiKey: (String) -> Unit = {},
     onSaveSpotifyClientId: (String) -> Unit = {},
+    onSaveNeoDbConfig: (String, String) -> Unit = { _, _ -> },
+    onClearNeoDbToken: () -> Unit = {},
     onClearCache: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -215,11 +219,17 @@ fun SettingsContent(
                         .calculateBottomPadding()
                     val scrollState = rememberScrollState()
                     var spotifySectionTopPx by remember { mutableIntStateOf(-1) }
+                    var neoDbSectionTopPx by remember { mutableIntStateOf(-1) }
                     val spotifyClientIdFocusRequester = remember { FocusRequester() }
-                    LaunchedEffect(focusSection, spotifySectionTopPx) {
-                        if (focusSection == "spotify" && spotifySectionTopPx >= 0) {
-                            scrollState.animateScrollTo(spotifySectionTopPx)
-                            runCatching { spotifyClientIdFocusRequester.requestFocus() }
+                    LaunchedEffect(focusSection, spotifySectionTopPx, neoDbSectionTopPx) {
+                        when (focusSection) {
+                            "spotify" -> if (spotifySectionTopPx >= 0) {
+                                scrollState.animateScrollTo(spotifySectionTopPx)
+                                runCatching { spotifyClientIdFocusRequester.requestFocus() }
+                            }
+                            "neodb" -> if (neoDbSectionTopPx >= 0) {
+                                scrollState.animateScrollTo(neoDbSectionTopPx)
+                            }
                         }
                     }
                     Column(
@@ -264,6 +274,17 @@ fun SettingsContent(
                                     clientIdFocusRequester = spotifyClientIdFocusRequester,
                                     modifier = Modifier.onGloballyPositioned { coords ->
                                         spotifySectionTopPx = coords.positionInParent().y
+                                            .toInt()
+                                            .coerceAtLeast(0)
+                                    },
+                                )
+                                NeoDbSection(
+                                    initialInstance = uiState.neoDbInstance,
+                                    initialAccessToken = uiState.neoDbAccessToken,
+                                    onSaveConfig = onSaveNeoDbConfig,
+                                    onClearToken = onClearNeoDbToken,
+                                    modifier = Modifier.onGloballyPositioned { coords ->
+                                        neoDbSectionTopPx = coords.positionInParent().y
                                             .toInt()
                                             .coerceAtLeast(0)
                                     },
@@ -1123,6 +1144,87 @@ private fun GeminiSection(
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 Text("Save API Key")
+            }
+        }
+    }
+}
+
+@Composable
+private fun NeoDbSection(
+    initialInstance: String,
+    initialAccessToken: String,
+    onSaveConfig: (String, String) -> Unit,
+    onClearToken: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    var instance by rememberSaveable { mutableStateOf(initialInstance) }
+    var accessToken by rememberSaveable { mutableStateOf(initialAccessToken) }
+    LaunchedEffect(initialInstance) { instance = initialInstance }
+    LaunchedEffect(initialAccessToken) { accessToken = initialAccessToken }
+
+    // 脏位：仅当编辑态和 Room 真源不同时 Save 按钮亮起。Clear 按钮只在
+    // 已登录（Room 里有非空 token）时显示。
+    val hasUnsavedEdits = instance.trim() != initialInstance.trim() ||
+        accessToken.trim() != initialAccessToken.trim()
+    val isLoggedIn = initialAccessToken.isNotBlank()
+
+    ExpressiveSectionPanel(
+        modifier = modifier.fillMaxWidth(),
+        containerColor = MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.95f),
+        tonalElevation = 1.dp,
+        shadowElevation = 0.dp,
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(18.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            ExpressiveHeaderBlock(
+                title = "NeoDB",
+                supporting = if (isLoggedIn) {
+                    "Signed in · album ratings & reviews sync both ways from Memory"
+                } else {
+                    "Sign in to push album ratings and reviews from Memory cards"
+                },
+            )
+            Text(
+                text = "Create a personal access token under NeoDB → Settings → Developer. Default instance is neodb.social; change it only if you self-host.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            ExpressiveTextField(
+                value = instance,
+                onValueChange = { instance = it },
+                label = "Instance",
+                placeholder = "https://neodb.social",
+                modifier = Modifier.fillMaxWidth(),
+            )
+            ExpressiveTextField(
+                value = accessToken,
+                onValueChange = { accessToken = it },
+                label = "Access Token",
+                placeholder = "Paste token here",
+                visualTransformation = PasswordVisualTransformation(),
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Button(
+                onClick = { onSaveConfig(instance, accessToken) },
+                enabled = hasUnsavedEdits && accessToken.isNotBlank(),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text(if (isLoggedIn) "Update NeoDB sign-in" else "Sign in to NeoDB")
+            }
+            if (isLoggedIn) {
+                TextButton(
+                    onClick = {
+                        accessToken = ""
+                        onClearToken()
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text("Sign out of NeoDB")
+                }
             }
         }
     }
