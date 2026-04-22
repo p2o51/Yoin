@@ -23,7 +23,7 @@ import androidx.room.RoomDatabase
         MemoryCopyCache::class,
         NeoDBConfig::class,
     ],
-    version = 11,
+    version = 12,
     exportSchema = true,
 )
 abstract class YoinDatabase : RoomDatabase() {

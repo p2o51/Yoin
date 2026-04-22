@@ -62,6 +62,7 @@ class YoinDatabaseMigrationTest {
                 AppContainer.MIGRATION_8_9,
                 AppContainer.MIGRATION_9_10,
                 AppContainer.MIGRATION_10_11,
+                AppContainer.MIGRATION_11_12,
             )
             .allowMainThreadQueries()
             .build()
@@ -142,6 +143,7 @@ class YoinDatabaseMigrationTest {
                 AppContainer.MIGRATION_8_9,
                 AppContainer.MIGRATION_9_10,
                 AppContainer.MIGRATION_10_11,
+                AppContainer.MIGRATION_11_12,
             )
             .allowMainThreadQueries()
             .build()
@@ -205,6 +207,7 @@ class YoinDatabaseMigrationTest {
             .addMigrations(
                 AppContainer.MIGRATION_9_10,
                 AppContainer.MIGRATION_10_11,
+                AppContainer.MIGRATION_11_12,
             )
             .allowMainThreadQueries()
             .build()
@@ -249,7 +252,10 @@ class YoinDatabaseMigrationTest {
         helper.close()
 
         val migrated = Room.databaseBuilder(context, YoinDatabase::class.java, dbName)
-            .addMigrations(AppContainer.MIGRATION_10_11)
+            .addMigrations(
+                AppContainer.MIGRATION_10_11,
+                AppContainer.MIGRATION_11_12,
+            )
             .allowMainThreadQueries()
             .build()
 
@@ -319,7 +325,10 @@ class YoinDatabaseMigrationTest {
         helper.close()
 
         val migrated = Room.databaseBuilder(context, YoinDatabase::class.java, dbName)
-            .addMigrations(AppContainer.MIGRATION_10_11)
+            .addMigrations(
+                AppContainer.MIGRATION_10_11,
+                AppContainer.MIGRATION_11_12,
+            )
             .allowMainThreadQueries()
             .build()
 
@@ -362,6 +371,56 @@ class YoinDatabaseMigrationTest {
         assertEquals("uuid-shared", subsonic?.externalId)
 
         migrated.close()
+    }
+
+    @Test
+    fun should_drop_accessToken_column_when_migrating_11_to_12() = runTest {
+        val helper = FrameworkSQLiteOpenHelperFactory().create(
+            SupportSQLiteOpenHelper.Configuration.builder(context)
+                .name(dbName)
+                .callback(
+                    object : SupportSQLiteOpenHelper.Callback(11) {
+                        override fun onCreate(db: SupportSQLiteDatabase) {
+                            createVersion11Schema(db)
+                            // 模拟 0.3 开发版留下的 token 行 —— v12 会把列
+                            // 清掉（token 迁出 Room），但 instance 必须保留。
+                            db.execSQL(
+                                """
+                                INSERT INTO `neodb_config` (`id`, `instance`, `accessToken`)
+                                VALUES (1, 'https://neodb.example', 'legacy-token')
+                                """.trimIndent(),
+                            )
+                        }
+
+                        override fun onUpgrade(
+                            db: SupportSQLiteDatabase,
+                            oldVersion: Int,
+                            newVersion: Int,
+                        ) = Unit
+                    },
+                )
+                .build(),
+        )
+        helper.writableDatabase.close()
+        helper.close()
+
+        val migrated = Room.databaseBuilder(context, YoinDatabase::class.java, dbName)
+            .addMigrations(AppContainer.MIGRATION_11_12)
+            .allowMainThreadQueries()
+            .build()
+
+        migrated.openHelper.writableDatabase
+        val cfg = migrated.neoDbConfigDao().get()
+        assertEquals("https://neodb.example", cfg?.instance)
+
+        migrated.close()
+    }
+
+    private fun createVersion11Schema(db: SupportSQLiteDatabase) {
+        createVersion10Schema(db)
+        // 复用 AppContainer.MIGRATION_10_11 创建的 v11 新表结构。直接调
+        // migrate() 而不是重写 SQL，避免 schema 漂移。
+        AppContainer.MIGRATION_10_11.migrate(db)
     }
 
     private fun createVersion10Schema(db: SupportSQLiteDatabase) {

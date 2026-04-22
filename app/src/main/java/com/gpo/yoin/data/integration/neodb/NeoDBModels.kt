@@ -68,6 +68,15 @@ internal data class AlbumSearchResponse(
     val data: List<ShelfItem.Item> = emptyList(),
 )
 
+/**
+ * 分页响应 —— NeoDB 的 `/api/me/review/` 返回结构。只需要 data 里的
+ * [ReviewResponse]，其它分页元数据暂不用。
+ */
+@Serializable
+internal data class ReviewListResponse(
+    val data: List<ReviewResponse> = emptyList(),
+)
+
 @Serializable
 internal data class NeoDBErrorBody(
     val detail: String? = null,

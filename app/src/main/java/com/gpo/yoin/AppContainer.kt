@@ -18,6 +18,7 @@ import com.gpo.yoin.data.profile.SharedPrefsProfileActiveIdStore
 import com.gpo.yoin.data.profile.SpotifyProviderStatus
 import com.gpo.yoin.data.integration.neodb.NeoDBApi
 import com.gpo.yoin.data.integration.neodb.NeoDBSyncService
+import com.gpo.yoin.data.integration.neodb.NeoDbTokenStore
 import com.gpo.yoin.data.remote.GeminiService
 import com.gpo.yoin.data.repository.YoinRepository
 import com.gpo.yoin.data.source.spotify.SpotifyAuthConfig
@@ -64,6 +65,7 @@ class AppContainer(private val context: Context) {
                 MIGRATION_8_9,
                 MIGRATION_9_10,
                 MIGRATION_10_11,
+                MIGRATION_11_12,
             )
             // v11 冻结了 0.3 schema；0.5 上架前的备份降级保险（用户拿着 v11
             // 备份在旧版设备恢复）走这条：数据丢但应用不崩。没数据丢失比
@@ -330,14 +332,28 @@ class AppContainer(private val context: Context) {
             .build()
     }
 
-    val neoDbApi: NeoDBApi by lazy {
+    // NeoDBApi 是 internal（和 internal DTO 对齐），AppContainer 只在内部
+    // 构造 NeoDBSyncService 时用一次，所以这里直接 private 不对外。
+    private val neoDbApi: NeoDBApi by lazy {
         NeoDBApi(client = neoDbHttpClient, json = neoDbJson)
+    }
+
+    /**
+     * NeoDB token 落在 `noBackupFilesDir/neodb/token.bin`，换机恢复后需要
+     * 重新登录 —— 和 profile credentials 对齐，走同一把 AES-GCM key。
+     */
+    val neoDbTokenStore: NeoDbTokenStore by lazy {
+        NeoDbTokenStore(
+            cipher = AndroidKeyStoreCredentialsCipher(),
+            storageDir = java.io.File(context.noBackupFilesDir, "neodb"),
+        )
     }
 
     val neoDbSyncService: NeoDBSyncService by lazy {
         NeoDBSyncService(
             api = neoDbApi,
             configDao = database.neoDbConfigDao(),
+            tokenStore = neoDbTokenStore,
             mappingDao = database.externalMappingDao(),
             albumRatingDao = database.albumRatingDao(),
         )
@@ -654,7 +670,8 @@ class AppContainer(private val context: Context) {
          *    复合 PK (provider, entityType, entityId, externalService)。
          *  - `memory_copy_cache`: 「余音 Gemini 文案」缓存；按
          *    (provider, entityType, entityId) 唯一。
-         *  - `neodb_config`: 单行 BYOK token + instance。
+         *  - `neodb_config`: 单行 BYOK 配置。v11 里还带 `accessToken` 列
+         *    —— v12 会把它干掉，token 迁到 noBackupFilesDir 里的加密文件。
          *  - activity_events 加 index(provider, timestamp) 跑 Memory 抽样时
          *    不再全表扫；加 AFTER INSERT trigger 强制总条数 ≤ 10000
          *    （按 provider 分别滚动淘汰）。
@@ -795,6 +812,37 @@ class AppContainer(private val context: Context) {
 
         /** 滚动淘汰 activity_events 的目标上限。 */
         const val ACTIVITY_EVENTS_CAP: Int = 10_000
+
+        /**
+         * v11 → v12：把 `neodb_config.accessToken` 列干掉。Token 改走
+         * [com.gpo.yoin.data.integration.neodb.NeoDbTokenStore] 落到
+         * `noBackupFilesDir`，和 profile credentials 一样不进云备份。
+         *
+         * 迁移逻辑：用户在 0.3 开发版里已经填过的 token 直接丢弃（我们
+         * 不自动搬家到加密文件 —— Room 是 backup inclusion zone，丢掉
+         * 相对更干净），下次打开 Settings 重新登录即可。Release 前没有
+         * 正式用户，这个 trade-off 可接受。
+         */
+        val MIGRATION_11_12 = object : Migration(11, 12) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE `neodb_config_new` (
+                        `id` INTEGER NOT NULL PRIMARY KEY,
+                        `instance` TEXT NOT NULL DEFAULT 'https://neodb.social'
+                    )
+                    """.trimIndent(),
+                )
+                db.execSQL(
+                    """
+                    INSERT INTO `neodb_config_new` (`id`, `instance`)
+                    SELECT `id`, `instance` FROM `neodb_config`
+                    """.trimIndent(),
+                )
+                db.execSQL("DROP TABLE `neodb_config`")
+                db.execSQL("ALTER TABLE `neodb_config_new` RENAME TO `neodb_config`")
+            }
+        }
 
         // v10: 笔记支持多条 per 单曲。主键从 (trackId, provider) 组合换成独立
         // UUID `id`；(trackId, provider) 降级成普通索引。现有单条笔记通过

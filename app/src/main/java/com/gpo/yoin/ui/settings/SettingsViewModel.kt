@@ -51,28 +51,28 @@ class SettingsViewModel(
             .stateIn(viewModelScope, SharingStarted.Eagerly, "")
 
     /**
-     * NeoDB 的 instance + token 两个字段打成一个 bundle，省一路 combine 位子
-     * —— 上游 `uiState` 的 5-arity combine 已经用满了，再加就要退化到 Array
-     * 变长版本，readability 差。
+     * NeoDB 的 instance + token bundle。Instance 走 Room flow；token 走
+     * [NeoDbTokenStore]（加密文件，不走备份）—— 文件 IO 没有 observable
+     * 流，所以用 MutableStateFlow 在 save/clear 时显式刷。
      */
     private data class NeoDBSettingsBundle(
         val instance: String,
         val accessToken: String,
     )
 
-    private val neoDbSettingsBundleFlow: StateFlow<NeoDBSettingsBundle> =
+    private val _neoDbTokenCache = MutableStateFlow(container.neoDbTokenStore.readToken().orEmpty())
+
+    private val neoDbSettingsBundleFlow: StateFlow<NeoDBSettingsBundle> = combine(
         database.neoDbConfigDao().observe()
-            .map { cfg ->
-                NeoDBSettingsBundle(
-                    instance = cfg?.instance ?: NeoDBConfig.DEFAULT_INSTANCE,
-                    accessToken = cfg?.accessToken.orEmpty(),
-                )
-            }
-            .stateIn(
-                viewModelScope,
-                SharingStarted.Eagerly,
-                NeoDBSettingsBundle(NeoDBConfig.DEFAULT_INSTANCE, ""),
-            )
+            .map { cfg -> cfg?.instance ?: NeoDBConfig.DEFAULT_INSTANCE },
+        _neoDbTokenCache,
+    ) { instance, token ->
+        NeoDBSettingsBundle(instance = instance, accessToken = token)
+    }.stateIn(
+        viewModelScope,
+        SharingStarted.Eagerly,
+        NeoDBSettingsBundle(NeoDBConfig.DEFAULT_INSTANCE, ""),
+    )
 
     /**
      * Fan three Spotify signals into one bundle so the top-level `combine`
@@ -452,36 +452,31 @@ class SettingsViewModel(
     }
 
     /**
-     * 保存 NeoDB BYOK 配置。允许只改 instance（留空 token 仍然会落库 ——
-     * 调用方通过 [NeoDBSyncService.isConfigured] 判是否能推）。
+     * 保存 NeoDB BYOK 配置。Instance 落 Room；token 走 [NeoDbTokenStore]
+     * （加密文件，不进云备份）。
      *
-     * instance 留空时回 [NeoDBConfig.DEFAULT_INSTANCE]（`https://neodb.social`），
-     * 省得用户把默认 instance 不小心清掉。
+     * instance 留空时回 [NeoDBConfig.DEFAULT_INSTANCE]，省得用户把默认
+     * 实例不小心清掉。
      */
     fun saveNeoDbConfig(instance: String, accessToken: String) {
         viewModelScope.launch {
             val normalizedInstance = instance.trim().trimEnd('/')
                 .takeIf(String::isNotEmpty)
                 ?: NeoDBConfig.DEFAULT_INSTANCE
+            val normalizedToken = accessToken.trim()
             database.neoDbConfigDao().upsert(
-                NeoDBConfig(
-                    instance = normalizedInstance,
-                    accessToken = accessToken.trim(),
-                ),
+                NeoDBConfig(instance = normalizedInstance),
             )
+            container.neoDbTokenStore.writeToken(normalizedToken)
+            _neoDbTokenCache.value = normalizedToken
         }
     }
 
     /** 「登出 NeoDB」—— 清空 token 但保留 instance，省得用户下次登录又填一遍。 */
     fun clearNeoDbToken() {
         viewModelScope.launch {
-            val existing = database.neoDbConfigDao().get()
-            database.neoDbConfigDao().upsert(
-                NeoDBConfig(
-                    instance = existing?.instance ?: NeoDBConfig.DEFAULT_INSTANCE,
-                    accessToken = "",
-                ),
-            )
+            container.neoDbTokenStore.clear()
+            _neoDbTokenCache.value = ""
         }
     }
 

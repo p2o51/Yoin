@@ -21,25 +21,37 @@ import kotlin.math.roundToInt
  *    写的字段清掉。
  *  - 映射缓存：Yoin `albumId` ↔ NeoDB item uuid 存 `external_mappings`。
  *    没命中时走 [NeoDBApi.searchAlbum] 按 "name artist" 查。
+ *  - **Token 存储**：NeoDB access token 放 [NeoDbTokenStore]（加密落在
+ *    `noBackupFilesDir`），不进 Room —— Room 走云备份，token 不应跟着走。
  *
- * 所有方法都会在没有 token 时直接返回 [Result.success] / no-op，让调用方
- * 不用分叉逻辑；UI 层需要时再读 [isConfigured] 判断能不能触发同步。
+ * 所有方法在未登录时直接返回 [Result.success] / no-op，让调用方不用分叉
+ * 逻辑；UI 层需要时再读 [isConfigured] 判能不能触发同步。
  */
 class NeoDBSyncService(
     private val api: NeoDBApi,
     private val configDao: NeoDBConfigDao,
+    private val tokenStore: NeoDbTokenStore,
     private val mappingDao: ExternalMappingDao,
     private val albumRatingDao: AlbumRatingDao,
 ) {
 
-    suspend fun isConfigured(): Boolean {
-        val cfg = configDao.get() ?: return false
-        return cfg.accessToken.isNotBlank() && cfg.instance.isNotBlank()
+    private data class Session(val instance: String, val token: String)
+
+    /**
+     * 拿当前可用的 (instance, token)。两者任一缺失直接返回 null；调用方
+     * 靠这个 null 短路到「未登录」分支。
+     */
+    private suspend fun currentSession(): Session? {
+        val instance = configDao.get()?.instance?.takeUnless(String::isBlank)
+            ?: return null
+        val token = tokenStore.readToken()?.takeUnless(String::isBlank) ?: return null
+        return Session(instance = instance, token = token)
     }
+
+    suspend fun isConfigured(): Boolean = currentSession() != null
 
     /**
      * 把本地 [AlbumRating] 的 rating + review 推到 NeoDB。
-     * 需要先已经解析出 album 的 NeoDB uuid（通过 [resolveAlbumUuid]）。
      *
      * 流程（终局 v2）：
      *  1. GET `/api/me/shelf/item/{uuid}` 拿当前 tags / comment_text /
@@ -48,27 +60,26 @@ class NeoDBSyncService(
      *  3. review 有变化时：
      *     - 本地 reviewUuid 为空 → POST 创建新 Review，回写 uuid。
      *     - 已有 uuid → PUT 覆写 body。
-     *     - 本地 review 清空 → DELETE。
+     *     - 本地 review 清空 → DELETE。**失败不会清本地脏位 / uuid**，
+     *       让用户下次能重试；只有确认远端删除成功（或 NeoDB 回 404 ==
+     *       已经不在了）才 treat 成功。
      *
      * **多对一复用**：`external_mappings` 表允许多条 Yoin 实体指向同一
-     * `externalId`，所以同一张专辑的 Subsonic 版和 Spotify 版 push 时 uuid
-     * 是同一个，NeoDB 侧 Mark/Review 只会被覆写一次（POST shelf item 是幂
-     * 等的）。跨 provider 的「自动绑定到已有 uuid」走 0.5 的映射校验 UI，
-     * 这里先做反查兜底 —— 本 provider 有映射就直接用。
+     * `externalId`，所以同一张专辑的 Subsonic 版和 Spotify 版 push 时
+     * uuid 是同一个，NeoDB 侧 Mark/Review 只会被覆写一次（POST 幂等）。
      */
     suspend fun pushAlbum(album: Album): Result<Unit> = runCatching {
-        val cfg = configDao.get() ?: error("NeoDB 未配置")
-        require(cfg.accessToken.isNotBlank()) { "NeoDB token 为空" }
+        val session = currentSession() ?: error("NeoDB 未配置")
 
         val local = albumRatingDao.get(album.id.rawId, album.id.provider)
             ?: return@runCatching
         if (!local.ratingNeedsSync && !local.reviewNeedsSync) return@runCatching
 
-        val itemUuid = resolveAlbumUuid(album)
+        val itemUuid = resolveAlbumUuid(album, session)
             ?: error("无法在 NeoDB 上找到对应专辑")
 
         if (local.ratingNeedsSync) {
-            val existing = api.getShelfItem(cfg.instance, cfg.accessToken, itemUuid)
+            val existing = api.getShelfItem(session.instance, session.token, itemUuid)
             val body = ShelfMarkRequest(
                 shelfType = existing?.shelfType ?: "complete",
                 visibility = existing?.visibility ?: 0,
@@ -76,7 +87,7 @@ class NeoDBSyncService(
                 commentText = existing?.commentText,
                 tags = existing?.tags ?: emptyList(),
             )
-            api.postShelfMark(cfg.instance, cfg.accessToken, itemUuid, body)
+            api.postShelfMark(session.instance, session.token, itemUuid, body)
         }
 
         if (local.reviewNeedsSync) {
@@ -84,16 +95,24 @@ class NeoDBSyncService(
             val existingUuid = local.neoDbReviewUuid
             val newUuid = when {
                 reviewBody.isBlank() && existingUuid != null -> {
-                    runCatching {
-                        api.deleteReview(cfg.instance, cfg.accessToken, existingUuid)
+                    // Delete path：**不再把失败吞掉**。
+                    //  - 204 / 200 / 404 都视为已不在（NeoDB 上已经没这条
+                    //    Review 了，目标状态一致）→ 清 uuid + 清脏位。
+                    //  - 其它失败（401 / 5xx / 网络）抛给外层 runCatching，
+                    //    Room 的 upsert 不会执行 → 本地保持 uuid + 脏位，
+                    //    下次同步时继续重试。
+                    try {
+                        api.deleteReview(session.instance, session.token, existingUuid)
+                    } catch (error: NeoDBException) {
+                        if (error.code != 404) throw error
                     }
                     null
                 }
                 reviewBody.isBlank() -> null
                 existingUuid != null -> {
                     api.updateReview(
-                        cfg.instance,
-                        cfg.accessToken,
+                        session.instance,
+                        session.token,
                         existingUuid,
                         ReviewRequest(
                             itemUuid = itemUuid,
@@ -104,8 +123,8 @@ class NeoDBSyncService(
                 }
                 else -> {
                     api.createReview(
-                        cfg.instance,
-                        cfg.accessToken,
+                        session.instance,
+                        session.token,
                         ReviewRequest(
                             itemUuid = itemUuid,
                             title = album.name,
@@ -134,36 +153,61 @@ class NeoDBSyncService(
     }
 
     /**
-     * 把 NeoDB 侧的 Mark + Review 拉到本地 —— 仅 NeoDB 有值时覆写本地；
-     * 本地有未推的 needsSync 时跳过该字段（避免把用户在飞行模式下打的
-     * 草稿干掉）。
+     * 把 NeoDB 侧的 Mark + Review 拉到本地。
+     *
+     * Review merge：
+     *  - 本地有 `reviewNeedsSync = true` → 跳过远端值，保护飞行模式草稿。
+     *  - 本地已有 uuid → 按 uuid GET review body（旧路径）。
+     *  - **本地没 uuid 但远端可能有**（「远端先写、本地从没推过」的冷启
+     *    动场景）→ 调 [NeoDBApi.listMyReviews] 按 item uuid 反查，找到
+     *    就回写本地 uuid + body，让后续双向同步能接上。这条路径修 P1
+     *    critique：之前 pullAlbum 只靠本地 uuid 匹配，远端孤儿 review
+     *    永远拉不下来。
      */
     suspend fun pullAlbum(album: Album): Result<AlbumRating?> = runCatching {
-        val cfg = configDao.get() ?: error("NeoDB 未配置")
-        require(cfg.accessToken.isNotBlank()) { "NeoDB token 为空" }
+        val session = currentSession() ?: error("NeoDB 未配置")
 
-        val itemUuid = resolveAlbumUuid(album) ?: return@runCatching null
-        val remote = api.getShelfItem(cfg.instance, cfg.accessToken, itemUuid)
-            ?: return@runCatching null
-
+        val itemUuid = resolveAlbumUuid(album, session) ?: return@runCatching null
+        val remote = api.getShelfItem(session.instance, session.token, itemUuid)
+        // remote 为 null（NeoDB 上这张专辑还没 shelf 记录）时，仍可能有
+        // 孤儿 Review —— 继续尝试拉 review。
         val existing = albumRatingDao.get(album.id.rawId, album.id.provider)
+
         val mergedRating = when {
             existing?.ratingNeedsSync == true -> existing.rating
-            remote.ratingGrade != null -> remote.ratingGrade.toFloat()
+            remote?.ratingGrade != null -> remote.ratingGrade.toFloat()
             else -> existing?.rating ?: 0f
         }
+
+        val reviewLookup = resolveReviewForPull(
+            session = session,
+            itemUuid = itemUuid,
+            existingUuid = existing?.neoDbReviewUuid,
+        )
         val mergedReview = when {
             existing?.reviewNeedsSync == true -> existing.review
-            else -> fetchReviewBody(cfg.instance, cfg.accessToken, existing?.neoDbReviewUuid)
-                ?: existing?.review
+            reviewLookup != null -> reviewLookup.body
+            else -> existing?.review
         }
+        val mergedUuid = when {
+            existing?.reviewNeedsSync == true -> existing.neoDbReviewUuid
+            reviewLookup != null -> reviewLookup.uuid
+            else -> existing?.neoDbReviewUuid
+        }
+
+        // 远端全空 + 本地全空 → 不写新行；避免在 album_ratings 里造出
+        // 一堆零分占位。
+        val hasAnyContent = mergedRating > 0f ||
+            !mergedReview.isNullOrBlank() ||
+            existing != null
+        if (!hasAnyContent) return@runCatching null
 
         val resolved = AlbumRating(
             albumId = album.id.rawId,
             provider = album.id.provider,
             rating = mergedRating,
             review = mergedReview,
-            neoDbReviewUuid = existing?.neoDbReviewUuid,
+            neoDbReviewUuid = mergedUuid,
             ratingNeedsSync = existing?.ratingNeedsSync ?: false,
             reviewNeedsSync = existing?.reviewNeedsSync ?: false,
             updatedAt = System.currentTimeMillis(),
@@ -178,15 +222,12 @@ class NeoDBSyncService(
      * 走两级缓存：
      *  1. **反查当前 Yoin 实体** —— `findForYoinEntity` 命中就直接复用。
      *  2. **搜 NeoDB** —— name + artist 模糊搜索第一条结果；命中后落
-     *     `external_mappings`，**同时允许和已有其它 provider 的映射共享同
-     *     一个 uuid**（表结构改成多对一后，Subsonic 版和 Spotify 版可以各
-     *     自存一行，共同指向同一个 uuid X，这样下次 push 任一版本都会直接
-     *     命中 step 1，不重复搜索也不重复推）。
+     *     `external_mappings`。
      *
-     * 跨源模糊匹配（例如在 Subsonic 版已映射的前提下，把 Spotify 版也自动
-     * 绑到同一个 uuid）留给 0.5 的映射校验 UI 做 —— 这里保持搜索兜底即可。
+     * 跨源模糊匹配（例如 Subsonic 版已映射后把 Spotify 版也自动绑到同一
+     * uuid）留给 0.5 的映射校验 UI —— 这里保持搜索兜底。
      */
-    private suspend fun resolveAlbumUuid(album: Album): String? {
+    private suspend fun resolveAlbumUuid(album: Album, session: Session): String? {
         val cached = mappingDao.findForYoinEntity(
             provider = album.id.provider,
             entityType = ExternalMapping.ENTITY_ALBUM,
@@ -194,9 +235,6 @@ class NeoDBSyncService(
             service = ExternalMapping.SERVICE_NEODB,
         )
         if (cached != null) return cached.externalId
-
-        val cfg = configDao.get() ?: return null
-        if (cfg.accessToken.isBlank()) return null
 
         val query = buildString {
             append(album.name)
@@ -207,7 +245,7 @@ class NeoDBSyncService(
         }.trim()
         if (query.isEmpty()) return null
 
-        val hit = api.searchAlbum(cfg.instance, cfg.accessToken, query).firstOrNull()
+        val hit = api.searchAlbum(session.instance, session.token, query).firstOrNull()
         val uuid = hit?.uuid ?: return null
 
         mappingDao.upsert(
@@ -222,14 +260,30 @@ class NeoDBSyncService(
         return uuid
     }
 
-    private suspend fun fetchReviewBody(
-        instance: String,
-        token: String,
-        reviewUuid: String?,
-    ): String? {
-        val uuid = reviewUuid ?: return null
-        return runCatching {
-            api.getReview(instance, token, uuid)?.body
-        }.getOrNull()
+    /**
+     * 拉 review 时决定要 merge 哪份远端内容。
+     *  - 本地有 uuid 就直接 GET /api/me/review/{uuid}（精确路径，一次到位）
+     *  - 本地没 uuid → 调 [NeoDBApi.listMyReviews] 按 itemUuid 反查；
+     *    NeoDB 保证每用户每 item 最多 1 条 Review，所以命中就是唯一答案。
+     *
+     *  任一失败都返回 null，调用方降级到「没拉到 review，保留本地」分支。
+     */
+    private suspend fun resolveReviewForPull(
+        session: Session,
+        itemUuid: String,
+        existingUuid: String?,
+    ): ReviewLookup? {
+        if (existingUuid != null) {
+            val direct = runCatching {
+                api.getReview(session.instance, session.token, existingUuid)
+            }.getOrNull() ?: return null
+            return ReviewLookup(uuid = direct.uuid ?: existingUuid, body = direct.body)
+        }
+        val listed = runCatching {
+            api.listMyReviewsForItem(session.instance, session.token, itemUuid)
+        }.getOrNull()?.firstOrNull() ?: return null
+        return ReviewLookup(uuid = listed.uuid, body = listed.body)
     }
+
+    private data class ReviewLookup(val uuid: String?, val body: String?)
 }

@@ -2,12 +2,25 @@
 <!--
   targetSdk 36 必须显式声明 Auto Backup / Device-to-Device 过滤规则。
 
-  原则：
-    - 包含：YoinDatabase.db（评分 / 专辑评分 / 笔记 / 播放历史 / Memory 候选池）
-    - 排除：所有加密凭据、对端可重拉的缓存、WebView 副产物
-  换机恢复后：加密凭据换机后解不开（AndroidKeyStore 换锁），UI 会走
-  `SpotifyProviderStatus.NeedsReconnect(BackupRestored)` 引导用户重授权；
-  Subsonic / Spotify / NeoDB 都走同一条重授权路径。
+  语义分层：
+    - 备份：`yoin-database.db`（评分 / 专辑评分 / 笔记 / 播放历史 /
+      Memory 候选池 / external_mappings / profile 元数据）
+    - 不备份：所有凭据 —— 走 `noBackupFilesDir`（Android 自动排除）
+        * profile_credentials/*.bin — Subsonic / Spotify 凭据
+        * neodb/token.bin — NeoDB access token（v12 后从 Room 迁出）
+    - 不备份：Media3 cache 等运行时产物（走 cacheDir，默认已排除）
+
+  已知局限（0.4 抛光期再处理）：
+    `yoin-database.db` 里同时放了一些「可再拉的缓存表」（spotify_home_*,
+    lyrics_cache, memory_copy_cache）。Android 的备份粒度是文件级，表
+    级别排除做不到。这些缓存会跟着 DB 备份走一次，恢复后会继续使用；
+    不影响正确性，只是稍微浪费一点备份空间。彻底拆开需要引入第二个
+    Room 数据库（yoin-cache.db），是一次独立重构。
+
+  换机恢复后的凭据：AndroidKeyStore 的 AES-GCM key 是设备绑定、不可
+  迁移的。Subsonic / Spotify / NeoDB 的凭据落在 noBackupFilesDir 里，
+  不进备份；恢复后 [SpotifyProviderStatus.NeedsReconnect(BackupRestored)]
+  会把用户引到重新登录流程。
 -->
 <data-extraction-rules>
     <cloud-backup>
@@ -18,7 +31,6 @@
         <!-- Profile 行元数据保留（作为重连引导的线索），但凭据文件不会被打进 -->
         <include domain="sharedpref" path="profile_active_id.xml" />
 
-        <exclude domain="file" path="profile_credentials" />
         <exclude domain="database" path="yoin-database-journal" />
         <exclude domain="cache" path="." />
     </cloud-backup>
@@ -29,7 +41,6 @@
         <include domain="database" path="yoin-database-wal" />
         <include domain="sharedpref" path="profile_active_id.xml" />
 
-        <exclude domain="file" path="profile_credentials" />
         <exclude domain="database" path="yoin-database-journal" />
         <exclude domain="cache" path="." />
     </device-transfer>
