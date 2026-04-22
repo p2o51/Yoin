@@ -27,11 +27,14 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.LibraryMusic
+import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -82,6 +85,9 @@ fun AlbumDetailScreen(
     expandedSongId: String? = null,
     expandedNoteBundle: AlbumExpandedNoteBundle? = null,
     onToggleExpandedSong: (songId: String) -> Unit = {},
+    onRatingCommit: (Float) -> Unit = {},
+    onReviewDraftChange: (String) -> Unit = {},
+    onSaveReview: () -> Unit = {},
     onRetry: () -> Unit,
     sharedTransitionScope: SharedTransitionScope? = null,
     animatedVisibilityScope: AnimatedVisibilityScope? = null,
@@ -192,6 +198,9 @@ fun AlbumDetailScreen(
                             expandedSongId = expandedSongId,
                             expandedNoteBundle = expandedNoteBundle,
                             onToggleExpandedSong = onToggleExpandedSong,
+                            onRatingCommit = onRatingCommit,
+                            onReviewDraftChange = onReviewDraftChange,
+                            onSaveReview = onSaveReview,
                             sharedTransitionKey = sharedTransitionKey,
                             sharedTransitionScope = sharedTransitionScope,
                             animatedVisibilityScope = animatedVisibilityScope,
@@ -214,6 +223,9 @@ private fun AlbumDetailContent(
     expandedSongId: String?,
     expandedNoteBundle: AlbumExpandedNoteBundle?,
     onToggleExpandedSong: (songId: String) -> Unit,
+    onRatingCommit: (Float) -> Unit = {},
+    onReviewDraftChange: (String) -> Unit = {},
+    onSaveReview: () -> Unit = {},
     sharedTransitionKey: String? = null,
     sharedTransitionScope: SharedTransitionScope? = null,
     animatedVisibilityScope: AnimatedVisibilityScope? = null,
@@ -293,6 +305,26 @@ private fun AlbumDetailContent(
                     )
                     AlbumMetaRow(content = content)
                 }
+            }
+        }
+
+        item {
+            androidx.compose.foundation.layout.Column(
+                modifier = Modifier
+                    .graphicsLayer {
+                        alpha = tracksAlpha
+                        translationY = tracksOffsetY
+                    }
+                    .padding(bottom = 6.dp),
+            ) {
+                AlbumUserReviewSection(
+                    userRating = content.userRating,
+                    userReview = content.userReview,
+                    reviewHasUnsavedEdits = content.reviewHasUnsavedEdits,
+                    onRatingCommit = onRatingCommit,
+                    onReviewDraftChange = onReviewDraftChange,
+                    onSaveReview = onSaveReview,
+                )
             }
         }
 
@@ -407,6 +439,114 @@ private fun AlbumMetaRow(
         content.totalDuration?.let {
             val mins = it / 60
             ExpressiveMetaPill(text = "$mins min")
+        }
+    }
+}
+
+/**
+ * 专辑级评分 + 长评编辑区。粗 UI 对齐「先做一个普通的」的目标：
+ *  - 0–10 整数 slider；onValueChangeFinished 才落库，避免每 tick 写 Room
+ *  - 多行 OutlinedTextField；用户点 Save 才落库
+ *  - "Save" 按钮在 reviewHasUnsavedEdits = true 且草稿有内容 / 清空时亮
+ *
+ * 本地写入后自动反映到 [AlbumRating] 表；用户之后在 Memory 点 Sync to NeoDB
+ * 会把这里的值推上去。
+ */
+@Composable
+private fun AlbumUserReviewSection(
+    userRating: Float?,
+    userReview: String,
+    reviewHasUnsavedEdits: Boolean,
+    onRatingCommit: (Float) -> Unit,
+    onReviewDraftChange: (String) -> Unit,
+    onSaveReview: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    // slider 走本地 state，onValueChangeFinished 提交给 VM 落库；
+    // ViewModel 如果从别处改了 rating，也会通过 LaunchedEffect(userRating)
+    // 同步回 slider。
+    var sliderValue by remember(userRating) {
+        mutableStateOf(userRating ?: 0f)
+    }
+    LaunchedEffect(userRating) {
+        sliderValue = userRating ?: 0f
+    }
+
+    ExpressiveSectionPanel(
+        modifier = modifier.fillMaxWidth(),
+        containerColor = MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.92f),
+        tonalElevation = 1.dp,
+        shadowElevation = 0.dp,
+    ) {
+        androidx.compose.foundation.layout.Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(18.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = "My rating",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+                Text(
+                    text = if (userRating != null && userRating > 0f) {
+                        "${sliderValue.toInt()} / 10"
+                    } else {
+                        "Not rated"
+                    },
+                    style = MaterialTheme.typography.titleMedium.withTabularFigures(),
+                    color = MaterialTheme.colorScheme.primary,
+                )
+            }
+            Slider(
+                value = sliderValue,
+                onValueChange = { sliderValue = it },
+                onValueChangeFinished = { onRatingCommit(sliderValue) },
+                valueRange = 0f..10f,
+                // 9 steps between endpoints → 0, 1, 2, ..., 10 整数停靠位
+                steps = 9,
+                modifier = Modifier.fillMaxWidth(),
+            )
+
+            Spacer(modifier = Modifier.height(4.dp))
+
+            Text(
+                text = "My review",
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            Text(
+                text = "Markdown supported. Saved locally; pushed to NeoDB from the Memory card.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            OutlinedTextField(
+                value = userReview,
+                onValueChange = onReviewDraftChange,
+                placeholder = {
+                    Text(
+                        text = "Write what stuck with you…",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(140.dp),
+                minLines = 4,
+            )
+            Button(
+                onClick = onSaveReview,
+                enabled = reviewHasUnsavedEdits,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text(if (reviewHasUnsavedEdits) "Save review" else "Review saved")
+            }
         }
     }
 }
