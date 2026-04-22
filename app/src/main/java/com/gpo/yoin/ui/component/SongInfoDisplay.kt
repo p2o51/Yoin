@@ -25,22 +25,28 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
-import com.gpo.yoin.ui.nowplaying.SongInfoUiState
+import com.gpo.yoin.data.local.SongAboutEntry
+import com.gpo.yoin.ui.nowplaying.AboutUiState
 import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinMotionRole
 import com.gpo.yoin.ui.theme.YoinTheme
 
+/**
+ * Compact About preview used inside `NowPlayingScreen`'s middle pager.
+ * Renders canonical rows in fixed [SongAboutEntry.CANONICAL_ORDER] plus a
+ * teaser of the most recent Ask Gemini answer. Editing / asking happens in
+ * the fullscreen About pane; this surface is intentionally read-only.
+ */
 @Composable
 fun SongInfoDisplay(
-    songInfoState: SongInfoUiState,
+    aboutUiState: AboutUiState,
     onRetry: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     AnimatedContent(
-        targetState = songInfoState,
+        targetState = aboutUiState,
         transitionSpec = {
             YoinMotion.fadeIn(role = YoinMotionRole.Standard) togetherWith
                 YoinMotion.fadeOut(role = YoinMotionRole.Standard)
@@ -50,20 +56,20 @@ fun SongInfoDisplay(
         label = "songInfoContent",
     ) { state ->
         when (state) {
-            is SongInfoUiState.Idle -> {
+            is AboutUiState.Idle -> {
                 Box(
                     modifier = Modifier.fillMaxSize(),
                     contentAlignment = Alignment.CenterStart,
                 ) {
                     Text(
-                        text = "Swipe here to load song info",
+                        text = "Tap to load song info",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
             }
 
-            is SongInfoUiState.Loading -> {
+            is AboutUiState.Loading -> {
                 Box(
                     modifier = Modifier.fillMaxSize(),
                     contentAlignment = Alignment.CenterStart,
@@ -80,7 +86,7 @@ fun SongInfoDisplay(
                 }
             }
 
-            is SongInfoUiState.ApiKeyMissing -> {
+            is AboutUiState.ApiKeyMissing -> {
                 Box(
                     modifier = Modifier.fillMaxSize(),
                     contentAlignment = Alignment.CenterStart,
@@ -93,7 +99,7 @@ fun SongInfoDisplay(
                 }
             }
 
-            is SongInfoUiState.Error -> {
+            is AboutUiState.Error -> {
                 Box(
                     modifier = Modifier.fillMaxSize(),
                     contentAlignment = Alignment.CenterStart,
@@ -112,16 +118,16 @@ fun SongInfoDisplay(
                 }
             }
 
-            is SongInfoUiState.Success -> {
-                SuccessContent(state = state)
+            is AboutUiState.Ready -> {
+                ReadyContent(entries = state.entries)
             }
         }
     }
 }
 
 @Composable
-private fun SuccessContent(
-    state: SongInfoUiState.Success,
+private fun ReadyContent(
+    entries: List<SongAboutEntry>,
     modifier: Modifier = Modifier,
 ) {
     Box(
@@ -147,30 +153,43 @@ private fun SuccessContent(
                 .fillMaxWidth()
                 .verticalScroll(rememberScrollState()),
         ) {
-            val fields = buildList {
-                state.creationTime?.let { add("Created" to it) }
-                state.creationLocation?.let { add("Location" to it) }
-                state.lyricist?.let { add("Lyricist" to it) }
-                state.composer?.let { add("Composer" to it) }
-                state.producer?.let { add("Producer" to it) }
-            }
+            val byKey = entries.filter { it.kind == SongAboutEntry.KIND_CANONICAL }
+                .associateBy { it.entryKey }
 
-            fields.forEach { (label, value) ->
-                InfoItem(label = label, value = value)
-            }
-
-            if (state.review != null) {
-                if (fields.isNotEmpty()) {
-                    Spacer(modifier = Modifier.height(12.dp))
+            SongAboutEntry.CANONICAL_ORDER
+                .mapNotNull { key -> byKey[key]?.let { key to it } }
+                .forEach { (key, row) ->
+                    if (key == SongAboutEntry.CANON_REVIEW) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = "About",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.padding(bottom = 2.dp),
+                        )
+                        Text(
+                            text = row.answerText,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurface,
+                        )
+                    } else {
+                        InfoItem(label = labelFor(key), value = row.answerText)
+                    }
                 }
+
+            // Preview teaser: just the most recent ask (DAO order = updatedAt desc).
+            val latestAsk = entries.firstOrNull { it.kind == SongAboutEntry.KIND_ASK }
+            if (latestAsk != null) {
+                Spacer(modifier = Modifier.height(12.dp))
+                val heading = latestAsk.titleText?.takeIf { it.isNotBlank() }
+                    ?: latestAsk.promptText.orEmpty()
                 Text(
-                    text = "About",
+                    text = heading,
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.padding(bottom = 2.dp),
                 )
                 Text(
-                    text = state.review,
+                    text = latestAsk.answerText,
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurface,
                 )
@@ -180,6 +199,16 @@ private fun SuccessContent(
             Spacer(modifier = Modifier.height(56.dp))
         }
     }
+}
+
+private fun labelFor(entryKey: String): String = when (entryKey) {
+    SongAboutEntry.CANON_CREATION_TIME -> "Created"
+    SongAboutEntry.CANON_CREATION_LOCATION -> "Location"
+    SongAboutEntry.CANON_LYRICIST -> "Lyricist"
+    SongAboutEntry.CANON_COMPOSER -> "Composer"
+    SongAboutEntry.CANON_PRODUCER -> "Producer"
+    SongAboutEntry.CANON_REVIEW -> "About"
+    else -> entryKey
 }
 
 @Composable
@@ -213,7 +242,7 @@ private fun InfoItem(
 private fun SongInfoDisplayLoadingPreview() {
     YoinTheme {
         SongInfoDisplay(
-            songInfoState = SongInfoUiState.Loading,
+            aboutUiState = AboutUiState.Loading,
             onRetry = {},
             modifier = Modifier.heightIn(min = 160.dp),
         )
@@ -222,17 +251,58 @@ private fun SongInfoDisplayLoadingPreview() {
 
 @Preview(showBackground = true, backgroundColor = 0xFF1C1B1F)
 @Composable
-private fun SongInfoDisplaySuccessPreview() {
+private fun SongInfoDisplayReadyPreview() {
     YoinTheme {
-        SongInfoDisplay(
-            songInfoState = SongInfoUiState.Success(
-                creationTime = "2006",
-                creationLocation = "London, UK",
-                lyricist = "Matt Bellamy",
-                composer = "Matt Bellamy",
-                producer = "Rich Costey",
-                review = "A soaring anthem that blends stadium rock grandeur with intimate longing, capturing the duality of distance and desire through its celestial imagery.",
+        val now = 1_700_000_000L
+        val previewEntries = listOf(
+            SongAboutEntry(
+                titleKey = "starlight",
+                artistKey = "muse",
+                albumKey = "black holes and revelations",
+                titleDisplay = "Starlight",
+                artistDisplay = "Muse",
+                albumDisplay = "Black Holes and Revelations",
+                kind = SongAboutEntry.KIND_CANONICAL,
+                entryKey = SongAboutEntry.CANON_CREATION_TIME,
+                promptText = null,
+                titleText = null,
+                answerText = "2006",
+                createdAt = now,
+                updatedAt = now,
             ),
+            SongAboutEntry(
+                titleKey = "starlight",
+                artistKey = "muse",
+                albumKey = "black holes and revelations",
+                titleDisplay = "Starlight",
+                artistDisplay = "Muse",
+                albumDisplay = "Black Holes and Revelations",
+                kind = SongAboutEntry.KIND_CANONICAL,
+                entryKey = SongAboutEntry.CANON_LYRICIST,
+                promptText = null,
+                titleText = null,
+                answerText = "Matt Bellamy",
+                createdAt = now,
+                updatedAt = now,
+            ),
+            SongAboutEntry(
+                titleKey = "starlight",
+                artistKey = "muse",
+                albumKey = "black holes and revelations",
+                titleDisplay = "Starlight",
+                artistDisplay = "Muse",
+                albumDisplay = "Black Holes and Revelations",
+                kind = SongAboutEntry.KIND_CANONICAL,
+                entryKey = SongAboutEntry.CANON_REVIEW,
+                promptText = null,
+                titleText = null,
+                answerText = "A soaring anthem blending stadium rock grandeur with intimate longing.",
+                createdAt = now,
+                updatedAt = now,
+            ),
+        )
+        SongInfoDisplay(
+            aboutUiState = AboutUiState.Ready(previewEntries),
             onRetry = {},
             modifier = Modifier.heightIn(min = 160.dp),
         )
@@ -244,7 +314,7 @@ private fun SongInfoDisplaySuccessPreview() {
 private fun SongInfoDisplayApiKeyMissingPreview() {
     YoinTheme {
         SongInfoDisplay(
-            songInfoState = SongInfoUiState.ApiKeyMissing,
+            aboutUiState = AboutUiState.ApiKeyMissing,
             onRetry = {},
             modifier = Modifier.heightIn(min = 160.dp),
         )

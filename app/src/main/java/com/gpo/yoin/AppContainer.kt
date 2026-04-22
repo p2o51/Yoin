@@ -67,6 +67,9 @@ class AppContainer(private val context: Context) {
                 MIGRATION_10_11,
                 MIGRATION_11_12,
                 MIGRATION_12_13,
+                MIGRATION_13_14,
+                MIGRATION_14_15,
+                MIGRATION_15_16,
             )
             // v11 冻结了 0.3 schema；0.5 上架前的备份降级保险（用户拿着 v11
             // 备份在旧版设备恢复）走这条：数据丢但应用不崩。没数据丢失比
@@ -375,7 +378,7 @@ class AppContainer(private val context: Context) {
             activeProfileId = profileManager.activeProfileId,
             database = database,
             geminiService = geminiService,
-            songInfoDao = database.songInfoDao(),
+            songAboutEntryDao = database.songAboutEntryDao(),
             geminiConfigDao = database.geminiConfigDao(),
             lyricsCacheDao = database.lyricsCacheDao(),
             songNoteDao = database.songNoteDao(),
@@ -881,6 +884,89 @@ class AppContainer(private val context: Context) {
                     """
                     CREATE INDEX IF NOT EXISTS `index_activity_events_profileId_provider_timestamp`
                     ON `activity_events` (`profileId`, `provider`, `timestamp`)
+                    """.trimIndent(),
+                )
+            }
+        }
+
+        /**
+         * v13 → v14：把 `local_ratings.rating` 从旧五分制翻到十分制。
+         *
+         * `serverRating` 继续保存 provider-native 值（Subsonic 0–5），所以
+         * 这里只改本地 UI / 聚合语义，不碰同步字段。旧数据统一乘 2，避免升级后
+         * 3.7 之类的历史评分被误当成 3.7/10 显示。
+         */
+        val MIGRATION_13_14 = object : Migration(13, 14) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    UPDATE `local_ratings`
+                    SET `rating` = CASE
+                        WHEN `rating` > 0 THEN MIN(`rating` * 2.0, 10.0)
+                        ELSE `rating`
+                    END
+                    """.trimIndent(),
+                )
+            }
+        }
+
+        /**
+         * v14 → v15：把 `song_info` 按 `(songId, provider)` 键的结构化表替换
+         * 成 `song_about_entries` —— 一张统一的 Q&A 表，canonical About 字段
+         * 和用户 Ask Gemini 问答合并一起，按 normalized `title + artist + album`
+         * 为 key。重新以元数据而非 provider 身份缓存，因为 Gemini Grounding
+         * 用元数据匹配；不同 profile/provider 播同一首歌应该共享缓存。
+         *
+         * 旧 `song_info` 直接 drop：要把 6 列结构化数据转成 canonical 行，必须
+         * 补一次 title/artist/album lookup；在 release 前用户量小，下次打开
+         * About 重新抓一下就好，不值得加 JOIN 逻辑。
+         */
+        val MIGRATION_14_15 = object : Migration(14, 15) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("DROP TABLE IF EXISTS `song_info`")
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `song_about_entries` (
+                        `titleKey` TEXT NOT NULL,
+                        `artistKey` TEXT NOT NULL,
+                        `albumKey` TEXT NOT NULL,
+                        `titleDisplay` TEXT NOT NULL,
+                        `artistDisplay` TEXT NOT NULL,
+                        `albumDisplay` TEXT NOT NULL,
+                        `kind` TEXT NOT NULL,
+                        `entryKey` TEXT NOT NULL,
+                        `promptText` TEXT,
+                        `answerText` TEXT NOT NULL,
+                        `createdAt` INTEGER NOT NULL,
+                        `updatedAt` INTEGER NOT NULL,
+                        PRIMARY KEY(`titleKey`, `artistKey`, `albumKey`, `kind`, `entryKey`)
+                    )
+                    """.trimIndent(),
+                )
+                db.execSQL(
+                    """
+                    CREATE INDEX IF NOT EXISTS `idx_about_lookup`
+                    ON `song_about_entries` (`titleKey`, `artistKey`, `albumKey`, `kind`, `updatedAt`)
+                    """.trimIndent(),
+                )
+            }
+        }
+
+        /**
+         * v15 → v16：`song_about_entries.titleText` —— Gemini 为每条 ask 生成
+         * 的简洁标题。之前 ask 行 UI 直接把用户原始问题当大标题展示，长问题
+         * 堆起来丑。现在 Gemini 返回 `[TITLE]+[ANSWER]` 双 tag，title 做成
+         * 界面上方的 headline，answer 走正文。
+         *
+         * Canonical 行填 NULL（它们按 entryKey 走固定 label）。已存在的 ask
+         * 行也先填 NULL —— UI 回退到 `promptText`，不中断现有缓存。
+         */
+        val MIGRATION_15_16 = object : Migration(15, 16) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    ALTER TABLE `song_about_entries`
+                    ADD COLUMN `titleText` TEXT
                     """.trimIndent(),
                 )
             }

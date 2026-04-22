@@ -64,6 +64,9 @@ class YoinDatabaseMigrationTest {
                 AppContainer.MIGRATION_10_11,
                 AppContainer.MIGRATION_11_12,
                 AppContainer.MIGRATION_12_13,
+                AppContainer.MIGRATION_13_14,
+                AppContainer.MIGRATION_14_15,
+                AppContainer.MIGRATION_15_16,
             )
             .allowMainThreadQueries()
             .build()
@@ -146,6 +149,9 @@ class YoinDatabaseMigrationTest {
                 AppContainer.MIGRATION_10_11,
                 AppContainer.MIGRATION_11_12,
                 AppContainer.MIGRATION_12_13,
+                AppContainer.MIGRATION_13_14,
+                AppContainer.MIGRATION_14_15,
+                AppContainer.MIGRATION_15_16,
             )
             .allowMainThreadQueries()
             .build()
@@ -211,6 +217,9 @@ class YoinDatabaseMigrationTest {
                 AppContainer.MIGRATION_10_11,
                 AppContainer.MIGRATION_11_12,
                 AppContainer.MIGRATION_12_13,
+                AppContainer.MIGRATION_13_14,
+                AppContainer.MIGRATION_14_15,
+                AppContainer.MIGRATION_15_16,
             )
             .allowMainThreadQueries()
             .build()
@@ -259,6 +268,9 @@ class YoinDatabaseMigrationTest {
                 AppContainer.MIGRATION_10_11,
                 AppContainer.MIGRATION_11_12,
                 AppContainer.MIGRATION_12_13,
+                AppContainer.MIGRATION_13_14,
+                AppContainer.MIGRATION_14_15,
+                AppContainer.MIGRATION_15_16,
             )
             .allowMainThreadQueries()
             .build()
@@ -333,6 +345,9 @@ class YoinDatabaseMigrationTest {
                 AppContainer.MIGRATION_10_11,
                 AppContainer.MIGRATION_11_12,
                 AppContainer.MIGRATION_12_13,
+                AppContainer.MIGRATION_13_14,
+                AppContainer.MIGRATION_14_15,
+                AppContainer.MIGRATION_15_16,
             )
             .allowMainThreadQueries()
             .build()
@@ -413,6 +428,9 @@ class YoinDatabaseMigrationTest {
             .addMigrations(
                 AppContainer.MIGRATION_11_12,
                 AppContainer.MIGRATION_12_13,
+                AppContainer.MIGRATION_13_14,
+                AppContainer.MIGRATION_14_15,
+                AppContainer.MIGRATION_15_16,
             )
             .allowMainThreadQueries()
             .build()
@@ -468,7 +486,12 @@ class YoinDatabaseMigrationTest {
         helper.close()
 
         val migrated = Room.databaseBuilder(context, YoinDatabase::class.java, dbName)
-            .addMigrations(AppContainer.MIGRATION_12_13)
+            .addMigrations(
+                AppContainer.MIGRATION_12_13,
+                AppContainer.MIGRATION_13_14,
+                AppContainer.MIGRATION_14_15,
+                AppContainer.MIGRATION_15_16,
+            )
             .allowMainThreadQueries()
             .build()
 
@@ -485,6 +508,213 @@ class YoinDatabaseMigrationTest {
         migrated.close()
     }
 
+    @Test
+    fun should_upgrade_local_track_ratings_to_ten_point_scale_when_migrating_13_to_14() = runTest {
+        val helper = FrameworkSQLiteOpenHelperFactory().create(
+            SupportSQLiteOpenHelper.Configuration.builder(context)
+                .name(dbName)
+                .callback(
+                    object : SupportSQLiteOpenHelper.Callback(13) {
+                        override fun onCreate(db: SupportSQLiteDatabase) {
+                            createVersion13Schema(db)
+                            db.execSQL(
+                                """
+                                INSERT INTO `local_ratings`
+                                    (`songId`, `provider`, `rating`, `serverRating`, `needsSync`, `updatedAt`)
+                                VALUES
+                                    ('song-1', 'subsonic', 3.7, 4, 1, 1000),
+                                    ('song-2', 'spotify', 5.0, 0, 0, 1001),
+                                    ('song-3', 'subsonic', 0.0, 0, 0, 1002)
+                                """.trimIndent(),
+                            )
+                        }
+
+                        override fun onUpgrade(
+                            db: SupportSQLiteDatabase,
+                            oldVersion: Int,
+                            newVersion: Int,
+                        ) = Unit
+                    },
+                )
+                .build(),
+        )
+        helper.writableDatabase.close()
+        helper.close()
+
+        val migrated = Room.databaseBuilder(context, YoinDatabase::class.java, dbName)
+            .addMigrations(
+                AppContainer.MIGRATION_13_14,
+                AppContainer.MIGRATION_14_15,
+                AppContainer.MIGRATION_15_16,
+            )
+            .allowMainThreadQueries()
+            .build()
+
+        val ratings = migrated.localRatingDao()
+            .getRatings(listOf("song-1", "song-2", "song-3"), MediaId.PROVIDER_SUBSONIC)
+        val subsonicRating = ratings.first { it.songId == "song-1" }
+        assertEquals(7.4f, subsonicRating.rating, 0.001f)
+        assertEquals(4, subsonicRating.serverRating)
+
+        val zeroRating = ratings.first { it.songId == "song-3" }
+        assertEquals(0f, zeroRating.rating, 0.001f)
+
+        val spotifyRatings = migrated.localRatingDao()
+            .getRatings(listOf("song-2"), MediaId.PROVIDER_SPOTIFY)
+        assertEquals(10f, spotifyRatings.single().rating, 0.001f)
+
+        migrated.close()
+    }
+
+    @Test
+    fun should_drop_song_info_and_create_song_about_entries_when_migrating_14_to_15() = runTest {
+        val helper = FrameworkSQLiteOpenHelperFactory().create(
+            SupportSQLiteOpenHelper.Configuration.builder(context)
+                .name(dbName)
+                .callback(
+                    object : SupportSQLiteOpenHelper.Callback(14) {
+                        override fun onCreate(db: SupportSQLiteDatabase) {
+                            createVersion14Schema(db)
+                            db.execSQL(
+                                """
+                                INSERT INTO `song_info`
+                                    (`songId`, `provider`, `creationTime`, `creationLocation`,
+                                     `lyricist`, `composer`, `producer`, `review`, `cachedAt`)
+                                VALUES ('song-1', 'subsonic', '2024', 'LA', null, null, null, null, 0)
+                                """.trimIndent(),
+                            )
+                        }
+
+                        override fun onUpgrade(
+                            db: SupportSQLiteDatabase,
+                            oldVersion: Int,
+                            newVersion: Int,
+                        ) = Unit
+                    },
+                )
+                .build(),
+        )
+        helper.writableDatabase.close()
+        helper.close()
+
+        val migrated = Room.databaseBuilder(context, YoinDatabase::class.java, dbName)
+            .addMigrations(
+                AppContainer.MIGRATION_14_15,
+                AppContainer.MIGRATION_15_16,
+            )
+            .allowMainThreadQueries()
+            .build()
+
+        val sqlDb = migrated.openHelper.writableDatabase
+        sqlDb.query(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='song_info'",
+        ).use { cursor ->
+            assertEquals(0, cursor.count)
+        }
+        sqlDb.query(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='song_about_entries'",
+        ).use { cursor ->
+            assertEquals(1, cursor.count)
+        }
+
+        // Write-through round-trip on the new table: canonical + ask rows
+        // coexist under the same (titleKey, artistKey, albumKey).
+        sqlDb.execSQL(
+            """
+            INSERT INTO `song_about_entries`
+                (titleKey, artistKey, albumKey, titleDisplay, artistDisplay, albumDisplay,
+                 kind, entryKey, promptText, answerText, createdAt, updatedAt)
+            VALUES
+                ('fake love', 'drake', 'clb', 'Fake Love', 'Drake', 'CLB',
+                 'canonical', 'creation_time', NULL, '2024', 1000, 1000),
+                ('fake love', 'drake', 'clb', 'Fake Love', 'Drake', 'CLB',
+                 'ask', 'what does the chorus mean?', 'What does the chorus mean?',
+                 'Betrayal.', 2000, 2000)
+            """.trimIndent(),
+        )
+        sqlDb.query(
+            "SELECT COUNT(*) FROM `song_about_entries` WHERE titleKey = 'fake love'",
+        ).use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            assertEquals(2, cursor.getInt(0))
+        }
+
+        migrated.close()
+    }
+
+    @Test
+    fun should_add_titleText_column_to_song_about_entries_when_migrating_15_to_16() = runTest {
+        val helper = FrameworkSQLiteOpenHelperFactory().create(
+            SupportSQLiteOpenHelper.Configuration.builder(context)
+                .name(dbName)
+                .callback(
+                    object : SupportSQLiteOpenHelper.Callback(15) {
+                        override fun onCreate(db: SupportSQLiteDatabase) {
+                            createVersion14Schema(db)
+                            AppContainer.MIGRATION_14_15.migrate(db)
+                            db.execSQL(
+                                """
+                                INSERT INTO `song_about_entries`
+                                    (titleKey, artistKey, albumKey, titleDisplay, artistDisplay,
+                                     albumDisplay, kind, entryKey, promptText, answerText,
+                                     createdAt, updatedAt)
+                                VALUES
+                                    ('fake love', 'drake', 'clb', 'Fake Love', 'Drake', 'CLB',
+                                     'ask', 'what is this song about?', 'What is this song about?',
+                                     'Betrayal.', 1000, 1000)
+                                """.trimIndent(),
+                            )
+                        }
+
+                        override fun onUpgrade(
+                            db: SupportSQLiteDatabase,
+                            oldVersion: Int,
+                            newVersion: Int,
+                        ) = Unit
+                    },
+                )
+                .build(),
+        )
+        helper.writableDatabase.close()
+        helper.close()
+
+        val migrated = Room.databaseBuilder(context, YoinDatabase::class.java, dbName)
+            .addMigrations(AppContainer.MIGRATION_15_16)
+            .allowMainThreadQueries()
+            .build()
+
+        val sqlDb = migrated.openHelper.writableDatabase
+        // New column exists + pre-migration rows have titleText = null.
+        sqlDb.query(
+            "SELECT titleText FROM `song_about_entries` WHERE entryKey = 'what is this song about?'",
+        ).use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            assertTrue(cursor.isNull(0))
+        }
+        // Writing a titleText on a new row works end-to-end.
+        sqlDb.execSQL(
+            """
+            INSERT INTO `song_about_entries`
+                (titleKey, artistKey, albumKey, titleDisplay, artistDisplay,
+                 albumDisplay, kind, entryKey, promptText, titleText, answerText,
+                 createdAt, updatedAt)
+            VALUES
+                ('starlight', 'muse', 'bhr', 'Starlight', 'Muse', 'BHR',
+                 'ask', 'why is it called starlight?',
+                 'Why is it called Starlight?', 'Origin of the title',
+                 'Matt Bellamy...', 3000, 3000)
+            """.trimIndent(),
+        )
+        sqlDb.query(
+            "SELECT titleText FROM `song_about_entries` WHERE titleKey = 'starlight'",
+        ).use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            assertEquals("Origin of the title", cursor.getString(0))
+        }
+
+        migrated.close()
+    }
+
     private fun createVersion11Schema(db: SupportSQLiteDatabase) {
         createVersion10Schema(db)
         // 复用 AppContainer.MIGRATION_10_11 创建的 v11 新表结构。直接调
@@ -495,6 +725,16 @@ class YoinDatabaseMigrationTest {
     private fun createVersion12Schema(db: SupportSQLiteDatabase) {
         createVersion11Schema(db)
         AppContainer.MIGRATION_11_12.migrate(db)
+    }
+
+    private fun createVersion13Schema(db: SupportSQLiteDatabase) {
+        createVersion12Schema(db)
+        AppContainer.MIGRATION_12_13.migrate(db)
+    }
+
+    private fun createVersion14Schema(db: SupportSQLiteDatabase) {
+        createVersion13Schema(db)
+        AppContainer.MIGRATION_13_14.migrate(db)
     }
 
     private fun createVersion10Schema(db: SupportSQLiteDatabase) {

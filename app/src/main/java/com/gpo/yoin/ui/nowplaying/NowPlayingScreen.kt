@@ -75,6 +75,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -97,8 +98,6 @@ import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import kotlin.math.roundToInt
-import kotlinx.coroutines.launch
 import coil3.compose.AsyncImage
 import com.gpo.yoin.data.model.YoinDevice
 import com.gpo.yoin.data.repository.ActivityContext
@@ -110,8 +109,9 @@ import com.gpo.yoin.ui.component.DevicesSheet
 import com.gpo.yoin.ui.component.ExpressiveMediaArtwork
 import com.gpo.yoin.ui.component.horizontalFadeMask
 import com.gpo.yoin.ui.component.LyricsDisplay
-import com.gpo.yoin.ui.component.NoteEditorSheet
+import com.gpo.yoin.ui.component.noRippleClickable
 import com.gpo.yoin.ui.component.SongInfoDisplay
+import com.gpo.yoin.ui.nowplaying.compact.NoteCompactPane
 import com.gpo.yoin.ui.component.QueueSheet
 import com.gpo.yoin.ui.component.RatingSlider
 import com.gpo.yoin.ui.component.WaveProgressBar
@@ -127,6 +127,9 @@ import com.gpo.yoin.ui.theme.YoinMotionRole
 import com.gpo.yoin.ui.theme.YoinShapeTokens
 import com.gpo.yoin.ui.theme.YoinTheme
 import com.gpo.yoin.ui.theme.withTabularFigures
+import kotlin.math.roundToInt
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 /**
  * Full-screen Now Playing overlay.
@@ -153,8 +156,18 @@ fun NowPlayingScreen(
     onPlaylistClick: (String) -> Unit = {},
     onDismiss: () -> Unit = {},
     dismissFraction: () -> Float = { 0f },
-    songInfoState: SongInfoUiState = SongInfoUiState.Idle,
+    aboutUiState: AboutUiState = AboutUiState.Idle,
     onRetryFetchSongInfo: () -> Unit = {},
+    askState: AskBarState = AskBarState.Idle,
+    onAboutOpened: () -> Unit = {},
+    onAskQuestion: (String) -> Unit = {},
+    onAskBarFocused: () -> Unit = {},
+    onAskBarCollapseRequested: () -> Unit = {},
+    onDismissAskError: () -> Unit = {},
+    detailMode: NowPlayingDetailMode = NowPlayingDetailMode.Compact,
+    detailPage: NowPlayingDetailPage = NowPlayingDetailPage.Lyrics,
+    onDetailModeChange: (NowPlayingDetailMode) -> Unit = {},
+    onDetailPageChange: (NowPlayingDetailPage) -> Unit = {},
     notesState: List<SongNote> = emptyList(),
     onSaveNote: (String) -> Unit = {},
     onDeleteNote: (String) -> Unit = {},
@@ -215,8 +228,18 @@ fun NowPlayingScreen(
                     onPlaylistClick = onPlaylistClick,
                     onDismiss = onDismiss,
                     dismissFraction = dismissFraction,
-                    songInfoState = songInfoState,
+                    aboutUiState = aboutUiState,
                     onRetryFetchSongInfo = onRetryFetchSongInfo,
+                    askState = askState,
+                    onAboutOpened = onAboutOpened,
+                    onAskQuestion = onAskQuestion,
+                    onAskBarFocused = onAskBarFocused,
+                    onAskBarCollapseRequested = onAskBarCollapseRequested,
+                    onDismissAskError = onDismissAskError,
+                    detailMode = detailMode,
+                    detailPage = detailPage,
+                    onDetailModeChange = onDetailModeChange,
+                    onDetailPageChange = onDetailPageChange,
                     notesState = notesState,
                     onSaveNote = onSaveNote,
                     onDeleteNote = onDeleteNote,
@@ -409,8 +432,18 @@ private fun PlayingContent(
     onPlaylistClick: (String) -> Unit = {},
     onDismiss: () -> Unit = {},
     dismissFraction: () -> Float = { 0f },
-    songInfoState: SongInfoUiState = SongInfoUiState.Idle,
+    aboutUiState: AboutUiState = AboutUiState.Idle,
     onRetryFetchSongInfo: () -> Unit = {},
+    askState: AskBarState = AskBarState.Idle,
+    onAboutOpened: () -> Unit = {},
+    onAskQuestion: (String) -> Unit = {},
+    onAskBarFocused: () -> Unit = {},
+    onAskBarCollapseRequested: () -> Unit = {},
+    onDismissAskError: () -> Unit = {},
+    detailMode: NowPlayingDetailMode = NowPlayingDetailMode.Compact,
+    detailPage: NowPlayingDetailPage = NowPlayingDetailPage.Lyrics,
+    onDetailModeChange: (NowPlayingDetailMode) -> Unit = {},
+    onDetailPageChange: (NowPlayingDetailPage) -> Unit = {},
     notesState: List<SongNote> = emptyList(),
     onSaveNote: (String) -> Unit = {},
     onDeleteNote: (String) -> Unit = {},
@@ -445,7 +478,6 @@ private fun PlayingContent(
     }
 
     var showQueue by remember { mutableStateOf(false) }
-    var showNotesSheet by remember(state.songId) { mutableStateOf(false) }
     var showDevicesSheet by remember(state.songId) { mutableStateOf(false) }
     val playInteractionSource = rememberNowPlayingButtonGroupInteractionSource()
     val nextInteractionSource = rememberNowPlayingButtonGroupInteractionSource()
@@ -477,6 +509,16 @@ private fun PlayingContent(
         animationSpec = heroStretchSpec,
         label = "artistStretch",
     )
+    val titleRouteInteraction = state.albumId?.let { albumId ->
+        rememberNowPlayingRouteInteraction(
+            onNavigate = { onAlbumClick(albumId) },
+        )
+    }
+    val artistRouteInteraction = state.artistId?.let { artistId ->
+        rememberNowPlayingRouteInteraction(
+            onNavigate = { onArtistClick(artistId) },
+        )
+    }
     Column(
         modifier = modifier
             .fillMaxSize()
@@ -557,15 +599,29 @@ private fun PlayingContent(
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            // ── 2. Lyrics / Song Info pager ───────────────────────────────────
+            // ── 2. Lyrics / About / Note pager ────────────────────────────────
             //
-            // Lyrics tab stays visible for every provider. Sources that can't
-            // serve lyrics (Spotify Web API) just produce an empty
-            // [LyricsDisplay] — the "No lyrics" empty state is the correct
-            // affordance, rather than hiding the tab and surprising users who
-            // switch profiles.
-            val pagerState = rememberPagerState(pageCount = { 2 })
+            // 3 pages keep parity with the fullscreen detail surface —
+            // compact is a read-only preview, fullscreen is the editable
+            // surface. Tapping any pager content promotes to Fullscreen on
+            // the currently selected page.
+            val pagerState = rememberPagerState(
+                initialPage = detailPage.ordinal,
+                pageCount = { 3 },
+            )
             val pagerScope = rememberCoroutineScope()
+            // Sync: external detailPage → pager
+            LaunchedEffect(detailPage) {
+                if (pagerState.currentPage != detailPage.ordinal) {
+                    pagerState.animateScrollToPage(detailPage.ordinal)
+                }
+            }
+            // Sync: pager → external detailPage
+            LaunchedEffect(pagerState.currentPage) {
+                val page = NowPlayingDetailPage.entries[pagerState.currentPage]
+                if (page != detailPage) onDetailPageChange(page)
+                if (page == NowPlayingDetailPage.About) onAboutOpened()
+            }
             val lyricsAlpha by animateFloatAsState(
                 targetValue = if (pagerState.currentPage == 0) 1f else 0.5f,
                 animationSpec = YoinMotion.defaultEffectsSpec(),
@@ -575,6 +631,11 @@ private fun PlayingContent(
                 targetValue = if (pagerState.currentPage == 1) 1f else 0.5f,
                 animationSpec = YoinMotion.defaultEffectsSpec(),
                 label = "aboutTabAlpha",
+            )
+            val noteAlpha by animateFloatAsState(
+                targetValue = if (pagerState.currentPage == 2) 1f else 0.5f,
+                animationSpec = YoinMotion.defaultEffectsSpec(),
+                label = "noteTabAlpha",
             )
 
             Row(
@@ -605,14 +666,33 @@ private fun PlayingContent(
                             pagerScope.launch { pagerState.animateScrollToPage(1) }
                         },
                 )
+                Text(
+                    text = "Note",
+                    style = MaterialTheme.typography.labelLarge.let {
+                        if (pagerState.currentPage == 2) it.copy(fontWeight = FontWeight.Bold) else it
+                    },
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier
+                        .graphicsLayer { alpha = noteAlpha }
+                        .clickable {
+                            pagerScope.launch { pagerState.animateScrollToPage(2) }
+                        },
+                )
             }
 
+            val pagerClickSource = remember { MutableInteractionSource() }
             HorizontalPager(
                 state = pagerState,
                 beyondViewportPageCount = 1,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .weight(1f),
+                    .weight(1f)
+                    .clickable(
+                        interactionSource = pagerClickSource,
+                        indication = null,
+                    ) {
+                        onDetailModeChange(NowPlayingDetailMode.Fullscreen)
+                    },
             ) { page ->
                 when (page) {
                     0 -> LyricsDisplay(
@@ -622,8 +702,12 @@ private fun PlayingContent(
                         modifier = Modifier.fillMaxSize(),
                     )
                     1 -> SongInfoDisplay(
-                        songInfoState = songInfoState,
+                        aboutUiState = aboutUiState,
                         onRetry = onRetryFetchSongInfo,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                    2 -> NoteCompactPane(
+                        notes = notesState,
                         modifier = Modifier.fillMaxSize(),
                     )
                 }
@@ -676,8 +760,16 @@ private fun PlayingContent(
             } else {
                 Modifier.fillMaxWidth()
             }
-            val titleClickModifier = state.albumId?.let { albumId ->
-                Modifier.clickable { onAlbumClick(albumId) }
+            val titleClickModifier = titleRouteInteraction?.let { routeInteraction ->
+                Modifier
+                    .graphicsLayer {
+                        scaleX = routeInteraction.scaleX
+                        transformOrigin = TransformOrigin(0f, 0.5f)
+                    }
+                    .noRippleClickable(
+                        interactionSource = routeInteraction.interactionSource,
+                        onClick = routeInteraction.onClick,
+                    )
             } ?: Modifier
             Box(modifier = titleModifier.then(titleClickModifier)) {
                 NowPlayingMarqueeTitle(
@@ -713,24 +805,34 @@ private fun PlayingContent(
             } else {
                 Modifier.fillMaxWidth()
             }
-            val artistClickModifier = state.artistId?.let { artistId ->
-                Modifier.clickable { onArtistClick(artistId) }
-            } ?: Modifier
-            Text(
-                text = state.artist,
-                style = MaterialTheme.typography.titleMedium.copy(
-                    fontSize = MaterialTheme.typography.titleMedium.fontSize * 0.9f,
-                ),
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = artistModifier
-                    .then(artistClickModifier)
+            val artistClickModifier = artistRouteInteraction?.let { routeInteraction ->
+                Modifier
                     .graphicsLayer {
-                        scaleX = artistStretchScale
+                        scaleX = routeInteraction.scaleX
                         transformOrigin = TransformOrigin(0f, 0.5f)
-                    },
-            )
+                    }
+                    .noRippleClickable(
+                        interactionSource = routeInteraction.interactionSource,
+                        onClick = routeInteraction.onClick,
+                    )
+            } ?: Modifier
+            Box(modifier = artistModifier.then(artistClickModifier)) {
+                Text(
+                    text = state.artist,
+                    style = MaterialTheme.typography.titleMedium.copy(
+                        fontSize = MaterialTheme.typography.titleMedium.fontSize * 0.9f,
+                    ),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .graphicsLayer {
+                            scaleX = artistStretchScale
+                            transformOrigin = TransformOrigin(0f, 0.5f)
+                        },
+                )
+            }
 
             Spacer(modifier = Modifier.height(12.dp))
 
@@ -741,13 +843,55 @@ private fun PlayingContent(
                     showDevicesSheet = true
                     onRefreshDevices()
                 },
-                onNotesClick = { showNotesSheet = true },
+                onWriteClick = {
+                    onDetailPageChange(NowPlayingDetailPage.Note)
+                    onDetailModeChange(NowPlayingDetailMode.Fullscreen)
+                },
                 castState = castState,
                 onCastClick = onCastClick,
             )
 
             Spacer(modifier = Modifier.height(24.dp))
         }
+    }
+
+    // Fullscreen detail overlay — AnimatedVisibility sits inside Now Playing
+    // so the shell's sharedElement keys (`np_cover` / `np_title` / `np_artist`)
+    // stay stable. When open, compact content is still composed under it.
+    AnimatedVisibility(
+        visible = detailMode == NowPlayingDetailMode.Fullscreen,
+        enter = androidx.compose.animation.fadeIn() +
+            androidx.compose.animation.scaleIn(
+                initialScale = 0.96f,
+                animationSpec = YoinMotion.defaultSpatialSpec(role = YoinMotionRole.Expressive),
+            ),
+        exit = androidx.compose.animation.fadeOut() +
+            androidx.compose.animation.scaleOut(
+                targetScale = 0.96f,
+                animationSpec = YoinMotion.defaultSpatialSpec(role = YoinMotionRole.Expressive),
+            ),
+    ) {
+        NowPlayingFullscreenPane(
+            state = state,
+            detailPage = detailPage,
+            onDetailPageChange = onDetailPageChange,
+            onBack = { onDetailModeChange(NowPlayingDetailMode.Compact) },
+            aboutUiState = aboutUiState,
+            askState = askState,
+            onAboutOpened = onAboutOpened,
+            onAskQuestion = onAskQuestion,
+            onAskBarFocused = onAskBarFocused,
+            onAskBarCollapseRequested = onAskBarCollapseRequested,
+            onDismissAskError = onDismissAskError,
+            onRetryCanonical = onRetryFetchSongInfo,
+            notes = notesState,
+            onSaveNote = onSaveNote,
+            onDeleteNote = onDeleteNote,
+            onToggleFavorite = onToggleFavorite,
+            onAlbumClick = onAlbumClick,
+            onArtistClick = onArtistClick,
+            onPlaylistClick = onPlaylistClick,
+        )
     }
 
     // Queue bottom sheet
@@ -761,18 +905,6 @@ private fun PlayingContent(
                     showQueue = false
                 },
                 onDismiss = { showQueue = false },
-            )
-        }
-    }
-
-    if (showNotesSheet) {
-        ProvideYoinMotionRole(role = YoinMotionRole.Standard) {
-            NoteEditorSheet(
-                songTitle = state.songTitle,
-                notes = notesState,
-                onSave = onSaveNote,
-                onDelete = onDeleteNote,
-                onDismiss = { showNotesSheet = false },
             )
         }
     }
@@ -791,6 +923,71 @@ private fun PlayingContent(
             )
         }
     }
+}
+
+private const val NowPlayingRouteNavigationDelayMs = 72L
+
+private data class NowPlayingRouteInteraction(
+    val interactionSource: MutableInteractionSource,
+    val scaleX: Float,
+    val onClick: () -> Unit,
+)
+
+@Composable
+private fun rememberNowPlayingRouteInteraction(
+    onNavigate: () -> Unit,
+    pressedScale: Float = 1.08f,
+    releaseScale: Float = 0.93f,
+): NowPlayingRouteInteraction {
+    val interactionSource = remember { MutableInteractionSource() }
+    val isPressed by interactionSource.collectIsPressedAsState()
+    val latestOnNavigate by rememberUpdatedState(onNavigate)
+    val scope = rememberCoroutineScope()
+    var releasePulse by remember { mutableIntStateOf(0) }
+    var releaseActive by remember { mutableStateOf(false) }
+    var navigationPending by remember { mutableStateOf(false) }
+
+    LaunchedEffect(releasePulse) {
+        if (releasePulse == 0) return@LaunchedEffect
+        releaseActive = true
+        delay(NowPlayingRouteNavigationDelayMs)
+        releaseActive = false
+    }
+
+    val scaleX by animateFloatAsState(
+        targetValue = when {
+            isPressed -> pressedScale
+            releaseActive -> releaseScale
+            else -> 1f
+        },
+        animationSpec = if (isPressed || releaseActive) {
+            YoinMotion.fastSpatialSpec<Float>(role = YoinMotionRole.Expressive)
+        } else {
+            YoinMotion.defaultSpatialSpec<Float>(role = YoinMotionRole.Expressive)
+        },
+        label = "nowPlayingRouteScaleX",
+    )
+
+    val onClick = {
+        if (!navigationPending) {
+            releasePulse++
+            navigationPending = true
+            scope.launch {
+                try {
+                    delay(NowPlayingRouteNavigationDelayMs)
+                    latestOnNavigate()
+                } finally {
+                    navigationPending = false
+                }
+            }
+        }
+    }
+
+    return NowPlayingRouteInteraction(
+        interactionSource = interactionSource,
+        scaleX = scaleX,
+        onClick = onClick,
+    )
 }
 
 @Composable
@@ -828,14 +1025,24 @@ private fun PlayingFromLabel(
         }
     }
 
-    val columnModifier = if (clickAction != null) {
-        modifier
-            .clip(RoundedCornerShape(8.dp))
-            .clickable(onClick = clickAction)
-            .padding(vertical = 2.dp, horizontal = 4.dp)
-    } else {
-        modifier.padding(vertical = 2.dp, horizontal = 4.dp)
+    val routeInteraction = clickAction?.let { action ->
+        rememberNowPlayingRouteInteraction(onNavigate = action)
     }
+    val columnModifier = modifier
+        .then(
+            routeInteraction?.let { interaction ->
+                Modifier
+                    .graphicsLayer {
+                        scaleX = interaction.scaleX
+                        transformOrigin = TransformOrigin(0f, 0.5f)
+                    }
+                    .noRippleClickable(
+                        interactionSource = interaction.interactionSource,
+                        onClick = interaction.onClick,
+                    )
+            } ?: Modifier
+        )
+        .padding(vertical = 2.dp, horizontal = 4.dp)
 
     Column(modifier = columnModifier) {
         if (kindLabel != null) {
@@ -1290,7 +1497,7 @@ private fun PlaybackTimeLabel(
 private fun BottomPills(
     onQueueClick: () -> Unit,
     onDevicesClick: () -> Unit,
-    onNotesClick: () -> Unit,
+    onWriteClick: () -> Unit,
     castState: CastState = CastState.NotAvailable,
     onCastClick: () -> Unit = {},
     modifier: Modifier = Modifier,
@@ -1298,16 +1505,16 @@ private fun BottomPills(
     ProvideYoinMotionRole(role = YoinMotionRole.Standard) {
         val queueInteraction = remember { MutableInteractionSource() }
         val devicesInteraction = remember { MutableInteractionSource() }
-        val notesInteraction = remember { MutableInteractionSource() }
+        val writeInteraction = remember { MutableInteractionSource() }
 
         val queuePressed by queueInteraction.collectIsPressedAsState()
         val devicesPressed by devicesInteraction.collectIsPressedAsState()
-        val notesPressed by notesInteraction.collectIsPressedAsState()
+        val writePressed by writeInteraction.collectIsPressedAsState()
+        val anyPressed = queuePressed || devicesPressed || writePressed
 
-        // Label only collapses on its own press — neighbors keep their
-        // labels to anchor the row geometry. Original rule collapsed all
-        // non-pressed labels, which let the ButtonGroup re-pack leftward
-        // and yanked the rightmost button out from under the finger.
+        // Pressing a pill should widen the active target and let the
+        // other two collapse, instead of making the touched pill narrow
+        // under the finger.
 
         Row(
             modifier = modifier.fillMaxWidth(),
@@ -1331,7 +1538,7 @@ private fun BottomPills(
                             onClick = onQueueClick,
                             icon = Icons.AutoMirrored.Rounded.QueueMusic,
                             label = "Queue",
-                            showLabel = !queuePressed,
+                            showLabel = !anyPressed || queuePressed,
                             interactionSource = queueInteraction,
                             shape = YoinShapeTokens.Full,
                         )
@@ -1344,7 +1551,7 @@ private fun BottomPills(
                             onClick = onDevicesClick,
                             icon = Icons.Rounded.Devices,
                             label = "Devices",
-                            showLabel = !devicesPressed,
+                            showLabel = !anyPressed || devicesPressed,
                             interactionSource = devicesInteraction,
                             shape = RoundedCornerShape(20.dp),
                         )
@@ -1354,11 +1561,11 @@ private fun BottomPills(
                 customItem(
                     buttonGroupContent = {
                         PillButton(
-                            onClick = onNotesClick,
+                            onClick = onWriteClick,
                             icon = Icons.AutoMirrored.Rounded.StickyNote2,
-                            label = "Notes",
-                            showLabel = !notesPressed,
-                            interactionSource = notesInteraction,
+                            label = "Write",
+                            showLabel = !anyPressed || writePressed,
+                            interactionSource = writeInteraction,
                             shape = YoinShapeTokens.Full,
                         )
                     },
@@ -1379,10 +1586,16 @@ private fun ButtonGroupScope.PillButton(
     interactionSource: MutableInteractionSource,
     shape: androidx.compose.ui.graphics.Shape,
 ) {
+    val pressed by interactionSource.collectIsPressedAsState()
     val labelFraction by animateFloatAsState(
         targetValue = if (showLabel) 1f else 0f,
         animationSpec = YoinMotion.fastEffectsSpec(),
         label = "labelFraction",
+    )
+    val labelWidthMultiplier by animateFloatAsState(
+        targetValue = if (pressed) 1.8f else 1f,
+        animationSpec = YoinMotion.fastSpatialSpec<Float>(role = YoinMotionRole.Standard),
+        label = "labelWidthMultiplier",
     )
 
     FilledTonalButton(
@@ -1412,7 +1625,7 @@ private fun ButtonGroupScope.PillButton(
                 .clipToBounds()
                 .layout { measurable, constraints ->
                     val placeable = measurable.measure(constraints)
-                    val w = (placeable.width * labelFraction).roundToInt()
+                    val w = (placeable.width * labelFraction * labelWidthMultiplier).roundToInt()
                     layout(w, placeable.height) {
                         placeable.placeRelative(0, 0)
                     }
@@ -1453,7 +1666,7 @@ private val previewPlayingState = NowPlayingUiState.Playing(
     durationMs = 240_000L,
     bufferedMs = 180_000L,
     songId = "1",
-    rating = 3.7f,
+    rating = 7.4f,
     isStarred = true,
     lyrics = listOf(
         LyricLine(startMs = 0, text = "Far away…"),
@@ -1574,7 +1787,7 @@ private fun BottomPillsPreview() {
         BottomPills(
             onQueueClick = {},
             onDevicesClick = {},
-            onNotesClick = {},
+            onWriteClick = {},
         )
     }
 }

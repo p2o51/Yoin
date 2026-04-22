@@ -16,11 +16,11 @@ import com.gpo.yoin.data.local.LyricsCacheDao
 import com.gpo.yoin.data.local.MemoryCopyCache
 import com.gpo.yoin.data.local.MemoryCopyCacheDao
 import com.gpo.yoin.data.local.PlayHistory
+import com.gpo.yoin.data.local.SongAboutEntry
+import com.gpo.yoin.data.local.SongAboutEntryDao
 import com.gpo.yoin.data.local.SongNote
 import com.gpo.yoin.data.local.SongNoteDao
 import com.gpo.yoin.data.local.SongNoteKey
-import com.gpo.yoin.data.local.SongInfo
-import com.gpo.yoin.data.local.SongInfoDao
 import com.gpo.yoin.data.local.SpotifyHomeAlbumCache
 import com.gpo.yoin.data.local.SpotifyHomeArtistCache
 import com.gpo.yoin.data.local.YoinDatabase
@@ -67,7 +67,7 @@ class YoinRepository(
     private val activeProfileId: StateFlow<String?>,
     private val database: YoinDatabase,
     private val geminiService: GeminiService,
-    private val songInfoDao: SongInfoDao,
+    private val songAboutEntryDao: SongAboutEntryDao,
     private val geminiConfigDao: GeminiConfigDao,
     private val lyricsCacheDao: LyricsCacheDao,
     private val songNoteDao: SongNoteDao,
@@ -84,10 +84,17 @@ class YoinRepository(
         val artists: List<com.gpo.yoin.data.model.Artist>,
     )
 
-    sealed interface SongInfoLoadResult {
-        data class Success(val songInfo: SongInfo) : SongInfoLoadResult
-        data object ApiKeyMissing : SongInfoLoadResult
-        data class Error(val message: String) : SongInfoLoadResult
+    sealed interface AboutLoadResult {
+        /** Canonical rows were already present (or successfully fetched). */
+        data object Success : AboutLoadResult
+        data object ApiKeyMissing : AboutLoadResult
+        data class Error(val message: String) : AboutLoadResult
+    }
+
+    sealed interface AskAboutResult {
+        data class Success(val answer: String) : AskAboutResult
+        data object ApiKeyMissing : AskAboutResult
+        data class Error(val message: String) : AskAboutResult
     }
 
     /** True when a configured profile is currently active. */
@@ -252,11 +259,12 @@ class YoinRepository(
     // ── Rating (local-first, best-effort server sync) ──────────────────
 
     suspend fun setRating(trackId: MediaId, rating: Float) {
-        val serverRating = rating.roundToInt().coerceIn(0, 5)
+        val localRating = rating.coerceIn(0f, 10f)
+        val serverRating = (localRating / 2f).roundToInt().coerceIn(0, 5)
         val pending = LocalRating(
             songId = trackId.rawId,
             provider = trackId.provider,
-            rating = rating,
+            rating = localRating,
             serverRating = serverRating,
             needsSync = true,
         )
@@ -622,34 +630,134 @@ class YoinRepository(
         return LrcParser.parse(hit.lrc)
     }
 
-    suspend fun loadSongInfo(
-        songId: MediaId,
+    /**
+     * Observe every About entry (canonical + ask) for the given song,
+     * ordered canonical-first then ask by `updatedAt desc`. The same song
+     * played from a different profile/provider will emit identical rows
+     * because the key is derived from normalized `title + artist + album`.
+     */
+    fun observeAbout(
         title: String,
         artist: String,
         album: String,
-    ): SongInfoLoadResult {
-        val cached = songInfoDao.getBySongId(songId.rawId, songId.provider)
-        if (cached != null) {
-            return SongInfoLoadResult.Success(cached)
+    ): Flow<List<SongAboutEntry>> = songAboutEntryDao.observe(
+        titleKey = SongAboutEntry.normalize(title),
+        artistKey = SongAboutEntry.normalize(artist),
+        albumKey = SongAboutEntry.normalize(album),
+    )
+
+    /**
+     * Ensure the 6 canonical About rows exist for this song. No-op when
+     * canonical rows are already cached unless [retry] is true, in which
+     * case the call re-fetches and overwrites.
+     *
+     * Called lazily on first About open (compact or fullscreen), not per
+     * track change.
+     */
+    suspend fun ensureCanonicalAbout(
+        title: String,
+        artist: String,
+        album: String,
+        retry: Boolean = false,
+    ): AboutLoadResult {
+        val titleKey = SongAboutEntry.normalize(title)
+        val artistKey = SongAboutEntry.normalize(artist)
+        val albumKey = SongAboutEntry.normalize(album)
+
+        if (!retry) {
+            val existing = songAboutEntryDao.getCanonical(titleKey, artistKey, albumKey)
+            if (existing.isNotEmpty()) return AboutLoadResult.Success
         }
 
-        val config = geminiConfigDao.getConfig().first()
-        val apiKey = config?.apiKey
-        if (apiKey.isNullOrBlank()) {
-            return SongInfoLoadResult.ApiKeyMissing
-        }
+        val apiKey = geminiConfigDao.getConfig().first()?.apiKey
+        if (apiKey.isNullOrBlank()) return AboutLoadResult.ApiKeyMissing
 
         return runCatching {
-            val generated = geminiService.generateSongInfo(
+            val values = geminiService.generateCanonicalAbout(
                 apiKey = apiKey,
                 title = title,
                 artist = artist,
                 album = album,
-            ).copy(songId = songId.rawId, provider = songId.provider)
-            songInfoDao.upsert(generated)
-            SongInfoLoadResult.Success(generated)
+            )
+            val now = clock()
+            val rows = values.map { value ->
+                SongAboutEntry(
+                    titleKey = titleKey,
+                    artistKey = artistKey,
+                    albumKey = albumKey,
+                    titleDisplay = title,
+                    artistDisplay = artist,
+                    albumDisplay = album,
+                    kind = SongAboutEntry.KIND_CANONICAL,
+                    entryKey = value.entryKey,
+                    promptText = null,
+                    titleText = null,
+                    answerText = value.answer,
+                    createdAt = now,
+                    updatedAt = now,
+                )
+            }
+            if (rows.isNotEmpty()) songAboutEntryDao.upsertAll(rows)
+            AboutLoadResult.Success
         }.getOrElse { error ->
-            SongInfoLoadResult.Error(error.message ?: "Failed to load song info")
+            AboutLoadResult.Error(error.message ?: "Failed to load song about info")
+        }
+    }
+
+    /**
+     * Ask Gemini a free-form question about the song. On success, upsert
+     * an `ask` row keyed by the normalized question. Re-asking the same
+     * normalized question updates the answer and `updatedAt` while
+     * preserving the original `createdAt`.
+     */
+    suspend fun askAboutSong(
+        title: String,
+        artist: String,
+        album: String,
+        question: String,
+    ): AskAboutResult {
+        val trimmedQuestion = question.trim()
+        if (trimmedQuestion.isEmpty()) {
+            return AskAboutResult.Error("Question is empty")
+        }
+
+        val apiKey = geminiConfigDao.getConfig().first()?.apiKey
+        if (apiKey.isNullOrBlank()) return AskAboutResult.ApiKeyMissing
+
+        val titleKey = SongAboutEntry.normalize(title)
+        val artistKey = SongAboutEntry.normalize(artist)
+        val albumKey = SongAboutEntry.normalize(album)
+        val questionKey = SongAboutEntry.normalize(trimmedQuestion)
+
+        return runCatching {
+            val reply = geminiService.askAboutSong(
+                apiKey = apiKey,
+                title = title,
+                artist = artist,
+                album = album,
+                question = trimmedQuestion,
+            )
+            val now = clock()
+            val existing = songAboutEntryDao.getAsk(titleKey, artistKey, albumKey, questionKey)
+            val row = SongAboutEntry(
+                titleKey = titleKey,
+                artistKey = artistKey,
+                albumKey = albumKey,
+                titleDisplay = title,
+                artistDisplay = artist,
+                albumDisplay = album,
+                kind = SongAboutEntry.KIND_ASK,
+                entryKey = questionKey,
+                promptText = trimmedQuestion,
+                titleText = reply.title,
+                answerText = reply.answer,
+                createdAt = existing?.createdAt ?: now,
+                updatedAt = now,
+            )
+            songAboutEntryDao.upsert(row)
+            AskAboutResult.Success(reply.answer)
+        }.getOrElse { error ->
+            AskAboutResult.Error(error.message ?: "Failed to ask Gemini")
         }
     }
 

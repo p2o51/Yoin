@@ -15,6 +15,7 @@ import com.gpo.yoin.player.ConnectionPhase
 import com.gpo.yoin.player.PlaybackManager
 import com.gpo.yoin.ui.component.AddToPlaylistRow
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -42,8 +43,27 @@ class NowPlayingViewModel(
     private val _lyrics = MutableStateFlow<List<LyricLine>>(emptyList())
     private val _lyricsLoading = MutableStateFlow(false)
     private val _isStarred = MutableStateFlow(false)
-    private val _songInfoState = MutableStateFlow<SongInfoUiState>(SongInfoUiState.Idle)
-    val songInfoState: StateFlow<SongInfoUiState> = _songInfoState.asStateFlow()
+
+    // Transient ask-bar state drives the fullscreen About UI animation — NOT
+    // persisted. See [AskBarState].
+    private val _askState = MutableStateFlow<AskBarState>(AskBarState.Idle)
+    val askState: StateFlow<AskBarState> = _askState.asStateFlow()
+
+    // `aboutFetchError` / `aboutLoading` are UI-only overlays on top of the
+    // observed Room flow. Room observer always has the ground truth list;
+    // these two only surface the transient loading / error states that a
+    // Flow of entries can't express.
+    private val _aboutLoading = MutableStateFlow(false)
+    private val _aboutError = MutableStateFlow<AboutUiState?>(null)
+
+    // Fullscreen detail mode + selected page. Default = Compact/Lyrics so
+    // that a cold Now Playing open preserves today's behaviour. YoinNavHost
+    // can override via [setDetailMode] / [setDetailPage].
+    private val _detailMode = MutableStateFlow(NowPlayingDetailMode.Compact)
+    val detailMode: StateFlow<NowPlayingDetailMode> = _detailMode.asStateFlow()
+
+    private val _detailPage = MutableStateFlow(NowPlayingDetailPage.Lyrics)
+    val detailPage: StateFlow<NowPlayingDetailPage> = _detailPage.asStateFlow()
 
     private val currentSongId: StateFlow<MediaId?> = playbackManager.playbackState
         .map { it.currentTrack?.id }
@@ -52,9 +72,12 @@ class NowPlayingViewModel(
 
     init {
         viewModelScope.launch {
-            // collectLatest（不是 collect）：切歌时立刻取消前一首的 loadLyrics /
-            // loadSongInfo —— 否则前一首的 provider fetch（10 秒 callTimeout）会把
+            // collectLatest（不是 collect）：切歌时立刻取消前一首的 loadLyrics
+            // —— 否则前一首的 provider fetch（10 秒 callTimeout）会把
             // 整条 pipeline 串行阻塞住，连星标都要等前一首的 HTTP 超时才刷新。
+            //
+            // About/canonical fetch **不**在这里触发（v0.5 起懒加载）—— 等用户
+            // 第一次打开 About 页再调 [onAboutOpened]。
             currentSongId.collectLatest { songId ->
                 if (songId != null) {
                     // 切歌瞬间就应该生效的状态（星标 / 歌词清空 / loading on）
@@ -64,14 +87,16 @@ class NowPlayingViewModel(
                     _isStarred.value = track?.isStarred == true
                     _lyrics.value = emptyList()
                     _lyricsLoading.value = true
+                    _aboutError.value = null
+                    _askState.value = AskBarState.Idle
 
                     loadLyrics(songId, track?.title, track?.artist)
-                    loadSongInfo(songId)
                 } else {
                     _lyrics.value = emptyList()
                     _lyricsLoading.value = false
                     _isStarred.value = false
-                    _songInfoState.value = SongInfoUiState.Idle
+                    _aboutError.value = null
+                    _askState.value = AskBarState.Idle
                 }
             }
         }
@@ -94,6 +119,42 @@ class NowPlayingViewModel(
             }
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /**
+     * Live About entries for the current song (canonical + ask rows). Uses
+     * title + artist + album as the identity so the same song played from
+     * a different profile / provider sees the same cached entries.
+     */
+    private val aboutEntriesFlow = playbackManager.playbackState
+        .map { state ->
+            val track = state.currentTrack
+            if (track == null) {
+                null
+            } else {
+                Triple(track.title.orEmpty(), track.artist.orEmpty(), track.album.orEmpty())
+            }
+        }
+        .distinctUntilChanged()
+        .flatMapLatest { trio ->
+            if (trio == null) {
+                flowOf(emptyList())
+            } else {
+                repository.observeAbout(trio.first, trio.second, trio.third)
+            }
+        }
+
+    val aboutUiState: StateFlow<AboutUiState> = combine(
+        aboutEntriesFlow,
+        _aboutLoading,
+        _aboutError,
+    ) { entries, loading, error ->
+        when {
+            error != null -> error
+            entries.isNotEmpty() -> AboutUiState.Ready(entries)
+            loading -> AboutUiState.Loading
+            else -> AboutUiState.Idle
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), AboutUiState.Idle)
 
     private val _devicesState = MutableStateFlow(DevicesSheetState())
     val devicesState: StateFlow<DevicesSheetState> = _devicesState.asStateFlow()
@@ -396,44 +457,126 @@ class NowPlayingViewModel(
         playbackManager.skipToQueueItem(index)
     }
 
-    fun retryFetchSongInfo() {
-        val songId = currentSongId.value ?: return
-        viewModelScope.launch { loadSongInfo(songId) }
+    fun setDetailMode(mode: NowPlayingDetailMode) {
+        _detailMode.value = mode
     }
 
-    private suspend fun loadSongInfo(songId: MediaId) {
-        _songInfoState.value = SongInfoUiState.Loading
-        val song = playbackManager.playbackState.value.currentTrack
-        when (
-            val result = repository.loadSongInfo(
-                songId = songId,
-                title = song?.title.orEmpty(),
-                artist = song?.artist.orEmpty(),
-                album = song?.album.orEmpty(),
-            )
-        ) {
-            is YoinRepository.SongInfoLoadResult.Success -> {
-                _songInfoState.value = result.songInfo.toSuccessState()
-            }
+    fun setDetailPage(page: NowPlayingDetailPage) {
+        _detailPage.value = page
+    }
 
-            YoinRepository.SongInfoLoadResult.ApiKeyMissing -> {
-                _songInfoState.value = SongInfoUiState.ApiKeyMissing
-            }
+    // Compact pager AND fullscreen pager both hit `onAboutOpened` when
+    // their LaunchedEffects fire during the same frame — without an
+    // in-flight guard we issue two concurrent Gemini calls, both see an
+    // empty cache, and both write a canonical row set. Tracking the
+    // active Job lets us short-circuit the second caller.
+    private var canonicalFetchJob: Job? = null
 
-            is YoinRepository.SongInfoLoadResult.Error -> {
-                _songInfoState.value = SongInfoUiState.Error(result.message)
+    /**
+     * First-time hook for About. Call when the user lands on the About tab
+     * (compact or fullscreen). No-op when canonical rows are already
+     * cached OR a canonical fetch is already in flight; otherwise issues
+     * a single Grounded Gemini fetch.
+     */
+    fun onAboutOpened() {
+        if (canonicalFetchJob?.isActive == true) return
+        canonicalFetchJob = viewModelScope.launch { fetchCanonicalAbout(retry = false) }
+    }
+
+    /**
+     * Explicit user-initiated retry. Overwrites existing canonical rows.
+     * Cancels any pending passive fetch first — the user is asking for a
+     * fresh answer, they shouldn't race an already-stale call.
+     */
+    fun retryFetchSongInfo() {
+        canonicalFetchJob?.cancel()
+        canonicalFetchJob = viewModelScope.launch { fetchCanonicalAbout(retry = true) }
+    }
+
+    private suspend fun fetchCanonicalAbout(retry: Boolean) {
+        val song = playbackManager.playbackState.value.currentTrack ?: return
+        val title = song.title.orEmpty()
+        val artist = song.artist.orEmpty()
+        val album = song.album.orEmpty()
+        if (title.isBlank() || artist.isBlank()) return
+
+        _aboutLoading.value = true
+        _aboutError.value = null
+        try {
+            when (
+                val result = repository.ensureCanonicalAbout(
+                    title = title,
+                    artist = artist,
+                    album = album,
+                    retry = retry,
+                )
+            ) {
+                is YoinRepository.AboutLoadResult.Success -> _aboutError.value = null
+                YoinRepository.AboutLoadResult.ApiKeyMissing -> {
+                    _aboutError.value = AboutUiState.ApiKeyMissing
+                }
+                is YoinRepository.AboutLoadResult.Error -> {
+                    _aboutError.value = AboutUiState.Error(result.message)
+                }
             }
+        } finally {
+            _aboutLoading.value = false
         }
     }
 
-    private fun com.gpo.yoin.data.local.SongInfo.toSuccessState() = SongInfoUiState.Success(
-        creationTime = creationTime,
-        creationLocation = creationLocation,
-        lyricist = lyricist,
-        composer = composer,
-        producer = producer,
-        review = review,
-    )
+    /** Called by the Ask Gemini bar when it gains text-field focus. */
+    fun onAskBarFocused() {
+        if (_askState.value !is AskBarState.Loading) {
+            _askState.value = AskBarState.Focused
+        }
+    }
+
+    fun dismissAskError() {
+        if (_askState.value is AskBarState.Error) {
+            _askState.value = AskBarState.Idle
+        }
+    }
+
+    /**
+     * User dismissed the keyboard without submitting (swipe-down, back
+     * button, tapping outside the IME). Contract at the call site: only
+     * fire when IME has actually transitioned from visible to hidden, so
+     * the initial compose when Focused hasn't opened the IME yet doesn't
+     * bounce state straight back to Idle.
+     */
+    fun onAskBarCollapseRequested() {
+        if (_askState.value is AskBarState.Focused) {
+            _askState.value = AskBarState.Idle
+        }
+    }
+
+    /**
+     * Submit a free-form Ask Gemini question for the current song. On
+     * success, the observed About flow will emit the new row automatically;
+     * this method only owns the transient [AskBarState] transitions.
+     */
+    fun askQuestion(question: String) {
+        val trimmed = question.trim()
+        if (trimmed.isEmpty()) return
+        val song = playbackManager.playbackState.value.currentTrack ?: return
+
+        _askState.value = AskBarState.Loading
+        viewModelScope.launch {
+            val result = repository.askAboutSong(
+                title = song.title.orEmpty(),
+                artist = song.artist.orEmpty(),
+                album = song.album.orEmpty(),
+                question = trimmed,
+            )
+            _askState.value = when (result) {
+                is YoinRepository.AskAboutResult.Success -> AskBarState.Idle
+                YoinRepository.AskAboutResult.ApiKeyMissing ->
+                    AskBarState.Error("Gemini API key missing")
+                is YoinRepository.AskAboutResult.Error ->
+                    AskBarState.Error(result.message)
+            }
+        }
+    }
 
     private suspend fun loadLyrics(songId: MediaId, title: String?, artist: String?) {
         // 调用方（collectLatest 入口）已经把 _lyrics 清空 + loading=true。这里只在

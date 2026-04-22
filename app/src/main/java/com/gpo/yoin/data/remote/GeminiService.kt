@@ -1,6 +1,6 @@
 package com.gpo.yoin.data.remote
 
-import com.gpo.yoin.data.local.SongInfo
+import com.gpo.yoin.data.local.SongAboutEntry
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.encodeToString
@@ -14,12 +14,21 @@ class GeminiService(
     private val client: OkHttpClient,
     private val json: Json,
 ) {
-    suspend fun generateSongInfo(
+    /**
+     * Fetch the 6 canonical About fields (Creation Time / Location /
+     * Lyricist / Composer / Producer / Review) via a single Grounded call.
+     *
+     * Returns partial rows: only fields Gemini actually filled in come back;
+     * "N/A" / empty tags are dropped. Ordering follows
+     * [SongAboutEntry.CANONICAL_ORDER]. Repository layer stamps identity
+     * keys and timestamps before persisting.
+     */
+    suspend fun generateCanonicalAbout(
         apiKey: String,
         title: String,
         artist: String,
         album: String,
-    ): SongInfo = withContext(Dispatchers.IO) {
+    ): List<CanonicalAboutValue> = withContext(Dispatchers.IO) {
         val prompt = buildPrompt(title, artist, album)
         val requestBody = GeminiRequest(
             contents = listOf(
@@ -49,7 +58,54 @@ class GeminiService(
             ?.firstOrNull()?.content?.parts?.firstOrNull()?.text
             ?: throw GeminiException("No content in Gemini response")
 
-        parseTaggedResponse(rawText, songId = "")
+        parseTaggedResponse(rawText)
+    }
+
+    /**
+     * Grounded free-form Q&A about a song. Gemini is asked to return a
+     * concise headline version of the question alongside the detailed
+     * answer, so the UI can show a short heading instead of re-echoing
+     * the user's verbose prompt. Repository upserts both into the
+     * `ask` row.
+     */
+    suspend fun askAboutSong(
+        apiKey: String,
+        title: String,
+        artist: String,
+        album: String,
+        question: String,
+    ): AskAnswer = withContext(Dispatchers.IO) {
+        val prompt = buildAskPrompt(title, artist, album, question)
+        val requestBody = GeminiRequest(
+            contents = listOf(
+                GeminiContent(parts = listOf(GeminiPart(text = prompt))),
+            ),
+            tools = listOf(GeminiTool()),
+        )
+
+        val bodyJson = json.encodeToString(requestBody)
+        val request = Request.Builder()
+            .url("$BASE_URL$MODEL:generateContent?key=$apiKey")
+            .post(bodyJson.toRequestBody(JSON_MEDIA_TYPE))
+            .build()
+
+        val response = client.newCall(request).execute()
+        val responseBody = response.body?.string()
+            ?: throw GeminiException("Empty response from Gemini API")
+
+        if (!response.isSuccessful) {
+            throw GeminiException(
+                "Gemini API error (${response.code}): ${extractErrorMessage(responseBody)}",
+            )
+        }
+
+        val geminiResponse = json.decodeFromString<GeminiResponse>(responseBody)
+        val rawText = geminiResponse.candidates
+            ?.firstOrNull()?.content?.parts?.firstOrNull()?.text
+            ?.takeIf { it.isNotEmpty() }
+            ?: throw GeminiException("No content in Gemini response")
+
+        parseAskResponse(rawText, fallbackQuestion = question)
     }
 
     /**
@@ -176,6 +232,28 @@ A 2-4 sentence analysis of the song including its background, musical characteri
 Respond strictly in the tagged format above. Every field must include its corresponding tags.
     """.trimIndent()
 
+    private fun buildAskPrompt(
+        title: String,
+        artist: String,
+        album: String,
+        question: String,
+    ): String = """
+Answer the following question about the song "$title" from the album "$album" by $artist.
+Use the search tool to find accurate, up-to-date information.
+
+Respond strictly in the following tagged format:
+
+[TITLE]
+A concise headline that summarises the question — no more than 8 words, no trailing punctuation. This is shown as the visual heading above your answer, so it should feel like a title, not a full sentence. Use the language the user asked in.
+[/TITLE]
+
+[ANSWER]
+The detailed answer. No more than 120 words. Plain prose only — no citation markers, headers, or bullet points.
+[/ANSWER]
+
+Question: $question
+    """.trimIndent()
+
     private fun extractErrorMessage(body: String): String = try {
         val errorResponse = json.decodeFromString<GeminiErrorResponse>(body)
         errorResponse.error?.message ?: body.take(200)
@@ -183,13 +261,30 @@ Respond strictly in the tagged format above. Every field must include its corres
         body.take(200)
     }
 
+    /** One canonical About field returned by [generateCanonicalAbout]. */
+    data class CanonicalAboutValue(
+        val entryKey: String,
+        val answer: String,
+    )
+
+    /** Title + answer pair returned by [askAboutSong]. */
+    data class AskAnswer(
+        val title: String,
+        val answer: String,
+    )
+
     companion object {
         private const val BASE_URL =
             "https://generativelanguage.googleapis.com/v1beta/models/"
         private const val MODEL = "gemini-3.1-flash-lite-preview"
         private val JSON_MEDIA_TYPE = "application/json".toMediaType()
 
-        fun parseTaggedResponse(rawText: String, songId: String): SongInfo {
+        /**
+         * Parse the tagged response emitted by [buildPrompt] into a list of
+         * [CanonicalAboutValue] — only fields with real content are returned,
+         * preserving [SongAboutEntry.CANONICAL_ORDER].
+         */
+        fun parseTaggedResponse(rawText: String): List<CanonicalAboutValue> {
             fun extract(tag: String): String? {
                 val start = rawText.indexOf("[$tag]")
                 val end = rawText.indexOf("[/$tag]")
@@ -202,15 +297,46 @@ Respond strictly in the tagged format above. Every field must include its corres
                         it != "无法获取"
                 }
             }
-            return SongInfo(
-                songId = songId,
-                creationTime = extract("CREATION_TIME"),
-                creationLocation = extract("CREATION_LOCATION"),
-                lyricist = extract("LYRICIST"),
-                composer = extract("COMPOSER"),
-                producer = extract("PRODUCER"),
-                review = extract("REVIEW"),
+            val pairs = listOf(
+                SongAboutEntry.CANON_CREATION_TIME to extract("CREATION_TIME"),
+                SongAboutEntry.CANON_CREATION_LOCATION to extract("CREATION_LOCATION"),
+                SongAboutEntry.CANON_LYRICIST to extract("LYRICIST"),
+                SongAboutEntry.CANON_COMPOSER to extract("COMPOSER"),
+                SongAboutEntry.CANON_PRODUCER to extract("PRODUCER"),
+                SongAboutEntry.CANON_REVIEW to extract("REVIEW"),
             )
+            return pairs.mapNotNull { (key, value) ->
+                value?.let { CanonicalAboutValue(entryKey = key, answer = it) }
+            }
+        }
+
+        /**
+         * Parse an Ask Gemini response. Expects `[TITLE]...[/TITLE]` and
+         * `[ANSWER]...[/ANSWER]` blocks; if Gemini ignores the schema and
+         * returns plain prose we fall back to using the user's original
+         * question as the title and the raw text as the answer, so the
+         * user still gets a usable reply.
+         */
+        fun parseAskResponse(rawText: String, fallbackQuestion: String): AskAnswer {
+            fun extract(tag: String): String? {
+                val start = rawText.indexOf("[$tag]")
+                val end = rawText.indexOf("[/$tag]")
+                if (start == -1 || end == -1 || end <= start) return null
+                return rawText.substring(start + tag.length + 2, end)
+                    .trim()
+                    .takeIf { it.isNotEmpty() }
+            }
+
+            val title = extract("TITLE")
+            val answer = extract("ANSWER")
+            return when {
+                title != null && answer != null -> AskAnswer(title, answer)
+                // Malformed response — Gemini gave prose without tags.
+                // Better to show the raw text than error out.
+                answer != null -> AskAnswer(fallbackQuestion.trim(), answer)
+                title != null -> AskAnswer(title, rawText.trim())
+                else -> AskAnswer(fallbackQuestion.trim(), rawText.trim())
+            }
         }
     }
 }

@@ -82,6 +82,7 @@ import com.gpo.yoin.ui.navigation.back.YoinBackSurface
 import com.gpo.yoin.ui.navigation.back.resolveShellBackOwner
 import com.gpo.yoin.player.PlaybackEvent
 import com.gpo.yoin.player.SpotifyConnectFailure
+import com.gpo.yoin.ui.nowplaying.NowPlayingDetailMode
 import com.gpo.yoin.ui.nowplaying.NowPlayingScreen
 import com.gpo.yoin.ui.nowplaying.NowPlayingViewModel
 import com.gpo.yoin.ui.settings.SettingsScreen
@@ -505,7 +506,10 @@ private fun YoinShell(
     val playbackSignal by app.container.audioVisualizerManager.playbackSignal.collectAsState()
     val castState by app.container.castManager.castState.collectAsState()
     val nowPlayingUiState by nowPlayingViewModel.uiState.collectAsState()
-    val songInfoState by nowPlayingViewModel.songInfoState.collectAsState()
+    val aboutUiState by nowPlayingViewModel.aboutUiState.collectAsState()
+    val askState by nowPlayingViewModel.askState.collectAsState()
+    val detailMode by nowPlayingViewModel.detailMode.collectAsState()
+    val detailPage by nowPlayingViewModel.detailPage.collectAsState()
     val notesState by nowPlayingViewModel.notesState.collectAsState()
     val devicesState by nowPlayingViewModel.devicesState.collectAsState()
     val memoriesReveal = rememberRevealState(
@@ -652,9 +656,27 @@ private fun YoinShell(
         experienceSessionStore.setNowPlayingExpanded(false)
     }
 
-    BackHandler(enabled = showNowPlaying, onBack = closeNowPlaying)
+    // Layered back priority: Fullscreen closes to Compact first; only the
+    // second back press dismisses Now Playing entirely. Both handlers are
+    // independently scoped to `showNowPlaying` so we don't eat taps
+    // outside of the overlay.
+    BackHandler(
+        enabled = showNowPlaying && detailMode == NowPlayingDetailMode.Fullscreen,
+    ) {
+        nowPlayingViewModel.setDetailMode(NowPlayingDetailMode.Compact)
+    }
 
-    PredictiveBackHandler(enabled = showNowPlaying) { progress ->
+    BackHandler(
+        enabled = showNowPlaying && detailMode == NowPlayingDetailMode.Compact,
+        onBack = closeNowPlaying,
+    )
+
+    // Predictive-back drive for the compact dismissal animation. Intentionally
+    // disabled in Fullscreen — the first back press there swaps modes, and
+    // we don't want the shell preview to start sliding underneath.
+    PredictiveBackHandler(
+        enabled = showNowPlaying && detailMode == NowPlayingDetailMode.Compact,
+    ) { progress ->
         try {
             progress.collectLatest { event ->
                 predictiveBackProgress = event.progress
@@ -831,6 +853,12 @@ private fun YoinShell(
                     .draggable(
                         state = draggableState,
                         orientation = Orientation.Vertical,
+                        // Drag-to-dismiss is a Compact-only gesture. In
+                        // Fullscreen the Ask bar + fullscreen panes have
+                        // their own vertical scroll / IME interactions;
+                        // letting draggable eat those deltas is what
+                        // causes Lyrics scroll to fight dismiss.
+                        enabled = detailMode == NowPlayingDetailMode.Compact,
                         onDragStopped = { velocity ->
                             if (dismissDragPx > 240f || velocity > 800f) {
                                 dismissDragPx = 0f
@@ -860,6 +888,11 @@ private fun YoinShell(
                     onAddCurrentToPlaylist = nowPlayingViewModel::requestAddCurrentToPlaylist,
                     onSkipToQueueItem = nowPlayingViewModel::skipToQueueItem,
                     onToggleShuffle = nowPlayingViewModel::toggleShuffle,
+                    // Collapse Now Playing before each navigation —
+                    // otherwise the target detail route is pushed behind
+                    // the still-visible overlay and the user sees the
+                    // same Now Playing screen even though they tapped a
+                    // link.
                     onAlbumClick = { albumId ->
                         closeNowPlaying()
                         navigateToAlbumFromShell(albumId, null)
@@ -877,8 +910,18 @@ private fun YoinShell(
                         val dragProgress = (dismissDragPx / 240f).coerceIn(0f, 1f)
                         maxOf(dragProgress, predictiveBackProgress).coerceIn(0f, 1f)
                     },
-                    songInfoState = songInfoState,
+                    aboutUiState = aboutUiState,
                     onRetryFetchSongInfo = nowPlayingViewModel::retryFetchSongInfo,
+                    askState = askState,
+                    onAboutOpened = nowPlayingViewModel::onAboutOpened,
+                    onAskQuestion = nowPlayingViewModel::askQuestion,
+                    onAskBarFocused = nowPlayingViewModel::onAskBarFocused,
+                    onAskBarCollapseRequested = nowPlayingViewModel::onAskBarCollapseRequested,
+                    onDismissAskError = nowPlayingViewModel::dismissAskError,
+                    detailMode = detailMode,
+                    detailPage = detailPage,
+                    onDetailModeChange = nowPlayingViewModel::setDetailMode,
+                    onDetailPageChange = nowPlayingViewModel::setDetailPage,
                     notesState = notesState,
                     onSaveNote = nowPlayingViewModel::saveCurrentNote,
                     onDeleteNote = nowPlayingViewModel::deleteNote,
