@@ -74,6 +74,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import com.gpo.yoin.data.integration.neodb.NeoDBOAuthContract
 import com.gpo.yoin.data.profile.ProfileManager
 import com.gpo.yoin.data.profile.ProviderKind
 import com.gpo.yoin.data.source.spotify.SpotifyOAuthContract
@@ -109,12 +110,17 @@ fun SettingsScreen(
     val spotifyOAuthLauncher = rememberLauncherForActivityResult(SpotifyOAuthContract()) { result ->
         viewModel.commitSpotifyProfile(result)
     }
+    val neoDbOAuthLauncher = rememberLauncherForActivityResult(NeoDBOAuthContract()) { result ->
+        viewModel.commitNeoDbOAuth(result)
+    }
 
     LaunchedEffect(viewModel) {
         viewModel.events.collect { event ->
             when (event) {
                 is SettingsOneShotEvent.LaunchSpotifyOAuth ->
                     spotifyOAuthLauncher.launch(event.targetProfileId)
+                is SettingsOneShotEvent.LaunchNeoDbOAuth ->
+                    neoDbOAuthLauncher.launch(event.instance)
                 is SettingsOneShotEvent.ShowError ->
                     scope.launch { snackbarHostState.showSnackbar(event.message) }
             }
@@ -145,6 +151,7 @@ fun SettingsScreen(
         onConfirmDeleteProfile = viewModel::confirmDeleteProfile,
         onSaveGeminiApiKey = viewModel::saveGeminiApiKey,
         onSaveSpotifyClientId = viewModel::saveSpotifyClientId,
+        onOpenNeoDbSignIn = viewModel::openNeoDbSignIn,
         onSaveNeoDbConfig = viewModel::saveNeoDbConfig,
         onClearNeoDbToken = viewModel::clearNeoDbToken,
         onClearCache = viewModel::clearCache,
@@ -178,6 +185,7 @@ fun SettingsContent(
     onConfirmDeleteProfile: () -> Unit,
     onSaveGeminiApiKey: (String) -> Unit = {},
     onSaveSpotifyClientId: (String) -> Unit = {},
+    onOpenNeoDbSignIn: (String) -> Unit = {},
     onSaveNeoDbConfig: (String, String) -> Unit = { _, _ -> },
     onClearNeoDbToken: () -> Unit = {},
     onClearCache: () -> Unit,
@@ -281,6 +289,7 @@ fun SettingsContent(
                                 NeoDbSection(
                                     initialInstance = uiState.neoDbInstance,
                                     initialAccessToken = uiState.neoDbAccessToken,
+                                    onOpenSignIn = onOpenNeoDbSignIn,
                                     onSaveConfig = onSaveNeoDbConfig,
                                     onClearToken = onClearNeoDbToken,
                                     modifier = Modifier.onGloballyPositioned { coords ->
@@ -1153,6 +1162,7 @@ private fun GeminiSection(
 private fun NeoDbSection(
     initialInstance: String,
     initialAccessToken: String,
+    onOpenSignIn: (String) -> Unit,
     onSaveConfig: (String, String) -> Unit,
     onClearToken: () -> Unit,
     modifier: Modifier = Modifier,
@@ -1162,8 +1172,9 @@ private fun NeoDbSection(
     LaunchedEffect(initialInstance) { instance = initialInstance }
     LaunchedEffect(initialAccessToken) { accessToken = initialAccessToken }
 
-    // 脏位：仅当编辑态和 Room 真源不同时 Save 按钮亮起。Clear 按钮只在
-    // 已登录（Room 里有非空 token）时显示。
+    // 交互拆成两段：
+    //  1. 先根据 instance 打开 NeoDB 网页登录 / Developer 页
+    //  2. 再把复制回来的 token 单独保存进本地加密存储
     val hasUnsavedEdits = instance.trim() != initialInstance.trim() ||
         accessToken.trim() != initialAccessToken.trim()
     val isLoggedIn = initialAccessToken.isNotBlank()
@@ -1185,11 +1196,11 @@ private fun NeoDbSection(
                 supporting = if (isLoggedIn) {
                     "Signed in · album ratings & reviews sync both ways from Memory"
                 } else {
-                    "Sign in to push album ratings and reviews from Memory cards"
+                    "Enter an instance URL, then sign in on the NeoDB web page"
                 },
             )
             Text(
-                text = "Create a personal access token under NeoDB → Settings → Developer. Default instance is neodb.social; change it only if you self-host.",
+                text = "Sign in opens that instance's NeoDB OAuth page in browser and returns to Yoin automatically after approval. The token field below is only for manual override if you really need it.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -1200,6 +1211,12 @@ private fun NeoDbSection(
                 placeholder = "https://neodb.social",
                 modifier = Modifier.fillMaxWidth(),
             )
+            OutlinedButton(
+                onClick = { onOpenSignIn(instance) },
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text(if (isLoggedIn) "Re-auth with NeoDB web sign-in" else "Sign in with NeoDB web")
+            }
             ExpressiveTextField(
                 value = accessToken,
                 onValueChange = { accessToken = it },
@@ -1213,7 +1230,7 @@ private fun NeoDbSection(
                 enabled = hasUnsavedEdits && accessToken.isNotBlank(),
                 modifier = Modifier.fillMaxWidth(),
             ) {
-                Text(if (isLoggedIn) "Update NeoDB sign-in" else "Sign in to NeoDB")
+                Text(if (isLoggedIn) "Save token manually" else "Use pasted token")
             }
             if (isLoggedIn) {
                 TextButton(

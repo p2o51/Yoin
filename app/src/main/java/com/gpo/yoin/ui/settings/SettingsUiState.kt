@@ -86,6 +86,9 @@ sealed interface SettingsOneShotEvent {
     /** Ask the Screen to launch the Spotify OAuth `ActivityResultContract`. */
     data class LaunchSpotifyOAuth(val targetProfileId: String? = null) : SettingsOneShotEvent
 
+    /** Ask the Screen to launch the NeoDB OAuth `ActivityResultContract`. */
+    data class LaunchNeoDbOAuth(val instance: String) : SettingsOneShotEvent
+
     /** Show a transient error snackbar; used when there's no form sheet to put the error in. */
     data class ShowError(val message: String) : SettingsOneShotEvent
 }

@@ -63,6 +63,7 @@ class YoinDatabaseMigrationTest {
                 AppContainer.MIGRATION_9_10,
                 AppContainer.MIGRATION_10_11,
                 AppContainer.MIGRATION_11_12,
+                AppContainer.MIGRATION_12_13,
             )
             .allowMainThreadQueries()
             .build()
@@ -144,6 +145,7 @@ class YoinDatabaseMigrationTest {
                 AppContainer.MIGRATION_9_10,
                 AppContainer.MIGRATION_10_11,
                 AppContainer.MIGRATION_11_12,
+                AppContainer.MIGRATION_12_13,
             )
             .allowMainThreadQueries()
             .build()
@@ -208,6 +210,7 @@ class YoinDatabaseMigrationTest {
                 AppContainer.MIGRATION_9_10,
                 AppContainer.MIGRATION_10_11,
                 AppContainer.MIGRATION_11_12,
+                AppContainer.MIGRATION_12_13,
             )
             .allowMainThreadQueries()
             .build()
@@ -255,6 +258,7 @@ class YoinDatabaseMigrationTest {
             .addMigrations(
                 AppContainer.MIGRATION_10_11,
                 AppContainer.MIGRATION_11_12,
+                AppContainer.MIGRATION_12_13,
             )
             .allowMainThreadQueries()
             .build()
@@ -328,6 +332,7 @@ class YoinDatabaseMigrationTest {
             .addMigrations(
                 AppContainer.MIGRATION_10_11,
                 AppContainer.MIGRATION_11_12,
+                AppContainer.MIGRATION_12_13,
             )
             .allowMainThreadQueries()
             .build()
@@ -374,7 +379,7 @@ class YoinDatabaseMigrationTest {
     }
 
     @Test
-    fun should_drop_accessToken_column_when_migrating_11_to_12() = runTest {
+    fun should_drop_accessToken_column_when_migrating_11_to_13() = runTest {
         val helper = FrameworkSQLiteOpenHelperFactory().create(
             SupportSQLiteOpenHelper.Configuration.builder(context)
                 .name(dbName)
@@ -405,7 +410,10 @@ class YoinDatabaseMigrationTest {
         helper.close()
 
         val migrated = Room.databaseBuilder(context, YoinDatabase::class.java, dbName)
-            .addMigrations(AppContainer.MIGRATION_11_12)
+            .addMigrations(
+                AppContainer.MIGRATION_11_12,
+                AppContainer.MIGRATION_12_13,
+            )
             .allowMainThreadQueries()
             .build()
 
@@ -416,11 +424,77 @@ class YoinDatabaseMigrationTest {
         migrated.close()
     }
 
+    @Test
+    fun should_add_profile_id_columns_when_migrating_12_to_13() = runTest {
+        val helper = FrameworkSQLiteOpenHelperFactory().create(
+            SupportSQLiteOpenHelper.Configuration.builder(context)
+                .name(dbName)
+                .callback(
+                    object : SupportSQLiteOpenHelper.Callback(12) {
+                        override fun onCreate(db: SupportSQLiteDatabase) {
+                            createVersion12Schema(db)
+                            db.execSQL(
+                                """
+                                INSERT INTO `play_history`
+                                    (`songId`, `provider`, `title`, `artist`, `album`, `albumId`,
+                                     `coverArtId`, `playedAt`, `durationMs`, `completedPercent`)
+                                VALUES
+                                    ('song-1', 'subsonic', 'Song', 'Artist', 'Album', 'album-1',
+                                     NULL, 1000, 180000, 0.8)
+                                """.trimIndent(),
+                            )
+                            db.execSQL(
+                                """
+                                INSERT INTO `activity_events`
+                                    (`entityType`, `actionType`, `entityId`, `provider`, `title`,
+                                     `subtitle`, `coverArtId`, `songId`, `albumId`, `artistId`, `timestamp`)
+                                VALUES
+                                    ('ALBUM', 'PLAYED', 'album-1', 'subsonic', 'Album', 'Artist',
+                                     NULL, 'song-1', 'album-1', NULL, 1000)
+                                """.trimIndent(),
+                            )
+                        }
+
+                        override fun onUpgrade(
+                            db: SupportSQLiteDatabase,
+                            oldVersion: Int,
+                            newVersion: Int,
+                        ) = Unit
+                    },
+                )
+                .build(),
+        )
+        helper.writableDatabase.close()
+        helper.close()
+
+        val migrated = Room.databaseBuilder(context, YoinDatabase::class.java, dbName)
+            .addMigrations(AppContainer.MIGRATION_12_13)
+            .allowMainThreadQueries()
+            .build()
+
+        val sqlDb = migrated.openHelper.writableDatabase
+        sqlDb.query("SELECT `profileId` FROM `play_history` LIMIT 1").use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            assertEquals("", cursor.getString(0))
+        }
+        sqlDb.query("SELECT `profileId` FROM `activity_events` LIMIT 1").use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            assertEquals("", cursor.getString(0))
+        }
+
+        migrated.close()
+    }
+
     private fun createVersion11Schema(db: SupportSQLiteDatabase) {
         createVersion10Schema(db)
         // 复用 AppContainer.MIGRATION_10_11 创建的 v11 新表结构。直接调
         // migrate() 而不是重写 SQL，避免 schema 漂移。
         AppContainer.MIGRATION_10_11.migrate(db)
+    }
+
+    private fun createVersion12Schema(db: SupportSQLiteDatabase) {
+        createVersion11Schema(db)
+        AppContainer.MIGRATION_11_12.migrate(db)
     }
 
     private fun createVersion10Schema(db: SupportSQLiteDatabase) {

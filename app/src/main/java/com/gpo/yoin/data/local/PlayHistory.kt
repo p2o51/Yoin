@@ -10,12 +10,17 @@ import com.gpo.yoin.data.model.MediaId
 @Entity(
     tableName = "play_history",
     indices = [
-        Index(value = ["provider", "playedAt"], name = "index_play_history_provider_playedAt"),
+        Index(
+            value = ["profileId", "provider", "playedAt"],
+            name = "index_play_history_profileId_provider_playedAt",
+        ),
     ],
 )
 data class PlayHistory(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val songId: String,
+    @ColumnInfo(defaultValue = "")
+    val profileId: String = "",
     @ColumnInfo(defaultValue = MediaId.PROVIDER_SUBSONIC)
     val provider: String = MediaId.PROVIDER_SUBSONIC,
     val title: String,

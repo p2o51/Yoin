@@ -661,9 +661,11 @@ class YoinRepository(
         completedPercent: Float,
         activityContext: ActivityContext = ActivityContext.None,
     ) {
+        val profileId = activeProfileId.value ?: return
         database.playHistoryDao().insert(
             PlayHistory(
                 songId = track.id.rawId,
+                profileId = profileId,
                 provider = track.id.provider,
                 title = track.title.orEmpty(),
                 artist = track.artist.orEmpty(),
@@ -677,33 +679,38 @@ class YoinRepository(
                 completedPercent = completedPercent,
             ),
         )
-        database.activityEventDao().insert(buildPlaybackActivity(track, activityContext))
+        database.activityEventDao().insert(buildPlaybackActivity(track, activityContext, profileId))
     }
 
     fun getRecentHistory(limit: Int = 50): Flow<List<PlayHistory>> =
-        activeSource.flatMapLatest { source ->
-            val provider = source?.id ?: return@flatMapLatest flowOf(emptyList())
-            database.playHistoryDao().getRecentHistory(provider, limit)
+        combine(activeSource, activeProfileId) { source, profileId ->
+            source?.id to profileId
+        }.flatMapLatest { (provider, profileId) ->
+            if (provider == null || profileId.isNullOrBlank()) {
+                return@flatMapLatest flowOf(emptyList())
+            }
+            database.playHistoryDao().getRecentHistory(profileId, provider, limit)
         }
 
     fun getRecentActivities(limit: Int = 20): Flow<List<ActivityEvent>> =
-        activeSource.flatMapLatest { source ->
-            val provider = source?.id ?: return@flatMapLatest flowOf(emptyList())
-            database.activityEventDao().getRecentEvents(provider, limit * 8)
+        combine(activeSource, activeProfileId) { source, profileId ->
+            source?.id to profileId
+        }.flatMapLatest { (provider, profileId) ->
+            if (provider == null || profileId.isNullOrBlank()) {
+                return@flatMapLatest flowOf(emptyList())
+            }
+            database.activityEventDao().getRecentEvents(profileId, provider, limit * 8)
         }
             .map { events -> collapseToLatestUnique(events).take(limit) }
 
     suspend fun getRecentMemoryActivities(limit: Int = 48): List<ActivityEvent> {
         val provider = activeSource.value?.id ?: return emptyList()
+        val profileId = activeProfileId.value ?: return emptyList()
         return database.activityEventDao()
-            .getRecentEvents(provider, limit * 10)
+            .getRecentEvents(profileId, provider, limit * 10)
             .first()
             .filter { it.actionType == ActivityActionType.PLAYED.name }
-            .filter {
-                it.entityType == ActivityEntityType.SONG.name ||
-                    it.entityType == ActivityEntityType.ALBUM.name ||
-                    it.entityType == ActivityEntityType.PLAYLIST.name
-            }
+            .filter { it.entityType == ActivityEntityType.ALBUM.name }
             .let(::collapseToLatestUnique)
             .asSequence()
             .take(limit)
@@ -711,14 +718,18 @@ class YoinRepository(
     }
 
     suspend fun getMostRecentPlay(trackId: MediaId): PlayHistory? =
-        database.playHistoryDao().getMostRecentPlay(trackId.rawId, trackId.provider)
+        activeProfileId.value?.let { profileId ->
+            database.playHistoryDao().getMostRecentPlay(trackId.rawId, trackId.provider, profileId)
+        }
 
     suspend fun recordAlbumVisit(album: Album) {
+        val profileId = activeProfileId.value ?: return
         database.activityEventDao().insert(
             ActivityEvent(
                 entityType = ActivityEntityType.ALBUM.name,
                 actionType = ActivityActionType.VISITED.name,
                 entityId = album.id.rawId,
+                profileId = profileId,
                 provider = album.id.provider,
                 title = album.name,
                 subtitle = album.artist.orEmpty(),
@@ -735,11 +746,13 @@ class YoinRepository(
     }
 
     suspend fun recordArtistVisit(artist: ArtistDetail) {
+        val profileId = activeProfileId.value ?: return
         database.activityEventDao().insert(
             ActivityEvent(
                 entityType = ActivityEntityType.ARTIST.name,
                 actionType = ActivityActionType.VISITED.name,
                 entityId = artist.id.rawId,
+                profileId = profileId,
                 provider = artist.id.provider,
                 title = artist.name,
                 subtitle = "Artist",
@@ -769,6 +782,7 @@ class YoinRepository(
     private fun buildPlaybackActivity(
         track: Track,
         activityContext: ActivityContext,
+        profileId: String,
     ): ActivityEvent {
         val trackProvider = track.id.provider
         return when (activityContext) {
@@ -776,6 +790,7 @@ class YoinRepository(
                 entityType = ActivityEntityType.ALBUM.name,
                 actionType = ActivityActionType.PLAYED.name,
                 entityId = activityContext.albumId,
+                profileId = profileId,
                 provider = trackProvider,
                 title = activityContext.albumName,
                 subtitle = activityContext.artistName.orEmpty()
@@ -792,6 +807,7 @@ class YoinRepository(
                 entityType = ActivityEntityType.ARTIST.name,
                 actionType = ActivityActionType.PLAYED.name,
                 entityId = activityContext.artistId,
+                profileId = profileId,
                 provider = trackProvider,
                 title = activityContext.artistName,
                 subtitle = "Artist",
@@ -806,6 +822,7 @@ class YoinRepository(
                 entityType = ActivityEntityType.PLAYLIST.name,
                 actionType = ActivityActionType.PLAYED.name,
                 entityId = activityContext.playlistId,
+                profileId = profileId,
                 provider = trackProvider,
                 title = activityContext.playlistName,
                 subtitle = activityContext.owner.orEmpty().ifBlank { "Playlist" },
@@ -821,6 +838,7 @@ class YoinRepository(
                 entityType = ActivityEntityType.SONG.name,
                 actionType = ActivityActionType.PLAYED.name,
                 entityId = track.id.rawId,
+                profileId = profileId,
                 provider = trackProvider,
                 title = track.title.orEmpty(),
                 subtitle = track.artist.orEmpty(),

@@ -10,7 +10,10 @@ import com.gpo.yoin.data.model.MediaId
 @Entity(
     tableName = "activity_events",
     indices = [
-        Index(value = ["provider", "timestamp"], name = "index_activity_events_provider_timestamp"),
+        Index(
+            value = ["profileId", "provider", "timestamp"],
+            name = "index_activity_events_profileId_provider_timestamp",
+        ),
     ],
 )
 data class ActivityEvent(
@@ -18,6 +21,8 @@ data class ActivityEvent(
     val entityType: String,
     val actionType: String,
     val entityId: String,
+    @ColumnInfo(defaultValue = "")
+    val profileId: String = "",
     @ColumnInfo(defaultValue = MediaId.PROVIDER_SUBSONIC)
     val provider: String = MediaId.PROVIDER_SUBSONIC,
     val title: String,

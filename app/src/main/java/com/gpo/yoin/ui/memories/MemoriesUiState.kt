@@ -33,6 +33,7 @@ data class MemoryEntry(
     val sourceActivityId: Long,
     val entityType: MemoryEntityType,
     val entityId: String,
+    val entityProvider: String,
     val title: String,
     val supportingText: String,
     val metaText: String?,

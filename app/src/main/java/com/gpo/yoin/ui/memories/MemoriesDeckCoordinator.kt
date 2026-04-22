@@ -140,9 +140,12 @@ class MemoriesDeckCoordinator(
         else -> null
     }
 
+    private fun rawEntityId(raw: String): String =
+        if (':' in raw) raw.substringAfter(':') else raw
+
     private suspend fun resolveSongMemory(activity: ActivityEvent): MemoryEntry {
         val provider = activity.provider
-        val rawSongId = activity.songId ?: activity.entityId
+        val rawSongId = rawEntityId(activity.songId ?: activity.entityId)
         val trackId = MediaId(provider, rawSongId)
         val rating = repository.getRating(trackId).first()?.rating
         val mostRecentPlay = repository.getMostRecentPlay(trackId)
@@ -174,6 +177,7 @@ class MemoriesDeckCoordinator(
             sourceActivityId = activity.id,
             entityType = MemoryEntityType.SONG,
             entityId = rawSongId,
+            entityProvider = provider,
             title = activity.title,
             supportingText = buildString {
                 append("Single")
@@ -209,7 +213,8 @@ class MemoriesDeckCoordinator(
     }
 
     private suspend fun resolveAlbumMemory(activity: ActivityEvent): MemoryEntry {
-        val albumId = MediaId(activity.provider, activity.entityId)
+        val rawAlbumId = rawEntityId(activity.entityId)
+        val albumId = MediaId(activity.provider, rawAlbumId)
         val album = runCatching { repository.getAlbum(albumId) }.getOrNull()
         val songs = album?.tracks.orEmpty()
         val ratings = repository.getRatings(songs.map(Track::id))
@@ -238,7 +243,8 @@ class MemoriesDeckCoordinator(
             stableId = "album:${activity.entityId}:${activity.id}",
             sourceActivityId = activity.id,
             entityType = MemoryEntityType.ALBUM,
-            entityId = activity.entityId,
+            entityId = rawAlbumId,
+            entityProvider = activity.provider,
             title = album?.name ?: activity.title,
             supportingText = buildString {
                 if (album?.year != null) {
@@ -279,7 +285,8 @@ class MemoriesDeckCoordinator(
     }
 
     private suspend fun resolvePlaylistMemory(activity: ActivityEvent): MemoryEntry {
-        val playlistId = MediaId(activity.provider, activity.entityId)
+        val rawPlaylistId = rawEntityId(activity.entityId)
+        val playlistId = MediaId(activity.provider, rawPlaylistId)
         val playlist = runCatching { repository.getPlaylist(playlistId) }.getOrNull()
         val songs = playlist?.tracks.orEmpty()
         val ratings = repository.getRatings(songs.map(Track::id))
@@ -295,7 +302,8 @@ class MemoriesDeckCoordinator(
             stableId = "playlist:${activity.entityId}:${activity.id}",
             sourceActivityId = activity.id,
             entityType = MemoryEntityType.PLAYLIST,
-            entityId = activity.entityId,
+            entityId = rawPlaylistId,
+            entityProvider = activity.provider,
             title = playlist?.name ?: activity.title,
             supportingText = buildString {
                 append("Playlist")

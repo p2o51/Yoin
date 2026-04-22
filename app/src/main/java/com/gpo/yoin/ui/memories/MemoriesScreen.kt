@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.navigationBars
@@ -30,6 +31,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.LibraryMusic
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
@@ -58,8 +60,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.graphics.luminance
-import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
@@ -84,6 +85,7 @@ import com.gpo.yoin.ui.experience.RevealState
 import com.gpo.yoin.ui.experience.rememberDeckIndicatorTransitionState
 import com.gpo.yoin.ui.experience.rememberEdgeAdvanceState
 import com.gpo.yoin.ui.navigation.back.BackMotionTokens
+import com.gpo.yoin.ui.theme.ExpressiveColorSchemeFactory
 import com.gpo.yoin.ui.theme.ProvideYoinMotionRole
 import com.gpo.yoin.ui.theme.GoogleSansFlex
 import com.gpo.yoin.ui.theme.YoinMotion
@@ -487,7 +489,7 @@ private fun MemoriesContent(
                             MemoriesHero(
                                 memory = memory,
                                 seedColor = pageColors.baseColor,
-                                isSyncingToNeoDb = memory.entityId in syncingEntityIds,
+                                isSyncingToNeoDb = "${memory.entityProvider}:${memory.entityId}" in syncingEntityIds,
                                 onSyncToNeoDb = { onSyncToNeoDb(memory) },
                             )
                         }
@@ -664,16 +666,21 @@ private fun MemoriesHero(
     isSyncingToNeoDb: Boolean = false,
     onSyncToNeoDb: () -> Unit = {},
 ) {
-    val scoreContainerColor = lerp(
-        start = seedColor,
-        stop = MaterialTheme.colorScheme.surface,
-        fraction = 0.18f,
-    )
-    val scoreContentColor = if (scoreContainerColor.luminance() > 0.56f) {
-        Color(0xFF111318)
-    } else {
-        Color.White
+    val darkTheme = isSystemInDarkTheme()
+    val memoryColorScheme = remember(seedColor, darkTheme) {
+        ExpressiveColorSchemeFactory.fromSeed(
+            seedArgb = seedColor.toArgb(),
+            isDark = darkTheme,
+        )
     }
+    val scoreContainerColor = memoryColorScheme.secondaryContainer
+    val scoreContentColor = memoryColorScheme.onSecondaryContainer
+    val syncButtonColors = ButtonDefaults.filledTonalButtonColors(
+        containerColor = memoryColorScheme.primaryContainer,
+        contentColor = memoryColorScheme.onPrimaryContainer,
+        disabledContainerColor = memoryColorScheme.surfaceContainerHigh,
+        disabledContentColor = memoryColorScheme.onSurfaceVariant,
+    )
     Column(
         modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(16.dp),
@@ -788,6 +795,7 @@ private fun MemoriesHero(
             FilledTonalButton(
                 onClick = onSyncToNeoDb,
                 enabled = !isSyncingToNeoDb,
+                colors = syncButtonColors,
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 Icon(

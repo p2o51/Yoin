@@ -1,5 +1,6 @@
 package com.gpo.yoin.ui.memories
 
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
@@ -25,6 +26,7 @@ class MemoriesViewModel(
     private val deckCoordinator: MemoriesDeckCoordinator,
     private val sessionStore: ExperienceSessionStore,
     private val repository: YoinRepository,
+    activeProfileId: StateFlow<String?>,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow<MemoriesUiState>(MemoriesUiState.Loading)
@@ -50,6 +52,17 @@ class MemoriesViewModel(
 
     private var initialLoadJob: Job? = null
     private var adjacentDeckJob: Job? = null
+
+    init {
+        viewModelScope.launch {
+            activeProfileId
+                .collect {
+                    deckCoordinator.invalidate()
+                    sessionStore.clearMemories()
+                    ensureLoaded(force = true)
+                }
+        }
+    }
 
     fun ensureLoaded(force: Boolean = false) {
         if (!force) {
@@ -150,7 +163,8 @@ class MemoriesViewModel(
      */
     fun pushToNeoDb(memory: MemoryEntry) {
         if (memory.entityType != MemoryEntityType.ALBUM) return
-        if (memory.entityId in _syncingEntityIds.value) return
+        val syncKey = "${memory.entityProvider}:${memory.entityId}"
+        if (syncKey in _syncingEntityIds.value) return
 
         viewModelScope.launch {
             if (!repository.isNeoDBConfigured()) {
@@ -158,13 +172,9 @@ class MemoriesViewModel(
                 return@launch
             }
 
-            _syncingEntityIds.value = _syncingEntityIds.value + memory.entityId
+            _syncingEntityIds.value = _syncingEntityIds.value + syncKey
             try {
-                // Memory 卡片的 `entityId` 只是裸 rawId —— 真正的 provider 从
-                // 第一条 playback track 的 MediaId 取；都没有就回退 Subsonic。
-                val provider = memory.playbackSongs.firstOrNull()?.id?.provider
-                    ?: MediaId.PROVIDER_SUBSONIC
-                val resolvedAlbumId = MediaId(provider, memory.entityId)
+                val resolvedAlbumId = MediaId(memory.entityProvider, memory.entityId)
                 val album = repository.getAlbum(resolvedAlbumId)
                 if (album == null) {
                     _events.tryEmit(
@@ -191,14 +201,22 @@ class MemoriesViewModel(
                 // 按需置脏：只标有内容的一侧，避免把「空 rating」推到 NeoDB
                 // 覆盖掉用户在网页端打的分。ratingNeedsSync 和 reviewNeedsSync
                 // 两个脏位分开就是为了防这种情况。
+                val rating = existingRating ?: return@launch
                 if (hasRating) {
-                    repository.setAlbumRating(album, existingRating!!.rating)
+                    repository.setAlbumRating(album, rating.rating)
                 }
                 if (hasReview) {
-                    repository.setAlbumReview(album, existingRating!!.review)
+                    repository.setAlbumReview(album, rating.review)
                 }
 
                 val result = repository.pushAlbumToNeoDB(album)
+                if (result.isFailure) {
+                    Log.w(
+                        TAG,
+                        "pushToNeoDb failed for ${resolvedAlbumId.provider}:${resolvedAlbumId.rawId}",
+                        result.exceptionOrNull(),
+                    )
+                }
                 _events.tryEmit(
                     MemoriesOneShotEvent.NeoDBSyncResult(
                         memoryStableId = memory.stableId,
@@ -211,7 +229,7 @@ class MemoriesViewModel(
                     ),
                 )
             } finally {
-                _syncingEntityIds.value = _syncingEntityIds.value - memory.entityId
+                _syncingEntityIds.value = _syncingEntityIds.value - syncKey
             }
         }
     }
@@ -225,7 +243,12 @@ class MemoriesViewModel(
                 deckCoordinator = container.memoriesDeckCoordinator,
                 sessionStore = container.experienceSessionStore,
                 repository = container.repository,
+                activeProfileId = container.profileManager.activeProfileId,
             ) as T
+    }
+
+    companion object {
+        private const val TAG = "MemoriesViewModel"
     }
 }
 

@@ -542,6 +542,36 @@ private fun YoinShell(
         libraryViewModel.invalidatePlaylists()
     }
 
+    val shellBackOwner = resolveShellBackOwner(
+        showNowPlaying = showNowPlaying,
+        selectedSection = selectedSection,
+        homeSurface = homeSurface,
+    )
+    val memoriesActive = selectedSection == YoinSection.HOME && homeSurface == HomeSurface.Memories
+    // Memories is a Home-owned overlay. If we leave Home for another shell
+    // surface while it is active, collapse it first so closing the new
+    // surface returns to Feed instead of unexpectedly revealing Memories.
+    val dismissMemoriesIfActive = {
+        if (selectedSection == YoinSection.HOME && homeSurface == HomeSurface.Memories) {
+            experienceSessionStore.setHomeSurface(HomeSurface.Feed)
+        }
+    }
+    val navigateToSettingsFromShell: (String?) -> Unit = { focusSection ->
+        dismissMemoriesIfActive()
+        onNavigateToSettings(focusSection)
+    }
+    val navigateToAlbumFromShell: (String, String?) -> Unit = { albumId, sharedTransitionKey ->
+        dismissMemoriesIfActive()
+        onNavigateToAlbum(albumId, sharedTransitionKey)
+    }
+    val navigateToArtistFromShell: (String, String?) -> Unit = { artistId, sharedTransitionKey ->
+        dismissMemoriesIfActive()
+        onNavigateToArtist(artistId, sharedTransitionKey)
+    }
+    val navigateToPlaylistFromShell: (String, String?) -> Unit = { playlistId, sharedTransitionKey ->
+        dismissMemoriesIfActive()
+        onNavigateToPlaylist(playlistId, sharedTransitionKey)
+    }
     val snackbarHostState = remember { SnackbarHostState() }
     LaunchedEffect(Unit) {
         app.container.playbackManager.events.collect { event ->
@@ -557,7 +587,7 @@ private fun YoinShell(
                     if (result == SnackbarResult.ActionPerformed &&
                         event.failure.shouldOpenSpotifySettings()
                     ) {
-                        onNavigateToSettings("spotify")
+                        navigateToSettingsFromShell("spotify")
                     }
                 }
 
@@ -572,7 +602,7 @@ private fun YoinShell(
                     if (result == SnackbarResult.ActionPerformed &&
                         event.failure.shouldOpenSpotifySettings()
                     ) {
-                        onNavigateToSettings("spotify")
+                        navigateToSettingsFromShell("spotify")
                     }
                 }
             }
@@ -589,13 +619,6 @@ private fun YoinShell(
             )
         }
     }
-
-    val shellBackOwner = resolveShellBackOwner(
-        showNowPlaying = showNowPlaying,
-        selectedSection = selectedSection,
-        homeSurface = homeSurface,
-    )
-    val memoriesActive = selectedSection == YoinSection.HOME && homeSurface == HomeSurface.Memories
 
     val closeMemories = remember(experienceSessionStore) {
         {
@@ -667,7 +690,7 @@ private fun YoinShell(
                             isPlaying = playbackState.isPlaying,
                             playbackSignal = if (playbackState.isPlaying) playbackSignal else 0f,
                             activeSongId = playbackState.currentTrack?.id?.toString(),
-                            onNavigateToSettings = { onNavigateToSettings(null) },
+                            onNavigateToSettings = { navigateToSettingsFromShell(null) },
                             onNavigateToMemories = {
                                 experienceSessionStore.setHomeSurface(HomeSurface.Memories)
                             },
@@ -675,9 +698,9 @@ private fun YoinShell(
                             onCommitMemoriesReveal = {
                                 experienceSessionStore.setHomeSurface(HomeSurface.Memories)
                             },
-                            onAlbumClick = onNavigateToAlbum,
-                            onArtistClick = { artistId -> onNavigateToArtist(artistId, null) },
-                            onPlaylistClick = { playlistId -> onNavigateToPlaylist(playlistId, null) },
+                            onAlbumClick = navigateToAlbumFromShell,
+                            onArtistClick = { artistId -> navigateToArtistFromShell(artistId, null) },
+                            onPlaylistClick = { playlistId -> navigateToPlaylistFromShell(playlistId, null) },
                             onSongClick = { song ->
                                 app.container.profileManager.activeSource.value?.let { source ->
                                     app.container.playbackManager.playSingle(
@@ -707,8 +730,7 @@ private fun YoinShell(
                                     revealState = memoriesReveal,
                                     onDismissed = closeMemories,
                                     onNavigateToNeoDbSettings = {
-                                        closeMemories()
-                                        onNavigateToSettings("neodb")
+                                        navigateToSettingsFromShell("neodb")
                                     },
                                     onPlayMemoryTrack = { memory, trackIndex ->
                                         val queue = memory.playbackSongs
@@ -749,10 +771,10 @@ private fun YoinShell(
                     activeSongId = playbackState.currentTrack?.id?.toString(),
                     isPlaying = playbackState.isPlaying,
                     playbackSignal = if (playbackState.isPlaying) playbackSignal else 0f,
-                    onNavigateToSettings = { onNavigateToSettings(null) },
-                    onArtistClick = { artistId -> onNavigateToArtist(artistId, null) },
-                    onAlbumClick = { albumId -> onNavigateToAlbum(albumId, null) },
-                    onPlaylistClick = { playlistId -> onNavigateToPlaylist(playlistId, null) },
+                    onNavigateToSettings = { navigateToSettingsFromShell(null) },
+                    onArtistClick = { artistId -> navigateToArtistFromShell(artistId, null) },
+                    onAlbumClick = { albumId -> navigateToAlbumFromShell(albumId, null) },
+                    onPlaylistClick = { playlistId -> navigateToPlaylistFromShell(playlistId, null) },
                     onSongClick = { song ->
                         app.container.profileManager.activeSource.value?.let { source ->
                             app.container.playbackManager.playSingle(
@@ -840,15 +862,15 @@ private fun YoinShell(
                     onToggleShuffle = nowPlayingViewModel::toggleShuffle,
                     onAlbumClick = { albumId ->
                         closeNowPlaying()
-                        onNavigateToAlbum(albumId, null)
+                        navigateToAlbumFromShell(albumId, null)
                     },
                     onArtistClick = { artistId ->
                         closeNowPlaying()
-                        onNavigateToArtist(artistId, null)
+                        navigateToArtistFromShell(artistId, null)
                     },
                     onPlaylistClick = { playlistId ->
                         closeNowPlaying()
-                        onNavigateToPlaylist(playlistId, null)
+                        navigateToPlaylistFromShell(playlistId, null)
                     },
                     onDismiss = closeNowPlaying,
                     dismissFraction = {
@@ -924,6 +946,7 @@ private fun YoinShell(
                         // LaunchedEffect(homeSurface) handles the close animation.
                     },
                     onNowPlayingClick = {
+                        dismissMemoriesIfActive()
                         experienceSessionStore.setNowPlayingExpanded(true)
                     },
                     onLibraryClick = {

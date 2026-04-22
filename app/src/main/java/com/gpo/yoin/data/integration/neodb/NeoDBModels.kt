@@ -46,6 +46,11 @@ internal data class ShelfMarkRequest(
 )
 
 @Serializable
+internal data class ShelfMarkEnvelope(
+    val mark: ShelfMarkRequest,
+)
+
+@Serializable
 internal data class ReviewResponse(
     val uuid: String? = null,
     @SerialName("visibility") val visibility: Int = 0,

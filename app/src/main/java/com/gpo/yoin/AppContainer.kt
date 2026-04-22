@@ -66,6 +66,7 @@ class AppContainer(private val context: Context) {
                 MIGRATION_9_10,
                 MIGRATION_10_11,
                 MIGRATION_11_12,
+                MIGRATION_12_13,
             )
             // v11 冻结了 0.3 schema；0.5 上架前的备份降级保险（用户拿着 v11
             // 备份在旧版设备恢复）走这条：数据丢但应用不崩。没数据丢失比
@@ -841,6 +842,47 @@ class AppContainer(private val context: Context) {
                 )
                 db.execSQL("DROP TABLE `neodb_config`")
                 db.execSQL("ALTER TABLE `neodb_config_new` RENAME TO `neodb_config`")
+            }
+        }
+
+        /**
+         * v12 → v13：给 `play_history` / `activity_events` 补 `profileId`。
+         *
+         * 之前 Memory / Recent Activity 只按 provider 过滤；一旦用户配置两个
+         * 同 provider profile（尤其两台 Subsonic 服务器），历史与 Memory
+         * 就会串内容。v13 开始这些行为改按 `(profileId, provider)` 共同分区。
+         *
+         * 历史行回填默认值空串：旧数据保留但不会再命中任何真实 active
+         * profile；用户切到新版本后产生的新播放记录会带上正确 profileId。
+         */
+        val MIGRATION_12_13 = object : Migration(12, 13) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    ALTER TABLE `play_history`
+                    ADD COLUMN `profileId` TEXT NOT NULL DEFAULT ''
+                    """.trimIndent(),
+                )
+                db.execSQL(
+                    """
+                    ALTER TABLE `activity_events`
+                    ADD COLUMN `profileId` TEXT NOT NULL DEFAULT ''
+                    """.trimIndent(),
+                )
+                db.execSQL("DROP INDEX IF EXISTS `index_play_history_provider_playedAt`")
+                db.execSQL(
+                    """
+                    CREATE INDEX IF NOT EXISTS `index_play_history_profileId_provider_playedAt`
+                    ON `play_history` (`profileId`, `provider`, `playedAt`)
+                    """.trimIndent(),
+                )
+                db.execSQL("DROP INDEX IF EXISTS `index_activity_events_provider_timestamp`")
+                db.execSQL(
+                    """
+                    CREATE INDEX IF NOT EXISTS `index_activity_events_profileId_provider_timestamp`
+                    ON `activity_events` (`profileId`, `provider`, `timestamp`)
+                    """.trimIndent(),
+                )
             }
         }
 

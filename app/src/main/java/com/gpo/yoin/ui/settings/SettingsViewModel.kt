@@ -13,6 +13,7 @@ import com.gpo.yoin.data.profile.ProfileLimitReachedException
 import com.gpo.yoin.data.profile.ProfileManager
 import com.gpo.yoin.data.profile.ProviderKind
 import com.gpo.yoin.data.profile.SpotifyProviderStatus
+import com.gpo.yoin.data.integration.neodb.NeoDBOAuthResult
 import com.gpo.yoin.data.repository.SubsonicException
 import com.gpo.yoin.data.source.subsonic.SubsonicMusicSource
 import com.gpo.yoin.data.source.spotify.SpotifyOAuthResult
@@ -205,7 +206,7 @@ class SettingsViewModel(
                 }
                 viewModelScope.launch {
                     launchSpotifyOAuth(
-                        targetProfileId = reconnectTargetProfileId() ?: null,
+                        targetProfileId = reconnectTargetProfileId(),
                     )
                 }
             }
@@ -460,15 +461,36 @@ class SettingsViewModel(
      */
     fun saveNeoDbConfig(instance: String, accessToken: String) {
         viewModelScope.launch {
-            val normalizedInstance = instance.trim().trimEnd('/')
-                .takeIf(String::isNotEmpty)
-                ?: NeoDBConfig.DEFAULT_INSTANCE
+            val normalizedInstance = normalizeNeoDbInstance(instance) ?: return@launch
             val normalizedToken = accessToken.trim()
             database.neoDbConfigDao().upsert(
                 NeoDBConfig(instance = normalizedInstance),
             )
             container.neoDbTokenStore.writeToken(normalizedToken)
             _neoDbTokenCache.value = normalizedToken
+        }
+    }
+
+    /**
+     * 先记住用户输入的 instance，再打开该实例的网页登录页。这里落到
+     * NeoDB/Mastodon OAuth 授权页。成功后回调到 App，自动把 access
+     * token 写回本地加密存储，不再需要手动复制粘贴。
+     */
+    fun openNeoDbSignIn(instance: String) {
+        viewModelScope.launch {
+            val normalizedInstance = normalizeNeoDbInstance(instance) ?: return@launch
+            database.neoDbConfigDao().upsert(NeoDBConfig(instance = normalizedInstance))
+            emitEvent(SettingsOneShotEvent.LaunchNeoDbOAuth(normalizedInstance))
+        }
+    }
+
+    fun commitNeoDbOAuth(result: NeoDBOAuthResult) {
+        when (result) {
+            NeoDBOAuthResult.Cancelled -> Unit
+            is NeoDBOAuthResult.Failure ->
+                emitEvent(SettingsOneShotEvent.ShowError(result.message))
+            is NeoDBOAuthResult.Success ->
+                saveNeoDbConfig(result.instance, result.accessToken)
         }
     }
 
@@ -622,6 +644,22 @@ class SettingsViewModel(
         is UnknownServiceException -> "HTTP connections are blocked by Android network security policy"
         is IllegalArgumentException -> "Invalid server URL. Include http:// or https://"
         else -> message ?: "Connection failed"
+    }
+
+    private fun normalizeNeoDbInstance(instance: String): String? {
+        val raw = instance.trim().trimEnd('/')
+            .takeIf(String::isNotEmpty)
+            ?: NeoDBConfig.DEFAULT_INSTANCE
+        val candidate = if ("://" in raw) raw else "https://$raw"
+        val normalized = runCatching {
+            val uri = URI(candidate)
+            require(!uri.scheme.isNullOrBlank() && !uri.host.isNullOrBlank())
+            uri.resolve("/").toString().trimEnd('/')
+        }.getOrNull()
+        if (normalized == null) {
+            emitEvent(SettingsOneShotEvent.ShowError("Invalid NeoDB URL. Include a valid host."))
+        }
+        return normalized
     }
 
     class Factory(private val container: AppContainer) : ViewModelProvider.Factory {

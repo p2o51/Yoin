@@ -1,9 +1,19 @@
 package com.gpo.yoin.data.integration.neodb
 
+import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.encodeToString
+import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import okhttp3.FormBody
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -35,19 +45,77 @@ internal class NeoDBApi(
     private val json: Json,
 ) {
 
+    suspend fun registerOAuthApp(
+        instance: String,
+        redirectUri: String,
+        clientName: String,
+        website: String,
+    ): OAuthClientRegistration = withContext(Dispatchers.IO) {
+        val body = FormBody.Builder()
+            .add("client_name", clientName)
+            .add("redirect_uris", redirectUri)
+            .add("website", website)
+            .build()
+        val request = Request.Builder()
+            .url(buildUrl(instance, "/api/v1/apps"))
+            .header("Accept", JSON_MEDIA_TYPE_VALUE)
+            .post(body)
+            .build()
+        executeJson(request)
+    }
+
+    suspend fun exchangeOAuthCode(
+        instance: String,
+        clientId: String,
+        clientSecret: String,
+        code: String,
+        redirectUri: String,
+    ): OAuthTokenResponse = withContext(Dispatchers.IO) {
+        val body = FormBody.Builder()
+            .add("client_id", clientId)
+            .add("client_secret", clientSecret)
+            .add("code", code)
+            .add("redirect_uri", redirectUri)
+            .add("grant_type", "authorization_code")
+            .build()
+        val request = Request.Builder()
+            .url(buildUrl(instance, "/oauth/token"))
+            .header("Accept", JSON_MEDIA_TYPE_VALUE)
+            .post(body)
+            .build()
+        executeJson(request)
+    }
+
     suspend fun searchAlbum(
         instance: String,
         token: String,
         query: String,
     ): List<ShelfItem.Item> = withContext(Dispatchers.IO) {
-        val request = Request.Builder()
-            .url(buildUrl(instance, "/api/catalog/search?category=album&query=${encode(query)}"))
-            .header("Authorization", "Bearer $token")
-            .header("Accept", JSON_MEDIA_TYPE_VALUE)
-            .get()
-            .build()
+        runCatching {
+            searchCatalog(
+                instance = instance,
+                token = token,
+                query = query,
+                category = "music",
+            )
+        }.recoverCatching { error ->
+            val neoDbError = error as? NeoDBException
+            val shouldRetryLegacyAlbumCategory = neoDbError?.code == 422 &&
+                neoDbError.message.orEmpty().contains("category", ignoreCase = true)
+            if (!shouldRetryLegacyAlbumCategory) throw error
 
-        executeJson<AlbumSearchResponse>(request).data
+            Log.w(
+                TAG,
+                "searchAlbum: category=music rejected by ${instance.trimEnd('/')} " +
+                    "— retrying legacy category=album",
+            )
+            searchCatalog(
+                instance = instance,
+                token = token,
+                query = query,
+                category = "album",
+            )
+        }.getOrThrow()
     }
 
     suspend fun getShelfItem(
@@ -66,7 +134,11 @@ internal class NeoDBApi(
         response.use { res ->
             if (res.code == 404) return@withContext null
             val body = res.body?.string().orEmpty()
-            if (!res.isSuccessful) throw res.toNeoDBException(body)
+            if (!res.isSuccessful) {
+                val error = res.toNeoDBException(body)
+                logRequestFailure(request, error, body)
+                throw error
+            }
             if (body.isBlank()) return@withContext null
             json.decodeFromString<ShelfItem>(body)
         }
@@ -78,13 +150,39 @@ internal class NeoDBApi(
         itemUuid: String,
         body: ShelfMarkRequest,
     ) = withContext(Dispatchers.IO) {
-        val request = Request.Builder()
-            .url(buildUrl(instance, "/api/me/shelf/item/$itemUuid"))
+        val endpoint = buildUrl(instance, "/api/me/shelf/item/$itemUuid")
+        val directRequest = Request.Builder()
+            .url(endpoint)
             .header("Authorization", "Bearer $token")
             .header("Accept", JSON_MEDIA_TYPE_VALUE)
             .post(json.encodeToString(body).toRequestBody(JSON_MEDIA_TYPE))
             .build()
-        executeVoid(request)
+        try {
+            executeVoid(directRequest, logOnFailure = false)
+        } catch (error: NeoDBException) {
+            val shouldRetryWrappedMark = error.code == 422 &&
+                error.message.orEmpty().contains("body.mark.", ignoreCase = true)
+            if (!shouldRetryWrappedMark) {
+                logRequestFailure(directRequest, error, error.rawBody)
+                throw error
+            }
+
+            Log.w(
+                TAG,
+                "postShelfMark: direct body rejected by ${instance.trimEnd('/')} " +
+                    "— retrying wrapped mark payload",
+            )
+            val wrappedRequest = Request.Builder()
+                .url(endpoint)
+                .header("Authorization", "Bearer $token")
+                .header("Accept", JSON_MEDIA_TYPE_VALUE)
+                .post(
+                    json.encodeToString(ShelfMarkEnvelope(mark = body))
+                        .toRequestBody(JSON_MEDIA_TYPE),
+                )
+                .build()
+            executeVoid(wrappedRequest)
+        }
     }
 
     /**
@@ -111,7 +209,11 @@ internal class NeoDBApi(
         response.use { res ->
             if (res.code == 404) return@withContext emptyList()
             val body = res.body?.string().orEmpty()
-            if (!res.isSuccessful) throw res.toNeoDBException(body)
+            if (!res.isSuccessful) {
+                val error = res.toNeoDBException(body)
+                logRequestFailure(request, error, body)
+                throw error
+            }
             if (body.isBlank()) return@withContext emptyList()
             // 服务端可能返回 paged {data:[...]} 或 bare [...]，都兼容。
             runCatching {
@@ -142,7 +244,11 @@ internal class NeoDBApi(
         response.use { res ->
             if (res.code == 404) return@withContext null
             val body = res.body?.string().orEmpty()
-            if (!res.isSuccessful) throw res.toNeoDBException(body)
+            if (!res.isSuccessful) {
+                val error = res.toNeoDBException(body)
+                logRequestFailure(request, error, body)
+                throw error
+            }
             if (body.isBlank()) return@withContext null
             json.decodeFromString<ReviewResponse>(body)
         }
@@ -194,18 +300,48 @@ internal class NeoDBApi(
         executeVoid(request)
     }
 
-    private fun executeVoid(request: Request) {
+    private fun executeVoid(
+        request: Request,
+        logOnFailure: Boolean = true,
+    ) {
         client.newCall(request).execute().use { res ->
-            if (!res.isSuccessful) throw res.toNeoDBException(res.body?.string().orEmpty())
+            val body = res.body?.string().orEmpty()
+            if (!res.isSuccessful) {
+                val error = res.toNeoDBException(body)
+                if (logOnFailure) {
+                    logRequestFailure(request, error, body)
+                }
+                throw error
+            }
         }
     }
 
     private inline fun <reified T> executeJson(request: Request): T {
         client.newCall(request).execute().use { res ->
             val body = res.body?.string().orEmpty()
-            if (!res.isSuccessful) throw res.toNeoDBException(body)
+            if (!res.isSuccessful) {
+                val error = res.toNeoDBException(body)
+                logRequestFailure(request, error, body)
+                throw error
+            }
             return json.decodeFromString<T>(body)
         }
+    }
+
+    private fun searchCatalog(
+        instance: String,
+        token: String,
+        query: String,
+        category: String,
+    ): List<ShelfItem.Item> {
+        val request = Request.Builder()
+            .url(buildUrl(instance, "/api/catalog/search?category=$category&query=${encode(query)}"))
+            .header("Authorization", "Bearer $token")
+            .header("Accept", JSON_MEDIA_TYPE_VALUE)
+            .get()
+            .build()
+
+        return executeJson<AlbumSearchResponse>(request).data
     }
 
     private fun buildUrl(instance: String, path: String): String {
@@ -218,15 +354,111 @@ internal class NeoDBApi(
         java.net.URLEncoder.encode(value, Charsets.UTF_8)
 
     private fun Response.toNeoDBException(body: String): NeoDBException {
-        val parsed = runCatching { json.decodeFromString<NeoDBErrorBody>(body) }.getOrNull()
-        val message = parsed?.detail ?: parsed?.error ?: body.take(200)
-        return NeoDBException(code = code, message = message)
+        val message = parseErrorMessage(body) ?: body.take(200)
+        return NeoDBException(code = code, message = message, rawBody = body)
     }
 
+    private fun parseErrorMessage(body: String): String? {
+        val root = runCatching { json.parseToJsonElement(body) }.getOrNull() as? JsonObject
+            ?: return null
+
+        root["detail"]?.let { detail ->
+            when (detail) {
+                is JsonPrimitive -> detail.contentOrNull?.let { return it }
+                is JsonArray -> {
+                    val messages = detail.mapNotNull(::formatDetailEntry)
+                    if (messages.isNotEmpty()) return messages.joinToString(" | ")
+                }
+                is JsonObject -> formatDetailEntry(detail)?.let { return it }
+                else -> Unit
+            }
+        }
+
+        return root["error"]?.jsonPrimitive?.contentOrNull
+    }
+
+    private fun formatDetailEntry(entry: JsonElement): String? {
+        val objectEntry = entry as? JsonObject
+            ?: return (entry as? JsonPrimitive)?.contentOrNull
+        val msg = objectEntry["msg"]?.jsonPrimitive?.contentOrNull
+        val loc = formatLocation(objectEntry["loc"])
+        return when {
+            !msg.isNullOrBlank() && !loc.isNullOrBlank() -> "$loc: $msg"
+            !msg.isNullOrBlank() -> msg
+            else -> null
+        }
+    }
+
+    private fun formatLocation(element: JsonElement?): String? {
+        val location = element as? JsonArray ?: return null
+        return location.mapNotNull { token ->
+            token.jsonPrimitive.contentOrNull
+        }.takeIf { it.isNotEmpty() }?.joinToString(".")
+    }
+
+    private fun logRequestFailure(
+        request: Request,
+        error: NeoDBException,
+        body: String,
+    ) {
+        Log.w(
+            TAG,
+            "request failed: ${request.debugTarget()} code=${error.code} " +
+                "message=${error.message.orEmpty()} body=${body.singleLineSnippet()}",
+        )
+    }
+
+    private fun Request.debugTarget(): String {
+        val pieces = buildList {
+            url.queryParameter("category")?.let { add("category=$it") }
+            url.queryParameter("item_uuid")?.let { add("item_uuid=$it") }
+        }
+        return buildString {
+            append(method)
+            append(' ')
+            append(url.encodedPath)
+            if (pieces.isNotEmpty()) {
+                append('?')
+                append(pieces.joinToString("&"))
+            }
+        }
+    }
+
+    private fun String.singleLineSnippet(limit: Int = 240): String =
+        replace('\n', ' ')
+            .replace('\r', ' ')
+            .trim()
+            .take(limit)
+
     companion object {
+        private const val TAG = "NeoDBApi"
         private const val JSON_MEDIA_TYPE_VALUE = "application/json"
         private val JSON_MEDIA_TYPE = JSON_MEDIA_TYPE_VALUE.toMediaType()
     }
 }
 
-internal class NeoDBException(val code: Int, message: String) : Exception(message)
+internal class NeoDBException(
+    val code: Int,
+    message: String,
+    val rawBody: String = "",
+) : Exception(message)
+
+@Serializable
+internal data class OAuthClientRegistration(
+    @kotlinx.serialization.SerialName("client_id")
+    val clientId: String,
+    @kotlinx.serialization.SerialName("client_secret")
+    val clientSecret: String,
+)
+
+@Serializable
+internal data class OAuthTokenResponse(
+    @kotlinx.serialization.SerialName("access_token")
+    val accessToken: String,
+    @kotlinx.serialization.SerialName("token_type")
+    val tokenType: String = "Bearer",
+    @kotlinx.serialization.SerialName("scope")
+    val scope: String? = null,
+    @kotlinx.serialization.SerialName("created_at")
+    val createdAt: Long? = null,
+)
