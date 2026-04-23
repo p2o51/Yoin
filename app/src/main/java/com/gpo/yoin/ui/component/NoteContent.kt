@@ -5,19 +5,29 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material3.BottomSheetDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -147,4 +157,66 @@ fun NoteComposer(
 private fun formatRelativeTime(epochMs: Long): String {
     val fmt = DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT)
     return fmt.format(Date(epochMs))
+}
+
+/**
+ * Lightweight modal sheet that wraps [NoteComposer] for the Write pill in
+ * Now Playing. Mirrors the Devices / Queue sheet pattern so the bottom row
+ * of pills behaves consistently — tap to open a sheet, save or dismiss.
+ *
+ * The text field auto-focuses on open so the keyboard is up right away.
+ * Saving clears the draft and closes the sheet via [onDismiss]; the caller
+ * owns the actual persistence through [onSave].
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun WriteNoteSheet(
+    onSave: (String) -> Unit,
+    onDismiss: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        containerColor = MaterialTheme.colorScheme.surfaceContainer,
+        contentWindowInsets = {
+            BottomSheetDefaults.modalWindowInsets.only(
+                WindowInsetsSides.Top + WindowInsetsSides.Horizontal,
+            )
+        },
+        modifier = modifier,
+    ) {
+        val navBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .imePadding()
+                .padding(
+                    start = 24.dp,
+                    end = 24.dp,
+                    top = 8.dp,
+                    bottom = 16.dp + navBottom,
+                ),
+        ) {
+            Text(
+                text = "Write",
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            Text(
+                text = "Jot a note for this song.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(modifier = Modifier.size(12.dp))
+            NoteComposer(
+                onSave = { text ->
+                    onSave(text)
+                    onDismiss()
+                },
+                autoFocus = true,
+            )
+        }
+    }
 }

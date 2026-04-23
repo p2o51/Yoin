@@ -279,6 +279,43 @@ Question: $question
         private const val MODEL = "gemini-3.1-flash-lite-preview"
         private val JSON_MEDIA_TYPE = "application/json".toMediaType()
 
+        // Matches any `[TAG]`, `[/TAG]`, `[ TAG ]`, `[ / TAG ]` etc. with
+        // ALL_CAPS identifiers. Used both to extract content by tag name and
+        // to scrub leftover markers out of fallback prose so the user never
+        // sees raw `[TITLE]` / `[ANSWER]` text in the UI.
+        private val TAG_MARKER_REGEX = Regex("""\[\s*/?\s*[A-Z][A-Z0-9_]*\s*\]""")
+
+        /**
+         * Extract the content between `[TAG]` and `[/TAG]`, tolerant of:
+         * - case variations (e.g. `[title]`, `[Title]`)
+         * - whitespace inside brackets (e.g. `[ TITLE ]`)
+         * - missing closing tag (response truncated mid-stream): reads from
+         *   open tag to end of string instead of returning null
+         *
+         * Returns null only when the open tag itself is missing or the
+         * extracted content is blank.
+         */
+        private fun extractTagContent(text: String, tag: String): String? {
+            val escaped = Regex.escape(tag)
+            val openRegex = Regex("""\[\s*$escaped\s*\]""", RegexOption.IGNORE_CASE)
+            val closeRegex = Regex("""\[\s*/\s*$escaped\s*\]""", RegexOption.IGNORE_CASE)
+            val openMatch = openRegex.find(text) ?: return null
+            val contentStart = openMatch.range.last + 1
+            val closeMatch = closeRegex.find(text, contentStart)
+            val contentEnd = closeMatch?.range?.first ?: text.length
+            return text.substring(contentStart, contentEnd)
+                .let { stripTagMarkers(it) }
+                .takeIf { it.isNotEmpty() }
+        }
+
+        /**
+         * Strip any leftover `[TAG]` / `[/TAG]` markers from prose. Used on
+         * fallback paths so a malformed / truncated response still renders
+         * as clean text rather than showing the raw schema to the user.
+         */
+        private fun stripTagMarkers(text: String): String =
+            text.replace(TAG_MARKER_REGEX, "").trim()
+
         /**
          * Parse the tagged response emitted by [buildPrompt] into a list of
          * [CanonicalAboutValue] — only fields with real content are returned,
@@ -286,13 +323,9 @@ Question: $question
          */
         fun parseTaggedResponse(rawText: String): List<CanonicalAboutValue> {
             fun extract(tag: String): String? {
-                val start = rawText.indexOf("[$tag]")
-                val end = rawText.indexOf("[/$tag]")
-                if (start == -1 || end == -1 || end <= start) return null
-                val content = rawText.substring(start + tag.length + 2, end).trim()
+                val content = extractTagContent(rawText, tag) ?: return null
                 return content.takeIf {
-                    it.isNotEmpty() &&
-                        !it.equals("N/A", ignoreCase = true) &&
+                    !it.equals("N/A", ignoreCase = true) &&
                         !it.equals("null", ignoreCase = true) &&
                         it != "无法获取"
                 }
@@ -312,30 +345,20 @@ Question: $question
 
         /**
          * Parse an Ask Gemini response. Expects `[TITLE]...[/TITLE]` and
-         * `[ANSWER]...[/ANSWER]` blocks; if Gemini ignores the schema and
-         * returns plain prose we fall back to using the user's original
-         * question as the title and the raw text as the answer, so the
-         * user still gets a usable reply.
+         * `[ANSWER]...[/ANSWER]` blocks; tolerates case/whitespace variants
+         * and truncated responses (missing closing tag). If Gemini ignores
+         * the schema entirely and returns plain prose, we fall back to the
+         * user's original question as the title and strip any stray tag
+         * markers out of the prose so the answer still reads clean.
          */
         fun parseAskResponse(rawText: String, fallbackQuestion: String): AskAnswer {
-            fun extract(tag: String): String? {
-                val start = rawText.indexOf("[$tag]")
-                val end = rawText.indexOf("[/$tag]")
-                if (start == -1 || end == -1 || end <= start) return null
-                return rawText.substring(start + tag.length + 2, end)
-                    .trim()
-                    .takeIf { it.isNotEmpty() }
-            }
-
-            val title = extract("TITLE")
-            val answer = extract("ANSWER")
+            val title = extractTagContent(rawText, "TITLE")
+            val answer = extractTagContent(rawText, "ANSWER")
             return when {
                 title != null && answer != null -> AskAnswer(title, answer)
-                // Malformed response — Gemini gave prose without tags.
-                // Better to show the raw text than error out.
                 answer != null -> AskAnswer(fallbackQuestion.trim(), answer)
-                title != null -> AskAnswer(title, rawText.trim())
-                else -> AskAnswer(fallbackQuestion.trim(), rawText.trim())
+                title != null -> AskAnswer(title, stripTagMarkers(rawText))
+                else -> AskAnswer(fallbackQuestion.trim(), stripTagMarkers(rawText))
             }
         }
     }

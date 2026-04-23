@@ -17,6 +17,7 @@ import androidx.compose.ui.unit.dp
 import com.gpo.yoin.data.local.SongNote
 import com.gpo.yoin.ui.component.NoteCard
 import com.gpo.yoin.ui.component.NoteComposer
+import com.gpo.yoin.ui.component.edgeFade
 
 /**
  * Fullscreen Note page — the primary editable surface after retiring
@@ -47,7 +48,8 @@ fun NoteFullscreenPane(
             LazyColumn(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .heightIn(max = 360.dp),
+                    .heightIn(max = 360.dp)
+                    .edgeFade(top = 32.dp, bottom = 32.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 items(items = notes, key = SongNote::id) { note ->

@@ -106,6 +106,8 @@ import com.gpo.yoin.data.local.SongNote
 import com.gpo.yoin.player.VisualizerData
 import com.gpo.yoin.ui.component.CastButton
 import com.gpo.yoin.ui.component.DevicesSheet
+import com.gpo.yoin.ui.component.WriteNoteSheet
+import com.gpo.yoin.ui.component.edgeFade
 import com.gpo.yoin.ui.component.ExpressiveMediaArtwork
 import com.gpo.yoin.ui.component.horizontalFadeMask
 import com.gpo.yoin.ui.component.LyricsDisplay
@@ -479,6 +481,7 @@ private fun PlayingContent(
 
     var showQueue by remember { mutableStateOf(false) }
     var showDevicesSheet by remember(state.songId) { mutableStateOf(false) }
+    var showWriteSheet by remember(state.songId) { mutableStateOf(false) }
     val playInteractionSource = rememberNowPlayingButtonGroupInteractionSource()
     val nextInteractionSource = rememberNowPlayingButtonGroupInteractionSource()
     val playPressed by playInteractionSource.collectIsPressedAsState()
@@ -519,11 +522,15 @@ private fun PlayingContent(
             onNavigate = { onArtistClick(artistId) },
         )
     }
+    // Horizontal 24dp padding is applied per-child rather than on this
+    // outer Column so the Lyrics/About/Note pager can swipe edge-to-edge
+    // while every other child keeps its inset. Each pager page adds its
+    // own 24dp horizontal padding so content stays aligned with the rest
+    // of the screen when settled.
     Column(
         modifier = modifier
             .fillMaxSize()
-            .padding(WindowInsets.systemBars.asPaddingValues())
-            .padding(horizontal = 24.dp),
+            .padding(WindowInsets.systemBars.asPaddingValues()),
         horizontalAlignment = Alignment.Start,
         verticalArrangement = Arrangement.Top,
     ) {
@@ -536,6 +543,7 @@ private fun PlayingContent(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .padding(horizontal = 24.dp)
                     .padding(start = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -564,6 +572,7 @@ private fun PlayingContent(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .padding(horizontal = 24.dp)
                     .height(IntrinsicSize.Max),
                 verticalAlignment = Alignment.Top,
             ) {
@@ -639,7 +648,9 @@ private fun PlayingContent(
             )
 
             Row(
-                modifier = Modifier.padding(bottom = 4.dp),
+                modifier = Modifier
+                    .padding(horizontal = 24.dp)
+                    .padding(bottom = 4.dp),
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 Text(
@@ -681,35 +692,46 @@ private fun PlayingContent(
             }
 
             val pagerClickSource = remember { MutableInteractionSource() }
-            HorizontalPager(
-                state = pagerState,
-                beyondViewportPageCount = 1,
+            // Pager host: edge-to-edge so swipe flows off-screen instead of
+            // snapping at a 24dp boundary. Page content adds its own inset.
+            Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f)
-                    .clickable(
-                        interactionSource = pagerClickSource,
-                        indication = null,
-                    ) {
-                        onDetailModeChange(NowPlayingDetailMode.Fullscreen)
-                    },
-            ) { page ->
-                when (page) {
-                    0 -> LyricsDisplay(
-                        lyrics = state.lyrics,
-                        positionMs = state.positionMs,
-                        loading = state.lyricsLoading,
-                        modifier = Modifier.fillMaxSize(),
-                    )
-                    1 -> SongInfoDisplay(
-                        aboutUiState = aboutUiState,
-                        onRetry = onRetryFetchSongInfo,
-                        modifier = Modifier.fillMaxSize(),
-                    )
-                    2 -> NoteCompactPane(
-                        notes = notesState,
-                        modifier = Modifier.fillMaxSize(),
-                    )
+                    .edgeFade(start = 24.dp, end = 24.dp),
+            ) {
+                HorizontalPager(
+                    state = pagerState,
+                    beyondViewportPageCount = 1,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .clickable(
+                            interactionSource = pagerClickSource,
+                            indication = null,
+                        ) {
+                            onDetailModeChange(NowPlayingDetailMode.Fullscreen)
+                        },
+                ) { page ->
+                    val pageModifier = Modifier
+                        .fillMaxSize()
+                        .padding(horizontal = 24.dp)
+                    when (page) {
+                        0 -> LyricsDisplay(
+                            lyrics = state.lyrics,
+                            positionMs = state.positionMs,
+                            loading = state.lyricsLoading,
+                            modifier = pageModifier,
+                        )
+                        1 -> SongInfoDisplay(
+                            aboutUiState = aboutUiState,
+                            onRetry = onRetryFetchSongInfo,
+                            modifier = pageModifier,
+                        )
+                        2 -> NoteCompactPane(
+                            notes = notesState,
+                            modifier = pageModifier,
+                        )
+                    }
                 }
             }
 
@@ -732,6 +754,7 @@ private fun PlayingContent(
                 nextPressed = nextPressed,
                 shuffleEnabled = state.shuffleEnabled,
                 onToggleShuffle = onToggleShuffle,
+                modifier = Modifier.padding(horizontal = 24.dp),
             )
 
             Spacer(modifier = Modifier.height(12.dp))
@@ -771,7 +794,12 @@ private fun PlayingContent(
                         onClick = routeInteraction.onClick,
                     )
             } ?: Modifier
-            Box(modifier = titleModifier.then(titleClickModifier)) {
+            Box(
+                modifier = Modifier
+                    .padding(horizontal = 24.dp)
+                    .then(titleModifier)
+                    .then(titleClickModifier),
+            ) {
                 NowPlayingMarqueeTitle(
                     text = state.songTitle,
                     style = MaterialTheme.typography.displaySmall,
@@ -816,7 +844,12 @@ private fun PlayingContent(
                         onClick = routeInteraction.onClick,
                     )
             } ?: Modifier
-            Box(modifier = artistModifier.then(artistClickModifier)) {
+            Box(
+                modifier = Modifier
+                    .padding(horizontal = 24.dp)
+                    .then(artistModifier)
+                    .then(artistClickModifier),
+            ) {
                 Text(
                     text = state.artist,
                     style = MaterialTheme.typography.titleMedium.copy(
@@ -843,12 +876,10 @@ private fun PlayingContent(
                     showDevicesSheet = true
                     onRefreshDevices()
                 },
-                onWriteClick = {
-                    onDetailPageChange(NowPlayingDetailPage.Note)
-                    onDetailModeChange(NowPlayingDetailMode.Fullscreen)
-                },
+                onWriteClick = { showWriteSheet = true },
                 castState = castState,
                 onCastClick = onCastClick,
+                modifier = Modifier.padding(horizontal = 24.dp),
             )
 
             Spacer(modifier = Modifier.height(24.dp))
@@ -860,16 +891,10 @@ private fun PlayingContent(
     // stay stable. When open, compact content is still composed under it.
     AnimatedVisibility(
         visible = detailMode == NowPlayingDetailMode.Fullscreen,
-        enter = androidx.compose.animation.fadeIn() +
-            androidx.compose.animation.scaleIn(
-                initialScale = 0.96f,
-                animationSpec = YoinMotion.defaultSpatialSpec(role = YoinMotionRole.Expressive),
-            ),
-        exit = androidx.compose.animation.fadeOut() +
-            androidx.compose.animation.scaleOut(
-                targetScale = 0.96f,
-                animationSpec = YoinMotion.defaultSpatialSpec(role = YoinMotionRole.Expressive),
-            ),
+        enter = YoinMotion.fadeIn(role = YoinMotionRole.Standard) +
+            YoinMotion.scaleIn(role = YoinMotionRole.Expressive, initialScale = 0.96f),
+        exit = YoinMotion.fadeOut(role = YoinMotionRole.Standard) +
+            YoinMotion.scaleOut(role = YoinMotionRole.Expressive, targetScale = 0.96f),
     ) {
         NowPlayingFullscreenPane(
             state = state,
@@ -920,6 +945,15 @@ private fun PlayingContent(
                 onRefresh = onRefreshDevices,
                 onSelect = onSelectDevice,
                 onDismiss = { showDevicesSheet = false },
+            )
+        }
+    }
+
+    if (showWriteSheet) {
+        ProvideYoinMotionRole(role = YoinMotionRole.Standard) {
+            WriteNoteSheet(
+                onSave = onSaveNote,
+                onDismiss = { showWriteSheet = false },
             )
         }
     }

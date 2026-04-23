@@ -888,21 +888,20 @@ private fun YoinShell(
                     onAddCurrentToPlaylist = nowPlayingViewModel::requestAddCurrentToPlaylist,
                     onSkipToQueueItem = nowPlayingViewModel::skipToQueueItem,
                     onToggleShuffle = nowPlayingViewModel::toggleShuffle,
-                    // Collapse Now Playing before each navigation —
-                    // otherwise the target detail route is pushed behind
-                    // the still-visible overlay and the user sees the
-                    // same Now Playing screen even though they tapped a
-                    // link.
+                    // Keep Now Playing expanded across the push. NP is a
+                    // Shell-scoped overlay, so when AlbumDetail becomes the
+                    // active NavDisplay entry, Shell (and NP with it) stops
+                    // rendering automatically — no need to collapse state.
+                    // Popping back to Shell restores NP in whatever mode
+                    // the user left it (Compact or Fullscreen Lyrics/
+                    // About/Note), which is what Apple Music does.
                     onAlbumClick = { albumId ->
-                        closeNowPlaying()
                         navigateToAlbumFromShell(albumId, null)
                     },
                     onArtistClick = { artistId ->
-                        closeNowPlaying()
                         navigateToArtistFromShell(artistId, null)
                     },
                     onPlaylistClick = { playlistId ->
-                        closeNowPlaying()
                         navigateToPlaylistFromShell(playlistId, null)
                     },
                     onDismiss = closeNowPlaying,

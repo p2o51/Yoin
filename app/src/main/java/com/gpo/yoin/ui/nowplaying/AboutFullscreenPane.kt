@@ -49,6 +49,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.gpo.yoin.data.local.SongAboutEntry
 import com.gpo.yoin.ui.component.YoinLoadingIndicator
+import com.gpo.yoin.ui.component.edgeFade
 import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinMotionRole
 
@@ -72,7 +73,7 @@ fun AboutFullscreenPane(
                 YoinMotion.fadeOut(role = YoinMotionRole.Standard)
         },
         contentKey = { it::class },
-        modifier = modifier,
+        modifier = modifier.edgeFade(top = 32.dp, bottom = 64.dp),
         label = "aboutContent",
     ) { state ->
         when (state) {
@@ -147,23 +148,8 @@ private fun ReadyContent(
 
         SongAboutEntry.CANONICAL_ORDER
             .mapNotNull { key -> byKey[key]?.let { key to it } }
-            .forEach { (key, row) ->
-                if (key == SongAboutEntry.CANON_REVIEW) {
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        text = "About",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.padding(bottom = 2.dp),
-                    )
-                    Text(
-                        text = row.answerText,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurface,
-                    )
-                } else {
-                    InfoItem(label = labelFor(key), value = row.answerText)
-                }
+            .forEach { (_, row) ->
+                InfoItem(label = labelFor(row.entryKey), value = row.answerText)
             }
 
         val asks = entries.filter { it.kind == SongAboutEntry.KIND_ASK }
@@ -175,18 +161,7 @@ private fun ReadyContent(
                 // user's original question so history stays readable.
                 val heading = row.titleText?.takeIf { it.isNotBlank() }
                     ?: row.promptText.orEmpty()
-                Text(
-                    text = heading,
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.padding(top = 16.dp),
-                )
-                Text(
-                    text = row.answerText,
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier.padding(top = 2.dp),
-                )
+                InfoItem(label = heading, value = row.answerText)
             }
         }
         Spacer(modifier = Modifier.height(bottomPadding))
@@ -208,17 +183,18 @@ private fun InfoItem(label: String, value: String, modifier: Modifier = Modifier
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .padding(vertical = 4.dp),
+            .padding(vertical = 8.dp),
     ) {
         Text(
             text = label,
-            style = MaterialTheme.typography.labelMedium,
+            style = MaterialTheme.typography.titleMedium,
             color = MaterialTheme.colorScheme.primary,
         )
         Text(
             text = value,
             style = MaterialTheme.typography.bodyLarge,
             color = MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.padding(top = 2.dp),
         )
     }
 }

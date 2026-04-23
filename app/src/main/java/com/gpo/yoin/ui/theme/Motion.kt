@@ -416,7 +416,12 @@ object YoinMotion {
 
     val simplePushExit: ExitTransition = ExitTransition.None
 
-    val simplePushPopEnter: EnterTransition = EnterTransition.None
+    // Pop enter: fade in the underlying page so the popped page's scaleOut
+    // stays visible through it. An EnterTransition.None here makes the
+    // target opaque immediately and visually hides the exit animation,
+    // which reads as "no animation on back".
+    val simplePushPopEnter: EnterTransition =
+        composeFadeIn(animationSpec = simplePushSpring())
 
     val simplePushPopExit: ExitTransition =
         composeScaleOut(

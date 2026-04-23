@@ -21,16 +21,11 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.drawWithContent
-import androidx.compose.ui.graphics.BlendMode
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.gpo.yoin.ui.component.YoinLoadingIndicator
+import com.gpo.yoin.ui.component.edgeFade
 
 /**
  * Fullscreen Lyrics viewer. Unlike the compact [LyricsDisplay] window
@@ -74,7 +69,6 @@ fun LyricsFullscreenPane(
         findCurrentLyricIndex(lyrics, positionMs)
     }
     val listState = rememberLazyListState()
-    val density = LocalDensity.current
 
     // Centering: LazyColumn's scrollToItem takes a pixel offset relative
     // to the top of the visible area. We offset by ~-40% of the viewport
@@ -90,32 +84,10 @@ fun LyricsFullscreenPane(
         )
     }
 
-    val topFadePx = with(density) { 64.dp.toPx() }
-    val bottomFadePx = with(density) { 64.dp.toPx() }
-
     Box(
         modifier = modifier
             .fillMaxSize()
-            .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
-            .drawWithContent {
-                drawContent()
-                drawRect(
-                    brush = Brush.verticalGradient(
-                        colors = listOf(Color.Transparent, Color.Black),
-                        startY = 0f,
-                        endY = topFadePx,
-                    ),
-                    blendMode = BlendMode.DstIn,
-                )
-                drawRect(
-                    brush = Brush.verticalGradient(
-                        colors = listOf(Color.Black, Color.Transparent),
-                        startY = size.height - bottomFadePx,
-                        endY = size.height,
-                    ),
-                    blendMode = BlendMode.DstIn,
-                )
-            },
+            .edgeFade(top = 64.dp, bottom = 64.dp),
     ) {
         LazyColumn(
             state = listState,
@@ -162,7 +134,7 @@ private fun LyricRow(
     Text(
         text = text,
         style = MaterialTheme.typography.headlineSmall.copy(
-            fontWeight = if (isActive) FontWeight.Bold else FontWeight.Medium,
+            fontWeight = if (isActive) FontWeight.ExtraBold else FontWeight.SemiBold,
         ),
         color = textColor,
         modifier = modifier

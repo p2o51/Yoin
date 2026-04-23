@@ -16,6 +16,7 @@ import com.gpo.yoin.player.PlaybackManager
 import com.gpo.yoin.ui.component.AddToPlaylistRow
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -330,17 +331,37 @@ class NowPlayingViewModel(
         if (!device.isSelectable) return
         viewModelScope.launch {
             _devicesState.value = _devicesState.value.copy(busyDeviceId = device.id)
-            runCatching {
+            val result = runCatching {
                 when (device) {
                     is YoinDevice.SpotifyConnect ->
                         repository.transferSpotifyPlayback(device.id)
                     is YoinDevice.LocalPlayback,
                     is YoinDevice.Chromecast -> Unit
                 }
-            }.onFailure { error ->
+            }
+            if (result.isSuccess) {
+                // Optimistically flip `isActive` to the target right away.
+                // Spotify's `GET /v1/me/player/devices` endpoint typically
+                // lags the transfer by 1–2 s, and polling in that window
+                // returns the stale active device — which reads to the
+                // user as "nothing happened". We trust our PUT succeeded
+                // and wait a beat before refreshing for the real list.
                 _devicesState.value = _devicesState.value.copy(
                     busyDeviceId = null,
-                    errorMessage = error.message ?: "Couldn't switch devices.",
+                    devices = _devicesState.value.devices.map { row ->
+                        when (row) {
+                            is YoinDevice.SpotifyConnect ->
+                                row.copy(isActive = row.id == device.id)
+                            else -> row
+                        }
+                    },
+                )
+                delay(800)
+            } else {
+                _devicesState.value = _devicesState.value.copy(
+                    busyDeviceId = null,
+                    errorMessage = result.exceptionOrNull()?.message
+                        ?: "Couldn't switch devices.",
                 )
             }
             refreshDevices()

@@ -44,6 +44,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.gpo.yoin.data.local.SongNote
+import com.gpo.yoin.ui.component.edgeFade
 import com.gpo.yoin.ui.theme.ProvideYoinMotionRole
 import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinMotionRole
@@ -94,12 +95,15 @@ fun NowPlayingFullscreenPane(
         // top via statusBarsPadding, bottom via each component's own
         // navigationBarsPadding / imePadding — so the Ask bar can lift
         // above nav bar + keyboard itself without fighting a parent Box.
+        // Horizontal padding is applied per-child rather than on the outer
+        // Box so the pager can swipe edge-to-edge. Each page adds its own
+        // 24dp inset so content stays aligned with the top bar / tabs /
+        // hero while the swipe itself flows off-screen.
         Box(
             modifier = modifier
                 .fillMaxSize()
                 .background(Brush.verticalGradient(listOf(surfaceContainer, background)))
-                .statusBarsPadding()
-                .padding(horizontal = 24.dp),
+                .statusBarsPadding(),
         ) {
             Column(
                 modifier = Modifier
@@ -113,6 +117,7 @@ fun NowPlayingFullscreenPane(
                     onAlbumClick = onAlbumClick,
                     onArtistClick = onArtistClick,
                     onPlaylistClick = onPlaylistClick,
+                    modifier = Modifier.padding(horizontal = 24.dp),
                 )
 
                 Spacer(modifier = Modifier.height(12.dp))
@@ -120,6 +125,7 @@ fun NowPlayingFullscreenPane(
                 FullscreenTabGroup(
                     selected = detailPage,
                     onSelect = onDetailPageChange,
+                    modifier = Modifier.padding(horizontal = 24.dp),
                 )
 
                 Spacer(modifier = Modifier.height(16.dp))
@@ -139,32 +145,42 @@ fun NowPlayingFullscreenPane(
                     if (page == NowPlayingDetailPage.About) onAboutOpened()
                 }
 
-                HorizontalPager(
-                    state = pagerState,
-                    beyondViewportPageCount = 1,
+                // Pager host: edge-to-edge, with a horizontal fade so
+                // content softens into the surface at the swipe bounds.
+                Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .weight(1f),
-                ) { page ->
-                    when (NowPlayingDetailPage.entries[page]) {
-                        NowPlayingDetailPage.Lyrics -> LyricsFullscreenPane(
-                            lyrics = state.lyrics,
-                            positionMs = state.positionMs,
-                            loading = state.lyricsLoading,
-                            modifier = Modifier.fillMaxSize(),
-                        )
-                        NowPlayingDetailPage.About -> AboutFullscreenPane(
-                            aboutUiState = aboutUiState,
-                            onRetryCanonical = onRetryCanonical,
-                            modifier = Modifier.fillMaxSize(),
-                        )
-                        NowPlayingDetailPage.Note -> NoteFullscreenPane(
-                            notes = notes,
-                            onSave = onSaveNote,
-                            onDelete = onDeleteNote,
-                            autoFocusComposer = detailPage == NowPlayingDetailPage.Note,
-                            modifier = Modifier.fillMaxSize(),
-                        )
+                        .weight(1f)
+                        .edgeFade(start = 24.dp, end = 24.dp),
+                ) {
+                    HorizontalPager(
+                        state = pagerState,
+                        beyondViewportPageCount = 1,
+                        modifier = Modifier.fillMaxSize(),
+                    ) { page ->
+                        val pageModifier = Modifier
+                            .fillMaxSize()
+                            .padding(horizontal = 24.dp)
+                        when (NowPlayingDetailPage.entries[page]) {
+                            NowPlayingDetailPage.Lyrics -> LyricsFullscreenPane(
+                                lyrics = state.lyrics,
+                                positionMs = state.positionMs,
+                                loading = state.lyricsLoading,
+                                modifier = pageModifier,
+                            )
+                            NowPlayingDetailPage.About -> AboutFullscreenPane(
+                                aboutUiState = aboutUiState,
+                                onRetryCanonical = onRetryCanonical,
+                                modifier = pageModifier,
+                            )
+                            NowPlayingDetailPage.Note -> NoteFullscreenPane(
+                                notes = notes,
+                                onSave = onSaveNote,
+                                onDelete = onDeleteNote,
+                                autoFocusComposer = detailPage == NowPlayingDetailPage.Note,
+                                modifier = pageModifier,
+                            )
+                        }
                     }
                 }
 
@@ -176,7 +192,9 @@ fun NowPlayingFullscreenPane(
                 BottomHero(
                     title = state.songTitle,
                     artist = state.artist,
-                    modifier = Modifier.padding(bottom = 12.dp),
+                    modifier = Modifier
+                        .padding(horizontal = 24.dp)
+                        .padding(bottom = 12.dp),
                 )
 
                 // Reserve room for the floating Ask bar (56dp idle +
@@ -207,6 +225,7 @@ fun NowPlayingFullscreenPane(
                         .imePadding()
                         .navigationBarsPadding()
                         .fillMaxWidth()
+                        .padding(horizontal = 24.dp)
                         .padding(bottom = 8.dp),
                 )
             }
