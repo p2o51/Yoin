@@ -272,37 +272,47 @@ private fun TopBar(
                     nameLabel = ctx.playlistName
                     routeAction = { onPlaylistClick(ctx.playlistId) }
                 }
-                is com.gpo.yoin.data.repository.ActivityContext.Artist -> {
-                    kindLabel = "PLAYING FROM ARTIST"
-                    nameLabel = ctx.artistName
-                    routeAction = { onArtistClick(ctx.artistId) }
-                }
-                com.gpo.yoin.data.repository.ActivityContext.None -> {
-                    kindLabel = "PLAYING FROM"
-                    nameLabel = state.albumName
+                is com.gpo.yoin.data.repository.ActivityContext.Artist,
+                is com.gpo.yoin.data.repository.ActivityContext.LikedSongs,
+                com.gpo.yoin.data.repository.ActivityContext.None,
+                -> {
+                    kindLabel = ""
+                    nameLabel = "NOW PLAYING"
                     routeAction = null
                 }
             }
-            Text(
-                text = kindLabel,
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
+            if (kindLabel.isNotBlank()) {
+                Text(
+                    text = kindLabel,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
             val nameModifier = if (routeAction != null) {
                 Modifier.clickable { routeAction() }
             } else {
                 Modifier
             }
-            Text(
-                text = nameLabel,
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurface,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = nameModifier,
-            )
+            if (nameLabel.isNotBlank()) {
+                Text(
+                    text = nameLabel,
+                    style = if (kindLabel.isBlank()) {
+                        MaterialTheme.typography.labelSmall
+                    } else {
+                        MaterialTheme.typography.labelMedium
+                    },
+                    color = if (kindLabel.isBlank()) {
+                        MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f)
+                    } else {
+                        MaterialTheme.colorScheme.onSurface
+                    },
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = nameModifier,
+                )
+            }
         }
     }
 }

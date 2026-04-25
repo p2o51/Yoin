@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -37,7 +38,7 @@ import kotlin.math.roundToInt
  * Vertical rating slider — drag up to increase, down to decrease.
  * Rating label is displayed inside the bar itself.
  *
- * @param rating current rating 0.0–5.0
+ * @param rating current rating 0.0–10.0
  * @param onRatingChange called with the new rating (step 0.1)
  */
 @Composable
@@ -47,7 +48,7 @@ fun RatingSlider(
     modifier: Modifier = Modifier,
 ) {
     val animatedFraction by animateFloatAsState(
-        targetValue = (rating / 5f).coerceIn(0f, 1f),
+        targetValue = (rating / 10f).coerceIn(0f, 1f),
         animationSpec = YoinMotion.spatialSpring(),
         label = "ratingFill",
     )
@@ -65,8 +66,8 @@ fun RatingSlider(
             .pointerInput(Unit) {
                 detectTapGestures { offset ->
                     val fraction = 1f - (offset.y / trackHeightPx)
-                    val snapped = (fraction * 50).roundToInt()
-                        .coerceIn(0, 50) / 10f
+                    val snapped = (fraction * 100).roundToInt()
+                        .coerceIn(0, 100) / 10f
                     onRatingChange(snapped)
                 }
             }
@@ -74,16 +75,16 @@ fun RatingSlider(
                 detectDragGestures(
                     onDragStart = { offset ->
                         val fraction = 1f - (offset.y / trackHeightPx)
-                        dragRating = (fraction * 50).roundToInt()
-                            .coerceIn(0, 50) / 10f
+                        dragRating = (fraction * 100).roundToInt()
+                            .coerceIn(0, 100) / 10f
                         onRatingChange(dragRating)
                     },
                     onDrag = { change, _ ->
                         change.consume()
                         val fraction =
                             1f - (change.position.y / trackHeightPx)
-                        dragRating = (fraction * 50).roundToInt()
-                            .coerceIn(0, 50) / 10f
+                        dragRating = (fraction * 100).roundToInt()
+                            .coerceIn(0, 100) / 10f
                         onRatingChange(dragRating)
                     },
                 )
@@ -115,14 +116,24 @@ fun RatingSlider(
             label = "ratingLabelColor",
         )
         Text(
-            text = "%.1f".format(rating),
+            text = formatRatingLabel(rating),
             style = MaterialTheme.typography.titleLarge.withTabularFigures(),
             color = labelColor,
+            maxLines = 1,
+            softWrap = false,
             modifier = Modifier
                 .align(Alignment.TopCenter)
+                .widthIn(min = 36.dp)
                 .padding(top = 8.dp),
         )
     }
+}
+
+private fun formatRatingLabel(rating: Float): String {
+    val clamped = rating.coerceIn(0f, 10f)
+    val roundedTenths = (clamped * 10f).roundToInt()
+    if (roundedTenths >= 100) return "10"
+    return "%d.%d".format(roundedTenths / 10, roundedTenths % 10)
 }
 
 // ── Previews ────────────────────────────────────────────────────────────

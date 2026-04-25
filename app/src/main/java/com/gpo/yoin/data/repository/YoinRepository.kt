@@ -45,7 +45,9 @@ import com.gpo.yoin.data.source.MusicSource
 import com.gpo.yoin.data.source.spotify.SpotifyMusicSource
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.first
@@ -100,6 +102,9 @@ class YoinRepository(
     /** True when a configured profile is currently active. */
     val isConfigured: Boolean
         get() = activeSource.value != null
+
+    private val _favoriteOverrides = MutableStateFlow<Map<MediaId, Boolean>>(emptyMap())
+    val favoriteOverrides: StateFlow<Map<MediaId, Boolean>> = _favoriteOverrides.asStateFlow()
 
     /**
      * Capability set of the currently active [MusicSource], or empty when no
@@ -159,7 +164,9 @@ class YoinRepository(
     // ── Favorites ──────────────────────────────────────────────────────
 
     suspend fun setFavorite(id: MediaId, favorite: Boolean): Result<Unit> =
-        requireSource().writeActions().setFavorite(id, favorite)
+        requireSource().writeActions().setFavorite(id, favorite).onSuccess {
+            _favoriteOverrides.value = _favoriteOverrides.value + (id to favorite)
+        }
 
     suspend fun getStarred(): Starred =
         requireSource().library().getStarred()
@@ -942,6 +949,7 @@ class YoinRepository(
                 artistId = track.artistId?.rawId,
             )
 
+            is ActivityContext.LikedSongs,
             ActivityContext.None -> ActivityEvent(
                 entityType = ActivityEntityType.SONG.name,
                 actionType = ActivityActionType.PLAYED.name,

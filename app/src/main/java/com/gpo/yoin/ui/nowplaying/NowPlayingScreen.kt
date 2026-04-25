@@ -874,7 +874,6 @@ private fun PlayingContent(
                 onQueueClick = { showQueue = true },
                 onDevicesClick = {
                     showDevicesSheet = true
-                    onRefreshDevices()
                 },
                 onWriteClick = { showWriteSheet = true },
                 castState = castState,
@@ -1047,14 +1046,12 @@ private fun PlayingFromLabel(
             nameLabel = activityContext.playlistName
             clickAction = { onPlaylistClick(activityContext.playlistId) }
         }
-        is ActivityContext.Artist -> {
-            kindLabel = "PLAYING FROM ARTIST"
-            nameLabel = activityContext.artistName
-            clickAction = { onArtistClick(activityContext.artistId) }
-        }
-        ActivityContext.None -> {
+        is ActivityContext.Artist,
+        is ActivityContext.LikedSongs,
+        ActivityContext.None,
+        -> {
             kindLabel = null
-            nameLabel = fallbackAlbumName
+            nameLabel = "NOW PLAYING"
             clickAction = null
         }
     }
@@ -1096,9 +1093,9 @@ private fun PlayingFromLabel(
             )
         } else {
             Text(
-                text = "Playing from $nameLabel",
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                text = nameLabel,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
@@ -1224,10 +1221,11 @@ private fun AlbumCover(
         model = coverArtUrl,
         contentDescription = "Album cover",
         modifier = finalModifier,
-        shape = YoinShapeTokens.ExtraLarge,
+        shape = YoinShapeTokens.Large,
         fallbackIcon = Icons.Rounded.PlayArrow,
-        tonalElevation = 4.dp,
+        tonalElevation = 0.dp,
         shadowElevation = 0.dp,
+        border = null,
     )
 }
 

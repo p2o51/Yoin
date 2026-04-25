@@ -80,6 +80,7 @@ class LibraryViewModel(
         loadInitialData()
         observeSearch()
         observeCapabilities()
+        observeFavoriteOverrides()
     }
 
     fun refresh() {
@@ -172,6 +173,7 @@ class LibraryViewModel(
                     LibraryTab.Songs -> {
                         if (cachedSongs == null) {
                             cachedSongs = repository.getRandomSongs(size = 50)
+                                .applyFavoriteOverrides(repository.favoriteOverrides.value)
                         }
                         updateContent { copy(songs = cachedSongs.orEmpty()) }
                     }
@@ -183,6 +185,7 @@ class LibraryViewModel(
                     }
                     LibraryTab.Favorites -> {
                         cachedFavorites = repository.getStarred()
+                            .applyFavoriteOverrides(repository.favoriteOverrides.value)
                         updateContent { copy(favorites = cachedFavorites) }
                     }
                 }
@@ -235,6 +238,7 @@ class LibraryViewModel(
                     updateContent { copy(isSearching = true) }
                     try {
                         val results = repository.search(query)
+                            .applyFavoriteOverrides(repository.favoriteOverrides.value)
                         updateContent {
                             if (searchQuery != query) {
                                 this
@@ -271,6 +275,49 @@ class LibraryViewModel(
         val current = _uiState.value as? LibraryUiState.Content ?: return
         _uiState.value = current.transform()
     }
+
+    private fun observeFavoriteOverrides() {
+        viewModelScope.launch {
+            repository.favoriteOverrides.collectLatest { overrides ->
+                applyFavoriteOverrides(overrides)
+            }
+        }
+    }
+
+    private fun applyFavoriteOverrides(overrides: Map<MediaId, Boolean>) {
+        if (overrides.isEmpty()) return
+
+        cachedSongs = cachedSongs?.applyFavoriteOverrides(overrides)
+        cachedFavorites = cachedFavorites?.applyFavoriteOverrides(overrides)
+
+        updateContent {
+            copy(
+                songs = songs.applyFavoriteOverrides(overrides),
+                favorites = favorites?.applyFavoriteOverrides(overrides),
+                searchResults = searchResults?.applyFavoriteOverrides(overrides),
+            )
+        }
+    }
+
+    private fun List<Track>.applyFavoriteOverrides(
+        overrides: Map<MediaId, Boolean>,
+    ): List<Track> = map { track ->
+        overrides[track.id]?.let { isStarred -> track.copy(isStarred = isStarred) } ?: track
+    }
+
+    private fun SearchResults.applyFavoriteOverrides(
+        overrides: Map<MediaId, Boolean>,
+    ): SearchResults = copy(
+        tracks = tracks.applyFavoriteOverrides(overrides),
+    )
+
+    private fun Starred.applyFavoriteOverrides(
+        overrides: Map<MediaId, Boolean>,
+    ): Starred = copy(
+        tracks = tracks
+            .applyFavoriteOverrides(overrides)
+            .filter(Track::isStarred),
+    )
 
     fun buildCoverArtUrl(coverArtId: String): String =
         repository.resolveSubsonicCoverUrl(coverArtId, size = 256).orEmpty()

@@ -743,7 +743,10 @@ class PlaybackManager(
                 contextUri = "spotify:playlist:${playlistId.rawId}"
             }
 
-            is ActivityContext.Artist, ActivityContext.None -> return null
+            is ActivityContext.Artist,
+            is ActivityContext.LikedSongs,
+            ActivityContext.None,
+            -> return null
         }
         return {
             spotifySource.startContextPlayback(

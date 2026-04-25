@@ -111,6 +111,14 @@ class NowPlayingViewModel(
         }
     }
 
+    private val favoriteFlow = combine(
+        currentSongId,
+        playbackManager.playbackState.map { state -> state.currentTrack?.isStarred == true },
+        repository.favoriteOverrides,
+    ) { songId, trackStarred, overrides ->
+        songId?.let(overrides::get) ?: trackStarred
+    }
+
     val notesState: StateFlow<List<SongNote>> = currentSongId
         .flatMapLatest { songId ->
             if (songId != null) {
@@ -170,7 +178,7 @@ class NowPlayingViewModel(
         _lyrics,
         _lyricsLoading,
         ratingFlow,
-        _isStarred,
+        favoriteFlow,
     ) { (state, activityContext), lyrics, lyricsLoading, rating, isStarred ->
         val song = state.currentTrack
         val pending = state.pendingTrack
@@ -273,7 +281,9 @@ class NowPlayingViewModel(
 
     fun toggleFavorite() {
         val songId = currentSongId.value ?: return
-        val nextFavorite = !_isStarred.value
+        val currentFavorite = (uiState.value as? NowPlayingUiState.Playing)?.isStarred
+            ?: _isStarred.value
+        val nextFavorite = !currentFavorite
         viewModelScope.launch {
             repository.setFavorite(songId, nextFavorite).onSuccess {
                 _isStarred.value = nextFavorite
@@ -296,13 +306,19 @@ class NowPlayingViewModel(
     }
 
     fun refreshDevices() {
+        refreshDevices(showLoading = true)
+    }
+
+    private fun refreshDevices(showLoading: Boolean) {
         viewModelScope.launch {
             val providerId = repository.currentProviderId()
             val castState = castManager.castState.value
+            val current = _devicesState.value
+            val currentDevices = current.devices.takeIf { current.providerId == providerId }.orEmpty()
             _devicesState.value = _devicesState.value.copy(
                 providerId = providerId,
-                devices = fallbackDevices(providerId, castState),
-                loading = true,
+                devices = currentDevices.ifEmpty { fallbackDevices(providerId, castState) },
+                loading = showLoading,
                 errorMessage = null,
             )
             runCatching {
@@ -311,15 +327,25 @@ class NowPlayingViewModel(
                     else -> emptyList()
                 }
             }.onSuccess { spotifyDevices ->
+                val nextDevices = buildDevices(providerId, spotifyDevices, castState)
+                val latestDevices = _devicesState.value.devices
+                    .takeIf { _devicesState.value.providerId == providerId }
+                    .orEmpty()
                 _devicesState.value = DevicesSheetState(
                     providerId = providerId,
-                    devices = buildDevices(providerId, spotifyDevices, castState),
+                    devices = mergeDevicesForStableRows(
+                        previous = latestDevices,
+                        next = nextDevices,
+                    ),
                     loading = false,
                 )
             }.onFailure { error ->
+                val latestDevices = _devicesState.value.devices
+                    .takeIf { _devicesState.value.providerId == providerId }
+                    .orEmpty()
                 _devicesState.value = DevicesSheetState(
                     providerId = providerId,
-                    devices = fallbackDevices(providerId, castState),
+                    devices = latestDevices.ifEmpty { fallbackDevices(providerId, castState) },
                     loading = false,
                     errorMessage = error.message ?: "Couldn't load devices.",
                 )
@@ -356,7 +382,7 @@ class NowPlayingViewModel(
                         }
                     },
                 )
-                delay(800)
+                delay(1_200)
             } else {
                 _devicesState.value = _devicesState.value.copy(
                     busyDeviceId = null,
@@ -364,7 +390,7 @@ class NowPlayingViewModel(
                         ?: "Couldn't switch devices.",
                 )
             }
-            refreshDevices()
+            refreshDevices(showLoading = false)
         }
     }
 
@@ -655,6 +681,18 @@ private fun buildDevices(
 ): List<YoinDevice> = when (providerId) {
     MediaId.PROVIDER_SPOTIFY -> spotifyDevices
     else -> fallbackDevices(providerId, castState)
+}
+
+private fun mergeDevicesForStableRows(
+    previous: List<YoinDevice>,
+    next: List<YoinDevice>,
+): List<YoinDevice> {
+    if (previous.isEmpty()) return next
+    if (next.isEmpty()) return previous
+    val nextById = next.associateBy(YoinDevice::id)
+    val preserved = previous.mapNotNull { row -> nextById[row.id] }
+    val newRows = next.filterNot { row -> previous.any { it.id == row.id } }
+    return preserved + newRows
 }
 
 private fun fallbackDevices(
