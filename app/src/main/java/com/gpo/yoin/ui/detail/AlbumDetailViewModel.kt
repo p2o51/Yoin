@@ -14,6 +14,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
@@ -74,6 +75,7 @@ class AlbumDetailViewModel(
 
     init {
         loadAlbum()
+        observeFavoriteOverrides()
     }
 
     fun getAlbumSongs(): List<Track> = albumSongs
@@ -93,7 +95,7 @@ class AlbumDetailViewModel(
                     return@launch
                 }
                 loadedAlbum = album
-                albumSongs = album.tracks
+                albumSongs = album.tracks.applyFavoriteOverrides(repository.favoriteOverrides.value)
                 albumTrackIds.value = albumSongs.map(Track::id)
                 repository.recordAlbumVisit(album)
                 _uiState.value = AlbumDetailUiState.Content(
@@ -106,7 +108,7 @@ class AlbumDetailViewModel(
                     year = album.year,
                     songCount = album.songCount,
                     totalDuration = album.durationSec,
-                    songs = album.tracks.map { song ->
+                    songs = albumSongs.map { song ->
                         AlbumSong(
                             id = song.id.toString(),
                             title = song.title.orEmpty(),
@@ -150,20 +152,44 @@ class AlbumDetailViewModel(
     }
 
     fun toggleStar(songId: String) {
-        val current = _uiState.value as? AlbumDetailUiState.Content ?: return
-        val song = current.songs.find { it.id == songId } ?: return
+        val song = (_uiState.value as? AlbumDetailUiState.Content)
+            ?.songs
+            ?.find { it.id == songId }
+            ?: return
         viewModelScope.launch {
-            try {
-                repository.setFavorite(MediaId.parse(songId), favorite = !song.isStarred)
-                _uiState.value = current.copy(
-                    songs = current.songs.map {
-                        if (it.id == songId) it.copy(isStarred = !it.isStarred) else it
-                    },
-                )
-            } catch (_: Exception) {
-                // Silently ignore star/unstar failures
+            repository.setFavorite(MediaId.parse(songId), favorite = !song.isStarred)
+                .onSuccess {
+                    applyFavoriteOverrides(repository.favoriteOverrides.value)
+                }
+        }
+    }
+
+    private fun observeFavoriteOverrides() {
+        viewModelScope.launch {
+            repository.favoriteOverrides.collectLatest { overrides ->
+                applyFavoriteOverrides(overrides)
             }
         }
+    }
+
+    private fun applyFavoriteOverrides(overrides: Map<MediaId, Boolean>) {
+        if (overrides.isEmpty()) return
+        albumSongs = albumSongs.applyFavoriteOverrides(overrides)
+
+        val current = _uiState.value as? AlbumDetailUiState.Content ?: return
+        _uiState.value = current.copy(
+            songs = current.songs.map { song ->
+                val id = MediaId.parseOrNull(song.id)
+                val isStarred = id?.let(overrides::get) ?: return@map song
+                song.copy(isStarred = isStarred)
+            },
+        )
+    }
+
+    private fun List<Track>.applyFavoriteOverrides(
+        overrides: Map<MediaId, Boolean>,
+    ): List<Track> = map { track ->
+        overrides[track.id]?.let { isStarred -> track.copy(isStarred = isStarred) } ?: track
     }
 
     fun toggleExpandedSong(songId: String) {

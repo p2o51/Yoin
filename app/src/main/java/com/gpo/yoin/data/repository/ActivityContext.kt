@@ -3,6 +3,11 @@ package com.gpo.yoin.data.repository
 sealed interface ActivityContext {
     data object None : ActivityContext
 
+    data class LikedSongs(
+        val name: String = "Liked Songs",
+        val coverArtId: String? = null,
+    ) : ActivityContext
+
     data class Album(
         val albumId: String,
         val albumName: String,

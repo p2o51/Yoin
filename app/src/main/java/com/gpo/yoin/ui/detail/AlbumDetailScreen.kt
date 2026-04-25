@@ -72,6 +72,7 @@ import com.gpo.yoin.ui.theme.YoinShapeTokens
 import com.gpo.yoin.ui.theme.YoinTheme
 import com.gpo.yoin.ui.theme.withTabularFigures
 import kotlinx.coroutines.delay
+import kotlin.math.roundToInt
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalSharedTransitionApi::class)
 @Composable
@@ -496,7 +497,7 @@ private fun AlbumUserReviewSection(
                 )
                 Text(
                     text = if (userRating != null && userRating > 0f) {
-                        "${sliderValue.toInt()} / 10"
+                        "${formatRatingLabel(sliderValue)} / 10"
                     } else {
                         "Not rated"
                     },
@@ -549,6 +550,12 @@ private fun AlbumUserReviewSection(
             }
         }
     }
+}
+
+private fun formatRatingLabel(rating: Float): String {
+    val roundedTenths = (rating.coerceIn(0f, 10f) * 10f).roundToInt()
+    if (roundedTenths >= 100) return "10"
+    return "%d.%d".format(roundedTenths / 10, roundedTenths % 10)
 }
 
 @Composable

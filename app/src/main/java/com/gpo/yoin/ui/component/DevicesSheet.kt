@@ -3,6 +3,7 @@ package com.gpo.yoin.ui.component
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
@@ -27,7 +28,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
-import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -101,53 +101,48 @@ fun DevicesSheet(
                 }
             }
 
-            PullToRefreshBox(
-                isRefreshing = loading,
-                onRefresh = onRefresh,
+            LazyColumn(
+                contentPadding = PaddingValues(
+                    start = 16.dp,
+                    top = 8.dp,
+                    end = 16.dp,
+                    bottom = 16.dp + navBottom,
+                ),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
                 modifier = Modifier.fillMaxWidth(),
             ) {
-                LazyColumn(
-                    contentPadding = PaddingValues(
-                        start = 16.dp,
-                        top = 8.dp,
-                        end = 16.dp,
-                        bottom = 16.dp + navBottom,
-                    ),
-                    verticalArrangement = Arrangement.spacedBy(6.dp),
-                ) {
-                    if (errorMessage != null) {
-                        item {
-                            Text(
-                                text = errorMessage,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.error,
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
-                            )
-                        }
-                    }
-
-                    if (!loading && devices.isEmpty()) {
-                        item {
-                            Text(
-                                text = when (providerId) {
-                                    MediaId.PROVIDER_SPOTIFY -> "No Spotify devices found."
-                                    MediaId.PROVIDER_SUBSONIC -> "Only local playback is available right now."
-                                    else -> "No devices found."
-                                },
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 12.dp),
-                            )
-                        }
-                    }
-
-                    items(items = devices, key = YoinDevice::id) { device ->
-                        DeviceRow(
-                            device = device,
-                            busy = busyDeviceId == device.id,
-                            onClick = { onSelect(device) },
+                if (errorMessage != null) {
+                    item {
+                        Text(
+                            text = errorMessage,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
                         )
                     }
+                }
+
+                if (!loading && devices.isEmpty()) {
+                    item {
+                        Text(
+                            text = when (providerId) {
+                                MediaId.PROVIDER_SPOTIFY -> "No Spotify devices found."
+                                MediaId.PROVIDER_SUBSONIC -> "Only local playback is available right now."
+                                else -> "No devices found."
+                            },
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 12.dp),
+                        )
+                    }
+                }
+
+                items(items = devices, key = YoinDevice::id) { device ->
+                    DeviceRow(
+                        device = device,
+                        busy = busyDeviceId == device.id,
+                        onClick = { onSelect(device) },
+                    )
                 }
             }
         }
@@ -205,16 +200,22 @@ private fun DeviceRow(
                     )
                 }
             }
-            when {
-                busy -> CircularProgressIndicator(
-                    modifier = Modifier.size(18.dp),
-                    strokeWidth = 2.dp,
-                )
-                device.isActive -> Icon(
-                    imageVector = Icons.Rounded.Check,
-                    contentDescription = "Current device",
-                    tint = MaterialTheme.colorScheme.primary,
-                )
+            Box(
+                modifier = Modifier.size(24.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                when {
+                    busy -> CircularProgressIndicator(
+                        modifier = Modifier.size(18.dp),
+                        strokeWidth = 2.dp,
+                    )
+                    device.isActive -> Icon(
+                        imageVector = Icons.Rounded.Check,
+                        contentDescription = "Current device",
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(24.dp),
+                    )
+                }
             }
         }
     }

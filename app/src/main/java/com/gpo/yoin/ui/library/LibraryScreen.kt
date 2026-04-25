@@ -124,6 +124,9 @@ fun LibraryScreen(
     onAlbumClick: (String) -> Unit,
     onPlaylistClick: (String) -> Unit,
     onSongClick: (Track) -> Unit,
+    onFavoriteSongClick: (track: Track, queue: List<Track>, startIndex: Int) -> Unit = { track, _, _ ->
+        onSongClick(track)
+    },
     onAddSongToPlaylist: (Track) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
@@ -144,6 +147,7 @@ fun LibraryScreen(
         onAlbumClick = onAlbumClick,
         onPlaylistClick = onPlaylistClick,
         onSongClick = onSongClick,
+        onFavoriteSongClick = onFavoriteSongClick,
         onAddSongToPlaylist = onAddSongToPlaylist,
         onCreatePlaylist = viewModel::createPlaylist,
         onRetry = viewModel::refresh,
@@ -167,6 +171,9 @@ fun LibraryContent(
     onAlbumClick: (String) -> Unit,
     onPlaylistClick: (String) -> Unit,
     onSongClick: (Track) -> Unit,
+    onFavoriteSongClick: (track: Track, queue: List<Track>, startIndex: Int) -> Unit = { track, _, _ ->
+        onSongClick(track)
+    },
     onAddSongToPlaylist: (Track) -> Unit = {},
     onCreatePlaylist: (name: String) -> Unit = {},
     onRetry: () -> Unit,
@@ -228,6 +235,7 @@ fun LibraryContent(
                         onAlbumClick = onAlbumClick,
                         onPlaylistClick = onPlaylistClick,
                         onSongClick = onSongClick,
+                        onFavoriteSongClick = onFavoriteSongClick,
                         onAddSongToPlaylist = onAddSongToPlaylist,
                         onCreatePlaylist = onCreatePlaylist,
                         coverArtUrlBuilder = coverArtUrlBuilder,
@@ -253,6 +261,7 @@ private fun LibraryContentBody(
     onAlbumClick: (String) -> Unit,
     onPlaylistClick: (String) -> Unit,
     onSongClick: (Track) -> Unit,
+    onFavoriteSongClick: (track: Track, queue: List<Track>, startIndex: Int) -> Unit,
     onAddSongToPlaylist: (Track) -> Unit,
     onCreatePlaylist: (name: String) -> Unit,
     coverArtUrlBuilder: ((String) -> String)?,
@@ -343,6 +352,7 @@ private fun LibraryContentBody(
                             onArtistClick = onArtistClick,
                             onAlbumClick = onAlbumClick,
                             onSongClick = onSongClick,
+                            onFavoriteSongClick = onFavoriteSongClick,
                             onAddSongToPlaylist = onAddSongToPlaylist,
                             coverArtUrlBuilder = coverArtUrlBuilder,
                         )
@@ -913,6 +923,7 @@ private fun FavoritesTabContent(
     onArtistClick: (String) -> Unit,
     onAlbumClick: (String) -> Unit,
     onSongClick: (Track) -> Unit,
+    onFavoriteSongClick: (track: Track, queue: List<Track>, startIndex: Int) -> Unit,
     onAddSongToPlaylist: (Track) -> Unit,
     coverArtUrlBuilder: ((String) -> String)?,
     modifier: Modifier = Modifier,
@@ -1003,7 +1014,9 @@ private fun FavoritesTabContent(
                     album = song.album.orEmpty(),
                     durationSeconds = song.durationSec,
                     coverArtUrl = libraryCoverArtUrl(song.coverArt, coverArtUrlBuilder),
-                    onClick = { onSongClick(song) },
+                    onClick = {
+                        onFavoriteSongClick(song, favorites.tracks, index)
+                    },
                     onLongClick = { onAddSongToPlaylist(song) },
                     isNowPlaying = isPlaying && song.id.toString() == activeSongId,
                     playbackSignal = playbackSignal,

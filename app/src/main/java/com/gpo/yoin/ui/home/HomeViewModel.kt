@@ -43,6 +43,8 @@ class HomeViewModel(
         artistPoolWarmupJob = null
         artistPool = emptyList()
         viewModelScope.launch {
+            val scopeKey = homeScopeKey(providerId, profileId)
+            val cachedHomeContent = homeContentCache[scopeKey]
             val cachedSpotifyContent = if (
                 providerId == MediaId.PROVIDER_SPOTIFY &&
                 !profileId.isNullOrBlank()
@@ -52,7 +54,9 @@ class HomeViewModel(
                 null
             }
 
-            _uiState.value = cachedSpotifyContent ?: HomeUiState.Loading
+            _uiState.value = cachedHomeContent
+                ?: cachedSpotifyContent
+                ?: HomeUiState.Loading
 
             try {
                 val freshContent = when {
@@ -62,6 +66,7 @@ class HomeViewModel(
                     else -> loadHomeContent()
                 }
                 if (!matchesCurrentScope(providerId, profileId)) return@launch
+                homeContentCache[scopeKey] = freshContent
                 _uiState.value = freshContent
                 if (providerId != MediaId.PROVIDER_SPOTIFY) {
                     warmArtistPool()
@@ -224,7 +229,9 @@ class HomeViewModel(
         viewModelScope.launch {
             repository.getRecentActivities(limit = 20).collectLatest { activities ->
                 val currentContent = _uiState.value as? HomeUiState.Content ?: return@collectLatest
-                _uiState.value = currentContent.copy(activities = activities)
+                val nextContent = currentContent.copy(activities = activities)
+                homeContentCache[homeScopeKey(repository.currentProviderId(), activeProfileId.value)] = nextContent
+                _uiState.value = nextContent
             }
         }
     }
@@ -353,5 +360,9 @@ class HomeViewModel(
         private const val JUMP_BACK_IN_SONG_REQUEST_SIZE = 18
         private const val SpotifyHomeCacheCandidateCount = 18
         private const val SpotifyHomeCacheTtlMillis = 60L * 60L * 1000L
+        private val homeContentCache = mutableMapOf<String, HomeUiState.Content>()
+
+        private fun homeScopeKey(providerId: String?, profileId: String?): String =
+            "${providerId.orEmpty()}|${profileId.orEmpty()}"
     }
 }

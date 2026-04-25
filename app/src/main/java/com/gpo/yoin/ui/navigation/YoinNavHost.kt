@@ -805,6 +805,23 @@ private fun YoinShell(
                             )
                         }
                     },
+                    onFavoriteSongClick = { song, queue, startIndex ->
+                        val safeQueue = queue.ifEmpty { listOf(song) }
+                        val safeIndex = startIndex.takeIf { it in safeQueue.indices }
+                            ?: safeQueue.indexOfFirst { it.id == song.id }.coerceAtLeast(0)
+                        app.container.profileManager.activeSource.value?.let { source ->
+                            app.container.playbackManager.play(
+                                tracks = safeQueue,
+                                startIndex = safeIndex,
+                                source = source,
+                                activityContext = ActivityContext.LikedSongs(
+                                    coverArtId = safeQueue
+                                        .firstOrNull()
+                                        ?.let(::trackCoverArtId),
+                                ),
+                            )
+                        }
+                    },
                     onAddSongToPlaylist = { song ->
                         nowPlayingViewModel.requestAddTracksToPlaylist(listOf(song.id))
                     },

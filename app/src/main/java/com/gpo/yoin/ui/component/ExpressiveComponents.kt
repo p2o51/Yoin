@@ -114,6 +114,10 @@ internal fun ExpressiveMediaArtwork(
     contentScale: ContentScale = ContentScale.Crop,
     tonalElevation: Dp = 2.dp,
     shadowElevation: Dp = 0.dp,
+    border: BorderStroke? = BorderStroke(
+        width = 1.dp,
+        color = MaterialTheme.colorScheme.outline.copy(alpha = 0.14f),
+    ),
 ) {
     val artworkModifier = if (interactionSource != null) {
         modifier.elasticPress(interactionSource)
@@ -127,10 +131,7 @@ internal fun ExpressiveMediaArtwork(
         color = MaterialTheme.colorScheme.surfaceContainerHighest,
         tonalElevation = tonalElevation,
         shadowElevation = shadowElevation,
-        border = BorderStroke(
-            width = 1.dp,
-            color = MaterialTheme.colorScheme.outline.copy(alpha = 0.14f),
-        ),
+        border = border,
     ) {
         when {
             !LocalInspectionMode.current && model != null -> {
