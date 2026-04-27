@@ -1,5 +1,4 @@
 package com.gpo.yoin.ui.detail
-
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.animation.ExperimentalSharedTransitionApi
