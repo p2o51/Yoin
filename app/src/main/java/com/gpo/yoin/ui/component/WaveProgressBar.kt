@@ -1,5 +1,4 @@
 package com.gpo.yoin.ui.component
-
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures

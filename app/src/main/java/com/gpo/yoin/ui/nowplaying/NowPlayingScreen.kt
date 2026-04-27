@@ -1,4 +1,5 @@
 package com.gpo.yoin.ui.nowplaying
+import com.gpo.yoin.ui.experience.rememberYoinHaptics
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.AnimatedVisibilityScope
@@ -1115,6 +1116,7 @@ private fun FavoriteButton(
     modifier: Modifier = Modifier,
 ) {
     ProvideYoinMotionRole(role = YoinMotionRole.Standard) {
+        val haptics = rememberYoinHaptics()
         val heartColor by animateColorAsState(
             targetValue = if (isStarred) {
                 MaterialTheme.colorScheme.onTertiary
@@ -1167,9 +1169,19 @@ private fun FavoriteButton(
                     indication = ripple(),
                     onClick = {
                         tapPulse++
+                        if (!isStarred) {
+                            haptics.performConfirm()
+                        } else {
+                            haptics.performTick()
+                        }
                         onClick()
                     },
-                    onLongClick = onLongClick,
+                    onLongClick = onLongClick?.let { longClick ->
+                        {
+                            haptics.performLongPress()
+                            longClick()
+                        }
+                    },
                     role = Role.Button,
                 ),
             contentAlignment = Alignment.Center,
@@ -1317,6 +1329,7 @@ private fun PlaybackControls(
     modifier: Modifier = Modifier,
 ) {
     ProvideYoinMotionRole(role = YoinMotionRole.Standard) {
+        val haptics = rememberYoinHaptics()
         val controlButtonSize = 56.dp
         val controlSpatialSpec = if (playPressed || nextPressed) {
             YoinMotion.fastSpatialSpec<Dp>()
@@ -1368,7 +1381,10 @@ private fun PlaybackControls(
                     customItem(
                         buttonGroupContent = {
                             FilledTonalButton(
-                                onClick = onTogglePlayPause,
+                                onClick = {
+                                    haptics.performClick()
+                                    onTogglePlayPause()
+                                },
                                 modifier = Modifier
                                     .fillMaxHeight()
                                     .animateWidth(playInteractionSource)
@@ -1405,7 +1421,10 @@ private fun PlaybackControls(
                     customItem(
                         buttonGroupContent = {
                             FilledIconButton(
-                                onClick = onSkipNext,
+                                onClick = {
+                                    haptics.performTick()
+                                    onSkipNext()
+                                },
                                 modifier = Modifier
                                     .fillMaxHeight()
                                     .animateWidth(nextInteractionSource)
@@ -1448,7 +1467,10 @@ private fun PlaybackControls(
                     label = "shuffleContent",
                 )
                 FilledIconButton(
-                    onClick = onToggleShuffle,
+                    onClick = {
+                        haptics.performTick()
+                        onToggleShuffle()
+                    },
                     modifier = Modifier.size(56.dp),
                     colors = IconButtonDefaults.filledIconButtonColors(
                         containerColor = shuffleContainer,
@@ -1471,7 +1493,10 @@ private fun PlaybackControls(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 FilledIconButton(
-                    onClick = onSkipPrevious,
+                    onClick = {
+                        haptics.performTick()
+                        onSkipPrevious()
+                    },
                     modifier = Modifier.size(56.dp),
                     colors = IconButtonDefaults.filledIconButtonColors(
                         containerColor = MaterialTheme.colorScheme.secondary,
@@ -1537,6 +1562,7 @@ private fun BottomPills(
     modifier: Modifier = Modifier,
 ) {
     ProvideYoinMotionRole(role = YoinMotionRole.Standard) {
+        val haptics = rememberYoinHaptics()
         val queueInteraction = remember { MutableInteractionSource() }
         val devicesInteraction = remember { MutableInteractionSource() }
         val writeInteraction = remember { MutableInteractionSource() }
@@ -1569,7 +1595,10 @@ private fun BottomPills(
                 customItem(
                     buttonGroupContent = {
                         PillButton(
-                            onClick = onQueueClick,
+                            onClick = {
+                                haptics.performContextClick()
+                                onQueueClick()
+                            },
                             icon = Icons.AutoMirrored.Rounded.QueueMusic,
                             label = "Queue",
                             showLabel = !anyPressed || queuePressed,
@@ -1582,7 +1611,10 @@ private fun BottomPills(
                 customItem(
                     buttonGroupContent = {
                         PillButton(
-                            onClick = onDevicesClick,
+                            onClick = {
+                                haptics.performContextClick()
+                                onDevicesClick()
+                            },
                             icon = Icons.Rounded.Devices,
                             label = "Devices",
                             showLabel = !anyPressed || devicesPressed,
@@ -1595,7 +1627,10 @@ private fun BottomPills(
                 customItem(
                     buttonGroupContent = {
                         PillButton(
-                            onClick = onWriteClick,
+                            onClick = {
+                                haptics.performContextClick()
+                                onWriteClick()
+                            },
                             icon = Icons.AutoMirrored.Rounded.StickyNote2,
                             label = "Write",
                             showLabel = !anyPressed || writePressed,
