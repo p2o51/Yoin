@@ -67,4 +67,3 @@
    fun HapticFeedback.performLightClick() = performHapticFeedback(HapticFeedbackType.TextHandleMove)
    ```
 2. **结合 InteractionSource**：现有的代码大量使用了 `MutableInteractionSource`（如 `PressFeedback.kt`），可以通过监听 `collectIsPressedAsState()`，在按下 (Press) 和释放 (Release) 时分别提供不同轻重的震动，实现类似物理按键的下压和回弹感。
-3. **设置开关**：为了兼顾部分对震动敏感的用户，建议在 Settings 中提供“触感反馈”总开关。

@@ -60,6 +60,7 @@ import com.gpo.yoin.ui.component.ExpressiveSectionPanel
 import com.gpo.yoin.ui.component.SongListItem
 import com.gpo.yoin.ui.component.YoinLoadingIndicator
 import com.gpo.yoin.ui.component.rememberExpressiveBackdropColors
+import com.gpo.yoin.ui.experience.rememberYoinHaptics
 import com.gpo.yoin.ui.navigation.playlistCoverSharedKey
 import com.gpo.yoin.ui.navigation.rememberActiveOnlySharedContentConfig
 import com.gpo.yoin.ui.theme.YoinMotion
@@ -85,8 +86,10 @@ fun PlaylistDetailScreen(
     animatedVisibilityScope: AnimatedVisibilityScope? = null,
     modifier: Modifier = Modifier,
 ) {
+    val haptics = rememberYoinHaptics()
     // Overflow menu state + dialog states lifted here so they survive
     // child recomposition (e.g. after a rename refreshes the Content).
+
     var showOverflow by remember { mutableStateOf(false) }
     var showRenameDialog by remember { mutableStateOf(false) }
     var showDeleteConfirm by remember { mutableStateOf(false) }
@@ -135,7 +138,12 @@ fun PlaylistDetailScreen(
                         // disabled items.
                         if (content?.canWrite == true) {
                             Box {
-                                IconButton(onClick = { showOverflow = true }) {
+                                IconButton(
+                                    onClick = {
+                                        haptics.performTick()
+                                        showOverflow = true
+                                    },
+                                ) {
                                     Icon(
                                         imageVector = Icons.Filled.MoreVert,
                                         contentDescription = "More actions",
@@ -261,6 +269,7 @@ fun PlaylistDetailScreen(
             },
             confirmButton = {
                 TextButton(onClick = {
+                    haptics.performReject()
                     showDeleteConfirm = false
                     onDelete()
                 }) { Text("Delete") }
@@ -317,6 +326,7 @@ private fun PlaylistDetailContent(
     animatedVisibilityScope: AnimatedVisibilityScope? = null,
     modifier: Modifier = Modifier,
 ) {
+    val haptics = rememberYoinHaptics()
     val navBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
     androidx.compose.foundation.lazy.LazyColumn(
         modifier = modifier.fillMaxSize(),
@@ -355,7 +365,10 @@ private fun PlaylistDetailContent(
                     PlaylistMetaRow(content = content)
                     if (content.songs.isNotEmpty()) {
                         Button(
-                            onClick = onPlayAllClick,
+                            onClick = {
+                                haptics.performClick()
+                                onPlayAllClick()
+                            },
                             modifier = Modifier.fillMaxWidth(),
                         ) {
                             Icon(
@@ -476,9 +489,15 @@ private fun PlaylistMetaRow(
 
 @Composable
 private fun SongRowOverflow(onRemove: () -> Unit) {
+    val haptics = rememberYoinHaptics()
     var expanded by remember { mutableStateOf(false) }
     Box {
-        IconButton(onClick = { expanded = true }) {
+        IconButton(
+            onClick = {
+                haptics.performTick()
+                expanded = true
+            },
+        ) {
             Icon(
                 imageVector = Icons.Filled.MoreVert,
                 contentDescription = "Track actions",
