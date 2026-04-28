@@ -40,6 +40,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
+import com.gpo.yoin.ui.experience.rememberYoinHaptics
 import com.gpo.yoin.ui.nowplaying.QueueItem
 import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinShapeTokens
@@ -63,6 +64,7 @@ fun QueueSheet(
     modifier: Modifier = Modifier,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = false)
+    val haptics = rememberYoinHaptics()
 
     // Conventions for every ModalBottomSheet in this codebase:
     //  • NO outer bottom padding on the wrapping Column, NO `heightIn`
@@ -118,7 +120,10 @@ fun QueueSheet(
                     QueueListItem(
                         item = item,
                         isCurrent = index == currentIndex,
-                        onClick = { onItemClick(index) },
+                        onClick = {
+                            haptics.performTick()
+                            onItemClick(index)
+                        },
                     )
                 }
             }

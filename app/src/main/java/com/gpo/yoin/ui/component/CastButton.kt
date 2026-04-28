@@ -1,5 +1,4 @@
 package com.gpo.yoin.ui.component
-
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -20,6 +19,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.gpo.yoin.player.CastState
+import com.gpo.yoin.ui.experience.rememberYoinHaptics
 import com.gpo.yoin.ui.theme.ProvideYoinMotionRole
 import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinMotionRole
@@ -38,6 +38,7 @@ fun CastButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val haptics = rememberYoinHaptics()
     ProvideYoinMotionRole(role = YoinMotionRole.Standard) {
         AnimatedVisibility(
             visible = castState !is CastState.NotAvailable,
@@ -59,7 +60,12 @@ fun CastButton(
         ) {
             when (castState) {
                 is CastState.Available -> {
-                    IconButton(onClick = onClick) {
+                    IconButton(
+                        onClick = {
+                            haptics.performContextClick()
+                            onClick()
+                        },
+                    ) {
                         Icon(
                             imageVector = Icons.Filled.Cast,
                             contentDescription = "Cast to device",
@@ -72,7 +78,10 @@ fun CastButton(
 
                 is CastState.Connected -> {
                     FilledTonalButton(
-                        onClick = onClick,
+                        onClick = {
+                            haptics.performContextClick()
+                            onClick()
+                        },
                         colors = ButtonDefaults.filledTonalButtonColors(
                             containerColor = MaterialTheme.colorScheme.primary,
                             contentColor = MaterialTheme.colorScheme.onPrimary,
@@ -95,6 +104,7 @@ fun CastButton(
         }
     }
 }
+
 
 // ── Previews ────────────────────────────────────────────────────────────
 

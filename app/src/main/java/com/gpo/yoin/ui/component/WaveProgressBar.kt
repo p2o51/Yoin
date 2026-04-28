@@ -1,5 +1,4 @@
 package com.gpo.yoin.ui.component
-
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -32,6 +31,7 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import com.gpo.yoin.ui.experience.rememberYoinHaptics
 import com.gpo.yoin.ui.nowplaying.formatTime
 import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinShapeTokens
@@ -57,6 +57,7 @@ fun WaveProgressBar(
     trackColor: Color = MaterialTheme.colorScheme.surfaceContainerHighest,
     progressColor: Color = MaterialTheme.colorScheme.primary,
 ) {
+    val haptics = rememberYoinHaptics()
     var isDragging by remember { mutableStateOf(false) }
     var dragFraction by remember { mutableFloatStateOf(0f) }
     var previewFraction by remember { mutableStateOf<Float?>(null) }
@@ -119,6 +120,7 @@ fun WaveProgressBar(
                         previewFraction = fraction
                         val released = tryAwaitRelease()
                         if (released) {
+                            haptics.performLightTick()
                             onSeek(fraction)
                         } else if (!isDragging) {
                             previewFraction = null
@@ -134,6 +136,7 @@ fun WaveProgressBar(
                         previewFraction = dragFraction
                     },
                     onDragEnd = {
+                        haptics.performTick()
                         onSeek(dragFraction)
                         isDragging = false
                     },
@@ -148,6 +151,7 @@ fun WaveProgressBar(
                 )
             },
     ) {
+
         val activePreviewFraction = previewFraction
         if (activePreviewFraction != null) {
             PreviewTimeBubble(

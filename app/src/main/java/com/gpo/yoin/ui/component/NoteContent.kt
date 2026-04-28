@@ -39,6 +39,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.unit.dp
 import com.gpo.yoin.data.local.SongNote
+import com.gpo.yoin.ui.experience.rememberYoinHaptics
 import com.gpo.yoin.ui.theme.YoinShapeTokens
 import java.text.DateFormat
 import java.util.Date
@@ -53,6 +54,7 @@ fun NoteCard(
     onDelete: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
+    val haptics = rememberYoinHaptics()
     Surface(
         modifier = modifier.fillMaxWidth(),
         shape = YoinShapeTokens.Medium,
@@ -84,7 +86,10 @@ fun NoteCard(
             if (onDelete != null) {
                 Box(modifier = Modifier.weight(1f))
                 IconButton(
-                    onClick = onDelete,
+                    onClick = {
+                        haptics.performReject()
+                        onDelete()
+                    },
                     modifier = Modifier.size(36.dp),
                 ) {
                     Icon(
@@ -113,6 +118,7 @@ fun NoteComposer(
 ) {
     var draft by remember { mutableStateOf("") }
     val focusRequester = remember { FocusRequester() }
+    val haptics = rememberYoinHaptics()
 
     if (autoFocus) {
         androidx.compose.runtime.LaunchedEffect(Unit) {
@@ -142,6 +148,7 @@ fun NoteComposer(
                 onClick = {
                     val trimmed = draft.trim()
                     if (trimmed.isNotEmpty()) {
+                        haptics.performConfirm()
                         onSave(trimmed)
                         draft = ""
                     }

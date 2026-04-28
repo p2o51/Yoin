@@ -93,6 +93,7 @@ import com.gpo.yoin.ui.component.noRippleClickable
 import com.gpo.yoin.ui.component.rememberExpressiveBackdropColors
 import com.gpo.yoin.ui.experience.RevealState
 import com.gpo.yoin.ui.experience.rememberRevealState
+import com.gpo.yoin.ui.experience.rememberYoinHaptics
 import com.gpo.yoin.ui.navigation.albumCoverSharedKey
 import com.gpo.yoin.ui.navigation.rememberActiveOnlySharedContentConfig
 import com.gpo.yoin.ui.theme.YoinMotion
@@ -162,6 +163,7 @@ internal fun HomeEditorialContent(
     modifier: Modifier = Modifier,
 ) {
     val listState = rememberLazyListState()
+    val haptics = rememberYoinHaptics()
     var containerHeightPx by remember { mutableFloatStateOf(0f) }
     var isCommittedToMemories by remember { mutableStateOf(false) }
     // Visual hint = how far open the reveal is, capped at 1 so rubber-band
@@ -196,7 +198,10 @@ internal fun HomeEditorialContent(
                         velocityPxPerSec = available.y,
                         containerPx = containerHeightPx,
                     )
-                    if (target <= 0f) onCommitMemoriesReveal()
+                    if (target <= 0f) {
+                        haptics.performConfirm()
+                        onCommitMemoriesReveal()
+                    }
                 } finally {
                     isCommittedToMemories = false
                 }
@@ -346,6 +351,7 @@ private fun HomeContentHeader(
     memoriesHintProgress: Float,
     modifier: Modifier = Modifier,
 ) {
+    val haptics = rememberYoinHaptics()
     Row(
         modifier = modifier
             .statusBarsPadding()
@@ -363,7 +369,10 @@ private fun HomeContentHeader(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             IconButton(
-                onClick = onNavigateToMemories,
+                onClick = {
+                    haptics.performContextClick()
+                    onNavigateToMemories()
+                },
                 modifier = Modifier.graphicsLayer {
                     translationY = memoriesHintProgress * 4f
                     alpha = 0.62f + memoriesHintProgress * 0.38f
@@ -375,7 +384,12 @@ private fun HomeContentHeader(
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            IconButton(onClick = onNavigateToSettings) {
+            IconButton(
+                onClick = {
+                    haptics.performContextClick()
+                    onNavigateToSettings()
+                },
+            ) {
                 Icon(
                     imageVector = Icons.Filled.Settings,
                     contentDescription = "Settings",

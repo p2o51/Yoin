@@ -85,6 +85,7 @@ import com.gpo.yoin.ui.component.ExpressiveTextField
 import com.gpo.yoin.ui.component.YoinDropdownMenu
 import com.gpo.yoin.ui.component.YoinDropdownMenuItem
 import com.gpo.yoin.ui.component.YoinLoadingIndicator
+import com.gpo.yoin.ui.experience.rememberYoinHaptics
 import com.gpo.yoin.ui.theme.ProvideYoinMotionRole
 import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinMotionRole
@@ -192,6 +193,7 @@ fun SettingsContent(
     modifier: Modifier = Modifier,
 ) {
     ProvideYoinMotionRole(role = YoinMotionRole.Standard) {
+        val haptics = rememberYoinHaptics()
         ExpressivePageBackground(modifier = modifier) {
             Box(modifier = Modifier.fillMaxSize()) {
                 Scaffold(
@@ -203,7 +205,12 @@ fun SettingsContent(
                         TopAppBar(
                             title = { Text("Settings") },
                             navigationIcon = {
-                                IconButton(onClick = onBackClick) {
+                                IconButton(
+                                    onClick = {
+                                        haptics.performClick()
+                                        onBackClick()
+                                    },
+                                ) {
                                     Icon(
                                         imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                                         contentDescription = "Back",
@@ -455,6 +462,7 @@ private fun ProfileCardTile(
     onDelete: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val haptics = rememberYoinHaptics()
     val containerColor by animateColorAsState(
         targetValue = if (card.isActive) {
             MaterialTheme.colorScheme.primaryContainer
@@ -486,7 +494,10 @@ private fun ProfileCardTile(
         shape = YoinShapeTokens.Large,
         color = containerColor,
         contentColor = contentColor,
-        onClick = onTap,
+        onClick = {
+            haptics.performClick()
+            onTap()
+        },
         tonalElevation = if (card.isActive) 2.dp else 0.dp,
         shadowElevation = 0.dp,
     ) {
@@ -509,7 +520,10 @@ private fun ProfileCardTile(
                 )
                 Box {
                     IconButton(
-                        onClick = { menuOpen = true },
+                        onClick = {
+                            haptics.performTick()
+                            menuOpen = true
+                        },
                         modifier = Modifier.size(32.dp),
                     ) {
                         Icon(
@@ -527,6 +541,7 @@ private fun ProfileCardTile(
                             YoinDropdownMenuItem(
                                 text = "Reconnect",
                                 onClick = {
+                                    haptics.performContextClick()
                                     menuOpen = false
                                     onReconnect()
                                 },
@@ -535,6 +550,7 @@ private fun ProfileCardTile(
                         YoinDropdownMenuItem(
                             text = "Edit",
                             onClick = {
+                                haptics.performContextClick()
                                 menuOpen = false
                                 onEdit()
                             },
@@ -542,6 +558,7 @@ private fun ProfileCardTile(
                         YoinDropdownMenuItem(
                             text = "Delete",
                             onClick = {
+                                haptics.performReject()
                                 menuOpen = false
                                 onDelete()
                             },
@@ -1086,6 +1103,7 @@ private fun DeleteProfileDialog(
     onDismiss: () -> Unit,
     onConfirm: () -> Unit,
 ) {
+    val haptics = rememberYoinHaptics()
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Delete this profile?") },
@@ -1096,7 +1114,10 @@ private fun DeleteProfileDialog(
         },
         confirmButton = {
             TextButton(
-                onClick = onConfirm,
+                onClick = {
+                    haptics.performReject()
+                    onConfirm()
+                },
                 colors = androidx.compose.material3.ButtonDefaults.textButtonColors(
                     contentColor = MaterialTheme.colorScheme.error,
                 ),
@@ -1322,6 +1343,7 @@ private fun CacheSection(
     onClearCache: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val haptics = rememberYoinHaptics()
     ExpressiveSectionPanel(
         modifier = modifier.fillMaxWidth(),
         containerColor = MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.94f),
@@ -1341,7 +1363,12 @@ private fun CacheSection(
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                OutlinedButton(onClick = onClearCache) { Text("Clear Cache") }
+                OutlinedButton(
+                    onClick = {
+                        haptics.performReject()
+                        onClearCache()
+                    },
+                ) { Text("Clear Cache") }
             }
         }
     }

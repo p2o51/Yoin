@@ -48,6 +48,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.gpo.yoin.data.local.SongAboutEntry
+import com.gpo.yoin.ui.component.markdownBoldAnnotatedString
 import com.gpo.yoin.ui.component.YoinLoadingIndicator
 import com.gpo.yoin.ui.component.edgeFade
 import com.gpo.yoin.ui.theme.YoinMotion
@@ -191,7 +192,7 @@ private fun InfoItem(label: String, value: String, modifier: Modifier = Modifier
             color = MaterialTheme.colorScheme.primary,
         )
         Text(
-            text = value,
+            text = markdownBoldAnnotatedString(value),
             style = MaterialTheme.typography.bodyLarge,
             color = MaterialTheme.colorScheme.onSurface,
             modifier = Modifier.padding(top = 2.dp),

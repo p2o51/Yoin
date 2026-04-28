@@ -1,5 +1,4 @@
 package com.gpo.yoin.ui.detail
-
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.animation.ExperimentalSharedTransitionApi
@@ -63,6 +62,7 @@ import com.gpo.yoin.ui.component.SongListItem
 import com.gpo.yoin.ui.component.YoinLoadingIndicator
 import com.gpo.yoin.ui.component.minimumTouchTarget
 import com.gpo.yoin.ui.component.rememberExpressiveBackdropColors
+import com.gpo.yoin.ui.experience.rememberYoinHaptics
 import com.gpo.yoin.ui.navigation.albumCoverSharedKey
 import com.gpo.yoin.ui.navigation.rememberActiveOnlySharedContentConfig
 import com.gpo.yoin.ui.theme.ProvideYoinMotionRole
@@ -463,6 +463,7 @@ private fun AlbumUserReviewSection(
     onSaveReview: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val haptics = rememberYoinHaptics()
     // slider 走本地 state，onValueChangeFinished 提交给 VM 落库；
     // ViewModel 如果从别处改了 rating，也会通过 LaunchedEffect(userRating)
     // 同步回 slider。
@@ -508,7 +509,10 @@ private fun AlbumUserReviewSection(
             Slider(
                 value = sliderValue,
                 onValueChange = { sliderValue = it },
-                onValueChangeFinished = { onRatingCommit(sliderValue) },
+                onValueChangeFinished = {
+                    haptics.performTick()
+                    onRatingCommit(sliderValue)
+                },
                 valueRange = 0f..10f,
                 // 9 steps between endpoints → 0, 1, 2, ..., 10 整数停靠位
                 steps = 9,
@@ -542,7 +546,10 @@ private fun AlbumUserReviewSection(
                 minLines = 4,
             )
             Button(
-                onClick = onSaveReview,
+                onClick = {
+                    haptics.performConfirm()
+                    onSaveReview()
+                },
                 enabled = reviewHasUnsavedEdits,
                 modifier = Modifier.fillMaxWidth(),
             ) {
@@ -568,6 +575,7 @@ private fun AlbumSongRow(
     onToggleStar: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val haptics = rememberYoinHaptics()
     SongListItem(
         title = song.title,
         artist = song.artist,
@@ -575,12 +583,22 @@ private fun AlbumSongRow(
         durationSeconds = song.duration,
         coverArtUrl = coverArtUrl,
         onClick = onClick,
-        onLongClick = onLongClick,
+        onLongClick = {
+            haptics.performLongPress()
+            onLongClick()
+        },
         hasNote = hasNote,
         modifier = modifier,
         trailingContent = {
             IconButton(
-                onClick = onToggleStar,
+                onClick = {
+                    if (!song.isStarred) {
+                        haptics.performConfirm()
+                    } else {
+                        haptics.performTick()
+                    }
+                    onToggleStar()
+                },
                 modifier = Modifier
                     .size(40.dp)
                     .minimumTouchTarget(),

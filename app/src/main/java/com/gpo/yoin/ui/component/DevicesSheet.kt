@@ -28,6 +28,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -35,6 +36,7 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.unit.dp
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.YoinDevice
+import com.gpo.yoin.ui.experience.rememberYoinHaptics
 import com.gpo.yoin.ui.theme.YoinShapeTokens
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -51,6 +53,7 @@ fun DevicesSheet(
     modifier: Modifier = Modifier,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = false)
+    val haptics = rememberYoinHaptics()
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
@@ -86,7 +89,13 @@ fun DevicesSheet(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
-                IconButton(onClick = onRefresh, enabled = !loading) {
+                IconButton(
+                    onClick = {
+                        haptics.performTick()
+                        onRefresh()
+                    },
+                    enabled = !loading,
+                ) {
                     if (loading) {
                         CircularProgressIndicator(
                             modifier = Modifier.size(18.dp),
@@ -101,48 +110,59 @@ fun DevicesSheet(
                 }
             }
 
-            LazyColumn(
-                contentPadding = PaddingValues(
-                    start = 16.dp,
-                    top = 8.dp,
-                    end = 16.dp,
-                    bottom = 16.dp + navBottom,
-                ),
-                verticalArrangement = Arrangement.spacedBy(6.dp),
+            PullToRefreshBox(
+                isRefreshing = loading,
+                onRefresh = {
+                    haptics.performTick()
+                    onRefresh()
+                },
                 modifier = Modifier.fillMaxWidth(),
             ) {
-                if (errorMessage != null) {
-                    item {
-                        Text(
-                            text = errorMessage,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.error,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
-                        )
+                LazyColumn(
+                    contentPadding = PaddingValues(
+                        start = 16.dp,
+                        top = 8.dp,
+                        end = 16.dp,
+                        bottom = 16.dp + navBottom,
+                    ),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    if (errorMessage != null) {
+                        item {
+                            Text(
+                                text = errorMessage,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.error,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                            )
+                        }
                     }
-                }
 
-                if (!loading && devices.isEmpty()) {
-                    item {
-                        Text(
-                            text = when (providerId) {
-                                MediaId.PROVIDER_SPOTIFY -> "No Spotify devices found."
-                                MediaId.PROVIDER_SUBSONIC -> "Only local playback is available right now."
-                                else -> "No devices found."
+                    if (!loading && devices.isEmpty()) {
+                        item {
+                            Text(
+                                text = when (providerId) {
+                                    MediaId.PROVIDER_SPOTIFY -> "No Spotify devices found."
+                                    MediaId.PROVIDER_SUBSONIC -> "Only local playback is available right now."
+                                    else -> "No devices found."
+                                },
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 12.dp),
+                            )
+                        }
+                    }
+
+                    items(items = devices, key = YoinDevice::id) { device ->
+                        DeviceRow(
+                            device = device,
+                            busy = busyDeviceId == device.id,
+                            onClick = {
+                                haptics.performContextClick()
+                                onSelect(device)
                             },
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 12.dp),
                         )
                     }
-                }
-
-                items(items = devices, key = YoinDevice::id) { device ->
-                    DeviceRow(
-                        device = device,
-                        busy = busyDeviceId == device.id,
-                        onClick = { onSelect(device) },
-                    )
                 }
             }
         }
