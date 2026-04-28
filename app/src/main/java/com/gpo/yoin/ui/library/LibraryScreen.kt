@@ -83,6 +83,7 @@ import com.gpo.yoin.ui.component.YoinLoadingIndicator
 import com.gpo.yoin.ui.component.expressiveEntrance
 import com.gpo.yoin.ui.component.minimumTouchTarget
 import com.gpo.yoin.ui.component.rememberExpressiveEntranceProgress
+import com.gpo.yoin.ui.experience.rememberYoinHaptics
 import com.gpo.yoin.ui.theme.ProvideYoinMotionRole
 import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinMotionRole
@@ -174,6 +175,7 @@ fun LibraryContent(
     modifier: Modifier = Modifier,
 ) {
     ProvideYoinMotionRole(role = YoinMotionRole.Standard) {
+        val haptics = rememberYoinHaptics()
         ExpressivePageBackground(modifier = modifier) {
             when (uiState) {
                 is LibraryUiState.Loading -> {
@@ -202,10 +204,20 @@ fun LibraryContent(
                                 style = MaterialTheme.typography.bodyLarge,
                             )
                             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                                TextButton(onClick = onRetry) {
+                                TextButton(
+                                    onClick = {
+                                        haptics.performReject()
+                                        onRetry()
+                                    },
+                                ) {
                                     Text("Retry")
                                 }
-                                TextButton(onClick = onNavigateToSettings) {
+                                TextButton(
+                                    onClick = {
+                                        haptics.performContextClick()
+                                        onNavigateToSettings()
+                                    },
+                                ) {
                                     Text("Settings")
                                 }
                             }
@@ -257,6 +269,7 @@ private fun LibraryContentBody(
     onCreatePlaylist: (name: String) -> Unit,
     coverArtUrlBuilder: ((String) -> String)?,
 ) {
+    val haptics = rememberYoinHaptics()
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -362,6 +375,7 @@ private fun SearchHeader(
     onNavigateToSettings: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val haptics = rememberYoinHaptics()
     Column(
         modifier = modifier
             .fillMaxWidth()
@@ -428,7 +442,10 @@ private fun SearchHeader(
                     )
                     if (searchQuery.isNotBlank()) {
                         IconButton(
-                            onClick = onClearSearch,
+                            onClick = {
+                                haptics.performTick()
+                                onClearSearch()
+                            },
                             modifier = Modifier.minimumTouchTarget(),
                         ) {
                             Icon(
@@ -441,7 +458,10 @@ private fun SearchHeader(
             }
 
             androidx.compose.material3.FilledIconButton(
-                onClick = onNavigateToSettings,
+                onClick = {
+                    haptics.performContextClick()
+                    onNavigateToSettings()
+                },
                 modifier = Modifier
                     .size(52.dp)
                     .minimumTouchTarget(),
@@ -710,6 +730,7 @@ private fun PlaylistsTabContent(
     modifier: Modifier = Modifier,
 ) {
     var showCreateDialog by remember { mutableStateOf(false) }
+    val haptics = rememberYoinHaptics()
     val canCreate = onCreatePlaylist != null
 
     // Scroll-aware FAB visibility. NestedScrollConnection.onPreScroll fires
@@ -784,7 +805,10 @@ private fun PlaylistsTabContent(
         // without making it feel like the entry point vanished."
         if (canCreate) {
             ExtendedFloatingActionButton(
-                onClick = { showCreateDialog = true },
+                onClick = {
+                    haptics.performTick()
+                    showCreateDialog = true
+                },
                 expanded = fabVisible,
                 icon = {
                     Icon(
@@ -809,6 +833,7 @@ private fun PlaylistsTabContent(
         CreatePlaylistDialog(
             onDismiss = { showCreateDialog = false },
             onConfirm = { name ->
+                haptics.performConfirm()
                 showCreateDialog = false
                 onCreatePlaylist(name)
             },

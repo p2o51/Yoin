@@ -47,6 +47,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 import com.gpo.yoin.data.model.MediaId
+import com.gpo.yoin.ui.experience.rememberYoinHaptics
 import com.gpo.yoin.ui.theme.YoinShapeTokens
 import com.gpo.yoin.ui.theme.YoinTheme
 
@@ -96,6 +97,7 @@ fun AddToPlaylistSheet(
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = false)
     var showCreateDialog by remember { mutableStateOf(false) }
+    val haptics = rememberYoinHaptics()
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -133,7 +135,12 @@ fun AddToPlaylistSheet(
             ) {
                 if (onCreateAndAdd != null) {
                     item("create") {
-                        CreateNewRow(onClick = { showCreateDialog = true })
+                        CreateNewRow(
+                            onClick = {
+                                haptics.performTick()
+                                showCreateDialog = true
+                            },
+                        )
                     }
                 }
                 items(
@@ -142,7 +149,10 @@ fun AddToPlaylistSheet(
                 ) { row ->
                     PlaylistRow(
                         row = row,
-                        onClick = { onAddToExisting(row.id) },
+                        onClick = {
+                            haptics.performConfirm()
+                            onAddToExisting(row.id)
+                        },
                     )
                 }
             }
@@ -153,6 +163,7 @@ fun AddToPlaylistSheet(
         CreatePlaylistDialog(
             onDismiss = { showCreateDialog = false },
             onConfirm = { name ->
+                haptics.performConfirm()
                 showCreateDialog = false
                 onCreateAndAdd(name)
             },

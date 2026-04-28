@@ -59,6 +59,7 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.gpo.yoin.ui.experience.rememberYoinHaptics
 import com.gpo.yoin.ui.navigation.rememberActiveOnlySharedContentConfig
 import com.gpo.yoin.ui.navigation.nowPlayingCoverSharedKey
 import com.gpo.yoin.ui.navigation.YoinSection
@@ -93,6 +94,7 @@ fun YoinButtonGroup(
     modifier: Modifier = Modifier,
 ) {
     ProvideYoinMotionRole(role = YoinMotionRole.Standard) {
+        val haptics = rememberYoinHaptics()
         val surfaceColor by animateColorAsState(
             targetValue = MaterialTheme.colorScheme.surfaceContainerHigh,
             animationSpec = YoinMotion.defaultEffectsSpec(),
@@ -212,7 +214,10 @@ fun YoinButtonGroup(
                     buttonGroupContent = {
                         val interactionSource = rememberButtonGroupInteractionSource()
                         FilledIconButton(
-                            onClick = onHomeClick,
+                            onClick = {
+                                haptics.performClick()
+                                onHomeClick()
+                            },
                             modifier = Modifier
                                 .fillMaxHeight()
                                 .aspectRatio(homeAspect)
@@ -243,7 +248,10 @@ fun YoinButtonGroup(
                         val clampedProgress = playbackProgress.coerceIn(0f, 1f)
 
                         FilledTonalButton(
-                            onClick = onNowPlayingClick,
+                            onClick = {
+                                haptics.performContextClick()
+                                onNowPlayingClick()
+                            },
                             modifier = Modifier
                                 .weight(1.65f)
                                 .fillMaxHeight()
@@ -406,7 +414,10 @@ fun YoinButtonGroup(
                     buttonGroupContent = {
                         val interactionSource = rememberButtonGroupInteractionSource()
                         FilledIconButton(
-                            onClick = onLibraryClick,
+                            onClick = {
+                                haptics.performClick()
+                                onLibraryClick()
+                            },
                             modifier = Modifier
                                 .fillMaxHeight()
                                 .aspectRatio(libraryAspect)

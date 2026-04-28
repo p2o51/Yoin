@@ -35,6 +35,7 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.unit.dp
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.YoinDevice
+import com.gpo.yoin.ui.experience.rememberYoinHaptics
 import com.gpo.yoin.ui.theme.YoinShapeTokens
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -51,6 +52,7 @@ fun DevicesSheet(
     modifier: Modifier = Modifier,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = false)
+    val haptics = rememberYoinHaptics()
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
@@ -86,7 +88,13 @@ fun DevicesSheet(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
-                IconButton(onClick = onRefresh, enabled = !loading) {
+                IconButton(
+                    onClick = {
+                        haptics.performTick()
+                        onRefresh()
+                    },
+                    enabled = !loading,
+                ) {
                     if (loading) {
                         CircularProgressIndicator(
                             modifier = Modifier.size(18.dp),
@@ -103,7 +111,10 @@ fun DevicesSheet(
 
             PullToRefreshBox(
                 isRefreshing = loading,
-                onRefresh = onRefresh,
+                onRefresh = {
+                    haptics.performTick()
+                    onRefresh()
+                },
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 LazyColumn(
@@ -145,7 +156,10 @@ fun DevicesSheet(
                         DeviceRow(
                             device = device,
                             busy = busyDeviceId == device.id,
-                            onClick = { onSelect(device) },
+                            onClick = {
+                                haptics.performContextClick()
+                                onSelect(device)
+                            },
                         )
                     }
                 }

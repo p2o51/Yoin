@@ -168,7 +168,7 @@ private fun ReadyContent(
                             modifier = Modifier.padding(bottom = 2.dp),
                         )
                         Text(
-                            text = row.answerText,
+                            text = markdownBoldAnnotatedString(row.answerText),
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurface,
                         )
@@ -189,7 +189,7 @@ private fun ReadyContent(
                     color = MaterialTheme.colorScheme.primary,
                 )
                 Text(
-                    text = latestAsk.answerText,
+                    text = markdownBoldAnnotatedString(latestAsk.answerText),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurface,
                 )
@@ -228,7 +228,7 @@ private fun InfoItem(
             color = MaterialTheme.colorScheme.primary,
         )
         Text(
-            text = value,
+            text = markdownBoldAnnotatedString(value),
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurface,
         )

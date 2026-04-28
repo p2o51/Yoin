@@ -84,6 +84,7 @@ import com.gpo.yoin.ui.experience.ReportMotionPressure
 import com.gpo.yoin.ui.experience.RevealState
 import com.gpo.yoin.ui.experience.rememberDeckIndicatorTransitionState
 import com.gpo.yoin.ui.experience.rememberEdgeAdvanceState
+import com.gpo.yoin.ui.experience.rememberYoinHaptics
 import com.gpo.yoin.ui.navigation.back.BackMotionTokens
 import com.gpo.yoin.ui.theme.ExpressiveColorSchemeFactory
 import com.gpo.yoin.ui.theme.ProvideYoinMotionRole
@@ -277,6 +278,7 @@ private fun MemoriesContent(
     onSyncToNeoDb: (MemoryEntry) -> Unit = {},
 ) {
     val density = LocalDensity.current
+    val haptics = rememberYoinHaptics()
     val dismissHintPx = with(density) { BackMotionTokens.MemoriesDismissTrigger.toPx() }
     val adjacentDeckTriggerPx = with(density) { MemoriesAdjacentDeckTrigger.toPx() }
     val deckEnterOffsetPx = with(density) { MemoriesDeckEnterOffset.toPx() }
@@ -349,6 +351,7 @@ private fun MemoriesContent(
                             direction = direction,
                             deltaPx = abs(available.x),
                             onTriggered = { triggeredDirection ->
+                                haptics.performTick()
                                 onAdvanceDeck(triggeredDirection.toMemoryDeckDirection())
                             },
                         )
@@ -462,7 +465,10 @@ private fun MemoriesContent(
                                         velocityPxPerSec = available.y,
                                         containerPx = latestContainerHeightPx,
                                     )
-                                    if (target >= 1f) onDismissed()
+                                    if (target >= 1f) {
+                                        haptics.performConfirm()
+                                        onDismissed()
+                                    }
                                 } finally {
                                     isCommittedToDismiss = false
                                 }
@@ -503,7 +509,10 @@ private fun MemoriesContent(
                                     index = index + 1,
                                     track = track,
                                     accentColor = pageColors.baseColor,
-                                    onClick = { onPlayMemoryTrack(memory, index) },
+                                    onClick = {
+                                        haptics.performClick()
+                                        onPlayMemoryTrack(memory, index)
+                                    },
                                 )
                             }
                         }
@@ -666,6 +675,7 @@ private fun MemoriesHero(
     isSyncingToNeoDb: Boolean = false,
     onSyncToNeoDb: () -> Unit = {},
 ) {
+    val haptics = rememberYoinHaptics()
     val darkTheme = isSystemInDarkTheme()
     val memoryColorScheme = remember(seedColor, darkTheme) {
         ExpressiveColorSchemeFactory.fromSeed(
@@ -793,7 +803,10 @@ private fun MemoriesHero(
         // 判断，保持按钮态单一。
         if (memory.entityType == MemoryEntityType.ALBUM) {
             FilledTonalButton(
-                onClick = onSyncToNeoDb,
+                onClick = {
+                    haptics.performConfirm()
+                    onSyncToNeoDb()
+                },
                 enabled = !isSyncingToNeoDb,
                 colors = syncButtonColors,
                 modifier = Modifier.fillMaxWidth(),
