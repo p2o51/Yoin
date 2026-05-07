@@ -11,14 +11,14 @@ import kotlinx.coroutines.flow.Flow
 interface SongNoteDao {
     @Query(
         "SELECT * FROM song_notes " +
-            "WHERE trackId = :trackId AND provider = :provider " +
+            "WHERE profileId = :profileId AND trackId = :trackId AND provider = :provider " +
             "ORDER BY createdAt DESC",
     )
-    fun observeForTrack(trackId: String, provider: String): Flow<List<SongNote>>
+    fun observeForTrack(trackId: String, provider: String, profileId: String): Flow<List<SongNote>>
 
     @Query(
         "SELECT * FROM song_notes " +
-            "WHERE title = :title AND artist = :artist " +
+            "WHERE profileId = :profileId AND title = :title AND artist = :artist " +
             "AND NOT (trackId = :trackId AND provider = :provider) " +
             "ORDER BY updatedAt DESC",
     )
@@ -27,16 +27,28 @@ interface SongNoteDao {
         artist: String,
         trackId: String,
         provider: String,
+        profileId: String,
     ): Flow<List<SongNote>>
 
     @Query(
-        "SELECT DISTINCT trackId, provider FROM song_notes " +
-            "WHERE provider = :provider AND trackId IN (:trackIds)",
+        "SELECT DISTINCT profileId, trackId, provider FROM song_notes " +
+            "WHERE profileId = :profileId AND provider = :provider AND trackId IN (:trackIds)",
     )
     fun observeKeys(
         trackIds: List<String>,
         provider: String,
+        profileId: String,
     ): Flow<List<SongNoteKey>>
+
+    @Query(
+        "SELECT * FROM song_notes " +
+            "WHERE profileId = :profileId AND provider = :provider AND trackId IN (:trackIds)",
+    )
+    suspend fun getForTracks(
+        trackIds: List<String>,
+        provider: String,
+        profileId: String,
+    ): List<SongNote>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insert(note: SongNote)

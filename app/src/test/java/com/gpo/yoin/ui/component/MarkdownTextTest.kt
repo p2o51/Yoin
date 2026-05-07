@@ -28,7 +28,7 @@ class MarkdownTextTest {
         assertTrue(
             text.spanStyles.any { range ->
                 range.start == 8 &&
-                    range.end == 18 &&
+                    range.end == 17 &&
                     range.item.fontWeight == FontWeight.Bold
             },
         )

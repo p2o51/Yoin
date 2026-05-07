@@ -14,12 +14,14 @@ import com.gpo.yoin.data.model.MediaId
 @Entity(
     tableName = "album_notes",
     indices = [
-        Index(value = ["albumId", "provider"]),
+        Index(value = ["profileId", "albumId", "provider"]),
         Index(value = ["albumName", "artist"]),
     ],
 )
 data class AlbumNote(
     @PrimaryKey val id: String,
+    @ColumnInfo(defaultValue = "")
+    val profileId: String = "",
     val albumId: String,
     @ColumnInfo(defaultValue = MediaId.PROVIDER_SUBSONIC)
     val provider: String = MediaId.PROVIDER_SUBSONIC,
@@ -31,6 +33,7 @@ data class AlbumNote(
 )
 
 data class AlbumNoteKey(
+    val profileId: String,
     val albumId: String,
     val provider: String,
 )

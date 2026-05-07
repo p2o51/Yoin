@@ -17,6 +17,13 @@ abstract class LyricProvider {
     /** 平台内搜索，返回第一条匹配；找不到返回 null。 */
     abstract suspend fun search(title: String, artist: String): SongMatch?
 
+    /** 平台内搜索，返回多条候选；默认退化为第一条匹配。 */
+    open suspend fun searchMultiple(
+        title: String,
+        artist: String,
+        limit: Int = 3,
+    ): List<SongMatch> = search(title, artist)?.let(::listOf).orEmpty().take(limit)
+
     /** 按平台内 id 拉 LRC 原文；拿不到返回 null。 */
     abstract suspend fun fetchLyric(songId: String): String?
 
@@ -24,7 +31,7 @@ abstract class LyricProvider {
      * 规范化 LRC：HTML 实体 unescape + 折叠空行 + trim。仅处理 Spotoolfy 见过的
      * 少数实体，避免引入 `org.jsoup` 这类大包。
      */
-    protected fun normalizeLyric(rawLyric: String): String {
+    fun normalizeLyric(rawLyric: String): String {
         val unescaped = rawLyric
             .replace("&amp;", "&")
             .replace("&lt;", "<")
@@ -42,7 +49,16 @@ abstract class LyricProvider {
     suspend fun getLyric(title: String, artist: String): String? {
         return try {
             val match = search(title, artist) ?: return null
-            val raw = fetchLyric(match.songId) ?: return null
+            fetchNormalizedLyric(match.songId)
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    /** 拉取指定 provider 内 song id 的歌词并规范化。 */
+    suspend fun fetchNormalizedLyric(songId: String): String? {
+        return try {
+            val raw = fetchLyric(songId) ?: return null
             normalizeLyric(raw).takeIf { it.isNotEmpty() }
         } catch (_: Exception) {
             null

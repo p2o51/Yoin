@@ -33,4 +33,29 @@ interface PlayHistoryDao {
             "WHERE songId = :songId AND provider = :provider AND profileId = :profileId",
     )
     fun getPlayCount(songId: String, provider: String, profileId: String): Flow<Int>
+
+    @Query(
+        "SELECT albumId, provider, album AS albumName, artist AS artistName, coverArtId, " +
+            "COUNT(*) AS playCount, MIN(playedAt) AS firstPlayedAt, MAX(playedAt) AS lastPlayedAt " +
+            "FROM play_history " +
+            "WHERE profileId = :profileId AND provider = :provider AND albumId != '' " +
+            "GROUP BY albumId, provider " +
+            "ORDER BY lastPlayedAt DESC LIMIT :limit",
+    )
+    suspend fun getAlbumAggregates(
+        profileId: String,
+        provider: String,
+        limit: Int,
+    ): List<AlbumPlayHistoryAggregate>
 }
+
+data class AlbumPlayHistoryAggregate(
+    val albumId: String,
+    val provider: String,
+    val albumName: String,
+    val artistName: String,
+    val coverArtId: String?,
+    val playCount: Int,
+    val firstPlayedAt: Long?,
+    val lastPlayedAt: Long?,
+)

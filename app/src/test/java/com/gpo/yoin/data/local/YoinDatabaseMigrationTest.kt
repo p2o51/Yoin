@@ -67,6 +67,8 @@ class YoinDatabaseMigrationTest {
                 AppContainer.MIGRATION_13_14,
                 AppContainer.MIGRATION_14_15,
                 AppContainer.MIGRATION_15_16,
+                AppContainer.MIGRATION_16_17,
+                AppContainer.MIGRATION_17_18,
             )
             .allowMainThreadQueries()
             .build()
@@ -152,6 +154,8 @@ class YoinDatabaseMigrationTest {
                 AppContainer.MIGRATION_13_14,
                 AppContainer.MIGRATION_14_15,
                 AppContainer.MIGRATION_15_16,
+                AppContainer.MIGRATION_16_17,
+                AppContainer.MIGRATION_17_18,
             )
             .allowMainThreadQueries()
             .build()
@@ -172,7 +176,7 @@ class YoinDatabaseMigrationTest {
         )
 
         val observed = migrated.songNoteDao()
-            .observeForTrack("track-1", MediaId.PROVIDER_SUBSONIC)
+            .observeForTrack("track-1", MediaId.PROVIDER_SUBSONIC, "")
             .first()
 
         assertEquals(listOf("hello"), observed.map(SongNote::content))
@@ -220,6 +224,8 @@ class YoinDatabaseMigrationTest {
                 AppContainer.MIGRATION_13_14,
                 AppContainer.MIGRATION_14_15,
                 AppContainer.MIGRATION_15_16,
+                AppContainer.MIGRATION_16_17,
+                AppContainer.MIGRATION_17_18,
             )
             .allowMainThreadQueries()
             .build()
@@ -227,7 +233,7 @@ class YoinDatabaseMigrationTest {
         migrated.openHelper.writableDatabase
 
         val rows = migrated.songNoteDao()
-            .observeForTrack("track-1", MediaId.PROVIDER_SUBSONIC)
+            .observeForTrack("track-1", MediaId.PROVIDER_SUBSONIC, "")
             .first()
 
         assertEquals(1, rows.size)
@@ -271,6 +277,8 @@ class YoinDatabaseMigrationTest {
                 AppContainer.MIGRATION_13_14,
                 AppContainer.MIGRATION_14_15,
                 AppContainer.MIGRATION_15_16,
+                AppContainer.MIGRATION_16_17,
+                AppContainer.MIGRATION_17_18,
             )
             .allowMainThreadQueries()
             .build()
@@ -291,7 +299,7 @@ class YoinDatabaseMigrationTest {
         )
 
         val notes = migrated.albumNoteDao()
-            .observeForAlbum("album-1", MediaId.PROVIDER_SUBSONIC)
+            .observeForAlbum("album-1", MediaId.PROVIDER_SUBSONIC, "")
             .first()
         assertEquals(listOf("draft review"), notes.map(AlbumNote::content))
 
@@ -307,7 +315,7 @@ class YoinDatabaseMigrationTest {
             ),
         )
         val rating = migrated.albumRatingDao()
-            .observe("album-1", MediaId.PROVIDER_SUBSONIC)
+            .observe("album-1", MediaId.PROVIDER_SUBSONIC, "")
             .first()
         assertEquals(7.5f, rating?.rating ?: 0f, 0.001f)
         assertEquals("long review body", rating?.review)
@@ -348,6 +356,8 @@ class YoinDatabaseMigrationTest {
                 AppContainer.MIGRATION_13_14,
                 AppContainer.MIGRATION_14_15,
                 AppContainer.MIGRATION_15_16,
+                AppContainer.MIGRATION_16_17,
+                AppContainer.MIGRATION_17_18,
             )
             .allowMainThreadQueries()
             .build()
@@ -431,6 +441,8 @@ class YoinDatabaseMigrationTest {
                 AppContainer.MIGRATION_13_14,
                 AppContainer.MIGRATION_14_15,
                 AppContainer.MIGRATION_15_16,
+                AppContainer.MIGRATION_16_17,
+                AppContainer.MIGRATION_17_18,
             )
             .allowMainThreadQueries()
             .build()
@@ -491,6 +503,8 @@ class YoinDatabaseMigrationTest {
                 AppContainer.MIGRATION_13_14,
                 AppContainer.MIGRATION_14_15,
                 AppContainer.MIGRATION_15_16,
+                AppContainer.MIGRATION_16_17,
+                AppContainer.MIGRATION_17_18,
             )
             .allowMainThreadQueries()
             .build()
@@ -546,12 +560,14 @@ class YoinDatabaseMigrationTest {
                 AppContainer.MIGRATION_13_14,
                 AppContainer.MIGRATION_14_15,
                 AppContainer.MIGRATION_15_16,
+                AppContainer.MIGRATION_16_17,
+                AppContainer.MIGRATION_17_18,
             )
             .allowMainThreadQueries()
             .build()
 
         val ratings = migrated.localRatingDao()
-            .getRatings(listOf("song-1", "song-2", "song-3"), MediaId.PROVIDER_SUBSONIC)
+            .getRatings(listOf("song-1", "song-2", "song-3"), MediaId.PROVIDER_SUBSONIC, "")
         val subsonicRating = ratings.first { it.songId == "song-1" }
         assertEquals(7.4f, subsonicRating.rating, 0.001f)
         assertEquals(4, subsonicRating.serverRating)
@@ -560,7 +576,7 @@ class YoinDatabaseMigrationTest {
         assertEquals(0f, zeroRating.rating, 0.001f)
 
         val spotifyRatings = migrated.localRatingDao()
-            .getRatings(listOf("song-2"), MediaId.PROVIDER_SPOTIFY)
+            .getRatings(listOf("song-2"), MediaId.PROVIDER_SPOTIFY, "")
         assertEquals(10f, spotifyRatings.single().rating, 0.001f)
 
         migrated.close()
@@ -601,6 +617,8 @@ class YoinDatabaseMigrationTest {
             .addMigrations(
                 AppContainer.MIGRATION_14_15,
                 AppContainer.MIGRATION_15_16,
+                AppContainer.MIGRATION_16_17,
+                AppContainer.MIGRATION_17_18,
             )
             .allowMainThreadQueries()
             .build()
@@ -679,7 +697,7 @@ class YoinDatabaseMigrationTest {
         helper.close()
 
         val migrated = Room.databaseBuilder(context, YoinDatabase::class.java, dbName)
-            .addMigrations(AppContainer.MIGRATION_15_16)
+            .addMigrations(AppContainer.MIGRATION_15_16, AppContainer.MIGRATION_16_17, AppContainer.MIGRATION_17_18)
             .allowMainThreadQueries()
             .build()
 
@@ -715,6 +733,99 @@ class YoinDatabaseMigrationTest {
         migrated.close()
     }
 
+    @Test
+    fun should_scope_private_memory_tables_by_profile_when_migrating_16_to_17() = runTest {
+        val helper = FrameworkSQLiteOpenHelperFactory().create(
+            SupportSQLiteOpenHelper.Configuration.builder(context)
+                .name(dbName)
+                .callback(
+                    object : SupportSQLiteOpenHelper.Callback(16) {
+                        override fun onCreate(db: SupportSQLiteDatabase) {
+                            createVersion16Schema(db)
+                            db.execSQL(
+                                """
+                                INSERT INTO `profiles`
+                                    (`id`, `provider`, `displayName`, `credentialsJson`, `createdAt`)
+                                VALUES
+                                    ('sub-profile-a', 'subsonic', 'Sub A', '{}', 100),
+                                    ('sub-profile-b', 'subsonic', 'Sub B', '{}', 200)
+                                """.trimIndent(),
+                            )
+                            db.execSQL(
+                                """
+                                INSERT INTO `local_ratings`
+                                    (`songId`, `provider`, `rating`, `serverRating`, `needsSync`, `updatedAt`)
+                                VALUES ('song-1', 'subsonic', 8.0, 4, 1, 1000)
+                                """.trimIndent(),
+                            )
+                            db.execSQL(
+                                """
+                                INSERT INTO `album_ratings`
+                                    (`albumId`, `provider`, `rating`, `review`, `neoDbReviewUuid`,
+                                     `ratingNeedsSync`, `reviewNeedsSync`, `updatedAt`)
+                                VALUES ('album-1', 'subsonic', 8.0, 'album review', 'uuid-1', 0, 0, 1000)
+                                """.trimIndent(),
+                            )
+                            db.execSQL(
+                                """
+                                INSERT INTO `song_notes`
+                                    (`id`, `trackId`, `provider`, `content`, `createdAt`, `updatedAt`, `title`, `artist`)
+                                VALUES ('note-1', 'song-1', 'subsonic', 'song note', 1000, 1000, 'Song', 'Artist')
+                                """.trimIndent(),
+                            )
+                            db.execSQL(
+                                """
+                                INSERT INTO `album_notes`
+                                    (`id`, `albumId`, `provider`, `content`, `createdAt`, `updatedAt`, `albumName`, `artist`)
+                                VALUES ('album-note-1', 'album-1', 'subsonic', 'album note', 1000, 1000, 'Album', 'Artist')
+                                """.trimIndent(),
+                            )
+                        }
+
+                        override fun onUpgrade(
+                            db: SupportSQLiteDatabase,
+                            oldVersion: Int,
+                            newVersion: Int,
+                        ) = Unit
+                    },
+                )
+                .build(),
+        )
+        helper.writableDatabase.close()
+        helper.close()
+
+        val migrated = Room.databaseBuilder(context, YoinDatabase::class.java, dbName)
+            .addMigrations(AppContainer.MIGRATION_16_17, AppContainer.MIGRATION_17_18)
+            .allowMainThreadQueries()
+            .build()
+
+        val rating = migrated.localRatingDao()
+            .getRating("song-1", MediaId.PROVIDER_SUBSONIC, "sub-profile-a")
+            .first()
+        assertEquals(8.0f, rating?.rating ?: 0f, 0.001f)
+
+        val otherProfileRating = migrated.localRatingDao()
+            .getRating("song-1", MediaId.PROVIDER_SUBSONIC, "sub-profile-b")
+            .first()
+        assertEquals(null, otherProfileRating)
+
+        val albumRating = migrated.albumRatingDao()
+            .get("album-1", MediaId.PROVIDER_SUBSONIC, "sub-profile-a")
+        assertEquals("album review", albumRating?.review)
+
+        val songNotes = migrated.songNoteDao()
+            .observeForTrack("song-1", MediaId.PROVIDER_SUBSONIC, "sub-profile-a")
+            .first()
+        assertEquals(listOf("song note"), songNotes.map(SongNote::content))
+
+        val albumNotes = migrated.albumNoteDao()
+            .observeForAlbum("album-1", MediaId.PROVIDER_SUBSONIC, "sub-profile-a")
+            .first()
+        assertEquals(listOf("album note"), albumNotes.map(AlbumNote::content))
+
+        migrated.close()
+    }
+
     private fun createVersion11Schema(db: SupportSQLiteDatabase) {
         createVersion10Schema(db)
         // 复用 AppContainer.MIGRATION_10_11 创建的 v11 新表结构。直接调
@@ -735,6 +846,16 @@ class YoinDatabaseMigrationTest {
     private fun createVersion14Schema(db: SupportSQLiteDatabase) {
         createVersion13Schema(db)
         AppContainer.MIGRATION_13_14.migrate(db)
+    }
+
+    private fun createVersion15Schema(db: SupportSQLiteDatabase) {
+        createVersion14Schema(db)
+        AppContainer.MIGRATION_14_15.migrate(db)
+    }
+
+    private fun createVersion16Schema(db: SupportSQLiteDatabase) {
+        createVersion15Schema(db)
+        AppContainer.MIGRATION_15_16.migrate(db)
     }
 
     private fun createVersion10Schema(db: SupportSQLiteDatabase) {

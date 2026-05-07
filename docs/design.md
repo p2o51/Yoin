@@ -112,7 +112,20 @@ MD3 Expressive 不是 M4，而是 M3 的扩展进化。
 
 - Mix / 推荐区块（从 Navidrome 获取随机专辑、最近添加等；「最常播放」排序依赖 Scrobble，MVP 阶段使用服务端已有数据）
 - 辅助可视化区域（当有曲目播放时，显示实时音频可视化效果）
+- Memory teaser 只显示一条轻提示，点入 shell-owned Memories surface；Feed 不承载重型 Memory 卡片流
 - 右上角 ⚙️ 设置入口
+
+### Album Memory
+
+Yoin Memory 是 **当前 profile 下的 local-first 专辑记忆层**，不是 Spotify Wrapped、stats.fm、Last.fm clone，也不是全平台实时统计服务。Spotify、Subsonic、未来本地文件或其它来源都只是 provider；第一阶段不做跨 profile 自动合并、不做跨源 canonical album merge、不做通知 scrobbler。
+
+Memory 的核心单位是 album。候选由当前 active profile/provider 下的播放历史、曲目评分覆盖率、Album Note、Song Note、AskAI 记录、专辑评分与 NeoDB review 状态共同生成。推荐型 Memory 的 gate 是：
+
+`ratedTrackCount / totalTrackCount >= 60%`
+
+但有专辑 review，或至少两条 album/song note 的专辑，也可以进入 Memory。Note 是用户自己的观点，AskAI 是参考资料；二者必须在 prompt 和 UI 表达中分开，不能混成同一种用户立场。
+
+NeoDB 同步以 album 为边界。第一阶段只有同时具备 album rating 和非空 album review 的 Memory 才能推送到 NeoDB；单曲碎片笔记只作为本地 Memory/Review 草稿素材，不直接推 NeoDB。
 
 ### 🎵 Now Playing（全屏展开态）
 
@@ -138,7 +151,9 @@ MD3 Expressive 不是 M4，而是 M3 的扩展进化。
 
 - 分类浏览：歌手 / 专辑 / 歌曲 / 收藏
 - 播放列表浏览在第二期加入（依赖播放列表 CRUD）
-- 搜索功能
+- 普通点击底部 Library：进入当前 profile 的 Library，展示 saved artists / albums / playlists / songs
+- Library 内普通搜索：默认 scope 为 Current Library，只搜索当前 profile 已保存内容
+- 长按底部 Library：Spotify profile 下打开搜索框并默认 scope 为 Spotify Global（占位文案 `Search Spotify`，chips 为 Spotify / Library）；非 Spotify provider 下打开 Current Library 搜索
 - 右上角 ⚙️ 设置入口
 
 ### ⚙️ 设置（从主页或 Library 进入）

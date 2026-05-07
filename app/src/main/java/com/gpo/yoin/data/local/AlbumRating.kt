@@ -20,8 +20,10 @@ import com.gpo.yoin.data.model.MediaId
  * [needsSync] / [ratingNeedsSync] / [reviewNeedsSync] 分离，因为 NeoDB
  * 的 Mark（含 rating）和 Review 是两个资源，离线写入时可能只有一边脏。
  */
-@Entity(tableName = "album_ratings", primaryKeys = ["albumId", "provider"])
+@Entity(tableName = "album_ratings", primaryKeys = ["profileId", "albumId", "provider"])
 data class AlbumRating(
+    @ColumnInfo(defaultValue = "")
+    val profileId: String = "",
     val albumId: String,
     @ColumnInfo(defaultValue = MediaId.PROVIDER_SUBSONIC)
     val provider: String = MediaId.PROVIDER_SUBSONIC,

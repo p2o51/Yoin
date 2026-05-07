@@ -1,5 +1,9 @@
 package com.gpo.yoin.data.lyrics
 
+import android.util.Log
+import io.mockk.every
+import io.mockk.mockkStatic
+import io.mockk.unmockkStatic
 import kotlinx.coroutines.test.runTest
 import okhttp3.OkHttpClient
 import okhttp3.mockwebserver.MockResponse
@@ -19,6 +23,8 @@ class LrclibLyricsProviderTest {
 
     @Before
     fun setUp() {
+        mockkStatic(Log::class)
+        every { Log.w(any<String>(), any<String>()) } returns 0
         server = MockWebServer()
         server.start()
         provider = LrclibLyricsProvider(
@@ -30,6 +36,7 @@ class LrclibLyricsProviderTest {
     @After
     fun tearDown() {
         server.shutdown()
+        unmockkStatic(Log::class)
     }
 
     @Test

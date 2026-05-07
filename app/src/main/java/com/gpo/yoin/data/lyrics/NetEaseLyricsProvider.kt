@@ -33,10 +33,10 @@ class NetEaseLyricsProvider(
     override suspend fun search(title: String, artist: String): SongMatch? =
         searchMultiple(title, artist, limit = 1).firstOrNull()
 
-    suspend fun searchMultiple(
+    override suspend fun searchMultiple(
         title: String,
         artist: String,
-        limit: Int = 3,
+        limit: Int,
     ): List<SongMatch> = withContext(Dispatchers.IO) {
         val keyword = "$title $artist"
         val url = "$baseUrl/cloudsearch".toHttpUrl().newBuilder()

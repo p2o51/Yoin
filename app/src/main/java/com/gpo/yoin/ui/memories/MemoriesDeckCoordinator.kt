@@ -1,8 +1,8 @@
 package com.gpo.yoin.ui.memories
 
-import com.gpo.yoin.data.local.ActivityEntityType
 import com.gpo.yoin.data.local.ActivityEvent
 import com.gpo.yoin.data.local.LocalRating
+import com.gpo.yoin.data.memory.AlbumMemoryCandidate
 import com.gpo.yoin.data.model.CoverRef
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.Track
@@ -22,7 +22,7 @@ class MemoriesDeckCoordinator(
 ) {
     private val random = Random(randomSeed)
     private val resolvedMemoryCache = mutableMapOf<Long, MemoryEntry?>()
-    private var candidateActivities: List<ActivityEvent>? = null
+    private var candidateAlbums: List<AlbumMemoryCandidate>? = null
 
     suspend fun ensureDeck(): List<MemoryEntry> {
         val candidates = ensureCandidates()
@@ -32,16 +32,16 @@ class MemoriesDeckCoordinator(
         }
 
         val session = sessionStore.state.value.memories
-        val desiredActivityIds = if (session.currentDeckActivityIds.isNotEmpty()) {
+        val desiredCandidateIds = if (session.currentDeckActivityIds.isNotEmpty()) {
             session.currentDeckActivityIds
         } else {
-            sampleDeckActivities(
+            sampleDeckCandidates(
                 candidates = candidates,
-                excludedActivityIds = emptySet(),
-            ).map(ActivityEvent::id)
+                excludedCandidateIds = emptySet(),
+            ).map(AlbumMemoryCandidate::sessionId)
         }
 
-        val memories = resolveDeck(desiredActivityIds)
+        val memories = resolveDeck(desiredCandidateIds)
         if (memories.isEmpty()) {
             sessionStore.clearMemories()
             return emptyList()
@@ -66,10 +66,10 @@ class MemoriesDeckCoordinator(
         }
 
         val nextMemories = resolveDeck(
-            sampleDeckActivities(
+            sampleDeckCandidates(
                 candidates = candidates,
-                excludedActivityIds = sessionStore.state.value.memories.currentDeckActivityIds.toSet(),
-            ).map(ActivityEvent::id),
+                excludedCandidateIds = sessionStore.state.value.memories.currentDeckActivityIds.toSet(),
+            ).map(AlbumMemoryCandidate::sessionId),
         )
         if (nextMemories.isEmpty()) {
             return emptyList()
@@ -86,58 +86,51 @@ class MemoriesDeckCoordinator(
     }
 
     fun invalidate() {
-        candidateActivities = null
+        candidateAlbums = null
         resolvedMemoryCache.clear()
     }
 
-    private suspend fun ensureCandidates(): List<ActivityEvent> {
-        val existing = candidateActivities
+    private suspend fun ensureCandidates(): List<AlbumMemoryCandidate> {
+        val existing = candidateAlbums
         if (existing != null) return existing
-        return repository.getRecentMemoryActivities(limit = 48).also { loaded ->
-            candidateActivities = loaded
+        return repository.getAlbumMemoryCandidates(limit = 48).also { loaded ->
+            candidateAlbums = loaded
         }
     }
 
     private suspend fun resolveDeck(activityIds: List<Long>): List<MemoryEntry> = coroutineScope {
         activityIds
-            .mapNotNull(::findActivityById)
-            .map { activity ->
-                async { resolveMemoryCached(activity) }
+            .mapNotNull(::findCandidateById)
+            .map { candidate ->
+                async { resolveMemoryCached(candidate) }
             }
             .awaitAll()
             .filterNotNull()
     }
 
-    private fun findActivityById(activityId: Long): ActivityEvent? =
-        candidateActivities?.firstOrNull { it.id == activityId }
+    private fun findCandidateById(candidateId: Long): AlbumMemoryCandidate? =
+        candidateAlbums?.firstOrNull { it.sessionId == candidateId }
 
-    private fun sampleDeckActivities(
-        candidates: List<ActivityEvent>,
-        excludedActivityIds: Set<Long>,
-    ): List<ActivityEvent> {
+    private fun sampleDeckCandidates(
+        candidates: List<AlbumMemoryCandidate>,
+        excludedCandidateIds: Set<Long>,
+    ): List<AlbumMemoryCandidate> {
         val prioritized = candidates
-            .filterNot { activity -> activity.id in excludedActivityIds }
+            .filterNot { candidate -> candidate.sessionId in excludedCandidateIds }
             .shuffled(random)
         val fallback = candidates
-            .filter { activity -> activity.id in excludedActivityIds }
+            .filter { candidate -> candidate.sessionId in excludedCandidateIds }
             .shuffled(random)
 
         return (prioritized + fallback)
             .take(MEMORY_DECK_SIZE)
     }
 
-    private suspend fun resolveMemoryCached(activity: ActivityEvent): MemoryEntry? {
-        resolvedMemoryCache[activity.id]?.let { return it }
-        val memory = resolveMemory(activity)
-        resolvedMemoryCache[activity.id] = memory
+    private suspend fun resolveMemoryCached(candidate: AlbumMemoryCandidate): MemoryEntry? {
+        resolvedMemoryCache[candidate.sessionId]?.let { return it }
+        val memory = resolveAlbumMemory(candidate)
+        resolvedMemoryCache[candidate.sessionId] = memory
         return memory
-    }
-
-    private suspend fun resolveMemory(activity: ActivityEvent): MemoryEntry? = when (activity.entityType) {
-        ActivityEntityType.ALBUM.name -> resolveAlbumMemory(activity)
-        ActivityEntityType.PLAYLIST.name -> resolvePlaylistMemory(activity)
-        ActivityEntityType.SONG.name -> resolveSongMemory(activity)
-        else -> null
     }
 
     private fun rawEntityId(raw: String): String =
@@ -212,9 +205,9 @@ class MemoriesDeckCoordinator(
         )
     }
 
-    private suspend fun resolveAlbumMemory(activity: ActivityEvent): MemoryEntry {
-        val rawAlbumId = rawEntityId(activity.entityId)
-        val albumId = MediaId(activity.provider, rawAlbumId)
+    private suspend fun resolveAlbumMemory(candidate: AlbumMemoryCandidate): MemoryEntry {
+        val rawAlbumId = rawEntityId(candidate.albumId)
+        val albumId = MediaId(candidate.provider, rawAlbumId)
         val album = runCatching { repository.getAlbum(albumId) }.getOrNull()
         val songs = album?.tracks.orEmpty()
         val ratings = repository.getRatings(songs.map(Track::id))
@@ -240,19 +233,20 @@ class MemoriesDeckCoordinator(
         }
 
         return MemoryEntry(
-            stableId = "album:${activity.entityId}:${activity.id}",
-            sourceActivityId = activity.id,
+            stableId = "album:${candidate.profileId}:${candidate.provider}:$rawAlbumId",
+            sourceActivityId = candidate.sessionId,
             entityType = MemoryEntityType.ALBUM,
             entityId = rawAlbumId,
-            entityProvider = activity.provider,
-            title = album?.name ?: activity.title,
+            entityProvider = candidate.provider,
+            title = album?.name ?: candidate.albumName,
             supportingText = buildString {
-                if (album?.year != null) {
-                    append(album.year)
+                val year = album?.year ?: candidate.year
+                if (year != null) {
+                    append(year)
                     append("  ·  ")
                 }
                 append("Album")
-                val artistName = album?.artist ?: activity.subtitle
+                val artistName = album?.artist ?: candidate.artistName
                 if (!artistName.isNullOrBlank()) {
                     append(" by ")
                     append(artistName)
@@ -260,21 +254,21 @@ class MemoriesDeckCoordinator(
             },
             metaText = null,
             coverArtUrl = album?.coverArt?.let { repository.resolveCoverUrl(it, size = 480) }
-                ?: activity.coverArtId?.let(::resolveStorageKeyCoverUrl)
+                ?: candidate.coverArtUrl
                 ?: album?.id?.takeIf { it.provider == MediaId.PROVIDER_SUBSONIC }
                     ?.rawId?.let(::sourceRelativeCoverArtUrl),
-            timestamp = activity.timestamp,
-            scoreText = rated.averageScoreText(),
-            scoreSupportingText = ratedSummaryText(rated.size, songs.size),
+            timestamp = candidate.lastPlayedAt ?: candidate.firstPlayedAt ?: 0L,
+            scoreText = (averageRating ?: candidate.albumRating).formatScore(),
+            scoreSupportingText = ratedSummaryText(candidate.ratedTrackCount, candidate.totalTracks),
             footerText = buildCollectionFooter(
-                songCount = album?.songCount ?: songs.size,
-                durationSeconds = album?.durationSec,
+                songCount = album?.songCount ?: candidate.totalTracks.takeIf { count -> count > 0 },
+                durationSeconds = album?.durationSec ?: candidate.durationSeconds,
             ),
             narrativeCopy = narrative,
             playbackSongs = songs,
             tracks = songs.mapIndexed { index, song ->
                 MemoryTrack(
-                    stableId = "album:${activity.entityId}:song:${song.id}",
+                    stableId = "album:$rawAlbumId:song:${song.id}",
                     title = song.title.orEmpty(),
                     artist = song.artist.orEmpty(),
                     durationSeconds = song.durationSec,

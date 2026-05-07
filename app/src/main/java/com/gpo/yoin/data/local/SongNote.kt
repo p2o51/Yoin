@@ -10,11 +10,13 @@ import com.gpo.yoin.data.model.MediaId
     tableName = "song_notes",
     indices = [
         Index(value = ["title", "artist"]),
-        Index(value = ["trackId", "provider"]),
+        Index(value = ["profileId", "trackId", "provider"]),
     ],
 )
 data class SongNote(
     @PrimaryKey val id: String,
+    @ColumnInfo(defaultValue = "")
+    val profileId: String = "",
     val trackId: String,
     @ColumnInfo(defaultValue = MediaId.PROVIDER_SUBSONIC)
     val provider: String = MediaId.PROVIDER_SUBSONIC,
@@ -26,6 +28,7 @@ data class SongNote(
 )
 
 data class SongNoteKey(
+    val profileId: String,
     val trackId: String,
     val provider: String,
 )

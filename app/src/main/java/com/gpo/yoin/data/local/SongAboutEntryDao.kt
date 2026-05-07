@@ -51,6 +51,19 @@ interface SongAboutEntryDao {
         questionKey: String,
     ): SongAboutEntry?
 
+    @Query(
+        """
+        SELECT COUNT(*) FROM song_about_entries
+        WHERE titleKey = :titleKey AND artistKey = :artistKey AND albumKey = :albumKey
+          AND kind = 'ask'
+        """,
+    )
+    suspend fun countAskRows(
+        titleKey: String,
+        artistKey: String,
+        albumKey: String,
+    ): Int
+
     @Upsert
     suspend fun upsert(row: SongAboutEntry)
 

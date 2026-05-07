@@ -166,6 +166,51 @@ class GeminiService(
             ?: throw GeminiException("No content in Gemini response")
     }
 
+    /**
+     * Translate lyric lines for inline display. This intentionally avoids
+     * search grounding: the model should preserve line count and phrasing,
+     * not fetch facts about the song.
+     */
+    suspend fun translateLyricLines(
+        apiKey: String,
+        title: String,
+        artist: String,
+        lines: List<String>,
+        targetLanguage: String = "Simplified Chinese",
+    ): Map<Int, String> = withContext(Dispatchers.IO) {
+        val prompt = buildLyricsTranslationPrompt(title, artist, lines, targetLanguage)
+        val requestBody = GeminiRequest(
+            contents = listOf(GeminiContent(parts = listOf(GeminiPart(text = prompt)))),
+            tools = null,
+        )
+
+        val bodyJson = json.encodeToString(requestBody)
+        val request = Request.Builder()
+            .url("$BASE_URL$MODEL:generateContent?key=$apiKey")
+            .post(bodyJson.toRequestBody(JSON_MEDIA_TYPE))
+            .build()
+
+        val response = client.newCall(request).execute()
+        val responseBody = response.body?.string()
+            ?: throw GeminiException("Empty response from Gemini API")
+
+        if (!response.isSuccessful) {
+            throw GeminiException(
+                "Gemini API error (${response.code}): ${extractErrorMessage(responseBody)}",
+            )
+        }
+
+        val geminiResponse = json.decodeFromString<GeminiResponse>(responseBody)
+        val rawText = geminiResponse.candidates
+            ?.firstOrNull()?.content?.parts?.firstOrNull()?.text
+            ?.takeIf { it.isNotEmpty() }
+            ?: throw GeminiException("No content in Gemini response")
+
+        parseLineTranslations(rawText, lines.size)
+            .takeIf { it.isNotEmpty() }
+            ?: throw GeminiException("No usable lyric translations in Gemini response")
+    }
+
     private fun buildMemoryPrompt(
         albumName: String,
         artist: String?,
@@ -254,6 +299,31 @@ The detailed answer. No more than 120 words. Plain prose only — no citation ma
 Question: $question
     """.trimIndent()
 
+    private fun buildLyricsTranslationPrompt(
+        title: String,
+        artist: String,
+        lines: List<String>,
+        targetLanguage: String,
+    ): String {
+        val indexedLines = lines.mapIndexed { index, line -> "[$index] $line" }
+            .joinToString("\n")
+        return """
+Translate these lyric lines into $targetLanguage.
+
+Song: $title
+Artist: $artist
+
+Preserve line count and meaning. Keep imagery natural, concise, and singable.
+Return strictly one tagged block per source line:
+
+[L0]translation for line 0[/L0]
+[L1]translation for line 1[/L1]
+
+Lines:
+$indexedLines
+        """.trimIndent()
+    }
+
     private fun extractErrorMessage(body: String): String = try {
         val errorResponse = json.decodeFromString<GeminiErrorResponse>(body)
         errorResponse.error?.message ?: body.take(200)
@@ -284,6 +354,10 @@ Question: $question
         // to scrub leftover markers out of fallback prose so the user never
         // sees raw `[TITLE]` / `[ANSWER]` text in the UI.
         private val TAG_MARKER_REGEX = Regex("""\[\s*/?\s*[A-Z][A-Z0-9_]*\s*\]""")
+        private val LINE_TRANSLATION_REGEX = Regex(
+            pattern = """\[\s*L(\d+)\s*\](.*?)\[\s*/\s*L\1\s*\]""",
+            options = setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL),
+        )
 
         /**
          * Extract the content between `[TAG]` and `[/TAG]`, tolerant of:
@@ -360,6 +434,35 @@ Question: $question
                 title != null -> AskAnswer(title, stripTagMarkers(rawText))
                 else -> AskAnswer(fallbackQuestion.trim(), stripTagMarkers(rawText))
             }
+        }
+
+        fun parseLineTranslations(rawText: String, lineCount: Int): Map<Int, String> {
+            val tagged = LINE_TRANSLATION_REGEX.findAll(rawText)
+                .mapNotNull { match ->
+                    val index = match.groupValues[1].toIntOrNull() ?: return@mapNotNull null
+                    val text = stripTagMarkers(match.groupValues[2])
+                    if (index in 0 until lineCount && text.isNotBlank()) {
+                        index to text
+                    } else {
+                        null
+                    }
+                }
+                .toMap()
+            if (tagged.isNotEmpty()) return tagged
+
+            val plainLines = rawText.lines()
+                .map { line ->
+                    line.trim()
+                        .removePrefix("-")
+                        .trim()
+                        .replace(Regex("""^\d+[.)]\s*"""), "")
+                        .trim()
+                }
+                .filter { it.isNotEmpty() }
+            if (plainLines.size != lineCount) return emptyMap()
+            return plainLines.mapIndexed { index, line -> index to stripTagMarkers(line) }
+                .filter { (_, line) -> line.isNotBlank() }
+                .toMap()
         }
     }
 }

@@ -5,8 +5,10 @@ import androidx.room.Entity
 
 import com.gpo.yoin.data.model.MediaId
 
-@Entity(tableName = "local_ratings", primaryKeys = ["songId", "provider"])
+@Entity(tableName = "local_ratings", primaryKeys = ["profileId", "songId", "provider"])
 data class LocalRating(
+    @ColumnInfo(defaultValue = "")
+    val profileId: String = "",
     val songId: String,
     @ColumnInfo(defaultValue = MediaId.PROVIDER_SUBSONIC)
     val provider: String = MediaId.PROVIDER_SUBSONIC,

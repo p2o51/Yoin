@@ -142,7 +142,7 @@ fun MemoriesScreen(
 
                 MemoriesOneShotEvent.NeoDBNothingToSync -> {
                     snackbarHostState.showSnackbar(
-                        message = "Rate the album or write a review first.",
+                        message = "Rate the album and write a review first.",
                         duration = SnackbarDuration.Short,
                     )
                 }

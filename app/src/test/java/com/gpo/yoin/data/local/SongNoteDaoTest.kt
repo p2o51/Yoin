@@ -46,7 +46,7 @@ class SongNoteDaoTest {
         dao.insert(note(id = "n2", createdAt = 300L, content = "latest"))
         dao.insert(note(id = "n3", createdAt = 200L, content = "middle"))
 
-        val observed = dao.observeForTrack("track-1", MediaId.PROVIDER_SUBSONIC).first()
+        val observed = dao.observeForTrack("track-1", MediaId.PROVIDER_SUBSONIC, "profile-a").first()
 
         assertEquals(listOf("latest", "middle", "earliest"), observed.map(SongNote::content))
     }
@@ -55,10 +55,10 @@ class SongNoteDaoTest {
     fun update_rewrites_content_for_existing_id() = runTest {
         dao.insert(note(id = "n1", content = "draft", createdAt = 100L))
 
-        val stored = dao.observeForTrack("track-1", MediaId.PROVIDER_SUBSONIC).first().first()
+        val stored = dao.observeForTrack("track-1", MediaId.PROVIDER_SUBSONIC, "profile-a").first().first()
         dao.update(stored.copy(content = "revised", updatedAt = 200L))
 
-        val after = dao.observeForTrack("track-1", MediaId.PROVIDER_SUBSONIC).first().first()
+        val after = dao.observeForTrack("track-1", MediaId.PROVIDER_SUBSONIC, "profile-a").first().first()
         assertEquals("revised", after.content)
         assertEquals(200L, after.updatedAt)
     }
@@ -101,6 +101,7 @@ class SongNoteDaoTest {
             artist = "Same Artist",
             trackId = "sub-track",
             provider = MediaId.PROVIDER_SUBSONIC,
+            profileId = "profile-a",
         ).first()
 
         assertEquals(
@@ -118,6 +119,7 @@ class SongNoteDaoTest {
         val keys = dao.observeKeys(
             trackIds = listOf("t1", "t2", "t3"),
             provider = MediaId.PROVIDER_SUBSONIC,
+            profileId = "profile-a",
         ).first()
 
         assertEquals(2, keys.size)
@@ -132,12 +134,25 @@ class SongNoteDaoTest {
 
         dao.deleteById("n2")
 
-        val remaining = dao.observeForTrack("track-1", MediaId.PROVIDER_SUBSONIC).first()
+        val remaining = dao.observeForTrack("track-1", MediaId.PROVIDER_SUBSONIC, "profile-a").first()
         assertEquals(listOf("keep"), remaining.map(SongNote::content))
+    }
+
+    @Test
+    fun notes_are_partitioned_by_profile() = runTest {
+        dao.insert(note(id = "a", profileId = "profile-a", content = "a note"))
+        dao.insert(note(id = "b", profileId = "profile-b", content = "b note"))
+
+        val profileA = dao.observeForTrack("track-1", MediaId.PROVIDER_SUBSONIC, "profile-a").first()
+        val profileB = dao.observeForTrack("track-1", MediaId.PROVIDER_SUBSONIC, "profile-b").first()
+
+        assertEquals(listOf("a note"), profileA.map(SongNote::content))
+        assertEquals(listOf("b note"), profileB.map(SongNote::content))
     }
 
     private fun note(
         id: String,
+        profileId: String = "profile-a",
         trackId: String = "track-1",
         provider: String = MediaId.PROVIDER_SUBSONIC,
         content: String = "note",
@@ -147,6 +162,7 @@ class SongNoteDaoTest {
         artist: String = "Same Artist",
     ) = SongNote(
         id = id,
+        profileId = profileId,
         trackId = trackId,
         provider = provider,
         content = content,

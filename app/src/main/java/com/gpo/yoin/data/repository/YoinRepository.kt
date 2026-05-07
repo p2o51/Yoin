@@ -25,6 +25,8 @@ import com.gpo.yoin.data.local.SpotifyHomeAlbumCache
 import com.gpo.yoin.data.local.SpotifyHomeArtistCache
 import com.gpo.yoin.data.local.YoinDatabase
 import com.gpo.yoin.data.integration.neodb.NeoDBSyncService
+import com.gpo.yoin.data.memory.AlbumMemoryCandidate
+import com.gpo.yoin.data.memory.AlbumMemoryCandidateBuilder
 import com.gpo.yoin.data.lyrics.LrcParser
 import com.gpo.yoin.data.lyrics.LyricsProviderRegistry
 import com.gpo.yoin.data.model.Album
@@ -98,6 +100,30 @@ class YoinRepository(
         data object ApiKeyMissing : AskAboutResult
         data class Error(val message: String) : AskAboutResult
     }
+
+    sealed interface LyricsTranslationResult {
+        data class Success(val translations: Map<Int, String>) : LyricsTranslationResult
+        data object ApiKeyMissing : LyricsTranslationResult
+        data class Error(val message: String) : LyricsTranslationResult
+    }
+
+    data class LyricsApplyResult(
+        val lyrics: Lyrics,
+        val providerName: String,
+    )
+
+    data class LyricsSearchCandidate(
+        val providerName: String,
+        val songId: String,
+        val title: String,
+        val artist: String,
+    )
+
+    data class LyricsSearchProviderSection(
+        val providerName: String,
+        val candidates: List<LyricsSearchCandidate>,
+        val errorMessage: String?,
+    )
 
     /** True when a configured profile is currently active. */
     val isConfigured: Boolean
@@ -266,9 +292,11 @@ class YoinRepository(
     // ── Rating (local-first, best-effort server sync) ──────────────────
 
     suspend fun setRating(trackId: MediaId, rating: Float) {
+        val profileId = activeProfileId.value ?: return
         val localRating = rating.coerceIn(0f, 10f)
         val serverRating = (localRating / 2f).roundToInt().coerceIn(0, 5)
         val pending = LocalRating(
+            profileId = profileId,
             songId = trackId.rawId,
             provider = trackId.provider,
             rating = localRating,
@@ -284,22 +312,32 @@ class YoinRepository(
     }
 
     fun getRating(trackId: MediaId): Flow<LocalRating?> =
-        database.localRatingDao().getRating(trackId.rawId, trackId.provider)
+        activeProfileId.flatMapLatest { profileId ->
+            if (profileId.isNullOrBlank()) {
+                flowOf(null)
+            } else {
+                database.localRatingDao().getRating(trackId.rawId, trackId.provider, profileId)
+            }
+        }
 
     suspend fun getRatings(trackIds: Collection<MediaId>): Map<MediaId, LocalRating> {
+        val profileId = activeProfileId.value ?: return emptyMap()
         if (trackIds.isEmpty()) return emptyMap()
         return trackIds.asSequence()
             .distinct()
             .groupBy { it.provider }
             .flatMap { (provider, ids) ->
-                database.localRatingDao().getRatings(ids.map { it.rawId }, provider)
+                database.localRatingDao().getRatings(ids.map { it.rawId }, provider, profileId)
             }
             .associateBy { MediaId(it.provider, it.songId) }
     }
 
     suspend fun syncPendingRatings() {
         val source = activeSource.value ?: return
-        val pending = database.localRatingDao().getRatingsNeedingSync().first()
+        val profileId = activeProfileId.value ?: return
+        val pending = database.localRatingDao()
+            .getRatingsNeedingSync(source.id, profileId)
+            .first()
         for (rating in pending) {
             if (rating.provider != source.id) continue
             val trackId = MediaId(rating.provider, rating.songId)
@@ -312,7 +350,13 @@ class YoinRepository(
     // ── Notes ──────────────────────────────────────────────────────────
 
     fun observeNotes(trackId: MediaId): Flow<List<SongNote>> =
-        songNoteDao.observeForTrack(trackId.rawId, trackId.provider)
+        activeProfileId.flatMapLatest { profileId ->
+            if (profileId.isNullOrBlank()) {
+                flowOf(emptyList())
+            } else {
+                songNoteDao.observeForTrack(trackId.rawId, trackId.provider, profileId)
+            }
+        }
 
     fun observeCrossProviderNotes(
         trackId: MediaId,
@@ -324,12 +368,19 @@ class YoinRepository(
         if (normalizedTitle.isEmpty() || normalizedArtist.isEmpty()) {
             return flowOf(emptyList())
         }
-        return songNoteDao.observeCrossProvider(
-            title = normalizedTitle,
-            artist = normalizedArtist,
-            trackId = trackId.rawId,
-            provider = trackId.provider,
-        )
+        return activeProfileId.flatMapLatest { profileId ->
+            if (profileId.isNullOrBlank()) {
+                flowOf(emptyList())
+            } else {
+                songNoteDao.observeCrossProvider(
+                    title = normalizedTitle,
+                    artist = normalizedArtist,
+                    trackId = trackId.rawId,
+                    provider = trackId.provider,
+                    profileId = profileId,
+                )
+            }
+        }
     }
 
     fun observeTracksWithNotes(trackIds: Collection<MediaId>): Flow<Set<MediaId>> {
@@ -338,23 +389,30 @@ class YoinRepository(
             return flowOf(emptySet())
         }
 
-        val groupedFlows = distinctTrackIds
-            .groupBy(MediaId::provider)
-            .map { (provider, ids) ->
-                songNoteDao.observeKeys(
-                    trackIds = ids.map(MediaId::rawId),
-                    provider = provider,
-                )
+        return activeProfileId.flatMapLatest { profileId ->
+            if (profileId.isNullOrBlank()) {
+                return@flatMapLatest flowOf(emptySet())
             }
 
-        if (groupedFlows.size == 1) {
-            return groupedFlows.first().map { keys -> keys.toMediaIdSet() }
-        }
+            val groupedFlows = distinctTrackIds
+                .groupBy(MediaId::provider)
+                .map { (provider, ids) ->
+                    songNoteDao.observeKeys(
+                        trackIds = ids.map(MediaId::rawId),
+                        provider = provider,
+                        profileId = profileId,
+                    )
+                }
 
-        return combine(groupedFlows) { groups ->
-            buildSet {
-                groups.forEach { keys ->
-                    addAll(keys.toMediaIdSet())
+            if (groupedFlows.size == 1) {
+                groupedFlows.first().map { keys -> keys.toMediaIdSet() }
+            } else {
+                combine(groupedFlows) { groups ->
+                    buildSet {
+                        groups.forEach { keys ->
+                            addAll(keys.toMediaIdSet())
+                        }
+                    }
                 }
             }
         }
@@ -362,11 +420,13 @@ class YoinRepository(
 
     /** User tapped Save —— 为当前曲目追加一条新的笔记。content 空串会被忽略。 */
     suspend fun addNote(track: Track, content: String): SongNote? {
+        val profileId = activeProfileId.value ?: return null
         val trimmed = content.trim()
         if (trimmed.isEmpty()) return null
         val now = clock()
         val note = SongNote(
             id = java.util.UUID.randomUUID().toString(),
+            profileId = profileId,
             trackId = track.id.rawId,
             provider = track.id.provider,
             content = trimmed,
@@ -395,29 +455,43 @@ class YoinRepository(
     // ── Album notes ────────────────────────────────────────────────────
 
     fun observeAlbumNotes(albumId: MediaId): Flow<List<AlbumNote>> =
-        albumNoteDao.observeForAlbum(albumId.rawId, albumId.provider)
+        activeProfileId.flatMapLatest { profileId ->
+            if (profileId.isNullOrBlank()) {
+                flowOf(emptyList())
+            } else {
+                albumNoteDao.observeForAlbum(albumId.rawId, albumId.provider, profileId)
+            }
+        }
 
     fun observeAlbumsWithNotes(albumIds: Collection<MediaId>): Flow<Set<MediaId>> {
         val distinct = albumIds.distinct()
         if (distinct.isEmpty()) return flowOf(emptySet())
-        val grouped = distinct.groupBy(MediaId::provider)
-            .map { (provider, ids) ->
-                albumNoteDao.observeKeys(ids.map(MediaId::rawId), provider)
+        return activeProfileId.flatMapLatest { profileId ->
+            if (profileId.isNullOrBlank()) {
+                return@flatMapLatest flowOf(emptySet())
             }
-        if (grouped.size == 1) {
-            return grouped.first().map { keys -> keys.toAlbumMediaIdSet() }
-        }
-        return combine(grouped) { groups ->
-            buildSet { groups.forEach { addAll(it.toAlbumMediaIdSet()) } }
+            val grouped = distinct.groupBy(MediaId::provider)
+                .map { (provider, ids) ->
+                    albumNoteDao.observeKeys(ids.map(MediaId::rawId), provider, profileId)
+                }
+            if (grouped.size == 1) {
+                grouped.first().map { keys -> keys.toAlbumMediaIdSet() }
+            } else {
+                combine(grouped) { groups ->
+                    buildSet { groups.forEach { addAll(it.toAlbumMediaIdSet()) } }
+                }
+            }
         }
     }
 
     suspend fun addAlbumNote(album: Album, content: String): AlbumNote? {
+        val profileId = activeProfileId.value ?: return null
         val trimmed = content.trim()
         if (trimmed.isEmpty()) return null
         val now = clock()
         val note = AlbumNote(
             id = java.util.UUID.randomUUID().toString(),
+            profileId = profileId,
             albumId = album.id.rawId,
             provider = album.id.provider,
             content = trimmed,
@@ -448,15 +522,18 @@ class YoinRepository(
      * 的默认聚合展示和 Review 草稿灵感。不推到 NeoDB。
      */
     suspend fun aggregateSongNotesForAlbum(album: Album): String {
+        val profileId = activeProfileId.value ?: return ""
         if (album.tracks.isEmpty()) return ""
         val trackIds = album.tracks.map(Track::id)
         return trackIds.asSequence()
             .distinct()
             .groupBy(MediaId::provider)
             .flatMap { (provider, ids) ->
-                ids.flatMap { id ->
-                    songNoteDao.observeForTrack(id.rawId, provider).first()
-                }
+                songNoteDao.getForTracks(
+                    trackIds = ids.map(MediaId::rawId),
+                    provider = provider,
+                    profileId = profileId,
+                )
             }
             .sortedBy(SongNote::createdAt)
             .joinToString(separator = "\n\n") { note -> note.content }
@@ -465,11 +542,19 @@ class YoinRepository(
     // ── Album ratings / review ─────────────────────────────────────────
 
     fun observeAlbumRating(albumId: MediaId): Flow<AlbumRating?> =
-        albumRatingDao.observe(albumId.rawId, albumId.provider)
+        activeProfileId.flatMapLatest { profileId ->
+            if (profileId.isNullOrBlank()) {
+                flowOf(null)
+            } else {
+                albumRatingDao.observe(albumId.rawId, albumId.provider, profileId)
+            }
+        }
 
     suspend fun setAlbumRating(album: Album, rating: Float) {
-        val existing = albumRatingDao.get(album.id.rawId, album.id.provider)
+        val profileId = activeProfileId.value ?: return
+        val existing = albumRatingDao.get(album.id.rawId, album.id.provider, profileId)
         val entry = (existing ?: AlbumRating(
+            profileId = profileId,
             albumId = album.id.rawId,
             provider = album.id.provider,
             rating = 0f,
@@ -484,9 +569,11 @@ class YoinRepository(
     }
 
     suspend fun setAlbumReview(album: Album, review: String?) {
+        val profileId = activeProfileId.value ?: return
         val normalized = review?.trim().takeUnless { it.isNullOrEmpty() }
-        val existing = albumRatingDao.get(album.id.rawId, album.id.provider)
+        val existing = albumRatingDao.get(album.id.rawId, album.id.provider, profileId)
         val entry = (existing ?: AlbumRating(
+            profileId = profileId,
             albumId = album.id.rawId,
             provider = album.id.provider,
             rating = 0f,
@@ -501,12 +588,39 @@ class YoinRepository(
     }
 
     suspend fun pushAlbumToNeoDB(album: Album): Result<Unit> =
-        neoDbSyncService.pushAlbum(album)
+        activeProfileId.value
+            ?.let { profileId -> neoDbSyncService.pushAlbum(profileId, album) }
+            ?: Result.failure(IllegalStateException("No active profile"))
 
     suspend fun pullAlbumFromNeoDB(album: Album): Result<AlbumRating?> =
-        neoDbSyncService.pullAlbum(album)
+        activeProfileId.value
+            ?.let { profileId -> neoDbSyncService.pullAlbum(profileId, album) }
+            ?: Result.failure(IllegalStateException("No active profile"))
 
     suspend fun isNeoDBConfigured(): Boolean = neoDbSyncService.isConfigured()
+
+    // ── Album Memory candidates ───────────────────────────────────────
+
+    suspend fun getAlbumMemoryCandidates(limit: Int = 48): List<AlbumMemoryCandidate> {
+        val source = activeSource.value ?: return emptyList()
+        val profileId = activeProfileId.value ?: return emptyList()
+        return AlbumMemoryCandidateBuilder(
+            profileId = profileId,
+            provider = source.id,
+            source = source,
+            playHistoryDao = database.playHistoryDao(),
+            activityEventDao = database.activityEventDao(),
+            localRatingDao = database.localRatingDao(),
+            albumRatingDao = albumRatingDao,
+            albumNoteDao = albumNoteDao,
+            songNoteDao = songNoteDao,
+            songAboutEntryDao = songAboutEntryDao,
+            resolveCoverUrl = { ref, size -> resolveCoverUrl(ref, size) },
+        ).build(limit)
+    }
+
+    suspend fun getTopAlbumMemoryCandidate(): AlbumMemoryCandidate? =
+        getAlbumMemoryCandidates(limit = 1).firstOrNull()
 
     // ── Memory copy cache (Gemini 感性文案) ─────────────────────────────
 
@@ -635,6 +749,134 @@ class YoinRepository(
             ),
         )
         return LrcParser.parse(hit.lrc)
+    }
+
+    suspend fun searchAndApplyLyrics(
+        trackId: MediaId,
+        title: String?,
+        artist: String?,
+    ): Result<LyricsApplyResult> = runCatching {
+        val t = title?.trim().orEmpty()
+        val a = artist?.trim().orEmpty()
+        require(t.isNotEmpty() && a.isNotEmpty()) {
+            "Need title and artist to search lyrics"
+        }
+
+        val hit = lyricsProviderRegistry.fetchLyric(t, a)
+            ?: throw NoSuchElementException("No lyrics found")
+        lyricsCacheDao.upsert(
+            LyricsCache(
+                trackProvider = trackId.provider,
+                trackRawId = trackId.rawId,
+                lyricsProvider = hit.providerName,
+                lrc = hit.lrc,
+                cachedAt = clock(),
+            ),
+        )
+        LyricsApplyResult(
+            lyrics = LrcParser.parse(hit.lrc),
+            providerName = hit.providerName,
+        )
+    }
+
+    fun lyricsProviderNames(): List<String> = lyricsProviderRegistry.providerNames
+
+    suspend fun searchLyricsProviderSections(
+        query: String,
+    ): Result<List<LyricsSearchProviderSection>> = runCatching {
+        val q = query.trim()
+        require(q.isNotEmpty()) { "Search query is empty" }
+
+        lyricsProviderRegistry.searchByProvider(
+            title = q,
+            artist = "",
+            limitPerProvider = 3,
+        ).map { providerResult ->
+            LyricsSearchProviderSection(
+                providerName = providerResult.providerName,
+                candidates = providerResult.matches.map { match ->
+                    LyricsSearchCandidate(
+                        providerName = providerResult.providerName,
+                        songId = match.songId,
+                        title = match.title,
+                        artist = match.artist,
+                    )
+                },
+                errorMessage = providerResult.errorMessage,
+            )
+        }
+    }
+
+    suspend fun applyLyricsSearchResult(
+        trackId: MediaId,
+        providerName: String,
+        songId: String,
+    ): Result<LyricsApplyResult> = runCatching {
+        val hit = lyricsProviderRegistry.fetchSelectedLyric(providerName, songId)
+            ?: throw NoSuchElementException("No lyrics found")
+        lyricsCacheDao.upsert(
+            LyricsCache(
+                trackProvider = trackId.provider,
+                trackRawId = trackId.rawId,
+                lyricsProvider = hit.providerName,
+                lrc = hit.lrc,
+                cachedAt = clock(),
+            ),
+        )
+        LyricsApplyResult(
+            lyrics = LrcParser.parse(hit.lrc),
+            providerName = hit.providerName,
+        )
+    }
+
+    suspend fun applyLyrics(
+        trackId: MediaId,
+        rawLrc: String,
+    ): Result<LyricsApplyResult> = runCatching {
+        val trimmed = rawLrc.trim()
+        require(trimmed.isNotEmpty()) { "Lyrics are empty" }
+        lyricsCacheDao.upsert(
+            LyricsCache(
+                trackProvider = trackId.provider,
+                trackRawId = trackId.rawId,
+                lyricsProvider = "manual",
+                lrc = trimmed,
+                cachedAt = clock(),
+            ),
+        )
+        LyricsApplyResult(
+            lyrics = LrcParser.parse(trimmed),
+            providerName = "manual",
+        )
+    }
+
+    suspend fun translateLyrics(
+        title: String?,
+        artist: String?,
+        lines: List<String>,
+    ): LyricsTranslationResult {
+        val t = title?.trim().orEmpty()
+        val a = artist?.trim().orEmpty()
+        val sourceLines = lines.map(String::trim).filter(String::isNotEmpty)
+        if (sourceLines.isEmpty()) {
+            return LyricsTranslationResult.Error("No lyrics to translate")
+        }
+        val apiKey = geminiConfigDao.getConfig().first()?.apiKey?.trim().orEmpty()
+        if (apiKey.isEmpty()) {
+            return LyricsTranslationResult.ApiKeyMissing
+        }
+        return try {
+            LyricsTranslationResult.Success(
+                geminiService.translateLyricLines(
+                    apiKey = apiKey,
+                    title = t.ifEmpty { "Unknown song" },
+                    artist = a.ifEmpty { "Unknown artist" },
+                    lines = sourceLines,
+                ),
+            )
+        } catch (error: Exception) {
+            LyricsTranslationResult.Error(error.message ?: "Failed to translate lyrics")
+        }
     }
 
     /**

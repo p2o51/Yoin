@@ -11,26 +11,34 @@ import kotlinx.coroutines.flow.Flow
 interface AlbumNoteDao {
     @Query(
         "SELECT * FROM album_notes " +
-            "WHERE albumId = :albumId AND provider = :provider " +
+            "WHERE profileId = :profileId AND albumId = :albumId AND provider = :provider " +
             "ORDER BY createdAt ASC",
     )
-    fun observeForAlbum(albumId: String, provider: String): Flow<List<AlbumNote>>
+    fun observeForAlbum(albumId: String, provider: String, profileId: String): Flow<List<AlbumNote>>
 
     @Query(
-        "SELECT DISTINCT albumId, provider FROM album_notes " +
-            "WHERE provider = :provider AND albumId IN (:albumIds)",
+        "SELECT DISTINCT profileId, albumId, provider FROM album_notes " +
+            "WHERE profileId = :profileId AND provider = :provider AND albumId IN (:albumIds)",
     )
     fun observeKeys(
         albumIds: List<String>,
         provider: String,
+        profileId: String,
     ): Flow<List<AlbumNoteKey>>
 
     @Query(
         "SELECT * FROM album_notes " +
-            "WHERE albumId = :albumId AND provider = :provider " +
+            "WHERE profileId = :profileId AND albumId = :albumId AND provider = :provider " +
             "ORDER BY createdAt ASC",
     )
-    suspend fun getForAlbum(albumId: String, provider: String): List<AlbumNote>
+    suspend fun getForAlbum(albumId: String, provider: String, profileId: String): List<AlbumNote>
+
+    @Query(
+        "SELECT albumId, provider, COUNT(*) AS noteCount FROM album_notes " +
+            "WHERE profileId = :profileId AND provider = :provider " +
+            "GROUP BY albumId, provider",
+    )
+    suspend fun getNoteCountsForProfile(provider: String, profileId: String): List<AlbumNoteCount>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insert(note: AlbumNote)
@@ -41,3 +49,9 @@ interface AlbumNoteDao {
     @Query("DELETE FROM album_notes WHERE id = :id")
     suspend fun deleteById(id: String)
 }
+
+data class AlbumNoteCount(
+    val albumId: String,
+    val provider: String,
+    val noteCount: Int,
+)

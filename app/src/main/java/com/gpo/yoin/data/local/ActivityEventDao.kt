@@ -15,6 +15,19 @@ interface ActivityEventDao {
     )
     fun getRecentEvents(profileId: String, provider: String, limit: Int): Flow<List<ActivityEvent>>
 
+    @Query(
+        "SELECT * FROM activity_events " +
+            "WHERE profileId = :profileId " +
+            "AND provider = :provider " +
+            "AND entityType = 'ALBUM' " +
+            "ORDER BY timestamp DESC, id DESC LIMIT :limit",
+    )
+    suspend fun getRecentAlbumEvents(
+        profileId: String,
+        provider: String,
+        limit: Int,
+    ): List<ActivityEvent>
+
     @Insert
     suspend fun insert(entry: ActivityEvent)
 }

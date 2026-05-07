@@ -70,6 +70,8 @@ class AppContainer(private val context: Context) {
                 MIGRATION_13_14,
                 MIGRATION_14_15,
                 MIGRATION_15_16,
+                MIGRATION_16_17,
+                MIGRATION_17_18,
             )
             // v11 冻结了 0.3 schema；0.5 上架前的备份降级保险（用户拿着 v11
             // 备份在旧版设备恢复）走这条：数据丢但应用不崩。没数据丢失比
@@ -969,6 +971,213 @@ class AppContainer(private val context: Context) {
                     ADD COLUMN `titleText` TEXT
                     """.trimIndent(),
                 )
+            }
+        }
+
+        /**
+         * v16 → v17：把用户私有数据补成真正 profile-local。
+         *
+         * 播放历史和 activity_events 在 v13 已经带 `(profileId, provider)`；
+         * 这里把评分、专辑长评和 notes 也收进同一作用域，避免两个同
+         * provider profile 之间串 Memory 信号。旧行按同 provider 最早创建
+         * 的 profile 回填；找不到 profile 时保留空串，数据不丢但不会命中
+         * 正常 active profile。
+         */
+        val MIGRATION_16_17 = object : Migration(16, 17) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                migratePrivateDataToProfileScope(db)
+            }
+        }
+
+        /**
+         * v17 → v18：修复开发版中已经发布过 `version=17` 但 identity hash
+         * 仍对应旧 provider-local 私有表的设备。Room 看到同 version/hash
+         * 不一致时不会自动跑 v16→v17，因此需要 bump 一版，让已安装的
+         * v17 数据库有机会补齐 profile-local 表结构。
+         */
+        val MIGRATION_17_18 = object : Migration(17, 18) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                migratePrivateDataToProfileScope(db)
+            }
+        }
+
+        private fun migratePrivateDataToProfileScope(db: SupportSQLiteDatabase) {
+            rebuildLocalRatingsForProfileScope(db)
+            rebuildAlbumRatingsForProfileScope(db)
+            ensureSongNotesProfileScope(db)
+            ensureAlbumNotesProfileScope(db)
+        }
+
+        private fun rebuildLocalRatingsForProfileScope(db: SupportSQLiteDatabase) {
+            val columns = db.tableColumns("local_ratings")
+            if ("songId" !in columns) return
+            val profileIdExpression = profileIdExpressionForProviderBackfill(
+                tableName = "local_ratings",
+                providerColumn = "provider",
+                hasProfileIdColumn = "profileId" in columns,
+            )
+            db.execSQL("DROP TABLE IF EXISTS `local_ratings_new`")
+            db.execSQL(
+                """
+                CREATE TABLE `local_ratings_new` (
+                    `profileId` TEXT NOT NULL DEFAULT '',
+                    `songId` TEXT NOT NULL,
+                    `provider` TEXT NOT NULL DEFAULT 'subsonic',
+                    `rating` REAL NOT NULL,
+                    `serverRating` INTEGER NOT NULL,
+                    `needsSync` INTEGER NOT NULL,
+                    `updatedAt` INTEGER NOT NULL,
+                    PRIMARY KEY(`profileId`, `songId`, `provider`)
+                )
+                """.trimIndent(),
+            )
+            db.execSQL(
+                """
+                INSERT OR REPLACE INTO `local_ratings_new`
+                    (`profileId`, `songId`, `provider`, `rating`, `serverRating`, `needsSync`, `updatedAt`)
+                SELECT
+                    $profileIdExpression,
+                    `songId`, `provider`, `rating`, `serverRating`, `needsSync`, `updatedAt`
+                FROM `local_ratings`
+                """.trimIndent(),
+            )
+            db.execSQL("DROP TABLE `local_ratings`")
+            db.execSQL("ALTER TABLE `local_ratings_new` RENAME TO `local_ratings`")
+        }
+
+        private fun rebuildAlbumRatingsForProfileScope(db: SupportSQLiteDatabase) {
+            val columns = db.tableColumns("album_ratings")
+            if ("albumId" !in columns) return
+            val profileIdExpression = profileIdExpressionForProviderBackfill(
+                tableName = "album_ratings",
+                providerColumn = "provider",
+                hasProfileIdColumn = "profileId" in columns,
+            )
+            db.execSQL("DROP TABLE IF EXISTS `album_ratings_new`")
+            db.execSQL(
+                """
+                CREATE TABLE `album_ratings_new` (
+                    `profileId` TEXT NOT NULL DEFAULT '',
+                    `albumId` TEXT NOT NULL,
+                    `provider` TEXT NOT NULL DEFAULT 'subsonic',
+                    `rating` REAL NOT NULL,
+                    `review` TEXT,
+                    `neoDbReviewUuid` TEXT,
+                    `ratingNeedsSync` INTEGER NOT NULL,
+                    `reviewNeedsSync` INTEGER NOT NULL,
+                    `updatedAt` INTEGER NOT NULL,
+                    PRIMARY KEY(`profileId`, `albumId`, `provider`)
+                )
+                """.trimIndent(),
+            )
+            db.execSQL(
+                """
+                INSERT OR REPLACE INTO `album_ratings_new`
+                    (`profileId`, `albumId`, `provider`, `rating`, `review`, `neoDbReviewUuid`,
+                     `ratingNeedsSync`, `reviewNeedsSync`, `updatedAt`)
+                SELECT
+                    $profileIdExpression,
+                    `albumId`, `provider`, `rating`, `review`, `neoDbReviewUuid`,
+                    `ratingNeedsSync`, `reviewNeedsSync`, `updatedAt`
+                FROM `album_ratings`
+                """.trimIndent(),
+            )
+            db.execSQL("DROP TABLE `album_ratings`")
+            db.execSQL("ALTER TABLE `album_ratings_new` RENAME TO `album_ratings`")
+        }
+
+        private fun ensureSongNotesProfileScope(db: SupportSQLiteDatabase) {
+            val columns = db.tableColumns("song_notes")
+            if ("trackId" !in columns) return
+            if ("profileId" !in columns) {
+                db.execSQL("ALTER TABLE `song_notes` ADD COLUMN `profileId` TEXT NOT NULL DEFAULT ''")
+            }
+            backfillProfileIdColumn(db, tableName = "song_notes", providerColumn = "provider")
+            db.execSQL(
+                """
+                CREATE INDEX IF NOT EXISTS `index_song_notes_title_artist`
+                ON `song_notes` (`title`, `artist`)
+                """.trimIndent(),
+            )
+            db.execSQL("DROP INDEX IF EXISTS `index_song_notes_trackId_provider`")
+            db.execSQL(
+                """
+                CREATE INDEX IF NOT EXISTS `index_song_notes_profileId_trackId_provider`
+                ON `song_notes` (`profileId`, `trackId`, `provider`)
+                """.trimIndent(),
+            )
+        }
+
+        private fun ensureAlbumNotesProfileScope(db: SupportSQLiteDatabase) {
+            val columns = db.tableColumns("album_notes")
+            if ("albumId" !in columns) return
+            if ("profileId" !in columns) {
+                db.execSQL("ALTER TABLE `album_notes` ADD COLUMN `profileId` TEXT NOT NULL DEFAULT ''")
+            }
+            backfillProfileIdColumn(db, tableName = "album_notes", providerColumn = "provider")
+            db.execSQL(
+                """
+                CREATE INDEX IF NOT EXISTS `index_album_notes_albumName_artist`
+                ON `album_notes` (`albumName`, `artist`)
+                """.trimIndent(),
+            )
+            db.execSQL("DROP INDEX IF EXISTS `index_album_notes_albumId_provider`")
+            db.execSQL(
+                """
+                CREATE INDEX IF NOT EXISTS `index_album_notes_profileId_albumId_provider`
+                ON `album_notes` (`profileId`, `albumId`, `provider`)
+                """.trimIndent(),
+            )
+        }
+
+        private fun backfillProfileIdColumn(
+            db: SupportSQLiteDatabase,
+            tableName: String,
+            providerColumn: String,
+        ) {
+            db.execSQL(
+                """
+                UPDATE `$tableName`
+                SET `profileId` = COALESCE((
+                    SELECT `id` FROM `profiles`
+                    WHERE `profiles`.`provider` = `$tableName`.`$providerColumn`
+                    ORDER BY `createdAt` ASC
+                    LIMIT 1
+                ), '')
+                WHERE `profileId` = ''
+                """.trimIndent(),
+            )
+        }
+
+        private fun profileIdExpressionForProviderBackfill(
+            tableName: String,
+            providerColumn: String,
+            hasProfileIdColumn: Boolean,
+        ): String {
+            val profileLookup = """
+                (
+                    SELECT `id` FROM `profiles`
+                    WHERE `profiles`.`provider` = `$tableName`.`$providerColumn`
+                    ORDER BY `createdAt` ASC
+                    LIMIT 1
+                )
+            """.trimIndent()
+            return if (hasProfileIdColumn) {
+                "COALESCE(NULLIF(`$tableName`.`profileId`, ''), $profileLookup, '')"
+            } else {
+                "COALESCE($profileLookup, '')"
+            }
+        }
+
+        private fun SupportSQLiteDatabase.tableColumns(tableName: String): Set<String> {
+            val cursor = query("PRAGMA table_info(`$tableName`)")
+            return cursor.use {
+                val nameIndex = it.getColumnIndex("name")
+                buildSet {
+                    while (it.moveToNext()) {
+                        add(it.getString(nameIndex))
+                    }
+                }
             }
         }
 

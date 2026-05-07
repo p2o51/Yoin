@@ -154,8 +154,8 @@ class MemoriesViewModel(
      *
      * - 没登录（NeoDB config 缺 token）→ 发 [MemoriesOneShotEvent.NeoDBNotConfigured]，
      *   让 UI 层引导用户去 Settings 配 BYOK。
-     * - 登录了，但本地该专辑没评分也没评论 → 发 [MemoriesOneShotEvent.NeoDBNothingToSync]，
-     *   告诉用户先评分 / 写 review 再来。
+     * - 登录了，但本地该专辑缺评分或 review → 发 [MemoriesOneShotEvent.NeoDBNothingToSync]，
+     *   告诉用户先补齐专辑评分和 review 再来。
      * - 正常路径 → 走 repository.pushAlbumToNeoDB，成功 / 失败都通过
      *   [MemoriesOneShotEvent.NeoDBSyncResult] 通知 UI。
      *
@@ -187,13 +187,14 @@ class MemoriesViewModel(
                     return@launch
                 }
 
-                // 没评分也没 review —— 推上去是空操作，直接提示用户。
+                // NeoDB 以 album Mark + Review 为目标；第一阶段要求两者
+                // 都存在，避免把半截 Memory 推成远端状态。
                 val existingRating = runCatching {
                     repository.observeAlbumRating(resolvedAlbumId).first()
                 }.getOrNull()
                 val hasRating = (existingRating?.rating ?: 0f) > 0f
                 val hasReview = !existingRating?.review.isNullOrBlank()
-                if (!hasRating && !hasReview) {
+                if (!hasRating || !hasReview) {
                     _events.tryEmit(MemoriesOneShotEvent.NeoDBNothingToSync)
                     return@launch
                 }
@@ -201,7 +202,7 @@ class MemoriesViewModel(
                 // 按需置脏：只标有内容的一侧，避免把「空 rating」推到 NeoDB
                 // 覆盖掉用户在网页端打的分。ratingNeedsSync 和 reviewNeedsSync
                 // 两个脏位分开就是为了防这种情况。
-                val rating = existingRating ?: return@launch
+                val rating = existingRating
                 if (hasRating) {
                     repository.setAlbumRating(album, rating.rating)
                 }

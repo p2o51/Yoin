@@ -68,10 +68,10 @@ class NeoDBSyncService internal constructor(
      * `externalId`，所以同一张专辑的 Subsonic 版和 Spotify 版 push 时
      * uuid 是同一个，NeoDB 侧 Mark/Review 只会被覆写一次（POST 幂等）。
      */
-    suspend fun pushAlbum(album: Album): Result<Unit> = runCatching {
+    suspend fun pushAlbum(profileId: String, album: Album): Result<Unit> = runCatching {
         val session = currentSession() ?: error("NeoDB 未配置")
 
-        val local = albumRatingDao.get(album.id.rawId, album.id.provider)
+        val local = albumRatingDao.get(album.id.rawId, album.id.provider, profileId)
             ?: return@runCatching
         if (!local.ratingNeedsSync && !local.reviewNeedsSync) return@runCatching
 
@@ -164,14 +164,14 @@ class NeoDBSyncService internal constructor(
      *    critique：之前 pullAlbum 只靠本地 uuid 匹配，远端孤儿 review
      *    永远拉不下来。
      */
-    suspend fun pullAlbum(album: Album): Result<AlbumRating?> = runCatching {
+    suspend fun pullAlbum(profileId: String, album: Album): Result<AlbumRating?> = runCatching {
         val session = currentSession() ?: error("NeoDB 未配置")
 
         val itemUuid = resolveAlbumUuid(album, session) ?: return@runCatching null
         val remote = api.getShelfItem(session.instance, session.token, itemUuid)
         // remote 为 null（NeoDB 上这张专辑还没 shelf 记录）时，仍可能有
         // 孤儿 Review —— 继续尝试拉 review。
-        val existing = albumRatingDao.get(album.id.rawId, album.id.provider)
+        val existing = albumRatingDao.get(album.id.rawId, album.id.provider, profileId)
 
         val mergedRating = when {
             existing?.ratingNeedsSync == true -> existing.rating
@@ -203,6 +203,7 @@ class NeoDBSyncService internal constructor(
         if (!hasAnyContent) return@runCatching null
 
         val resolved = AlbumRating(
+            profileId = profileId,
             albumId = album.id.rawId,
             provider = album.id.provider,
             rating = mergedRating,
