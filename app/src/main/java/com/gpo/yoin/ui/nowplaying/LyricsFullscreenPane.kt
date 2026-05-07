@@ -2,8 +2,12 @@ package com.gpo.yoin.ui.nowplaying
 
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.DragInteraction
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -19,6 +23,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
@@ -28,23 +33,20 @@ import com.gpo.yoin.ui.component.YoinLoadingIndicator
 import com.gpo.yoin.ui.component.edgeFade
 
 /**
- * Fullscreen Lyrics viewer. Unlike the compact [LyricsDisplay] window
- * (which only renders a fixed 5-line slice and has no scroll), this one:
- *
- * - Renders every line in a scrollable [LazyColumn] at large-display typography.
- * - Smoothly auto-scrolls the current line towards the vertical center
- *   whenever playback advances or the user taps away.
- * - Accepts manual scroll — the user can peek ahead/back without fighting
- *   the auto-scroll; we only re-center when the active line actually
- *   changes.
- * - Masks the top + bottom with a fade so the moving scroll looks
- *   like it is breathing instead of hard-cutting at the tab/bar edges.
+ * Fullscreen Lyrics viewer. Unlike the compact [com.gpo.yoin.ui.component.LyricsDisplay]
+ * window, this one renders every line, supports tap-to-seek, and lets the
+ * parent action bar suspend / resume auto-centering.
  */
 @Composable
 fun LyricsFullscreenPane(
     lyrics: List<LyricLine>,
     positionMs: Long,
     loading: Boolean,
+    showTranslation: Boolean,
+    autoScrollEnabled: Boolean,
+    recenterRequestKey: Int,
+    onUserScroll: () -> Unit,
+    onSeekToMs: (Long) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     if (lyrics.isEmpty()) {
@@ -70,11 +72,10 @@ fun LyricsFullscreenPane(
     }
     val listState = rememberLazyListState()
 
-    // Centering: LazyColumn's scrollToItem takes a pixel offset relative
-    // to the top of the visible area. We offset by ~-40% of the viewport
-    // height so the active line lands roughly a third down from the top,
-    // which reads as "center of attention" rather than literal midpoint.
-    LaunchedEffect(currentIndex, listState) {
+    // Offset by ~38% of the viewport so the active line reads as the
+    // center of attention instead of a literal midpoint.
+    LaunchedEffect(currentIndex, listState, autoScrollEnabled, recenterRequestKey) {
+        if (!autoScrollEnabled) return@LaunchedEffect
         if (currentIndex < 0) return@LaunchedEffect
         val viewportPx = listState.layoutInfo.viewportSize.height
         val offsetPx = -(viewportPx * 0.38f).toInt()
@@ -82,6 +83,15 @@ fun LyricsFullscreenPane(
             index = currentIndex.coerceIn(0, lyrics.lastIndex),
             scrollOffset = offsetPx,
         )
+    }
+
+    val latestOnUserScroll by rememberUpdatedState(onUserScroll)
+    LaunchedEffect(listState) {
+        listState.interactionSource.interactions.collect { interaction ->
+            if (interaction is DragInteraction.Start) {
+                latestOnUserScroll()
+            }
+        }
     }
 
     Box(
@@ -98,7 +108,10 @@ fun LyricsFullscreenPane(
             itemsIndexed(lyrics) { index, line ->
                 LyricRow(
                     text = line.text,
+                    translation = line.translation,
+                    showTranslation = showTranslation,
                     isActive = index == currentIndex,
+                    onTap = line.startMs?.let { ms -> { onSeekToMs(ms) } },
                 )
             }
             item { Spacer(modifier = Modifier.height(96.dp)) }
@@ -109,7 +122,10 @@ fun LyricsFullscreenPane(
 @Composable
 private fun LyricRow(
     text: String,
+    translation: String?,
+    showTranslation: Boolean,
     isActive: Boolean,
+    onTap: (() -> Unit)?,
     modifier: Modifier = Modifier,
 ) {
     val textColor by animateColorAsState(
@@ -131,14 +147,20 @@ private fun LyricRow(
         animationSpec = com.gpo.yoin.ui.theme.YoinMotion.defaultSpatialSpec(),
         label = "lyricScale",
     )
-    Text(
-        text = text,
-        style = MaterialTheme.typography.headlineSmall.copy(
-            fontWeight = if (isActive) FontWeight.ExtraBold else FontWeight.SemiBold,
-        ),
-        color = textColor,
+    val interactionSource = remember { MutableInteractionSource() }
+    val clickableModifier = if (onTap != null) {
+        Modifier.clickable(
+            interactionSource = interactionSource,
+            indication = null,
+            onClick = onTap,
+        )
+    } else {
+        Modifier
+    }
+    Column(
         modifier = modifier
             .fillMaxWidth()
+            .then(clickableModifier)
             .padding(vertical = 6.dp)
             .graphicsLayer {
                 this.alpha = alpha
@@ -146,7 +168,25 @@ private fun LyricRow(
                 scaleY = scale
                 transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0f, 0.5f)
             },
-    )
+    ) {
+        Text(
+            text = text,
+            style = MaterialTheme.typography.headlineSmall.copy(
+                fontWeight = if (isActive) FontWeight.ExtraBold else FontWeight.SemiBold,
+            ),
+            color = textColor,
+        )
+        if (showTranslation && !translation.isNullOrBlank()) {
+            Text(
+                text = translation,
+                style = MaterialTheme.typography.bodyLarge.copy(
+                    fontWeight = if (isActive) FontWeight.SemiBold else FontWeight.Medium,
+                ),
+                color = textColor.copy(alpha = if (isActive) 0.82f else 0.7f),
+                modifier = Modifier.padding(top = 4.dp),
+            )
+        }
+    }
 }
 
 private fun findCurrentLyricIndex(lyrics: List<LyricLine>, positionMs: Long): Int {
@@ -159,4 +199,3 @@ private fun findCurrentLyricIndex(lyrics: List<LyricLine>, positionMs: Long): In
     }
     return result
 }
-

@@ -69,6 +69,7 @@ import com.gpo.yoin.ui.detail.PlaylistDetailViewModel
 import com.gpo.yoin.ui.home.HomeScreen
 import com.gpo.yoin.ui.home.HomeViewModel
 import com.gpo.yoin.ui.library.LibraryScreen
+import com.gpo.yoin.ui.library.LibrarySearchScope
 import com.gpo.yoin.ui.library.LibraryViewModel
 import com.gpo.yoin.ui.experience.HomeSurface
 import com.gpo.yoin.ui.experience.rememberRevealState
@@ -512,6 +513,7 @@ private fun YoinShell(
     val detailPage by nowPlayingViewModel.detailPage.collectAsState()
     val notesState by nowPlayingViewModel.notesState.collectAsState()
     val devicesState by nowPlayingViewModel.devicesState.collectAsState()
+    val lyricsSearchState by nowPlayingViewModel.lyricsSearchState.collectAsState()
     val memoriesReveal = rememberRevealState(
         initialFraction = if (homeSurface == HomeSurface.Memories) 0f else 1f,
     )
@@ -900,6 +902,15 @@ private fun YoinShell(
                     onSkipNext = nowPlayingViewModel::skipNext,
                     onSkipPrevious = nowPlayingViewModel::skipPrevious,
                     onSeek = nowPlayingViewModel::seekTo,
+                    onSeekToMs = nowPlayingViewModel::seekToMs,
+                    lyricsSearchState = lyricsSearchState,
+                    onOpenLyricsSearch = nowPlayingViewModel::openLyricsSearch,
+                    onLyricsSearchQueryChange = nowPlayingViewModel::updateLyricsSearchQuery,
+                    onSearchLyrics = nowPlayingViewModel::searchLyrics,
+                    onApplyLyricsSearchResult = nowPlayingViewModel::applyLyricsSearchResult,
+                    onDismissLyricsSearch = nowPlayingViewModel::dismissLyricsSearch,
+                    onTranslateLyrics = nowPlayingViewModel::translateLyrics,
+                    onApplyLyrics = nowPlayingViewModel::applyLyrics,
                     onRatingChange = nowPlayingViewModel::setRating,
                     onToggleFavorite = nowPlayingViewModel::toggleFavorite,
                     onAddCurrentToPlaylist = nowPlayingViewModel::requestAddCurrentToPlaylist,
@@ -1009,6 +1020,19 @@ private fun YoinShell(
                         experienceSessionStore.setNowPlayingExpanded(true)
                     },
                     onLibraryClick = {
+                        libraryViewModel.showLibraryHome()
+                        experienceSessionStore.setSelectedSection(YoinSection.LIBRARY)
+                        experienceSessionStore.setHomeSurface(HomeSurface.Feed)
+                    },
+                    onLibraryLongClick = {
+                        val scope = if (
+                            app.container.repository.currentProviderId() == MediaId.PROVIDER_SPOTIFY
+                        ) {
+                            LibrarySearchScope.SpotifyGlobal
+                        } else {
+                            LibrarySearchScope.CurrentLibrary
+                        }
+                        libraryViewModel.openSearchShortcut(scope)
                         experienceSessionStore.setSelectedSection(YoinSection.LIBRARY)
                         experienceSessionStore.setHomeSurface(HomeSurface.Feed)
                     },

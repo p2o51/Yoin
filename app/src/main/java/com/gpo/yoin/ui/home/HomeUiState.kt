@@ -11,10 +11,17 @@ sealed interface HomeUiState {
     data class Content(
         val activities: List<ActivityEvent>,
         val jumpBackInItems: List<HomeJumpBackInItem>,
+        val memoryTeaser: MemoryTeaser? = null,
     ) : HomeUiState
 
     data class Error(val message: String) : HomeUiState
 }
+
+data class MemoryTeaser(
+    val albumId: String,
+    val title: String,
+    val supportingText: String,
+)
 
 sealed interface HomeJumpBackInItem {
     val stableId: String

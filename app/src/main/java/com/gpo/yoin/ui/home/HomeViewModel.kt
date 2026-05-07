@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.gpo.yoin.AppContainer
+import com.gpo.yoin.data.memory.AlbumMemoryCandidate
 import com.gpo.yoin.data.model.Album
 import com.gpo.yoin.data.model.Artist
 import com.gpo.yoin.data.model.ArtistIndex
@@ -112,10 +113,14 @@ class HomeViewModel(
                     batchSize = JUMP_BACK_IN_FIXED_COUNT,
                 )
             }
+            val memoryTeaserDeferred = async {
+                repository.getTopAlbumMemoryCandidate()?.toMemoryTeaser()
+            }
 
             HomeUiState.Content(
                 activities = activitiesDeferred.await(),
                 jumpBackInItems = jumpBackInDeferred.await(),
+                memoryTeaser = memoryTeaserDeferred.await(),
             )
         }
 
@@ -131,6 +136,9 @@ class HomeViewModel(
                 maxAgeMs = SpotifyHomeCacheTtlMillis,
             )
         }
+        val memoryTeaserDeferred = async {
+            repository.getTopAlbumMemoryCandidate()?.toMemoryTeaser()
+        }
 
         val activities = activitiesDeferred.await()
         val cacheSnapshot = cacheSnapshotDeferred.await()
@@ -143,12 +151,14 @@ class HomeViewModel(
             shuffleCandidates = false,
         )
 
-        if (activities.isEmpty() && jumpBackInItems.isEmpty()) {
+        val memoryTeaser = memoryTeaserDeferred.await()
+        if (activities.isEmpty() && jumpBackInItems.isEmpty() && memoryTeaser == null) {
             null
         } else {
             HomeUiState.Content(
                 activities = activities,
                 jumpBackInItems = jumpBackInItems,
+                memoryTeaser = memoryTeaser,
             )
         }
     }
@@ -164,6 +174,9 @@ class HomeViewModel(
         }
         val artistsDeferred = async {
             loadArtistsFlat()
+        }
+        val memoryTeaserDeferred = async {
+            repository.getTopAlbumMemoryCandidate()?.toMemoryTeaser()
         }
 
         val activities = activitiesDeferred.await()
@@ -194,6 +207,7 @@ class HomeViewModel(
                 batchSize = JUMP_BACK_IN_FIXED_COUNT,
                 shuffleCandidates = false,
             ),
+            memoryTeaser = memoryTeaserDeferred.await(),
         )
     }
 
@@ -229,12 +243,31 @@ class HomeViewModel(
         viewModelScope.launch {
             repository.getRecentActivities(limit = 20).collectLatest { activities ->
                 val currentContent = _uiState.value as? HomeUiState.Content ?: return@collectLatest
-                val nextContent = currentContent.copy(activities = activities)
+                val nextContent = currentContent.copy(
+                    activities = activities,
+                    memoryTeaser = repository.getTopAlbumMemoryCandidate()?.toMemoryTeaser(),
+                )
                 homeContentCache[homeScopeKey(repository.currentProviderId(), activeProfileId.value)] = nextContent
                 _uiState.value = nextContent
             }
         }
     }
+
+    private fun AlbumMemoryCandidate.toMemoryTeaser(): MemoryTeaser =
+        MemoryTeaser(
+            albumId = "$provider:$albumId",
+            title = albumName,
+            supportingText = when {
+                hasAlbumReview ->
+                    "Your album review is ready to revisit."
+                totalTracks > 0 && ratedTrackCount > 0 ->
+                    "Rated $ratedTrackCount/$totalTracks songs. Shape it into an album memory."
+                noteCount >= 2 ->
+                    "$noteCount notes are waiting to become an album memory."
+                else ->
+                    "There is enough signal to shape this album into a memory."
+            },
+        )
 
     private fun buildJumpBackInBatch(
         albumCandidates: List<Album>,

@@ -146,6 +146,7 @@ private const val HomeBackdropPaletteWarmupDelayMillis = 350L
 internal fun HomeEditorialContent(
     activities: List<ActivityEvent>,
     jumpBackInItems: List<HomeJumpBackInItem>,
+    memoryTeaser: MemoryTeaser? = null,
     isPlaying: Boolean,
     playbackSignal: Float,
     activeSongId: String? = null,
@@ -283,6 +284,16 @@ internal fun HomeEditorialContent(
             )
         }
 
+        memoryTeaser?.let { teaser ->
+            item(key = "memory-teaser") {
+                MemoryTeaserRow(
+                    teaser = teaser,
+                    onClick = onNavigateToMemories,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+        }
+
         item {
             AnimatedVisibility(visible = activityEntries.isNotEmpty()) {
                 ActivityGrid(
@@ -396,6 +407,67 @@ private fun HomeContentHeader(
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
+        }
+    }
+}
+
+@Composable
+private fun MemoryTeaserRow(
+    teaser: MemoryTeaser,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val haptics = rememberYoinHaptics()
+    Surface(
+        modifier = modifier,
+        onClick = {
+            haptics.performContextClick()
+            onClick()
+        },
+        shape = YoinShapeTokens.Large,
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        tonalElevation = 0.dp,
+        shadowElevation = 0.dp,
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .minimumTouchTarget()
+                .padding(horizontal = 14.dp, vertical = 12.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                imageVector = Icons.Filled.LibraryMusic,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.secondary,
+                modifier = Modifier.size(22.dp),
+            )
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                Text(
+                    text = teaser.title,
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    text = teaser.supportingText,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            Icon(
+                imageVector = Icons.Filled.KeyboardArrowDown,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(20.dp),
+            )
         }
     }
 }

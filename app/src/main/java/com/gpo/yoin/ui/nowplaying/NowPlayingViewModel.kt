@@ -43,6 +43,10 @@ class NowPlayingViewModel(
 
     private val _lyrics = MutableStateFlow<List<LyricLine>>(emptyList())
     private val _lyricsLoading = MutableStateFlow(false)
+    private val _showLyricsTranslation = MutableStateFlow(false)
+    private val _lyricsActionInFlight = MutableStateFlow<LyricsAction?>(null)
+    private val _lyricsSearchState = MutableStateFlow(LyricsSearchState())
+    val lyricsSearchState: StateFlow<LyricsSearchState> = _lyricsSearchState.asStateFlow()
     private val _isStarred = MutableStateFlow(false)
 
     // Transient ask-bar state drives the fullscreen About UI animation — NOT
@@ -88,6 +92,10 @@ class NowPlayingViewModel(
                     _isStarred.value = track?.isStarred == true
                     _lyrics.value = emptyList()
                     _lyricsLoading.value = true
+                    _showLyricsTranslation.value = false
+                    _lyricsActionInFlight.value = null
+                    lyricsSearchJob?.cancel()
+                    _lyricsSearchState.value = LyricsSearchState()
                     _aboutError.value = null
                     _askState.value = AskBarState.Idle
 
@@ -95,6 +103,10 @@ class NowPlayingViewModel(
                 } else {
                     _lyrics.value = emptyList()
                     _lyricsLoading.value = false
+                    _showLyricsTranslation.value = false
+                    _lyricsActionInFlight.value = null
+                    lyricsSearchJob?.cancel()
+                    _lyricsSearchState.value = LyricsSearchState()
                     _isStarred.value = false
                     _aboutError.value = null
                     _askState.value = AskBarState.Idle
@@ -173,13 +185,26 @@ class NowPlayingViewModel(
         playbackManager.currentActivityContext,
     ) { state, ctx -> state to ctx }
 
-    val uiState: StateFlow<NowPlayingUiState> = combine(
-        playbackAndContext,
+    private val lyricsUiState = combine(
         _lyrics,
         _lyricsLoading,
+        _showLyricsTranslation,
+        _lyricsActionInFlight,
+    ) { lyrics, loading, showTranslation, actionInFlight ->
+        LyricsUiState(
+            lyrics = lyrics,
+            loading = loading,
+            showTranslation = showTranslation,
+            actionInFlight = actionInFlight,
+        )
+    }
+
+    val uiState: StateFlow<NowPlayingUiState> = combine(
+        playbackAndContext,
+        lyricsUiState,
         ratingFlow,
         favoriteFlow,
-    ) { (state, activityContext), lyrics, lyricsLoading, rating, isStarred ->
+    ) { (state, activityContext), lyricsState, rating, isStarred ->
         val song = state.currentTrack
         val pending = state.pendingTrack
         when {
@@ -204,8 +229,10 @@ class NowPlayingViewModel(
                 songId = song.id.toString(),
                 rating = rating,
                 isStarred = isStarred,
-                lyrics = lyrics,
-                lyricsLoading = lyricsLoading,
+                lyrics = lyricsState.lyrics,
+                showLyricsTranslation = lyricsState.showTranslation,
+                lyricsActionInFlight = lyricsState.actionInFlight,
+                lyricsLoading = lyricsState.loading,
                 queue = state.queue.map { queueSong ->
                     QueueItem(
                         songId = queueSong.id.toString(),
@@ -269,6 +296,185 @@ class NowPlayingViewModel(
         val durationMs = playbackManager.playbackState.value.duration
         if (durationMs > 0) {
             playbackManager.seekTo((fraction.coerceIn(0f, 1f) * durationMs).toLong())
+        }
+    }
+
+    /** Seek directly to an absolute position. Used by tap-to-seek on lyric lines. */
+    fun seekToMs(positionMs: Long) {
+        val durationMs = playbackManager.playbackState.value.duration
+        val target = positionMs.coerceAtLeast(0L)
+        val clamped = if (durationMs > 0) target.coerceAtMost(durationMs) else target
+        playbackManager.seekTo(clamped)
+    }
+
+    private var lyricsSearchJob: Job? = null
+
+    fun openLyricsSearch() {
+        val song = playbackManager.playbackState.value.currentTrack ?: return
+        val query = listOf(song.title.orEmpty(), song.artist.orEmpty())
+            .map(String::trim)
+            .filter(String::isNotEmpty)
+            .joinToString(" ")
+        if (query.isBlank()) {
+            _addToPlaylistMessages.tryEmit("Need title or artist to search lyrics")
+            return
+        }
+        _lyricsSearchState.value = LyricsSearchState(
+            isOpen = true,
+            query = query,
+            providers = emptyLyricsSearchProviders(),
+        )
+        searchLyrics(query)
+    }
+
+    fun updateLyricsSearchQuery(query: String) {
+        _lyricsSearchState.value = _lyricsSearchState.value.copy(
+            query = query,
+            errorMessage = null,
+        )
+    }
+
+    fun searchLyrics(query: String = _lyricsSearchState.value.query) {
+        val trimmed = query.trim()
+        if (trimmed.isEmpty()) {
+            lyricsSearchJob?.cancel()
+            _lyricsSearchState.value = _lyricsSearchState.value.copy(
+                query = query,
+                loading = false,
+                providers = emptyLyricsSearchProviders(),
+                errorMessage = null,
+            )
+            return
+        }
+        lyricsSearchJob?.cancel()
+        _lyricsSearchState.value = _lyricsSearchState.value.copy(
+            isOpen = true,
+            query = trimmed,
+            loading = true,
+            providers = emptyLyricsSearchProviders(),
+            errorMessage = null,
+        )
+        lyricsSearchJob = viewModelScope.launch {
+            repository.searchLyricsProviderSections(trimmed)
+                .onSuccess { sections ->
+                    if (!_lyricsSearchState.value.isOpen ||
+                        _lyricsSearchState.value.query != trimmed
+                    ) {
+                        return@onSuccess
+                    }
+                    _lyricsSearchState.value = _lyricsSearchState.value.copy(
+                        loading = false,
+                        providers = sections.map { it.toUi() },
+                        errorMessage = null,
+                    )
+                }
+                .onFailure { error ->
+                    _lyricsSearchState.value = _lyricsSearchState.value.copy(
+                        loading = false,
+                        providers = emptyLyricsSearchProviders(),
+                        errorMessage = error.message ?: "Couldn't search lyrics",
+                    )
+                }
+        }
+    }
+
+    fun applyLyricsSearchResult(candidate: LyricsSearchResultUi) {
+        val songId = currentSongId.value ?: return
+        if (_lyricsSearchState.value.applyingCandidateKey != null ||
+            _lyricsActionInFlight.value != null
+        ) {
+            return
+        }
+        _lyricsSearchState.value = _lyricsSearchState.value.copy(
+            applyingCandidateKey = candidate.stableKey,
+            errorMessage = null,
+        )
+        _lyricsActionInFlight.value = LyricsAction.Search
+        viewModelScope.launch {
+            repository.applyLyricsSearchResult(
+                trackId = songId,
+                providerName = candidate.providerName,
+                songId = candidate.songId,
+            )
+                .onSuccess { result ->
+                    applyLyricsResult(result.lyrics)
+                    _lyricsSearchState.value = LyricsSearchState()
+                    _addToPlaylistMessages.tryEmit("Lyrics applied from ${result.providerName}")
+                }
+                .onFailure { error ->
+                    _lyricsSearchState.value = _lyricsSearchState.value.copy(
+                        applyingCandidateKey = null,
+                        errorMessage = error.message ?: "Couldn't apply lyrics",
+                    )
+                    _addToPlaylistMessages.tryEmit(error.message ?: "Couldn't apply lyrics")
+                }
+            _lyricsActionInFlight.value = null
+        }
+    }
+
+    fun dismissLyricsSearch() {
+        lyricsSearchJob?.cancel()
+        _lyricsSearchState.value = _lyricsSearchState.value.copy(
+            isOpen = false,
+            loading = false,
+            applyingCandidateKey = null,
+        )
+    }
+
+    private fun emptyLyricsSearchProviders(): List<LyricsSearchProviderUi> =
+        repository.lyricsProviderNames().map { providerName ->
+            LyricsSearchProviderUi(providerName = providerName)
+        }
+
+    fun applyLyrics(rawLrc: String) {
+        val songId = currentSongId.value ?: return
+        if (_lyricsActionInFlight.value != null) return
+        _lyricsActionInFlight.value = LyricsAction.Apply
+        viewModelScope.launch {
+            repository.applyLyrics(trackId = songId, rawLrc = rawLrc)
+                .onSuccess { result ->
+                    applyLyricsResult(result.lyrics)
+                    _addToPlaylistMessages.tryEmit("Lyrics applied")
+                }
+                .onFailure { error ->
+                    _addToPlaylistMessages.tryEmit(error.message ?: "Couldn't apply lyrics")
+                }
+            _lyricsActionInFlight.value = null
+        }
+    }
+
+    fun translateLyrics() {
+        val song = playbackManager.playbackState.value.currentTrack ?: return
+        val currentLyrics = _lyrics.value
+        if (currentLyrics.isEmpty() || _lyricsActionInFlight.value != null) return
+
+        if (currentLyrics.any { !it.translation.isNullOrBlank() }) {
+            _showLyricsTranslation.value = !_showLyricsTranslation.value
+            return
+        }
+
+        _lyricsActionInFlight.value = LyricsAction.Translate
+        viewModelScope.launch {
+            when (
+                val result = repository.translateLyrics(
+                    title = song.title,
+                    artist = song.artist,
+                    lines = currentLyrics.map { it.text },
+                )
+            ) {
+                YoinRepository.LyricsTranslationResult.ApiKeyMissing ->
+                    _addToPlaylistMessages.tryEmit("Gemini API key missing")
+                is YoinRepository.LyricsTranslationResult.Error ->
+                    _addToPlaylistMessages.tryEmit(result.message)
+                is YoinRepository.LyricsTranslationResult.Success -> {
+                    _lyrics.value = currentLyrics.mapIndexed { index, line ->
+                        line.copy(translation = result.translations[index])
+                    }
+                    _showLyricsTranslation.value = true
+                    _addToPlaylistMessages.tryEmit("Lyrics translated")
+                }
+            }
+            _lyricsActionInFlight.value = null
         }
     }
 
@@ -631,27 +837,27 @@ class NowPlayingViewModel(
         // CancellationException 透传，并且**不**碰 loading —— 紧接着新的 handler
         // 会把 loading 再次设成 true，避免中间闪一下 "No lyrics available"。
         try {
-            _lyrics.value = when (val lyrics = repository.getLyrics(songId, title, artist)) {
-                null -> emptyList()
-                is SourceLyrics.Synced -> lyrics.lines.map { syncedLine ->
-                    LyricLine(
-                        startMs = syncedLine.startMs,
-                        text = syncedLine.text,
-                    )
+            when (val lyrics = repository.getLyrics(songId, title, artist)) {
+                null -> {
+                    _lyrics.value = emptyList()
+                    _lyricsLoading.value = false
+                    _showLyricsTranslation.value = false
                 }
-                is SourceLyrics.Unsynced -> lyrics.text.lineSequence()
-                    .map(String::trim)
-                    .filter(String::isNotEmpty)
-                    .map { line -> LyricLine(startMs = null, text = line) }
-                    .toList()
+                else -> applyLyricsResult(lyrics)
             }
-            _lyricsLoading.value = false
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
         } catch (_: Exception) {
             _lyrics.value = emptyList()
             _lyricsLoading.value = false
+            _showLyricsTranslation.value = false
         }
+    }
+
+    private fun applyLyricsResult(lyrics: SourceLyrics) {
+        _lyrics.value = lyrics.toUiLyrics()
+        _lyricsLoading.value = false
+        _showLyricsTranslation.value = false
     }
 
     class Factory(private val container: AppContainer) : ViewModelProvider.Factory {
@@ -672,6 +878,42 @@ data class DevicesSheetState(
     val loading: Boolean = false,
     val busyDeviceId: String? = null,
     val errorMessage: String? = null,
+)
+
+private fun SourceLyrics.toUiLyrics(): List<LyricLine> = when (this) {
+    is SourceLyrics.Synced -> lines.map { syncedLine ->
+        LyricLine(
+            startMs = syncedLine.startMs,
+            text = syncedLine.text,
+        )
+    }
+    is SourceLyrics.Unsynced -> text.lineSequence()
+        .map(String::trim)
+        .filter(String::isNotEmpty)
+        .map { line -> LyricLine(startMs = null, text = line) }
+        .toList()
+}
+
+private fun YoinRepository.LyricsSearchCandidate.toUi(): LyricsSearchResultUi =
+    LyricsSearchResultUi(
+        providerName = providerName,
+        songId = songId,
+        title = title,
+        artist = artist,
+    )
+
+private fun YoinRepository.LyricsSearchProviderSection.toUi(): LyricsSearchProviderUi =
+    LyricsSearchProviderUi(
+        providerName = providerName,
+        results = candidates.map { it.toUi() },
+        errorMessage = errorMessage,
+    )
+
+private data class LyricsUiState(
+    val lyrics: List<LyricLine>,
+    val loading: Boolean,
+    val showTranslation: Boolean,
+    val actionInFlight: LyricsAction?,
 )
 
 private fun buildDevices(

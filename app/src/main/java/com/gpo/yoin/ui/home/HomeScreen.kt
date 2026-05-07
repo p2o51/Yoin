@@ -225,6 +225,7 @@ fun HomeContent(
                         HomeEditorialContent(
                             activities = uiState.activities,
                             jumpBackInItems = uiState.jumpBackInItems,
+                            memoryTeaser = uiState.memoryTeaser,
                             isPlaying = isPlaying,
                             playbackSignal = playbackSignal,
                             activeSongId = activeSongId,

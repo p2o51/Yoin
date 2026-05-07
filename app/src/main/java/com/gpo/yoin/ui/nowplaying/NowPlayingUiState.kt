@@ -48,6 +48,8 @@ sealed interface NowPlayingUiState {
         val rating: Float,
         val isStarred: Boolean,
         val lyrics: List<LyricLine>,
+        val showLyricsTranslation: Boolean,
+        val lyricsActionInFlight: LyricsAction?,
         /**
          * True while the lyrics fetch is in flight (cache miss → provider
          * fallback). UI renders a loading affordance instead of the
@@ -66,7 +68,39 @@ sealed interface NowPlayingUiState {
 data class LyricLine(
     val startMs: Long?,
     val text: String,
+    val translation: String? = null,
 )
+
+enum class LyricsAction {
+    Search,
+    Translate,
+    Apply,
+}
+
+data class LyricsSearchState(
+    val isOpen: Boolean = false,
+    val query: String = "",
+    val loading: Boolean = false,
+    val applyingCandidateKey: String? = null,
+    val providers: List<LyricsSearchProviderUi> = emptyList(),
+    val errorMessage: String? = null,
+)
+
+data class LyricsSearchProviderUi(
+    val providerName: String,
+    val results: List<LyricsSearchResultUi> = emptyList(),
+    val errorMessage: String? = null,
+)
+
+data class LyricsSearchResultUi(
+    val providerName: String,
+    val songId: String,
+    val title: String,
+    val artist: String,
+) {
+    val stableKey: String
+        get() = "$providerName:$songId"
+}
 
 data class QueueItem(
     val songId: String,
