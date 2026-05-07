@@ -1,10 +1,21 @@
-# Yoin — Android Subsonic Music Client
+# Yoin - Android Music Client
 
-Lightweight, animation-first Subsonic/OpenSubsonic music client for Android.
+Yoin is an animation-first Android Compose music client. The shipped backend is
+Subsonic/OpenSubsonic; Spotify is being added through profile-based source
+switching, read-only catalog access, and Android App Remote playback.
+
+The current product focus is a local-first music memory system, expressive album
+surfaces, Spotify search/playback hardening, lyrics tooling, and preparing the
+0.5 closed test track.
 
 ## Build & Run
 
+Use Android Studio's bundled JBR for command-line builds on this machine:
+
 ```bash
+export JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home"
+export ANDROID_HOME="$HOME/Library/Android/sdk"
+
 ./gradlew assembleDebug    # build debug APK
 ./gradlew test             # run unit tests
 ./gradlew ktlintCheck      # lint check
@@ -12,3 +23,18 @@ Lightweight, animation-first Subsonic/OpenSubsonic music client for Android.
 ```
 
 See [docs/design.md](docs/design.md) for the full design specification.
+
+## Local Tooling
+
+The Spotify track-match playground is wired as a Gradle subproject for local
+research only. It can sample exported Spotify liked-song rows, query Spotify for
+ISRCs, then check MusicBrainz candidates:
+
+```bash
+./gradlew :playground:track-match:test
+./gradlew :playground:track-match:run --args="--input .context/attachments/liked_songs.csv"
+```
+
+Debug token export is available only in debug builds through the debug source
+set. It exists to support local playground research and should not be treated as
+release behavior.

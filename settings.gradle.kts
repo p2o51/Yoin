@@ -22,3 +22,4 @@ dependencyResolutionManagement {
 
 rootProject.name = "Yoin"
 include(":app")
+include(":playground:track-match")

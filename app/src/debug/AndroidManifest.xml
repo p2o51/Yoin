@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <application>
+        <provider
+            android:name=".debug.SpotifyTokenExportProvider"
+            android:authorities="${applicationId}.debug.spotifytoken"
+            android:exported="true"
+            android:readPermission="android.permission.DUMP" />
+    </application>
+
+</manifest>
