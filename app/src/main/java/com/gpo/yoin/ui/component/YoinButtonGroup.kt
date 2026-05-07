@@ -1,5 +1,6 @@
 package com.gpo.yoin.ui.component
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionScope
@@ -12,8 +13,10 @@ import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.basicMarquee
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -27,14 +30,18 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.LibraryMusic
 import androidx.compose.material.icons.filled.MusicNote
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.ButtonGroup
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ButtonGroupDefaults
@@ -47,8 +54,11 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -67,6 +77,7 @@ import com.gpo.yoin.ui.theme.ProvideYoinMotionRole
 import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinMotionRole
 import com.gpo.yoin.ui.theme.YoinShapeTokens
+import kotlinx.coroutines.delay
 import kotlin.math.sin
 
 /**
@@ -74,7 +85,11 @@ import kotlin.math.sin
  * `ButtonGroup` API. The container itself is custom, but item interaction, pressed
  * width animation and selection affordances stay inside the official MD3 system.
  */
-@OptIn(ExperimentalMaterial3ExpressiveApi::class, ExperimentalSharedTransitionApi::class)
+@OptIn(
+    ExperimentalFoundationApi::class,
+    ExperimentalMaterial3ExpressiveApi::class,
+    ExperimentalSharedTransitionApi::class,
+)
 @Composable
 fun YoinButtonGroup(
     selectedSection: YoinSection,
@@ -89,6 +104,7 @@ fun YoinButtonGroup(
     onHomeClick: () -> Unit,
     onNowPlayingClick: () -> Unit,
     onLibraryClick: () -> Unit,
+    onLibraryLongClick: () -> Unit = onLibraryClick,
     sharedTransitionScope: SharedTransitionScope? = null,
     animatedVisibilityScope: AnimatedVisibilityScope? = null,
     modifier: Modifier = Modifier,
@@ -163,84 +179,88 @@ fun YoinButtonGroup(
             role = YoinMotionRole.Standard,
             expressiveScheme = MaterialTheme.motionScheme,
         )
+        var showLibrarySearchHint by remember { mutableStateOf(false) }
 
-        Surface(
+        Box(
             modifier = modifier
                 .fillMaxWidth()
                 .navigationBarsPadding()
                 .padding(horizontal = 16.dp, vertical = 12.dp),
-            shape = MaterialTheme.shapes.extraLarge,
-            color = surfaceColor,
-            tonalElevation = 8.dp,
-            shadowElevation = 12.dp,
         ) {
-            val homeAspect by animateFloatAsState(
-                targetValue = if (selectedSection == YoinSection.HOME) 1.5f else 1f,
-                animationSpec = YoinMotion.defaultSpatialSpec(),
-                label = "homeAspect",
-            )
-            val libraryAspect by animateFloatAsState(
-                targetValue = if (selectedSection == YoinSection.LIBRARY) 1.5f else 1f,
-                animationSpec = YoinMotion.defaultSpatialSpec(),
-                label = "libraryAspect",
-            )
-            val waveTransition = rememberInfiniteTransition(label = "wave")
-            val wavePhase by waveTransition.animateFloat(
-                initialValue = 0f,
-                targetValue = 2f * Math.PI.toFloat(),
-                animationSpec = infiniteRepeatable(
-                    animation = tween(durationMillis = 3000, easing = LinearEasing),
-                    repeatMode = RepeatMode.Restart,
-                ),
-                label = "wavePhase",
-            )
-            val waveAmplitude by animateFloatAsState(
-                targetValue = if (isPlaying) 1f else 0f,
-                animationSpec = YoinMotion.defaultSpatialSpec(),
-                label = "waveAmplitude",
-            )
-
-            ButtonGroup(
-                overflowIndicator = { _ -> },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(IntrinsicSize.Max)
-                    .padding(horizontal = 10.dp, vertical = 10.dp),
-                expandedRatio = ButtonGroupDefaults.ExpandedRatio,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically,
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = MaterialTheme.shapes.extraLarge,
+                color = surfaceColor,
+                tonalElevation = 8.dp,
+                shadowElevation = 12.dp,
             ) {
-                customItem(
-                    buttonGroupContent = {
-                        val interactionSource = rememberButtonGroupInteractionSource()
-                        FilledIconButton(
-                            onClick = {
-                                haptics.performClick()
-                                onHomeClick()
-                            },
-                            modifier = Modifier
-                                .fillMaxHeight()
-                                .aspectRatio(homeAspect)
-                                .animateWidth(interactionSource),
-                            interactionSource = interactionSource,
-                            colors = IconButtonDefaults.filledIconButtonColors(
-                                containerColor = homeContainerColor,
-                                contentColor = homeContentColor,
-                            ),
-                        ) {
+                val homeAspect by animateFloatAsState(
+                    targetValue = if (selectedSection == YoinSection.HOME) 1.5f else 1f,
+                    animationSpec = YoinMotion.defaultSpatialSpec(),
+                    label = "homeAspect",
+                )
+                val libraryAspect by animateFloatAsState(
+                    targetValue = if (selectedSection == YoinSection.LIBRARY) 1.5f else 1f,
+                    animationSpec = YoinMotion.defaultSpatialSpec(),
+                    label = "libraryAspect",
+                )
+                val waveTransition = rememberInfiniteTransition(label = "wave")
+                val wavePhase by waveTransition.animateFloat(
+                    initialValue = 0f,
+                    targetValue = 2f * Math.PI.toFloat(),
+                    animationSpec = infiniteRepeatable(
+                        animation = tween(durationMillis = 3000, easing = LinearEasing),
+                        repeatMode = RepeatMode.Restart,
+                    ),
+                    label = "wavePhase",
+                )
+                val waveAmplitude by animateFloatAsState(
+                    targetValue = if (isPlaying) 1f else 0f,
+                    animationSpec = YoinMotion.defaultSpatialSpec(),
+                    label = "waveAmplitude",
+                )
+
+                ButtonGroup(
+                    overflowIndicator = { _ -> },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(IntrinsicSize.Max)
+                        .padding(horizontal = 10.dp, vertical = 10.dp),
+                    expandedRatio = ButtonGroupDefaults.ExpandedRatio,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    customItem(
+                        buttonGroupContent = {
+                            val interactionSource = rememberButtonGroupInteractionSource()
+                            FilledIconButton(
+                                onClick = {
+                                    haptics.performClick()
+                                    onHomeClick()
+                                },
+                                modifier = Modifier
+                                    .fillMaxHeight()
+                                    .aspectRatio(homeAspect)
+                                    .animateWidth(interactionSource),
+                                interactionSource = interactionSource,
+                                colors = IconButtonDefaults.filledIconButtonColors(
+                                    containerColor = homeContainerColor,
+                                    contentColor = homeContentColor,
+                                ),
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Filled.Home,
+                                    contentDescription = "Home",
+                                )
+                            }
+                        },
+                        menuContent = { _ ->
                             Icon(
                                 imageVector = Icons.Filled.Home,
                                 contentDescription = "Home",
                             )
-                        }
-                    },
-                    menuContent = { _ ->
-                        Icon(
-                            imageVector = Icons.Filled.Home,
-                            contentDescription = "Home",
-                        )
-                    },
-                )
+                        },
+                    )
 
                 customItem(
                     buttonGroupContent = {
@@ -413,25 +433,49 @@ fun YoinButtonGroup(
                 customItem(
                     buttonGroupContent = {
                         val interactionSource = rememberButtonGroupInteractionSource()
-                        FilledIconButton(
-                            onClick = {
-                                haptics.performClick()
-                                onLibraryClick()
-                            },
+                        val libraryPressed by interactionSource.collectIsPressedAsState()
+                        LaunchedEffect(libraryPressed) {
+                            if (libraryPressed) {
+                                delay(LIBRARY_SEARCH_HINT_DELAY_MS)
+                                showLibrarySearchHint = true
+                            } else {
+                                delay(LIBRARY_SEARCH_HINT_SETTLE_MS)
+                                showLibrarySearchHint = false
+                            }
+                        }
+                        Surface(
                             modifier = Modifier
                                 .fillMaxHeight()
                                 .aspectRatio(libraryAspect)
-                                .animateWidth(interactionSource),
-                            interactionSource = interactionSource,
-                            colors = IconButtonDefaults.filledIconButtonColors(
-                                containerColor = libraryContainerColor,
-                                contentColor = libraryContentColor,
-                            ),
+                                .animateWidth(interactionSource)
+                                .combinedClickable(
+                                    interactionSource = interactionSource,
+                                    indication = null,
+                                    onClick = {
+                                        haptics.performClick()
+                                        onLibraryClick()
+                                    },
+                                    onLongClick = {
+                                        showLibrarySearchHint = true
+                                        haptics.performContextClick()
+                                        onLibraryLongClick()
+                                    },
+                                ),
+                            shape = MaterialTheme.shapes.extraLarge,
+                            color = libraryContainerColor,
+                            contentColor = libraryContentColor,
+                            tonalElevation = 0.dp,
+                            shadowElevation = 0.dp,
                         ) {
-                            Icon(
-                                imageVector = Icons.Filled.LibraryMusic,
-                                contentDescription = "Library",
-                            )
+                            Box(
+                                modifier = Modifier.fillMaxSize(),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Filled.LibraryMusic,
+                                    contentDescription = "Library",
+                                )
+                            }
                         }
                     },
                     menuContent = { _ ->
@@ -442,6 +486,58 @@ fun YoinButtonGroup(
                     },
                 )
             }
+            }
+            LibrarySearchShortcutHint(
+                visible = showLibrarySearchHint,
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(end = 26.dp)
+                    .offset(y = (-46).dp),
+            )
+        }
+    }
+}
+
+@Composable
+private fun LibrarySearchShortcutHint(
+    visible: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    AnimatedVisibility(
+        visible = visible,
+        enter = YoinMotion.scaleIn(
+            role = YoinMotionRole.Standard,
+            initialScale = 0.68f,
+        ) + YoinMotion.fadeIn(role = YoinMotionRole.Standard),
+        exit = YoinMotion.scaleOut(
+            role = YoinMotionRole.Standard,
+            targetScale = 0.82f,
+        ) + YoinMotion.fadeOut(role = YoinMotionRole.Standard),
+        modifier = modifier,
+    ) {
+        Box(
+            modifier = Modifier.size(48.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            Surface(
+                modifier = Modifier.size(46.dp),
+                shape = CircleShape,
+                color = MaterialTheme.colorScheme.surfaceContainerHighest,
+                contentColor = MaterialTheme.colorScheme.primary,
+                tonalElevation = 8.dp,
+                shadowElevation = 16.dp,
+            ) {
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Search,
+                        contentDescription = "Search shortcut",
+                        modifier = Modifier.size(21.dp),
+                    )
+                }
+            }
         }
     }
 }
@@ -449,6 +545,9 @@ fun YoinButtonGroup(
 @Composable
 private fun rememberButtonGroupInteractionSource() =
     remember { MutableInteractionSource() }
+
+private const val LIBRARY_SEARCH_HINT_DELAY_MS = 240L
+private const val LIBRARY_SEARCH_HINT_SETTLE_MS = 120L
 
 @OptIn(ExperimentalSharedTransitionApi::class)
 @Composable

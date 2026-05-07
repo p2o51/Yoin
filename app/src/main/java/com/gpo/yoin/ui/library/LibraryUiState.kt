@@ -20,6 +20,9 @@ sealed interface LibraryUiState {
         val searchQuery: String,
         val searchResults: SearchResults?,
         val isSearching: Boolean,
+        val searchScope: LibrarySearchScope = LibrarySearchScope.CurrentLibrary,
+        val canSearchSpotifyCatalog: Boolean = false,
+        val searchFocusRequestId: Long = 0L,
         /**
          * Tabs the active source supports. When the provider lacks
          * [com.gpo.yoin.data.source.Capability.PLAYLISTS_READ] the Playlists
@@ -39,3 +42,5 @@ sealed interface LibraryUiState {
 }
 
 enum class LibraryTab { Artists, Albums, Songs, Playlists, Favorites }
+
+enum class LibrarySearchScope { CurrentLibrary, SpotifyGlobal }

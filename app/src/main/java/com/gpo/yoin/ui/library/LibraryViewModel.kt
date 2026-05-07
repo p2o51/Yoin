@@ -14,6 +14,7 @@ import com.gpo.yoin.data.model.Starred
 import com.gpo.yoin.data.model.Track
 import com.gpo.yoin.data.repository.YoinRepository
 import com.gpo.yoin.data.source.Capability
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -45,13 +46,17 @@ class LibraryViewModel(
     /** One-shot toasts for playlist mutations surfaced from Library tab. */
     val messages: SharedFlow<String> = _messages.asSharedFlow()
 
-    private val searchQueryFlow = MutableStateFlow("")
+    private val searchRequestFlow = MutableStateFlow(
+        LibrarySearchRequest("", LibrarySearchScope.CurrentLibrary),
+    )
 
     private var cachedArtists: List<Artist>? = null
     private var cachedAlbums: List<Album>? = null
     private var cachedSongs: List<Track>? = null
     private var cachedPlaylists: List<Playlist>? = null
     private var cachedFavorites: Starred? = null
+    private var pendingSearchShortcutScope: LibrarySearchScope? = null
+    private var searchFocusRequestCounter = 0L
 
     val notedSongIds: StateFlow<Set<String>> = uiState
         .flatMapLatest { state ->
@@ -80,6 +85,7 @@ class LibraryViewModel(
         loadInitialData()
         observeSearch()
         observeCapabilities()
+        observeProviderSearchAvailability()
         observeFavoriteOverrides()
     }
 
@@ -90,6 +96,7 @@ class LibraryViewModel(
         cachedSongs = null
         cachedPlaylists = null
         cachedFavorites = null
+        pendingSearchShortcutScope = null
         loadInitialData()
     }
 
@@ -99,6 +106,12 @@ class LibraryViewModel(
                 val artists = loadArtistsFlat()
                 cachedArtists = artists
                 val capabilities = repository.currentCapabilities()
+                val canSearchSpotifyCatalog = isSpotifyProvider()
+                val hasPendingSearchShortcut = pendingSearchShortcutScope != null
+                val pendingScope = pendingSearchShortcutScope
+                    ?.let(::normaliseSearchScope)
+                    ?: LibrarySearchScope.CurrentLibrary
+                pendingSearchShortcutScope = null
                 _uiState.value = LibraryUiState.Content(
                     selectedTab = LibraryTab.Artists,
                     artists = artists,
@@ -109,9 +122,13 @@ class LibraryViewModel(
                     searchQuery = "",
                     searchResults = null,
                     isSearching = false,
+                    searchScope = pendingScope,
+                    canSearchSpotifyCatalog = canSearchSpotifyCatalog,
+                    searchFocusRequestId = if (hasPendingSearchShortcut) nextSearchFocusRequestId() else 0L,
                     availableTabs = visibleTabs(capabilities),
                     canCreatePlaylists = Capability.PLAYLISTS_WRITE in capabilities,
                 )
+                searchRequestFlow.value = LibrarySearchRequest("", pendingScope)
             } catch (e: Exception) {
                 _uiState.value = LibraryUiState.Error(
                     e.message ?: "Failed to load library",
@@ -197,19 +214,74 @@ class LibraryViewModel(
         }
     }
 
+    fun showLibraryHome() {
+        pendingSearchShortcutScope = null
+        searchRequestFlow.value = LibrarySearchRequest("", LibrarySearchScope.CurrentLibrary)
+        updateContent {
+            copy(
+                searchScope = LibrarySearchScope.CurrentLibrary,
+                searchQuery = "",
+                searchResults = null,
+                isSearching = false,
+            )
+        }
+    }
+
+    fun openSearchShortcut(scope: LibrarySearchScope) {
+        val effectiveScope = normaliseSearchScope(scope)
+        val current = _uiState.value as? LibraryUiState.Content
+        if (current == null) {
+            pendingSearchShortcutScope = effectiveScope
+            return
+        }
+        searchRequestFlow.value = LibrarySearchRequest("", effectiveScope)
+        _uiState.value = current.copy(
+            searchScope = effectiveScope,
+            searchQuery = "",
+            searchResults = null,
+            isSearching = false,
+            searchFocusRequestId = nextSearchFocusRequestId(),
+        )
+    }
+
+    fun selectSearchScope(scope: LibrarySearchScope) {
+        val current = _uiState.value as? LibraryUiState.Content ?: return
+        val effectiveScope = normaliseSearchScope(scope)
+        if (current.searchScope == effectiveScope) return
+
+        _uiState.value = current.copy(
+            searchScope = effectiveScope,
+            searchResults = null,
+            isSearching = current.searchQuery.isNotBlank(),
+        )
+        searchRequestFlow.value = LibrarySearchRequest(current.searchQuery, effectiveScope)
+    }
+
     fun search(query: String) {
+        val scope = (_uiState.value as? LibraryUiState.Content)
+            ?.searchScope
+            ?.let(::normaliseSearchScope)
+            ?: LibrarySearchScope.CurrentLibrary
         updateContent {
             if (searchQuery == query) {
                 this
             } else {
-                copy(searchQuery = query)
+                copy(
+                    searchQuery = query,
+                    searchResults = searchResults.takeIf { query.isNotBlank() },
+                    isSearching = if (query.isBlank()) false else isSearching,
+                )
             }
         }
-        searchQueryFlow.value = query
+        searchRequestFlow.value = LibrarySearchRequest(query, scope)
     }
 
     fun clearSearch() {
-        searchQueryFlow.value = ""
+        val scope = (_uiState.value as? LibraryUiState.Content)
+            ?.searchScope
+            ?.let(::normaliseSearchScope)
+            ?: LibrarySearchScope.CurrentLibrary
+        searchRequestFlow.value = LibrarySearchRequest("", scope)
         updateContent {
             copy(
                 searchQuery = "",
@@ -221,10 +293,11 @@ class LibraryViewModel(
 
     private fun observeSearch() {
         viewModelScope.launch {
-            searchQueryFlow
+            searchRequestFlow
                 .debounce(SEARCH_DEBOUNCE_MS)
                 .distinctUntilChanged()
-                .collectLatest { query ->
+                .collectLatest { request ->
+                    val query = request.query
                     if (query.isBlank()) {
                         updateContent {
                             copy(
@@ -237,10 +310,13 @@ class LibraryViewModel(
 
                     updateContent { copy(isSearching = true) }
                     try {
-                        val results = repository.search(query)
+                        val results = searchWithScope(query, request.scope)
                             .applyFavoriteOverrides(repository.favoriteOverrides.value)
                         updateContent {
-                            if (searchQuery != query) {
+                            if (
+                                searchQuery != query ||
+                                searchScope != normaliseSearchScope(request.scope)
+                            ) {
                                 this
                             } else {
                                 copy(
@@ -249,12 +325,21 @@ class LibraryViewModel(
                                 )
                             }
                         }
-                    } catch (_: Exception) {
+                    } catch (e: Exception) {
+                        if (e is CancellationException) throw e
+                        _messages.tryEmit(
+                            e.message?.takeIf { it.isNotBlank() }
+                                ?: "Search failed",
+                        )
                         updateContent {
-                            if (searchQuery != query) {
+                            if (
+                                searchQuery != query ||
+                                searchScope != normaliseSearchScope(request.scope)
+                            ) {
                                 this
                             } else {
                                 copy(
+                                    searchResults = SearchResults(),
                                     isSearching = false,
                                 )
                             }
@@ -282,6 +367,79 @@ class LibraryViewModel(
                 applyFavoriteOverrides(overrides)
             }
         }
+    }
+
+    private fun observeProviderSearchAvailability() {
+        viewModelScope.launch {
+            repository.activeProviderId
+                .distinctUntilChanged()
+                .collectLatest { providerId ->
+                    val canSearchSpotifyCatalog = providerId == MediaId.PROVIDER_SPOTIFY
+                    val current = _uiState.value as? LibraryUiState.Content
+                        ?: return@collectLatest
+                    val nextScope = if (canSearchSpotifyCatalog) {
+                        current.searchScope
+                    } else {
+                        LibrarySearchScope.CurrentLibrary
+                    }
+                    val scopeChanged = nextScope != current.searchScope
+                    _uiState.value = current.copy(
+                        canSearchSpotifyCatalog = canSearchSpotifyCatalog,
+                        searchScope = nextScope,
+                        searchResults = current.searchResults.takeUnless { scopeChanged },
+                        isSearching = if (scopeChanged) false else current.isSearching,
+                    )
+                    if (current.searchQuery.isNotBlank() && scopeChanged) {
+                        searchRequestFlow.value = LibrarySearchRequest(current.searchQuery, nextScope)
+                    }
+                }
+        }
+    }
+
+    private suspend fun searchWithScope(
+        query: String,
+        scope: LibrarySearchScope,
+    ): SearchResults = when (normaliseSearchScope(scope)) {
+        LibrarySearchScope.SpotifyGlobal -> repository.search(query)
+        LibrarySearchScope.CurrentLibrary -> {
+            if (isSpotifyProvider()) {
+                searchSpotifySavedLibrary(query)
+            } else {
+                repository.search(query)
+            }
+        }
+    }
+
+    private suspend fun searchSpotifySavedLibrary(query: String): SearchResults {
+        val needle = query.normaliseForSearch()
+        val favorites = cachedFavorites
+            ?: repository.getStarred()
+                .applyFavoriteOverrides(repository.favoriteOverrides.value)
+                .also { cachedFavorites = it }
+        val artists = (cachedArtists ?: loadArtistsFlat().also { cachedArtists = it })
+            .plus(favorites.artists)
+            .distinctBy(Artist::id)
+        val albums = (cachedAlbums ?: repository.getAlbumList("alphabeticalByName", size = 500)
+            .also { cachedAlbums = it })
+            .plus(favorites.albums)
+            .distinctBy(Album::id)
+        val songs = favorites.tracks
+        val playlists = cachedPlaylists ?: repository.getPlaylists().also { cachedPlaylists = it }
+
+        return SearchResults(
+            artists = artists
+                .filter { artist -> artist.matches(needle) }
+                .take(LOCAL_SEARCH_LIMIT_PER_TYPE),
+            albums = albums
+                .filter { album -> album.matches(needle) }
+                .take(LOCAL_SEARCH_LIMIT_PER_TYPE),
+            tracks = songs
+                .filter { track -> track.matches(needle) }
+                .take(LOCAL_SEARCH_LIMIT_PER_TYPE),
+            playlists = playlists
+                .filter { playlist -> playlist.matches(needle) }
+                .take(LOCAL_SEARCH_LIMIT_PER_TYPE),
+        )
     }
 
     private fun applyFavoriteOverrides(overrides: Map<MediaId, Boolean>) {
@@ -361,6 +519,21 @@ class LibraryViewModel(
         }
     }
 
+    private fun normaliseSearchScope(scope: LibrarySearchScope): LibrarySearchScope =
+        if (scope == LibrarySearchScope.SpotifyGlobal && !isSpotifyProvider()) {
+            LibrarySearchScope.CurrentLibrary
+        } else {
+            scope
+        }
+
+    private fun isSpotifyProvider(): Boolean =
+        repository.currentProviderId() == MediaId.PROVIDER_SPOTIFY
+
+    private fun nextSearchFocusRequestId(): Long {
+        searchFocusRequestCounter += 1
+        return searchFocusRequestCounter
+    }
+
     class Factory(private val container: AppContainer) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T =
@@ -372,5 +545,40 @@ class LibraryViewModel(
 
     companion object {
         private const val SEARCH_DEBOUNCE_MS = 300L
+        private const val LOCAL_SEARCH_LIMIT_PER_TYPE = 40
     }
 }
+
+private data class LibrarySearchRequest(
+    val query: String,
+    val scope: LibrarySearchScope,
+)
+
+private fun String.normaliseForSearch(): String = trim().lowercase()
+
+private fun String?.containsSearchToken(token: String): Boolean {
+    val value = this ?: return false
+    return value.isNotBlank() && value.lowercase().contains(token)
+}
+
+private fun Artist.matches(token: String): Boolean =
+    name.containsSearchToken(token) || id.rawId.containsSearchToken(token)
+
+private fun Album.matches(token: String): Boolean =
+    name.containsSearchToken(token) ||
+        artist.containsSearchToken(token) ||
+        genre.containsSearchToken(token) ||
+        year?.toString().containsSearchToken(token) ||
+        id.rawId.containsSearchToken(token)
+
+private fun Track.matches(token: String): Boolean =
+    title.containsSearchToken(token) ||
+        artist.containsSearchToken(token) ||
+        album.containsSearchToken(token) ||
+        genre.containsSearchToken(token) ||
+        id.rawId.containsSearchToken(token)
+
+private fun Playlist.matches(token: String): Boolean =
+    name.containsSearchToken(token) ||
+        owner.containsSearchToken(token) ||
+        id.rawId.containsSearchToken(token)

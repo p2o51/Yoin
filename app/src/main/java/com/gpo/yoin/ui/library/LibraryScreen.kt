@@ -44,6 +44,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.unit.Dp
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -55,6 +56,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
@@ -141,6 +144,7 @@ fun LibraryScreen(
         playbackSignal = playbackSignal,
         notedSongIds = notedSongIds,
         onTabSelected = viewModel::selectTab,
+        onSearchScopeSelected = viewModel::selectSearchScope,
         onSearchQueryChanged = viewModel::search,
         onClearSearch = viewModel::clearSearch,
         onNavigateToSettings = onNavigateToSettings,
@@ -165,6 +169,7 @@ fun LibraryContent(
     playbackSignal: Float = 0f,
     notedSongIds: Set<String> = emptySet(),
     onTabSelected: (LibraryTab) -> Unit,
+    onSearchScopeSelected: (LibrarySearchScope) -> Unit = {},
     onSearchQueryChanged: (String) -> Unit,
     onClearSearch: () -> Unit,
     onNavigateToSettings: () -> Unit,
@@ -240,6 +245,7 @@ fun LibraryContent(
                         playbackSignal = playbackSignal,
                         notedSongIds = notedSongIds,
                         onTabSelected = onTabSelected,
+                        onSearchScopeSelected = onSearchScopeSelected,
                         onSearchQueryChanged = onSearchQueryChanged,
                         onClearSearch = onClearSearch,
                         onNavigateToSettings = onNavigateToSettings,
@@ -266,6 +272,7 @@ private fun LibraryContentBody(
     playbackSignal: Float = 0f,
     notedSongIds: Set<String>,
     onTabSelected: (LibraryTab) -> Unit,
+    onSearchScopeSelected: (LibrarySearchScope) -> Unit,
     onSearchQueryChanged: (String) -> Unit,
     onClearSearch: () -> Unit,
     onNavigateToSettings: () -> Unit,
@@ -288,12 +295,21 @@ private fun LibraryContentBody(
         SearchHeader(
             searchQuery = state.searchQuery,
             isSearching = state.isSearching,
+            placeholder = state.searchScope.placeholder(),
+            focusRequestId = state.searchFocusRequestId,
             onSearchQueryChanged = onSearchQueryChanged,
             onClearSearch = onClearSearch,
             onNavigateToSettings = onNavigateToSettings,
         )
 
-        if (state.searchQuery.isBlank()) {
+        if (state.canSearchSpotifyCatalog) {
+            LibrarySearchScopeChips(
+                selectedScope = state.searchScope,
+                onScopeSelected = onSearchScopeSelected,
+            )
+        }
+
+        if (state.searchQuery.isBlank() && state.searchScope == LibrarySearchScope.CurrentLibrary) {
             LibraryFilterChips(
                 tabs = state.availableTabs,
                 selectedTab = state.selectedTab,
@@ -314,11 +330,14 @@ private fun LibraryContentBody(
                     notedSongIds = notedSongIds,
                     onArtistClick = onArtistClick,
                     onAlbumClick = onAlbumClick,
+                    onPlaylistClick = onPlaylistClick,
                     onSongClick = onSongClick,
                     onAddSongToPlaylist = onAddSongToPlaylist,
                     coverArtUrlBuilder = coverArtUrlBuilder,
                     modifier = Modifier.fillMaxSize(),
                 )
+            } else if (state.searchScope == LibrarySearchScope.SpotifyGlobal) {
+                Box(modifier = Modifier.fillMaxSize())
             } else {
                 AnimatedContent(
                     targetState = state.selectedTab,
@@ -380,12 +399,20 @@ private fun LibraryContentBody(
 private fun SearchHeader(
     searchQuery: String,
     isSearching: Boolean,
+    placeholder: String,
+    focusRequestId: Long,
     onSearchQueryChanged: (String) -> Unit,
     onClearSearch: () -> Unit,
     onNavigateToSettings: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val haptics = rememberYoinHaptics()
+    val focusRequester = remember { FocusRequester() }
+    LaunchedEffect(focusRequestId) {
+        if (focusRequestId > 0L) {
+            focusRequester.requestFocus()
+        }
+    }
     Column(
         modifier = modifier
             .fillMaxWidth()
@@ -431,7 +458,9 @@ private fun SearchHeader(
                     BasicTextField(
                         value = searchQuery,
                         onValueChange = onSearchQueryChanged,
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier
+                            .weight(1f)
+                            .focusRequester(focusRequester),
                         singleLine = true,
                         textStyle = MaterialTheme.typography.bodyLarge.copy(
                             color = MaterialTheme.colorScheme.onSurface,
@@ -441,7 +470,7 @@ private fun SearchHeader(
                             Box(contentAlignment = Alignment.CenterStart) {
                                 if (searchQuery.isBlank()) {
                                     Text(
-                                        text = "Search library",
+                                        text = placeholder,
                                         style = MaterialTheme.typography.bodyLarge,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f),
                                     )
@@ -506,6 +535,34 @@ private fun LibraryFilterChips(
         onSelectedChange = onTabSelected,
         modifier = modifier.fillMaxWidth(),
     )
+}
+
+@Composable
+private fun LibrarySearchScopeChips(
+    selectedScope: LibrarySearchScope,
+    onScopeSelected: (LibrarySearchScope) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    ExpressiveSegmentedTabs(
+        items = listOf(
+            LibrarySearchScope.SpotifyGlobal,
+            LibrarySearchScope.CurrentLibrary,
+        ),
+        selectedItem = selectedScope,
+        label = LibrarySearchScope::chipLabel,
+        onSelectedChange = onScopeSelected,
+        modifier = modifier.fillMaxWidth(),
+    )
+}
+
+private fun LibrarySearchScope.placeholder(): String = when (this) {
+    LibrarySearchScope.SpotifyGlobal -> "Search Spotify"
+    LibrarySearchScope.CurrentLibrary -> "Search library"
+}
+
+private fun LibrarySearchScope.chipLabel(): String = when (this) {
+    LibrarySearchScope.SpotifyGlobal -> "Spotify"
+    LibrarySearchScope.CurrentLibrary -> "Library"
 }
 
 // ── Tab content composables ─────────────────────────────────────────────
@@ -1138,6 +1195,7 @@ private fun SearchResultsContent(
     notedSongIds: Set<String>,
     onArtistClick: (String) -> Unit,
     onAlbumClick: (String) -> Unit,
+    onPlaylistClick: (String) -> Unit,
     onSongClick: (Track) -> Unit,
     onAddSongToPlaylist: (Track) -> Unit,
     coverArtUrlBuilder: ((String) -> String)?,
@@ -1157,6 +1215,7 @@ private fun SearchResultsContent(
 
     val hasResults = searchResults.artists.isNotEmpty() ||
         searchResults.albums.isNotEmpty() ||
+        searchResults.playlists.isNotEmpty() ||
         searchResults.tracks.isNotEmpty()
 
     if (!hasResults) {
@@ -1216,6 +1275,28 @@ private fun SearchResultsContent(
                         libraryCoverArtUrl(album.coverArt, coverArtUrlBuilder)
                             ?: album.id.takeIf { it.provider == MediaId.PROVIDER_SUBSONIC }
                                 ?.rawId?.let { coverArtUrlBuilder?.invoke(it) },
+                    modifier = Modifier.expressiveEntrance(entranceProgress),
+                )
+            }
+        }
+        if (searchResults.playlists.isNotEmpty()) {
+            item {
+                SectionHeader(title = "Playlists")
+            }
+            itemsIndexed(
+                items = searchResults.playlists,
+                key = { _, playlist -> "search-playlist-${playlist.id}" },
+            ) { index, playlist ->
+                val entranceProgress = rememberLibraryItemEntrance(
+                    key = "search-playlist-${playlist.id}",
+                    index = index,
+                    delayStepMillis = 24L,
+                    enabled = false,
+                )
+                PlaylistListItem(
+                    playlist = playlist,
+                    onClick = { onPlaylistClick(playlist.id.toString()) },
+                    coverArtUrl = playlistBackdropArtUrl(playlist, coverArtUrlBuilder),
                     modifier = Modifier.expressiveEntrance(entranceProgress),
                 )
             }

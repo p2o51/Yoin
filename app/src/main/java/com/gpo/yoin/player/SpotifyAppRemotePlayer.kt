@@ -30,6 +30,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
@@ -447,6 +448,7 @@ internal class SpotifyAppRemotePlayer(
         context: Context,
         clientId: String,
     ): SpotifyAppRemote = suspendCancellableCoroutine { continuation ->
+        val completed = AtomicBoolean(false)
         // Reuse the PKCE OAuth redirect URI so App Remote matches what the
         // user has already registered in the Spotify Developer Dashboard.
         // A second URI (APP_REMOTE_REDIRECT_URI) would need its own Dashboard
@@ -463,11 +465,19 @@ internal class SpotifyAppRemotePlayer(
             params,
             object : Connector.ConnectionListener {
                 override fun onConnected(spotifyAppRemote: SpotifyAppRemote) {
-                    continuation.resume(spotifyAppRemote)
+                    if (completed.compareAndSet(false, true)) {
+                        continuation.resume(spotifyAppRemote)
+                    } else {
+                        Log.d(tag, "connect: ignoring duplicate onConnected callback")
+                    }
                 }
 
                 override fun onFailure(throwable: Throwable) {
-                    continuation.resumeWithException(throwable)
+                    if (completed.compareAndSet(false, true)) {
+                        continuation.resumeWithException(throwable)
+                    } else {
+                        Log.d(tag, "connect: ignoring late failure callback", throwable)
+                    }
                 }
             },
         )

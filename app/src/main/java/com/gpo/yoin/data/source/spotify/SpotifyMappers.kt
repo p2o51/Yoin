@@ -142,10 +142,17 @@ internal fun SpotifySearchResponse.toSearchResults(
     savedAlbumIds: Set<String> = emptySet(),
     followedArtistIds: Set<String> = emptySet(),
 ): SearchResults = SearchResults(
-    tracks = tracks?.items.orEmpty().map { it.toTrack(savedTrackIds = savedTrackIds) },
-    albums = albums?.items.orEmpty().map { it.toAlbum(savedAlbumIds = savedAlbumIds) },
-    artists = artists?.items.orEmpty().map { artist ->
-        artist.toArtist(isStarred = artist.id in followedArtistIds)
+    tracks = tracks?.items.orEmpty().mapNotNull { track ->
+        runCatching { track.toTrack(savedTrackIds = savedTrackIds) }.getOrNull()
+    },
+    albums = albums?.items.orEmpty().mapNotNull { album ->
+        runCatching { album.toAlbum(savedAlbumIds = savedAlbumIds) }.getOrNull()
+    },
+    artists = artists?.items.orEmpty().mapNotNull { artist ->
+        runCatching { artist.toArtist(isStarred = artist.id in followedArtistIds) }.getOrNull()
+    },
+    playlists = playlists?.items.orEmpty().mapNotNull { playlist ->
+        playlist?.let { runCatching { it.toPlaylist(canWrite = false) }.getOrNull() }
     },
 )
 

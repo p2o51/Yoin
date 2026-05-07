@@ -146,7 +146,7 @@ data class SpotifySearchResponse(
     val tracks: SpotifyPagingObject<SpotifyTrackObject>? = null,
     val albums: SpotifyPagingObject<SpotifySimplifiedAlbumObject>? = null,
     val artists: SpotifyPagingObject<SpotifyArtistObject>? = null,
-    val playlists: SpotifyPagingObject<SpotifyPlaylistObject>? = null,
+    val playlists: SpotifyPagingObject<SpotifyPlaylistObject?>? = null,
 )
 
 @Serializable
