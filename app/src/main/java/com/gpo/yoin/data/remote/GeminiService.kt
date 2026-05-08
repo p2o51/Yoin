@@ -346,7 +346,7 @@ $indexedLines
     companion object {
         private const val BASE_URL =
             "https://generativelanguage.googleapis.com/v1beta/models/"
-        private const val MODEL = "gemini-3.1-flash-lite-preview"
+        internal const val MODEL = "gemini-3.1-flash-lite"
         private val JSON_MEDIA_TYPE = "application/json".toMediaType()
 
         // Matches any `[TAG]`, `[/TAG]`, `[ TAG ]`, `[ / TAG ]` etc. with

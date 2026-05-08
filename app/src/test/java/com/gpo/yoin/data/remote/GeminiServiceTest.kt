@@ -7,6 +7,11 @@ import org.junit.Test
 class GeminiServiceTest {
 
     @Test
+    fun should_useGemini31FlashLiteGaModel() {
+        assertEquals("gemini-3.1-flash-lite", GeminiService.MODEL)
+    }
+
+    @Test
     fun should_parseLineTranslations_when_taggedResponseReturned() {
         val raw = """
             [L0]第一行[/L0]
