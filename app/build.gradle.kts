@@ -1,9 +1,44 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.kotlin.serialization)
     alias(libs.plugins.ksp)
     alias(libs.plugins.ktlint)
+}
+
+val releaseKeystorePropertiesFile = (
+    findProperty("yoinReleaseKeystoreProperties") as String?
+        ?: System.getenv("YOIN_RELEASE_KEYSTORE_PROPERTIES")
+        ?: "${System.getProperty("user.home")}/.yoin/yoin-upload-keystore.properties"
+    ).let(::file)
+
+val releaseKeystoreProperties = Properties().apply {
+    if (releaseKeystorePropertiesFile.isFile) {
+        releaseKeystorePropertiesFile.inputStream().use(::load)
+    }
+}
+
+fun releaseKeystoreProperty(name: String): String? =
+    releaseKeystoreProperties.getProperty(name)?.takeIf { it.isNotBlank() }
+
+val hasReleaseKeystore = listOf(
+    "storeFile",
+    "storePassword",
+    "keyAlias",
+    "keyPassword"
+).all { releaseKeystoreProperty(it) != null }
+
+val releaseTaskRequested = gradle.startParameter.taskNames.any { taskName ->
+    taskName.contains("Release", ignoreCase = true)
+}
+
+if (releaseTaskRequested && !hasReleaseKeystore) {
+    throw GradleException(
+        "Release signing requires ${releaseKeystorePropertiesFile.path}. " +
+            "See docs/release-0.5-closed-test.md for the local upload-key setup."
+    )
 }
 
 android {
@@ -23,8 +58,22 @@ android {
         buildConfigField("String", "SPOTIFY_CLIENT_ID", "\"$spotifyClientId\"")
     }
 
+    signingConfigs {
+        if (hasReleaseKeystore) {
+            create("releaseUpload") {
+                storeFile = file(releaseKeystoreProperty("storeFile")!!)
+                storePassword = releaseKeystoreProperty("storePassword")!!
+                keyAlias = releaseKeystoreProperty("keyAlias")!!
+                keyPassword = releaseKeystoreProperty("keyPassword")!!
+            }
+        }
+    }
+
     buildTypes {
         release {
+            if (hasReleaseKeystore) {
+                signingConfig = signingConfigs.getByName("releaseUpload")
+            }
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(

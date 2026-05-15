@@ -25,10 +25,28 @@ git diff --check
 ./gradlew :app:bundleRelease
 ```
 
+The release build reads upload-key signing credentials from:
+
+```text
+~/.yoin/yoin-upload-keystore.properties
+```
+
+The expected local-only properties are:
+
+```properties
+storeFile=/Users/gpo/.yoin/yoin-upload.jks
+storePassword=...
+keyAlias=yoin-upload
+keyPassword=...
+```
+
+Never commit the keystore or password file. The repo only contains the Gradle
+wiring that reads this local file when present.
+
 ## Play Console Checklist
 
 - Create the app in Play Console with package `com.gpo.yoin`.
-- Turn on Play App Signing and configure the upload key before uploading the first `.aab`.
+- Turn on Play App Signing. For a new app, let Google generate the app signing key and use the local `yoin-upload` key only as the upload key.
 - Complete the main store listing: app name, short description, full description, screenshots, app icon, feature graphic, contact email, website/privacy URL.
 - Complete App content:
   - Privacy policy URL
@@ -109,7 +127,7 @@ Full description:
 
 ## Upload Blockers
 
-- Confirm Play upload signing key setup.
+- Confirm Play accepts the first AAB signed with `~/.yoin/yoin-upload.jks`.
 - Publish the privacy policy draft to a public, non-PDF URL and add that URL inside the app or Settings if required for review.
 - Prepare screenshots from a real device.
 - Prepare a tester email list or Google Group.

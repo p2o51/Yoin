@@ -17,7 +17,7 @@ export JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home"
 export ANDROID_HOME="$HOME/Library/Android/sdk"
 
 ./gradlew assembleDebug    # build debug APK
-./gradlew :app:bundleRelease # build release AAB for Play Console
+./gradlew :app:bundleRelease # build signed release AAB for Play Console
 ./gradlew test             # run unit tests
 ./gradlew ktlintCheck      # lint check
 ./gradlew ktlintFormat     # auto-fix lint
@@ -25,7 +25,7 @@ export ANDROID_HOME="$HOME/Library/Android/sdk"
 
 See [docs/design.md](docs/design.md) for the full design specification.
 See [docs/release-0.5-closed-test.md](docs/release-0.5-closed-test.md) for the
-current Play Console closed-test checklist.
+current Play Console closed-test checklist and upload-key setup.
 
 ## Local Tooling
 
