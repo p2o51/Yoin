@@ -7,6 +7,8 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -579,6 +581,14 @@ private fun MemoriesHeader(
                 ),
                 color = MaterialTheme.colorScheme.onSurface,
             )
+            Text(
+                text = "Album memories",
+                style = MaterialTheme.typography.labelLarge.copy(
+                    fontWeight = FontWeight.Medium,
+                    fontFamily = GoogleSansFlex,
+                ),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
 
         MemoriesDots(
@@ -723,6 +733,13 @@ private fun MemoriesHero(
                     color = MaterialTheme.colorScheme.secondary,
                 )
             }
+            memory.lastPlayedAt?.let { lastPlayedAt ->
+                Text(
+                    text = "Last listened ${lastPlayedAt.toRelativeMemoryTime()}",
+                    style = MaterialTheme.typography.labelLarge.withTabularFigures(),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
             Column(
                 modifier = Modifier.padding(top = 2.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
@@ -788,8 +805,13 @@ private fun MemoriesHero(
             }
         }
     }
-        // 「余音 Gemini 文案」独占一行，贴合卡片宽度。空时不占位 —— 没开
-        // BYOK 或生成失败的专辑保持和 0.2 视觉一致。
+        MemoryReasonChips(
+            chips = memory.reasonChips,
+            containerColor = memoryColorScheme.surfaceContainerHigh,
+            contentColor = memoryColorScheme.onSurfaceVariant,
+        )
+        // 「余音 Gemini 文案」或本地 fallback 文案独占一行，贴合卡片宽度。
+        // fallback 只基于本地结构化信号，不调用 AI，也不上传 note/review 原文。
         memory.narrativeCopy?.takeIf(String::isNotBlank)?.let { narrative ->
             Text(
                 text = narrative,
@@ -823,6 +845,39 @@ private fun MemoriesHero(
                     } else {
                         "Sync rating & review to NeoDB"
                     },
+                )
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun MemoryReasonChips(
+    chips: List<String>,
+    containerColor: Color,
+    contentColor: Color,
+) {
+    if (chips.isEmpty()) return
+    FlowRow(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        chips.forEach { chip ->
+            Surface(
+                shape = YoinShapeTokens.Full,
+                color = containerColor,
+                tonalElevation = 0.dp,
+                shadowElevation = 0.dp,
+            ) {
+                Text(
+                    text = chip,
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                    style = MaterialTheme.typography.labelMedium.withTabularFigures(),
+                    color = contentColor,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
             }
         }
@@ -902,6 +957,20 @@ private fun Long.toShortMemoryDate(): String =
     Instant.ofEpochMilli(this)
         .atZone(ZoneId.systemDefault())
         .format(DateTimeFormatter.ofPattern("M.d", Locale.getDefault()))
+
+private fun Long.toRelativeMemoryTime(): String {
+    val diff = (System.currentTimeMillis() - this).coerceAtLeast(0L)
+    val minutes = diff / 60_000L
+    val hours = minutes / 60L
+    val days = hours / 24L
+    return when {
+        minutes < 1L -> "just now"
+        minutes < 60L -> "${minutes}m ago"
+        hours < 24L -> "${hours}h ago"
+        days < 7L -> "${days}d ago"
+        else -> "${days / 7}w ago"
+    }
+}
 
 private fun Int.toCompactDuration(): String {
     val minutes = this / 60

@@ -219,6 +219,17 @@ class MemoriesDeckCoordinator(
             .takeIf(List<Float>::isNotEmpty)
             ?.average()
             ?.toFloat()
+            ?: candidate.averageSongRating
+        val scoreKind = when {
+            candidate.albumRating != null -> MemoryScoreKind.ALBUM_RATING
+            averageRating != null -> MemoryScoreKind.AVERAGE_TRACK_RATING
+            else -> MemoryScoreKind.NONE
+        }
+        val score = when (scoreKind) {
+            MemoryScoreKind.ALBUM_RATING -> candidate.albumRating
+            MemoryScoreKind.AVERAGE_TRACK_RATING -> averageRating
+            MemoryScoreKind.NONE -> null
+        }
         // 「余音 Gemini 文案」：没专辑元数据（冷加载失败）时跳过，避免给
         // Gemini 送空名字；有 API key 时命中缓存或后台生成。失败静默降级。
         val narrative = album?.let { resolved ->
@@ -231,6 +242,7 @@ class MemoriesDeckCoordinator(
                 )
             }.getOrNull()
         }
+        val reasonChips = buildAlbumReasonChips(candidate)
 
         return MemoryEntry(
             stableId = "album:${candidate.profileId}:${candidate.provider}:$rawAlbumId",
@@ -258,13 +270,25 @@ class MemoriesDeckCoordinator(
                 ?: album?.id?.takeIf { it.provider == MediaId.PROVIDER_SUBSONIC }
                     ?.rawId?.let(::sourceRelativeCoverArtUrl),
             timestamp = candidate.lastPlayedAt ?: candidate.firstPlayedAt ?: 0L,
-            scoreText = (averageRating ?: candidate.albumRating).formatScore(),
-            scoreSupportingText = ratedSummaryText(candidate.ratedTrackCount, candidate.totalTracks),
+            scoreText = score.formatScore(),
+            scoreKind = scoreKind,
+            scoreSupportingText = scoreKind.label,
             footerText = buildCollectionFooter(
                 songCount = album?.songCount ?: candidate.totalTracks.takeIf { count -> count > 0 },
                 durationSeconds = album?.durationSec ?: candidate.durationSeconds,
             ),
-            narrativeCopy = narrative,
+            hasAlbumReview = candidate.hasAlbumReview,
+            noteCount = candidate.noteCount,
+            askAiCount = candidate.askAiCount,
+            ratedTrackCount = candidate.ratedTrackCount,
+            totalTrackCount = candidate.totalTracks,
+            ratingCoverage = candidate.ratingCoverage,
+            playCount = candidate.playCount,
+            firstPlayedAt = candidate.firstPlayedAt,
+            lastPlayedAt = candidate.lastPlayedAt,
+            neoDbSynced = candidate.neoDbSynced,
+            reasonChips = reasonChips,
+            narrativeCopy = narrative ?: buildAlbumFallbackCopy(candidate, reasonChips),
             playbackSongs = songs,
             tracks = songs.mapIndexed { index, song ->
                 MemoryTrack(
@@ -386,6 +410,52 @@ internal fun buildCollectionFooter(
         parts += formatDurationSeconds(duration)
     }
     return parts.takeIf(List<String>::isNotEmpty)?.joinToString(", ")
+}
+
+private fun buildAlbumReasonChips(candidate: AlbumMemoryCandidate): List<String> {
+    val chips = mutableListOf<String>()
+    if (candidate.hasAlbumReview) {
+        chips += "Album review"
+    }
+    if (candidate.totalTracks > 0 && candidate.ratedTrackCount > 0) {
+        chips += "${candidate.ratedTrackCount}/${candidate.totalTracks} songs rated"
+    }
+    if (candidate.noteCount > 0) {
+        val noun = if (candidate.noteCount == 1) "note" else "notes"
+        chips += "${candidate.noteCount} $noun"
+    }
+    if (candidate.askAiCount > 0) {
+        chips += "Ask AI references"
+    }
+    if (candidate.lastPlayedAt != null) {
+        chips += "Recently revisited"
+    }
+    if (candidate.neoDbSynced) {
+        chips += "Synced to NeoDB"
+    } else if (candidate.hasAlbumReview && candidate.albumRating != null) {
+        chips += "NeoDB ready"
+    }
+    return chips
+}
+
+private fun buildAlbumFallbackCopy(
+    candidate: AlbumMemoryCandidate,
+    reasonChips: List<String>,
+): String = when {
+    candidate.hasAlbumReview && candidate.noteCount > 0 ->
+        "A reviewed album with saved notes, ready to revisit."
+    candidate.hasAlbumReview ->
+        "A reviewed album worth coming back to."
+    candidate.noteCount >= 2 ->
+        "Notes around this album are starting to form a memory."
+    candidate.ratingCoverage >= 0.6f ->
+        "You have rated most of this album; it is ready to revisit."
+    "Recently revisited" in reasonChips ->
+        "You recently came back to this album."
+    candidate.askAiCount > 0 ->
+        "Ask AI context is waiting beside this album memory."
+    else ->
+        "A small album memory from your listening history."
 }
 
 internal fun formatDurationSeconds(seconds: Int): String {

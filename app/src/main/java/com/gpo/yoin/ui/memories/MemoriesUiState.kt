@@ -28,6 +28,12 @@ enum class MemoryEntityType {
     PLAYLIST,
 }
 
+enum class MemoryScoreKind(val label: String) {
+    ALBUM_RATING("Album rating"),
+    AVERAGE_TRACK_RATING("Avg track rating"),
+    NONE("No rating yet"),
+}
+
 data class MemoryEntry(
     val stableId: String,
     val sourceActivityId: Long,
@@ -40,11 +46,23 @@ data class MemoryEntry(
     val coverArtUrl: String?,
     val timestamp: Long,
     val scoreText: String,
+    val scoreKind: MemoryScoreKind = MemoryScoreKind.NONE,
     val scoreSupportingText: String?,
     val footerText: String?,
+    val hasAlbumReview: Boolean = false,
+    val noteCount: Int = 0,
+    val askAiCount: Int = 0,
+    val ratedTrackCount: Int = 0,
+    val totalTrackCount: Int = 0,
+    val ratingCoverage: Float = 0f,
+    val playCount: Int = 0,
+    val firstPlayedAt: Long? = null,
+    val lastPlayedAt: Long? = null,
+    val neoDbSynced: Boolean = false,
+    val reasonChips: List<String> = emptyList(),
     /**
-     * 「余音 Gemini 文案」—— 专辑卡的感性短评。未开 BYOK 或生成失败时为
-     * null；UI 层判 null 决定是否渲染该行，不显示占位。
+     * 「余音 Gemini 文案」或本地 deterministic fallback 文案。Gemini 路径不上传
+     * notes/review 原文；未配置 BYOK 或生成失败时由本地信号生成一条轻量旁白。
      */
     val narrativeCopy: String? = null,
     val playbackSongs: List<Track>,

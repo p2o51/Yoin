@@ -119,11 +119,15 @@ MD3 Expressive 不是 M4，而是 M3 的扩展进化。
 
 Yoin Memory 是 **当前 profile 下的 local-first 专辑记忆层**，不是 Spotify Wrapped、stats.fm、Last.fm clone，也不是全平台实时统计服务。Spotify、Subsonic、未来本地文件或其它来源都只是 provider；第一阶段不做跨 profile 自动合并、不做跨源 canonical album merge、不做通知 scrobbler。
 
+v1 的 Memories surface 定义为 **profile-local, album-first listening journal deck**。Header 可以继续使用 `Memories` 作为 umbrella 名称，但页面表达需要用 `Album memories` 副标题或 chip 说明当前 MVP 的实体范围。SONG / PLAYLIST Memory、timestamp memory / music time machine（例如 this day last week）属于后续方向，不进入 v1 主 deck。
+
 Memory 的核心单位是 album。候选由当前 active profile/provider 下的播放历史、曲目评分覆盖率、Album Note、Song Note、AskAI 记录、专辑评分与 NeoDB review 状态共同生成。推荐型 Memory 的 gate 是：
 
 `ratedTrackCount / totalTrackCount >= 60%`
 
 但有专辑 review，或至少两条 album/song note 的专辑，也可以进入 Memory。Note 是用户自己的观点，AskAI 是参考资料；二者必须在 prompt 和 UI 表达中分开，不能混成同一种用户立场。
+
+Memory 卡片必须解释「为什么这张专辑成为 memory」：至少表达 album review、rated-track coverage、note count、AskAI references、recent revisit、NeoDB ready/synced 等本地信号。评分显示遵循 Notion 产品规则：用户有 album rating 时优先显示 album rating；否则显示 average track rating。Gemini emotional copy 是可选增强；未配置 BYOK 或生成失败时使用本地 deterministic fallback copy，不扩大 Gemini scope，也不上传 note/review 原文。
 
 NeoDB 同步以 album 为边界。第一阶段只有同时具备 album rating 和非空 album review 的 Memory 才能推送到 NeoDB；单曲碎片笔记只作为本地 Memory/Review 草稿素材，不直接推 NeoDB。
 

@@ -147,6 +147,33 @@ class AlbumMemoryCandidateBuilderTest {
         }
     }
 
+    @Test
+    fun should_not_create_candidate_from_playback_only() = runTest {
+        val album = album(trackCount = 10)
+        stubBase(album)
+        coEvery {
+            localRatingDao.getRatings(any(), MediaId.PROVIDER_SUBSONIC, "profile-a")
+        } returns emptyList()
+
+        val candidates = builder().build(limit = 6)
+
+        assertTrue(candidates.isEmpty())
+    }
+
+    @Test
+    fun should_not_create_candidate_from_ask_ai_only() = runTest {
+        val album = album(trackCount = 10)
+        stubBase(album)
+        coEvery {
+            localRatingDao.getRatings(any(), MediaId.PROVIDER_SUBSONIC, "profile-a")
+        } returns emptyList()
+        coEvery { songAboutEntryDao.countAskRows(any(), any(), any()) } returns 1
+
+        val candidates = builder().build(limit = 6)
+
+        assertTrue(candidates.isEmpty())
+    }
+
     private fun builder(): AlbumMemoryCandidateBuilder =
         AlbumMemoryCandidateBuilder(
             profileId = "profile-a",

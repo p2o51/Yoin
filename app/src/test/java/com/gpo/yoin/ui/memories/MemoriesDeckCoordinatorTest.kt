@@ -8,7 +8,9 @@ import io.mockk.coVerify
 import io.mockk.mockk
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class MemoriesDeckCoordinatorTest {
@@ -59,6 +61,48 @@ class MemoriesDeckCoordinatorTest {
         val nextDeck = coordinator.advanceDeck(MemoryDeckDirection.Backward)
 
         assertEquals(nextDeck.lastIndex, sessionStore.state.value.memories.currentPage)
+    }
+
+    @Test
+    fun should_prefer_album_rating_over_average_track_rating() = runTest {
+        val candidate = buildAlbumCandidates(count = 1).single().copy(
+            averageSongRating = 6.5f,
+            albumRating = 9f,
+            hasAlbumReview = true,
+            noteCount = 2,
+            askAiCount = 1,
+        )
+        val coordinator = buildCoordinator(listOf(candidate))
+
+        val memory = coordinator.ensureDeck().single()
+
+        assertEquals("9.0", memory.scoreText)
+        assertEquals(MemoryScoreKind.ALBUM_RATING, memory.scoreKind)
+        assertEquals("Album rating", memory.scoreSupportingText)
+        assertTrue(memory.reasonChips.contains("Album review"))
+        assertTrue(memory.reasonChips.contains("7/10 songs rated"))
+        assertTrue(memory.reasonChips.contains("2 notes"))
+        assertTrue(memory.reasonChips.contains("Ask AI references"))
+        assertTrue(memory.reasonChips.contains("Recently revisited"))
+        assertTrue(memory.reasonChips.contains("NeoDB ready"))
+        assertNotNull(memory.narrativeCopy)
+    }
+
+    @Test
+    fun should_use_average_track_rating_when_album_rating_is_missing() = runTest {
+        val candidate = buildAlbumCandidates(count = 1).single().copy(
+            averageSongRating = 7.25f,
+            albumRating = null,
+            hasAlbumReview = false,
+        )
+        val coordinator = buildCoordinator(listOf(candidate))
+
+        val memory = coordinator.ensureDeck().single()
+
+        assertEquals("7.3", memory.scoreText)
+        assertEquals(MemoryScoreKind.AVERAGE_TRACK_RATING, memory.scoreKind)
+        assertEquals("Avg track rating", memory.scoreSupportingText)
+        assertTrue(memory.narrativeCopy?.isNotBlank() == true)
     }
 
     private fun buildCoordinator(candidates: List<AlbumMemoryCandidate>): MemoriesDeckCoordinator {
