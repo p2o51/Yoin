@@ -358,6 +358,9 @@ $indexedLines
             pattern = """\[\s*L(\d+)\s*\](.*?)\[\s*/\s*L\1\s*\]""",
             options = setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL),
         )
+        private val LEADING_LINE_MARKER_REGEX = Regex(
+            pattern = """^(?:[-*•]\s*)?(?:(?:[\[【(]\s*\d+\s*[]】)])(?:[.)：:、])?|\d+[.)：:、])\s*""",
+        )
 
         /**
          * Extract the content between `[TAG]` and `[/TAG]`, tolerant of:
@@ -440,7 +443,7 @@ $indexedLines
             val tagged = LINE_TRANSLATION_REGEX.findAll(rawText)
                 .mapNotNull { match ->
                     val index = match.groupValues[1].toIntOrNull() ?: return@mapNotNull null
-                    val text = stripTagMarkers(match.groupValues[2])
+                    val text = cleanLineTranslation(match.groupValues[2])
                     if (index in 0 until lineCount && text.isNotBlank()) {
                         index to text
                     } else {
@@ -451,18 +454,20 @@ $indexedLines
             if (tagged.isNotEmpty()) return tagged
 
             val plainLines = rawText.lines()
-                .map { line ->
-                    line.trim()
-                        .removePrefix("-")
-                        .trim()
-                        .replace(Regex("""^\d+[.)]\s*"""), "")
-                        .trim()
-                }
+                .map(::cleanLineTranslation)
                 .filter { it.isNotEmpty() }
             if (plainLines.size != lineCount) return emptyMap()
-            return plainLines.mapIndexed { index, line -> index to stripTagMarkers(line) }
+            return plainLines.mapIndexed { index, line -> index to cleanLineTranslation(line) }
                 .filter { (_, line) -> line.isNotBlank() }
                 .toMap()
+        }
+
+        internal fun cleanLineTranslation(text: String): String {
+            var cleaned = stripTagMarkers(text).trim()
+            repeat(3) {
+                cleaned = cleaned.replace(LEADING_LINE_MARKER_REGEX, "").trim()
+            }
+            return cleaned
         }
     }
 }

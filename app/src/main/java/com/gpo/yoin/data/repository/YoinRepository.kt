@@ -13,6 +13,8 @@ import com.gpo.yoin.data.local.GeminiConfigDao
 import com.gpo.yoin.data.local.LocalRating
 import com.gpo.yoin.data.local.LyricsCache
 import com.gpo.yoin.data.local.LyricsCacheDao
+import com.gpo.yoin.data.local.LyricsTranslationCache
+import com.gpo.yoin.data.local.LyricsTranslationCacheDao
 import com.gpo.yoin.data.local.MemoryCopyCache
 import com.gpo.yoin.data.local.MemoryCopyCacheDao
 import com.gpo.yoin.data.local.PlayHistory
@@ -55,6 +57,10 @@ import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
+import kotlinx.serialization.decodeFromString
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
+import java.security.MessageDigest
 import kotlin.math.roundToInt
 
 /**
@@ -74,6 +80,7 @@ class YoinRepository(
     private val songAboutEntryDao: SongAboutEntryDao,
     private val geminiConfigDao: GeminiConfigDao,
     private val lyricsCacheDao: LyricsCacheDao,
+    private val lyricsTranslationCacheDao: LyricsTranslationCacheDao,
     private val songNoteDao: SongNoteDao,
     private val albumNoteDao: AlbumNoteDao,
     private val albumRatingDao: AlbumRatingDao,
@@ -851,6 +858,7 @@ class YoinRepository(
     }
 
     suspend fun translateLyrics(
+        trackId: MediaId,
         title: String?,
         artist: String?,
         lines: List<String>,
@@ -861,19 +869,49 @@ class YoinRepository(
         if (sourceLines.isEmpty()) {
             return LyricsTranslationResult.Error("No lyrics to translate")
         }
+        val sourceHash = buildLyricsTranslationSourceHash(t, a, sourceLines)
+        val cached = lyricsTranslationCacheDao.get(
+            trackProvider = trackId.provider,
+            trackRawId = trackId.rawId,
+            sourceHash = sourceHash,
+            targetLanguage = LYRIC_TRANSLATION_TARGET_LANGUAGE,
+            model = GeminiService.MODEL,
+        )
+        cached
+            ?.toTranslations(expectedLineCount = sourceLines.size)
+            ?.let { return LyricsTranslationResult.Success(it) }
+
         val apiKey = geminiConfigDao.getConfig().first()?.apiKey?.trim().orEmpty()
         if (apiKey.isEmpty()) {
             return LyricsTranslationResult.ApiKeyMissing
         }
         return try {
-            LyricsTranslationResult.Success(
-                geminiService.translateLyricLines(
-                    apiKey = apiKey,
-                    title = t.ifEmpty { "Unknown song" },
-                    artist = a.ifEmpty { "Unknown artist" },
-                    lines = sourceLines,
+            val translations = geminiService.translateLyricLines(
+                apiKey = apiKey,
+                title = t.ifEmpty { "Unknown song" },
+                artist = a.ifEmpty { "Unknown artist" },
+                lines = sourceLines,
+                targetLanguage = LYRIC_TRANSLATION_TARGET_LANGUAGE,
+            )
+            val cleanedTranslations = translations.mapValues { (_, translation) ->
+                GeminiService.cleanLineTranslation(translation)
+            }
+            lyricsTranslationCacheDao.upsert(
+                LyricsTranslationCache(
+                    trackProvider = trackId.provider,
+                    trackRawId = trackId.rawId,
+                    sourceHash = sourceHash,
+                    targetLanguage = LYRIC_TRANSLATION_TARGET_LANGUAGE,
+                    model = GeminiService.MODEL,
+                    translationsJson = lyricTranslationCacheJson.encodeToString(
+                        sourceLines.indices.map { index ->
+                            cleanedTranslations[index].orEmpty()
+                        },
+                    ),
+                    cachedAt = clock(),
                 ),
             )
+            LyricsTranslationResult.Success(cleanedTranslations)
         } catch (error: Exception) {
             LyricsTranslationResult.Error(error.message ?: "Failed to translate lyrics")
         }
@@ -913,13 +951,26 @@ class YoinRepository(
         val artistKey = SongAboutEntry.normalize(artist)
         val albumKey = SongAboutEntry.normalize(album)
 
+        val existing = if (!retry) {
+            songAboutEntryDao.getCanonical(titleKey, artistKey, albumKey)
+        } else {
+            emptyList()
+        }
         if (!retry) {
-            val existing = songAboutEntryDao.getCanonical(titleKey, artistKey, albumKey)
-            if (existing.isNotEmpty()) return AboutLoadResult.Success
+            val existingKeys = existing.mapTo(mutableSetOf()) { it.entryKey }
+            if (existingKeys.containsAll(SongAboutEntry.CANONICAL_ORDER)) {
+                return AboutLoadResult.Success
+            }
         }
 
         val apiKey = geminiConfigDao.getConfig().first()?.apiKey
-        if (apiKey.isNullOrBlank()) return AboutLoadResult.ApiKeyMissing
+        if (apiKey.isNullOrBlank()) {
+            return if (existing.isNotEmpty()) {
+                AboutLoadResult.Success
+            } else {
+                AboutLoadResult.ApiKeyMissing
+            }
+        }
 
         return runCatching {
             val values = geminiService.generateCanonicalAbout(
@@ -928,8 +979,9 @@ class YoinRepository(
                 artist = artist,
                 album = album,
             )
+            val valuesByKey = values.associate { it.entryKey to it.answer }
             val now = clock()
-            val rows = values.map { value ->
+            val rows = SongAboutEntry.CANONICAL_ORDER.map { entryKey ->
                 SongAboutEntry(
                     titleKey = titleKey,
                     artistKey = artistKey,
@@ -938,15 +990,15 @@ class YoinRepository(
                     artistDisplay = artist,
                     albumDisplay = album,
                     kind = SongAboutEntry.KIND_CANONICAL,
-                    entryKey = value.entryKey,
+                    entryKey = entryKey,
                     promptText = null,
                     titleText = null,
-                    answerText = value.answer,
+                    answerText = valuesByKey[entryKey].orEmpty(),
                     createdAt = now,
                     updatedAt = now,
                 )
             }
-            if (rows.isNotEmpty()) songAboutEntryDao.upsertAll(rows)
+            songAboutEntryDao.upsertAll(rows)
             AboutLoadResult.Success
         }.getOrElse { error ->
             AboutLoadResult.Error(error.message ?: "Failed to load song about info")
@@ -1235,6 +1287,43 @@ private fun collapseToLatestUnique(events: List<ActivityEvent>): List<ActivityEv
     companion object {
         /** 歌词缓存 TTL：30 天。Provider 返回的内容在这个窗口内复用不重拉。 */
         private val LYRICS_CACHE_TTL_MS: Long = 30L * 24L * 60L * 60L * 1000L
+        private const val LYRIC_TRANSLATION_TARGET_LANGUAGE = "Simplified Chinese"
+    }
+}
+
+private val lyricTranslationCacheJson = Json
+
+private fun LyricsTranslationCache.toTranslations(expectedLineCount: Int): Map<Int, String>? =
+    runCatching {
+        lyricTranslationCacheJson.decodeFromString<List<String>>(translationsJson)
+    }.getOrNull()
+        ?.takeIf { it.size == expectedLineCount }
+        ?.mapIndexedNotNull { index, translation ->
+            GeminiService.cleanLineTranslation(translation)
+                .takeIf(String::isNotBlank)
+                ?.let { index to it }
+        }
+        ?.toMap()
+
+private fun buildLyricsTranslationSourceHash(
+    title: String,
+    artist: String,
+    lines: List<String>,
+): String = sha256Hex(
+    buildString {
+        append(title).append('\u001F')
+        append(artist).append('\u001F')
+        lines.forEach { line ->
+            append(line.length).append(':').append(line).append('\u001E')
+        }
+    },
+)
+
+private fun sha256Hex(text: String): String {
+    val bytes = MessageDigest.getInstance("SHA-256")
+        .digest(text.toByteArray(Charsets.UTF_8))
+    return bytes.joinToString(separator = "") { byte ->
+        ((byte.toInt() and 0xff) + 0x100).toString(16).substring(1)
     }
 }
 

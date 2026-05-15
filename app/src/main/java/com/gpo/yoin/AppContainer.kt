@@ -72,6 +72,7 @@ class AppContainer(private val context: Context) {
                 MIGRATION_15_16,
                 MIGRATION_16_17,
                 MIGRATION_17_18,
+                MIGRATION_18_19,
             )
             // v11 冻结了 0.3 schema；0.5 上架前的备份降级保险（用户拿着 v11
             // 备份在旧版设备恢复）走这条：数据丢但应用不崩。没数据丢失比
@@ -383,6 +384,7 @@ class AppContainer(private val context: Context) {
             songAboutEntryDao = database.songAboutEntryDao(),
             geminiConfigDao = database.geminiConfigDao(),
             lyricsCacheDao = database.lyricsCacheDao(),
+            lyricsTranslationCacheDao = database.lyricsTranslationCacheDao(),
             songNoteDao = database.songNoteDao(),
             albumNoteDao = database.albumNoteDao(),
             albumRatingDao = database.albumRatingDao(),
@@ -998,6 +1000,29 @@ class AppContainer(private val context: Context) {
         val MIGRATION_17_18 = object : Migration(17, 18) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 migratePrivateDataToProfileScope(db)
+            }
+        }
+
+        /**
+         * v18 → v19：缓存 Gemini 歌词翻译。Key 包含源歌词 hash、目标语言和模型，
+         * 避免手动换词或模型升级后复用过期翻译。
+         */
+        val MIGRATION_18_19 = object : Migration(18, 19) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `lyrics_translation_cache` (
+                        `trackProvider` TEXT NOT NULL,
+                        `trackRawId` TEXT NOT NULL,
+                        `sourceHash` TEXT NOT NULL,
+                        `targetLanguage` TEXT NOT NULL,
+                        `model` TEXT NOT NULL,
+                        `translationsJson` TEXT NOT NULL,
+                        `cachedAt` INTEGER NOT NULL,
+                        PRIMARY KEY(`trackProvider`, `trackRawId`, `sourceHash`, `targetLanguage`, `model`)
+                    )
+                    """.trimIndent(),
+                )
             }
         }
 

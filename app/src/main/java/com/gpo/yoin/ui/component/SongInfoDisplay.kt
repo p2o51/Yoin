@@ -158,6 +158,7 @@ private fun ReadyContent(
 
             SongAboutEntry.CANONICAL_ORDER
                 .mapNotNull { key -> byKey[key]?.let { key to it } }
+                .filter { (_, row) -> row.answerText.isNotBlank() }
                 .forEach { (key, row) ->
                     if (key == SongAboutEntry.CANON_REVIEW) {
                         Spacer(modifier = Modifier.height(8.dp))

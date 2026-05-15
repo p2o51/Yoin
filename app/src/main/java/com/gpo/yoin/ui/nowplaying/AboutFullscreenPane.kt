@@ -149,6 +149,7 @@ private fun ReadyContent(
 
         SongAboutEntry.CANONICAL_ORDER
             .mapNotNull { key -> byKey[key]?.let { key to it } }
+            .filter { (_, row) -> row.answerText.isNotBlank() }
             .forEach { (_, row) ->
                 InfoItem(label = labelFor(row.entryKey), value = row.answerText)
             }

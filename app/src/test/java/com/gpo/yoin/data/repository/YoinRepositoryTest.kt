@@ -11,6 +11,8 @@ import com.gpo.yoin.data.local.GeminiConfig
 import com.gpo.yoin.data.local.SongAboutEntry
 import com.gpo.yoin.data.local.SongAboutEntryDao
 import com.gpo.yoin.data.local.SongNoteDao
+import com.gpo.yoin.data.local.LyricsTranslationCache
+import com.gpo.yoin.data.local.LyricsTranslationCacheDao
 import com.gpo.yoin.data.integration.neodb.NeoDBSyncService
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.Playlist
@@ -44,6 +46,7 @@ class YoinRepositoryTest {
     private val songAboutEntryDao = mockk<SongAboutEntryDao>(relaxed = true)
     private val geminiConfigDao = mockk<GeminiConfigDao>(relaxed = true)
     private val lyricsCacheDao = mockk<LyricsCacheDao>(relaxed = true)
+    private val lyricsTranslationCacheDao = mockk<LyricsTranslationCacheDao>(relaxed = true)
     private val songNoteDao = mockk<SongNoteDao>(relaxed = true)
     private val albumNoteDao = mockk<AlbumNoteDao>(relaxed = true)
     private val albumRatingDao = mockk<AlbumRatingDao>(relaxed = true)
@@ -60,6 +63,7 @@ class YoinRepositoryTest {
         songAboutEntryDao = songAboutEntryDao,
         geminiConfigDao = geminiConfigDao,
         lyricsCacheDao = lyricsCacheDao,
+        lyricsTranslationCacheDao = lyricsTranslationCacheDao,
         songNoteDao = songNoteDao,
         albumNoteDao = albumNoteDao,
         albumRatingDao = albumRatingDao,
@@ -180,7 +184,9 @@ class YoinRepositoryTest {
 
     @Test
     fun ensureCanonicalAbout_skips_gemini_when_canonical_rows_already_cached() = runTest {
-        val existing = listOf(canonicalRow(SongAboutEntry.CANON_CREATION_TIME, "2024"))
+        val existing = SongAboutEntry.CANONICAL_ORDER.map { entryKey ->
+            canonicalRow(entryKey, "Cached")
+        }
         coEvery {
             songAboutEntryDao.getCanonical("fake love", "drake", "certified lover boy")
         } returns existing
@@ -194,6 +200,31 @@ class YoinRepositoryTest {
         assertTrue(result is YoinRepository.AboutLoadResult.Success)
         coVerify(exactly = 0) {
             geminiService.generateCanonicalAbout(any(), any(), any(), any())
+        }
+    }
+
+    @Test
+    fun ensureCanonicalAbout_refetches_when_canonical_cache_is_partial() = runTest {
+        coEvery {
+            songAboutEntryDao.getCanonical("fake love", "drake", "certified lover boy")
+        } returns listOf(canonicalRow(SongAboutEntry.CANON_CREATION_TIME, "2024"))
+        coEvery { geminiConfigDao.getConfig() } returns flowOf(GeminiConfig(apiKey = "key"))
+        coEvery {
+            geminiService.generateCanonicalAbout("key", "Fake Love", "Drake", "Certified Lover Boy")
+        } returns listOf(
+            GeminiService.CanonicalAboutValue(SongAboutEntry.CANON_CREATION_TIME, "2024"),
+            GeminiService.CanonicalAboutValue(SongAboutEntry.CANON_LYRICIST, "Aubrey Graham"),
+        )
+
+        val result = repository.ensureCanonicalAbout(
+            title = "Fake Love",
+            artist = "Drake",
+            album = "Certified Lover Boy",
+        )
+
+        assertTrue(result is YoinRepository.AboutLoadResult.Success)
+        coVerify(exactly = 1) {
+            geminiService.generateCanonicalAbout("key", "Fake Love", "Drake", "Certified Lover Boy")
         }
     }
 
@@ -220,15 +251,19 @@ class YoinRepositoryTest {
         )
 
         assertTrue(result is YoinRepository.AboutLoadResult.Success)
-        assertEquals(2, captured.captured.size)
+        assertEquals(SongAboutEntry.CANONICAL_ORDER.size, captured.captured.size)
         val first = captured.captured.first()
         assertEquals("fake love", first.titleKey)
         assertEquals("drake", first.artistKey)
         assertEquals("certified lover boy", first.albumKey)
         assertEquals("Fake Love", first.titleDisplay)
         assertEquals(SongAboutEntry.KIND_CANONICAL, first.kind)
+        assertEquals(SongAboutEntry.CANON_CREATION_TIME, first.entryKey)
+        assertEquals("2024", first.answerText)
         assertEquals(5_000L, first.createdAt)
         assertEquals(5_000L, first.updatedAt)
+        val composer = captured.captured.first { it.entryKey == SongAboutEntry.CANON_COMPOSER }
+        assertEquals("", composer.answerText)
     }
 
     @Test
@@ -243,6 +278,25 @@ class YoinRepositoryTest {
         )
 
         assertEquals(YoinRepository.AboutLoadResult.ApiKeyMissing, result)
+    }
+
+    @Test
+    fun ensureCanonicalAbout_keeps_partial_cache_when_key_blank() = runTest {
+        coEvery {
+            songAboutEntryDao.getCanonical("fake love", "drake", "certified lover boy")
+        } returns listOf(canonicalRow(SongAboutEntry.CANON_CREATION_TIME, "2024"))
+        coEvery { geminiConfigDao.getConfig() } returns flowOf(GeminiConfig(apiKey = "  "))
+
+        val result = repository.ensureCanonicalAbout(
+            title = "Fake Love",
+            artist = "Drake",
+            album = "Certified Lover Boy",
+        )
+
+        assertEquals(YoinRepository.AboutLoadResult.Success, result)
+        coVerify(exactly = 0) {
+            geminiService.generateCanonicalAbout(any(), any(), any(), any())
+        }
     }
 
     @Test
@@ -325,6 +379,82 @@ class YoinRepositoryTest {
 
         assertTrue(result is YoinRepository.AskAboutResult.Error)
         coVerify(exactly = 0) { geminiService.askAboutSong(any(), any(), any(), any(), any()) }
+    }
+
+    @Test
+    fun translateLyrics_returns_cached_translation_without_calling_gemini() = runTest {
+        coEvery {
+            lyricsTranslationCacheDao.get(
+                trackProvider = "spotify",
+                trackRawId = "track-1",
+                sourceHash = any(),
+                targetLanguage = "Simplified Chinese",
+                model = GeminiService.MODEL,
+            )
+        } returns LyricsTranslationCache(
+            trackProvider = "spotify",
+            trackRawId = "track-1",
+            sourceHash = "hash",
+            targetLanguage = "Simplified Chinese",
+            model = GeminiService.MODEL,
+            translationsJson = """["[1] 第一句","【2】第二句"]""",
+            cachedAt = 1_000L,
+        )
+
+        val result = repository.translateLyrics(
+            trackId = MediaId.spotify("track-1"),
+            title = "Fake Love",
+            artist = "Drake",
+            lines = listOf("Line one", "Line two"),
+        )
+
+        val translations = (result as YoinRepository.LyricsTranslationResult.Success).translations
+        assertEquals("第一句", translations[0])
+        assertEquals("第二句", translations[1])
+        coVerify(exactly = 0) {
+            geminiService.translateLyricLines(any(), any(), any(), any(), any())
+        }
+    }
+
+    @Test
+    fun translateLyrics_persists_translation_after_gemini_success() = runTest {
+        coEvery {
+            lyricsTranslationCacheDao.get(any(), any(), any(), any(), any())
+        } returns null
+        coEvery { geminiConfigDao.getConfig() } returns flowOf(GeminiConfig(apiKey = "key"))
+        coEvery {
+            geminiService.translateLyricLines(
+                apiKey = "key",
+                title = "Fake Love",
+                artist = "Drake",
+                lines = listOf("Line one", "Line two"),
+                targetLanguage = "Simplified Chinese",
+            )
+        } returns mapOf(0 to "[1] 第一句", 1 to "【2】第二句")
+        val captured = slot<LyricsTranslationCache>()
+        coEvery { lyricsTranslationCacheDao.upsert(capture(captured)) } returns Unit
+
+        currentTime = 6_000L
+        val result = repository.translateLyrics(
+            trackId = MediaId.spotify("track-1"),
+            title = "Fake Love",
+            artist = "Drake",
+            lines = listOf("Line one", "Line two"),
+        )
+
+        val translations = (result as YoinRepository.LyricsTranslationResult.Success).translations
+        assertEquals("第一句", translations[0])
+        assertEquals("第二句", translations[1])
+        val saved = captured.captured
+        assertEquals("spotify", saved.trackProvider)
+        assertEquals("track-1", saved.trackRawId)
+        assertEquals("Simplified Chinese", saved.targetLanguage)
+        assertEquals(GeminiService.MODEL, saved.model)
+        assertEquals(6_000L, saved.cachedAt)
+        assertTrue(saved.translationsJson.contains("第一句"))
+        assertTrue(saved.translationsJson.contains("第二句"))
+        assertTrue(!saved.translationsJson.contains("[1]"))
+        assertTrue(!saved.translationsJson.contains("【2】"))
     }
 
     private fun canonicalRow(entryKey: String, answer: String) = SongAboutEntry(

@@ -16,6 +16,7 @@ import androidx.room.RoomDatabase
         SpotifyHomeAlbumCache::class,
         SpotifyHomeArtistCache::class,
         LyricsCache::class,
+        LyricsTranslationCache::class,
         SongNote::class,
         AlbumNote::class,
         AlbumRating::class,
@@ -23,7 +24,7 @@ import androidx.room.RoomDatabase
         MemoryCopyCache::class,
         NeoDBConfig::class,
     ],
-    version = 18,
+    version = 19,
     exportSchema = true,
 )
 abstract class YoinDatabase : RoomDatabase() {
@@ -46,6 +47,8 @@ abstract class YoinDatabase : RoomDatabase() {
     abstract fun spotifyHomeCacheDao(): SpotifyHomeCacheDao
 
     abstract fun lyricsCacheDao(): LyricsCacheDao
+
+    abstract fun lyricsTranslationCacheDao(): LyricsTranslationCacheDao
 
     abstract fun songNoteDao(): SongNoteDao
 

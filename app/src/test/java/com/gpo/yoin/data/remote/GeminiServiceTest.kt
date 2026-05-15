@@ -14,14 +14,29 @@ class GeminiServiceTest {
     @Test
     fun should_parseLineTranslations_when_taggedResponseReturned() {
         val raw = """
-            [L0]第一行[/L0]
-            [L1]第二行[/L1]
+            [L0][1] 第一行[/L0]
+            [L1]【2】第二行[/L1]
         """.trimIndent()
 
         val parsed = GeminiService.parseLineTranslations(raw, lineCount = 2)
 
         assertEquals("第一行", parsed[0])
         assertEquals("第二行", parsed[1])
+    }
+
+    @Test
+    fun should_stripLeadingLineMarkers_when_plainNumberedTranslationsReturned() {
+        val raw = """
+            [1] 第一行
+            (2) 第二行
+            3. 第三行
+        """.trimIndent()
+
+        val parsed = GeminiService.parseLineTranslations(raw, lineCount = 3)
+
+        assertEquals("第一行", parsed[0])
+        assertEquals("第二行", parsed[1])
+        assertEquals("第三行", parsed[2])
     }
 
     @Test

@@ -457,6 +457,7 @@ class NowPlayingViewModel(
         viewModelScope.launch {
             when (
                 val result = repository.translateLyrics(
+                    trackId = song.id,
                     title = song.title,
                     artist = song.artist,
                     lines = currentLyrics.map { it.text },
