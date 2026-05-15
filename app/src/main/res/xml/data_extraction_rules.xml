@@ -8,7 +8,7 @@
     - 不备份：所有凭据 —— 走 `noBackupFilesDir`（Android 自动排除）
         * profile_credentials/*.bin — Subsonic / Spotify 凭据
         * neodb/token.bin — NeoDB access token（v12 后从 Room 迁出）
-    - 不备份：Media3 cache 等运行时产物（走 cacheDir，默认已排除）
+    - 不备份：Media3 cache 等运行时产物（走 cacheDir，不在下方 include 范围内）
 
   已知局限（0.4 抛光期再处理）：
     `yoin-database.db` 里同时放了一些「可再拉的缓存表」（spotify_home_*,
@@ -30,9 +30,7 @@
 
         <!-- Profile 行元数据保留（作为重连引导的线索），但凭据文件不会被打进 -->
         <include domain="sharedpref" path="profile_active_id.xml" />
-
         <exclude domain="database" path="yoin-database-journal" />
-        <exclude domain="cache" path="." />
     </cloud-backup>
 
     <device-transfer>
@@ -40,8 +38,6 @@
         <include domain="database" path="yoin-database-shm" />
         <include domain="database" path="yoin-database-wal" />
         <include domain="sharedpref" path="profile_active_id.xml" />
-
         <exclude domain="database" path="yoin-database-journal" />
-        <exclude domain="cache" path="." />
     </device-transfer>
 </data-extraction-rules>

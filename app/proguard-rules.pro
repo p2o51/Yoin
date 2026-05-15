@@ -32,3 +32,9 @@
 -dontwarn androidx.media3.**
 -keep class com.google.common.util.concurrent.** { *; }
 -dontwarn com.google.common.util.concurrent.**
+
+# Spotify App Remote 0.8.0 references optional Jackson serializers and
+# Spotify annotations that are not needed by Yoin's runtime path.
+-dontwarn com.fasterxml.jackson.databind.deser.std.StdDeserializer
+-dontwarn com.fasterxml.jackson.databind.ser.std.StdSerializer
+-dontwarn com.spotify.base.annotations.NotNull
