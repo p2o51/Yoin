@@ -38,3 +38,11 @@
 -dontwarn com.fasterxml.jackson.databind.deser.std.StdDeserializer
 -dontwarn com.fasterxml.jackson.databind.ser.std.StdSerializer
 -dontwarn com.spotify.base.annotations.NotNull
+
+# Spotify App Remote 0.8.0 discovers the host app through deprecated
+# GET_SIGNATURES checks. Yoin uses a small compatibility connector that
+# verifies the Spotify package with modern signing APIs, then reflectively
+# constructs the SDK's package-private LocalConnector.
+-keep class com.spotify.android.appremote.api.LocalConnector { *; }
+-keep class com.spotify.android.appremote.internal.SdkRemoteClientConnectorFactory { *; }
+-keep class com.spotify.android.appremote.internal.SpotifyLocator { *; }

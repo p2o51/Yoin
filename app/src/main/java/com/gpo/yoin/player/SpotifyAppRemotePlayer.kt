@@ -460,7 +460,7 @@ internal class SpotifyAppRemotePlayer(
             .setRedirectUri(SpotifyAuthConfig.REDIRECT_URI)
             .showAuthView(true)
             .build()
-        SpotifyAppRemote.connect(
+        SpotifyAppRemoteCompat.connect(
             context,
             params,
             object : Connector.ConnectionListener {
