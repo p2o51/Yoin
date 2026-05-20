@@ -12,6 +12,26 @@ class GeminiServiceTest {
     }
 
     @Test
+    fun should_cleanAskTitle_when_quotedTitleReturned() {
+        val title = GeminiService.cleanAskTitle(
+            rawText = "[title]\"Chorus meaning?\"[/title]",
+            fallbackQuestion = "What does the chorus mean?",
+        )
+
+        assertEquals("Chorus meaning", title)
+    }
+
+    @Test
+    fun should_fallbackAskTitle_when_emptyTitleReturned() {
+        val title = GeminiService.cleanAskTitle(
+            rawText = "   ",
+            fallbackQuestion = "What does the bridge add?",
+        )
+
+        assertEquals("What does the bridge add?", title)
+    }
+
+    @Test
     fun should_parseLineTranslations_when_taggedResponseReturned() {
         val raw = """
             [L0][1] 第一行[/L0]

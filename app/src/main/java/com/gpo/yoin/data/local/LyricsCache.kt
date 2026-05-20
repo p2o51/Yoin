@@ -19,6 +19,7 @@ data class LyricsCache(
     val trackProvider: String,
     val trackRawId: String,
     val lyricsProvider: String,
+    val lyricsProviderSongId: String?,
     val lrc: String,
     val cachedAt: Long,
 )

@@ -45,14 +45,23 @@ class NowPlayingViewModel(
     private val _lyricsLoading = MutableStateFlow(false)
     private val _showLyricsTranslation = MutableStateFlow(false)
     private val _lyricsActionInFlight = MutableStateFlow<LyricsAction?>(null)
+    private val _currentLyricsProviderName = MutableStateFlow<String?>(null)
+    private val _currentLyricsProviderSongId = MutableStateFlow<String?>(null)
     private val _lyricsSearchState = MutableStateFlow(LyricsSearchState())
     val lyricsSearchState: StateFlow<LyricsSearchState> = _lyricsSearchState.asStateFlow()
+    private var pendingLyricsTranslationSwitchOffer:
+        YoinRepository.LyricsTranslationProviderSwitchOffer? = null
+    private val _lyricsTranslationSwitchOffers =
+        MutableSharedFlow<LyricsTranslationSwitchOfferUi>(extraBufferCapacity = 1)
+    val lyricsTranslationSwitchOffers: SharedFlow<LyricsTranslationSwitchOfferUi> =
+        _lyricsTranslationSwitchOffers.asSharedFlow()
     private val _isStarred = MutableStateFlow(false)
 
     // Transient ask-bar state drives the fullscreen About UI animation — NOT
     // persisted. See [AskBarState].
     private val _askState = MutableStateFlow<AskBarState>(AskBarState.Idle)
     val askState: StateFlow<AskBarState> = _askState.asStateFlow()
+    private var askRequestId = 0L
 
     // `aboutFetchError` / `aboutLoading` are UI-only overlays on top of the
     // observed Room flow. Room observer always has the ground truth list;
@@ -94,6 +103,9 @@ class NowPlayingViewModel(
                     _lyricsLoading.value = true
                     _showLyricsTranslation.value = false
                     _lyricsActionInFlight.value = null
+                    _currentLyricsProviderName.value = null
+                    _currentLyricsProviderSongId.value = null
+                    pendingLyricsTranslationSwitchOffer = null
                     lyricsSearchJob?.cancel()
                     _lyricsSearchState.value = LyricsSearchState()
                     _aboutError.value = null
@@ -105,6 +117,9 @@ class NowPlayingViewModel(
                     _lyricsLoading.value = false
                     _showLyricsTranslation.value = false
                     _lyricsActionInFlight.value = null
+                    _currentLyricsProviderName.value = null
+                    _currentLyricsProviderSongId.value = null
+                    pendingLyricsTranslationSwitchOffer = null
                     lyricsSearchJob?.cancel()
                     _lyricsSearchState.value = LyricsSearchState()
                     _isStarred.value = false
@@ -397,7 +412,7 @@ class NowPlayingViewModel(
                 songId = candidate.songId,
             )
                 .onSuccess { result ->
-                    applyLyricsResult(result.lyrics)
+                    applyLyricsResult(result.lyrics, result.providerName, result.providerSongId)
                     _lyricsSearchState.value = LyricsSearchState()
                     _addToPlaylistMessages.tryEmit("Lyrics applied from ${result.providerName}")
                 }
@@ -433,7 +448,7 @@ class NowPlayingViewModel(
         viewModelScope.launch {
             repository.applyLyrics(trackId = songId, rawLrc = rawLrc)
                 .onSuccess { result ->
-                    applyLyricsResult(result.lyrics)
+                    applyLyricsResult(result.lyrics, result.providerName, result.providerSongId)
                     _addToPlaylistMessages.tryEmit("Lyrics applied")
                 }
                 .onFailure { error ->
@@ -461,21 +476,61 @@ class NowPlayingViewModel(
                     title = song.title,
                     artist = song.artist,
                     lines = currentLyrics.map { it.text },
+                    currentLyricsProviderName = _currentLyricsProviderName.value,
+                    currentLyricsProviderSongId = _currentLyricsProviderSongId.value,
                 )
             ) {
+                is YoinRepository.LyricsTranslationResult.ProviderSwitchAvailable -> {
+                    pendingLyricsTranslationSwitchOffer = result.offer
+                    _lyricsTranslationSwitchOffers.tryEmit(
+                        LyricsTranslationSwitchOfferUi(
+                            providerName = result.offer.providerName,
+                        ),
+                    )
+                }
+                is YoinRepository.LyricsTranslationResult.AlreadyTargetLanguage ->
+                    _addToPlaylistMessages.tryEmit(
+                        "Lyrics already appear to be ${result.targetLanguage}",
+                    )
                 YoinRepository.LyricsTranslationResult.ApiKeyMissing ->
                     _addToPlaylistMessages.tryEmit("Gemini API key missing")
                 is YoinRepository.LyricsTranslationResult.Error ->
                     _addToPlaylistMessages.tryEmit(result.message)
                 is YoinRepository.LyricsTranslationResult.Success -> {
-                    _lyrics.value = currentLyrics.mapIndexed { index, line ->
+                    val baseLyrics = result.lyrics?.toUiLyrics() ?: currentLyrics
+                    _lyrics.value = baseLyrics.mapIndexed { index, line ->
                         line.copy(translation = result.translations[index])
+                    }
+                    result.providerName?.let { providerName ->
+                        _currentLyricsProviderName.value = providerName
+                    }
+                    result.providerSongId?.let { providerSongId ->
+                        _currentLyricsProviderSongId.value = providerSongId
                     }
                     _showLyricsTranslation.value = true
                     _addToPlaylistMessages.tryEmit("Lyrics translated")
                 }
             }
             _lyricsActionInFlight.value = null
+        }
+    }
+
+    fun applyLyricsTranslationSwitchOffer() {
+        val song = playbackManager.playbackState.value.currentTrack ?: return
+        val offer = pendingLyricsTranslationSwitchOffer ?: return
+        if (_lyricsActionInFlight.value != null) return
+        _lyricsActionInFlight.value = LyricsAction.Translate
+        viewModelScope.launch {
+            repository.applyLyricsTranslationProviderSwitch(song.id, offer)
+            _lyrics.value = offer.lyrics.toUiLyrics().mapIndexed { index, line ->
+                line.copy(translation = offer.translations[index])
+            }
+            _currentLyricsProviderName.value = offer.providerName
+            _currentLyricsProviderSongId.value = offer.providerSongId
+            _showLyricsTranslation.value = true
+            pendingLyricsTranslationSwitchOffer = null
+            _lyricsActionInFlight.value = null
+            _addToPlaylistMessages.tryEmit("Lyrics translated from ${offer.providerName}")
         }
     }
 
@@ -814,7 +869,22 @@ class NowPlayingViewModel(
         if (trimmed.isEmpty()) return
         val song = playbackManager.playbackState.value.currentTrack ?: return
 
-        _askState.value = AskBarState.Loading
+        val requestId = ++askRequestId
+        _askState.value = AskBarState.Loading(title = trimmed, requestId = requestId)
+        viewModelScope.launch {
+            val titleResult = repository.generateAskTitle(
+                title = song.title.orEmpty(),
+                artist = song.artist.orEmpty(),
+                album = song.album.orEmpty(),
+                question = trimmed,
+            )
+            if (titleResult is YoinRepository.AskTitleResult.Success) {
+                val current = _askState.value
+                if (current is AskBarState.Loading && current.requestId == requestId) {
+                    _askState.value = current.copy(title = titleResult.title)
+                }
+            }
+        }
         viewModelScope.launch {
             val result = repository.askAboutSong(
                 title = song.title.orEmpty(),
@@ -838,13 +908,19 @@ class NowPlayingViewModel(
         // CancellationException 透传，并且**不**碰 loading —— 紧接着新的 handler
         // 会把 loading 再次设成 true，避免中间闪一下 "No lyrics available"。
         try {
-            when (val lyrics = repository.getLyrics(songId, title, artist)) {
+            when (val loadedLyrics = repository.getLoadedLyrics(songId, title, artist)) {
                 null -> {
                     _lyrics.value = emptyList()
                     _lyricsLoading.value = false
                     _showLyricsTranslation.value = false
+                    _currentLyricsProviderName.value = null
+                    _currentLyricsProviderSongId.value = null
                 }
-                else -> applyLyricsResult(lyrics)
+                else -> applyLyricsResult(
+                    loadedLyrics.lyrics,
+                    loadedLyrics.providerName,
+                    loadedLyrics.providerSongId,
+                )
             }
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
@@ -852,13 +928,22 @@ class NowPlayingViewModel(
             _lyrics.value = emptyList()
             _lyricsLoading.value = false
             _showLyricsTranslation.value = false
+            _currentLyricsProviderName.value = null
+            _currentLyricsProviderSongId.value = null
         }
     }
 
-    private fun applyLyricsResult(lyrics: SourceLyrics) {
+    private fun applyLyricsResult(
+        lyrics: SourceLyrics,
+        providerName: String?,
+        providerSongId: String?,
+    ) {
         _lyrics.value = lyrics.toUiLyrics()
         _lyricsLoading.value = false
         _showLyricsTranslation.value = false
+        _currentLyricsProviderName.value = providerName
+        _currentLyricsProviderSongId.value = providerSongId
+        pendingLyricsTranslationSwitchOffer = null
     }
 
     class Factory(private val container: AppContainer) : ViewModelProvider.Factory {

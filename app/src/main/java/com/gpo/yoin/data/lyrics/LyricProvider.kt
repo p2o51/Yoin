@@ -6,7 +6,6 @@ package com.gpo.yoin.data.lyrics
  * 决定是否 fall through 到下一个 provider。
  *
  * 对应 Spotoolfy 的 `lib/services/lyrics/lyric_provider.dart`，但是：
- * - 不带翻译（`LyricResult` / `fetchLyricWithTranslation` 一律不 port）
  * - 不带缓存（`LyricCacheData` 不 port，上层 [LyricsProviderRegistry] 也不缓存）
  */
 abstract class LyricProvider {
@@ -26,6 +25,13 @@ abstract class LyricProvider {
 
     /** 按平台内 id 拉 LRC 原文；拿不到返回 null。 */
     abstract suspend fun fetchLyric(songId: String): String?
+
+    /** 按平台内 id 拉原文 + Provider 自带翻译；默认退化为只拉原文。 */
+    open suspend fun fetchLyricWithTranslation(songId: String): LyricPayload? {
+        val raw = fetchLyric(songId) ?: return null
+        val lyric = normalizeLyric(raw).takeIf { it.isNotEmpty() } ?: return null
+        return LyricPayload(lyric = lyric)
+    }
 
     /**
      * 规范化 LRC：HTML 实体 unescape + 折叠空行 + trim。仅处理 Spotoolfy 见过的
@@ -64,6 +70,24 @@ abstract class LyricProvider {
             null
         }
     }
+
+    /** 拉取指定 provider 内 song id 的歌词和翻译并规范化。 */
+    suspend fun fetchNormalizedLyricWithTranslation(songId: String): LyricPayload? {
+        return try {
+            fetchLyricWithTranslation(songId)?.normalizedBy(this)
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    private fun LyricPayload.normalizedBy(provider: LyricProvider): LyricPayload? {
+        val normalizedLyric = provider.normalizeLyric(lyric).takeIf { it.isNotEmpty() }
+            ?: return null
+        val normalizedTranslation = translatedLyric
+            ?.let(provider::normalizeLyric)
+            ?.takeIf { it.isNotEmpty() }
+        return copy(lyric = normalizedLyric, translatedLyric = normalizedTranslation)
+    }
 }
 
 /** 搜索命中。Provider 内部用这个中转 title/artist → 平台 id。 */
@@ -71,4 +95,10 @@ data class SongMatch(
     val songId: String,
     val title: String,
     val artist: String,
+)
+
+/** Provider 原始歌词 payload。翻译歌词同样应是 LRC 形态。 */
+data class LyricPayload(
+    val lyric: String,
+    val translatedLyric: String? = null,
 )

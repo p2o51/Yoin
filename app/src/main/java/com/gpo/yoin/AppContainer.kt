@@ -73,6 +73,8 @@ class AppContainer(private val context: Context) {
                 MIGRATION_16_17,
                 MIGRATION_17_18,
                 MIGRATION_18_19,
+                MIGRATION_19_20,
+                MIGRATION_20_21,
             )
             // v11 冻结了 0.3 schema；0.5 上架前的备份降级保险（用户拿着 v11
             // 备份在旧版设备恢复）走这条：数据丢但应用不崩。没数据丢失比
@@ -1021,6 +1023,36 @@ class AppContainer(private val context: Context) {
                         `cachedAt` INTEGER NOT NULL,
                         PRIMARY KEY(`trackProvider`, `trackRawId`, `sourceHash`, `targetLanguage`, `model`)
                     )
+                    """.trimIndent(),
+                )
+            }
+        }
+
+        /**
+         * v19 → v20：Gemini 输出统一目标语言。默认保持 Settings/UI 当前英语
+         * 语境；用户可在 Settings → AI Features 切换。
+         */
+        val MIGRATION_19_20 = object : Migration(19, 20) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    ALTER TABLE `gemini_config`
+                    ADD COLUMN `targetLanguage` TEXT NOT NULL DEFAULT 'English'
+                    """.trimIndent(),
+                )
+            }
+        }
+
+        /**
+         * v20 → v21：歌词缓存记住 provider 内部 song id。这样用户手动选中某条
+         * QQ / 网易云歌词后，翻译可以回到同一条 provider 记录，而不是重新搜索。
+         */
+        val MIGRATION_20_21 = object : Migration(20, 21) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    ALTER TABLE `lyrics_cache`
+                    ADD COLUMN `lyricsProviderSongId` TEXT
                     """.trimIndent(),
                 )
             }

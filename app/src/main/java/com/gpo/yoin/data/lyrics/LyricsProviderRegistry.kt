@@ -24,8 +24,9 @@ class LyricsProviderRegistry(
 
     suspend fun fetchLyric(title: String, artist: String): Hit? {
         for (p in providers) {
-            val lrc = p.getLyric(title, artist) ?: continue
-            return Hit(lrc = lrc, providerName = p.name)
+            val match = p.search(title, artist) ?: continue
+            val lrc = p.fetchNormalizedLyric(match.songId) ?: continue
+            return Hit(lrc = lrc, providerName = p.name, providerSongId = match.songId)
         }
         return null
     }
@@ -66,11 +67,52 @@ class LyricsProviderRegistry(
     suspend fun fetchSelectedLyric(providerName: String, songId: String): Hit? {
         val provider = providers.firstOrNull { it.name == providerName } ?: return null
         val lrc = provider.fetchNormalizedLyric(songId) ?: return null
-        return Hit(lrc = lrc, providerName = provider.name)
+        return Hit(lrc = lrc, providerName = provider.name, providerSongId = songId)
+    }
+
+    suspend fun fetchSelectedLyricWithTranslation(
+        providerName: String,
+        songId: String,
+    ): TranslationHit? {
+        val provider = providers.firstOrNull { it.name == providerName } ?: return null
+        val payload = provider.fetchNormalizedLyricWithTranslation(songId) ?: return null
+        return TranslationHit(
+            lrc = payload.lyric,
+            translatedLrc = payload.translatedLyric,
+            providerName = provider.name,
+            providerSongId = songId,
+        )
+    }
+
+    suspend fun searchAndFetchLyricWithTranslation(
+        providerName: String,
+        title: String,
+        artist: String,
+    ): TranslationHit? {
+        val provider = providers.firstOrNull { it.name == providerName } ?: return null
+        val match = provider.search(title, artist) ?: return null
+        val payload = provider.fetchNormalizedLyricWithTranslation(match.songId) ?: return null
+        return TranslationHit(
+            lrc = payload.lyric,
+            translatedLrc = payload.translatedLyric,
+            providerName = provider.name,
+            providerSongId = match.songId,
+        )
     }
 
     /** 命中的歌词 + 是哪个 provider 给的（用于缓存落表 / 日志）。 */
-    data class Hit(val lrc: String, val providerName: String)
+    data class Hit(
+        val lrc: String,
+        val providerName: String,
+        val providerSongId: String?,
+    )
+
+    data class TranslationHit(
+        val lrc: String,
+        val translatedLrc: String?,
+        val providerName: String,
+        val providerSongId: String,
+    )
 
     data class SearchResult(
         val providerName: String,

@@ -46,10 +46,14 @@ class SettingsViewModel(
         database.cacheMetadataDao().getTotalCacheSize()
             .stateIn(viewModelScope, SharingStarted.Eagerly, 0L)
 
-    private val geminiKeyFlow: StateFlow<String> =
+    private val geminiConfigFlow: StateFlow<GeminiConfig> =
         database.geminiConfigDao().getConfig()
-            .map { it?.apiKey.orEmpty() }
-            .stateIn(viewModelScope, SharingStarted.Eagerly, "")
+            .map {
+                it?.copy(
+                    targetLanguage = GeminiConfig.normalizeTargetLanguage(it.targetLanguage),
+                ) ?: GeminiConfig(apiKey = "")
+            }
+            .stateIn(viewModelScope, SharingStarted.Eagerly, GeminiConfig(apiKey = ""))
 
     /**
      * NeoDB 的 instance + token bundle。Instance 走 Room flow；token 走
@@ -105,17 +109,28 @@ class SettingsViewModel(
     // NeoDB section 而不用退到 Array 变长 combine。
     private data class MiscSettingsBundle(
         val geminiApiKey: String,
+        val geminiTargetLanguage: String,
         val neoDb: NeoDBSettingsBundle,
     )
 
     private val miscSettingsBundleFlow: StateFlow<MiscSettingsBundle> = combine(
-        geminiKeyFlow,
+        geminiConfigFlow,
         neoDbSettingsBundleFlow,
-    ) { geminiKey, neoDb -> MiscSettingsBundle(geminiKey, neoDb) }
+    ) { geminiConfig, neoDb ->
+        MiscSettingsBundle(
+            geminiApiKey = geminiConfig.apiKey,
+            geminiTargetLanguage = GeminiConfig.normalizeTargetLanguage(geminiConfig.targetLanguage),
+            neoDb = neoDb,
+        )
+    }
         .stateIn(
             viewModelScope,
             SharingStarted.Eagerly,
-            MiscSettingsBundle("", NeoDBSettingsBundle(NeoDBConfig.DEFAULT_INSTANCE, "")),
+            MiscSettingsBundle(
+                "",
+                GeminiConfig.DEFAULT_TARGET_LANGUAGE,
+                NeoDBSettingsBundle(NeoDBConfig.DEFAULT_INSTANCE, ""),
+            ),
         )
 
     val uiState: StateFlow<SettingsUiState> = combine(
@@ -140,6 +155,7 @@ class SettingsViewModel(
             canAddProfile = profiles.size < ProfileManager.MAX_PROFILES,
             cacheSizeBytes = cacheSize,
             geminiApiKey = misc.geminiApiKey,
+            geminiTargetLanguage = misc.geminiTargetLanguage,
             spotifyClientId = spotifyEffective,
             spotifyClientIdUsesFallback =
                 spotifyOverride.isBlank() && spotifyEffective.isNotBlank(),
@@ -442,7 +458,21 @@ class SettingsViewModel(
 
     fun saveGeminiApiKey(key: String) {
         viewModelScope.launch {
-            database.geminiConfigDao().upsert(GeminiConfig(apiKey = key.trim()))
+            val current = database.geminiConfigDao().getConfig().first()
+            database.geminiConfigDao().upsert(
+                (current ?: GeminiConfig(apiKey = "")).copy(apiKey = key.trim()),
+            )
+        }
+    }
+
+    fun saveGeminiTargetLanguage(language: String) {
+        val normalized = GeminiConfig.normalizeTargetLanguage(language)
+        viewModelScope.launch {
+            val current = database.geminiConfigDao().getConfig().first()
+            val existing = current ?: GeminiConfig(apiKey = "")
+            if (GeminiConfig.normalizeTargetLanguage(existing.targetLanguage) == normalized) return@launch
+            database.geminiConfigDao().upsert(existing.copy(targetLanguage = normalized))
+            database.songAboutEntryDao().deleteAll()
         }
     }
 

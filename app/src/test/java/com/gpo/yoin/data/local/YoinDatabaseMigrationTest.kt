@@ -70,6 +70,8 @@ class YoinDatabaseMigrationTest {
                 AppContainer.MIGRATION_16_17,
                 AppContainer.MIGRATION_17_18,
                 AppContainer.MIGRATION_18_19,
+                AppContainer.MIGRATION_19_20,
+                AppContainer.MIGRATION_20_21,
             )
             .allowMainThreadQueries()
             .build()
@@ -158,6 +160,8 @@ class YoinDatabaseMigrationTest {
                 AppContainer.MIGRATION_16_17,
                 AppContainer.MIGRATION_17_18,
                 AppContainer.MIGRATION_18_19,
+                AppContainer.MIGRATION_19_20,
+                AppContainer.MIGRATION_20_21,
             )
             .allowMainThreadQueries()
             .build()
@@ -229,6 +233,8 @@ class YoinDatabaseMigrationTest {
                 AppContainer.MIGRATION_16_17,
                 AppContainer.MIGRATION_17_18,
                 AppContainer.MIGRATION_18_19,
+                AppContainer.MIGRATION_19_20,
+                AppContainer.MIGRATION_20_21,
             )
             .allowMainThreadQueries()
             .build()
@@ -283,6 +289,8 @@ class YoinDatabaseMigrationTest {
                 AppContainer.MIGRATION_16_17,
                 AppContainer.MIGRATION_17_18,
                 AppContainer.MIGRATION_18_19,
+                AppContainer.MIGRATION_19_20,
+                AppContainer.MIGRATION_20_21,
             )
             .allowMainThreadQueries()
             .build()
@@ -363,6 +371,8 @@ class YoinDatabaseMigrationTest {
                 AppContainer.MIGRATION_16_17,
                 AppContainer.MIGRATION_17_18,
                 AppContainer.MIGRATION_18_19,
+                AppContainer.MIGRATION_19_20,
+                AppContainer.MIGRATION_20_21,
             )
             .allowMainThreadQueries()
             .build()
@@ -449,6 +459,8 @@ class YoinDatabaseMigrationTest {
                 AppContainer.MIGRATION_16_17,
                 AppContainer.MIGRATION_17_18,
                 AppContainer.MIGRATION_18_19,
+                AppContainer.MIGRATION_19_20,
+                AppContainer.MIGRATION_20_21,
             )
             .allowMainThreadQueries()
             .build()
@@ -512,6 +524,8 @@ class YoinDatabaseMigrationTest {
                 AppContainer.MIGRATION_16_17,
                 AppContainer.MIGRATION_17_18,
                 AppContainer.MIGRATION_18_19,
+                AppContainer.MIGRATION_19_20,
+                AppContainer.MIGRATION_20_21,
             )
             .allowMainThreadQueries()
             .build()
@@ -570,6 +584,8 @@ class YoinDatabaseMigrationTest {
                 AppContainer.MIGRATION_16_17,
                 AppContainer.MIGRATION_17_18,
                 AppContainer.MIGRATION_18_19,
+                AppContainer.MIGRATION_19_20,
+                AppContainer.MIGRATION_20_21,
             )
             .allowMainThreadQueries()
             .build()
@@ -628,6 +644,8 @@ class YoinDatabaseMigrationTest {
                 AppContainer.MIGRATION_16_17,
                 AppContainer.MIGRATION_17_18,
                 AppContainer.MIGRATION_18_19,
+                AppContainer.MIGRATION_19_20,
+                AppContainer.MIGRATION_20_21,
             )
             .allowMainThreadQueries()
             .build()
@@ -711,6 +729,8 @@ class YoinDatabaseMigrationTest {
                 AppContainer.MIGRATION_16_17,
                 AppContainer.MIGRATION_17_18,
                 AppContainer.MIGRATION_18_19,
+                AppContainer.MIGRATION_19_20,
+                AppContainer.MIGRATION_20_21,
             )
             .allowMainThreadQueries()
             .build()
@@ -813,6 +833,8 @@ class YoinDatabaseMigrationTest {
                 AppContainer.MIGRATION_16_17,
                 AppContainer.MIGRATION_17_18,
                 AppContainer.MIGRATION_18_19,
+                AppContainer.MIGRATION_19_20,
+                AppContainer.MIGRATION_20_21,
             )
             .allowMainThreadQueries()
             .build()
@@ -868,7 +890,11 @@ class YoinDatabaseMigrationTest {
         helper.close()
 
         val migrated = Room.databaseBuilder(context, YoinDatabase::class.java, dbName)
-            .addMigrations(AppContainer.MIGRATION_18_19)
+            .addMigrations(
+                AppContainer.MIGRATION_18_19,
+                AppContainer.MIGRATION_19_20,
+                AppContainer.MIGRATION_20_21,
+            )
             .allowMainThreadQueries()
             .build()
 

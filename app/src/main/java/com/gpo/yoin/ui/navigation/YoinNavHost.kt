@@ -117,6 +117,19 @@ fun YoinNavHost(
             }
         }
 
+        LaunchedEffect(nowPlayingViewModel) {
+            nowPlayingViewModel.lyricsTranslationSwitchOffers.collect { offer ->
+                val result = addToPlaylistSnackbarHostState.showSnackbar(
+                    message = "${offer.providerName} translation is available",
+                    actionLabel = "Switch",
+                    duration = SnackbarDuration.Long,
+                )
+                if (result == SnackbarResult.ActionPerformed) {
+                    nowPlayingViewModel.applyLyricsTranslationSwitchOffer()
+                }
+            }
+        }
+
         // Single top-level route (Shell). Detail pushes are appended onto this
         // one stack. `rememberNavBackStack` persists across config changes and
         // process death because every YoinRoute subtype is @Serializable + NavKey.

@@ -9,6 +9,7 @@ import com.gpo.yoin.data.local.AlbumNoteDao
 import com.gpo.yoin.data.local.AlbumNoteKey
 import com.gpo.yoin.data.local.AlbumRating
 import com.gpo.yoin.data.local.AlbumRatingDao
+import com.gpo.yoin.data.local.GeminiConfig
 import com.gpo.yoin.data.local.GeminiConfigDao
 import com.gpo.yoin.data.local.LocalRating
 import com.gpo.yoin.data.local.LyricsCache
@@ -35,6 +36,7 @@ import com.gpo.yoin.data.model.Album
 import com.gpo.yoin.data.model.ArtistDetail
 import com.gpo.yoin.data.model.ArtistIndex
 import com.gpo.yoin.data.model.CoverRef
+import com.gpo.yoin.data.model.LyricLine
 import com.gpo.yoin.data.model.Lyrics
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.Playlist
@@ -108,15 +110,47 @@ class YoinRepository(
         data class Error(val message: String) : AskAboutResult
     }
 
+    sealed interface AskTitleResult {
+        data class Success(val title: String) : AskTitleResult
+        data object ApiKeyMissing : AskTitleResult
+        data class Error(val message: String) : AskTitleResult
+    }
+
     sealed interface LyricsTranslationResult {
-        data class Success(val translations: Map<Int, String>) : LyricsTranslationResult
+        data class Success(
+            val translations: Map<Int, String>,
+            val lyrics: Lyrics? = null,
+            val providerName: String? = null,
+            val providerSongId: String? = null,
+        ) : LyricsTranslationResult
+
+        data class ProviderSwitchAvailable(
+            val offer: LyricsTranslationProviderSwitchOffer,
+        ) : LyricsTranslationResult
+
+        data class AlreadyTargetLanguage(val targetLanguage: String) : LyricsTranslationResult
         data object ApiKeyMissing : LyricsTranslationResult
         data class Error(val message: String) : LyricsTranslationResult
     }
 
+    data class LyricsTranslationProviderSwitchOffer(
+        val providerName: String,
+        val providerSongId: String,
+        val lyrics: Lyrics,
+        val rawLrc: String,
+        val translations: Map<Int, String>,
+    )
+
     data class LyricsApplyResult(
         val lyrics: Lyrics,
         val providerName: String,
+        val providerSongId: String?,
+    )
+
+    data class LoadedLyrics(
+        val lyrics: Lyrics,
+        val providerName: String?,
+        val providerSongId: String?,
     )
 
     data class LyricsSearchCandidate(
@@ -730,10 +764,22 @@ class YoinRepository(
         trackId: MediaId,
         title: String? = null,
         artist: String? = null,
-    ): Lyrics? {
+    ): Lyrics? = getLoadedLyrics(trackId, title, artist)?.lyrics
+
+    suspend fun getLoadedLyrics(
+        trackId: MediaId,
+        title: String? = null,
+        artist: String? = null,
+    ): LoadedLyrics? {
         val source = requireSource()
         if (source.id == MediaId.PROVIDER_SUBSONIC) {
-            return source.metadata().getLyrics(trackId)
+            return source.metadata().getLyrics(trackId)?.let { lyrics ->
+                LoadedLyrics(
+                    lyrics = lyrics,
+                    providerName = MediaId.PROVIDER_SUBSONIC,
+                    providerSongId = trackId.rawId,
+                )
+            }
         }
         val t = title?.trim().orEmpty()
         val a = artist?.trim().orEmpty()
@@ -743,7 +789,13 @@ class YoinRepository(
         val minCachedAt = now - LYRICS_CACHE_TTL_MS
         lyricsCacheDao
             .getFresh(trackId.provider, trackId.rawId, minCachedAt)
-            ?.let { return LrcParser.parse(it.lrc) }
+            ?.let {
+                return LoadedLyrics(
+                    lyrics = LrcParser.parse(it.lrc),
+                    providerName = it.lyricsProvider,
+                    providerSongId = it.lyricsProviderSongId,
+                )
+            }
 
         val hit = lyricsProviderRegistry.fetchLyric(t, a) ?: return null
         lyricsCacheDao.upsert(
@@ -751,11 +803,16 @@ class YoinRepository(
                 trackProvider = trackId.provider,
                 trackRawId = trackId.rawId,
                 lyricsProvider = hit.providerName,
+                lyricsProviderSongId = hit.providerSongId,
                 lrc = hit.lrc,
                 cachedAt = now,
             ),
         )
-        return LrcParser.parse(hit.lrc)
+        return LoadedLyrics(
+            lyrics = LrcParser.parse(hit.lrc),
+            providerName = hit.providerName,
+            providerSongId = hit.providerSongId,
+        )
     }
 
     suspend fun searchAndApplyLyrics(
@@ -776,6 +833,7 @@ class YoinRepository(
                 trackProvider = trackId.provider,
                 trackRawId = trackId.rawId,
                 lyricsProvider = hit.providerName,
+                lyricsProviderSongId = hit.providerSongId,
                 lrc = hit.lrc,
                 cachedAt = clock(),
             ),
@@ -783,6 +841,7 @@ class YoinRepository(
         LyricsApplyResult(
             lyrics = LrcParser.parse(hit.lrc),
             providerName = hit.providerName,
+            providerSongId = hit.providerSongId,
         )
     }
 
@@ -826,6 +885,7 @@ class YoinRepository(
                 trackProvider = trackId.provider,
                 trackRawId = trackId.rawId,
                 lyricsProvider = hit.providerName,
+                lyricsProviderSongId = hit.providerSongId,
                 lrc = hit.lrc,
                 cachedAt = clock(),
             ),
@@ -833,6 +893,7 @@ class YoinRepository(
         LyricsApplyResult(
             lyrics = LrcParser.parse(hit.lrc),
             providerName = hit.providerName,
+            providerSongId = hit.providerSongId,
         )
     }
 
@@ -847,6 +908,7 @@ class YoinRepository(
                 trackProvider = trackId.provider,
                 trackRawId = trackId.rawId,
                 lyricsProvider = "manual",
+                lyricsProviderSongId = null,
                 lrc = trimmed,
                 cachedAt = clock(),
             ),
@@ -854,6 +916,7 @@ class YoinRepository(
         LyricsApplyResult(
             lyrics = LrcParser.parse(trimmed),
             providerName = "manual",
+            providerSongId = null,
         )
     }
 
@@ -862,6 +925,8 @@ class YoinRepository(
         title: String?,
         artist: String?,
         lines: List<String>,
+        currentLyricsProviderName: String?,
+        currentLyricsProviderSongId: String?,
     ): LyricsTranslationResult {
         val t = title?.trim().orEmpty()
         val a = artist?.trim().orEmpty()
@@ -869,19 +934,38 @@ class YoinRepository(
         if (sourceLines.isEmpty()) {
             return LyricsTranslationResult.Error("No lyrics to translate")
         }
+        val config = geminiConfigDao.getConfig().first()
+        val targetLanguage = GeminiConfig.normalizeTargetLanguage(config?.targetLanguage)
+        if (sourceLines.appearToAlreadyBeTargetLanguage(targetLanguage)) {
+            return LyricsTranslationResult.AlreadyTargetLanguage(targetLanguage)
+        }
+
+        if (targetLanguage.isChineseTargetLanguage()) {
+            val providerResult = translateLyricsWithProvider(
+                trackId = trackId,
+                title = t,
+                artist = a,
+                sourceLines = sourceLines,
+                targetLanguage = targetLanguage,
+                currentLyricsProviderName = currentLyricsProviderName,
+                currentLyricsProviderSongId = currentLyricsProviderSongId,
+            )
+            if (providerResult != null) return providerResult
+        }
+
         val sourceHash = buildLyricsTranslationSourceHash(t, a, sourceLines)
         val cached = lyricsTranslationCacheDao.get(
             trackProvider = trackId.provider,
             trackRawId = trackId.rawId,
             sourceHash = sourceHash,
-            targetLanguage = LYRIC_TRANSLATION_TARGET_LANGUAGE,
+            targetLanguage = targetLanguage,
             model = GeminiService.MODEL,
         )
         cached
             ?.toTranslations(expectedLineCount = sourceLines.size)
             ?.let { return LyricsTranslationResult.Success(it) }
 
-        val apiKey = geminiConfigDao.getConfig().first()?.apiKey?.trim().orEmpty()
+        val apiKey = config?.apiKey?.trim().orEmpty()
         if (apiKey.isEmpty()) {
             return LyricsTranslationResult.ApiKeyMissing
         }
@@ -891,7 +975,7 @@ class YoinRepository(
                 title = t.ifEmpty { "Unknown song" },
                 artist = a.ifEmpty { "Unknown artist" },
                 lines = sourceLines,
-                targetLanguage = LYRIC_TRANSLATION_TARGET_LANGUAGE,
+                targetLanguage = targetLanguage,
             )
             val cleanedTranslations = translations.mapValues { (_, translation) ->
                 GeminiService.cleanLineTranslation(translation)
@@ -901,7 +985,7 @@ class YoinRepository(
                     trackProvider = trackId.provider,
                     trackRawId = trackId.rawId,
                     sourceHash = sourceHash,
-                    targetLanguage = LYRIC_TRANSLATION_TARGET_LANGUAGE,
+                    targetLanguage = targetLanguage,
                     model = GeminiService.MODEL,
                     translationsJson = lyricTranslationCacheJson.encodeToString(
                         sourceLines.indices.map { index ->
@@ -915,6 +999,150 @@ class YoinRepository(
         } catch (error: Exception) {
             LyricsTranslationResult.Error(error.message ?: "Failed to translate lyrics")
         }
+    }
+
+    suspend fun applyLyricsTranslationProviderSwitch(
+        trackId: MediaId,
+        offer: LyricsTranslationProviderSwitchOffer,
+    ) {
+        lyricsCacheDao.upsert(
+            LyricsCache(
+                trackProvider = trackId.provider,
+                trackRawId = trackId.rawId,
+                lyricsProvider = offer.providerName,
+                lyricsProviderSongId = offer.providerSongId,
+                lrc = offer.rawLrc,
+                cachedAt = clock(),
+            ),
+        )
+    }
+
+    private suspend fun translateLyricsWithProvider(
+        trackId: MediaId,
+        title: String,
+        artist: String,
+        sourceLines: List<String>,
+        targetLanguage: String,
+        currentLyricsProviderName: String?,
+        currentLyricsProviderSongId: String?,
+    ): LyricsTranslationResult? {
+        val currentProvider = currentLyricsProviderName?.takeIf { it in PROVIDER_TRANSLATION_NAMES }
+            ?: return null
+        val current = fetchProviderTranslation(
+            providerName = currentProvider,
+            providerSongId = currentLyricsProviderSongId,
+            title = title,
+            artist = artist,
+            trackId = trackId,
+            targetLanguage = targetLanguage,
+            sourceLinesForFallbackCache = sourceLines,
+            persistLyrics = true,
+        )
+        if (current != null) {
+            return LyricsTranslationResult.Success(
+                translations = current.translations,
+                lyrics = current.lyrics,
+                providerName = current.providerName,
+                providerSongId = current.providerSongId,
+            )
+        }
+
+        if (currentProvider == PROVIDER_QQ) {
+            val netease = fetchProviderTranslation(
+                providerName = PROVIDER_NETEASE,
+                providerSongId = null,
+                title = title,
+                artist = artist,
+                trackId = trackId,
+                targetLanguage = targetLanguage,
+                sourceLinesForFallbackCache = sourceLines,
+                persistLyrics = false,
+            )
+            if (netease != null) {
+                return LyricsTranslationResult.ProviderSwitchAvailable(
+                    LyricsTranslationProviderSwitchOffer(
+                        providerName = netease.providerName,
+                        providerSongId = netease.providerSongId,
+                        lyrics = netease.lyrics,
+                        rawLrc = netease.rawLrc,
+                        translations = netease.translations,
+                    ),
+                )
+            }
+        }
+        return null
+    }
+
+    private suspend fun fetchProviderTranslation(
+        providerName: String,
+        providerSongId: String?,
+        title: String,
+        artist: String,
+        trackId: MediaId,
+        targetLanguage: String,
+        sourceLinesForFallbackCache: List<String>,
+        persistLyrics: Boolean,
+    ): ProviderTranslation? {
+        val hit = if (providerSongId != null) {
+            lyricsProviderRegistry.fetchSelectedLyricWithTranslation(providerName, providerSongId)
+        } else {
+            lyricsProviderRegistry.searchAndFetchLyricWithTranslation(providerName, title, artist)
+        } ?: return null
+        val translatedLrc = hit.translatedLrc?.takeIf { it.isNotBlank() } ?: return null
+        val lyrics = LrcParser.parse(hit.lrc)
+        if (persistLyrics) {
+            lyricsCacheDao.upsert(
+                LyricsCache(
+                    trackProvider = trackId.provider,
+                    trackRawId = trackId.rawId,
+                    lyricsProvider = hit.providerName,
+                    lyricsProviderSongId = hit.providerSongId,
+                    lrc = hit.lrc,
+                    cachedAt = clock(),
+                ),
+            )
+        }
+        val providerSourceLines = lyrics.lineTexts().ifEmpty { sourceLinesForFallbackCache }
+        val sourceHash = buildLyricsTranslationSourceHash(title, artist, providerSourceLines)
+        val model = "provider:${hit.providerName}"
+        lyricsTranslationCacheDao.get(
+            trackProvider = trackId.provider,
+            trackRawId = trackId.rawId,
+            sourceHash = sourceHash,
+            targetLanguage = targetLanguage,
+            model = model,
+        )?.toTranslations(expectedLineCount = providerSourceLines.size)?.let { translations ->
+            return ProviderTranslation(
+                providerName = hit.providerName,
+                providerSongId = hit.providerSongId,
+                lyrics = lyrics,
+                rawLrc = hit.lrc,
+                translations = translations,
+            )
+        }
+
+        val translations = buildProviderTranslations(lyrics, translatedLrc)
+        if (translations.isEmpty()) return null
+        lyricsTranslationCacheDao.upsert(
+            LyricsTranslationCache(
+                trackProvider = trackId.provider,
+                trackRawId = trackId.rawId,
+                sourceHash = sourceHash,
+                targetLanguage = targetLanguage,
+                model = model,
+                translationsJson = lyricTranslationCacheJson.encodeToString(
+                    providerSourceLines.indices.map { index -> translations[index].orEmpty() },
+                ),
+                cachedAt = clock(),
+            ),
+        )
+        return ProviderTranslation(
+            providerName = hit.providerName,
+            providerSongId = hit.providerSongId,
+            lyrics = lyrics,
+            rawLrc = hit.lrc,
+            translations = translations,
+        )
     }
 
     /**
@@ -963,7 +1191,8 @@ class YoinRepository(
             }
         }
 
-        val apiKey = geminiConfigDao.getConfig().first()?.apiKey
+        val config = geminiConfigDao.getConfig().first()
+        val apiKey = config?.apiKey
         if (apiKey.isNullOrBlank()) {
             return if (existing.isNotEmpty()) {
                 AboutLoadResult.Success
@@ -971,6 +1200,7 @@ class YoinRepository(
                 AboutLoadResult.ApiKeyMissing
             }
         }
+        val targetLanguage = GeminiConfig.normalizeTargetLanguage(config.targetLanguage)
 
         return runCatching {
             val values = geminiService.generateCanonicalAbout(
@@ -978,6 +1208,7 @@ class YoinRepository(
                 title = title,
                 artist = artist,
                 album = album,
+                targetLanguage = targetLanguage,
             )
             val valuesByKey = values.associate { it.entryKey to it.answer }
             val now = clock()
@@ -1006,6 +1237,41 @@ class YoinRepository(
     }
 
     /**
+     * Generate a short non-persisted heading for the in-flight Ask Gemini
+     * state. The eventual answer path still owns the persisted title.
+     */
+    suspend fun generateAskTitle(
+        title: String,
+        artist: String,
+        album: String,
+        question: String,
+    ): AskTitleResult {
+        val trimmedQuestion = question.trim()
+        if (trimmedQuestion.isEmpty()) {
+            return AskTitleResult.Error("Question is empty")
+        }
+
+        val config = geminiConfigDao.getConfig().first()
+        val apiKey = config?.apiKey
+        if (apiKey.isNullOrBlank()) return AskTitleResult.ApiKeyMissing
+        val targetLanguage = GeminiConfig.normalizeTargetLanguage(config.targetLanguage)
+
+        return runCatching {
+            val heading = geminiService.generateAskTitle(
+                apiKey = apiKey,
+                title = title,
+                artist = artist,
+                album = album,
+                question = trimmedQuestion,
+                targetLanguage = targetLanguage,
+            )
+            AskTitleResult.Success(heading)
+        }.getOrElse { error ->
+            AskTitleResult.Error(error.message ?: "Failed to load Gemini title")
+        }
+    }
+
+    /**
      * Ask Gemini a free-form question about the song. On success, upsert
      * an `ask` row keyed by the normalized question. Re-asking the same
      * normalized question updates the answer and `updatedAt` while
@@ -1022,8 +1288,10 @@ class YoinRepository(
             return AskAboutResult.Error("Question is empty")
         }
 
-        val apiKey = geminiConfigDao.getConfig().first()?.apiKey
+        val config = geminiConfigDao.getConfig().first()
+        val apiKey = config?.apiKey
         if (apiKey.isNullOrBlank()) return AskAboutResult.ApiKeyMissing
+        val targetLanguage = GeminiConfig.normalizeTargetLanguage(config.targetLanguage)
 
         val titleKey = SongAboutEntry.normalize(title)
         val artistKey = SongAboutEntry.normalize(artist)
@@ -1037,6 +1305,7 @@ class YoinRepository(
                 artist = artist,
                 album = album,
                 question = trimmedQuestion,
+                targetLanguage = targetLanguage,
             )
             val now = clock()
             val existing = songAboutEntryDao.getAsk(titleKey, artistKey, albumKey, questionKey)
@@ -1287,11 +1556,22 @@ private fun collapseToLatestUnique(events: List<ActivityEvent>): List<ActivityEv
     companion object {
         /** 歌词缓存 TTL：30 天。Provider 返回的内容在这个窗口内复用不重拉。 */
         private val LYRICS_CACHE_TTL_MS: Long = 30L * 24L * 60L * 60L * 1000L
-        private const val LYRIC_TRANSLATION_TARGET_LANGUAGE = "Simplified Chinese"
     }
 }
 
 private val lyricTranslationCacheJson = Json
+
+private const val PROVIDER_QQ = "qq"
+private const val PROVIDER_NETEASE = "netease"
+private val PROVIDER_TRANSLATION_NAMES = setOf(PROVIDER_QQ, PROVIDER_NETEASE)
+
+private data class ProviderTranslation(
+    val providerName: String,
+    val providerSongId: String,
+    val lyrics: Lyrics,
+    val rawLrc: String,
+    val translations: Map<Int, String>,
+)
 
 private fun LyricsTranslationCache.toTranslations(expectedLineCount: Int): Map<Int, String>? =
     runCatching {
@@ -1304,6 +1584,110 @@ private fun LyricsTranslationCache.toTranslations(expectedLineCount: Int): Map<I
                 ?.let { index to it }
         }
         ?.toMap()
+
+private fun buildProviderTranslations(
+    lyrics: Lyrics,
+    translatedLrc: String,
+): Map<Int, String> {
+    val translated = LrcParser.parse(translatedLrc)
+    if (lyrics is Lyrics.Synced && translated is Lyrics.Synced) {
+        val byStart = translated.lines
+            .mapNotNull { line -> line.text.takeIf(String::isNotBlank)?.let { line.startMs to it } }
+            .toMap()
+        val exact = lyrics.lines.mapIndexedNotNull { index, line ->
+            byStart[line.startMs]
+                ?.let(GeminiService::cleanLineTranslation)
+                ?.takeIf(String::isNotBlank)
+                ?.let { index to it }
+        }.toMap()
+        if (exact.isNotEmpty()) return exact
+    }
+    return lyrics.lineTexts()
+        .zip(translated.lineTexts())
+        .mapIndexedNotNull { index, pair ->
+            GeminiService.cleanLineTranslation(pair.second)
+                .takeIf(String::isNotBlank)
+                ?.let { index to it }
+        }
+        .toMap()
+}
+
+private fun Lyrics.lineTexts(): List<String> = when (this) {
+    is Lyrics.Synced -> lines.map(LyricLine::text)
+    is Lyrics.Unsynced -> text.lineSequence()
+        .map(String::trim)
+        .filter(String::isNotEmpty)
+        .toList()
+}
+
+private fun String.isChineseTargetLanguage(): Boolean {
+    val normalized = trim().lowercase()
+    return normalized == "chinese" ||
+        "中文" in normalized ||
+        "汉语" in normalized ||
+        "simplified chinese" in normalized ||
+        "traditional chinese" in normalized ||
+        "chinese (" in normalized
+}
+
+private fun List<String>.appearToAlreadyBeTargetLanguage(targetLanguage: String): Boolean =
+    targetLanguage.isChineseTargetLanguage() && appearsMostlyChinese()
+
+private fun List<String>.appearsMostlyChinese(): Boolean {
+    var han = 0
+    var kana = 0
+    var hangul = 0
+    var latin = 0
+    for (line in this) {
+        for (char in line) {
+            when {
+                char.isHanIdeograph() -> han += 1
+                char.isJapaneseKana() -> kana += 1
+                char.isHangul() -> hangul += 1
+                char.isLatinLetter() -> latin += 1
+            }
+        }
+    }
+    val meaningful = han + kana + hangul + latin
+    if (han < 8 || meaningful < 12) return false
+    if (kana > 0 || hangul > 0) return false
+    val hanRatio = han.toFloat() / meaningful.toFloat()
+    return hanRatio >= 0.72f || (han >= 20 && hanRatio >= 0.60f)
+}
+
+private fun Char.isHanIdeograph(): Boolean {
+    val block = Character.UnicodeBlock.of(this)
+    return block == Character.UnicodeBlock.CJK_UNIFIED_IDEOGRAPHS ||
+        block == Character.UnicodeBlock.CJK_UNIFIED_IDEOGRAPHS_EXTENSION_A ||
+        block == Character.UnicodeBlock.CJK_UNIFIED_IDEOGRAPHS_EXTENSION_B ||
+        block == Character.UnicodeBlock.CJK_UNIFIED_IDEOGRAPHS_EXTENSION_C ||
+        block == Character.UnicodeBlock.CJK_UNIFIED_IDEOGRAPHS_EXTENSION_D ||
+        block == Character.UnicodeBlock.CJK_UNIFIED_IDEOGRAPHS_EXTENSION_E ||
+        block == Character.UnicodeBlock.CJK_UNIFIED_IDEOGRAPHS_EXTENSION_F ||
+        block == Character.UnicodeBlock.CJK_UNIFIED_IDEOGRAPHS_EXTENSION_G ||
+        block == Character.UnicodeBlock.CJK_UNIFIED_IDEOGRAPHS_EXTENSION_H ||
+        block == Character.UnicodeBlock.CJK_COMPATIBILITY_IDEOGRAPHS ||
+        block == Character.UnicodeBlock.CJK_COMPATIBILITY_IDEOGRAPHS_SUPPLEMENT
+}
+
+private fun Char.isJapaneseKana(): Boolean {
+    val block = Character.UnicodeBlock.of(this)
+    return block == Character.UnicodeBlock.HIRAGANA ||
+        block == Character.UnicodeBlock.KATAKANA ||
+        block == Character.UnicodeBlock.KATAKANA_PHONETIC_EXTENSIONS
+}
+
+private fun Char.isHangul(): Boolean {
+    val block = Character.UnicodeBlock.of(this)
+    return block == Character.UnicodeBlock.HANGUL_SYLLABLES ||
+        block == Character.UnicodeBlock.HANGUL_JAMO ||
+        block == Character.UnicodeBlock.HANGUL_COMPATIBILITY_JAMO ||
+        block == Character.UnicodeBlock.HANGUL_JAMO_EXTENDED_A ||
+        block == Character.UnicodeBlock.HANGUL_JAMO_EXTENDED_B
+}
+
+private fun Char.isLatinLetter(): Boolean =
+    (this in 'A'..'Z') || (this in 'a'..'z')
 
 private fun buildLyricsTranslationSourceHash(
     title: String,

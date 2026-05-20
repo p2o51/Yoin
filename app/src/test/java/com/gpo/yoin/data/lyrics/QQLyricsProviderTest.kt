@@ -31,6 +31,7 @@ class QQLyricsProviderTest {
         provider = QQLyricsProvider(
             client = OkHttpClient.Builder().build(),
             searchUrl = "$base/search",
+            playLyricInfoUrl = "$base/play",
             primaryLyricUrl = "$base/primary",
             backupLyricUrl = "$base/backup",
         )
@@ -92,7 +93,17 @@ class QQLyricsProviderTest {
     fun fetchLyric_returns_lyric_field() = runTest {
         server.enqueue(
             MockResponse().setResponseCode(200).setBody(
-                """{"lyric":"[00:01.00]hello","trans":"[00:01.00]你好"}""",
+                """
+                {
+                  "req_1": {
+                    "code": 0,
+                    "data": {
+                      "lyric": "[00:01.00]hello",
+                      "trans": "[00:01.00]你好"
+                    }
+                  }
+                }
+                """.trimIndent(),
             ),
         )
 
@@ -100,25 +111,53 @@ class QQLyricsProviderTest {
 
         assertEquals("[00:01.00]hello", lrc)
         val req = server.takeRequest()
-        assertTrue(req.path!!.startsWith("/primary"))
-        assertTrue(req.path!!.contains("songmid=abc123"))
-        assertTrue(req.path!!.contains("nobase64=1"))
+        assertTrue(req.path!!.startsWith("/play"))
+        assertEquals("POST", req.method)
+        assertTrue(req.body.readUtf8().contains("\"trans\":1"))
+    }
+
+    @Test
+    fun fetchLyricWithTranslation_returns_trans_field() = runTest {
+        server.enqueue(
+            MockResponse().setResponseCode(200).setBody(
+                """
+                {
+                  "req_1": {
+                    "code": 0,
+                    "data": {
+                      "lyric": "[00:01.00]hello",
+                      "trans": "[00:01.00]你好"
+                    }
+                  }
+                }
+                """.trimIndent(),
+            ),
+        )
+
+        val payload = provider.fetchLyricWithTranslation("abc123")
+
+        assertEquals("[00:01.00]hello", payload?.lyric)
+        assertEquals("[00:01.00]你好", payload?.translatedLyric)
     }
 
     @Test
     fun fetchLyric_flips_to_backup_on_403() = runTest {
-        // 1st call: primary → 403 triggers domain flip, returns null
+        // 1st call: PlayLyricInfo misses, legacy primary → 403 triggers domain flip.
+        server.enqueue(MockResponse().setResponseCode(500))
         server.enqueue(MockResponse().setResponseCode(403))
         val first = provider.fetchLyric("abc")
         assertNull(first)
+        assertTrue(server.takeRequest().path!!.startsWith("/play"))
         assertTrue(server.takeRequest().path!!.startsWith("/primary"))
 
-        // 2nd call: now uses backup domain
+        // 2nd call: PlayLyricInfo misses again, legacy now uses backup domain.
+        server.enqueue(MockResponse().setResponseCode(500))
         server.enqueue(
             MockResponse().setResponseCode(200).setBody("""{"lyric":"[00:00.00]ok"}"""),
         )
         val second = provider.fetchLyric("abc")
         assertEquals("[00:00.00]ok", second)
+        assertTrue(server.takeRequest().path!!.startsWith("/play"))
         assertTrue(server.takeRequest().path!!.startsWith("/backup"))
     }
 }

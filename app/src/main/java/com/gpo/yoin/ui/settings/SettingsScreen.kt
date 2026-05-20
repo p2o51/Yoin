@@ -75,6 +75,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.gpo.yoin.data.integration.neodb.NeoDBOAuthContract
+import com.gpo.yoin.data.local.GeminiConfig
 import com.gpo.yoin.data.profile.ProfileManager
 import com.gpo.yoin.data.profile.ProviderKind
 import com.gpo.yoin.data.source.spotify.SpotifyOAuthContract
@@ -151,6 +152,7 @@ fun SettingsScreen(
         onDismissDeleteConfirm = viewModel::dismissDeleteConfirm,
         onConfirmDeleteProfile = viewModel::confirmDeleteProfile,
         onSaveGeminiApiKey = viewModel::saveGeminiApiKey,
+        onSaveGeminiTargetLanguage = viewModel::saveGeminiTargetLanguage,
         onSaveSpotifyClientId = viewModel::saveSpotifyClientId,
         onOpenNeoDbSignIn = viewModel::openNeoDbSignIn,
         onSaveNeoDbConfig = viewModel::saveNeoDbConfig,
@@ -185,6 +187,7 @@ fun SettingsContent(
     onDismissDeleteConfirm: () -> Unit,
     onConfirmDeleteProfile: () -> Unit,
     onSaveGeminiApiKey: (String) -> Unit = {},
+    onSaveGeminiTargetLanguage: (String) -> Unit = {},
     onSaveSpotifyClientId: (String) -> Unit = {},
     onOpenNeoDbSignIn: (String) -> Unit = {},
     onSaveNeoDbConfig: (String, String) -> Unit = { _, _ -> },
@@ -280,7 +283,9 @@ fun SettingsContent(
                                 )
                                 GeminiSection(
                                     initialApiKey = uiState.geminiApiKey,
+                                    initialTargetLanguage = uiState.geminiTargetLanguage,
                                     onSaveApiKey = onSaveGeminiApiKey,
+                                    onSaveTargetLanguage = onSaveGeminiTargetLanguage,
                                 )
                                 SpotifySection(
                                     initialClientId = uiState.spotifyClientId,
@@ -1136,11 +1141,21 @@ private fun DeleteProfileDialog(
 @Composable
 private fun GeminiSection(
     initialApiKey: String,
+    initialTargetLanguage: String,
     onSaveApiKey: (String) -> Unit,
+    onSaveTargetLanguage: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     var apiKey by rememberSaveable { mutableStateOf(initialApiKey) }
+    var languageMenuOpen by rememberSaveable { mutableStateOf(false) }
+    var targetLanguage by rememberSaveable {
+        mutableStateOf(GeminiConfig.normalizeTargetLanguage(initialTargetLanguage))
+    }
+    val haptics = rememberYoinHaptics()
     LaunchedEffect(initialApiKey) { apiKey = initialApiKey }
+    LaunchedEffect(initialTargetLanguage) {
+        targetLanguage = GeminiConfig.normalizeTargetLanguage(initialTargetLanguage)
+    }
 
     ExpressiveSectionPanel(
         modifier = modifier.fillMaxWidth(),
@@ -1156,10 +1171,40 @@ private fun GeminiSection(
         ) {
             ExpressiveHeaderBlock(title = "AI Features")
             Text(
-                text = "Enter your Gemini API key to enable AI-powered song info. Get one from Google AI Studio.",
+                text = "Enter your Gemini API key to enable AI-powered song info. Target language is used for song info, Ask Gemini, and lyric translation.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+            Box(modifier = Modifier.fillMaxWidth()) {
+                OutlinedButton(
+                    onClick = {
+                        haptics.performTick()
+                        languageMenuOpen = true
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(
+                        text = "Target language: $targetLanguage",
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+                YoinDropdownMenu(
+                    expanded = languageMenuOpen,
+                    onDismissRequest = { languageMenuOpen = false },
+                ) {
+                    GeminiConfig.SUPPORTED_TARGET_LANGUAGES.forEach { language ->
+                        YoinDropdownMenuItem(
+                            text = language,
+                            onClick = {
+                                haptics.performContextClick()
+                                languageMenuOpen = false
+                                targetLanguage = language
+                                onSaveTargetLanguage(language)
+                            },
+                        )
+                    }
+                }
+            }
             ExpressiveTextField(
                 value = apiKey,
                 onValueChange = { apiKey = it },
@@ -1436,6 +1481,7 @@ fun SettingsContentPreview() {
                 canAddProfile = true,
                 cacheSizeBytes = 52_428_800L,
                 geminiApiKey = "",
+                geminiTargetLanguage = GeminiConfig.DEFAULT_TARGET_LANGUAGE,
             ),
             switchingState = ProfileManager.SwitchState.Idle,
             profileFormSheet = ProfileFormSheet.Hidden,
@@ -1456,6 +1502,7 @@ fun SettingsContentPreview() {
             onDismissDeleteConfirm = {},
             onConfirmDeleteProfile = {},
             onSaveGeminiApiKey = {},
+            onSaveGeminiTargetLanguage = {},
             onClearCache = {},
         )
     }

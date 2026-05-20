@@ -19,8 +19,7 @@ import okhttp3.Request
  * 间接调用网易 API（避开官方反爬）。Port 自
  * `spotoolfy_flutter/lib/services/lyrics/netease_provider.dart`。
  *
- * 不实现 `fetchLyricWithTranslation`（翻译本次不做）。逐字 JSON 歌词会被转换为
- * 标准 LRC（见 [parseJsonLyric]）。
+ * 逐字 JSON 歌词会被转换为标准 LRC（见 [parseJsonLyric]）。
  */
 class NetEaseLyricsProvider(
     private val client: OkHttpClient = defaultClient(),
@@ -74,12 +73,21 @@ class NetEaseLyricsProvider(
     }
 
     override suspend fun fetchLyric(songId: String): String? = withContext(Dispatchers.IO) {
+        fetchLyricPayload(songId)?.lyric
+    }
+
+    override suspend fun fetchLyricWithTranslation(songId: String): LyricPayload? =
+        withContext(Dispatchers.IO) {
+            fetchLyricPayload(songId)
+        }
+
+    private suspend fun fetchLyricPayload(songId: String): LyricPayload? {
         val url = "$baseUrl/lyric/new".toHttpUrl().newBuilder()
             .addQueryParameter("id", songId)
             .build()
         val request = Request.Builder().url(url).get().build()
 
-        runCatching {
+        return runCatching {
             client.awaitResponse(request).use { response ->
                 if (!response.isSuccessful) {
                     Log.w(TAG, "NetEase lyric failed: ${response.code}")
@@ -91,18 +99,26 @@ class NetEaseLyricsProvider(
                     ?.get("lyric")?.jsonPrimitive?.contentOrNull
                     ?.takeIf { it.isNotEmpty() }
                     ?: return@use null
-
-                if (lrcText.trimStart().startsWith('{')) {
-                    parseJsonLyric(lrcText)
-                } else {
-                    lrcText
-                }
+                val translatedText = root["tlyric"]?.jsonObject
+                    ?.get("lyric")?.jsonPrimitive?.contentOrNull
+                    ?.takeIf { it.isNotEmpty() }
+                LyricPayload(
+                    lyric = parseProviderLyric(lrcText) ?: return@use null,
+                    translatedLyric = translatedText?.let(::parseProviderLyric),
+                )
             }
         }.getOrElse { e ->
             Log.w(TAG, "NetEase lyric parse error: ${e.message}")
             null
         }
     }
+
+    private fun parseProviderLyric(raw: String): String? =
+        if (raw.trimStart().startsWith('{')) {
+            parseJsonLyric(raw)
+        } else {
+            raw
+        }
 
     /**
      * 网易逐字 JSON 歌词 → 标准 LRC。每行形如

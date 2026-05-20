@@ -28,8 +28,9 @@ class GeminiService(
         title: String,
         artist: String,
         album: String,
+        targetLanguage: String,
     ): List<CanonicalAboutValue> = withContext(Dispatchers.IO) {
-        val prompt = buildPrompt(title, artist, album)
+        val prompt = buildPrompt(title, artist, album, targetLanguage)
         val requestBody = GeminiRequest(
             contents = listOf(
                 GeminiContent(parts = listOf(GeminiPart(text = prompt))),
@@ -74,8 +75,9 @@ class GeminiService(
         artist: String,
         album: String,
         question: String,
+        targetLanguage: String,
     ): AskAnswer = withContext(Dispatchers.IO) {
-        val prompt = buildAskPrompt(title, artist, album, question)
+        val prompt = buildAskPrompt(title, artist, album, question, targetLanguage)
         val requestBody = GeminiRequest(
             contents = listOf(
                 GeminiContent(parts = listOf(GeminiPart(text = prompt))),
@@ -106,6 +108,54 @@ class GeminiService(
             ?: throw GeminiException("No content in Gemini response")
 
         parseAskResponse(rawText, fallbackQuestion = question)
+    }
+
+    /**
+     * Lightweight title-only call used by the Ask Gemini loading state.
+     * The full grounded answer still returns its own `[TITLE]` later; this
+     * just gives the user a readable heading while the slower answer is
+     * being generated.
+     */
+    suspend fun generateAskTitle(
+        apiKey: String,
+        title: String,
+        artist: String,
+        album: String,
+        question: String,
+        targetLanguage: String,
+    ): String = withContext(Dispatchers.IO) {
+        val prompt = buildAskTitlePrompt(title, artist, album, question, targetLanguage)
+        val requestBody = GeminiRequest(
+            contents = listOf(
+                GeminiContent(parts = listOf(GeminiPart(text = prompt))),
+            ),
+            tools = null,
+            generationConfig = GeminiGenerationConfig(temperature = 0.2f),
+        )
+
+        val bodyJson = json.encodeToString(requestBody)
+        val request = Request.Builder()
+            .url("$BASE_URL$MODEL:generateContent?key=$apiKey")
+            .post(bodyJson.toRequestBody(JSON_MEDIA_TYPE))
+            .build()
+
+        val response = client.newCall(request).execute()
+        val responseBody = response.body?.string()
+            ?: throw GeminiException("Empty response from Gemini API")
+
+        if (!response.isSuccessful) {
+            throw GeminiException(
+                "Gemini API error (${response.code}): ${extractErrorMessage(responseBody)}",
+            )
+        }
+
+        val geminiResponse = json.decodeFromString<GeminiResponse>(responseBody)
+        val rawText = geminiResponse.candidates
+            ?.firstOrNull()?.content?.parts?.firstOrNull()?.text
+            ?.takeIf { it.isNotEmpty() }
+            ?: throw GeminiException("No content in Gemini response")
+
+        cleanAskTitle(rawText, fallbackQuestion = question)
     }
 
     /**
@@ -176,7 +226,7 @@ class GeminiService(
         title: String,
         artist: String,
         lines: List<String>,
-        targetLanguage: String = "Simplified Chinese",
+        targetLanguage: String = "English",
     ): Map<Int, String> = withContext(Dispatchers.IO) {
         val prompt = buildLyricsTranslationPrompt(title, artist, lines, targetLanguage)
         val requestBody = GeminiRequest(
@@ -241,14 +291,21 @@ Output only the line itself.
         """.trimIndent()
     }
 
-    private fun buildPrompt(title: String, artist: String, album: String): String = """
+    private fun buildPrompt(
+        title: String,
+        artist: String,
+        album: String,
+        targetLanguage: String,
+    ): String = """
 Search for and provide detailed information about the following song:
 
 Song: $title
 Artist: $artist
 Album: $album
 
-Use the search tool to find accurate information. Respond strictly in the following tagged format. If any information cannot be found, write "N/A" inside the tag.
+Use the search tool to find accurate information. Write all human-readable
+answers in $targetLanguage. Respond strictly in the following tagged format.
+If any information cannot be found, write "N/A" inside the tag.
 
 [CREATION_TIME]
 When the song was created/recorded
@@ -282,14 +339,16 @@ Respond strictly in the tagged format above. Every field must include its corres
         artist: String,
         album: String,
         question: String,
+        targetLanguage: String,
     ): String = """
 Answer the following question about the song "$title" from the album "$album" by $artist.
 Use the search tool to find accurate, up-to-date information.
+Write the title and answer in $targetLanguage.
 
 Respond strictly in the following tagged format:
 
 [TITLE]
-A concise headline that summarises the question — no more than 8 words, no trailing punctuation. This is shown as the visual heading above your answer, so it should feel like a title, not a full sentence. Use the language the user asked in.
+A concise headline that summarises the question — no more than 8 words, no trailing punctuation. This is shown as the visual heading above your answer, so it should feel like a title, not a full sentence.
 [/TITLE]
 
 [ANSWER]
@@ -297,6 +356,25 @@ The detailed answer. No more than 120 words. Plain prose only — no citation ma
 [/ANSWER]
 
 Question: $question
+    """.trimIndent()
+
+    private fun buildAskTitlePrompt(
+        title: String,
+        artist: String,
+        album: String,
+        question: String,
+        targetLanguage: String,
+    ): String = """
+Write a concise visual heading for an in-progress Gemini answer about this song.
+Write the heading in $targetLanguage.
+
+Song: $title
+Artist: $artist
+Album: $album
+Question: $question
+
+Return only the heading. No more than 8 words. No trailing punctuation. Do not
+answer the question.
     """.trimIndent()
 
     private fun buildLyricsTranslationPrompt(
@@ -350,10 +428,13 @@ $indexedLines
         private val JSON_MEDIA_TYPE = "application/json".toMediaType()
 
         // Matches any `[TAG]`, `[/TAG]`, `[ TAG ]`, `[ / TAG ]` etc. with
-        // ALL_CAPS identifiers. Used both to extract content by tag name and
+        // tag identifiers. Used both to extract content by tag name and
         // to scrub leftover markers out of fallback prose so the user never
         // sees raw `[TITLE]` / `[ANSWER]` text in the UI.
-        private val TAG_MARKER_REGEX = Regex("""\[\s*/?\s*[A-Z][A-Z0-9_]*\s*\]""")
+        private val TAG_MARKER_REGEX = Regex(
+            pattern = """\[\s*/?\s*[A-Z][A-Z0-9_]*\s*\]""",
+            option = RegexOption.IGNORE_CASE,
+        )
         private val LINE_TRANSLATION_REGEX = Regex(
             pattern = """\[\s*L(\d+)\s*\](.*?)\[\s*/\s*L\1\s*\]""",
             options = setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL),
@@ -438,6 +519,22 @@ $indexedLines
                 else -> AskAnswer(fallbackQuestion.trim(), stripTagMarkers(rawText))
             }
         }
+
+        fun cleanAskTitle(rawText: String, fallbackQuestion: String): String =
+            stripTagMarkers(rawText)
+                .lines()
+                .firstOrNull { it.isNotBlank() }
+                ?.trim()
+                ?.trim('"', '\'', '“', '”', '‘', '’')
+                ?.removeSuffix(".")
+                ?.removeSuffix("?")
+                ?.removeSuffix("!")
+                ?.removeSuffix("。")
+                ?.removeSuffix("？")
+                ?.removeSuffix("！")
+                ?.trim()
+                ?.takeIf { it.isNotEmpty() }
+                ?: fallbackQuestion.trim()
 
         fun parseLineTranslations(rawText: String, lineCount: Int): Map<Int, String> {
             val tagged = LINE_TRANSLATION_REGEX.findAll(rawText)

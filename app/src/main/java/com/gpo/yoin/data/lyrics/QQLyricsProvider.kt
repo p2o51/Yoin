@@ -1,6 +1,7 @@
 package com.gpo.yoin.data.lyrics
 
 import android.util.Log
+import java.util.Base64
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -23,13 +24,16 @@ import okhttp3.RequestBody.Companion.toRequestBody
  * QQ 音乐歌词源。Port 自 `spotoolfy_flutter/lib/services/lyrics/qq_provider_mobile.dart`。
  * 两次公网请求：
  * 1. 搜索：POST `u.y.qq.com/cgi-bin/musicu.fcg` 拿到 `songmid`
- * 2. 取词：GET `c.y.qq.com/lyric/fcgi-bin/fcg_query_lyric_new.fcg?songmid=&format=json&nobase64=1`
- *    返回 JSON，原文在 `lyric` 字段；遇 403/429 翻转到备用域名 `u6.y.qq.com`。
+ * 2. 取词：POST `u.y.qq.com/cgi-bin/musicu.fcg` 调
+ *    `music.musichallSong.PlayLyricInfo.GetPlayLyricInfo`。`trans=1` 才返回翻译。
+ *
+ * 旧 `fcg_query_lyric_new.fcg` 仍作为原文兜底；它的 `trans` 字段在 2026 实测中基本为空。
  */
 class QQLyricsProvider(
     private val client: OkHttpClient = defaultClient(),
     private val json: Json = Json { ignoreUnknownKeys = true; isLenient = true },
     private val searchUrl: String = DEFAULT_SEARCH_URL,
+    private val playLyricInfoUrl: String = DEFAULT_SEARCH_URL,
     private val primaryLyricUrl: String = DEFAULT_PRIMARY_LYRIC_URL,
     private val backupLyricUrl: String = DEFAULT_BACKUP_LYRIC_URL,
 ) : LyricProvider() {
@@ -110,7 +114,65 @@ class QQLyricsProvider(
         }
     }
 
-    override suspend fun fetchLyric(songId: String): String? = withContext(Dispatchers.IO) {
+    override suspend fun fetchLyric(songId: String): String? =
+        fetchLyricWithTranslation(songId)?.lyric ?: fetchLegacyLyric(songId)
+
+    override suspend fun fetchLyricWithTranslation(songId: String): LyricPayload? = withContext(Dispatchers.IO) {
+        val payload = buildJsonObject {
+            putJsonObject("comm") {
+                put("cv", 4_747_474)
+                put("ct", 24)
+                put("format", "json")
+                put("inCharset", "utf-8")
+                put("outCharset", "utf-8")
+                put("notice", 0)
+                put("platform", "yqq.json")
+                put("needNewCode", 1)
+                put("uin", 0)
+                put("g_tk_new_20200303", 5381)
+                put("g_tk", 5381)
+            }
+            putJsonObject("req_1") {
+                put("module", "music.musichallSong.PlayLyricInfo")
+                put("method", "GetPlayLyricInfo")
+                putJsonObject("param") {
+                    put("songMID", songId)
+                    put("trans", 1)
+                }
+            }
+        }
+        val request = Request.Builder()
+            .url(playLyricInfoUrl)
+            .post(payload.toString().toRequestBody(JSON_MEDIA_TYPE))
+            .headers(SEARCH_HEADERS)
+            .build()
+
+        runCatching {
+            client.awaitResponse(request).use { response ->
+                if (!response.isSuccessful) {
+                    Log.w(TAG, "QQ play lyric info failed: ${response.code}")
+                    return@use null
+                }
+                val raw = response.body?.string().orEmpty()
+                val root = json.parseToJsonElement(raw).jsonObject
+                val data = root["req_1"]?.jsonObject
+                    ?.get("data")?.jsonObject
+                    ?: return@use null
+                val lyric = decodeMaybeBase64(data["lyric"]?.jsonPrimitive?.contentOrNull)
+                    ?: return@use null
+                val translatedLyric = decodeMaybeBase64(data["trans"]?.jsonPrimitive?.contentOrNull)
+                LyricPayload(
+                    lyric = lyric,
+                    translatedLyric = translatedLyric,
+                )
+            }
+        }.getOrElse { e ->
+            Log.w(TAG, "QQ play lyric info parse error: ${e.message}")
+            null
+        }
+    }
+
+    private suspend fun fetchLegacyLyric(songId: String): String? = withContext(Dispatchers.IO) {
         val base = if (useBackupDomain) backupLyricUrl else primaryLyricUrl
         val url = base.toHttpUrl().newBuilder()
             .addQueryParameter("songmid", songId)
@@ -143,6 +205,18 @@ class QQLyricsProvider(
             Log.w(TAG, "QQ lyric parse error: ${e.message}")
             null
         }
+    }
+
+    private fun decodeMaybeBase64(raw: String?): String? {
+        val normalized = QQEncoding.normalizeNullable(raw) ?: return null
+        val trimmed = normalized.trim()
+        if (trimmed.isEmpty()) return null
+        if (trimmed.startsWith("[")) return trimmed
+        return runCatching {
+            String(Base64.getDecoder().decode(trimmed), Charsets.UTF_8)
+        }.getOrNull()
+            ?.let(QQEncoding::normalizeNullable)
+            ?.takeIf { it.isNotBlank() }
     }
 
     private fun String?.normalizeField(fallback: String): String {

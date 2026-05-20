@@ -13,6 +13,7 @@ sealed interface SettingsUiState {
         val maxProfiles: Int = ProfileManager.MAX_PROFILES,
         val cacheSizeBytes: Long = 0L,
         val geminiApiKey: String = "",
+        val geminiTargetLanguage: String = "",
         val spotifyClientId: String = "",
         val spotifyClientIdUsesFallback: Boolean = false,
         val neoDbInstance: String = "",

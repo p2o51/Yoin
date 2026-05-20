@@ -102,6 +102,10 @@ data class LyricsSearchResultUi(
         get() = "$providerName:$songId"
 }
 
+data class LyricsTranslationSwitchOfferUi(
+    val providerName: String,
+)
+
 data class QueueItem(
     val songId: String,
     val title: String,
