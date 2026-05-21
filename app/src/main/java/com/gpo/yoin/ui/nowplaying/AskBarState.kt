@@ -8,6 +8,9 @@ package com.gpo.yoin.ui.nowplaying
 sealed interface AskBarState {
     data object Idle : AskBarState
     data object Focused : AskBarState
-    data object Loading : AskBarState
+    data class Loading(
+        val title: String,
+        val requestId: Long = 0L,
+    ) : AskBarState
     data class Error(val message: String) : AskBarState
 }

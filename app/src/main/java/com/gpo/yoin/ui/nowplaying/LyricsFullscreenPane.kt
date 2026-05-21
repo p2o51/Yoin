@@ -2,7 +2,9 @@ package com.gpo.yoin.ui.nowplaying
 
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.foundation.interaction.DragInteraction
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
@@ -27,6 +29,7 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.gpo.yoin.ui.component.YoinLoadingIndicator
@@ -147,13 +150,8 @@ private fun LyricRow(
         animationSpec = com.gpo.yoin.ui.theme.YoinMotion.defaultSpatialSpec(),
         label = "lyricScale",
     )
-    val interactionSource = remember { MutableInteractionSource() }
     val clickableModifier = if (onTap != null) {
-        Modifier.clickable(
-            interactionSource = interactionSource,
-            indication = null,
-            onClick = onTap,
-        )
+        Modifier.tapWithoutConsumingDrag(onTap = onTap)
     } else {
         Modifier
     }
@@ -188,6 +186,17 @@ private fun LyricRow(
         }
     }
 }
+
+private fun Modifier.tapWithoutConsumingDrag(onTap: () -> Unit): Modifier =
+    pointerInput(onTap) {
+        awaitEachGesture {
+            awaitFirstDown(requireUnconsumed = false)
+            val up = waitForUpOrCancellation()
+            if (up != null) {
+                onTap()
+            }
+        }
+    }
 
 private fun findCurrentLyricIndex(lyrics: List<LyricLine>, positionMs: Long): Int {
     if (lyrics.isEmpty()) return -1

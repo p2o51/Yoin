@@ -70,11 +70,12 @@ class NowPlayingViewModel(
     private val _aboutLoading = MutableStateFlow(false)
     private val _aboutError = MutableStateFlow<AboutUiState?>(null)
 
-    // Fullscreen detail mode + selected page. Default = Compact/Lyrics so
+    // Now Playing stage + selected detail page. Default = Compact/Lyrics so
     // that a cold Now Playing open preserves today's behaviour. YoinNavHost
-    // can override via [setDetailMode] / [setDetailPage].
-    private val _detailMode = MutableStateFlow(NowPlayingDetailMode.Compact)
-    val detailMode: StateFlow<NowPlayingDetailMode> = _detailMode.asStateFlow()
+    // owns back priority and asks this model to step stages down before it
+    // dismisses the shell overlay.
+    private val _stageMode = MutableStateFlow(NowPlayingStageMode.Compact)
+    val stageMode: StateFlow<NowPlayingStageMode> = _stageMode.asStateFlow()
 
     private val _detailPage = MutableStateFlow(NowPlayingDetailPage.Lyrics)
     val detailPage: StateFlow<NowPlayingDetailPage> = _detailPage.asStateFlow()
@@ -766,8 +767,19 @@ class NowPlayingViewModel(
         playbackManager.skipToQueueItem(index)
     }
 
-    fun setDetailMode(mode: NowPlayingDetailMode) {
-        _detailMode.value = mode
+    fun setStageMode(mode: NowPlayingStageMode) {
+        _stageMode.value = mode
+    }
+
+    fun stepBackStage(): Boolean {
+        return when (_stageMode.value) {
+            NowPlayingStageMode.Expanded -> {
+                _stageMode.value = NowPlayingStageMode.Compact
+                true
+            }
+            NowPlayingStageMode.Immersive,
+            NowPlayingStageMode.Compact -> false
+        }
     }
 
     fun setDetailPage(page: NowPlayingDetailPage) {

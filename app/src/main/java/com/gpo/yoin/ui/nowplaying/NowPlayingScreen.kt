@@ -8,12 +8,17 @@ import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.updateTransition
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.foundation.background
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.basicMarquee
@@ -89,6 +94,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.layout
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
@@ -176,9 +182,11 @@ fun NowPlayingScreen(
     onAskBarFocused: () -> Unit = {},
     onAskBarCollapseRequested: () -> Unit = {},
     onDismissAskError: () -> Unit = {},
-    detailMode: NowPlayingDetailMode = NowPlayingDetailMode.Compact,
+    stageMode: NowPlayingStageMode = NowPlayingStageMode.Compact,
+    stageBackProgress: () -> Float = { 0f },
     detailPage: NowPlayingDetailPage = NowPlayingDetailPage.Lyrics,
-    onDetailModeChange: (NowPlayingDetailMode) -> Unit = {},
+    onStageModeChange: (NowPlayingStageMode) -> Unit = {},
+    onStageBack: () -> Boolean = { false },
     onDetailPageChange: (NowPlayingDetailPage) -> Unit = {},
     notesState: List<SongNote> = emptyList(),
     onSaveNote: (String) -> Unit = {},
@@ -257,9 +265,11 @@ fun NowPlayingScreen(
                     onAskBarFocused = onAskBarFocused,
                     onAskBarCollapseRequested = onAskBarCollapseRequested,
                     onDismissAskError = onDismissAskError,
-                    detailMode = detailMode,
+                    stageMode = stageMode,
+                    stageBackProgress = stageBackProgress,
                     detailPage = detailPage,
-                    onDetailModeChange = onDetailModeChange,
+                    onStageModeChange = onStageModeChange,
+                    onStageBack = onStageBack,
                     onDetailPageChange = onDetailPageChange,
                     notesState = notesState,
                     onSaveNote = onSaveNote,
@@ -435,6 +445,31 @@ private fun ConnectErrorContent(
     }
 }
 
+private data class NowPlayingPlaybackActions(
+    val onTogglePlayPause: () -> Unit,
+    val onSkipNext: () -> Unit,
+    val onSkipPrevious: () -> Unit,
+    val onSeek: (Float) -> Unit,
+    val onToggleShuffle: () -> Unit,
+)
+
+private data class NowPlayingLyricsActions(
+    val onSeekToMs: (Long) -> Unit,
+    val onOpenLyricsSearch: () -> Unit,
+    val onLyricsSearchQueryChange: (String) -> Unit,
+    val onSearchLyrics: (String) -> Unit,
+    val onApplyLyricsSearchResult: (LyricsSearchResultUi) -> Unit,
+    val onDismissLyricsSearch: () -> Unit,
+    val onTranslateLyrics: () -> Unit,
+    val onApplyLyrics: (String) -> Unit,
+)
+
+private data class NowPlayingNavigationActions(
+    val onAlbumClick: (String) -> Unit,
+    val onArtistClick: (String) -> Unit,
+    val onPlaylistClick: (String) -> Unit,
+)
+
 @OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
 private fun PlayingContent(
@@ -470,9 +505,11 @@ private fun PlayingContent(
     onAskBarFocused: () -> Unit = {},
     onAskBarCollapseRequested: () -> Unit = {},
     onDismissAskError: () -> Unit = {},
-    detailMode: NowPlayingDetailMode = NowPlayingDetailMode.Compact,
+    stageMode: NowPlayingStageMode = NowPlayingStageMode.Compact,
+    stageBackProgress: () -> Float = { 0f },
     detailPage: NowPlayingDetailPage = NowPlayingDetailPage.Lyrics,
-    onDetailModeChange: (NowPlayingDetailMode) -> Unit = {},
+    onStageModeChange: (NowPlayingStageMode) -> Unit = {},
+    onStageBack: () -> Boolean = { false },
     onDetailPageChange: (NowPlayingDetailPage) -> Unit = {},
     notesState: List<SongNote> = emptyList(),
     onSaveNote: (String) -> Unit = {},
@@ -515,6 +552,46 @@ private fun PlayingContent(
     val playPressed by playInteractionSource.collectIsPressedAsState()
     val nextPressed by nextInteractionSource.collectIsPressedAsState()
     val transportPressed = playPressed || nextPressed
+    val playbackActions = NowPlayingPlaybackActions(
+        onTogglePlayPause = onTogglePlayPause,
+        onSkipNext = onSkipNext,
+        onSkipPrevious = onSkipPrevious,
+        onSeek = onSeek,
+        onToggleShuffle = onToggleShuffle,
+    )
+    val lyricsActions = NowPlayingLyricsActions(
+        onSeekToMs = onSeekToMs,
+        onOpenLyricsSearch = onOpenLyricsSearch,
+        onLyricsSearchQueryChange = onLyricsSearchQueryChange,
+        onSearchLyrics = onSearchLyrics,
+        onApplyLyricsSearchResult = onApplyLyricsSearchResult,
+        onDismissLyricsSearch = onDismissLyricsSearch,
+        onTranslateLyrics = onTranslateLyrics,
+        onApplyLyrics = onApplyLyrics,
+    )
+    val navigationActions = NowPlayingNavigationActions(
+        onAlbumClick = onAlbumClick,
+        onArtistClick = onArtistClick,
+        onPlaylistClick = onPlaylistClick,
+    )
+
+    val stageTransition = updateTransition(targetState = stageMode, label = "nowPlayingStage")
+    val rawDetailProgress by stageTransition.animateFloat(
+        transitionSpec = { YoinMotion.defaultSpatialSpec(role = YoinMotionRole.Expressive) },
+        label = "detailProgress",
+    ) { stage ->
+        if (stage == NowPlayingStageMode.Expanded) 1f else 0f
+    }
+    val rawImmersiveProgress by stageTransition.animateFloat(
+        transitionSpec = { YoinMotion.defaultSpatialSpec(role = YoinMotionRole.Expressive) },
+        label = "immersiveProgress",
+    ) { stage ->
+        if (stage == NowPlayingStageMode.Immersive) 1f else 0f
+    }
+    val backProgress = stageBackProgress().coerceIn(0f, 1f)
+    val detailProgress = (rawDetailProgress * (1f - backProgress)).coerceIn(0f, 1f)
+    val immersiveProgress = (rawImmersiveProgress * (1f - backProgress)).coerceIn(0f, 1f)
+    val compactProgress = (1f - detailProgress).coerceIn(0f, 1f)
 
     val titleStretchScale by animateFloatAsState(
         targetValue = when {
@@ -542,417 +619,413 @@ private fun PlayingContent(
     )
     val titleRouteInteraction = state.albumId?.let { albumId ->
         rememberNowPlayingRouteInteraction(
-            onNavigate = { onAlbumClick(albumId) },
+            onNavigate = { navigationActions.onAlbumClick(albumId) },
         )
     }
     val artistRouteInteraction = state.artistId?.let { artistId ->
         rememberNowPlayingRouteInteraction(
-            onNavigate = { onArtistClick(artistId) },
+            onNavigate = { navigationActions.onArtistClick(artistId) },
         )
     }
-    // Horizontal 24dp padding is applied per-child rather than on this
-    // outer Column so the Lyrics/About/Note pager can swipe edge-to-edge
-    // while every other child keeps its inset. Each pager page adds its
-    // own 24dp horizontal padding so content stays aligned with the rest
-    // of the screen when settled.
-    Column(
+    var lyricsAutoScroll by remember(state.songId) { mutableStateOf(true) }
+    var lyricsRecenterTick by remember(state.songId) { mutableIntStateOf(0) }
+    val hasSyncedLyrics = remember(state.lyrics) { state.lyrics.any { it.startMs != null } }
+    var showApplyDialog by remember(state.songId) { mutableStateOf(false) }
+    val pagerState = rememberPagerState(
+        initialPage = detailPage.ordinal,
+        pageCount = { 3 },
+    )
+    val pagerScope = rememberCoroutineScope()
+    LaunchedEffect(detailPage) {
+        if (pagerState.currentPage != detailPage.ordinal) {
+            pagerState.animateScrollToPage(detailPage.ordinal)
+        }
+    }
+    LaunchedEffect(pagerState.currentPage) {
+        val page = NowPlayingDetailPage.entries[pagerState.currentPage]
+        if (page != detailPage) onDetailPageChange(page)
+        if (page == NowPlayingDetailPage.About) onAboutOpened()
+    }
+
+    BoxWithConstraints(
         modifier = modifier
             .fillMaxSize()
             .padding(WindowInsets.systemBars.asPaddingValues()),
-        horizontalAlignment = Alignment.Start,
-        verticalArrangement = Arrangement.Top,
     ) {
+        val horizontalPadding = 24.dp
+        val compactCoverHeight = (maxWidth - 108.dp).coerceIn(168.dp, 312.dp)
+        val immersiveCoverHeight = (maxWidth - horizontalPadding * 2)
+            .coerceAtLeast(compactCoverHeight)
+            .coerceAtMost(420.dp)
+        val visibleCoverHeight = lerpDp(compactCoverHeight, immersiveCoverHeight, immersiveProgress)
+        val coverRowHeight = lerpDp(visibleCoverHeight, 0.dp, detailProgress)
+        val coverRowAlpha = compactProgress
+        val compactTabHeight = lerpDp(30.dp, 0.dp, immersiveProgress)
+        val tabHeight = lerpDp(compactTabHeight, 52.dp, detailProgress)
+        val tabSpacerHeight = lerpDp(lerpDp(4.dp, 0.dp, immersiveProgress), 12.dp, detailProgress)
+        val ratingRetreatProgress = maxOf(immersiveProgress, detailProgress)
+        val ratingGap = lerpDp(12.dp, 0.dp, ratingRetreatProgress)
+        val ratingSlotWidth = lerpDp(56.dp, 0.dp, ratingRetreatProgress)
+        val bottomAccessoryTargetHeight = when {
+            detailPage == NowPlayingDetailPage.About && askState is AskBarState.Focused -> 276.dp
+            else -> 68.dp
+        }
+        val bottomAccessoryHeight by animateDpAsState(
+            targetValue = bottomAccessoryTargetHeight,
+            animationSpec = YoinMotion.defaultSpatialSpec(role = YoinMotionRole.Expressive),
+            label = "nowPlayingBottomAccessoryHeight",
+        )
+        val controlsHeight = lerpDp(148.dp, 0.dp, detailProgress)
+        val heroHeight = 86.dp
+        val compactCoverSize = (maxWidth - horizontalPadding * 2 - 12.dp - 56.dp)
+            .coerceAtLeast(0.dp)
+            .coerceAtMost(compactCoverHeight)
+
         Column(
             modifier = Modifier.fillMaxSize(),
             horizontalAlignment = Alignment.Start,
             verticalArrangement = Arrangement.Top,
         ) {
-            // ── 0. Drag handle / dismiss button + Playing from ─────────────
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 24.dp)
-                    .padding(start = 4.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                IconButton(onClick = onDismiss) {
-                    Icon(
-                        imageVector = Icons.Rounded.KeyboardArrowDown,
-                        contentDescription = "Close Now Playing",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier
-                            .size(28.dp)
-                            .graphicsLayer { rotationZ = 180f * dismissFraction() },
-                    )
-                }
-                Spacer(modifier = Modifier.width(4.dp))
-                PlayingFromLabel(
-                    activityContext = state.activityContext,
-                    fallbackAlbumName = state.albumName,
-                    onAlbumClick = onAlbumClick,
-                    onArtistClick = onArtistClick,
-                    onPlaylistClick = onPlaylistClick,
-                    modifier = Modifier.weight(1f),
-                )
-            }
-
-            // ── 1. Album cover + Rating slider ────────────────────────────────
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 24.dp)
-                    .height(IntrinsicSize.Max),
-                verticalAlignment = Alignment.Top,
-            ) {
-                AlbumCover(
-                    songId = state.songId,
-                    coverArtUrl = state.coverArtUrl,
-                    sharedTransitionScope = sharedTransitionScope,
-                    animatedVisibilityScope = animatedVisibilityScope,
-                    modifier = Modifier.weight(1f),
-                )
-
-                Spacer(modifier = Modifier.width(12.dp))
-
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    modifier = Modifier.fillMaxHeight(),
-                ) {
-                    RatingSlider(
-                        rating = state.rating,
-                        onRatingChange = onRatingChange,
-                        modifier = Modifier.weight(1f),
-                    )
-
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    FavoriteButton(
-                        isStarred = state.isStarred,
-                        onClick = onToggleFavorite,
-                        onLongClick = onAddCurrentToPlaylist,
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            // ── 2. Lyrics / About / Note pager ────────────────────────────────
-            //
-            // 3 pages keep parity with the fullscreen detail surface —
-            // compact is a read-only preview, fullscreen is the editable
-            // surface. Tapping any pager content promotes to Fullscreen on
-            // the currently selected page.
-            val pagerState = rememberPagerState(
-                initialPage = detailPage.ordinal,
-                pageCount = { 3 },
-            )
-            val pagerScope = rememberCoroutineScope()
-            // Sync: external detailPage → pager
-            LaunchedEffect(detailPage) {
-                if (pagerState.currentPage != detailPage.ordinal) {
-                    pagerState.animateScrollToPage(detailPage.ordinal)
-                }
-            }
-            // Sync: pager → external detailPage
-            LaunchedEffect(pagerState.currentPage) {
-                val page = NowPlayingDetailPage.entries[pagerState.currentPage]
-                if (page != detailPage) onDetailPageChange(page)
-                if (page == NowPlayingDetailPage.About) onAboutOpened()
-            }
-            val lyricsAlpha by animateFloatAsState(
-                targetValue = if (pagerState.currentPage == 0) 1f else 0.5f,
-                animationSpec = YoinMotion.defaultEffectsSpec(),
-                label = "lyricsTabAlpha",
-            )
-            val aboutAlpha by animateFloatAsState(
-                targetValue = if (pagerState.currentPage == 1) 1f else 0.5f,
-                animationSpec = YoinMotion.defaultEffectsSpec(),
-                label = "aboutTabAlpha",
-            )
-            val noteAlpha by animateFloatAsState(
-                targetValue = if (pagerState.currentPage == 2) 1f else 0.5f,
-                animationSpec = YoinMotion.defaultEffectsSpec(),
-                label = "noteTabAlpha",
-            )
-
-            Row(
-                modifier = Modifier
-                    .padding(horizontal = 24.dp)
-                    .padding(bottom = 4.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                Text(
-                    text = "Lyrics",
-                    style = MaterialTheme.typography.labelLarge.let {
-                        if (pagerState.currentPage == 0) it.copy(fontWeight = FontWeight.Bold) else it
-                    },
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier
-                        .graphicsLayer { alpha = lyricsAlpha }
-                        .clickable {
-                            pagerScope.launch { pagerState.animateScrollToPage(0) }
-                        },
-                )
-                Text(
-                    text = "About",
-                    style = MaterialTheme.typography.labelLarge.let {
-                        if (pagerState.currentPage == 1) it.copy(fontWeight = FontWeight.Bold) else it
-                    },
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier
-                        .graphicsLayer { alpha = aboutAlpha }
-                        .clickable {
-                            pagerScope.launch { pagerState.animateScrollToPage(1) }
-                        },
-                )
-                Text(
-                    text = "Note",
-                    style = MaterialTheme.typography.labelLarge.let {
-                        if (pagerState.currentPage == 2) it.copy(fontWeight = FontWeight.Bold) else it
-                    },
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier
-                        .graphicsLayer { alpha = noteAlpha }
-                        .clickable {
-                            pagerScope.launch { pagerState.animateScrollToPage(2) }
-                        },
-                )
-            }
-
-            val pagerClickSource = remember { MutableInteractionSource() }
-            // Pager host: edge-to-edge so swipe flows off-screen instead of
-            // snapping at a 24dp boundary. Page content adds its own inset.
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(1f)
-                    .edgeFade(start = 24.dp, end = 24.dp),
-            ) {
-                HorizontalPager(
-                    state = pagerState,
-                    beyondViewportPageCount = 1,
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .clickable(
-                            interactionSource = pagerClickSource,
-                            indication = null,
-                        ) {
-                            onDetailModeChange(NowPlayingDetailMode.Fullscreen)
-                        },
-                ) { page ->
-                    val pageModifier = Modifier
-                        .fillMaxSize()
-                        .padding(horizontal = 24.dp)
-                    when (page) {
-                        0 -> LyricsDisplay(
-                            lyrics = state.lyrics,
-                            positionMs = state.positionMs,
-                            loading = state.lyricsLoading,
-                            modifier = pageModifier,
-                        )
-                        1 -> SongInfoDisplay(
-                            aboutUiState = aboutUiState,
-                            onRetry = onRetryFetchSongInfo,
-                            modifier = pageModifier,
-                        )
-                        2 -> NoteCompactPane(
-                            notes = notesState,
-                            modifier = pageModifier,
-                        )
+            StageTopBar(
+                state = state,
+                stageMode = stageMode,
+                detailProgress = detailProgress,
+                dismissFraction = dismissFraction,
+                onBack = {
+                    when (stageMode) {
+                        NowPlayingStageMode.Expanded -> if (!onStageBack()) {
+                            onDismiss()
+                        }
+                        NowPlayingStageMode.Compact,
+                        NowPlayingStageMode.Immersive,
+                        -> onDismiss()
                     }
-                }
-            }
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            // ── 3. Playback controls (with progress bar) ─────────────────────
-            PlaybackControls(
-                isPlaying = state.isPlaying,
-                onTogglePlayPause = onTogglePlayPause,
-                onSkipNext = onSkipNext,
-                onSkipPrevious = onSkipPrevious,
-                positionMs = state.positionMs,
-                durationMs = state.durationMs,
-                progress = progress,
-                buffered = buffered,
-                onSeek = onSeek,
-                playInteractionSource = playInteractionSource,
-                nextInteractionSource = nextInteractionSource,
-                playPressed = playPressed,
-                nextPressed = nextPressed,
-                shuffleEnabled = state.shuffleEnabled,
-                onToggleShuffle = onToggleShuffle,
-                modifier = Modifier.padding(horizontal = 24.dp),
-            )
-
-            Spacer(modifier = Modifier.height(12.dp))
-
-            // ── 4. Song title + artist (bottom, large) ────────────────────────
-            val titleModifier = if (
-                sharedTransitionScope != null &&
-                animatedVisibilityScope != null
-            ) {
-                val sharedContentConfig =
-                    rememberActiveOnlySharedContentConfig(
-                        animatedVisibilityScope = animatedVisibilityScope,
-                    )
-                with(sharedTransitionScope) {
-                    Modifier
-                        .sharedBounds(
-                            sharedContentState = rememberSharedContentState(
-                                key = "np_title",
-                                config = sharedContentConfig,
-                            ),
-                            animatedVisibilityScope = animatedVisibilityScope,
-                            boundsTransform = { _, _ -> heroBoundsSpec },
-                        )
-                        .fillMaxWidth()
-                }
-            } else {
-                Modifier.fillMaxWidth()
-            }
-            val titleClickModifier = titleRouteInteraction?.let { routeInteraction ->
-                Modifier
-                    .graphicsLayer {
-                        scaleX = routeInteraction.scaleX
-                        transformOrigin = TransformOrigin(0f, 0.5f)
-                    }
-                    .noRippleClickable(
-                        interactionSource = routeInteraction.interactionSource,
-                        onClick = routeInteraction.onClick,
-                    )
-            } ?: Modifier
-            Box(
-                modifier = Modifier
-                    .padding(horizontal = 24.dp)
-                    .then(titleModifier)
-                    .then(titleClickModifier),
-            ) {
-                NowPlayingMarqueeTitle(
-                    text = state.songTitle,
-                    style = MaterialTheme.typography.displaySmall,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    stretchScale = titleStretchScale,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            }
-            Spacer(modifier = Modifier.height(2.dp))
-
-            val artistModifier = if (
-                sharedTransitionScope != null &&
-                animatedVisibilityScope != null
-            ) {
-                val sharedContentConfig =
-                    rememberActiveOnlySharedContentConfig(
-                        animatedVisibilityScope = animatedVisibilityScope,
-                    )
-                with(sharedTransitionScope) {
-                    Modifier
-                        .sharedBounds(
-                            sharedContentState = rememberSharedContentState(
-                                key = "np_artist",
-                                config = sharedContentConfig,
-                            ),
-                            animatedVisibilityScope = animatedVisibilityScope,
-                            boundsTransform = { _, _ -> heroBoundsSpec },
-                        )
-                        .fillMaxWidth()
-                }
-            } else {
-                Modifier.fillMaxWidth()
-            }
-            val artistClickModifier = artistRouteInteraction?.let { routeInteraction ->
-                Modifier
-                    .graphicsLayer {
-                        scaleX = routeInteraction.scaleX
-                        transformOrigin = TransformOrigin(0f, 0.5f)
-                    }
-                    .noRippleClickable(
-                        interactionSource = routeInteraction.interactionSource,
-                        onClick = routeInteraction.onClick,
-                    )
-            } ?: Modifier
-            Box(
-                modifier = Modifier
-                    .padding(horizontal = 24.dp)
-                    .then(artistModifier)
-                    .then(artistClickModifier),
-            ) {
-                Text(
-                    text = state.artist,
-                    style = MaterialTheme.typography.titleMedium.copy(
-                        fontSize = MaterialTheme.typography.titleMedium.fontSize * 0.9f,
-                    ),
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .graphicsLayer {
-                            scaleX = artistStretchScale
-                            transformOrigin = TransformOrigin(0f, 0.5f)
-                        },
-                )
-            }
-
-            Spacer(modifier = Modifier.height(12.dp))
-
-            // ── 5. Bottom pills ───────────────────────────────────────────────
-            BottomPills(
-                onQueueClick = { showQueue = true },
-                onDevicesClick = {
-                    showDevicesSheet = true
                 },
-                onWriteClick = { showWriteSheet = true },
-                castState = castState,
-                onCastClick = onCastClick,
-                modifier = Modifier.padding(horizontal = 24.dp),
+                onEnterImmersive = {
+                    onDetailPageChange(NowPlayingDetailPage.Lyrics)
+                    onStageModeChange(NowPlayingStageMode.Immersive)
+                },
+                onAlbumClick = navigationActions.onAlbumClick,
+                onArtistClick = navigationActions.onArtistClick,
+                onPlaylistClick = navigationActions.onPlaylistClick,
+                modifier = Modifier.padding(horizontal = horizontalPadding),
             )
 
-            Spacer(modifier = Modifier.height(24.dp))
-        }
-    }
+            Box(modifier = Modifier.weight(1f)) {
+                Column(
+                    modifier = Modifier.fillMaxSize(),
+                    horizontalAlignment = Alignment.Start,
+                ) {
+                    StageHeightSlot(
+                        height = coverRowHeight,
+                        alpha = coverRowAlpha,
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = horizontalPadding),
+                            verticalAlignment = Alignment.Top,
+                        ) {
+                            val coverClickSource = remember { MutableInteractionSource() }
+                            AlbumCover(
+                                songId = state.songId,
+                                coverArtUrl = state.coverArtUrl,
+                                sharedTransitionScope = sharedTransitionScope,
+                                animatedVisibilityScope = animatedVisibilityScope,
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .graphicsLayer {
+                                        alpha = if (detailProgress > HiddenLayerVisibilityThreshold) {
+                                            0f
+                                        } else {
+                                            1f
+                                        }
+                                        translationY = -36.dp.toPx() * detailProgress
+                                        val coverScale = 1f - 0.08f * detailProgress
+                                        scaleX = coverScale
+                                        scaleY = coverScale
+                                        transformOrigin = TransformOrigin(0.5f, 0f)
+                                    }
+                                    .noRippleClickable(
+                                        interactionSource = coverClickSource,
+                                        onClick = {
+                                            if (stageMode == NowPlayingStageMode.Immersive) {
+                                                onStageModeChange(NowPlayingStageMode.Compact)
+                                            } else {
+                                                onDetailPageChange(NowPlayingDetailPage.Lyrics)
+                                                onStageModeChange(NowPlayingStageMode.Immersive)
+                                            }
+                                        },
+                                    ),
+                            )
 
-    // Fullscreen detail overlay — AnimatedVisibility sits inside Now Playing
-    // so the shell's sharedElement keys (`np_cover` / `np_title` / `np_artist`)
-    // stay stable. When open, compact content is still composed under it.
-    AnimatedVisibility(
-        visible = detailMode == NowPlayingDetailMode.Fullscreen,
-        enter = YoinMotion.fadeIn(role = YoinMotionRole.Standard) +
-            YoinMotion.scaleIn(role = YoinMotionRole.Expressive, initialScale = 0.96f),
-        exit = YoinMotion.fadeOut(role = YoinMotionRole.Standard) +
-            YoinMotion.scaleOut(role = YoinMotionRole.Expressive, targetScale = 0.96f),
-    ) {
-        NowPlayingFullscreenPane(
-            state = state,
-            detailPage = detailPage,
-            onDetailPageChange = onDetailPageChange,
-            onBack = { onDetailModeChange(NowPlayingDetailMode.Compact) },
-            aboutUiState = aboutUiState,
-            askState = askState,
-            onAboutOpened = onAboutOpened,
-            onAskQuestion = onAskQuestion,
-            onAskBarFocused = onAskBarFocused,
-            onAskBarCollapseRequested = onAskBarCollapseRequested,
-            onDismissAskError = onDismissAskError,
-            onRetryCanonical = onRetryFetchSongInfo,
-            notes = notesState,
-            onSaveNote = onSaveNote,
-            onDeleteNote = onDeleteNote,
-            onToggleFavorite = onToggleFavorite,
-            onAlbumClick = onAlbumClick,
-            onArtistClick = onArtistClick,
-            onPlaylistClick = onPlaylistClick,
-            onSeekToMs = onSeekToMs,
-            lyricsSearchState = lyricsSearchState,
-            onOpenLyricsSearch = onOpenLyricsSearch,
-            onLyricsSearchQueryChange = onLyricsSearchQueryChange,
-            onSearchLyrics = onSearchLyrics,
-            onApplyLyricsSearchResult = onApplyLyricsSearchResult,
-            onDismissLyricsSearch = onDismissLyricsSearch,
-            onTranslateLyrics = onTranslateLyrics,
-            onApplyLyrics = onApplyLyrics,
+                            Spacer(modifier = Modifier.width(ratingGap))
+
+                            Box(
+                                modifier = Modifier
+                                    .width(ratingSlotWidth)
+                                    .fillMaxHeight()
+                                    .clipToBounds(),
+                            ) {
+                                Column(
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    modifier = Modifier
+                                        .width(56.dp)
+                                        .fillMaxHeight()
+                                        .graphicsLayer {
+                                            alpha = (1f - ratingRetreatProgress).coerceIn(0f, 1f)
+                                            translationX = 72.dp.toPx() * ratingRetreatProgress
+                                        },
+                                ) {
+                                    RatingSlider(
+                                        rating = state.rating,
+                                        onRatingChange = onRatingChange,
+                                        modifier = Modifier.weight(1f),
+                                    )
+
+                                    Spacer(modifier = Modifier.height(8.dp))
+
+                                    FavoriteButton(
+                                        isStarred = state.isStarred,
+                                        onClick = onToggleFavorite,
+                                        onLongClick = onAddCurrentToPlaylist,
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(lerpDp(16.dp, 8.dp, detailProgress)))
+
+                    StageTabs(
+                        selected = NowPlayingDetailPage.entries[pagerState.currentPage],
+                        detailProgress = detailProgress,
+                        height = tabHeight,
+                        onSelect = { page ->
+                            onDetailPageChange(page)
+                            pagerScope.launch { pagerState.animateScrollToPage(page.ordinal) }
+                        },
+                        modifier = Modifier.padding(horizontal = horizontalPadding),
+                    )
+
+                    Spacer(modifier = Modifier.height(tabSpacerHeight))
+
+                    val pagerClickSource = remember { MutableInteractionSource() }
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f)
+                            .edgeFade(start = horizontalPadding, end = horizontalPadding),
+                    ) {
+                        HorizontalPager(
+                            state = pagerState,
+                            beyondViewportPageCount = 1,
+                            userScrollEnabled = stageMode != NowPlayingStageMode.Immersive,
+                            modifier = Modifier.fillMaxSize(),
+                        ) { page ->
+                            val pageModifier = Modifier
+                                .fillMaxSize()
+                                .padding(horizontal = horizontalPadding)
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .tapWithoutConsumingDrag(
+                                        enabled = stageMode != NowPlayingStageMode.Expanded,
+                                    ) {
+                                        onStageModeChange(NowPlayingStageMode.Expanded)
+                                    },
+                            ) {
+                                CompactDetailPage(
+                                    page = NowPlayingDetailPage.entries[page],
+                                    state = state,
+                                    aboutUiState = aboutUiState,
+                                    notes = notesState,
+                                    immersiveProgress = immersiveProgress,
+                                    onRetryFetchSongInfo = onRetryFetchSongInfo,
+                                    modifier = pageModifier.graphicsLayer {
+                                        alpha = compactProgress
+                                        translationY = 12.dp.toPx() * detailProgress
+                                    },
+                                )
+                                if (
+                                    stageMode == NowPlayingStageMode.Expanded ||
+                                    detailProgress > HiddenLayerVisibilityThreshold
+                                ) {
+                                    ExpandedDetailPage(
+                                        page = NowPlayingDetailPage.entries[page],
+                                        state = state,
+                                        aboutUiState = aboutUiState,
+                                        notes = notesState,
+                                        lyricsAutoScroll = lyricsAutoScroll,
+                                        lyricsRecenterTick = lyricsRecenterTick,
+                                        onLyricsUserScroll = { lyricsAutoScroll = false },
+                                        onSeekToMs = { positionMs ->
+                                            lyricsAutoScroll = true
+                                            lyricsRecenterTick += 1
+                                            lyricsActions.onSeekToMs(positionMs)
+                                        },
+                                        onRetryCanonical = onRetryFetchSongInfo,
+                                        onSaveNote = onSaveNote,
+                                        onDeleteNote = onDeleteNote,
+                                        modifier = pageModifier.graphicsLayer {
+                                            alpha = detailProgress
+                                            translationY = 16.dp.toPx() * (1f - detailProgress)
+                                        },
+                                    )
+                                }
+                            }
+                        }
+
+                        if (stageMode == NowPlayingStageMode.Immersive) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .clickable(
+                                        interactionSource = pagerClickSource,
+                                        indication = null,
+                                    ) {
+                                        onDetailPageChange(NowPlayingDetailPage.Lyrics)
+                                        onStageModeChange(NowPlayingStageMode.Expanded)
+                                    },
+                            )
+                        }
+                    }
+
+                    StageHeightSlot(
+                        height = controlsHeight,
+                        alpha = compactProgress,
+                    ) {
+                        PlaybackControls(
+                            isPlaying = state.isPlaying,
+                            onTogglePlayPause = playbackActions.onTogglePlayPause,
+                            onSkipNext = playbackActions.onSkipNext,
+                            onSkipPrevious = playbackActions.onSkipPrevious,
+                            positionMs = state.positionMs,
+                            durationMs = state.durationMs,
+                            progress = progress,
+                            buffered = buffered,
+                            onSeek = playbackActions.onSeek,
+                            playInteractionSource = playInteractionSource,
+                            nextInteractionSource = nextInteractionSource,
+                            playPressed = playPressed,
+                            nextPressed = nextPressed,
+                            shuffleEnabled = state.shuffleEnabled,
+                            onToggleShuffle = playbackActions.onToggleShuffle,
+                            modifier = Modifier.padding(horizontal = horizontalPadding),
+                        )
+                    }
+
+                    CompactBottomHero(
+                        state = state,
+                        heroBoundsSpec = heroBoundsSpec,
+                        titleStretchScale = titleStretchScale,
+                        artistStretchScale = artistStretchScale,
+                        titleRouteInteraction = titleRouteInteraction,
+                        artistRouteInteraction = artistRouteInteraction,
+                        sharedTransitionScope = sharedTransitionScope,
+                        animatedVisibilityScope = animatedVisibilityScope,
+                        height = heroHeight,
+                        alpha = 1f,
+                        modifier = Modifier.padding(horizontal = horizontalPadding),
+                    )
+
+                    StageHeightSlot(
+                        height = bottomAccessoryHeight,
+                        alpha = 1f,
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(horizontal = horizontalPadding),
+                            contentAlignment = Alignment.BottomStart,
+                        ) {
+                            BottomPills(
+                                onQueueClick = { showQueue = true },
+                                onDevicesClick = { showDevicesSheet = true },
+                                onWriteClick = { showWriteSheet = true },
+                                castState = castState,
+                                onCastClick = onCastClick,
+                                modifier = Modifier.graphicsLayer {
+                                    alpha = compactProgress
+                                },
+                            )
+                            HorizontalPager(
+                                state = pagerState,
+                                userScrollEnabled = false,
+                                beyondViewportPageCount = 1,
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .graphicsLayer {
+                                        alpha = detailProgress
+                                    },
+                            ) { page ->
+                                Box(
+                                    modifier = Modifier.fillMaxSize(),
+                                    contentAlignment = Alignment.BottomStart,
+                                ) {
+                                    when (NowPlayingDetailPage.entries[page]) {
+                                        NowPlayingDetailPage.Lyrics -> LyricsActionBar(
+                                            actionInFlight = state.lyricsActionInFlight,
+                                            canTranslate = state.lyrics.isNotEmpty(),
+                                            canRecenter = !lyricsAutoScroll && hasSyncedLyrics,
+                                            onSearchClick = lyricsActions.onOpenLyricsSearch,
+                                            onTranslateClick = lyricsActions.onTranslateLyrics,
+                                            onApplyClick = { showApplyDialog = true },
+                                            onRecenterClick = {
+                                                lyricsAutoScroll = true
+                                                lyricsRecenterTick += 1
+                                            },
+                                        )
+                                        NowPlayingDetailPage.About -> AskGeminiBar(
+                                            askState = askState,
+                                            onSubmit = onAskQuestion,
+                                            onFocus = onAskBarFocused,
+                                            onCollapseRequest = onAskBarCollapseRequested,
+                                            onDismissError = onDismissAskError,
+                                        )
+                                        NowPlayingDetailPage.Note -> Spacer(modifier = Modifier.height(56.dp))
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        CoverTransitionOverlay(
+            coverArtUrl = state.coverArtUrl,
+            progress = detailProgress,
+            startX = horizontalPadding,
+            startY = 56.dp,
+            startSize = compactCoverSize,
+            endX = horizontalPadding + 56.dp,
+            endY = 0.dp,
+            endSize = 44.dp,
         )
+
+        if (lyricsSearchState.isOpen) {
+            LyricsSearchSheet(
+                state = lyricsSearchState,
+                onQueryChange = lyricsActions.onLyricsSearchQueryChange,
+                onSearch = lyricsActions.onSearchLyrics,
+                onSelect = lyricsActions.onApplyLyricsSearchResult,
+                onDismiss = lyricsActions.onDismissLyricsSearch,
+            )
+        }
+
+        if (showApplyDialog) {
+            LyricsApplyDialog(
+                initialText = remember(state.songId, state.lyrics) {
+                    state.lyrics.toEditableLyricsText()
+                },
+                onDismiss = { showApplyDialog = false },
+                onApply = { rawLyrics ->
+                    showApplyDialog = false
+                    lyricsActions.onApplyLyrics(rawLyrics)
+                },
+            )
+        }
     }
 
     // Queue bottom sheet
@@ -995,7 +1068,562 @@ private fun PlayingContent(
     }
 }
 
+@Composable
+private fun StageTopBar(
+    state: NowPlayingUiState.Playing,
+    stageMode: NowPlayingStageMode,
+    detailProgress: Float,
+    dismissFraction: () -> Float,
+    onBack: () -> Unit,
+    onEnterImmersive: () -> Unit,
+    onAlbumClick: (String) -> Unit,
+    onArtistClick: (String) -> Unit,
+    onPlaylistClick: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val dockProgress = detailProgress
+    val dockCoverAlpha = if (dockProgress >= 1f - HiddenLayerVisibilityThreshold) 1f else 0f
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(56.dp)
+            .padding(start = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        IconButton(onClick = onBack) {
+            Icon(
+                imageVector = Icons.Rounded.KeyboardArrowDown,
+                contentDescription = if (stageMode == NowPlayingStageMode.Compact) {
+                    "Close Now Playing"
+                } else {
+                    "Back to Now Playing"
+                },
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier
+                    .size(28.dp)
+                    .graphicsLayer {
+                        rotationZ = 180f * dismissFraction() + 90f * dockProgress
+                    },
+            )
+        }
+        Spacer(modifier = Modifier.width(4.dp))
+        StageHeightSlot(
+            height = 48.dp,
+            width = lerpDp(0.dp, 48.dp, dockProgress),
+            alpha = dockProgress,
+        ) {
+            val interactionSource = remember { MutableInteractionSource() }
+            DockedAlbumCover(
+                coverArtUrl = state.coverArtUrl,
+                interactionSource = interactionSource,
+                modifier = Modifier
+                    .size(44.dp)
+                    .graphicsLayer {
+                        alpha = dockCoverAlpha
+                        translationY = 18.dp.toPx() * (1f - dockProgress)
+                        val coverScale = 0.78f + 0.22f * dockProgress
+                        scaleX = coverScale
+                        scaleY = coverScale
+                    }
+                    .noRippleClickable(
+                        interactionSource = interactionSource,
+                        onClick = onEnterImmersive,
+                    ),
+            )
+        }
+        PlayingFromLabel(
+            activityContext = state.activityContext,
+            fallbackAlbumName = state.albumName,
+            onAlbumClick = onAlbumClick,
+            onArtistClick = onArtistClick,
+            onPlaylistClick = onPlaylistClick,
+            modifier = Modifier
+                .weight(1f)
+                .graphicsLayer {
+                    translationX = 10.dp.toPx() * dockProgress
+                },
+        )
+    }
+}
+
+@Composable
+private fun CoverTransitionOverlay(
+    coverArtUrl: String?,
+    progress: Float,
+    startX: Dp,
+    startY: Dp,
+    startSize: Dp,
+    endX: Dp,
+    endY: Dp,
+    endSize: Dp,
+    modifier: Modifier = Modifier,
+) {
+    if (
+        progress <= HiddenLayerVisibilityThreshold ||
+        progress >= 1f - HiddenLayerVisibilityThreshold
+    ) {
+        return
+    }
+    val clampedProgress = progress.coerceIn(0f, 1f)
+    val interactionSource = remember { MutableInteractionSource() }
+
+    PlainAlbumCover(
+        coverArtUrl = coverArtUrl,
+        interactionSource = interactionSource,
+        modifier = modifier
+            .offset(
+                x = lerpDp(startX, endX, clampedProgress),
+                y = lerpDp(startY, endY, clampedProgress),
+            )
+            .size(lerpDp(startSize, endSize, clampedProgress))
+            .graphicsLayer {
+                alpha = 1f
+            },
+    )
+}
+
+@Composable
+private fun DockedHeaderText(
+    state: NowPlayingUiState.Playing,
+    modifier: Modifier = Modifier,
+) {
+    Column(modifier = modifier.padding(vertical = 2.dp, horizontal = 4.dp)) {
+        Text(
+            text = when (state.activityContext) {
+                is ActivityContext.Album -> "PLAYING FROM ALBUM"
+                is ActivityContext.Playlist -> "PLAYING FROM PLAYLIST"
+                is ActivityContext.Artist,
+                is ActivityContext.LikedSongs,
+                ActivityContext.None,
+                -> "NOW PLAYING"
+            },
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        Text(
+            text = state.songTitle,
+            style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold),
+            color = MaterialTheme.colorScheme.onSurface,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
+@Composable
+private fun StageTabs(
+    selected: NowPlayingDetailPage,
+    detailProgress: Float,
+    height: Dp,
+    onSelect: (NowPlayingDetailPage) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(height)
+            .clipToBounds(),
+    ) {
+        CompactTextTabs(
+            selected = selected,
+            onSelect = onSelect,
+            modifier = Modifier.graphicsLayer {
+                alpha = (1f - detailProgress).coerceIn(0f, 1f)
+                translationY = -6.dp.toPx() * detailProgress
+            },
+        )
+        FullscreenTabGroup(
+            selected = selected,
+            onSelect = onSelect,
+            modifier = Modifier.graphicsLayer {
+                alpha = detailProgress
+                translationY = 8.dp.toPx() * (1f - detailProgress)
+            },
+        )
+    }
+}
+
+@Composable
+private fun CompactTextTabs(
+    selected: NowPlayingDetailPage,
+    onSelect: (NowPlayingDetailPage) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier = modifier,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        NowPlayingDetailPage.entries.forEach { page ->
+            val isSelected = page == selected
+            Text(
+                text = page.label,
+                style = MaterialTheme.typography.labelLarge.let {
+                    if (isSelected) it.copy(fontWeight = FontWeight.Bold) else it
+                },
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier
+                    .graphicsLayer { alpha = if (isSelected) 1f else 0.5f }
+                    .clickable { onSelect(page) },
+            )
+        }
+    }
+}
+
+@Composable
+private fun CompactDetailPage(
+    page: NowPlayingDetailPage,
+    state: NowPlayingUiState.Playing,
+    aboutUiState: AboutUiState,
+    notes: List<SongNote>,
+    immersiveProgress: Float,
+    onRetryFetchSongInfo: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    when (page) {
+        NowPlayingDetailPage.Lyrics -> Box(modifier = modifier.clipToBounds()) {
+            LyricsDisplay(
+                lyrics = state.lyrics,
+                positionMs = state.positionMs,
+                loading = state.lyricsLoading,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer {
+                        alpha = (1f - immersiveProgress).coerceIn(0f, 1f)
+                        translationY = -8.dp.toPx() * immersiveProgress
+                    },
+            )
+            OneLineLyricPreview(
+                state = state,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer {
+                        alpha = immersiveProgress.coerceIn(0f, 1f)
+                        translationY = 8.dp.toPx() * (1f - immersiveProgress)
+                    },
+            )
+        }
+        NowPlayingDetailPage.About -> SongInfoDisplay(
+            aboutUiState = aboutUiState,
+            onRetry = onRetryFetchSongInfo,
+            modifier = modifier,
+        )
+        NowPlayingDetailPage.Note -> NoteCompactPane(
+            notes = notes,
+            modifier = modifier,
+        )
+    }
+}
+
+@Composable
+private fun OneLineLyricPreview(
+    state: NowPlayingUiState.Playing,
+    modifier: Modifier = Modifier,
+) {
+    val lyricText = remember(state.lyrics, state.positionMs, state.showLyricsTranslation) {
+        state.lyrics.currentLyricText(
+            positionMs = state.positionMs,
+            showTranslation = state.showLyricsTranslation,
+        )
+    }
+    val displayText = when {
+        state.lyricsLoading -> "Loading lyrics"
+        lyricText.isNotBlank() -> lyricText
+        else -> state.songTitle
+    }
+    Box(
+        modifier = modifier,
+        contentAlignment = Alignment.TopStart,
+    ) {
+        Text(
+            text = displayText,
+            style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Bold),
+            color = if (state.lyricsLoading) {
+                MaterialTheme.colorScheme.onSurfaceVariant
+            } else {
+                MaterialTheme.colorScheme.primary
+            },
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 4.dp),
+        )
+    }
+}
+
+@Composable
+private fun ExpandedDetailPage(
+    page: NowPlayingDetailPage,
+    state: NowPlayingUiState.Playing,
+    aboutUiState: AboutUiState,
+    notes: List<SongNote>,
+    lyricsAutoScroll: Boolean,
+    lyricsRecenterTick: Int,
+    onLyricsUserScroll: () -> Unit,
+    onSeekToMs: (Long) -> Unit,
+    onRetryCanonical: () -> Unit,
+    onSaveNote: (String) -> Unit,
+    onDeleteNote: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    when (page) {
+        NowPlayingDetailPage.Lyrics -> LyricsFullscreenPane(
+            lyrics = state.lyrics,
+            positionMs = state.positionMs,
+            loading = state.lyricsLoading,
+            showTranslation = state.showLyricsTranslation,
+            autoScrollEnabled = lyricsAutoScroll,
+            recenterRequestKey = lyricsRecenterTick,
+            onUserScroll = onLyricsUserScroll,
+            onSeekToMs = onSeekToMs,
+            modifier = modifier,
+        )
+        NowPlayingDetailPage.About -> AboutFullscreenPane(
+            aboutUiState = aboutUiState,
+            onRetryCanonical = onRetryCanonical,
+            modifier = modifier,
+        )
+        NowPlayingDetailPage.Note -> NoteFullscreenPane(
+            notes = notes,
+            onSave = onSaveNote,
+            onDelete = onDeleteNote,
+            autoFocusComposer = false,
+            modifier = modifier,
+        )
+    }
+}
+
+@Composable
+private fun StageHeightSlot(
+    height: Dp,
+    alpha: Float,
+    modifier: Modifier = Modifier,
+    width: Dp? = null,
+    content: @Composable () -> Unit,
+) {
+    val sizedModifier = if (width != null) {
+        modifier
+            .width(width)
+            .height(height)
+    } else {
+        modifier
+            .fillMaxWidth()
+            .height(height)
+    }
+    Box(
+        modifier = sizedModifier
+            .clipToBounds()
+            .graphicsLayer { this.alpha = alpha.coerceIn(0f, 1f) },
+    ) {
+        content()
+    }
+}
+
+@OptIn(ExperimentalSharedTransitionApi::class)
+@Composable
+private fun CompactBottomHero(
+    state: NowPlayingUiState.Playing,
+    heroBoundsSpec: androidx.compose.animation.core.FiniteAnimationSpec<Rect>,
+    titleStretchScale: Float,
+    artistStretchScale: Float,
+    titleRouteInteraction: NowPlayingRouteInteraction?,
+    artistRouteInteraction: NowPlayingRouteInteraction?,
+    sharedTransitionScope: SharedTransitionScope?,
+    animatedVisibilityScope: AnimatedVisibilityScope?,
+    height: Dp,
+    alpha: Float,
+    modifier: Modifier = Modifier,
+) {
+    StageHeightSlot(height = height, alpha = alpha, modifier = modifier) {
+        Column(modifier = Modifier.fillMaxSize()) {
+            val titleModifier = if (
+                sharedTransitionScope != null &&
+                animatedVisibilityScope != null
+            ) {
+                val sharedContentConfig =
+                    rememberActiveOnlySharedContentConfig(
+                        animatedVisibilityScope = animatedVisibilityScope,
+                    )
+                with(sharedTransitionScope) {
+                    Modifier
+                        .sharedBounds(
+                            sharedContentState = rememberSharedContentState(
+                                key = "np_title",
+                                config = sharedContentConfig,
+                            ),
+                            animatedVisibilityScope = animatedVisibilityScope,
+                            boundsTransform = { _, _ -> heroBoundsSpec },
+                        )
+                        .fillMaxWidth()
+                }
+            } else {
+                Modifier.fillMaxWidth()
+            }
+            val titleClickModifier = titleRouteInteraction?.let { routeInteraction ->
+                Modifier
+                    .graphicsLayer {
+                        scaleX = routeInteraction.scaleX
+                        transformOrigin = TransformOrigin(0f, 0.5f)
+                    }
+                    .noRippleClickable(
+                        interactionSource = routeInteraction.interactionSource,
+                        onClick = routeInteraction.onClick,
+                    )
+            } ?: Modifier
+            val artistModifier = if (
+                sharedTransitionScope != null &&
+                animatedVisibilityScope != null
+            ) {
+                val sharedContentConfig =
+                    rememberActiveOnlySharedContentConfig(
+                        animatedVisibilityScope = animatedVisibilityScope,
+                    )
+                with(sharedTransitionScope) {
+                    Modifier
+                        .sharedBounds(
+                            sharedContentState = rememberSharedContentState(
+                                key = "np_artist",
+                                config = sharedContentConfig,
+                            ),
+                            animatedVisibilityScope = animatedVisibilityScope,
+                            boundsTransform = { _, _ -> heroBoundsSpec },
+                        )
+                        .fillMaxWidth()
+                }
+            } else {
+                Modifier.fillMaxWidth()
+            }
+            val artistClickModifier = artistRouteInteraction?.let { routeInteraction ->
+                Modifier
+                    .graphicsLayer {
+                        scaleX = routeInteraction.scaleX
+                        transformOrigin = TransformOrigin(0f, 0.5f)
+                    }
+                    .noRippleClickable(
+                        interactionSource = routeInteraction.interactionSource,
+                        onClick = routeInteraction.onClick,
+                    )
+            } ?: Modifier
+            Box(
+                modifier = Modifier
+                    .then(artistModifier)
+                    .then(artistClickModifier),
+            ) {
+                Text(
+                    text = state.artist,
+                    style = MaterialTheme.typography.titleMedium.copy(
+                        fontSize = MaterialTheme.typography.titleMedium.fontSize * 0.9f,
+                    ),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .graphicsLayer {
+                            scaleX = artistStretchScale
+                            transformOrigin = TransformOrigin(0f, 0.5f)
+                        },
+                )
+            }
+            Spacer(modifier = Modifier.height(2.dp))
+
+            Box(
+                modifier = Modifier
+                    .then(titleModifier)
+                    .then(titleClickModifier),
+            ) {
+                NowPlayingMarqueeTitle(
+                    text = state.songTitle,
+                    style = MaterialTheme.typography.displaySmall,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    stretchScale = titleStretchScale,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun DockedAlbumCover(
+    coverArtUrl: String?,
+    interactionSource: MutableInteractionSource?,
+    modifier: Modifier = Modifier,
+) {
+    PlainAlbumCover(
+        coverArtUrl = coverArtUrl,
+        interactionSource = interactionSource,
+        modifier = modifier,
+        shape = YoinShapeTokens.Medium,
+    )
+}
+
+@Composable
+private fun PlainAlbumCover(
+    coverArtUrl: String?,
+    interactionSource: MutableInteractionSource?,
+    modifier: Modifier = Modifier,
+    shape: androidx.compose.ui.graphics.Shape = YoinShapeTokens.Large,
+) {
+    ExpressiveMediaArtwork(
+        model = coverArtUrl,
+        contentDescription = "Album cover",
+        modifier = modifier,
+        shape = shape,
+        fallbackIcon = Icons.Rounded.PlayArrow,
+        interactionSource = interactionSource,
+        tonalElevation = 0.dp,
+        shadowElevation = 0.dp,
+        border = null,
+    )
+}
+
+private val NowPlayingDetailPage.label: String
+    get() = when (this) {
+        NowPlayingDetailPage.Lyrics -> "Lyrics"
+        NowPlayingDetailPage.About -> "About"
+        NowPlayingDetailPage.Note -> "Note"
+    }
+
+private fun lerpDp(start: Dp, end: Dp, fraction: Float): Dp =
+    start + (end - start) * fraction.coerceIn(0f, 1f)
+
+private fun List<LyricLine>.currentLyricText(
+    positionMs: Long,
+    showTranslation: Boolean,
+): String {
+    if (isEmpty()) return ""
+    val active = lastOrNull { line ->
+        line.startMs?.let { positionMs >= it } == true
+    } ?: first()
+    return if (showTranslation && !active.translation.isNullOrBlank()) {
+        active.translation.orEmpty()
+    } else {
+        active.text
+    }
+}
+
+private fun Modifier.tapWithoutConsumingDrag(
+    enabled: Boolean = true,
+    onTap: () -> Unit,
+): Modifier = if (!enabled) {
+    this
+} else {
+    pointerInput(onTap) {
+        awaitEachGesture {
+            awaitFirstDown(requireUnconsumed = false)
+            val up = waitForUpOrCancellation()
+            if (up != null) {
+                onTap()
+            }
+        }
+    }
+}
+
 private const val NowPlayingRouteNavigationDelayMs = 72L
+private const val HiddenLayerVisibilityThreshold = 0.01f
 
 private data class NowPlayingRouteInteraction(
     val interactionSource: MutableInteractionSource,
@@ -1340,421 +1968,6 @@ private fun NowPlayingMarqueeTitle(
             )
         }
     }
-}
-
-@OptIn(ExperimentalMaterial3ExpressiveApi::class)
-@Composable
-private fun PlaybackControls(
-    isPlaying: Boolean,
-    onTogglePlayPause: () -> Unit,
-    onSkipNext: () -> Unit,
-    onSkipPrevious: () -> Unit,
-    positionMs: Long,
-    durationMs: Long,
-    progress: Float,
-    buffered: Float,
-    onSeek: (Float) -> Unit,
-    playInteractionSource: MutableInteractionSource,
-    nextInteractionSource: MutableInteractionSource,
-    playPressed: Boolean,
-    nextPressed: Boolean,
-    shuffleEnabled: Boolean = false,
-    onToggleShuffle: () -> Unit = {},
-    modifier: Modifier = Modifier,
-) {
-    ProvideYoinMotionRole(role = YoinMotionRole.Standard) {
-        val haptics = rememberYoinHaptics()
-        val controlButtonSize = 56.dp
-        val controlSpatialSpec = if (playPressed || nextPressed) {
-            YoinMotion.fastSpatialSpec<Dp>()
-        } else {
-            YoinMotion.defaultSpatialSpec<Dp>()
-        }
-        val textStretchSpec = if (playPressed) {
-            YoinMotion.fastSpatialSpec<Float>()
-        } else {
-            YoinMotion.defaultSpatialSpec<Float>()
-        }
-        val playHorizontalPadding by animateDpAsState(
-            targetValue = when {
-                playPressed -> 28.dp
-                nextPressed -> 14.dp
-                isPlaying -> 24.dp
-                else -> 16.dp
-            },
-            animationSpec = controlSpatialSpec,
-            label = "playHorizontalPadding",
-        )
-        val nextButtonWidth by animateDpAsState(
-            targetValue = if (playPressed || nextPressed) 48.dp else controlButtonSize,
-            animationSpec = controlSpatialSpec,
-            label = "nextButtonWidth",
-        )
-        val textStretchScale by animateFloatAsState(
-            targetValue = when {
-                playPressed -> 1.10f
-                isPlaying -> 1.06f
-                else -> 0.97f
-            },
-            animationSpec = textStretchSpec,
-            label = "textStretch",
-        )
-
-        Column(modifier = modifier.fillMaxWidth()) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                ButtonGroup(
-                    overflowIndicator = { _ -> },
-                    modifier = Modifier.height(controlButtonSize),
-                    expandedRatio = ButtonGroupDefaults.ExpandedRatio,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    customItem(
-                        buttonGroupContent = {
-                            FilledTonalButton(
-                                onClick = {
-                                    haptics.performClick()
-                                    onTogglePlayPause()
-                                },
-                                modifier = Modifier
-                                    .fillMaxHeight()
-                                    .animateWidth(playInteractionSource)
-                                    .animateContentSize(
-                                        animationSpec = YoinMotion.defaultSpatialSpec(),
-                                    ),
-                                shape = MaterialTheme.shapes.extraLarge,
-                                interactionSource = playInteractionSource,
-                                contentPadding = PaddingValues(horizontal = playHorizontalPadding),
-                                colors = ButtonDefaults.filledTonalButtonColors(
-                                    containerColor = MaterialTheme.colorScheme.primary,
-                                    contentColor = MaterialTheme.colorScheme.onPrimary,
-                                ),
-                            ) {
-                                Text(
-                                    text = if (isPlaying) "PAUSE" else "PLAY",
-                                    style = MaterialTheme.typography.titleLarge.copy(
-                                        fontSize = MaterialTheme.typography.titleLarge.fontSize * 0.9f,
-                                        fontWeight = if (isPlaying) FontWeight.Bold else FontWeight.Medium,
-                                        letterSpacing = if (isPlaying) 0.5.sp else 0.sp,
-                                    ),
-                                    maxLines = 1,
-                                    softWrap = false,
-                                    modifier = Modifier.graphicsLayer {
-                                        scaleX = textStretchScale
-                                        transformOrigin = TransformOrigin(0f, 0.5f)
-                                    },
-                                )
-                            }
-                        },
-                        menuContent = { _ -> },
-                    )
-
-                    customItem(
-                        buttonGroupContent = {
-                            FilledIconButton(
-                                onClick = {
-                                    haptics.performTick()
-                                    onSkipNext()
-                                },
-                                modifier = Modifier
-                                    .fillMaxHeight()
-                                    .animateWidth(nextInteractionSource)
-                                    .width(nextButtonWidth),
-                                interactionSource = nextInteractionSource,
-                                colors = IconButtonDefaults.filledIconButtonColors(
-                                    containerColor = MaterialTheme.colorScheme.primary,
-                                    contentColor = MaterialTheme.colorScheme.onPrimary,
-                                ),
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Rounded.SkipNext,
-                                    contentDescription = "Skip next",
-                                    modifier = Modifier.size(28.dp),
-                                )
-                            }
-                        },
-                        menuContent = { _ -> },
-                    )
-                }
-
-                Spacer(modifier = Modifier.weight(1f))
-
-                val shuffleContainer by animateColorAsState(
-                    targetValue = if (shuffleEnabled) {
-                        MaterialTheme.colorScheme.primary
-                    } else {
-                        MaterialTheme.colorScheme.tertiaryContainer
-                    },
-                    animationSpec = YoinMotion.defaultEffectsSpec(),
-                    label = "shuffleContainer",
-                )
-                val shuffleContent by animateColorAsState(
-                    targetValue = if (shuffleEnabled) {
-                        MaterialTheme.colorScheme.onPrimary
-                    } else {
-                        MaterialTheme.colorScheme.onTertiaryContainer
-                    },
-                    animationSpec = YoinMotion.defaultEffectsSpec(),
-                    label = "shuffleContent",
-                )
-                FilledIconButton(
-                    onClick = {
-                        haptics.performTick()
-                        onToggleShuffle()
-                    },
-                    modifier = Modifier.size(56.dp),
-                    colors = IconButtonDefaults.filledIconButtonColors(
-                        containerColor = shuffleContainer,
-                        contentColor = shuffleContent,
-                    ),
-                ) {
-                    Icon(
-                        imageVector = Icons.Rounded.Shuffle,
-                        contentDescription = if (shuffleEnabled) "Disable shuffle" else "Enable shuffle",
-                        modifier = Modifier.size(28.dp),
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(4.dp))
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                FilledIconButton(
-                    onClick = {
-                        haptics.performTick()
-                        onSkipPrevious()
-                    },
-                    modifier = Modifier.size(56.dp),
-                    colors = IconButtonDefaults.filledIconButtonColors(
-                        containerColor = MaterialTheme.colorScheme.secondary,
-                        contentColor = MaterialTheme.colorScheme.onSecondary,
-                    ),
-                ) {
-                    Icon(
-                        imageVector = Icons.Rounded.SkipPrevious,
-                        contentDescription = "Skip previous",
-                        modifier = Modifier.size(28.dp),
-                    )
-                }
-
-                PlaybackTimeLabel(
-                    text = formatTime(positionMs),
-                    modifier = Modifier
-                        .width(44.dp)
-                        .offset(y = 6.dp),
-                )
-                WaveProgressBar(
-                    progress = progress,
-                    buffered = buffered,
-                    durationMs = durationMs,
-                    onSeek = onSeek,
-                    isPlaying = isPlaying,
-                    modifier = Modifier.weight(1f),
-                )
-                PlaybackTimeLabel(
-                    text = "-${formatTime((durationMs - positionMs).coerceAtLeast(0L))}",
-                    modifier = Modifier
-                        .width(52.dp)
-                        .offset(y = 6.dp),
-                    textAlign = androidx.compose.ui.text.style.TextAlign.End,
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun PlaybackTimeLabel(
-    text: String,
-    modifier: Modifier = Modifier,
-    textAlign: androidx.compose.ui.text.style.TextAlign = androidx.compose.ui.text.style.TextAlign.Start,
-) {
-    Text(
-        text = text,
-        style = MaterialTheme.typography.labelLarge.withTabularFigures(),
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-        textAlign = textAlign,
-        modifier = modifier,
-    )
-}
-
-@OptIn(ExperimentalMaterial3ExpressiveApi::class)
-@Composable
-private fun BottomPills(
-    onQueueClick: () -> Unit,
-    onDevicesClick: () -> Unit,
-    onWriteClick: () -> Unit,
-    castState: CastState = CastState.NotAvailable,
-    onCastClick: () -> Unit = {},
-    modifier: Modifier = Modifier,
-) {
-    ProvideYoinMotionRole(role = YoinMotionRole.Standard) {
-        val haptics = rememberYoinHaptics()
-        val queueInteraction = remember { MutableInteractionSource() }
-        val devicesInteraction = remember { MutableInteractionSource() }
-        val writeInteraction = remember { MutableInteractionSource() }
-
-        val queuePressed by queueInteraction.collectIsPressedAsState()
-        val devicesPressed by devicesInteraction.collectIsPressedAsState()
-        val writePressed by writeInteraction.collectIsPressedAsState()
-        val anyPressed = queuePressed || devicesPressed || writePressed
-
-        // Pressing a pill should widen the active target and let the
-        // other two collapse, instead of making the touched pill narrow
-        // under the finger.
-
-        Row(
-            modifier = modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            CastButton(
-                castState = castState,
-                onClick = onCastClick,
-            )
-
-            ButtonGroup(
-                overflowIndicator = { _ -> },
-                expandedRatio = ButtonGroupDefaults.ExpandedRatio,
-                horizontalArrangement = Arrangement.spacedBy(2.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                customItem(
-                    buttonGroupContent = {
-                        PillButton(
-                            onClick = {
-                                haptics.performContextClick()
-                                onQueueClick()
-                            },
-                            icon = Icons.AutoMirrored.Rounded.QueueMusic,
-                            label = "Queue",
-                            showLabel = !anyPressed || queuePressed,
-                            interactionSource = queueInteraction,
-                            shape = YoinShapeTokens.Full,
-                        )
-                    },
-                    menuContent = { _ -> },
-                )
-                customItem(
-                    buttonGroupContent = {
-                        PillButton(
-                            onClick = {
-                                haptics.performContextClick()
-                                onDevicesClick()
-                            },
-                            icon = Icons.Rounded.Devices,
-                            label = "Devices",
-                            showLabel = !anyPressed || devicesPressed,
-                            interactionSource = devicesInteraction,
-                            shape = RoundedCornerShape(20.dp),
-                        )
-                    },
-                    menuContent = { _ -> },
-                )
-                customItem(
-                    buttonGroupContent = {
-                        PillButton(
-                            onClick = {
-                                haptics.performContextClick()
-                                onWriteClick()
-                            },
-                            icon = Icons.AutoMirrored.Rounded.StickyNote2,
-                            label = "Write",
-                            showLabel = !anyPressed || writePressed,
-                            interactionSource = writeInteraction,
-                            shape = YoinShapeTokens.Full,
-                        )
-                    },
-                    menuContent = { _ -> },
-                )
-            }
-        }
-    }
-}
-
-@OptIn(ExperimentalMaterial3ExpressiveApi::class)
-@Composable
-private fun ButtonGroupScope.PillButton(
-    onClick: () -> Unit,
-    icon: ImageVector,
-    label: String,
-    showLabel: Boolean,
-    interactionSource: MutableInteractionSource,
-    shape: androidx.compose.ui.graphics.Shape,
-) {
-    val pressed by interactionSource.collectIsPressedAsState()
-    val labelFraction by animateFloatAsState(
-        targetValue = if (showLabel) 1f else 0f,
-        animationSpec = YoinMotion.fastEffectsSpec(),
-        label = "labelFraction",
-    )
-    val labelWidthMultiplier by animateFloatAsState(
-        targetValue = if (pressed) 1.8f else 1f,
-        animationSpec = YoinMotion.fastSpatialSpec<Float>(role = YoinMotionRole.Standard),
-        label = "labelWidthMultiplier",
-    )
-
-    FilledTonalButton(
-        onClick = onClick,
-        modifier = Modifier
-            .height(44.dp)
-            .minimumTouchTarget()
-            .animateWidth(interactionSource),
-        interactionSource = interactionSource,
-        shape = shape,
-        contentPadding = PaddingValues(horizontal = 10.dp),
-        colors = ButtonDefaults.filledTonalButtonColors(
-            containerColor = MaterialTheme.colorScheme.primary,
-            contentColor = MaterialTheme.colorScheme.onPrimary,
-        ),
-    ) {
-        Icon(
-            imageVector = icon,
-            contentDescription = label,
-            modifier = Modifier.size(16.dp),
-        )
-        // Keep text always in composition — animate width to 0 via layout
-        // so there's no sudden jump when content is removed
-        Row(
-            modifier = Modifier
-                .graphicsLayer { alpha = labelFraction }
-                .clipToBounds()
-                .layout { measurable, constraints ->
-                    val placeable = measurable.measure(constraints)
-                    val w = (placeable.width * labelFraction * labelWidthMultiplier).roundToInt()
-                    layout(w, placeable.height) {
-                        placeable.placeRelative(0, 0)
-                    }
-                },
-        ) {
-            Spacer(modifier = Modifier.width(4.dp))
-            Text(
-                text = label,
-                style = MaterialTheme.typography.labelMedium,
-                maxLines = 1,
-                softWrap = false,
-            )
-        }
-    }
-}
-
-@Composable
-private fun rememberNowPlayingButtonGroupInteractionSource() =
-    remember { MutableInteractionSource() }
-
-/** Format milliseconds as m:ss (e.g. "3:45", "0:00"). */
-internal fun formatTime(ms: Long): String {
-    val totalSeconds = (ms / 1000).coerceAtLeast(0)
-    val minutes = totalSeconds / 60
-    val seconds = totalSeconds % 60
-    return "$minutes:${seconds.toString().padStart(2, '0')}"
 }
 
 // ── Previews ────────────────────────────────────────────────────────────

@@ -83,7 +83,7 @@ import com.gpo.yoin.ui.navigation.back.YoinBackSurface
 import com.gpo.yoin.ui.navigation.back.resolveShellBackOwner
 import com.gpo.yoin.player.PlaybackEvent
 import com.gpo.yoin.player.SpotifyConnectFailure
-import com.gpo.yoin.ui.nowplaying.NowPlayingDetailMode
+import com.gpo.yoin.ui.nowplaying.NowPlayingStageMode
 import com.gpo.yoin.ui.nowplaying.NowPlayingScreen
 import com.gpo.yoin.ui.nowplaying.NowPlayingViewModel
 import com.gpo.yoin.ui.settings.SettingsScreen
@@ -522,7 +522,7 @@ private fun YoinShell(
     val nowPlayingUiState by nowPlayingViewModel.uiState.collectAsState()
     val aboutUiState by nowPlayingViewModel.aboutUiState.collectAsState()
     val askState by nowPlayingViewModel.askState.collectAsState()
-    val detailMode by nowPlayingViewModel.detailMode.collectAsState()
+    val stageMode by nowPlayingViewModel.stageMode.collectAsState()
     val detailPage by nowPlayingViewModel.detailPage.collectAsState()
     val notesState by nowPlayingViewModel.notesState.collectAsState()
     val devicesState by nowPlayingViewModel.devicesState.collectAsState()
@@ -534,6 +534,7 @@ private fun YoinShell(
     val shellScope = rememberCoroutineScope()
     var dismissDragPx by rememberSaveable { mutableStateOf(0f) }
     var predictiveBackProgress by rememberSaveable { mutableStateOf(0f) }
+    var stageBackProgress by rememberSaveable { mutableStateOf(0f) }
     val dragResetSpec = YoinMotion.defaultSpatialSpec<Float>(role = YoinMotionRole.Standard)
     val overlayOffsetPx by animateFloatAsState(
         targetValue = predictiveBackProgress * 1200f,
@@ -668,29 +669,42 @@ private fun YoinShell(
     val closeNowPlaying = {
         dismissDragPx = 0f
         predictiveBackProgress = 0f
+        nowPlayingViewModel.setStageMode(NowPlayingStageMode.Compact)
         experienceSessionStore.setNowPlayingExpanded(false)
     }
 
-    // Layered back priority: Fullscreen closes to Compact first; only the
-    // second back press dismisses Now Playing entirely. Both handlers are
-    // independently scoped to `showNowPlaying` so we don't eat taps
-    // outside of the overlay.
+    // Layered back priority: Expanded collapses in place first. Immersive is
+    // a transient cover-focus variant of Compact, so it does not enter the
+    // stage back chain; Back closes Now Playing just like Compact.
     BackHandler(
-        enabled = showNowPlaying && detailMode == NowPlayingDetailMode.Fullscreen,
+        enabled = showNowPlaying && stageMode == NowPlayingStageMode.Expanded,
     ) {
-        nowPlayingViewModel.setDetailMode(NowPlayingDetailMode.Compact)
+        nowPlayingViewModel.stepBackStage()
     }
 
     BackHandler(
-        enabled = showNowPlaying && detailMode == NowPlayingDetailMode.Compact,
+        enabled = showNowPlaying && stageMode != NowPlayingStageMode.Expanded,
         onBack = closeNowPlaying,
     )
 
-    // Predictive-back drive for the compact dismissal animation. Intentionally
-    // disabled in Fullscreen — the first back press there swaps modes, and
-    // we don't want the shell preview to start sliding underneath.
+    // Predictive-back drive for stage collapse. Expanded reshapes back toward
+    // Compact before Compact/Immersive can dismiss the overlay.
     PredictiveBackHandler(
-        enabled = showNowPlaying && detailMode == NowPlayingDetailMode.Compact,
+        enabled = showNowPlaying && stageMode == NowPlayingStageMode.Expanded,
+    ) { progress ->
+        try {
+            progress.collectLatest { event ->
+                stageBackProgress = event.progress
+            }
+            nowPlayingViewModel.stepBackStage()
+        } finally {
+            stageBackProgress = 0f
+        }
+    }
+
+    // Predictive-back drive for the compact dismissal animation.
+    PredictiveBackHandler(
+        enabled = showNowPlaying && stageMode != NowPlayingStageMode.Expanded,
     ) { progress ->
         try {
             progress.collectLatest { event ->
@@ -886,11 +900,11 @@ private fun YoinShell(
                         state = draggableState,
                         orientation = Orientation.Vertical,
                         // Drag-to-dismiss is a Compact-only gesture. In
-                        // Fullscreen the Ask bar + fullscreen panes have
+                        // Expanded/Immersive panes have
                         // their own vertical scroll / IME interactions;
                         // letting draggable eat those deltas is what
                         // causes Lyrics scroll to fight dismiss.
-                        enabled = detailMode == NowPlayingDetailMode.Compact,
+                        enabled = stageMode != NowPlayingStageMode.Expanded,
                         onDragStopped = { velocity ->
                             if (dismissDragPx > 240f || velocity > 800f) {
                                 dismissDragPx = 0f
@@ -933,8 +947,8 @@ private fun YoinShell(
                     // Shell-scoped overlay, so when AlbumDetail becomes the
                     // active NavDisplay entry, Shell (and NP with it) stops
                     // rendering automatically — no need to collapse state.
-                    // Popping back to Shell restores NP in whatever mode
-                    // the user left it (Compact or Fullscreen Lyrics/
+                    // Popping back to Shell restores NP in whatever stage
+                    // the user left it (Compact or Expanded Lyrics/
                     // About/Note), which is what Apple Music does.
                     onAlbumClick = { albumId ->
                         navigateToAlbumFromShell(albumId, null)
@@ -958,9 +972,11 @@ private fun YoinShell(
                     onAskBarFocused = nowPlayingViewModel::onAskBarFocused,
                     onAskBarCollapseRequested = nowPlayingViewModel::onAskBarCollapseRequested,
                     onDismissAskError = nowPlayingViewModel::dismissAskError,
-                    detailMode = detailMode,
+                    stageMode = stageMode,
+                    stageBackProgress = { stageBackProgress },
                     detailPage = detailPage,
-                    onDetailModeChange = nowPlayingViewModel::setDetailMode,
+                    onStageModeChange = nowPlayingViewModel::setStageMode,
+                    onStageBack = nowPlayingViewModel::stepBackStage,
                     onDetailPageChange = nowPlayingViewModel::setDetailPage,
                     notesState = notesState,
                     onSaveNote = nowPlayingViewModel::saveCurrentNote,

@@ -25,7 +25,7 @@ import com.gpo.yoin.ui.component.NoteCard
 
 /**
  * Read-only preview of the most recent notes for the current song. Tapping
- * the compact pager area promotes to [NowPlayingDetailMode.Fullscreen]
+ * the compact pager area promotes to [NowPlayingStageMode.Expanded]
  * where notes become editable; this surface intentionally does NOT show a
  * composer or delete button.
  */
