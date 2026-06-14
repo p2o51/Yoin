@@ -136,6 +136,36 @@ class SpotifyApiClientTest {
     }
 
     @Test
+    fun should_throw_rate_limit_exception_with_retry_after_on_429() = runTest {
+        val gate = SpotifyRateLimitGate()
+        val responses = mutableMapOf(
+            "/v1/me" to ArrayDeque(
+                listOf(
+                    MockResponse()
+                        .setResponseCode(429)
+                        .addHeader("Retry-After", "12"),
+                ),
+            ),
+        )
+        server.dispatcher = queueDispatcher(responses)
+
+        val client = newClient(
+            initialCredentials = credentials(
+                accessToken = "t1",
+                refreshToken = "r1",
+                expiresAtEpochMs = fakeNow + 10 * 60_000L,
+            ),
+            rateLimitGate = gate,
+            profileId = "profile-a",
+        )
+
+        val thrown = runCatching { client.getMe() }.exceptionOrNull()
+        assertTrue(thrown is SpotifyRateLimitException)
+        assertEquals(12L, (thrown as SpotifyRateLimitException).retryAfterSeconds)
+        assertTrue(gate.isBlocked("profile-a"))
+    }
+
+    @Test
     fun createPlaylist_posts_to_me_playlists_with_name_and_public() = runTest {
         val responses = mutableMapOf(
             "/v1/me/playlists" to ArrayDeque(
@@ -386,7 +416,11 @@ class SpotifyApiClientTest {
 
     // ── Helpers ────────────────────────────────────────────────────────
 
-    private fun newClient(initialCredentials: ProfileCredentials.Spotify): SpotifyApiClient {
+    private fun newClient(
+        initialCredentials: ProfileCredentials.Spotify,
+        rateLimitGate: SpotifyRateLimitGate? = null,
+        profileId: String? = null,
+    ): SpotifyApiClient {
         val httpClient = OkHttpClient.Builder().build()
         val baseUrl = server.url("/")
         val authService = SpotifyAuthService(
@@ -403,6 +437,8 @@ class SpotifyApiClientTest {
             onCredentialsRevoked = { revokeCallbacks += 1 },
             now = { fakeNow },
             apiBaseUrl = baseUrl,
+            rateLimitGate = rateLimitGate,
+            rateLimitProfileId = profileId,
         )
     }
 

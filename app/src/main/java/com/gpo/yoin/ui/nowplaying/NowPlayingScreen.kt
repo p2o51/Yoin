@@ -8,17 +8,14 @@ import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.core.updateTransition
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
-import androidx.compose.foundation.gestures.awaitEachGesture
-import androidx.compose.foundation.gestures.awaitFirstDown
-import androidx.compose.foundation.gestures.waitForUpOrCancellation
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.background
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.basicMarquee
@@ -83,12 +80,16 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.composed
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.graphics.FilterQuality
+import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -183,7 +184,7 @@ fun NowPlayingScreen(
     onAskBarCollapseRequested: () -> Unit = {},
     onDismissAskError: () -> Unit = {},
     stageMode: NowPlayingStageMode = NowPlayingStageMode.Compact,
-    stageBackProgress: () -> Float = { 0f },
+    stageProgress: NowPlayingStageProgress? = null,
     detailPage: NowPlayingDetailPage = NowPlayingDetailPage.Lyrics,
     onStageModeChange: (NowPlayingStageMode) -> Unit = {},
     onStageBack: () -> Boolean = { false },
@@ -266,7 +267,7 @@ fun NowPlayingScreen(
                     onAskBarCollapseRequested = onAskBarCollapseRequested,
                     onDismissAskError = onDismissAskError,
                     stageMode = stageMode,
-                    stageBackProgress = stageBackProgress,
+                    stageProgress = stageProgress,
                     detailPage = detailPage,
                     onStageModeChange = onStageModeChange,
                     onStageBack = onStageBack,
@@ -506,7 +507,7 @@ private fun PlayingContent(
     onAskBarCollapseRequested: () -> Unit = {},
     onDismissAskError: () -> Unit = {},
     stageMode: NowPlayingStageMode = NowPlayingStageMode.Compact,
-    stageBackProgress: () -> Float = { 0f },
+    stageProgress: NowPlayingStageProgress? = null,
     detailPage: NowPlayingDetailPage = NowPlayingDetailPage.Lyrics,
     onStageModeChange: (NowPlayingStageMode) -> Unit = {},
     onStageBack: () -> Boolean = { false },
@@ -575,23 +576,23 @@ private fun PlayingContent(
         onPlaylistClick = onPlaylistClick,
     )
 
-    val stageTransition = updateTransition(targetState = stageMode, label = "nowPlayingStage")
-    val rawDetailProgress by stageTransition.animateFloat(
-        transitionSpec = { YoinMotion.defaultSpatialSpec(role = YoinMotionRole.Expressive) },
-        label = "detailProgress",
-    ) { stage ->
-        if (stage == NowPlayingStageMode.Expanded) 1f else 0f
-    }
-    val rawImmersiveProgress by stageTransition.animateFloat(
-        transitionSpec = { YoinMotion.defaultSpatialSpec(role = YoinMotionRole.Expressive) },
-        label = "immersiveProgress",
-    ) { stage ->
-        if (stage == NowPlayingStageMode.Immersive) 1f else 0f
-    }
-    val backProgress = stageBackProgress().coerceIn(0f, 1f)
-    val detailProgress = (rawDetailProgress * (1f - backProgress)).coerceIn(0f, 1f)
-    val immersiveProgress = (rawImmersiveProgress * (1f - backProgress)).coerceIn(0f, 1f)
-    val compactProgress = (1f - detailProgress).coerceIn(0f, 1f)
+    val resolvedStageProgress = stageProgress ?: rememberNowPlayingStageProgress(stageMode)
+    val detailProgress = resolvedStageProgress.detail
+    val immersiveProgress = resolvedStageProgress.immersive
+    val compactProgress = resolvedStageProgress.compact
+
+    // The Now Playing overlay enters/exits via a shared-element cover morph
+    // (mini <-> full) owned by [animatedVisibilityScope]. The
+    // CoverTransitionOverlay proxy below is drawn LAST (on top) and only owns the
+    // lyrics-stage reshape. If both are live at once — e.g. you expand Lyrics
+    // while the entrance morph is still settling — the proxy paints over the
+    // morphing shared element and visibly "grows up". Gate the proxy on the
+    // entrance/exit transition being settled so exactly one cover is ever in
+    // flight. A null scope (detail-Activity host with no shared element) reads as
+    // settled — there is nothing to collide with there.
+    val entranceSettled = animatedVisibilityScope?.transition?.let { transition ->
+        transition.currentState == transition.targetState
+    } ?: true
 
     val titleStretchScale by animateFloatAsState(
         targetValue = when {
@@ -645,6 +646,25 @@ private fun PlayingContent(
         val page = NowPlayingDetailPage.entries[pagerState.currentPage]
         if (page != detailPage) onDetailPageChange(page)
         if (page == NowPlayingDetailPage.About) onAboutOpened()
+    }
+    // The bottom accessory strip mirrors the detail pager one-way. It must
+    // NOT share pagerState: a PagerState supports a single attached pager,
+    // and a second attachment steals the remeasurement slot, freezing the
+    // first pager's drag handling entirely.
+    val accessoryPagerState = rememberPagerState(
+        initialPage = detailPage.ordinal,
+        pageCount = { 3 },
+    )
+    LaunchedEffect(pagerState, accessoryPagerState) {
+        snapshotFlow { pagerState.currentPage + pagerState.currentPageOffsetFraction }
+            .collect { position ->
+                val page = position.roundToInt()
+                    .coerceIn(0, NowPlayingDetailPage.entries.lastIndex)
+                accessoryPagerState.scrollToPage(
+                    page = page,
+                    pageOffsetFraction = (position - page).coerceIn(-0.5f, 0.5f),
+                )
+            }
     }
 
     BoxWithConstraints(
@@ -735,11 +755,10 @@ private fun PlayingContent(
                                 modifier = Modifier
                                     .weight(1f)
                                     .graphicsLayer {
-                                        alpha = if (detailProgress > HiddenLayerVisibilityThreshold) {
-                                            0f
-                                        } else {
-                                            1f
-                                        }
+                                        // Binary gate only: the CoverTransitionOverlay proxy carries
+                                        // the morph, and the parent slot already fades with
+                                        // compactProgress — a fractional alpha here double-fades.
+                                        alpha = if (detailProgress > HiddenLayerVisibilityThreshold) 0f else 1f
                                         translationY = -36.dp.toPx() * detailProgress
                                         val coverScale = 1f - 0.08f * detailProgress
                                         scaleX = coverScale
@@ -790,6 +809,11 @@ private fun PlayingContent(
                                         onClick = onToggleFavorite,
                                         onLongClick = onAddCurrentToPlaylist,
                                     )
+
+                                    // Room for the heart's tap-bounce (scales to
+                                    // 1.25×) so its overflow isn't cut by the
+                                    // rating slot's clipToBounds at this edge.
+                                    Spacer(modifier = Modifier.height(6.dp))
                                 }
                             }
                         }
@@ -868,8 +892,16 @@ private fun PlayingContent(
                                         onSaveNote = onSaveNote,
                                         onDeleteNote = onDeleteNote,
                                         modifier = pageModifier.graphicsLayer {
-                                            alpha = detailProgress
-                                            translationY = 16.dp.toPx() * (1f - detailProgress)
+                                            // Fade + grow the lyrics IN WITH the
+                                            // reshape (fully visible by ~70%),
+                                            // instead of a late upward slide that
+                                            // read as "expand first, lyrics after".
+                                            alpha = ((detailProgress - 0.1f) / 0.6f)
+                                                .coerceIn(0f, 1f)
+                                            val sc = 0.96f + 0.04f * detailProgress
+                                            scaleX = sc
+                                            scaleY = sc
+                                            transformOrigin = TransformOrigin(0.5f, 0.5f)
                                         },
                                     )
                                 }
@@ -911,7 +943,11 @@ private fun PlayingContent(
                             nextPressed = nextPressed,
                             shuffleEnabled = state.shuffleEnabled,
                             onToggleShuffle = playbackActions.onToggleShuffle,
-                            modifier = Modifier.padding(horizontal = horizontalPadding),
+                            modifier = Modifier
+                                .padding(horizontal = horizontalPadding)
+                                .graphicsLayer {
+                                    translationY = 48.dp.toPx() * detailProgress
+                                },
                         )
                     }
 
@@ -934,9 +970,13 @@ private fun PlayingContent(
                         alpha = 1f,
                     ) {
                         Box(
+                            // Edge-to-edge like the lyrics pager: the accessory
+                            // pager slides full-width and the screen edges are
+                            // soft-masked (not inset). The 24dp content inset moves
+                            // onto the pills and onto each pager page instead.
                             modifier = Modifier
                                 .fillMaxSize()
-                                .padding(horizontal = horizontalPadding),
+                                .edgeFade(start = horizontalPadding, end = horizontalPadding),
                             contentAlignment = Alignment.BottomStart,
                         ) {
                             BottomPills(
@@ -945,45 +985,70 @@ private fun PlayingContent(
                                 onWriteClick = { showWriteSheet = true },
                                 castState = castState,
                                 onCastClick = onCastClick,
-                                modifier = Modifier.graphicsLayer {
-                                    alpha = compactProgress
-                                },
-                            )
-                            HorizontalPager(
-                                state = pagerState,
-                                userScrollEnabled = false,
-                                beyondViewportPageCount = 1,
+                                // Pure crossfade with the accessory pager — no
+                                // downward translation. The slot clipToBounds sits
+                                // at the bottom safe-area edge, so sliding the pills
+                                // DOWN clipped them mid-fade and exposed the near-
+                                // white gradient bottom under the nav bar.
+                                // Padding (was on the wrapper Box) keeps the pills
+                                // at the 24dp inset now that the Box is edge-to-edge.
                                 modifier = Modifier
-                                    .fillMaxSize()
+                                    .padding(horizontal = horizontalPadding)
                                     .graphicsLayer {
-                                        alpha = detailProgress
+                                        alpha = compactProgress
                                     },
-                            ) { page ->
-                                Box(
-                                    modifier = Modifier.fillMaxSize(),
-                                    contentAlignment = Alignment.BottomStart,
-                                ) {
-                                    when (NowPlayingDetailPage.entries[page]) {
-                                        NowPlayingDetailPage.Lyrics -> LyricsActionBar(
-                                            actionInFlight = state.lyricsActionInFlight,
-                                            canTranslate = state.lyrics.isNotEmpty(),
-                                            canRecenter = !lyricsAutoScroll && hasSyncedLyrics,
-                                            onSearchClick = lyricsActions.onOpenLyricsSearch,
-                                            onTranslateClick = lyricsActions.onTranslateLyrics,
-                                            onApplyClick = { showApplyDialog = true },
-                                            onRecenterClick = {
-                                                lyricsAutoScroll = true
-                                                lyricsRecenterTick += 1
-                                            },
-                                        )
-                                        NowPlayingDetailPage.About -> AskGeminiBar(
-                                            askState = askState,
-                                            onSubmit = onAskQuestion,
-                                            onFocus = onAskBarFocused,
-                                            onCollapseRequest = onAskBarCollapseRequested,
-                                            onDismissError = onDismissAskError,
-                                        )
-                                        NowPlayingDetailPage.Note -> Spacer(modifier = Modifier.height(56.dp))
+                            )
+                            // Only compose the accessory action-bar pager while
+                            // it's at least partly visible. Otherwise, when
+                            // collapsed (alpha 0) it still sits ON TOP of the
+                            // BottomPills and intercepts taps — so Queue/Devices
+                            // taps would hit the invisible lyrics action bar.
+                            if (
+                                stageMode == NowPlayingStageMode.Expanded ||
+                                detailProgress > HiddenLayerVisibilityThreshold
+                            ) {
+                                HorizontalPager(
+                                    state = accessoryPagerState,
+                                    userScrollEnabled = false,
+                                    beyondViewportPageCount = 1,
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .graphicsLayer {
+                                            alpha = detailProgress
+                                        },
+                                ) { page ->
+                                    Box(
+                                        // Per-page 24dp inset (mirrors the main
+                                        // pager's pageModifier) so the action bars
+                                        // keep their margin while the pager itself
+                                        // slides edge-to-edge under the edge mask.
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .padding(horizontal = horizontalPadding),
+                                        contentAlignment = Alignment.BottomStart,
+                                    ) {
+                                        when (NowPlayingDetailPage.entries[page]) {
+                                            NowPlayingDetailPage.Lyrics -> LyricsActionBar(
+                                                actionInFlight = state.lyricsActionInFlight,
+                                                canTranslate = state.lyrics.isNotEmpty(),
+                                                canRecenter = !lyricsAutoScroll && hasSyncedLyrics,
+                                                onSearchClick = lyricsActions.onOpenLyricsSearch,
+                                                onTranslateClick = lyricsActions.onTranslateLyrics,
+                                                onApplyClick = { showApplyDialog = true },
+                                                onRecenterClick = {
+                                                    lyricsAutoScroll = true
+                                                    lyricsRecenterTick += 1
+                                                },
+                                            )
+                                            NowPlayingDetailPage.About -> AskGeminiBar(
+                                                askState = askState,
+                                                onSubmit = onAskQuestion,
+                                                onFocus = onAskBarFocused,
+                                                onCollapseRequest = onAskBarCollapseRequested,
+                                                onDismissError = onDismissAskError,
+                                            )
+                                            NowPlayingDetailPage.Note -> Spacer(modifier = Modifier.height(56.dp))
+                                        }
                                     }
                                 }
                             }
@@ -993,16 +1058,18 @@ private fun PlayingContent(
             }
         }
 
-        CoverTransitionOverlay(
-            coverArtUrl = state.coverArtUrl,
-            progress = detailProgress,
-            startX = horizontalPadding,
-            startY = 56.dp,
-            startSize = compactCoverSize,
-            endX = horizontalPadding + 56.dp,
-            endY = 0.dp,
-            endSize = 44.dp,
-        )
+        if (entranceSettled) {
+            CoverTransitionOverlay(
+                coverArtUrl = state.coverArtUrl,
+                progress = detailProgress,
+                startX = horizontalPadding,
+                startY = 56.dp,
+                startSize = compactCoverSize,
+                endX = horizontalPadding + 56.dp,
+                endY = 0.dp,
+                endSize = 44.dp,
+            )
+        }
 
         if (lyricsSearchState.isOpen) {
             LyricsSearchSheet(
@@ -1156,6 +1223,8 @@ private fun CoverTransitionOverlay(
     endX: Dp,
     endY: Dp,
     endSize: Dp,
+    startCornerRadius: Dp = 16.dp,
+    endCornerRadius: Dp = 8.dp,
     modifier: Modifier = Modifier,
 ) {
     if (
@@ -1166,17 +1235,39 @@ private fun CoverTransitionOverlay(
     }
     val clampedProgress = progress.coerceIn(0f, 1f)
     val interactionSource = remember { MutableInteractionSource() }
+    // Decode the bitmap ONCE at the flight's large end (fixed requestSizePx):
+    // letting Coil resolve at the live, shrinking size resamples high-contrast
+    // artwork against the clip edge into shimmering stair-steps.
+    val requestSizePx = with(LocalDensity.current) { startSize.roundToPx() }
 
+    // Draw-only transform: the box stays a FIXED startSize and is moved/shrunk
+    // entirely in graphicsLayer (translation + scale). The previous per-frame
+    // .offset(lerpDp)+.size(lerpDp) forced a full re-layout of the artwork
+    // subtree every spring frame — the dominant jank source on expand. The
+    // rounded clip lives in this same layer with a corner radius counter-scaled
+    // by `s` so the visual radius stays on-spec while the layer is scaled.
     PlainAlbumCover(
         coverArtUrl = coverArtUrl,
         interactionSource = interactionSource,
+        shape = RectangleShape,
+        border = null,
+        filterQuality = FilterQuality.Medium,
+        requestSizePx = requestSizePx,
         modifier = modifier
-            .offset(
-                x = lerpDp(startX, endX, clampedProgress),
-                y = lerpDp(startY, endY, clampedProgress),
-            )
-            .size(lerpDp(startSize, endSize, clampedProgress))
+            .offset(x = startX, y = startY)
+            .size(startSize)
             .graphicsLayer {
+                val p = clampedProgress
+                val s = 1f + (endSize.toPx() / startSize.toPx() - 1f) * p
+                translationX = (endX.toPx() - startX.toPx()) * p
+                translationY = (endY.toPx() - startY.toPx()) * p
+                scaleX = s
+                scaleY = s
+                transformOrigin = TransformOrigin(0f, 0f)
+                clip = true
+                val visualRadiusPx =
+                    startCornerRadius.toPx() + (endCornerRadius.toPx() - startCornerRadius.toPx()) * p
+                shape = RoundedCornerShape(visualRadiusPx / s)
                 alpha = 1f
             },
     )
@@ -1556,7 +1647,7 @@ private fun DockedAlbumCover(
         coverArtUrl = coverArtUrl,
         interactionSource = interactionSource,
         modifier = modifier,
-        shape = YoinShapeTokens.Medium,
+        shape = YoinShapeTokens.Small,
     )
 }
 
@@ -1566,6 +1657,9 @@ private fun PlainAlbumCover(
     interactionSource: MutableInteractionSource?,
     modifier: Modifier = Modifier,
     shape: androidx.compose.ui.graphics.Shape = YoinShapeTokens.Large,
+    border: BorderStroke? = null,
+    filterQuality: FilterQuality = FilterQuality.Low,
+    requestSizePx: Int? = null,
 ) {
     ExpressiveMediaArtwork(
         model = coverArtUrl,
@@ -1576,7 +1670,9 @@ private fun PlainAlbumCover(
         interactionSource = interactionSource,
         tonalElevation = 0.dp,
         shadowElevation = 0.dp,
-        border = null,
+        border = border,
+        filterQuality = filterQuality,
+        requestSizePx = requestSizePx,
     )
 }
 
@@ -1611,12 +1707,11 @@ private fun Modifier.tapWithoutConsumingDrag(
 ): Modifier = if (!enabled) {
     this
 } else {
-    pointerInput(onTap) {
-        awaitEachGesture {
-            awaitFirstDown(requireUnconsumed = false)
-            val up = waitForUpOrCancellation()
-            if (up != null) {
-                onTap()
+    composed {
+        val latestOnTap by rememberUpdatedState(onTap)
+        pointerInput(Unit) {
+            detectTapGestures {
+                latestOnTap()
             }
         }
     }

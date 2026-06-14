@@ -17,6 +17,12 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.runtime.getValue
+import com.gpo.yoin.ui.theme.YoinMotion
+import com.gpo.yoin.ui.theme.YoinMotionRole
+
 internal fun Modifier.noRippleClickable(
     interactionSource: MutableInteractionSource,
     enabled: Boolean = true,
@@ -29,19 +35,24 @@ internal fun Modifier.noRippleClickable(
 )
 
 /**
- * Previously animated a bouncy-spring scale on press (1 → 0.97 → overshoot
- * back to 1). That overshoot was the root cause of the Home Jump Back In
- * "shape edge nipped during playback" saga when combined with the halo's
- * own playback pulse. Project-wide decision: kill on-card press feedback
- * entirely for now — the whole app behaves like a flat static surface on
- * press. If you want the elastic feedback back, restore the previous
- * `composed { ... graphicsLayer { scaleX = scale; scaleY = scale } }`
- * body.
+ * Animated press feedback using standard spring physics (no overshoot)
+ * to avoid layout shape edge clipping.
  */
 internal fun Modifier.elasticPress(
-    @Suppress("UNUSED_PARAMETER") interactionSource: InteractionSource,
-    @Suppress("UNUSED_PARAMETER") pressedScale: Float = 0.97f,
-): Modifier = this
+    interactionSource: InteractionSource,
+    pressedScale: Float = 0.97f,
+): Modifier = composed {
+    val isPressed by interactionSource.collectIsPressedAsState()
+    val scale by animateFloatAsState(
+        targetValue = if (isPressed) pressedScale else 1f,
+        animationSpec = YoinMotion.defaultSpatialSpec(role = YoinMotionRole.Standard),
+        label = "elasticPressScale",
+    )
+    graphicsLayer {
+        scaleX = scale
+        scaleY = scale
+    }
+}
 
 internal fun Modifier.minimumTouchTarget(
     minSize: Dp = 44.dp,

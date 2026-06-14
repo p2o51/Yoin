@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
@@ -76,7 +77,10 @@ internal fun LyricsSearchSheet(
     ) {
         val navBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
 
-        Column {
+        // The sheet is its own window, so the host Activity's adjustResize can't
+        // shrink it — imePadding lifts the search field + results above the
+        // keyboard (matches the sibling WriteNoteSheet).
+        Column(modifier = Modifier.imePadding()) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()

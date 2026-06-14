@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Dark-mode window background (md3_dark_background). See values/colors.xml. -->
+    <color name="yoin_window_background">#FF1C1B1F</color>
+</resources>

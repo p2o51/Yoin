@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
@@ -266,7 +267,11 @@ private fun AlbumDetailContent(
 
     val navBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
     LazyColumn(
-        modifier = modifier.fillMaxSize(),
+        // imePadding lifts the list above the keyboard so the multi-line
+        // "My review" field near the page bottom isn't covered when focused.
+        modifier = modifier
+            .fillMaxSize()
+            .imePadding(),
         contentPadding = PaddingValues(
             start = 16.dp,
             top = 16.dp,

@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+      App window theme. Inherits the framework no-action-bar base but replaces
+      the framework's opaque dark-grey windowBackground (#FF303030) with the
+      app surface color so the system cross-Activity back animation reveals a
+      matching surface instead of a black/grey margin around the shrinking page.
+
+      windowBackground/colorBackground are DayNight-aware (values vs
+      values-night). Edge-to-edge is preserved: the parent theme keeps
+      windowDrawsSystemBarBackgrounds=true (so the window lays out BEHIND the
+      system bars), and enableYoinEdgeToEdge() makes those bars transparent at
+      runtime — so app content shows through the status/nav bar regions. The
+      opaque windowBackground only fills the content region, never the bars.
+
+      DO NOT add android:windowDrawsSystemBarBackgrounds=false here: it clears
+      the flag that lets the window extend behind the bars, which collapses
+      edge-to-edge and leaves the (dark) windowBackground showing as black
+      bands in the top/bottom safe areas.
+    -->
+    <style name="Theme.Yoin" parent="@android:style/Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/yoin_window_background</item>
+        <item name="android:colorBackground">@color/yoin_window_background</item>
+    </style>
+</resources>

@@ -79,14 +79,11 @@ import com.gpo.yoin.data.model.Artist
 import com.gpo.yoin.data.model.CoverRef
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.Track
-import com.gpo.yoin.ui.component.ExpressiveBackdrop
-import com.gpo.yoin.ui.component.ExpressiveBackdropVariant
 import com.gpo.yoin.ui.component.ExpressiveMediaArtwork
 import com.gpo.yoin.ui.component.ExpressiveSectionPanel
 import com.gpo.yoin.ui.component.elasticPress
 import com.gpo.yoin.ui.component.expressiveEntrance
 import com.gpo.yoin.ui.component.rememberExpressiveEntranceProgress
-import com.gpo.yoin.ui.component.ExpressiveBackdropArtworkScale
 import com.gpo.yoin.ui.component.horizontalFadeMask
 import com.gpo.yoin.ui.component.minimumTouchTarget
 import com.gpo.yoin.ui.component.noRippleClickable
@@ -118,7 +115,6 @@ private data class HomeMomentEntry(
     val sharedAlbumId: String?,
     val sharedSourceKey: String?,
     val songId: String?,
-    val variant: ExpressiveBackdropVariant,
     val shape: Shape,
     val fallbackIcon: androidx.compose.ui.graphics.vector.ImageVector,
     val target: HomeEntryTarget,
@@ -133,7 +129,6 @@ private data class JumpBackInVisualEntry(
     val sharedAlbumId: String?,
     val sharedSourceKey: String?,
     val songId: String?,
-    val variant: ExpressiveBackdropVariant,
     val shape: Shape,
     val fallbackIcon: androidx.compose.ui.graphics.vector.ImageVector,
     val target: HomeEntryTarget,
@@ -567,7 +562,6 @@ private fun ActivityCard(
                 sharedTransitionScope = sharedTransitionScope,
                 animatedVisibilityScope = animatedVisibilityScope,
                 interactionSource = interactionSource,
-                backdropVariant = entry.variant,
                 modifier = Modifier.size(58.dp),
                 fillFraction = 1f,
                 offsetX = 2.dp,
@@ -702,7 +696,6 @@ private fun JumpBackInTile(
             sharedTransitionScope = sharedTransitionScope,
             animatedVisibilityScope = animatedVisibilityScope,
             interactionSource = interactionSource,
-            backdropVariant = entry.variant,
             modifier = Modifier
                 .fillMaxWidth()
                 .aspectRatio(1f),
@@ -796,51 +789,33 @@ private fun MarqueeTitle(
 private fun ExpressiveArtwork(
     model: String?,
     contentDescription: String,
-    backdropVariant: ExpressiveBackdropVariant,
     extractBackdropColors: Boolean,
     sharedAlbumId: String? = null,
     sharedSourceKey: String? = null,
-    isPlaybackActive: Boolean = false,
-    playbackSignal: Float = 0f,
+    @Suppress("UNUSED_PARAMETER") isPlaybackActive: Boolean = false,
+    @Suppress("UNUSED_PARAMETER") playbackSignal: Float = 0f,
     sharedTransitionScope: SharedTransitionScope? = null,
     animatedVisibilityScope: AnimatedVisibilityScope? = null,
     modifier: Modifier = Modifier,
     interactionSource: MutableInteractionSource? = null,
     fillFraction: Float = 0.78f,
-    offsetX: Dp = 8.dp,
-    offsetY: Dp = 10.dp,
+    @Suppress("UNUSED_PARAMETER") offsetX: Dp = 8.dp,
+    @Suppress("UNUSED_PARAMETER") offsetY: Dp = 10.dp,
     shape: Shape = YoinShapeTokens.ExtraLarge,
     fallbackIcon: androidx.compose.ui.graphics.vector.ImageVector = Icons.Filled.LibraryMusic,
 ) {
+    // Keep color extraction active to populate the palette cache for page-level backgrounds
     val backdropColors = rememberExpressiveBackdropColors(
         model = model,
         fallbackBaseColor = MaterialTheme.colorScheme.secondaryContainer,
         fallbackAccentColor = MaterialTheme.colorScheme.tertiaryContainer,
         enabled = extractBackdropColors,
     )
-    val scaledFillFraction = (fillFraction * ExpressiveBackdropArtworkScale).coerceIn(0.36f, 1f)
 
-    BoxWithConstraints(modifier = modifier) {
-        val opticalShift = minOf(maxWidth, maxHeight) * 0.08f
-        ExpressiveBackdrop(
-            baseColor = backdropColors.baseColor,
-            accentColor = backdropColors.accentColor,
-            variant = backdropVariant,
-            isPlaybackActive = isPlaybackActive,
-            playbackSignal = playbackSignal,
-            modifier = Modifier
-                .fillMaxSize(0.88f)
-                .align(Alignment.Center)
-                .offset(x = -opticalShift, y = -opticalShift),
-        )
-
+    Box(modifier = modifier) {
         val coverModifier = Modifier
-            .fillMaxSize(scaledFillFraction)
+            .fillMaxSize(fillFraction)
             .align(Alignment.Center)
-            .offset(
-                x = opticalShift + offsetX * 0.25f,
-                y = opticalShift + offsetY * 0.25f,
-            )
             .then(
                 if (interactionSource != null) {
                     Modifier.elasticPress(interactionSource)
@@ -982,7 +957,6 @@ private fun buildActivityEntries(
         sharedSourceKey = stableId.takeIf { activity.entityType == ActivityEntityType.ALBUM.name },
         songId = activity.takeIf { activity.entityType == ActivityEntityType.SONG.name }
             ?.let { "${it.provider}:${activityEntityRawId(it.songId ?: it.entityId)}" },
-        variant = backdropVariantForActivity(activity.entityType),
         shape = artworkShapeForEntityType(activity.entityType),
         fallbackIcon = artworkFallbackIconForEntityType(activity.entityType),
         target = target,
@@ -1003,7 +977,6 @@ private fun buildJumpBackInEntry(
         sharedAlbumId = item.album.id.toString(),
         sharedSourceKey = item.stableId,
         songId = null,
-        variant = ExpressiveBackdropVariant.Bun,
         shape = YoinShapeTokens.Medium,
         fallbackIcon = Icons.Filled.LibraryMusic,
         target = HomeEntryTarget.Album(item.album.id.toString(), item.stableId),
@@ -1019,7 +992,6 @@ private fun buildJumpBackInEntry(
         sharedAlbumId = null,
         sharedSourceKey = null,
         songId = item.song.id.toString(),
-        variant = ExpressiveBackdropVariant.Circle,
         shape = YoinShapeTokens.Medium,
         fallbackIcon = Icons.Filled.LibraryMusic,
         target = HomeEntryTarget.SongTarget(item.song),
@@ -1034,18 +1006,10 @@ private fun buildJumpBackInEntry(
         sharedAlbumId = null,
         sharedSourceKey = null,
         songId = null,
-        variant = ExpressiveBackdropVariant.SoftBoom,
         shape = CircleShape,
         fallbackIcon = Icons.Filled.Person,
         target = HomeEntryTarget.Artist(item.artist.id.toString()),
     )
-}
-
-private fun backdropVariantForActivity(entityType: String): ExpressiveBackdropVariant = when (entityType) {
-    ActivityEntityType.ALBUM.name -> ExpressiveBackdropVariant.Bun
-    ActivityEntityType.SONG.name -> ExpressiveBackdropVariant.Circle
-    ActivityEntityType.PLAYLIST.name -> ExpressiveBackdropVariant.Ghostish
-    else -> ExpressiveBackdropVariant.SoftBoom
 }
 
 private fun artworkShapeForEntityType(entityType: String): Shape = when (entityType) {

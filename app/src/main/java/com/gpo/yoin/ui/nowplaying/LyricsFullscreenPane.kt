@@ -24,8 +24,12 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
+import kotlinx.coroutines.flow.first
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
@@ -74,18 +78,32 @@ fun LyricsFullscreenPane(
         findCurrentLyricIndex(lyrics, positionMs)
     }
     val listState = rememberLazyListState()
+    // First centring is INSTANT (no animated jump) and happens the moment the
+    // pane has a real viewport — so when the stage finishes expanding the active
+    // line is already centred, instead of the "page expands, then lyrics jump"
+    // beat. Resets per song so a new track re-centres instantly.
+    var hasCentered by remember(lyrics) { mutableStateOf(false) }
 
     // Offset by ~38% of the viewport so the active line reads as the
     // center of attention instead of a literal midpoint.
     LaunchedEffect(currentIndex, listState, autoScrollEnabled, recenterRequestKey) {
         if (!autoScrollEnabled) return@LaunchedEffect
         if (currentIndex < 0) return@LaunchedEffect
-        val viewportPx = listState.layoutInfo.viewportSize.height
+        // Wait for a non-zero viewport: while the pane is still expanding its
+        // height is ~0, so reading it directly yields offset 0 and the real
+        // centring would only happen on the NEXT lyric line. Suspending here
+        // returns immediately once laid out (and immediately during playback,
+        // where the viewport is already non-zero).
+        val viewportPx = snapshotFlow { listState.layoutInfo.viewportSize.height }
+            .first { it > 0 }
         val offsetPx = -(viewportPx * 0.38f).toInt()
-        listState.animateScrollToItem(
-            index = currentIndex.coerceIn(0, lyrics.lastIndex),
-            scrollOffset = offsetPx,
-        )
+        val target = currentIndex.coerceIn(0, lyrics.lastIndex)
+        if (hasCentered) {
+            listState.animateScrollToItem(index = target, scrollOffset = offsetPx)
+        } else {
+            listState.scrollToItem(index = target, scrollOffset = offsetPx)
+            hasCentered = true
+        }
     }
 
     val latestOnUserScroll by rememberUpdatedState(onUserScroll)

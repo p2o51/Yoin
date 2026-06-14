@@ -48,8 +48,15 @@ import com.gpo.yoin.data.model.YoinDevice
 import com.gpo.yoin.data.remote.GeminiService
 import com.gpo.yoin.data.source.Capability
 import com.gpo.yoin.data.source.MusicSource
+import com.gpo.yoin.data.source.spotify.SpotifyLibrarySyncCoordinator
 import com.gpo.yoin.data.source.spotify.SpotifyMusicSource
+import com.gpo.yoin.data.source.spotify.SpotifyRateLimitGate
+import com.gpo.yoin.data.source.spotify.toSpotifyLibraryTrackCache
+import com.gpo.yoin.data.source.spotify.toTrack
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -59,6 +66,8 @@ import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -89,8 +98,23 @@ class YoinRepository(
     private val memoryCopyCacheDao: MemoryCopyCacheDao,
     private val neoDbSyncService: NeoDBSyncService,
     private val lyricsProviderRegistry: LyricsProviderRegistry = LyricsProviderRegistry(),
+    private val spotifyLibrarySyncCoordinator: SpotifyLibrarySyncCoordinator? = null,
+    private val spotifyRateLimitGate: SpotifyRateLimitGate? = null,
+    private val repositoryScope: CoroutineScope = CoroutineScope(SupervisorJob()),
     private val clock: () -> Long = System::currentTimeMillis,
 ) {
+
+    init {
+        repositoryScope.launch {
+            var lastProfileId: String? = activeProfileId.value
+            activeProfileId.collect { profileId ->
+                if (profileId != lastProfileId) {
+                    _favoriteOverrides.value = emptyMap()
+                    lastProfileId = profileId
+                }
+            }
+        }
+    }
 
     data class SpotifyHomeJumpBackInCacheSnapshot(
         val albums: List<Album>,
@@ -173,6 +197,9 @@ class YoinRepository(
     private val _favoriteOverrides = MutableStateFlow<Map<MediaId, Boolean>>(emptyMap())
     val favoriteOverrides: StateFlow<Map<MediaId, Boolean>> = _favoriteOverrides.asStateFlow()
 
+    /** Striped per-track lock so rapid favorite taps on the same track serialize. */
+    private val favoriteMutexes = Array(64) { Mutex() }
+
     /**
      * Capability set of the currently active [MusicSource], or empty when no
      * profile is active. Single source of truth for UI gating — feature
@@ -207,18 +234,166 @@ class YoinRepository(
             message = "No profile configured. Open Settings to add one.",
         )
 
+    private fun spotifyCoordinator(): SpotifyLibrarySyncCoordinator =
+        spotifyLibrarySyncCoordinator
+            ?: error("Spotify library sync is not configured")
+
+    private fun isSpotifyActive(): Boolean =
+        currentProviderId() == MediaId.PROVIDER_SPOTIFY && spotifyLibrarySyncCoordinator != null
+
+    private fun requireProfileId(): String =
+        currentProfileId()
+            ?: throw SubsonicException(code = -1, message = "No active profile")
+
+    private fun requireSpotifySource(): SpotifyMusicSource =
+        requireSource() as? SpotifyMusicSource
+            ?: error("Active source is not Spotify")
+
+    private fun spotifyProfileId(source: SpotifyMusicSource): String =
+        source.profileId ?: requireProfileId()
+
+    private suspend fun ensureSpotifyLibraryFresh(
+        source: SpotifyMusicSource,
+        force: Boolean = false,
+    ): Result<Unit> =
+        spotifyCoordinator().refreshLibrary(
+            profileId = spotifyProfileId(source),
+            source = source,
+            force = force,
+        )
+
+    private suspend fun markSpotifyLibraryStaleIfNeeded() {
+        val coordinator = spotifyLibrarySyncCoordinator ?: return
+        val source = activeSource.value as? SpotifyMusicSource ?: return
+        coordinator.markStale(spotifyProfileId(source))
+    }
+
+    private suspend fun setSpotifyFavorite(
+        track: Track?,
+        id: MediaId,
+        favorite: Boolean,
+    ): Result<Unit> {
+        // Bind the source ONCE up front (before any suspension). A mid-flight
+        // profile switch must not re-route this write to the wrong account or
+        // blow up with a ClassCastException downstream.
+        val source = requireSpotifySource()
+        val profileId = spotifyProfileId(source)
+        val rawId = id.rawId
+        val dao = database.spotifyLibraryCacheDao()
+
+        // Serialize rapid true/false/true taps per track so the last tap wins
+        // instead of two writes racing the optimistic row + the network call.
+        val mutex = favoriteMutexes[(id.hashCode() and Int.MAX_VALUE) % favoriteMutexes.size]
+        return mutex.withLock {
+            val now = clock()
+            val existing = dao.getTrack(profileId, rawId)
+            val optimistic = (existing?.toTrack() ?: track ?: Track(
+                id = id,
+                title = null,
+                artist = null,
+                artistId = null,
+                album = null,
+                albumId = null,
+                coverArt = null,
+                durationSec = null,
+                trackNumber = null,
+                year = null,
+                genre = null,
+                userRating = null,
+                isStarred = favorite,
+            )).copy(isStarred = favorite, addedAt = existing?.addedAt)
+
+            dao.upsertTrack(
+                optimistic.toSpotifyLibraryTrackCache(
+                    profileId = profileId,
+                    cachedAt = now,
+                    pendingFavoriteAction = true,
+                    lastSyncError = null,
+                ),
+            )
+            _favoriteOverrides.value = _favoriteOverrides.value + (id to favorite)
+
+            runCatching {
+                // Spotify saves are eventually consistent — an immediate
+                // contains-check returns false and would wrongly downgrade a
+                // successful favorite, so we trust the mutation result alone.
+                source.writeActions().setFavorite(id, favorite).getOrThrow()
+            }.onSuccess {
+                if (favorite) {
+                    dao.updateTrackFavoriteState(
+                        profileId = profileId,
+                        trackId = rawId,
+                        isSaved = true,
+                        pending = false,
+                        lastSyncError = null,
+                        cachedAt = clock(),
+                    )
+                } else {
+                    // Un-favorite removes the row so no isSaved=false orphan
+                    // lingers in the saved-tracks cache.
+                    dao.deleteTrack(profileId, rawId)
+                }
+                _favoriteOverrides.value = _favoriteOverrides.value - id
+            }.onFailure { error ->
+                if (existing == null) {
+                    // The optimistic row was created by this call — drop it.
+                    dao.deleteTrack(profileId, rawId)
+                } else {
+                    dao.updateTrackFavoriteState(
+                        profileId = profileId,
+                        trackId = rawId,
+                        isSaved = existing.isSaved,
+                        pending = false,
+                        lastSyncError = error.message,
+                        cachedAt = clock(),
+                    )
+                }
+                _favoriteOverrides.value = _favoriteOverrides.value - id
+            }
+        }
+    }
+
     // ── Albums ─────────────────────────────────────────────────────────
 
-    suspend fun getAlbumList(type: String, size: Int = 20, offset: Int = 0): List<Album> =
-        requireSource().library().getAlbumList(type, size, offset)
+    suspend fun getAlbumList(type: String, size: Int = 20, offset: Int = 0): List<Album> {
+        if (isSpotifyActive()) {
+            val source = requireSpotifySource()
+            val profileId = spotifyProfileId(source)
+            ensureSpotifyLibraryFresh(source).getOrThrow()
+            val albums = spotifyCoordinator().readAlbums(profileId)
+            val sorted = when (type) {
+                "alphabeticalByName" -> albums.sortedBy { it.name.lowercase() }
+                "recent" -> albums.sortedByDescending { it.addedAt.orEmpty() }
+                "random" -> albums.shuffled()
+                else -> albums
+            }
+            return sorted.drop(offset.coerceAtLeast(0)).take(size.coerceAtLeast(0))
+        }
+        return requireSource().library().getAlbumList(type, size, offset)
+    }
 
     suspend fun getAlbum(id: MediaId): Album? =
         requireSource().library().getAlbum(id)
 
     // ── Artists ────────────────────────────────────────────────────────
 
-    suspend fun getArtists(): List<ArtistIndex> =
-        requireSource().library().getArtists()
+    suspend fun getArtists(): List<ArtistIndex> {
+        if (isSpotifyActive()) {
+            val source = requireSpotifySource()
+            val profileId = spotifyProfileId(source)
+            ensureSpotifyLibraryFresh(source).getOrThrow()
+            val artists = spotifyCoordinator().readArtists(profileId)
+            return artists
+                .filter { artist -> artist.name.isNotBlank() }
+                .sortedBy { artist -> artist.name.lowercase() }
+                .groupBy { artist ->
+                    artist.name.firstOrNull()?.uppercaseChar()?.takeIf(Char::isLetter)?.toString() ?: "#"
+                }
+                .toSortedMap()
+                .map { (name, grouped) -> ArtistIndex(name = name, artists = grouped) }
+        }
+        return requireSource().library().getArtists()
+    }
 
     suspend fun getArtist(id: MediaId): ArtistDetail? =
         requireSource().library().getArtist(id)
@@ -230,18 +405,46 @@ class YoinRepository(
 
     // ── Favorites ──────────────────────────────────────────────────────
 
-    suspend fun setFavorite(id: MediaId, favorite: Boolean): Result<Unit> =
-        requireSource().writeActions().setFavorite(id, favorite).onSuccess {
+    suspend fun setFavorite(id: MediaId, favorite: Boolean): Result<Unit> {
+        if (id.provider == MediaId.PROVIDER_SPOTIFY && isSpotifyActive()) {
+            return setSpotifyFavorite(track = null, id = id, favorite = favorite)
+        }
+        return requireSource().writeActions().setFavorite(id, favorite).onSuccess {
             _favoriteOverrides.value = _favoriteOverrides.value + (id to favorite)
         }
+    }
 
-    suspend fun getStarred(): Starred =
-        requireSource().library().getStarred()
+    suspend fun setFavorite(track: Track, favorite: Boolean): Result<Unit> {
+        if (track.id.provider == MediaId.PROVIDER_SPOTIFY && isSpotifyActive()) {
+            return setSpotifyFavorite(track = track, id = track.id, favorite = favorite)
+        }
+        return setFavorite(track.id, favorite)
+    }
+
+    suspend fun getStarred(): Starred {
+        if (isSpotifyActive()) {
+            val source = requireSpotifySource()
+            val profileId = spotifyProfileId(source)
+            ensureSpotifyLibraryFresh(source).getOrThrow()
+            return spotifyCoordinator().readStarred(profileId)
+        }
+        return requireSource().library().getStarred()
+    }
 
     // ── Random ─────────────────────────────────────────────────────────
 
-    suspend fun getRandomSongs(size: Int = 20): List<Track> =
-        requireSource().library().getRandomSongs(size)
+    suspend fun getRandomSongs(size: Int = 20): List<Track> {
+        if (isSpotifyActive()) {
+            val source = requireSpotifySource()
+            val profileId = spotifyProfileId(source)
+            ensureSpotifyLibraryFresh(source).getOrThrow()
+            return spotifyCoordinator()
+                .readTracks(profileId)
+                .shuffled()
+                .take(size.coerceAtLeast(0))
+        }
+        return requireSource().library().getRandomSongs(size)
+    }
 
     // ── Spotify Home cache ────────────────────────────────────────────
 
@@ -294,14 +497,51 @@ class YoinRepository(
 
     // ── Playlists ──────────────────────────────────────────────────────
 
-    suspend fun getPlaylists(): List<Playlist> =
-        requireSource().library().getPlaylists()
+    suspend fun getPlaylists(): List<Playlist> {
+        if (isSpotifyActive()) {
+            val source = requireSpotifySource()
+            val profileId = spotifyProfileId(source)
+            ensureSpotifyLibraryFresh(source).getOrThrow()
+            return spotifyCoordinator().readPlaylists(profileId)
+        }
+        return requireSource().library().getPlaylists()
+    }
+
+    suspend fun refreshSpotifyLibrary(force: Boolean = false): Result<Unit> {
+        if (!isSpotifyActive()) return Result.success(Unit)
+        val source = requireSpotifySource()
+        return spotifyCoordinator().refreshLibrary(
+            profileId = spotifyProfileId(source),
+            source = source,
+            force = force,
+        )
+    }
+
+    /** True when the active Spotify profile has any cached library data. */
+    suspend fun hasSpotifyCachedData(): Boolean {
+        if (!isSpotifyActive()) return false
+        val profileId = currentProfileId() ?: return false
+        return spotifyCoordinator().hasAnyCachedData(profileId)
+    }
+
+    suspend fun getSpotifyLocalSearchSnapshot(): SpotifyLibrarySyncCoordinator.SpotifyLocalSearchSnapshot? {
+        if (!isSpotifyActive()) return null
+        val profileId = currentProfileId() ?: return null
+        return spotifyCoordinator().readLocalSearchSnapshot(profileId)
+    }
+
+    suspend fun isSpotifyLibraryCacheFresh(): Boolean {
+        if (!isSpotifyActive()) return false
+        val profileId = currentProfileId() ?: return false
+        return spotifyCoordinator().isCacheFresh(profileId)
+    }
 
     suspend fun getPlaylist(id: MediaId): Playlist? =
         requireSource().library().getPlaylist(id)
 
     suspend fun createPlaylist(name: String, description: String? = null): Result<Playlist> =
         requireSource().writeActions().createPlaylist(name = name, description = description)
+            .onSuccess { markSpotifyLibraryStaleIfNeeded() }
 
     suspend fun renamePlaylist(
         id: MediaId,
@@ -309,15 +549,18 @@ class YoinRepository(
         description: String? = null,
     ): Result<Unit> =
         requireSource().writeActions().renamePlaylist(id = id, name = name, description = description)
+            .onSuccess { markSpotifyLibraryStaleIfNeeded() }
 
     suspend fun deletePlaylist(id: MediaId): Result<Unit> =
         requireSource().writeActions().deletePlaylist(id)
+            .onSuccess { markSpotifyLibraryStaleIfNeeded() }
 
     suspend fun addTracksToPlaylist(
         playlistId: MediaId,
         tracks: List<MediaId>,
     ): Result<String?> =
         requireSource().writeActions().addTracksToPlaylist(playlistId = playlistId, tracks = tracks)
+            .onSuccess { markSpotifyLibraryStaleIfNeeded() }
 
     suspend fun removeTracksFromPlaylist(
         playlistId: MediaId,
@@ -328,7 +571,7 @@ class YoinRepository(
             playlistId = playlistId,
             items = items,
             snapshotId = snapshotId,
-        )
+        ).onSuccess { markSpotifyLibraryStaleIfNeeded() }
 
     // ── Rating (local-first, best-effort server sync) ──────────────────
 
@@ -360,6 +603,30 @@ class YoinRepository(
                 database.localRatingDao().getRating(trackId.rawId, trackId.provider, profileId)
             }
         }
+
+    /**
+     * Reactive saved-state for a Spotify track from the library cache — the
+     * authoritative source for the Now Playing heart. Emits whenever the cache
+     * row changes (optimistic favorite write, sync, un-favorite delete), so the
+     * heart reflects the real Spotify library state and no longer reverts when
+     * the transient [favoriteOverrides] entry is cleared on network success.
+     *
+     * Emits `null` when the id isn't a cached Spotify track (non-Spotify, or
+     * the track simply isn't in the saved cache) so the caller can fall back to
+     * the playback track's own isStarred.
+     */
+    fun observeSpotifyFavorite(id: MediaId): Flow<Boolean?> {
+        if (id.provider != MediaId.PROVIDER_SPOTIFY) return flowOf(null)
+        return activeProfileId.flatMapLatest { profileId ->
+            if (profileId.isNullOrBlank()) {
+                flowOf(null)
+            } else {
+                database.spotifyLibraryCacheDao()
+                    .observeTrack(profileId, id.rawId)
+                    .map { it?.isSaved }
+            }
+        }
+    }
 
     suspend fun getRatings(trackIds: Collection<MediaId>): Map<MediaId, LocalRating> {
         val profileId = activeProfileId.value ?: return emptyMap()

@@ -15,4 +15,5 @@ data class Track(
     val userRating: Int?,
     val isStarred: Boolean = false,
     val extras: Map<String, String> = emptyMap(),
+    val addedAt: String? = null,
 )

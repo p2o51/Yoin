@@ -7,7 +7,9 @@ ksp = "2.3.6"
 # Compose
 composeBom = "2026.03.01"
 material3Expressive = "1.5.0-alpha16"
-nav3Core = "1.1.0"
+# 1.1.2: fixes the OverlayScene LocalNavAnimatedContentScope crash (1.1.1)
+# and inert predictive back in Studio previews (NavigationEvent 1.1.1).
+nav3Core = "1.1.2"
 lifecycleViewmodelNav3 = "2.10.0"
 activityCompose = "1.10.1"
 lifecycleCompose = "2.9.0"

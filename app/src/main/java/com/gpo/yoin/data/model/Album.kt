@@ -12,4 +12,5 @@ data class Album(
     val genre: String?,
     val isStarred: Boolean = false,
     val tracks: List<Track> = emptyList(),
+    val addedAt: String? = null,
 )

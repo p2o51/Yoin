@@ -22,6 +22,8 @@ import com.gpo.yoin.data.integration.neodb.NeoDbTokenStore
 import com.gpo.yoin.data.remote.GeminiService
 import com.gpo.yoin.data.repository.YoinRepository
 import com.gpo.yoin.data.source.spotify.SpotifyAuthConfig
+import com.gpo.yoin.data.source.spotify.SpotifyLibrarySyncCoordinator
+import com.gpo.yoin.data.source.spotify.SpotifyRateLimitGate
 import com.gpo.yoin.player.AudioVisualizerManager
 import com.gpo.yoin.player.CastManager
 import com.gpo.yoin.player.PlaybackEvent
@@ -52,6 +54,8 @@ class AppContainer(private val context: Context) {
     private val applicationScope =
         CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
+    val spotifyRateLimitGate: SpotifyRateLimitGate by lazy { SpotifyRateLimitGate() }
+
     val database: YoinDatabase by lazy {
         Room.databaseBuilder(context, YoinDatabase::class.java, "yoin-database")
             .addMigrations(
@@ -75,6 +79,7 @@ class AppContainer(private val context: Context) {
                 MIGRATION_18_19,
                 MIGRATION_19_20,
                 MIGRATION_20_21,
+                MIGRATION_21_22,
             )
             // v11 冻结了 0.3 schema；0.5 上架前的备份降级保险（用户拿着 v11
             // 备份在旧版设备恢复）走这条：数据丢但应用不崩。没数据丢失比
@@ -277,6 +282,7 @@ class AppContainer(private val context: Context) {
             scope = applicationScope,
             spotifyClientIdProvider = { spotifyClientIdFlow.value },
             spotifyHttpClientProvider = { spotifyHttpClient },
+            spotifyRateLimitGate = spotifyRateLimitGate,
             subsonicBaseHttpClientProvider = { subsonicBaseHttpClient },
             onSwitchPrepare = {
                 // Tear down the current playback session — its stream URLs
@@ -382,6 +388,12 @@ class AppContainer(private val context: Context) {
             activeSource = profileManager.activeSource,
             activeProfileId = profileManager.activeProfileId,
             database = database,
+            spotifyLibrarySyncCoordinator = SpotifyLibrarySyncCoordinator(
+                database = database,
+                rateLimitGate = spotifyRateLimitGate,
+                scope = applicationScope,
+            ),
+            spotifyRateLimitGate = spotifyRateLimitGate,
             geminiService = geminiService,
             songAboutEntryDao = database.songAboutEntryDao(),
             geminiConfigDao = database.geminiConfigDao(),
@@ -1053,6 +1065,96 @@ class AppContainer(private val context: Context) {
                     """
                     ALTER TABLE `lyrics_cache`
                     ADD COLUMN `lyricsProviderSongId` TEXT
+                    """.trimIndent(),
+                )
+            }
+        }
+
+        /**
+         * v21 → v22：Spotify Library 持久缓存（按 profile 隔离），支撑
+         * cache-first Library 浏览、favorite 对账与 429 backoff。
+         */
+        val MIGRATION_21_22 = object : Migration(21, 22) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `spotify_library_sync_meta` (
+                        `profileId` TEXT NOT NULL,
+                        `cachedAt` INTEGER NOT NULL,
+                        `backoffUntilMs` INTEGER NOT NULL,
+                        `lastSyncError` TEXT,
+                        PRIMARY KEY(`profileId`)
+                    )
+                    """.trimIndent(),
+                )
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `spotify_library_track_cache` (
+                        `profileId` TEXT NOT NULL,
+                        `trackId` TEXT NOT NULL,
+                        `title` TEXT,
+                        `artist` TEXT,
+                        `artistId` TEXT,
+                        `album` TEXT,
+                        `albumId` TEXT,
+                        `coverArtKey` TEXT,
+                        `durationSec` INTEGER,
+                        `addedAt` TEXT,
+                        `isSaved` INTEGER NOT NULL,
+                        `cachedAt` INTEGER NOT NULL,
+                        `pendingFavoriteAction` INTEGER NOT NULL,
+                        `lastSyncError` TEXT,
+                        PRIMARY KEY(`profileId`, `trackId`)
+                    )
+                    """.trimIndent(),
+                )
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `spotify_library_album_cache` (
+                        `profileId` TEXT NOT NULL,
+                        `albumId` TEXT NOT NULL,
+                        `name` TEXT NOT NULL,
+                        `artist` TEXT,
+                        `artistId` TEXT,
+                        `coverArtKey` TEXT,
+                        `songCount` INTEGER,
+                        `year` INTEGER,
+                        `isSaved` INTEGER NOT NULL,
+                        `addedAt` TEXT,
+                        `cachedAt` INTEGER NOT NULL,
+                        PRIMARY KEY(`profileId`, `albumId`)
+                    )
+                    """.trimIndent(),
+                )
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `spotify_library_artist_cache` (
+                        `profileId` TEXT NOT NULL,
+                        `artistId` TEXT NOT NULL,
+                        `name` TEXT NOT NULL,
+                        `albumCount` INTEGER,
+                        `coverArtKey` TEXT,
+                        `isFollowed` INTEGER NOT NULL,
+                        `cachedAt` INTEGER NOT NULL,
+                        PRIMARY KEY(`profileId`, `artistId`)
+                    )
+                    """.trimIndent(),
+                )
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `spotify_library_playlist_cache` (
+                        `profileId` TEXT NOT NULL,
+                        `playlistId` TEXT NOT NULL,
+                        `name` TEXT NOT NULL,
+                        `owner` TEXT,
+                        `coverArtKey` TEXT,
+                        `songCount` INTEGER,
+                        `durationSec` INTEGER,
+                        `canWrite` INTEGER NOT NULL,
+                        `snapshotId` TEXT,
+                        `cachedAt` INTEGER NOT NULL,
+                        PRIMARY KEY(`profileId`, `playlistId`)
+                    )
                     """.trimIndent(),
                 )
             }

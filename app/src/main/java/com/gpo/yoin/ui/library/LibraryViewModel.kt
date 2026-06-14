@@ -97,12 +97,15 @@ class LibraryViewModel(
         cachedPlaylists = null
         cachedFavorites = null
         pendingSearchShortcutScope = null
-        loadInitialData()
+        loadInitialData(forceSpotifyRefresh = true)
     }
 
-    private fun loadInitialData() {
+    private fun loadInitialData(forceSpotifyRefresh: Boolean = false) {
         viewModelScope.launch {
             try {
+                if (isSpotifyProvider()) {
+                    repository.refreshSpotifyLibrary(force = forceSpotifyRefresh)
+                }
                 val artists = loadArtistsFlat()
                 cachedArtists = artists
                 val capabilities = repository.currentCapabilities()
@@ -130,9 +133,28 @@ class LibraryViewModel(
                 )
                 searchRequestFlow.value = LibrarySearchRequest("", pendingScope)
             } catch (e: Exception) {
-                _uiState.value = LibraryUiState.Error(
-                    e.message ?: "Failed to load library",
-                )
+                if (isSpotifyProvider() && repository.hasSpotifyCachedData()) {
+                    val artists = cachedArtists ?: loadArtistsFlat().also { cachedArtists = it }
+                    _uiState.value = LibraryUiState.Content(
+                        selectedTab = LibraryTab.Artists,
+                        artists = artists,
+                        albums = emptyList(),
+                        songs = emptyList(),
+                        playlists = emptyList(),
+                        favorites = null,
+                        searchQuery = "",
+                        searchResults = null,
+                        isSearching = false,
+                        searchScope = LibrarySearchScope.CurrentLibrary,
+                        canSearchSpotifyCatalog = true,
+                        availableTabs = visibleTabs(repository.currentCapabilities()),
+                        canCreatePlaylists = Capability.PLAYLISTS_WRITE in repository.currentCapabilities(),
+                    )
+                } else {
+                    _uiState.value = LibraryUiState.Error(
+                        e.message ?: "Failed to load library",
+                    )
+                }
             }
         }
     }
@@ -201,12 +223,17 @@ class LibraryViewModel(
                         updateContent { copy(playlists = cachedPlaylists.orEmpty()) }
                     }
                     LibraryTab.Favorites -> {
-                        cachedFavorites = repository.getStarred()
-                            .applyFavoriteOverrides(repository.favoriteOverrides.value)
+                        if (cachedFavorites == null) {
+                            cachedFavorites = repository.getStarred()
+                                .applyFavoriteOverrides(repository.favoriteOverrides.value)
+                        }
                         updateContent { copy(favorites = cachedFavorites) }
                     }
                 }
             } catch (e: Exception) {
+                if (isSpotifyProvider() && hasSpotifyTabCache(tab)) {
+                    return@launch
+                }
                 _uiState.value = LibraryUiState.Error(
                     e.message ?: "Failed to load ${tab.name}",
                 )
@@ -365,6 +392,24 @@ class LibraryViewModel(
         viewModelScope.launch {
             repository.favoriteOverrides.collectLatest { overrides ->
                 applyFavoriteOverrides(overrides)
+                val current = _uiState.value as? LibraryUiState.Content ?: return@collectLatest
+                // Only the Favorites tab re-reads live: getStarred() returns a
+                // stable ordered set, so a newly-favorited track inserts cleanly
+                // and an un-favorited one drops. The Songs tab is intentionally
+                // NOT re-read here — it's a random sample (getRandomSongs does
+                // .shuffled().take(50)), so a live re-read would reshuffle the
+                // whole visible list on every toggle. Its heart icons are
+                // already updated in-place by applyFavoriteOverrides above.
+                if (current.selectedTab == LibraryTab.Favorites) {
+                    try {
+                        cachedFavorites = repository.getStarred()
+                            .applyFavoriteOverrides(overrides)
+                        updateContent { copy(favorites = cachedFavorites) }
+                    } catch (_: Exception) {
+                        // Stale favorites cache remains visible; the override
+                        // pass above already updated in-place state.
+                    }
+                }
             }
         }
     }
@@ -412,19 +457,17 @@ class LibraryViewModel(
 
     private suspend fun searchSpotifySavedLibrary(query: String): SearchResults {
         val needle = query.normaliseForSearch()
-        val favorites = cachedFavorites
-            ?: repository.getStarred()
-                .applyFavoriteOverrides(repository.favoriteOverrides.value)
-                .also { cachedFavorites = it }
-        val artists = (cachedArtists ?: loadArtistsFlat().also { cachedArtists = it })
+        val snapshot = repository.getSpotifyLocalSearchSnapshot() ?: return SearchResults()
+        val favorites = (cachedFavorites ?: snapshot.starred)
+            .applyFavoriteOverrides(repository.favoriteOverrides.value)
+        val artists = (cachedArtists ?: snapshot.artists)
             .plus(favorites.artists)
             .distinctBy(Artist::id)
-        val albums = (cachedAlbums ?: repository.getAlbumList("alphabeticalByName", size = 500)
-            .also { cachedAlbums = it })
+        val albums = (cachedAlbums ?: snapshot.albums)
             .plus(favorites.albums)
             .distinctBy(Album::id)
-        val songs = favorites.tracks
-        val playlists = cachedPlaylists ?: repository.getPlaylists().also { cachedPlaylists = it }
+        val songs = snapshot.tracks.ifEmpty { favorites.tracks }
+        val playlists = cachedPlaylists ?: snapshot.playlists
 
         return SearchResults(
             artists = artists
@@ -528,6 +571,14 @@ class LibraryViewModel(
 
     private fun isSpotifyProvider(): Boolean =
         repository.currentProviderId() == MediaId.PROVIDER_SPOTIFY
+
+    private fun hasSpotifyTabCache(tab: LibraryTab): Boolean = when (tab) {
+        LibraryTab.Artists -> !cachedArtists.isNullOrEmpty()
+        LibraryTab.Albums -> !cachedAlbums.isNullOrEmpty()
+        LibraryTab.Songs -> !cachedSongs.isNullOrEmpty()
+        LibraryTab.Playlists -> !cachedPlaylists.isNullOrEmpty()
+        LibraryTab.Favorites -> cachedFavorites != null
+    }
 
     private fun nextSearchFocusRequestId(): Long {
         searchFocusRequestCounter += 1

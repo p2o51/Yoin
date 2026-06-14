@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+      Window background used only for the brief frames of the system
+      cross-Activity predictive-back shrink (and cold start). Matched to the
+      app's light surface so the area the system reveals around the shrinking
+      page reads as a deliberate surface, not a black/grey gap.
+      Dark variant lives in values-night/colors.xml.
+    -->
+    <color name="yoin_window_background">#FFFFFBFE</color>
+</resources>

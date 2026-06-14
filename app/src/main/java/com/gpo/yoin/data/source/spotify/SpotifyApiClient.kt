@@ -47,6 +47,8 @@ class SpotifyApiClient(
     private val onCredentialsRevoked: suspend () -> Unit = {},
     private val now: () -> Long = System::currentTimeMillis,
     private val apiBaseUrl: HttpUrl = "https://${SpotifyAuthConfig.API_HOST}/".toHttpUrl(),
+    private val rateLimitGate: SpotifyRateLimitGate? = null,
+    private val rateLimitProfileId: String? = null,
 ) {
 
     @Volatile
@@ -371,6 +373,7 @@ class SpotifyApiClient(
             .newBuilder()
             .addQueryParameter("uris", uri)
             .build()
+        ensureNotRateLimited(url.toString())
         executeWithAuthRetry { accessToken ->
             Request.Builder()
                 .url(url)
@@ -381,10 +384,7 @@ class SpotifyApiClient(
                 .execute()
         }.use { response ->
             if (!response.isSuccessful) {
-                throw SpotifyAuthException(
-                    code = response.code,
-                    message = "Spotify library mutation failed: ${response.code}",
-                )
+                throw response.toSpotifyFailure(url.toString())
             }
         }
     }
@@ -399,10 +399,7 @@ class SpotifyApiClient(
         response.use {
             val body = it.body.string()
             if (!it.isSuccessful) {
-                throw SpotifyAuthException(
-                    code = it.code,
-                    message = "Spotify mutation failed: ${it.code}",
-                )
+                throw it.toSpotifyFailure(url.toString())
             }
             return JSON.decodeFromString(deserializer, body)
         }
@@ -415,10 +412,7 @@ class SpotifyApiClient(
     ) {
         executeJsonRequest(method, url, jsonBody).use { response ->
             if (!response.isSuccessful) {
-                throw SpotifyAuthException(
-                    code = response.code,
-                    message = "Spotify mutation failed: ${response.code}",
-                )
+                throw response.toSpotifyFailure(url.toString())
             }
         }
     }
@@ -428,6 +422,7 @@ class SpotifyApiClient(
         url: HttpUrl,
         jsonBody: String?,
     ): Response {
+        ensureNotRateLimited(url.toString())
         val body: RequestBody = jsonBody?.toRequestBody(JSON_MEDIA_TYPE) ?: EMPTY_BODY
         return executeWithAuthRetry { accessToken ->
             Request.Builder()
@@ -478,6 +473,7 @@ class SpotifyApiClient(
         url: HttpUrl,
         deserializer: KSerializer<T>,
     ): T {
+        ensureNotRateLimited(url.toString())
         val response = executeWithAuthRetry { accessToken ->
             val req = Request.Builder()
                 .url(url)
@@ -488,13 +484,40 @@ class SpotifyApiClient(
         response.use {
             val body = it.body.string()
             if (!it.isSuccessful) {
-                throw SpotifyAuthException(
-                    code = it.code,
-                    message = "Spotify request failed: ${it.code}",
-                )
+                throw it.toSpotifyFailure(url.toString())
             }
             return JSON.decodeFromString(deserializer, body)
         }
+    }
+
+    private fun Response.toSpotifyFailure(endpoint: String): Throwable {
+        if (code == HTTP_TOO_MANY_REQUESTS) {
+            val retryAfterSeconds = header(HEADER_RETRY_AFTER)
+                ?.toLongOrNull()
+                ?.coerceIn(1L, MAX_RETRY_AFTER_SECONDS)
+                ?: DEFAULT_RETRY_AFTER_SECONDS
+            rateLimitProfileId?.let { profileId ->
+                rateLimitGate?.recordBackoff(profileId, retryAfterSeconds)
+            }
+            return SpotifyRateLimitException(
+                retryAfterSeconds = retryAfterSeconds,
+                endpoint = endpoint,
+            )
+        }
+        return SpotifyAuthException(
+            code = code,
+            message = "Spotify request failed: $code",
+        )
+    }
+
+    private fun ensureNotRateLimited(endpoint: String) {
+        val profileId = rateLimitProfileId ?: return
+        val gate = rateLimitGate ?: return
+        if (!gate.isBlocked(profileId)) return
+        throw SpotifyRateLimitException(
+            retryAfterSeconds = (gate.backoffRemainingMs(profileId) / 1_000L).coerceAtLeast(1L),
+            endpoint = endpoint,
+        )
     }
 
     private fun apiUrl(vararg pathSegments: String): HttpUrl {
@@ -566,6 +589,10 @@ class SpotifyApiClient(
 
     companion object {
         private const val HTTP_UNAUTHORIZED = 401
+        private const val HTTP_TOO_MANY_REQUESTS = 429
+        private const val HEADER_RETRY_AFTER = "Retry-After"
+        private const val DEFAULT_RETRY_AFTER_SECONDS = 5L
+        private const val MAX_RETRY_AFTER_SECONDS = 24L * 60L * 60L
         private const val REFRESH_BUFFER_MS = 60_000L
         private const val PAGE_LIMIT = 50
         private const val DEFAULT_COLLECTION_LIMIT = 200

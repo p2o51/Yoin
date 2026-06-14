@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -253,6 +254,10 @@ fun SettingsContent(
                     Column(
                         modifier = Modifier
                             .fillMaxSize()
+                            // Lift the scroll container above the IME so a
+                            // low-on-page field (tokens / API keys) isn't covered
+                            // by the keyboard (Scaffold contentWindowInsets is 0).
+                            .imePadding()
                             .verticalScroll(scrollState)
                             .padding(innerPadding)
                             .padding(

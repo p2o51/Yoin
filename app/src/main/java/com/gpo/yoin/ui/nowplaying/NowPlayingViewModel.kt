@@ -27,6 +27,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
@@ -139,12 +140,24 @@ class NowPlayingViewModel(
         }
     }
 
+    // Authoritative saved-state from the library cache (Spotify), reactive so a
+    // background sync or a confirmed favorite write keeps the heart correct.
+    // null = not a cached Spotify track → fall back to the playback track's own
+    // isStarred.
+    private val cachedFavoriteFlow: Flow<Boolean?> = currentSongId.flatMapLatest { songId ->
+        if (songId != null) repository.observeSpotifyFavorite(songId) else flowOf(null)
+    }
+
     private val favoriteFlow = combine(
         currentSongId,
+        cachedFavoriteFlow,
         playbackManager.playbackState.map { state -> state.currentTrack?.isStarred == true },
         repository.favoriteOverrides,
-    ) { songId, trackStarred, overrides ->
-        songId?.let(overrides::get) ?: trackStarred
+    ) { songId, cachedFavorite, trackStarred, overrides ->
+        // Override (the user's just-tapped intent) wins; then the cache (real
+        // library state); then the playback track's flag. The override is
+        // cleared on success only AFTER the cache reflects it, so no revert.
+        songId?.let(overrides::get) ?: cachedFavorite ?: trackStarred
     }
 
     val notesState: StateFlow<List<SongNote>> = currentSongId
@@ -543,12 +556,13 @@ class NowPlayingViewModel(
     }
 
     fun toggleFavorite() {
-        val songId = currentSongId.value ?: return
+        val track = playbackManager.playbackState.value.currentTrack ?: return
+        val songId = track.id
         val currentFavorite = (uiState.value as? NowPlayingUiState.Playing)?.isStarred
             ?: _isStarred.value
         val nextFavorite = !currentFavorite
         viewModelScope.launch {
-            repository.setFavorite(songId, nextFavorite).onSuccess {
+            repository.setFavorite(track, nextFavorite).onSuccess {
                 _isStarred.value = nextFavorite
             }
         }

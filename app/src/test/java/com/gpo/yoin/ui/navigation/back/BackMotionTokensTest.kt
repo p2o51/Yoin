@@ -7,9 +7,10 @@ import org.junit.Test
 class BackMotionTokensTest {
 
     @Test
-    fun should_keep_simple_push_page_motion_tokens_stable() {
-        assertEquals(0.70f, BackMotionTokens.PushPageScaleTarget, 0.0001f)
-        assertEquals(32.dp, BackMotionTokens.PushPageCornerRadius)
-        assertEquals(0.dp, BackMotionTokens.PushPageEdgeInset)
+    fun should_keep_pop_page_motion_tokens_stable() {
+        // AOSP CrossActivityBackAnimation MAX_SCALE.
+        assertEquals(0.9f, BackMotionTokens.PopPageScaleTarget, 0.0001f)
+        assertEquals(28.dp, BackMotionTokens.PopPageCornerRadius)
     }
+
 }

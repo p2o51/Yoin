@@ -3,14 +3,18 @@ package com.gpo.yoin.ui.navigation.back
 import androidx.compose.ui.unit.dp
 
 object BackMotionTokens {
-    const val PreviewCurveExponent = 1.2f
+    /**
+     * Scale the popped page shrinks to on back, matching the AOSP
+     * cross-activity predictive back animation (CrossActivityBackAnimation
+     * MAX_SCALE = 0.9).
+     */
+    const val PopPageScaleTarget = 0.9f
 
-    const val PushPageScaleTarget = 0.70f
-    val PushPageCornerRadius = 32.dp
-    val PushPageEdgeInset = 0.dp
+    /**
+     * Corner radius the popped page clips to while shrinking; stand-in for
+     * the device window corner radius the system animation uses.
+     */
+    val PopPageCornerRadius = 28.dp
 
     val MemoriesDismissTrigger = 112.dp
-
-    /** Corner radius for the Now Playing overlay during open/close and predictive back. */
-    val NowPlayingCornerRadius = 28.dp
 }

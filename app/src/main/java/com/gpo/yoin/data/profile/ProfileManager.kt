@@ -49,6 +49,7 @@ class ProfileManager(
     private val spotifyClientIdProvider: () -> String = { "" },
     private val spotifyHttpClientProvider: () -> OkHttpClient = { OkHttpClient() },
     private val subsonicBaseHttpClientProvider: () -> OkHttpClient = { OkHttpClient() },
+    private val spotifyRateLimitGate: com.gpo.yoin.data.source.spotify.SpotifyRateLimitGate? = null,
     private val onSwitchPrepare: suspend () -> Unit = {},
     private val onSwitchCommit: suspend () -> Unit = {},
 ) {
@@ -353,6 +354,8 @@ class ProfileManager(
                 initialCredentials = credentials,
                 clientIdProvider = spotifyClientIdProvider,
                 httpClient = spotifyHttpClientProvider(),
+                profileId = profile.id,
+                rateLimitGate = spotifyRateLimitGate,
                 onCredentialsPersisted = { refreshed ->
                     scope.launch {
                         persistCredentialsSilently(profile.id, refreshed)

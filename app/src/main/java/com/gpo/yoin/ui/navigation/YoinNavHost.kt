@@ -16,7 +16,9 @@ import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.draggable
 import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
@@ -33,19 +35,18 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.navigation3.rememberViewModelStoreNavEntryDecorator
 import androidx.navigation3.runtime.entryProvider
-import androidx.navigation3.runtime.metadata
 import androidx.navigation3.runtime.rememberNavBackStack
 import androidx.navigation3.runtime.rememberSaveableStateHolderNavEntryDecorator
 import androidx.navigation3.ui.LocalNavAnimatedContentScope
@@ -58,14 +59,10 @@ import com.gpo.yoin.data.repository.ActivityContext
 import com.gpo.yoin.data.source.Capability
 import com.gpo.yoin.ui.component.AddToPlaylistSheet
 import com.gpo.yoin.ui.component.YoinButtonGroup
-import com.gpo.yoin.ui.detail.AlbumDetailScreen
-import com.gpo.yoin.ui.detail.AlbumDetailUiState
-import com.gpo.yoin.ui.detail.AlbumDetailViewModel
-import com.gpo.yoin.ui.detail.ArtistDetailScreen
-import com.gpo.yoin.ui.detail.ArtistDetailViewModel
-import com.gpo.yoin.ui.detail.PlaylistDetailScreen
-import com.gpo.yoin.ui.detail.PlaylistDetailUiState
-import com.gpo.yoin.ui.detail.PlaylistDetailViewModel
+import com.gpo.yoin.ui.detail.AlbumDetailActivity
+import com.gpo.yoin.ui.detail.ArtistDetailActivity
+import com.gpo.yoin.ui.detail.PlaylistDetailActivity
+import com.gpo.yoin.ui.settings.SettingsActivity
 import com.gpo.yoin.ui.home.HomeScreen
 import com.gpo.yoin.ui.home.HomeViewModel
 import com.gpo.yoin.ui.library.LibraryScreen
@@ -77,20 +74,18 @@ import com.gpo.yoin.ui.memories.MemoryEntityType
 import com.gpo.yoin.ui.memories.MemoryEntry
 import com.gpo.yoin.ui.memories.MemoriesScreen
 import com.gpo.yoin.ui.memories.MemoriesViewModel
-import com.gpo.yoin.ui.navigation.back.BackSurfaceKind
 import com.gpo.yoin.ui.navigation.back.ShellBackOwner
-import com.gpo.yoin.ui.navigation.back.YoinBackSurface
 import com.gpo.yoin.ui.navigation.back.resolveShellBackOwner
 import com.gpo.yoin.player.PlaybackEvent
 import com.gpo.yoin.player.SpotifyConnectFailure
 import com.gpo.yoin.ui.nowplaying.NowPlayingStageMode
 import com.gpo.yoin.ui.nowplaying.NowPlayingScreen
 import com.gpo.yoin.ui.nowplaying.NowPlayingViewModel
-import com.gpo.yoin.ui.settings.SettingsScreen
-import com.gpo.yoin.ui.settings.SettingsViewModel
+import com.gpo.yoin.ui.nowplaying.rememberNowPlayingStageProgress
 import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinMotionRole
 import com.gpo.yoin.ui.theme.YoinTheme
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
@@ -102,7 +97,8 @@ fun YoinNavHost(
 ) {
     SharedTransitionLayout(modifier = modifier) {
         val sharedTransitionScope = this
-        val app = LocalContext.current.applicationContext as YoinApplication
+        val context = LocalContext.current
+        val app = context.applicationContext as YoinApplication
         val nowPlayingViewModel: NowPlayingViewModel = viewModel(
             factory = NowPlayingViewModel.Factory(app.container),
         )
@@ -130,16 +126,27 @@ fun YoinNavHost(
             }
         }
 
-        // Single top-level route (Shell). Detail pushes are appended onto this
-        // one stack. `rememberNavBackStack` persists across config changes and
-        // process death because every YoinRoute subtype is @Serializable + NavKey.
+        // Only the Shell route lives in this NavDisplay now — detail pages are
+        // separate Activities. The stack therefore stays at a single entry, so
+        // onBack is effectively inert; the size>1 guard just keeps NavDisplay's
+        // required non-empty invariant safe.
         val backStack = rememberNavBackStack(YoinRoute.Shell)
+        val popPage: () -> Boolean = remember(backStack) {
+            {
+                if (backStack.size > 1) {
+                    backStack.removeLastOrNull()
+                    true
+                } else {
+                    false
+                }
+            }
+        }
 
         Box(modifier = Modifier.fillMaxSize()) {
             NavDisplay(
                 backStack = backStack,
                 modifier = Modifier.fillMaxSize(),
-                onBack = { backStack.removeLastOrNull() },
+                onBack = { popPage() },
                 // Required when NavDisplay runs inside a SharedTransitionLayout —
                 // otherwise entries participating in shared bounds jump on scene
                 // transitions. Docs: "Animate between destinations" §
@@ -152,6 +159,9 @@ fun YoinNavHost(
                     rememberSaveableStateHolderNavEntryDecorator(),
                     rememberViewModelStoreNavEntryDecorator(),
                 ),
+                // Only the Shell route lives in this NavDisplay now (detail pages
+                // are separate Activities). Shell never pushes/pops within the
+                // NavDisplay, so these specs are inert — keep them as no-ops.
                 transitionSpec = {
                     YoinMotion.navHostStableEnter togetherWith YoinMotion.navHostStableExit
                 },
@@ -180,282 +190,25 @@ fun YoinNavHost(
                             libraryViewModel = libraryViewModel,
                             memoriesViewModel = memoriesViewModel,
                             nowPlayingViewModel = nowPlayingViewModel,
+                            // Detail pages are now separate Activities — launch
+                            // them so back navigation plays the device-native
+                            // cross-Activity predictive back. sharedTransitionKey
+                            // is no longer used (no cross-page shared element).
                             onNavigateToSettings = { focusSection ->
-                                backStack.add(YoinRoute.Settings(focusSection = focusSection))
+                                context.startActivity(SettingsActivity.intent(context, focusSection))
                             },
-                            onNavigateToAlbum = { albumId, sharedTransitionKey ->
-                                backStack.add(
-                                    YoinRoute.AlbumDetail(
-                                        albumId = albumId,
-                                        sharedTransitionKey = sharedTransitionKey,
-                                    ),
-                                )
+                            onNavigateToAlbum = { albumId, _ ->
+                                context.startActivity(AlbumDetailActivity.intent(context, albumId))
                             },
-                            onNavigateToArtist = { artistId, sharedTransitionKey ->
-                                backStack.add(
-                                    YoinRoute.ArtistDetail(
-                                        artistId = artistId,
-                                        sharedTransitionKey = sharedTransitionKey,
-                                    ),
-                                )
+                            onNavigateToArtist = { artistId, _ ->
+                                context.startActivity(ArtistDetailActivity.intent(context, artistId))
                             },
-                            onNavigateToPlaylist = { playlistId, sharedTransitionKey ->
-                                backStack.add(
-                                    YoinRoute.PlaylistDetail(
-                                        playlistId = playlistId,
-                                        sharedTransitionKey = sharedTransitionKey,
-                                    ),
-                                )
+                            onNavigateToPlaylist = { playlistId, _ ->
+                                context.startActivity(PlaylistDetailActivity.intent(context, playlistId))
                             },
                             sharedTransitionScope = sharedTransitionScope,
                             shellAnimatedVisibilityScope = shellAnimatedVisibilityScope,
                         )
-                    }
-
-                    entry<YoinRoute.AlbumDetail>(
-                        metadata = metadata {
-                            put(NavDisplay.TransitionKey) {
-                                YoinMotion.simplePushEnter togetherWith YoinMotion.simplePushExit
-                            }
-                            put(NavDisplay.PopTransitionKey) {
-                                YoinMotion.simplePushPopEnter togetherWith YoinMotion.simplePushPopExit
-                            }
-                            put(NavDisplay.PredictivePopTransitionKey) {
-                                YoinMotion.simplePushPopEnter togetherWith YoinMotion.simplePushPopExit
-                            }
-                        },
-                    ) { route ->
-                        val navAnimatedVisibilityScope = LocalNavAnimatedContentScope.current
-                        val viewModel: AlbumDetailViewModel = viewModel(
-                            factory = AlbumDetailViewModel.Factory(route.albumId, app.container),
-                        )
-                        val uiState by viewModel.uiState.collectAsState()
-                        val notedSongIds by viewModel.notedSongIds.collectAsState()
-                        val expandedSongId by viewModel.expandedSongId.collectAsState()
-                        val expandedNoteBundle by viewModel.expandedNoteBundle.collectAsState()
-                        YoinBackSurface(
-                            kind = BackSurfaceKind.PushPage,
-                            onCommitBack = { backStack.removeLastOrNull() },
-                        ) { predictiveBackModifier, _, requestBack ->
-                            AlbumDetailScreen(
-                                uiState = uiState,
-                                sharedTransitionKey = route.sharedTransitionKey,
-                                onBackClick = requestBack,
-                                onSongClick = { songId ->
-                                    val songs = viewModel.getAlbumSongs()
-                                    val index = songs.indexOfFirst { it.id.toString() == songId }
-                                        .coerceAtLeast(0)
-                                    val activityContext = (uiState as? AlbumDetailUiState.Content)?.let { content ->
-                                        ActivityContext.Album(
-                                            albumId = content.albumId,
-                                            albumName = content.albumName,
-                                            artistName = content.artistName,
-                                            artistId = content.artistId,
-                                            coverArtId = content.coverArtId,
-                                        )
-                                    } ?: ActivityContext.None
-                                    app.container.profileManager.activeSource.value?.let { source ->
-                                        app.container.playbackManager.play(
-                                            tracks = songs,
-                                            startIndex = index,
-                                            source = source,
-                                            activityContext = activityContext,
-                                        )
-                                    }
-                                },
-                                onToggleStar = viewModel::toggleStar,
-                                notedSongIds = notedSongIds,
-                                expandedSongId = expandedSongId,
-                                expandedNoteBundle = expandedNoteBundle,
-                                onToggleExpandedSong = viewModel::toggleExpandedSong,
-                                onRatingCommit = viewModel::setUserRating,
-                                onReviewDraftChange = viewModel::onReviewDraftChange,
-                                onSaveReview = viewModel::saveUserReview,
-                                onRetry = viewModel::retry,
-                                sharedTransitionScope = sharedTransitionScope,
-                                animatedVisibilityScope = navAnimatedVisibilityScope,
-                                modifier = predictiveBackModifier.fillMaxSize(),
-                            )
-                        }
-                    }
-
-                    entry<YoinRoute.ArtistDetail>(
-                        metadata = metadata {
-                            put(NavDisplay.TransitionKey) {
-                                YoinMotion.simplePushEnter togetherWith YoinMotion.simplePushExit
-                            }
-                            put(NavDisplay.PopTransitionKey) {
-                                YoinMotion.simplePushPopEnter togetherWith YoinMotion.simplePushPopExit
-                            }
-                            put(NavDisplay.PredictivePopTransitionKey) {
-                                YoinMotion.simplePushPopEnter togetherWith YoinMotion.simplePushPopExit
-                            }
-                        },
-                    ) { route ->
-                        val navAnimatedVisibilityScope = LocalNavAnimatedContentScope.current
-                        val viewModel: ArtistDetailViewModel = viewModel(
-                            factory = ArtistDetailViewModel.Factory(route.artistId, app.container),
-                        )
-                        val uiState by viewModel.uiState.collectAsState()
-                        YoinBackSurface(
-                            kind = BackSurfaceKind.PushPage,
-                            onCommitBack = { backStack.removeLastOrNull() },
-                        ) { predictiveBackModifier, _, requestBack ->
-                            ArtistDetailScreen(
-                                uiState = uiState,
-                                onBackClick = requestBack,
-                                onAlbumClick = { albumId ->
-                                    backStack.add(YoinRoute.AlbumDetail(albumId))
-                                },
-                                onRetry = viewModel::retry,
-                                sharedTransitionKey = route.sharedTransitionKey,
-                                sharedTransitionScope = sharedTransitionScope,
-                                animatedVisibilityScope = navAnimatedVisibilityScope,
-                                modifier = predictiveBackModifier.fillMaxSize(),
-                            )
-                        }
-                    }
-
-                    entry<YoinRoute.PlaylistDetail>(
-                        metadata = metadata {
-                            put(NavDisplay.TransitionKey) {
-                                YoinMotion.simplePushEnter togetherWith YoinMotion.simplePushExit
-                            }
-                            put(NavDisplay.PopTransitionKey) {
-                                YoinMotion.simplePushPopEnter togetherWith YoinMotion.simplePushPopExit
-                            }
-                            put(NavDisplay.PredictivePopTransitionKey) {
-                                YoinMotion.simplePushPopEnter togetherWith YoinMotion.simplePushPopExit
-                            }
-                        },
-                    ) { route ->
-                        val navAnimatedVisibilityScope = LocalNavAnimatedContentScope.current
-                        val viewModel: PlaylistDetailViewModel = viewModel(
-                            factory = PlaylistDetailViewModel.Factory(route.playlistId, app.container),
-                        )
-                        val uiState by viewModel.uiState.collectAsState()
-                        val notedSongIds by viewModel.notedSongIds.collectAsState()
-                        val detailSnackbarHostState = remember { SnackbarHostState() }
-                        // Surface rename/delete/remove outcomes in the shell snackbar.
-                        LaunchedEffect(viewModel) {
-                            viewModel.messages.collect { message ->
-                                detailSnackbarHostState.showSnackbar(
-                                    message = message,
-                                    duration = SnackbarDuration.Short,
-                                )
-                            }
-                        }
-                        // Leave the detail route after a successful delete so the
-                        // user lands back on Library / whatever pushed us here.
-                        LaunchedEffect(viewModel) {
-                            viewModel.deleted.collect {
-                                backStack.removeLastOrNull()
-                            }
-                        }
-                        YoinBackSurface(
-                            kind = BackSurfaceKind.PushPage,
-                            onCommitBack = { backStack.removeLastOrNull() },
-                        ) { predictiveBackModifier, _, requestBack ->
-                            Box(modifier = predictiveBackModifier.fillMaxSize()) {
-                                PlaylistDetailScreen(
-                                    uiState = uiState,
-                                    onBackClick = requestBack,
-                                    onPlayAllClick = {
-                                        val songs = viewModel.getPlaylistSongs()
-                                        if (songs.isNotEmpty()) {
-                                            val activityContext = (uiState as? PlaylistDetailUiState.Content)?.let { content ->
-                                                ActivityContext.Playlist(
-                                                    playlistId = route.playlistId,
-                                                    playlistName = content.playlistName,
-                                                    owner = content.owner.takeIf { it.isNotBlank() },
-                                                    coverArtId = songs.firstNotNullOfOrNull(::trackCoverArtId),
-                                                )
-                                            } ?: ActivityContext.None
-                                            app.container.profileManager.activeSource.value?.let { source ->
-                                                app.container.playbackManager.play(
-                                                    tracks = songs,
-                                                    startIndex = 0,
-                                                    source = source,
-                                                    activityContext = activityContext,
-                                                )
-                                            }
-                                        }
-                                    },
-                                    onSongClick = { songId ->
-                                        val songs = viewModel.getPlaylistSongs()
-                                        val index = songs.indexOfFirst { it.id.toString() == songId }
-                                            .coerceAtLeast(0)
-                                        val activityContext = (uiState as? PlaylistDetailUiState.Content)?.let { content ->
-                                            ActivityContext.Playlist(
-                                                playlistId = route.playlistId,
-                                                playlistName = content.playlistName,
-                                                owner = content.owner.takeIf { it.isNotBlank() },
-                                                coverArtId = songs.firstNotNullOfOrNull(::trackCoverArtId),
-                                            )
-                                        } ?: ActivityContext.None
-                                        app.container.profileManager.activeSource.value?.let { source ->
-                                            app.container.playbackManager.play(
-                                                tracks = songs,
-                                                startIndex = index,
-                                                source = source,
-                                                activityContext = activityContext,
-                                            )
-                                        }
-                                    },
-                                    onRetry = viewModel::retry,
-                                    onAddSongToPlaylist = { songId ->
-                                        nowPlayingViewModel.requestAddTracksToPlaylist(
-                                            listOf(MediaId.parse(songId)),
-                                        )
-                                    },
-                                    onRename = viewModel::rename,
-                                    onDelete = viewModel::delete,
-                                    onRemoveTrack = viewModel::removeTrack,
-                                    notedSongIds = notedSongIds,
-                                    sharedTransitionKey = route.sharedTransitionKey,
-                                    sharedTransitionScope = sharedTransitionScope,
-                                    animatedVisibilityScope = navAnimatedVisibilityScope,
-                                    modifier = Modifier.fillMaxSize(),
-                                )
-                                SnackbarHost(
-                                    hostState = detailSnackbarHostState,
-                                    modifier = Modifier
-                                        .align(Alignment.BottomCenter)
-                                        .padding(bottom = 24.dp, start = 12.dp, end = 12.dp),
-                                ) { data ->
-                                    Snackbar(snackbarData = data)
-                                }
-                            }
-                        }
-                    }
-
-                    entry<YoinRoute.Settings>(
-                        metadata = metadata {
-                            put(NavDisplay.TransitionKey) {
-                                YoinMotion.simplePushEnter togetherWith YoinMotion.simplePushExit
-                            }
-                            put(NavDisplay.PopTransitionKey) {
-                                YoinMotion.simplePushPopEnter togetherWith YoinMotion.simplePushPopExit
-                            }
-                            put(NavDisplay.PredictivePopTransitionKey) {
-                                YoinMotion.simplePushPopEnter togetherWith YoinMotion.simplePushPopExit
-                            }
-                        },
-                    ) { route ->
-                        val viewModel: SettingsViewModel = viewModel(
-                            factory = SettingsViewModel.Factory(app.container),
-                        )
-                        YoinBackSurface(
-                            kind = BackSurfaceKind.PushPage,
-                            onCommitBack = { backStack.removeLastOrNull() },
-                        ) { predictiveBackModifier, _, requestBack ->
-                            SettingsScreen(
-                                viewModel = viewModel,
-                                onBackClick = requestBack,
-                                focusSection = route.focusSection,
-                                modifier = predictiveBackModifier.fillMaxSize(),
-                            )
-                        }
                     }
                 },
             )
@@ -532,10 +285,15 @@ private fun YoinShell(
     )
     val memoriesMounted = homeSurface == HomeSurface.Memories || memoriesReveal.isVisible
     val shellScope = rememberCoroutineScope()
-    var dismissDragPx by rememberSaveable { mutableStateOf(0f) }
-    var predictiveBackProgress by rememberSaveable { mutableStateOf(0f) }
-    var stageBackProgress by rememberSaveable { mutableStateOf(0f) }
+    var dismissDragPx by remember { mutableStateOf(0f) }
+    var predictiveBackProgress by remember { mutableStateOf(0f) }
+    val stageProgress = rememberNowPlayingStageProgress(initialMode = stageMode)
     val dragResetSpec = YoinMotion.defaultSpatialSpec<Float>(role = YoinMotionRole.Standard)
+    // Fast, near-critical spring owns the whole stage reshape (expand, collapse,
+    // and gesture-release settle). Non-bouncy so the open never overshoots past
+    // 1.0 (which would re-trigger the cover-flight flash); fast so a released
+    // back gesture reads as a continuation rather than a slow snap.
+    val stageAnimationSpec = YoinMotion.stageSettleSpring<Float>()
     val overlayOffsetPx by animateFloatAsState(
         targetValue = predictiveBackProgress * 1200f,
         animationSpec = YoinMotion.defaultSpatialSpec(role = YoinMotionRole.Standard),
@@ -666,6 +424,31 @@ private fun YoinShell(
         }
     }
 
+    // isGestureDriving is a KEY, not just an early-return guard: when a gesture
+    // ends (endGesture flips the flag) this effect re-runs and reconciles the
+    // shared progress to the CURRENT stageMode. That re-convergence is what
+    // (a) restores a cancelled back gesture — stageMode is still Expanded, so
+    // detail springs back to 1 (velocity-continuous via the Animatable) without
+    // needing a settle inside the already-cancelled handler coroutine — and
+    // (b) recovers any stageMode change that landed mid-gesture (e.g. a tap to
+    // re-expand during the post-commit settle), which a one-shot guard would
+    // silently drop, wedging stageMode and stageProgress apart.
+    LaunchedEffect(stageMode, stageProgress, stageProgress.isGestureDriving) {
+        if (stageProgress.isGestureDriving) return@LaunchedEffect
+        launch {
+            stageProgress.animateDetailTo(
+                target = if (stageMode == NowPlayingStageMode.Expanded) 1f else 0f,
+                spec = stageAnimationSpec,
+            )
+        }
+        launch {
+            stageProgress.animateImmersiveTo(
+                target = if (stageMode == NowPlayingStageMode.Immersive) 1f else 0f,
+                spec = stageAnimationSpec,
+            )
+        }
+    }
+
     val closeNowPlaying = {
         dismissDragPx = 0f
         predictiveBackProgress = 0f
@@ -689,16 +472,28 @@ private fun YoinShell(
 
     // Predictive-back drive for stage collapse. Expanded reshapes back toward
     // Compact before Compact/Immersive can dismiss the overlay.
+    // Full-range eased scrub: the finger drives the ENTIRE reshape (detail
+    // 1 → 0), not a capped preview, so the whole collapse is visible and
+    // tracks the gesture. progress is eased (backGestureEasing) and snapped
+    // directly — the system already spring-smooths it, so no chase coroutine
+    // is needed (the old cap + chase made the gesture show little, then the
+    // release snapped the remainder, which read as an animation-less flash).
+    // On release the reconciling LaunchedEffect settles the small remainder:
+    // commit → detail 0 (Compact), cancel → detail 1 (still Expanded).
     PredictiveBackHandler(
         enabled = showNowPlaying && stageMode == NowPlayingStageMode.Expanded,
     ) { progress ->
+        stageProgress.beginGesture()
         try {
-            progress.collectLatest { event ->
-                stageBackProgress = event.progress
+            progress.collect { event ->
+                val eased = YoinMotion.backGestureEasing.transform(event.progress)
+                stageProgress.snapDetail(1f - eased)
             }
             nowPlayingViewModel.stepBackStage()
+        } catch (e: CancellationException) {
+            throw e
         } finally {
-            stageBackProgress = 0f
+            stageProgress.endGesture()
         }
     }
 
@@ -973,7 +768,7 @@ private fun YoinShell(
                     onAskBarCollapseRequested = nowPlayingViewModel::onAskBarCollapseRequested,
                     onDismissAskError = nowPlayingViewModel::dismissAskError,
                     stageMode = stageMode,
-                    stageBackProgress = { stageBackProgress },
+                    stageProgress = stageProgress,
                     detailPage = detailPage,
                     onStageModeChange = nowPlayingViewModel::setStageMode,
                     onStageBack = nowPlayingViewModel::stepBackStage,
@@ -1002,12 +797,21 @@ private fun YoinShell(
         }
 
         // ── Bottom navigation ────────────────────────────────────────────
+        // Slide the bottom group fully off-screen, BELOW the nav bar: the group
+        // carries the nav-bar inset as internal bottom padding, so a plain
+        // slide of `it` (its own height) leaves it starting part-way up the
+        // screen rather than off the edge. Adding the inset to the offset makes
+        // it enter from truly off-screen while keeping its resting position and
+        // edge-to-edge transparency intact.
+        val navBarBottomPx = with(LocalDensity.current) {
+            WindowInsets.navigationBars.getBottom(this)
+        }
         AnimatedVisibility(
             visible = !showNowPlaying,
             enter = YoinMotion.fadeIn(role = YoinMotionRole.Standard) +
-                YoinMotion.slideInVertically(role = YoinMotionRole.Standard) { it },
+                YoinMotion.slideInVertically(role = YoinMotionRole.Standard) { it + navBarBottomPx },
             exit = YoinMotion.fadeOut(role = YoinMotionRole.Standard) +
-                YoinMotion.slideOutVertically(role = YoinMotionRole.Standard) { it },
+                YoinMotion.slideOutVertically(role = YoinMotionRole.Standard) { it + navBarBottomPx },
         ) {
             val bgAvScope = this
 
@@ -1136,7 +940,7 @@ private fun MemoryEntry.toPlaybackActivityContext(): ActivityContext {
  * id only when the track has no cover ref *and* the provider is Subsonic
  * (Spotify album ids aren't URL-shaped and would poison the storage key).
  */
-private fun trackCoverArtId(track: Track): String? =
+internal fun trackCoverArtId(track: Track): String? =
     CoverRef.toStorageKey(track.coverArt)
         ?: track.albumId?.rawId?.takeIf { track.id.provider == MediaId.PROVIDER_SUBSONIC }
 

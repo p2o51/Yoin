@@ -20,6 +20,8 @@ import com.gpo.yoin.data.source.MusicPlayback
 import com.gpo.yoin.data.source.MusicSource
 import com.gpo.yoin.data.source.MusicWriteActions
 import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import okhttp3.OkHttpClient
 
 class SpotifyMusicSource(
@@ -36,6 +38,8 @@ class SpotifyMusicSource(
     onCredentialsRevoked: suspend () -> Unit = {},
     httpClient: OkHttpClient = defaultHttpClient(),
     authService: SpotifyAuthService = SpotifyAuthService(httpClient),
+    val profileId: String? = null,
+    rateLimitGate: SpotifyRateLimitGate? = null,
 ) : MusicSource {
 
     private val apiClient = SpotifyApiClient(
@@ -45,6 +49,8 @@ class SpotifyMusicSource(
         clientIdProvider = clientIdProvider,
         onCredentialsRefreshed = onCredentialsPersisted,
         onCredentialsRevoked = onCredentialsRevoked,
+        rateLimitGate = rateLimitGate,
+        rateLimitProfileId = profileId,
     )
 
     override val id: String = MediaId.PROVIDER_SPOTIFY
@@ -79,6 +85,7 @@ class SpotifyMusicSource(
                 else -> albums
             }.mapNotNull { savedAlbum ->
                 savedAlbum.album?.toSimplifiedAlbum()?.toAlbum(savedAlbumIds = savedAlbumIds)
+                    ?.copy(addedAt = savedAlbum.addedAt)
             }
             return mapped.drop(offset.coerceAtLeast(0)).take(size.coerceAtLeast(0))
         }
@@ -152,10 +159,14 @@ class SpotifyMusicSource(
             val savedAlbumIds = savedAlbumIds()
             val followedArtistIds = followedArtistIds()
             val tracks = savedTracks()
-                .mapNotNull { savedTrack -> savedTrack.track?.toTrack(savedTrackIds = savedTrackIds) }
+                .mapNotNull { savedTrack ->
+                    savedTrack.track?.toTrack(savedTrackIds = savedTrackIds)
+                        ?.copy(addedAt = savedTrack.addedAt)
+                }
             val albums = savedAlbums()
                 .mapNotNull { savedAlbum ->
                     savedAlbum.album?.toSimplifiedAlbum()?.toAlbum(savedAlbumIds = savedAlbumIds)
+                        ?.copy(addedAt = savedAlbum.addedAt)
                 }
             val artists = followedArtists()
                 .map { artist -> artist.toArtist(isStarred = artist.id in followedArtistIds) }
@@ -166,6 +177,7 @@ class SpotifyMusicSource(
             savedTracks()
                 .mapNotNull { savedTrack -> savedTrack.track?.let { track ->
                     track.toTrack(savedTrackIds = setOf(track.id).filterNotNull().toSet())
+                        .copy(addedAt = savedTrack.addedAt)
                 } }
                 .shuffled()
                 .take(size.coerceAtLeast(0))
@@ -346,6 +358,33 @@ class SpotifyMusicSource(
 
     private suspend fun followedArtists(): List<SpotifyArtistObject> =
         followedArtistsCache ?: apiClient.getFollowedArtists().also { followedArtistsCache = it }
+
+    /** Drops in-memory library caches so the next read pulls fresh network data. */
+    fun invalidateLibraryCaches() {
+        savedTracksCache = null
+        savedAlbumsCache = null
+        playlistsCache = null
+        followedArtistsCache = null
+        playlistTrackOffsetsById.clear()
+    }
+
+    /**
+     * Populate the four independent library caches CONCURRENTLY. Each fetch
+     * writes a different cache field (no shared state), so parallelising is
+     * safe — and it turns a cold full sync from four serial round-trips into
+     * roughly one. Already-warm caches (e.g. from [prime]) return instantly.
+     * Call before the derived [library] reads so they hit warm caches.
+     */
+    suspend fun warmLibraryCaches(): Unit = coroutineScope {
+        val tracks = async { savedTracks() }
+        val albums = async { savedAlbums() }
+        val playlists = async { currentUserPlaylists() }
+        val artists = async { followedArtists() }
+        tracks.await()
+        albums.await()
+        playlists.await()
+        artists.await()
+    }
 
     private suspend fun savedTrackIds(): Set<String> =
         savedTracks().mapNotNullTo(linkedSetOf()) { savedTrack -> savedTrack.track?.id }

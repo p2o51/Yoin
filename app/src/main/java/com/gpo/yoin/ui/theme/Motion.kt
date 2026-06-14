@@ -2,6 +2,7 @@ package com.gpo.yoin.ui.theme
 
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.FiniteAnimationSpec
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.keyframes
@@ -23,7 +24,6 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.TransformOrigin
 import com.gpo.yoin.ui.navigation.back.BackMotionTokens
-import kotlin.math.roundToInt
 
 enum class YoinMotionRole {
     Expressive,
@@ -54,10 +54,13 @@ fun ProvideYoinMotionRole(
  * these helpers instead of creating raw animation specs inline.
  */
 object YoinMotion {
-    private val PredictiveBackTransformOrigin = TransformOrigin(0f, 0.5f)
-    private const val BackFadeDurationMillis = 184
-    private const val BackFadeHoldMillis = 36
     private const val PredictiveBackSpringSpeedMultiplier = 1.3f
+    // Fast, near-critical spring that owns the Now Playing stage reshape
+    // (expand/collapse). Snappy with no overshoot — no overshoot keeps the
+    // cover handoff from re-crossing its visibility threshold, and the speed
+    // makes the post-gesture release read as a continuation, not a slow snap.
+    private const val StageSettleDamping = 0.85f
+    private const val StageSettleStiffness = 700f
 
     private val expressiveMotionScheme = MotionScheme.expressive()
     private val standardMotionScheme = MotionScheme.standard()
@@ -67,10 +70,13 @@ object YoinMotion {
         stiffness = Spring.StiffnessMediumLow * PredictiveBackSpringSpeedMultiplier,
     )
 
-    private fun <T> simplePushSpring() = spring<T>(
-        dampingRatio = Spring.DampingRatioLowBouncy,
-        stiffness = Spring.StiffnessMediumLow,
-    )
+    /**
+     * The M3 back-gesture curve (AOSP BackGestureInterpolator). System back
+     * progress is roughly linear with finger travel; mapping it through this
+     * easing makes motion eager early and saturating late. Google guidance:
+     * "do not use linear progress directly".
+     */
+    val backGestureEasing = CubicBezierEasing(0.1f, 0.1f, 0f, 1f)
 
     private fun resolveScheme(
         role: YoinMotionRole,
@@ -218,22 +224,16 @@ object YoinMotion {
 
     fun <T> predictiveBackSettleSpring(): FiniteAnimationSpec<T> = predictiveBackSpring()
 
-    private val delayedBackFadeIn = composeFadeIn(
-        animationSpec = keyframes {
-            durationMillis = BackFadeDurationMillis
-            0f at 0
-            0f at BackFadeHoldMillis
-            1f at BackFadeDurationMillis
-        },
-    )
-
-    private val delayedBackFadeOut = composeFadeOut(
-        animationSpec = keyframes {
-            durationMillis = BackFadeDurationMillis
-            1f at 0
-            1f at BackFadeHoldMillis
-            0f at BackFadeDurationMillis
-        },
+    /**
+     * Single spring that drives the Now Playing stage reshape (Compact↔Expanded
+     * detail fraction) for both tap-driven changes and gesture-release settles.
+     * Fast and near-critical: no overshoot (so the cover-flight handoff is
+     * stable) and quick enough that a released back gesture continues smoothly
+     * instead of snapping.
+     */
+    fun <T> stageSettleSpring(): FiniteAnimationSpec<T> = spring(
+        dampingRatio = StageSettleDamping,
+        stiffness = StageSettleStiffness,
     )
 
     fun fadeIn(
@@ -362,71 +362,10 @@ object YoinMotion {
         ),
     )
 
+    // Inert NavDisplay specs — the only remaining route (Shell) never
+    // pushes/pops within the NavDisplay; detail pages are separate Activities
+    // with the device-native cross-Activity back. The hand-rolled simplePush*
+    // imitation was removed with the in-NavDisplay detail entries.
     val navHostStableEnter: EnterTransition = EnterTransition.None
     val navHostStableExit: ExitTransition = ExitTransition.None
-
-    val navEnterForward: EnterTransition =
-        slideInHorizontally(role = YoinMotionRole.Expressive) {
-            (it * 0.14f).roundToInt()
-        } + fadeIn(role = YoinMotionRole.Standard)
-
-    val navExitForward: ExitTransition =
-        scaleOut(
-            role = YoinMotionRole.Standard,
-            speed = YoinMotionSpeed.Fast,
-            targetScale = 0.96f,
-        ) + fadeOut(role = YoinMotionRole.Standard, speed = YoinMotionSpeed.Fast)
-
-    val navEnterBack: EnterTransition =
-        composeScaleIn(
-            animationSpec = predictiveBackSpring(),
-            initialScale = 0.94f,
-            transformOrigin = PredictiveBackTransformOrigin,
-        ) + delayedBackFadeIn
-
-    val navExitBack: ExitTransition =
-        composeScaleOut(
-            animationSpec = predictiveBackSpring(),
-            targetScale = 0.9f,
-            transformOrigin = PredictiveBackTransformOrigin,
-        ) + delayedBackFadeOut
-
-    val albumDetailSharedEnter: EnterTransition =
-        fadeIn(role = YoinMotionRole.Standard)
-
-    val albumDetailSharedPopExit: ExitTransition =
-        delayedBackFadeOut
-
-    val navEnterOverlay: EnterTransition =
-        slideInVertically(role = YoinMotionRole.Expressive) { it } +
-            fadeIn(role = YoinMotionRole.Standard)
-
-    val navExitOverlay: ExitTransition =
-        slideOutVertically(
-            role = YoinMotionRole.Standard,
-            speed = YoinMotionSpeed.Fast,
-        ) { it } + fadeOut(role = YoinMotionRole.Standard, speed = YoinMotionSpeed.Fast)
-
-    val simplePushEnter: EnterTransition =
-        composeScaleIn(
-            animationSpec = simplePushSpring(),
-            initialScale = BackMotionTokens.PushPageScaleTarget,
-            transformOrigin = PredictiveBackTransformOrigin,
-        ) + composeFadeIn(animationSpec = simplePushSpring())
-
-    val simplePushExit: ExitTransition = ExitTransition.None
-
-    // Pop enter: fade in the underlying page so the popped page's scaleOut
-    // stays visible through it. An EnterTransition.None here makes the
-    // target opaque immediately and visually hides the exit animation,
-    // which reads as "no animation on back".
-    val simplePushPopEnter: EnterTransition =
-        composeFadeIn(animationSpec = simplePushSpring())
-
-    val simplePushPopExit: ExitTransition =
-        composeScaleOut(
-            animationSpec = simplePushSpring(),
-            targetScale = BackMotionTokens.PushPageScaleTarget,
-            transformOrigin = PredictiveBackTransformOrigin,
-        ) + composeFadeOut(animationSpec = simplePushSpring())
 }

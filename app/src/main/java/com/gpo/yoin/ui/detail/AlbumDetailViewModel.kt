@@ -152,12 +152,9 @@ class AlbumDetailViewModel(
     }
 
     fun toggleStar(songId: String) {
-        val song = (_uiState.value as? AlbumDetailUiState.Content)
-            ?.songs
-            ?.find { it.id == songId }
-            ?: return
+        val track = albumSongs.find { it.id.toString() == songId } ?: return
         viewModelScope.launch {
-            repository.setFavorite(MediaId.parse(songId), favorite = !song.isStarred)
+            repository.setFavorite(track, favorite = !track.isStarred)
                 .onSuccess {
                     applyFavoriteOverrides(repository.favoriteOverrides.value)
                 }

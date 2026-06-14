@@ -47,8 +47,6 @@ internal data class ExpressiveBackdropColors(
     val isResolvedFromPalette: Boolean = false,
 )
 
-internal const val ExpressiveBackdropArtworkScale = 0.8f
-
 private const val BackdropPaletteCacheSize = 96
 private const val BackdropPaletteRequestSize = 96
 private const val BackdropPaletteColorCount = 12

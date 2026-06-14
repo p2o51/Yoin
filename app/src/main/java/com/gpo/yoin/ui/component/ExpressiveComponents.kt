@@ -34,6 +34,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -47,6 +48,7 @@ import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 import coil3.request.ImageRequest
 import coil3.request.crossfade
+import coil3.size.Size
 import com.gpo.yoin.R
 import com.gpo.yoin.ui.theme.GoogleSansFlex
 import com.gpo.yoin.ui.theme.YoinMotion
@@ -118,6 +120,10 @@ internal fun ExpressiveMediaArtwork(
         width = 1.dp,
         color = MaterialTheme.colorScheme.outline.copy(alpha = 0.14f),
     ),
+    filterQuality: FilterQuality = FilterQuality.Low,
+    // When set, the bitmap resolves at this fixed square size instead of the
+    // live layout size — required when the artwork's size is being animated.
+    requestSizePx: Int? = null,
 ) {
     val artworkModifier = if (interactionSource != null) {
         modifier.elasticPress(interactionSource)
@@ -136,16 +142,22 @@ internal fun ExpressiveMediaArtwork(
         when {
             !LocalInspectionMode.current && model != null -> {
                 val context = LocalContext.current
-                val request = remember(model, context) {
+                val request = remember(model, context, requestSizePx) {
                     ImageRequest.Builder(context)
                         .data(model)
                         .crossfade(220)
+                        .apply {
+                            if (requestSizePx != null) {
+                                size(Size(requestSizePx, requestSizePx))
+                            }
+                        }
                         .build()
                 }
                 AsyncImage(
                     model = request,
                     contentDescription = contentDescription,
                     contentScale = contentScale,
+                    filterQuality = filterQuality,
                     modifier = Modifier.fillMaxSize(),
                     error = painterResource(R.drawable.ic_launcher_foreground),
                 )
