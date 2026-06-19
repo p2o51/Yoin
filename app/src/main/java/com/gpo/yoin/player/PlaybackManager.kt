@@ -57,6 +57,9 @@ class PlaybackManager(
     private var lastRecordedTrackId: MediaId? = null
     private val _currentActivityContext = MutableStateFlow<ActivityContext>(ActivityContext.None)
     val currentActivityContext: StateFlow<ActivityContext> = _currentActivityContext.asStateFlow()
+    // Last context Spotify reported it's playing FROM (album / playlist / …). Used to
+    // label externally-started playback. See [onSpotifyPlayerContext].
+    private var lastSpotifyContext: SpotifyPlaybackContext? = null
     private var lastKnownDurationSecById: Map<MediaId, Int> = emptyMap()
     private var activeBackend: ActiveBackend = ActiveBackend.NONE
     private var pendingSpotifyHandoff: Boolean = false
@@ -82,6 +85,7 @@ class PlaybackManager(
         clientIdProvider = spotifyClientIdProvider,
         onSnapshot = ::publishRemoteState,
         onActionRequired = ::emitSpotifyActionRequired,
+        onContext = ::onSpotifyPlayerContext,
     )
 
     private val _playbackState = MutableStateFlow(PlaybackState())
@@ -505,6 +509,13 @@ class PlaybackManager(
                 repository.currentProviderId() == MediaId.PROVIDER_SPOTIFY
             if (!canAdoptWarmConnect) return
             activeBackend = ActiveBackend.SPOTIFY_REMOTE
+            // This track was started OUTSIDE the app (Spotify itself). Derive the
+            // "playing from" context from Spotify's own PlayerContext (album /
+            // playlist) so we show "Playing from X" instead of a bare label; fall
+            // back to None for unrecognised contexts (artist radio, collection, …).
+            // [onSpotifyPlayerContext] keeps it in sync as the external context changes.
+            _currentActivityContext.value =
+                deriveActivityContext(lastSpotifyContext) ?: ActivityContext.None
         }
         // Re-pin the position anchor on every real snapshot — any seek /
         // pause / resume / track change re-syncs to Spotify's authoritative
@@ -753,6 +764,50 @@ class PlaybackManager(
                 contextUri = contextUri,
                 offsetPosition = offsetPosition,
             )
+        }
+    }
+
+    /**
+     * Spotify reported a new "playing from" context (album / playlist / …). When we're
+     * playing externally-started Spotify content, derive an [ActivityContext] so Now
+     * Playing shows "Playing from X" instead of a bare "Now Playing".
+     *
+     * Skipped while a local play() is handing off to Spotify (pendingSpotifyHandoff):
+     * play() already set a RICH context (with cover/artist) and we keep it; we also
+     * keep it whenever Spotify's context URI matches the current in-app context.
+     */
+    private fun onSpotifyPlayerContext(context: SpotifyPlaybackContext?) {
+        lastSpotifyContext = context
+        if (pendingSpotifyHandoff) return
+        if (context?.uri == activityContextUri(_currentActivityContext.value)) return
+        _currentActivityContext.value = deriveActivityContext(context) ?: ActivityContext.None
+    }
+
+    /** URI of the context an [ActivityContext] represents, to compare against Spotify's. */
+    private fun activityContextUri(context: ActivityContext): String? = when (context) {
+        is ActivityContext.Album -> MediaId.parseOrNull(context.albumId)
+            ?.takeIf { it.provider == MediaId.PROVIDER_SPOTIFY }
+            ?.let { "spotify:album:${it.rawId}" }
+        is ActivityContext.Playlist -> MediaId.parseOrNull(context.playlistId)
+            ?.takeIf { it.provider == MediaId.PROVIDER_SPOTIFY }
+            ?.let { "spotify:playlist:${it.rawId}" }
+        else -> null
+    }
+
+    /** Map a Spotify "playing from" context to an [ActivityContext]; null if unrecognised. */
+    private fun deriveActivityContext(context: SpotifyPlaybackContext?): ActivityContext? {
+        val uri = context?.uri ?: return null
+        val title = (context.title?.takeIf { it.isNotBlank() }).orEmpty()
+        return when {
+            uri.startsWith("spotify:album:") ->
+                uri.removePrefix("spotify:album:").takeIf { it.isNotBlank() }?.let {
+                    ActivityContext.Album(albumId = MediaId.spotify(it).toString(), albumName = title)
+                }
+            uri.startsWith("spotify:playlist:") ->
+                uri.removePrefix("spotify:playlist:").takeIf { it.isNotBlank() }?.let {
+                    ActivityContext.Playlist(playlistId = MediaId.spotify(it).toString(), playlistName = title)
+                }
+            else -> null
         }
     }
 

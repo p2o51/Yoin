@@ -23,6 +23,7 @@ import com.spotify.protocol.client.CallResult
 import com.spotify.protocol.client.PendingResult
 import com.spotify.protocol.client.Subscription
 import com.spotify.protocol.types.Empty
+import com.spotify.protocol.types.PlayerContext
 import com.spotify.protocol.types.PlayerState
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -49,6 +50,13 @@ internal data class SpotifyRemoteSnapshot(
     val connectionErrorMessage: String? = null,
     val connectionFailure: SpotifyConnectFailure? = null,
     val observedPlayerState: Boolean = false,
+)
+
+/** What Spotify is currently playing FROM (album / playlist / …), used to show a
+ *  "Playing from X" label when we adopt externally-started playback. */
+internal data class SpotifyPlaybackContext(
+    val uri: String?,
+    val title: String?,
 )
 
 /**
@@ -86,6 +94,7 @@ internal class SpotifyAppRemotePlayer(
     private val clientIdProvider: () -> String,
     private val onSnapshot: (SpotifyRemoteSnapshot) -> Unit,
     private val onActionRequired: (SpotifyConnectFailure, String) -> Unit = { _, _ -> },
+    private val onContext: (SpotifyPlaybackContext?) -> Unit = {},
 ) {
     private val tag = "SpotifyAppRemotePlayer"
 
@@ -94,6 +103,7 @@ internal class SpotifyAppRemotePlayer(
     private var hostContext: Context? = null
     private var remote: SpotifyAppRemote? = null
     private var playerStateSubscription: Subscription<PlayerState>? = null
+    private var playerContextSubscription: Subscription<PlayerContext>? = null
     private var connectJob: Job? = null
     private var wantsConnection: Boolean = false
     private var mirroredQueue: List<Track> = emptyList()
@@ -426,6 +436,7 @@ internal class SpotifyAppRemotePlayer(
                 coldStartAuthRetryAvailable = true
                 transportRetryAvailable = true
                 subscribeToPlayerState(connected)
+                subscribeToPlayerContext(connected)
                 // Connect succeeded, but we do NOT move to Ready yet — we
                 // wait for the first real PlayerState via the subscription.
                 // connectionPhase stays `Connecting`.
@@ -525,10 +536,36 @@ internal class SpotifyAppRemotePlayer(
         }
     }
 
+    // Subscribe to "what's playing FROM" (album / playlist / …). Independent of the
+    // PlayerState subscription; lets us label externally-started playback as
+    // "Playing from X" instead of a bare "Now Playing".
+    private fun subscribeToPlayerContext(connected: SpotifyAppRemote) {
+        playerContextSubscription?.cancel()
+        playerContextSubscription = connected.playerApi.subscribeToPlayerContext()
+            .setEventCallback { ctx ->
+                scope.launch {
+                    onContext(SpotifyPlaybackContext(uri = ctx.uri, title = ctx.title))
+                }
+            }
+            .setLifecycleCallback(
+                object : Subscription.LifecycleCallback {
+                    override fun onStart() = Unit
+                    override fun onStop() = Unit
+                },
+            ) as Subscription<PlayerContext>
+        playerContextSubscription?.setErrorCallback { throwable ->
+            scope.launch {
+                Log.w(tag, "playerContext subscription error", throwable)
+            }
+        }
+    }
+
     private fun disconnectRemote(preserveSnapshot: Boolean) {
         Log.d(tag, "disconnectRemote(preserveSnapshot=$preserveSnapshot)")
         playerStateSubscription?.cancel()
         playerStateSubscription = null
+        playerContextSubscription?.cancel()
+        playerContextSubscription = null
         remote?.let(SpotifyAppRemote::disconnect)
         remote = null
         if (preserveSnapshot) {
