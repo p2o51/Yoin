@@ -173,6 +173,7 @@ dependencies {
 
     // Core AndroidX
     implementation(libs.core.ktx)
+    implementation(libs.androidx.core.splashscreen)
     implementation(libs.androidx.browser)
 
     // Testing

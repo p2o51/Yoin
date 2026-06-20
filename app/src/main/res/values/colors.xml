@@ -8,4 +8,12 @@
       Dark variant lives in values-night/colors.xml.
     -->
     <color name="yoin_window_background">#FFFFFBFE</color>
+
+    <!--
+      Cold-start splash background (Theme.Yoin.Splash, API 31+). A near-black
+      blue, matching the dark end of the Compose splash's primary-tinted radial
+      so the system splash → bloom handoff is seamless. Always dark, so it is
+      duplicated (not overridden) in values-night.
+    -->
+    <color name="yoin_splash_background">#FF06070F</color>
 </resources>

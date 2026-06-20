@@ -22,4 +22,20 @@
         <item name="android:windowBackground">@color/yoin_window_background</item>
         <item name="android:colorBackground">@color/yoin_window_background</item>
     </style>
+
+    <!--
+      Launcher Activity theme = the cold-start SplashScreen (androidx
+      core-splashscreen). The three-arrow bloom plays as the animated icon while
+      the app loads (Gmail-style), then postSplashScreenTheme swaps to Theme.Yoin
+      for the running app. Requires installSplashScreen() in MainActivity.
+
+      The animated icon is brand-coloured (fixed) since the system splash can't
+      read Material You — wallpaper adaptation lives in the in-app UI instead.
+    -->
+    <style name="Theme.Yoin.Splash" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">@color/yoin_splash_background</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/splash_yoin_bloom</item>
+        <item name="windowSplashScreenAnimationDuration">950</item>
+        <item name="postSplashScreenTheme">@style/Theme.Yoin</item>
+    </style>
 </resources>
