@@ -1,6 +1,7 @@
 package com.gpo.yoin.ui.component
 
 import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.material3.DropdownMenuGroup
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.DropdownMenuPopup
@@ -9,6 +10,8 @@ import androidx.compose.material3.MenuDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
 
@@ -42,6 +45,9 @@ fun YoinDropdownMenu(
     onDismissRequest: () -> Unit,
     modifier: Modifier = Modifier,
     offset: DpOffset = DpOffset(0.dp, 0.dp),
+    // Drop shadow under the menu container. Defaults to the Expressive token so
+    // existing menus are unchanged; pass 0.dp for a flat (shadow-less) menu.
+    shadowElevation: Dp = MenuDefaults.ShadowElevation,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     DropdownMenuPopup(
@@ -50,7 +56,10 @@ fun YoinDropdownMenu(
         modifier = modifier,
         offset = offset,
     ) {
-        DropdownMenuGroup(shapes = MenuDefaults.groupShapes()) {
+        DropdownMenuGroup(
+            shapes = MenuDefaults.groupShapes(),
+            shadowElevation = shadowElevation,
+        ) {
             content()
         }
     }
@@ -82,13 +91,25 @@ fun YoinDropdownMenuItem(
     leadingIcon: (@Composable () -> Unit)? = null,
     trailingIcon: (@Composable () -> Unit)? = null,
     enabled: Boolean = true,
+    // Bigger / roomier items: pass a larger [textStyle] (font size) and/or a
+    // larger [contentPadding] (row height + left/right room). Defaults match the
+    // Expressive library, so existing menus are unchanged.
+    textStyle: TextStyle? = null,
+    contentPadding: PaddingValues = MenuDefaults.DropdownMenuItemContentPadding,
 ) {
     DropdownMenuItem(
-        text = { Text(text = text) },
+        text = {
+            if (textStyle != null) {
+                Text(text = text, style = textStyle)
+            } else {
+                Text(text = text)
+            }
+        },
         onClick = onClick,
         modifier = modifier,
         leadingIcon = leadingIcon,
         trailingIcon = trailingIcon,
         enabled = enabled,
+        contentPadding = contentPadding,
     )
 }

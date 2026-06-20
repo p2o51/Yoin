@@ -42,33 +42,41 @@ class AlbumDetailActivity : ComponentActivity() {
                 val notedSongIds by viewModel.notedSongIds.collectAsState()
                 val expandedSongId by viewModel.expandedSongId.collectAsState()
                 val expandedNoteBundle by viewModel.expandedNoteBundle.collectAsState()
+
+                fun playFrom(startIndex: Int, shuffle: Boolean) {
+                    val ordered = viewModel.getAlbumSongs()
+                    if (ordered.isEmpty()) return
+                    val tracks = if (shuffle) ordered.shuffled() else ordered
+                    val activityContext = (uiState as? AlbumDetailUiState.Content)?.let { content ->
+                        ActivityContext.Album(
+                            albumId = content.albumId,
+                            albumName = content.albumName,
+                            artistName = content.artistName,
+                            artistId = content.artistId,
+                            coverArtId = content.coverArtId,
+                        )
+                    } ?: ActivityContext.None
+                    app.container.profileManager.activeSource.value?.let { source ->
+                        app.container.playbackManager.play(
+                            tracks = tracks,
+                            startIndex = startIndex.coerceIn(0, tracks.lastIndex),
+                            source = source,
+                            activityContext = activityContext,
+                        )
+                    }
+                }
+
                 AlbumDetailScreen(
                     uiState = uiState,
-                    sharedTransitionKey = null,
                     onBackClick = { finish() },
                     onSongClick = { songId ->
-                        val songs = viewModel.getAlbumSongs()
-                        val index = songs.indexOfFirst { it.id.toString() == songId }
+                        val index = viewModel.getAlbumSongs()
+                            .indexOfFirst { it.id.toString() == songId }
                             .coerceAtLeast(0)
-                        val activityContext = (uiState as? AlbumDetailUiState.Content)?.let { content ->
-                            ActivityContext.Album(
-                                albumId = content.albumId,
-                                albumName = content.albumName,
-                                artistName = content.artistName,
-                                artistId = content.artistId,
-                                coverArtId = content.coverArtId,
-                            )
-                        } ?: ActivityContext.None
-                        app.container.profileManager.activeSource.value?.let { source ->
-                            app.container.playbackManager.play(
-                                tracks = songs,
-                                startIndex = index,
-                                source = source,
-                                activityContext = activityContext,
-                            )
-                        }
+                        playFrom(startIndex = index, shuffle = false)
                     },
                     onToggleStar = viewModel::toggleStar,
+                    onRetry = viewModel::retry,
                     notedSongIds = notedSongIds,
                     expandedSongId = expandedSongId,
                     expandedNoteBundle = expandedNoteBundle,
@@ -76,9 +84,21 @@ class AlbumDetailActivity : ComponentActivity() {
                     onRatingCommit = viewModel::setUserRating,
                     onReviewDraftChange = viewModel::onReviewDraftChange,
                     onSaveReview = viewModel::saveUserReview,
-                    onRetry = viewModel::retry,
-                    sharedTransitionScope = null,
-                    animatedVisibilityScope = null,
+                    onPlayAlbum = { playFrom(startIndex = 0, shuffle = false) },
+                    onShufflePlay = { playFrom(startIndex = 0, shuffle = true) },
+                    onShare = {
+                        val text = (uiState as? AlbumDetailUiState.Content)
+                            ?.let { "${it.albumName} – ${it.artistName}" }
+                            ?: "Check out this album"
+                        val send = Intent(Intent.ACTION_SEND).apply {
+                            type = "text/plain"
+                            putExtra(Intent.EXTRA_TEXT, text)
+                        }
+                        context.startActivity(Intent.createChooser(send, null))
+                    },
+                    onOpenArtist = (uiState as? AlbumDetailUiState.Content)?.artistId?.let { artistId ->
+                        { context.startActivity(ArtistDetailActivity.intent(context, artistId)) }
+                    },
                     modifier = Modifier.fillMaxSize(),
                 )
             }

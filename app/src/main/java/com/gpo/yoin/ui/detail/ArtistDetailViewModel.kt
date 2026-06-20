@@ -5,10 +5,12 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.gpo.yoin.AppContainer
 import com.gpo.yoin.data.model.MediaId
+import com.gpo.yoin.data.model.Track
 import com.gpo.yoin.data.repository.YoinRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 
 class ArtistDetailViewModel(
@@ -21,6 +23,7 @@ class ArtistDetailViewModel(
 
     init {
         loadArtist()
+        observeFollow()
     }
 
     fun retry() {
@@ -37,26 +40,19 @@ class ArtistDetailViewModel(
                     return@launch
                 }
                 repository.recordArtistVisit(artist)
+                // Preload the first albums so tapping the carousel opens instantly.
+                artist.albums.take(6).forEach { album -> repository.prefetchAlbum(album.id) }
                 _uiState.value = ArtistDetailUiState.Content(
                     artistId = artist.id.toString(),
                     artistName = artist.name,
                     albumCount = artist.albumCount,
-                    // The provider's artist endpoint carries the real
-                    // portrait when one exists (Spotify always, Subsonic
-                    // only when the server has `artist.jpg`). The Screen
-                    // falls back to the first album cover when this is
-                    // null, so Subsonic installs without portraits still
-                    // render something sensible.
-                    heroCoverArtUrl = artist.coverArt?.let {
-                        repository.resolveCoverUrl(it)
-                    },
+                    heroCoverArtUrl = artist.coverArt?.let { repository.resolveCoverUrl(it) },
+                    isStarred = artist.isStarred,
                     albums = artist.albums.map { album ->
                         ArtistAlbum(
                             id = album.id.toString(),
                             name = album.name,
-                            coverArtUrl = album.coverArt?.let {
-                                repository.resolveCoverUrl(it)
-                            },
+                            coverArtUrl = album.coverArt?.let { repository.resolveCoverUrl(it) },
                             year = album.year,
                             songCount = album.songCount,
                         )
@@ -67,6 +63,43 @@ class ArtistDetailViewModel(
                     e.message ?: "Failed to load artist",
                 )
             }
+        }
+    }
+
+    /** Follow / unfollow the artist. Optimistic via [observeFollow]. */
+    fun toggleFollow() {
+        val current = _uiState.value as? ArtistDetailUiState.Content ?: return
+        val id = MediaId.parseOrNull(artistId) ?: return
+        viewModelScope.launch {
+            repository.setFavorite(id, favorite = !current.isStarred)
+        }
+    }
+
+    /** Reflect follow state written elsewhere (or our own optimistic write). */
+    private fun observeFollow() {
+        viewModelScope.launch {
+            val id = MediaId.parseOrNull(artistId) ?: return@launch
+            repository.favoriteOverrides.collectLatest { overrides ->
+                val starred = overrides[id] ?: return@collectLatest
+                val current = _uiState.value as? ArtistDetailUiState.Content ?: return@collectLatest
+                if (current.isStarred != starred) {
+                    _uiState.value = current.copy(isStarred = starred)
+                }
+            }
+        }
+    }
+
+    /**
+     * Every track across the artist's albums, for the toolbar's Play / Shuffle.
+     * Albums from the artist endpoint are summaries without tracks, so each is
+     * loaded on demand here (a handful of quick queries on tap).
+     */
+    suspend fun getAllTracks(): List<Track> {
+        val albums = (uiState.value as? ArtistDetailUiState.Content)?.albums ?: return emptyList()
+        return albums.flatMap { album ->
+            runCatching { repository.getAlbum(MediaId.parse(album.id))?.tracks }
+                .getOrNull()
+                .orEmpty()
         }
     }
 

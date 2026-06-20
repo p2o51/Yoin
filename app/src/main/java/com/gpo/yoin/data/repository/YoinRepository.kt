@@ -1,5 +1,6 @@
 package com.gpo.yoin.data.repository
 
+import android.util.LruCache
 import androidx.room.withTransaction
 import com.gpo.yoin.data.local.ActivityActionType
 import com.gpo.yoin.data.local.ActivityEntityType
@@ -13,6 +14,8 @@ import com.gpo.yoin.data.local.GeminiConfig
 import com.gpo.yoin.data.local.GeminiConfigDao
 import com.gpo.yoin.data.local.LocalRating
 import com.gpo.yoin.data.local.LyricsCache
+import com.gpo.yoin.data.cache.Cached
+import com.gpo.yoin.data.cache.DetailCacheStore
 import com.gpo.yoin.data.local.LyricsCacheDao
 import com.gpo.yoin.data.local.LyricsTranslationCache
 import com.gpo.yoin.data.local.LyricsTranslationCacheDao
@@ -102,7 +105,56 @@ class YoinRepository(
     private val spotifyRateLimitGate: SpotifyRateLimitGate? = null,
     private val repositoryScope: CoroutineScope = CoroutineScope(SupervisorJob()),
     private val clock: () -> Long = System::currentTimeMillis,
+    private val detailCacheStore: DetailCacheStore? = null,
 ) {
+
+    // ── In-memory detail cache ─────────────────────────────────────────
+    // Album / artist / playlist detail responses are network round-trips on
+    // Spotify; cache them in-process so repeat opens (and preloaded items) are
+    // instant. Size-bounded LRU (entry counts below) + a 20-min freshness TTL;
+    // stale entries still serve as an offline-ish fallback when a refetch
+    // fails. All cleared on profile switch (a different account = different data).
+    private val albumDetailCache =
+        DetailMemoryCache<Album>(maxSize = 96, ttlMs = 20L * 60 * 1000, clock = clock)
+    private val artistDetailCache =
+        DetailMemoryCache<ArtistDetail>(maxSize = 64, ttlMs = 20L * 60 * 1000, clock = clock)
+    private val playlistDetailCache =
+        DetailMemoryCache<Playlist>(maxSize = 48, ttlMs = 20L * 60 * 1000, clock = clock)
+
+    // Album/artist provider metadata is ~stable, so the persistent disk copy is
+    // served without a network hit for a week (instant cold-start / offline);
+    // playlists are mutable and always revalidate (see getPlaylist).
+    private val detailDiskFreshMs = 7L * 24 * 60 * 60 * 1000
+
+    /** Size-bounded, TTL'd in-memory cache for one detail type. Thread-safe. */
+    private class DetailMemoryCache<V : Any>(
+        maxSize: Int,
+        private val ttlMs: Long,
+        private val clock: () -> Long,
+    ) {
+        private class Entry<V>(val value: V, val cachedAt: Long)
+
+        private val lru = LruCache<String, Entry<V>>(maxSize)
+
+        fun getFresh(key: String): V? {
+            val entry = lru.get(key) ?: return null
+            return entry.value.takeIf { clock() - entry.cachedAt <= ttlMs }
+        }
+
+        fun getStale(key: String): V? = lru.get(key)?.value
+
+        fun put(key: String, value: V) {
+            lru.put(key, Entry(value, clock()))
+        }
+
+        fun remove(key: String) {
+            lru.remove(key)
+        }
+
+        fun clear() {
+            lru.evictAll()
+        }
+    }
 
     init {
         repositoryScope.launch {
@@ -110,10 +162,15 @@ class YoinRepository(
             activeProfileId.collect { profileId ->
                 if (profileId != lastProfileId) {
                     _favoriteOverrides.value = emptyMap()
+                    albumDetailCache.clear()
+                    artistDetailCache.clear()
+                    playlistDetailCache.clear()
                     lastProfileId = profileId
                 }
             }
         }
+        // One-time hygiene: age out long-untouched persistent detail entries.
+        detailCacheStore?.let { store -> repositoryScope.launch { store.purgeExpired() } }
     }
 
     data class SpotifyHomeJumpBackInCacheSnapshot(
@@ -372,8 +429,14 @@ class YoinRepository(
         return requireSource().library().getAlbumList(type, size, offset)
     }
 
-    suspend fun getAlbum(id: MediaId): Album? =
-        requireSource().library().getAlbum(id)
+    suspend fun getAlbum(id: MediaId): Album? = loadCachedDetail(
+        mem = albumDetailCache,
+        key = id.toString(),
+        diskFreshMs = detailDiskFreshMs,
+        diskRead = { profileId -> detailCacheStore?.readAlbum(profileId, id.toString()) },
+        diskWrite = { profileId, value -> detailCacheStore?.writeAlbum(profileId, id.toString(), value) },
+        fetch = { requireSource().library().getAlbum(id) },
+    )
 
     // ── Artists ────────────────────────────────────────────────────────
 
@@ -395,8 +458,14 @@ class YoinRepository(
         return requireSource().library().getArtists()
     }
 
-    suspend fun getArtist(id: MediaId): ArtistDetail? =
-        requireSource().library().getArtist(id)
+    suspend fun getArtist(id: MediaId): ArtistDetail? = loadCachedDetail(
+        mem = artistDetailCache,
+        key = id.toString(),
+        diskFreshMs = detailDiskFreshMs,
+        diskRead = { profileId -> detailCacheStore?.readArtist(profileId, id.toString()) },
+        diskWrite = { profileId, value -> detailCacheStore?.writeArtist(profileId, id.toString(), value) },
+        fetch = { requireSource().library().getArtist(id) },
+    )
 
     // ── Search ─────────────────────────────────────────────────────────
 
@@ -536,8 +605,70 @@ class YoinRepository(
         return spotifyCoordinator().isCacheFresh(profileId)
     }
 
-    suspend fun getPlaylist(id: MediaId): Playlist? =
-        requireSource().library().getPlaylist(id)
+    suspend fun getPlaylist(id: MediaId): Playlist? = loadCachedDetail(
+        mem = playlistDetailCache,
+        key = id.toString(),
+        // Playlists are user-mutable → always revalidate online; disk is only an
+        // offline fallback (and is overwritten by the next successful fetch).
+        diskFreshMs = 0L,
+        diskRead = { profileId -> detailCacheStore?.readPlaylist(profileId, id.toString()) },
+        diskWrite = { profileId, value -> detailCacheStore?.writePlaylist(profileId, id.toString(), value) },
+        fetch = { requireSource().library().getPlaylist(id) },
+    )
+
+    // ── Detail cache read-through + preload ────────────────────────────
+
+    /**
+     * Layered read: in-memory fresh → disk-fresh (skip network) → network (write
+     * both layers) → on error, any disk / in-memory copy (offline resilience).
+     * Disk is profile-scoped + size-bounded ([DetailCacheStore]); mem is the hot
+     * front. `profileId == null` (no active profile) just skips the disk layer.
+     */
+    private suspend fun <V : Any> loadCachedDetail(
+        mem: DetailMemoryCache<V>,
+        key: String,
+        diskFreshMs: Long,
+        diskRead: suspend (profileId: String) -> Cached<V>?,
+        diskWrite: suspend (profileId: String, value: V) -> Unit,
+        fetch: suspend () -> V?,
+    ): V? {
+        mem.getFresh(key)?.let { return it }
+        val profileId = activeProfileId.value
+        val disk = profileId?.let { runCatching { diskRead(it) }.getOrNull() }
+        if (disk != null && clock() - disk.cachedAt <= diskFreshMs) {
+            mem.put(key, disk.value)
+            return disk.value
+        }
+        return try {
+            fetch()?.also { value ->
+                mem.put(key, value)
+                if (profileId != null) runCatching { diskWrite(profileId, value) }
+            }
+        } catch (e: Exception) {
+            disk?.value?.also { mem.put(key, it) } ?: mem.getStale(key) ?: throw e
+        }
+    }
+
+    /**
+     * Warm the cache for something the user is likely to open next
+     * (fire-and-forget on [repositoryScope]; no-op if already fresh). e.g. the
+     * artist page preloads its album carousel so each tap opens instantly.
+     */
+    fun prefetchAlbum(id: MediaId) = prefetchDetail(albumDetailCache, id.toString()) { getAlbum(id) }
+
+    fun prefetchArtist(id: MediaId) = prefetchDetail(artistDetailCache, id.toString()) { getArtist(id) }
+
+    fun prefetchPlaylist(id: MediaId) =
+        prefetchDetail(playlistDetailCache, id.toString()) { getPlaylist(id) }
+
+    private fun <V : Any> prefetchDetail(
+        cache: DetailMemoryCache<V>,
+        key: String,
+        load: suspend () -> V?,
+    ) {
+        if (cache.getFresh(key) != null) return
+        repositoryScope.launch { runCatching { load() } }
+    }
 
     suspend fun createPlaylist(name: String, description: String? = null): Result<Playlist> =
         requireSource().writeActions().createPlaylist(name = name, description = description)
@@ -549,18 +680,27 @@ class YoinRepository(
         description: String? = null,
     ): Result<Unit> =
         requireSource().writeActions().renamePlaylist(id = id, name = name, description = description)
-            .onSuccess { markSpotifyLibraryStaleIfNeeded() }
+            .onSuccess {
+                markSpotifyLibraryStaleIfNeeded()
+                playlistDetailCache.remove(id.toString())
+            }
 
     suspend fun deletePlaylist(id: MediaId): Result<Unit> =
         requireSource().writeActions().deletePlaylist(id)
-            .onSuccess { markSpotifyLibraryStaleIfNeeded() }
+            .onSuccess {
+                markSpotifyLibraryStaleIfNeeded()
+                playlistDetailCache.remove(id.toString())
+            }
 
     suspend fun addTracksToPlaylist(
         playlistId: MediaId,
         tracks: List<MediaId>,
     ): Result<String?> =
         requireSource().writeActions().addTracksToPlaylist(playlistId = playlistId, tracks = tracks)
-            .onSuccess { markSpotifyLibraryStaleIfNeeded() }
+            .onSuccess {
+                markSpotifyLibraryStaleIfNeeded()
+                playlistDetailCache.remove(playlistId.toString())
+            }
 
     suspend fun removeTracksFromPlaylist(
         playlistId: MediaId,
@@ -571,7 +711,10 @@ class YoinRepository(
             playlistId = playlistId,
             items = items,
             snapshotId = snapshotId,
-        ).onSuccess { markSpotifyLibraryStaleIfNeeded() }
+        ).onSuccess {
+            markSpotifyLibraryStaleIfNeeded()
+            playlistDetailCache.remove(playlistId.toString())
+        }
 
     // ── Rating (local-first, best-effort server sync) ──────────────────
 

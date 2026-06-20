@@ -108,16 +108,7 @@ class AlbumDetailViewModel(
                     year = album.year,
                     songCount = album.songCount,
                     totalDuration = album.durationSec,
-                    songs = albumSongs.map { song ->
-                        AlbumSong(
-                            id = song.id.toString(),
-                            title = song.title.orEmpty(),
-                            artist = song.artist.orEmpty(),
-                            trackNumber = song.trackNumber,
-                            duration = song.durationSec,
-                            isStarred = song.isStarred,
-                        )
-                    },
+                    songs = albumSongs.map { song -> song.toAlbumSong(album.artist) },
                 )
 
                 // 观察 album_ratings，把持久化状态 merge 回 Content —— 用户在
@@ -142,6 +133,28 @@ class AlbumDetailViewModel(
                                 nextReview != rating?.review.orEmpty(),
                         )
                     }
+                }
+
+                // 单曲均分 + 专辑级 last-play 是「算出来的」信号：本地 ratings
+                // 取均值，play_history 各单曲最近播放取 MAX。加载后算一次并 merge
+                // 回 Content（本页用户评分走 album_ratings，不影响这里的均分）。
+                launch {
+                    val ratings = repository.getRatings(albumSongs.map(Track::id))
+                    val ratedValues = albumSongs.mapNotNull {
+                        ratings[it.id]?.rating?.takeIf { r -> r > 0f }
+                    }
+                    val avg = ratedValues.takeIf { it.isNotEmpty() }?.average()?.toFloat()
+                    val lastPlayed = albumSongs
+                        .mapNotNull {
+                            runCatching { repository.getMostRecentPlay(it.id)?.playedAt }.getOrNull()
+                        }
+                        .maxOrNull()
+                    val cur = _uiState.value as? AlbumDetailUiState.Content ?: return@launch
+                    _uiState.value = cur.copy(
+                        averageTrackRating = avg,
+                        ratedTrackCount = ratedValues.size,
+                        lastPlayedAt = lastPlayed,
+                    )
                 }
             } catch (e: Exception) {
                 _uiState.value = AlbumDetailUiState.Error(
@@ -250,6 +263,18 @@ data class AlbumPrimaryNote(
 data class AlbumCrossProviderNote(
     val providerLabel: String,
     val content: String,
+)
+
+private fun Track.toAlbumSong(albumArtist: String?): AlbumSong = AlbumSong(
+    id = id.toString(),
+    title = title.orEmpty(),
+    artist = artist.orEmpty(),
+    trackNumber = trackNumber,
+    duration = durationSec,
+    isStarred = isStarred,
+    featArtist = artist?.takeIf {
+        it.isNotBlank() && !it.equals(albumArtist, ignoreCase = true)
+    },
 )
 
 private fun String.toProviderLabel(): String = when (this) {

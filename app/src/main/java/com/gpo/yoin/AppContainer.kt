@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.room.Room
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
+import com.gpo.yoin.data.cache.DetailCacheStore
 import com.gpo.yoin.data.local.YoinDatabase
 import com.gpo.yoin.data.lyrics.LyricsProviderRegistry
 import com.gpo.yoin.data.model.MediaId
@@ -80,6 +81,7 @@ class AppContainer(private val context: Context) {
                 MIGRATION_19_20,
                 MIGRATION_20_21,
                 MIGRATION_21_22,
+                MIGRATION_22_23,
             )
             // v11 冻结了 0.3 schema；0.5 上架前的备份降级保险（用户拿着 v11
             // 备份在旧版设备恢复）走这条：数据丢但应用不崩。没数据丢失比
@@ -383,6 +385,10 @@ class AppContainer(private val context: Context) {
 
     val lyricsProviderRegistry: LyricsProviderRegistry by lazy { LyricsProviderRegistry() }
 
+    private val detailCacheStore: DetailCacheStore by lazy {
+        DetailCacheStore(database.detailCacheDao())
+    }
+
     val repository: YoinRepository by lazy {
         YoinRepository(
             activeSource = profileManager.activeSource,
@@ -405,11 +411,30 @@ class AppContainer(private val context: Context) {
             memoryCopyCacheDao = database.memoryCopyCacheDao(),
             neoDbSyncService = neoDbSyncService,
             lyricsProviderRegistry = lyricsProviderRegistry,
+            detailCacheStore = detailCacheStore,
         )
     }
 
     companion object {
         const val ProviderHttpCacheBytes: Long = 50L * 1024L * 1024L
+
+        val MIGRATION_22_23 = object : Migration(22, 23) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `detail_cache` (
+                        `profileId` TEXT NOT NULL,
+                        `kind` TEXT NOT NULL,
+                        `entityId` TEXT NOT NULL,
+                        `json` TEXT NOT NULL,
+                        `cachedAt` INTEGER NOT NULL,
+                        `accessedAt` INTEGER NOT NULL,
+                        PRIMARY KEY(`profileId`, `kind`, `entityId`)
+                    )
+                    """.trimIndent(),
+                )
+            }
+        }
 
         val MIGRATION_1_2 = object : Migration(1, 2) {
             override fun migrate(db: SupportSQLiteDatabase) {
