@@ -69,6 +69,8 @@ import com.gpo.yoin.ui.library.LibraryScreen
 import com.gpo.yoin.ui.library.LibrarySearchScope
 import com.gpo.yoin.ui.library.LibraryViewModel
 import com.gpo.yoin.ui.experience.HomeSurface
+import com.gpo.yoin.ui.experience.LayoutMode
+import com.gpo.yoin.ui.experience.LocalYoinWindowInfo
 import com.gpo.yoin.ui.experience.rememberRevealState
 import com.gpo.yoin.ui.memories.MemoryEntityType
 import com.gpo.yoin.ui.memories.MemoryEntry
@@ -276,6 +278,7 @@ private fun YoinShell(
     val aboutUiState by nowPlayingViewModel.aboutUiState.collectAsState()
     val askState by nowPlayingViewModel.askState.collectAsState()
     val stageMode by nowPlayingViewModel.stageMode.collectAsState()
+    val layoutMode = LocalYoinWindowInfo.current.layoutMode
     val detailPage by nowPlayingViewModel.detailPage.collectAsState()
     val notesState by nowPlayingViewModel.notesState.collectAsState()
     val devicesState by nowPlayingViewModel.devicesState.collectAsState()
@@ -287,6 +290,10 @@ private fun YoinShell(
     val shellScope = rememberCoroutineScope()
     var dismissDragPx by remember { mutableStateOf(0f) }
     var predictiveBackProgress by remember { mutableStateOf(0f) }
+    // Expanded-collapse predictive back drives a uniform SCALE-down preview (below)
+    // instead of scrubbing the layout reshape — a partial reshape freezes a
+    // half-built, truncated stage; a uniform scale of the complete layout cannot.
+    var stageBackProgress by remember { mutableStateOf(0f) }
     val stageProgress = rememberNowPlayingStageProgress(initialMode = stageMode)
     val dragResetSpec = YoinMotion.defaultSpatialSpec<Float>(role = YoinMotionRole.Standard)
     // Fast, near-critical spring owns the whole stage reshape (expand, collapse,
@@ -298,6 +305,14 @@ private fun YoinShell(
         targetValue = predictiveBackProgress * 1200f,
         animationSpec = YoinMotion.defaultSpatialSpec(role = YoinMotionRole.Standard),
         label = "overlayOffsetPx",
+    )
+    // Expanded-collapse predictive-back PREVIEW scale: 1f → ~0.90f (the platform's
+    // ~90% min back-scale) as the gesture progresses; animated so the release
+    // settles smoothly back to 1f instead of snapping. Inert (1f) when not gesturing.
+    val stageBackScale by animateFloatAsState(
+        targetValue = 1f - 0.10f * stageBackProgress,
+        animationSpec = YoinMotion.defaultSpatialSpec(role = YoinMotionRole.Standard),
+        label = "stageBackScale",
     )
 
     val coverArtUrl = playbackState.currentTrack?.coverArt?.let { coverArt ->
@@ -449,9 +464,20 @@ private fun YoinShell(
         }
     }
 
+    // Wide has no Expanded substate (the right column is always expanded), so
+    // collapse a stale Expanded to Compact when entering Wide. Writes ONLY
+    // stageMode; the reconcile effect above stays the sole driver of the stage
+    // Animatable (it re-runs on the stageMode change and settles detail → 0).
+    LaunchedEffect(layoutMode, stageMode) {
+        if (layoutMode == LayoutMode.Wide && stageMode == NowPlayingStageMode.Expanded) {
+            nowPlayingViewModel.setStageMode(NowPlayingStageMode.Compact)
+        }
+    }
+
     val closeNowPlaying = {
         dismissDragPx = 0f
         predictiveBackProgress = 0f
+        stageBackProgress = 0f
         nowPlayingViewModel.setStageMode(NowPlayingStageMode.Compact)
         experienceSessionStore.setNowPlayingExpanded(false)
     }
@@ -460,46 +486,52 @@ private fun YoinShell(
     // a transient cover-focus variant of Compact, so it does not enter the
     // stage back chain; Back closes Now Playing just like Compact.
     BackHandler(
-        enabled = showNowPlaying && stageMode == NowPlayingStageMode.Expanded,
+        enabled = showNowPlaying && stageMode == NowPlayingStageMode.Expanded &&
+            layoutMode != LayoutMode.Wide,
     ) {
         nowPlayingViewModel.stepBackStage()
     }
 
     BackHandler(
-        enabled = showNowPlaying && stageMode != NowPlayingStageMode.Expanded,
+        enabled = showNowPlaying &&
+            (stageMode != NowPlayingStageMode.Expanded || layoutMode == LayoutMode.Wide),
         onBack = closeNowPlaying,
     )
 
-    // Predictive-back drive for stage collapse. Expanded reshapes back toward
-    // Compact before Compact/Immersive can dismiss the overlay.
-    // Full-range eased scrub: the finger drives the ENTIRE reshape (detail
-    // 1 → 0), not a capped preview, so the whole collapse is visible and
-    // tracks the gesture. progress is eased (backGestureEasing) and snapped
-    // directly — the system already spring-smooths it, so no chase coroutine
-    // is needed (the old cap + chase made the gesture show little, then the
-    // release snapped the remainder, which read as an animation-less flash).
-    // On release the reconciling LaunchedEffect settles the small remainder:
-    // commit → detail 0 (Compact), cancel → detail 1 (still Expanded).
+    // Predictive-back drive for stage collapse (Expanded → Compact). Uniform
+    // SCALE-DOWN preview, NOT a layout scrub: the finger peeks the WHOLE expanded
+    // stage toward ~90% (the platform's min back-scale) while the layout stays
+    // fully expanded (detail = 1, held there by the gesture-gated reconcile). A
+    // partial layout reshape would freeze a half-built, truncated stage (the
+    // collapsing cover row clips the square art); a uniform scale of the complete
+    // layout cannot truncate. COMMIT runs the real detail 1→0 reshape and the
+    // scale springs back to 1; CANCEL just springs the scale back, detail stays 1.
     PredictiveBackHandler(
-        enabled = showNowPlaying && stageMode == NowPlayingStageMode.Expanded,
+        enabled = showNowPlaying && stageMode == NowPlayingStageMode.Expanded &&
+            layoutMode != LayoutMode.Wide,
     ) { progress ->
         stageProgress.beginGesture()
         try {
             progress.collect { event ->
                 val eased = YoinMotion.backGestureEasing.transform(event.progress)
-                stageProgress.snapDetail(1f - eased)
+                // Peek the whole stage; detail is NOT scrubbed (stays 1).
+                stageBackProgress = eased
             }
+            // COMMIT: run the real reshape (detail 1→0) via the reconcile; the
+            // scale springs back to 1 (below) as the stage un-scales into Compact.
             nowPlayingViewModel.stepBackStage()
         } catch (e: CancellationException) {
             throw e
         } finally {
             stageProgress.endGesture()
+            stageBackProgress = 0f
         }
     }
 
     // Predictive-back drive for the compact dismissal animation.
     PredictiveBackHandler(
-        enabled = showNowPlaying && stageMode != NowPlayingStageMode.Expanded,
+        enabled = showNowPlaying &&
+            (stageMode != NowPlayingStageMode.Expanded || layoutMode == LayoutMode.Wide),
     ) { progress ->
         try {
             progress.collectLatest { event ->
@@ -538,6 +570,12 @@ private fun YoinShell(
                             activeSongId = playbackState.currentTrack?.id?.toString(),
                             onNavigateToSettings = { navigateToSettingsFromShell(null) },
                             onNavigateToMemories = {
+                                experienceSessionStore.setHomeSurface(HomeSurface.Memories)
+                            },
+                            onOpenMemoryFocus = { sessionId ->
+                                // Park the focus, then open — MemoriesViewModel's
+                                // observer builds the deck stopped on this album.
+                                experienceSessionStore.requestMemoriesFocus(sessionId)
                                 experienceSessionStore.setHomeSurface(HomeSurface.Memories)
                             },
                             memoriesRevealState = memoriesReveal,
@@ -699,7 +737,8 @@ private fun YoinShell(
                         // their own vertical scroll / IME interactions;
                         // letting draggable eat those deltas is what
                         // causes Lyrics scroll to fight dismiss.
-                        enabled = stageMode != NowPlayingStageMode.Expanded,
+                        enabled = stageMode != NowPlayingStageMode.Expanded &&
+                            layoutMode != LayoutMode.Wide,
                         onDragStopped = { velocity ->
                             if (dismissDragPx > 240f || velocity > 800f) {
                                 dismissDragPx = 0f
@@ -783,6 +822,10 @@ private fun YoinShell(
                     onCastClick = { },
                     sharedTransitionScope = sharedTransitionScope,
                     animatedVisibilityScope = npAvScope,
+                    // Collapse PREVIEW recedes the CONTENT (inside NowPlayingScreen,
+                    // over the full-screen aurora) — NOT the whole overlay, which
+                    // would reveal the shell behind and read as the app shrinking.
+                    contentScale = stageBackScale,
                     modifier = Modifier
                         .fillMaxSize()
                         .offset {
@@ -869,8 +912,22 @@ private fun YoinShell(
                         experienceSessionStore.setSelectedSection(YoinSection.LIBRARY)
                         experienceSessionStore.setHomeSurface(HomeSurface.Feed)
                     },
-                    sharedTransitionScope = sharedTransitionScope,
-                    animatedVisibilityScope = bgAvScope,
+                    // In Wide there is NO mini-player → cover morph (the wide
+                    // player drops the cover shared element). Leaving the mini
+                    // cover's shared element here makes it a no-peer shared
+                    // element, which the SharedTransitionLayout lookahead measures
+                    // with degenerate constraints and crashes M3 ButtonGroup. So
+                    // disable the shell's shared elements entirely in Wide.
+                    sharedTransitionScope = if (layoutMode == LayoutMode.Wide) {
+                        null
+                    } else {
+                        sharedTransitionScope
+                    },
+                    animatedVisibilityScope = if (layoutMode == LayoutMode.Wide) {
+                        null
+                    } else {
+                        bgAvScope
+                    },
                 )
             }
         }

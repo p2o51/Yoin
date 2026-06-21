@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Yoin · 鲲吉祥物落点 (mobile)</title>
+<style>
+  :root{
+    --lav:#E7E8F7;--lav2:#D9DBF2;--blue:#3B45C9;--blue-d:#2A33A8;--ink:#21244d;--mut:#6c6f9c;
+    --mint:#8fe3be;--mint-d:#15694c;
+    --s-soft:linear(0,0.026,0.097,0.2,0.325,0.46,0.594,0.717,0.823,0.908,0.971,1.012,1.033,1.04,1.036,1.026,1.013,1.001,0.993,0.988,0.987,0.989,0.993,0.997,1);
+    --s-bounce:linear(0,0.044,0.165,0.338,0.522,0.693,0.835,0.943,1.013,1.05,1.061,1.052,1.032,1.009,0.991,0.98,0.977,0.981,0.989,0.997,1.003,1.005,1.004,1.001,1);
+    --s-big:linear(0,0.06,0.22,0.44,0.66,0.85,1.0,1.1,1.15,1.16,1.13,1.08,1.02,0.97,0.945,0.94,0.955,0.98,1.005,1.02,1.022,1.014,1.004,0.998,1);
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:#14151f;color:#d8d8ea;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,"PingFang SC",system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+  .lab{max-width:1140px;margin:0 auto;padding:40px 22px 70px}
+  h1.title{font-size:25px;font-weight:600;margin:0 0 6px;color:#fff;letter-spacing:-.01em}
+  h1.title b{color:#47D6EA}
+  .lede{color:#9a9ac0;font-size:14.5px;line-height:1.6;max-width:780px;margin:0 0 30px}
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:34px}
+  .case{display:flex;flex-direction:column;align-items:center}
+  .phone{width:286px;height:572px;border-radius:42px;background:#06070f;padding:9px;position:relative;
+    box-shadow:0 22px 60px rgba(0,0,0,.5),inset 0 0 0 2px #1c1e30}
+  .screen{width:100%;height:100%;border-radius:34px;overflow:hidden;position:relative;background:var(--lav);color:var(--ink);display:flex;flex-direction:column}
+  .sb{height:32px;min-height:32px;display:flex;align-items:center;justify-content:space-between;padding:0 20px 0 22px;font-size:12px;font-weight:500}
+  .sb .bat{width:22px;height:11px;border:1.4px solid var(--ink);border-radius:3px;position:relative;opacity:.8}
+  .sb .bat::after{content:"";position:absolute;right:-3px;top:3px;width:2px;height:5px;background:var(--ink);border-radius:0 1px 1px 0}
+  .sb .bat::before{content:"";position:absolute;left:1px;top:1px;bottom:1px;width:13px;background:var(--ink);border-radius:1px}
+  .pad{padding:6px 20px 0;flex:1;display:flex;flex-direction:column;min-height:0}
+  .h1{font-size:26px;font-weight:600;margin:8px 0 14px}
+  .search{display:flex;align-items:center;gap:9px;background:var(--lav2);border-radius:28px;padding:11px 16px;font-size:14px;color:var(--mut)}
+  .search .x{margin-left:auto;color:var(--ink);opacity:.7}
+  .search.active{color:var(--ink)}
+  /* app-icon tile: real kun on the icon's slate radial */
+  .tile{border-radius:24%;background:radial-gradient(circle at 50% 46%,#3a5575 0%,#2f4661 50%,#1c2c42 100%);
+    overflow:hidden;display:flex;align-items:center;justify-content:center;flex:none}
+  .tile svg{width:86%;height:86%;overflow:visible}
+  .creature,.body,.halo{transform-box:view-box;transform-origin:256px 251px;will-change:transform}
+  .fin{transform-box:view-box;will-change:transform}
+  .fin-cream{transform-origin:210px 219px}
+  .fin-tan{transform-origin:405px 270px}
+  .fin-cyan{transform-origin:152px 293px}
+  .splash{align-items:center;justify-content:center;
+    background:radial-gradient(circle at 50% 44%,#3a5575 0%,#26384f 52%,#0e1626 100%);color:#fff}
+  .splash svg{width:150px;height:150px;overflow:visible}
+  .wm{font-size:32px;font-weight:600;letter-spacing:.06em;margin-top:30px;opacity:0;animation:wm 2850ms ease infinite}
+  .wm-sub{font-size:13px;color:#9fb0ff;letter-spacing:.42em;margin-top:6px;opacity:0;animation:wm 2850ms ease infinite .12s}
+  @keyframes wm{0%,18%{opacity:0;transform:translateY(6px)}40%,82%{opacity:1;transform:none}100%{opacity:0}}
+  .pull{height:58px;display:flex;align-items:center;justify-content:center}
+  .pull .tile{width:40px;height:40px}
+  .refreshing{opacity:.5}
+  .row{display:flex;align-items:center;gap:12px;margin:14px 2px}
+  .thumb{width:48px;height:48px;border-radius:13px;background:linear-gradient(135deg,#3b45c9,#7b48d6);flex:none}
+  .row .t{font-size:14px;font-weight:500}.row .s{font-size:12px;color:var(--mut)}
+  .empty{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;padding-bottom:40px}
+  .empty .tile{width:108px;height:108px;margin-bottom:18px}
+  .empty-t{font-size:17px;font-weight:500}.empty-s{font-size:13px;color:var(--mut)}
+  .npmini{font-size:11px;letter-spacing:.08em;color:var(--mut);margin:6px 0 2px}
+  .npmini b{color:var(--ink);font-weight:500}
+  .song2{font-size:23px;font-weight:600;margin:14px 0 2px}.art2{font-size:14px;color:var(--mut)}
+  .meta{margin-top:18px}
+  .meta .ml{font-size:11px;color:var(--mut);margin-top:12px}.meta .mv{font-size:15px;font-weight:500}
+  .ask{margin-top:auto;margin-bottom:20px;display:flex;align-items:center;gap:11px;background:var(--lav2);
+    border-radius:30px;padding:11px 18px;font-size:14.5px;color:var(--blue-d);font-weight:500}
+  .ask .tile{width:30px;height:30px;border-radius:32%}
+  .npwrap{display:flex;gap:12px;margin-top:6px}
+  .album{flex:1;aspect-ratio:1/1;border-radius:22px;background:radial-gradient(120% 120% at 30% 20%,#3b45c9,#1a2270 70%);position:relative;overflow:hidden}
+  .album::after{content:"";position:absolute;left:32%;top:24%;width:36%;height:62%;border-radius:40% 40% 30% 30%;background:#f4efd6;opacity:.92}
+  .rate{width:46px;display:flex;flex-direction:column;align-items:center;justify-content:space-between}
+  .ratebar{flex:1;width:42px;border-radius:22px;background:var(--lav2);display:flex;justify-content:center;padding-top:10px;font-size:15px;font-weight:600;color:var(--ink)}
+  .heart{margin-top:10px;width:46px;height:46px;border-radius:50%;background:var(--mint);border:none;position:relative;
+    display:flex;align-items:center;justify-content:center;cursor:pointer}
+  .heart .hi{font-size:20px;color:var(--mint-d);line-height:1}
+  .heart .tile{position:absolute;left:50%;top:-44px;transform:translateX(-50%);width:60px;height:60px;border-radius:30%;
+    box-shadow:0 6px 20px rgba(20,16,60,.3)}
+  .song{font-size:25px;font-weight:600;margin:18px 0 2px}.art{font-size:14px;color:var(--mut)}
+  .ctrl{display:flex;align-items:center;gap:12px;margin:20px 0 22px}
+  .pause{background:var(--blue);color:#fff;font-weight:600;font-size:18px;padding:15px 34px;border-radius:22px;letter-spacing:.04em}
+  .cbtn{width:50px;height:50px;border-radius:50%;background:var(--blue);color:#fff;display:flex;align-items:center;justify-content:center;font-size:18px}
+  .cbtn.green{background:var(--mint);color:var(--mint-d);margin-left:auto}
+  .cards{display:grid;grid-template-columns:1fr 1fr;gap:13px;margin-top:6px}
+  .ac{aspect-ratio:1.5/1;border-radius:16px;background:linear-gradient(135deg,#aeb3ee,#cdbdf0);opacity:.85}
+  .ac.big{grid-column:1/3;aspect-ratio:2.6/1;background:linear-gradient(120deg,#3b45c9,#7b48d6)}
+  .mini{margin:0 12px 12px;background:#fff;border-radius:20px;padding:9px 12px;display:flex;align-items:center;gap:11px;
+    box-shadow:0 6px 18px rgba(30,28,80,.12)}
+  .mini .tile{width:40px;height:40px;border-radius:28%}
+  .mini .t{font-size:14px;font-weight:500}.mini .s{font-size:11.5px;color:var(--mut)}
+  .mini .mctrl{margin-left:auto;display:flex;gap:14px;font-size:17px;color:var(--blue)}
+  .cap{margin-top:18px;width:286px}
+  .cap .where{font-size:11px;letter-spacing:.07em;text-transform:uppercase;color:#8d7bf0;font-weight:500}
+  .cap h3{margin:5px 0 5px;font-size:16px;font-weight:600;color:#fff}
+  .cap p{margin:0;font-size:13px;line-height:1.5;color:#9a9ac0}
+  .cap .rive{margin-top:9px;font-size:11.5px;line-height:1.5;color:#7f7eaa;border-top:1px dashed #2a2c44;padding-top:8px}
+  .cap .rive b{color:#a9a7d8;font-weight:500}
+  .cap code{background:#1d1f30;color:#b9b8e0;padding:1px 5px;border-radius:4px;font-size:11px}
+  footer{margin-top:48px;border-top:1px solid #25273a;padding-top:22px;color:#83829f;font-size:13px;line-height:1.7;max-width:860px}
+  footer b{color:#c5c4e6;font-weight:500}footer code{background:#1d1f30;color:#b9b8e0;padding:1px 6px;border-radius:5px;font-size:12px}
+</style>
+</head>
+<body>
+<div class="lab">
+  <h1 class="title">Yoin · <b>鲲</b>吉祥物落点 (移动端)</h1>
+  <p class="lede">同样的弹簧动效,放进真实产品时刻里:开屏、下拉刷新、空状态、AI 加载、点赞反馈、切歌。吉祥物以「app 图标本体」的圆角瓦片出现 —— 一只游动的鲲,身体 + 三片抽象「箭头」鳍各自弹动。既保证对比度,又是「图标活过来了」。点爱心 / 在空状态里移动指针都能交互。</p>
+  <div class="grid" id="grid"></div>
+  <footer>
+    <p><b>落点优先级。</b>开屏(01)与下拉刷新(02)是最高价值、最低风险的首发位 —— 用户每次进 app 都会看到,且替换的是本就存在的 splash icon / 刷新菊花。空状态(03)与 AI 加载(04)把「等待 / 没内容」的死角变成品牌人格。点赞(05)、切歌(06)是锦上添花的微反馈,且能<b>呼应已有的 NowPlaying aurora 脉冲</b>。落地:每个做成一个 Rive State Machine,导出 <code>.riv</code>,由 rive-android 播放;01–04 用 Rive <b>Elastic</b> 缓动即可,05/06 想随手势速度回弹则把物理放在 Compose <code>spring()</code> 侧。</p>
+  </footer>
+</div>
+
+<script>
+/* real kun icon, layered; gradient ids uniquified per instance */
+const ICON = (u)=>`
+<svg viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg">
+ <defs>
+  <linearGradient id="ring${u}" x1="85" y1="422" x2="427" y2="80" gradientUnits="userSpaceOnUse">
+   <stop stop-color="#fff" stop-opacity="0"/><stop offset=".5" stop-color="#fff" stop-opacity=".8"/><stop offset="1" stop-color="#fff" stop-opacity="0"/>
+  </linearGradient>
+  <linearGradient id="body${u}" x1="213.374" y1="99.838" x2="251.882" y2="373.836" gradientUnits="userSpaceOnUse">
+   <stop stop-color="#819FEF"/><stop offset="1" stop-color="#697491"/>
+  </linearGradient>
+ </defs>
+ <g class="halo">
+  <path opacity=".2" d="M256 442C361.486 442 447 356.486 447 251C447 145.514 361.486 60 256 60C150.514 60 65 145.514 65 251C65 356.486 150.514 442 256 442Z" stroke="#fff" stroke-width="2" fill="none"/>
+  <path d="M256 422C350.441 422 427 345.441 427 251C427 156.559 350.441 80 256 80C161.559 80 85 156.559 85 251C85 345.441 161.559 422 256 422Z" stroke="url(#ring${u})" stroke-width="8" fill="none"/>
+  <path opacity=".9" d="M128 225C130.491 201.531 137.913 178.831 149.792 158.343C161.671 137.856 177.748 120.03 197 106" stroke="#fff" stroke-width="4" stroke-linecap="round" fill="none"/>
+  <path opacity=".9" d="M371 281C368.509 304.469 361.087 327.169 349.208 347.657C337.329 368.144 321.252 385.97 302 400" stroke="#fff" stroke-width="4" stroke-linecap="round" fill="none"/>
+ </g>
+ <g class="creature">
+  <g class="body">
+   <path d="M372.5 93C410 106 456.239 141.822 462.718 187.923C385.593 247.892 353.335 322.731 348.351 323.431C342.121 324.307 216.372 378.827 157.811 387.057C99.2503 395.287 52.3949 342.155 9.17643 332.982C68.633 322.085 106.178 306.432 148.106 272.798C190.355 238.907 192.115 150.611 252.566 112C293.373 85.935 332.273 79.0547 372.5 93Z" fill="url(#body${u})"/>
+   <path d="M232.431 366.524C404.53 352.501 462.5 249.027 462.5 182C462.5 150.175 434.996 146.43 404.5 152.987C370 162 355 170.435 336.5 195.5C318 220.565 315 265.5 299.5 294.5C284 323.5 263 343.5 232.431 366.524Z" fill="#E1F4F7"/>
+  </g>
+  <path class="fin fin-cyan" d="M69.5357 327.618C24.9361 315.779 13.8924 258.964 29.5033 246.957C52.0926 231.287 81.2735 256.121 93.0402 270.496C87.9291 257.39 80.8542 224.697 92.1946 219.104C105.061 212.757 149.308 223.669 143.474 253.002C138.807 276.469 151.888 294.092 159.013 299.971C144.054 313.133 105.215 337.089 69.5357 327.618Z" fill="#47D6EA" fill-opacity="0.28"/>
+  <path class="fin fin-tan" d="M471.393 225.062C470.715 221.451 468.469 218.285 465.227 216.557C435.672 200.805 411.284 221.889 432.9 244.009C407.613 240.904 396.493 261.785 424.117 273.732C403.887 271.249 400.783 296.535 426.07 299.64C450.289 302.614 479.255 266.927 471.393 225.062Z" fill="#BC977B"/>
+  <path class="fin fin-cream" d="M183.741 142.964C186.799 139.666 191.718 138.977 195.653 141.157C212.201 150.327 220.201 160.005 208.011 169.337C221.902 176.112 222.073 193.392 203.438 196.34C217.33 203.116 210.555 217.007 191.92 219.956C205.812 226.732 192.091 237.235 172.608 224.294C154.3 212.133 157.682 171.068 183.741 142.964Z" fill="#FFEADB"/>
+ </g>
+</svg>`;
+
+const FINS=[
+  {sel:'.fin-cream', out:[-0.69,-0.72]},
+  {sel:'.fin-tan',   out:[ 1.00, 0.04]},
+  {sel:'.fin-cyan',  out:[-0.99, 0.13]},
+];
+
+let uid=0;
+function buildIcon(){const tpl=document.createElement('template');tpl.innerHTML=ICON(uid++).trim();return tpl.content.firstElementChild;}
+
+const C={
+ swim(svg){const c=svg.querySelector('.creature'),halo=svg.querySelector('.halo');
+   c.animate([{transform:'translate(0,-5px) rotate(-2.4deg)'},{transform:'translate(0,5px) rotate(2.4deg)'}],{duration:3200,direction:'alternate',iterations:Infinity,easing:'ease-in-out'});
+   halo.animate([{transform:'scale(1)'},{transform:'scale(1.03)'}],{duration:4000,direction:'alternate',iterations:Infinity,easing:'ease-in-out'});
+   FINS.forEach((f,i)=>svg.querySelector(f.sel).animate([{transform:'rotate(-4deg) scale(1)'},{transform:'rotate(6deg) scale(1.06)'}],{duration:1700+i*360,delay:i*200,direction:'alternate',iterations:Infinity,easing:'ease-in-out'}));},
+ roll(svg){const c=svg.querySelector('.creature');c.style.transition='transform .9s var(--s-big)';let r=0;const s=()=>{r+=360;c.style.transform='rotate('+r+'deg)';};s();setInterval(s,1100);},
+ bloom(svg){const body=svg.querySelector('.body'),halo=svg.querySelector('.halo'),fins=FINS.map(f=>svg.querySelector(f.sel));
+   const rs=()=>{body.style.transition='none';body.style.transform='scale(.35)';body.style.opacity='0';halo.style.transition='none';halo.style.opacity='0';fins.forEach((el,j)=>{const o=FINS[j].out;el.style.transition='none';el.style.transform='translate('+(-o[0]*18)+'px,'+(-o[1]*18)+'px) scale(0) rotate(-110deg)';el.style.opacity='0';});};
+   const gr=()=>{body.style.transition='transform .8s var(--s-big),opacity .45s ease';body.style.transform='scale(1)';body.style.opacity='1';halo.style.transition='opacity .9s ease .2s';halo.style.opacity='1';fins.forEach((el,j)=>{el.style.transition='transform .95s var(--s-big),opacity .4s ease';el.style.transitionDelay=(0.28+j*0.12)+'s';el.style.transform='translate(0,0) scale(1) rotate(0)';el.style.opacity='1';});};
+   const run=()=>{rs();requestAnimationFrame(()=>requestAnimationFrame(gr));};run();setInterval(run,2850);},
+ wave(svg){const fins=FINS.map(f=>svg.querySelector(f.sel));fins.forEach(el=>el.style.transition='transform .5s var(--s-bounce),filter .4s ease');let i=0;const s=()=>{fins.forEach((el,j)=>{const o=FINS[j].out;if(j===i){el.style.transform='translate('+o[0]*30+'px,'+o[1]*30+'px) scale(1.16) rotate('+o[0]*8+'deg)';el.style.filter='brightness(1.3)';}else{el.style.transform='translate(0,0) scale(1)';el.style.filter='none';}});i=(i+1)%3;};s();setInterval(s,360);},
+ squash(svg,trigger){const c=svg.querySelector('.creature');let y=1,v=0;const k=210,d=14;const kick=()=>{v-=6.4;};(trigger||svg).addEventListener('pointerdown',kick);let last=performance.now();const fr=(n)=>{let dt=Math.min((n-last)/1000,.032);last=n;v+=(-k*(y-1)-d*v)*dt;y+=v*dt;if(y<0.3){y=0.3;v=Math.abs(v)*.4;}const f=Math.max(-0.3,Math.min(0.3,-v*0.02));c.style.transform='translateY('+((y-1)*-22).toFixed(2)+'px) scale('+(y*(1+f)).toFixed(4)+','+(y*(1-f)).toFixed(4)+')';requestAnimationFrame(fr);};requestAnimationFrame(fr);return kick;},
+ magnet(svg,host){const fins=FINS.map(f=>svg.querySelector(f.sel));const S=fins.map((el,i)=>({x:0,y:0,vx:0,vy:0,k:120-i*22,d:13}));let tx=0,ty=0,src='idle',t=0,bRef=null;
+   host.addEventListener('pointermove',e=>{if(src==='tilt')return;const r=host.getBoundingClientRect();src='pointer';tx=(e.clientX-r.left)/r.width-0.5;ty=(e.clientY-r.top)/r.height-0.5;});
+   host.addEventListener('pointerleave',()=>{if(src==='pointer')src='idle';});
+   function onTilt(e){if(e.gamma==null&&e.beta==null)return;src='tilt';if(bRef==null)bRef=e.beta||0;tx=Math.max(-1,Math.min(1,(e.gamma||0)/30))*0.5;ty=Math.max(-1,Math.min(1,((e.beta||0)-bRef)/30))*0.5;}
+   const needsPerm=typeof DeviceOrientationEvent!=='undefined'&&typeof DeviceOrientationEvent.requestPermission==='function';
+   if(!needsPerm){window.addEventListener('deviceorientation',onTilt);}
+   else{host.addEventListener('pointerdown',async()=>{try{if(await DeviceOrientationEvent.requestPermission()==='granted')window.addEventListener('deviceorientation',onTilt);}catch(_){}}, {once:true});}
+   let last=performance.now();const fr=(n)=>{let dt=Math.min((n-last)/1000,.032);last=n;t+=dt;let gx,gy;if(src==='idle'){gx=Math.cos(t*1.15)*0.5;gy=Math.sin(t*1.15)*0.5;}else{gx=tx;gy=ty;}const M=64;S.forEach((s,i)=>{s.vx+=(-s.k*(s.x-gx*M)-s.d*s.vx)*dt;s.vy+=(-s.k*(s.y-gy*M)-s.d*s.vy)*dt;s.x+=s.vx*dt;s.y+=s.vy*dt;fins[i].style.transform='translate('+s.x.toFixed(2)+'px,'+s.y.toFixed(2)+'px) rotate('+(s.x*0.16).toFixed(2)+'deg)';});requestAnimationFrame(fr);};requestAnimationFrame(fr);}
+};
+
+const SB='<div class="sb"><span>9:41</span><span class="bat"></span></div>';
+const CASES=[
+ {where:'01 · 开屏 Splash',title:'图标自我组装',
+  desc:'冷启动第一帧:身体从中心弹出,三片鳍逐一归位,「Yoin / 余韻」字标淡入。',
+  rive:'<b>Rive:</b> entry state,身体 scale 0→1 + 三鳍 rotate 展开,<b>Elastic Out</b>,逐鳍 120ms。Android 12+ splash 可直接挂 Rive。',
+  html:'<div class="screen splash"><div class="msvg"></div><div class="wm">Yoin</div><div class="wm-sub">余韻</div></div>',
+  mount(scr){const s=buildIcon();scr.querySelector('.msvg').replaceWith(s);C.bloom(s);} },
+
+ {where:'02 · 下拉刷新',title:'弹簧翻滚菊花',
+  desc:'在 Library / Home 下拉时,app 图标瓦片代替 M3 刷新菊花,鲲带弹性翻滚。',
+  rive:'<b>Rive:</b> 单 timeline 360° 旋转 + Elastic,刷新进度绑一个 <code>number</code> input 控制旋转量。',
+  html:SB+'<div class="pull"><div class="tile m"></div></div><div class="pad refreshing"><div class="h1" style="margin-top:0">Library</div><div class="search"><span>⌕</span> Discover</div>'+
+    '<div class="row"><div class="thumb"></div><div><div class="t">天国の部屋</div><div class="s">坂口諒之介</div></div></div>'+
+    '<div class="row"><div class="thumb"></div><div><div class="t">Little House</div><div class="s">Rachel Chinouriri</div></div></div>'+
+    '<div class="row"><div class="thumb"></div><div><div class="t">跳不完的舞</div><div class="s">51</div></div></div></div>',
+  mount(scr){const t=scr.querySelector('.tile.m');const s=buildIcon();t.appendChild(s);C.roll(s);} },
+
+ {where:'03 · 空状态',title:'没有结果,但有人格',
+  desc:'搜索无结果时,三片鳍俏皮地黏过来 —— 手机上随重力倾斜、桌面随指针,把死胡同变成一次互动。',
+  rive:'<b>Rive:</b> idle + 重力/指针 x/y 绑两个 <code>number</code>;per-fin 跟随阻尼放在 Compose <code>spring()</code>(读 <code>TYPE_GRAVITY</code>)。',
+  html:SB+'<div class="pad"><div class="h1">Library</div><div class="search active"><span>⌕</span> Taylor swiftc <span class="x">✕</span></div>'+
+    '<div class="empty"><div class="tile m"></div><div class="empty-t">No results found</div><div class="empty-s">移动指针,它会粘过来</div></div></div>',
+  mount(scr){const t=scr.querySelector('.tile.m');const s=buildIcon();t.appendChild(s);C.magnet(s,scr);} },
+
+ {where:'04 · Ask Gemini 加载',title:'「思考中」指示器',
+  desc:'About 页问 Gemini 时,缓缓游动的鲲代替通用 loading,等内容回来再展开。',
+  rive:'<b>Rive:</b> 循环 idle 游动态;请求完成触发 <code>trigger</code> 切到结果态。',
+  html:SB+'<div class="pad"><div class="npmini">PLAYING FROM ALBUM · <b>the apple tree under the sea</b></div>'+
+    '<div class="song2">sense (is)</div><div class="art2">hemlocke springs</div>'+
+    '<div class="meta"><div class="ml">Creation time</div><div class="mv">2025</div><div class="ml">Lyricist</div><div class="mv">hemlocke springs</div></div>'+
+    '<div class="ask"><div class="tile m"></div> Asking Gemini…</div></div>',
+  mount(scr){const t=scr.querySelector('.tile.m');const s=buildIcon();t.appendChild(s);C.swim(s);} },
+
+ {where:'05 · 点赞反馈',title:'戳一下,它跃一下',
+  desc:'Now Playing 点绿色爱心,小鲲压扁→纵向拉伸地跃身一下,爱心填色。(可点)',
+  rive:'<b>Rive:</b> 命中区触发 breach;真实「随速度」的果冻把 <code>number</code> 从 Compose <code>spring()</code> 喂进去。',
+  html:SB+'<div class="pad"><div class="npmini">⌄ &nbsp;NOW PLAYING</div><div class="npwrap"><div class="album"></div>'+
+    '<div class="rate"><div class="ratebar">8.6</div><button class="heart"><span class="hi">♡</span><div class="tile m"></div></button></div></div>'+
+    '<div class="song">little monster</div><div class="art">ILLIT</div>'+
+    '<div class="ctrl"><div class="pause">PAUSE</div><div class="cbtn">⏭</div><div class="cbtn green">⤨</div></div></div>',
+  mount(scr){const t=scr.querySelector('.tile.m');const heart=scr.querySelector('.heart');const hi=scr.querySelector('.hi');const s=buildIcon();t.appendChild(s);
+    const kick=C.squash(s,heart);let on=false;heart.addEventListener('pointerdown',()=>{on=!on;hi.textContent=on?'♥':'♡';});
+    setInterval(()=>{kick();on=!on;hi.textContent=on?'♥':'♡';},2600);} },
+
+ {where:'06 · 切歌',title:'划水送别上一首',
+  desc:'mini-player 切歌时,缩略图位置的鲲三鳍快速划一圈水,呼应 NowPlaying 的极光脉冲。',
+  rive:'<b>Rive:</b> skip <code>trigger</code> 播一次 fin-wave;和现有 aurora play/skip pulse 同一信号源。',
+  html:SB+'<div class="pad"><div class="h1" style="font-size:22px">Listen again</div><div class="cards"><div class="ac big"></div></div>'+
+    '<div class="cards"><div class="ac"></div><div class="ac"></div></div><div class="cards"><div class="ac"></div><div class="ac"></div></div></div>'+
+    '<div class="mini"><div class="tile m"></div><div class="minfo"><div class="t">三月と狼少年</div><div class="s">n-buna</div></div>'+
+    '<div class="mctrl"><span>⏮</span><span>⏸</span><span>⏭</span></div></div><div style="height:10px"></div>',
+  mount(scr){const t=scr.querySelector('.tile.m');const s=buildIcon();t.appendChild(s);C.wave(s);} }
+];
+
+const grid=document.getElementById('grid');
+CASES.forEach(c=>{
+ const cell=document.createElement('div');cell.className='case';
+ const phone=document.createElement('div');phone.className='phone';
+ const scr=document.createElement('div');scr.className='screen';scr.innerHTML=c.html;
+ phone.appendChild(scr);
+ const cap=document.createElement('div');cap.className='cap';
+ cap.innerHTML='<div class="where">'+c.where+'</div><h3>'+c.title+'</h3><p>'+c.desc+'</p><div class="rive">'+c.rive+'</div>';
+ cell.appendChild(phone);cell.appendChild(cap);grid.appendChild(cell);
+ let started=false;const io=new IntersectionObserver(es=>es.forEach(e=>{if(e.isIntersecting&&!started){started=true;c.mount(scr);}}),{threshold:.15});io.observe(phone);
+});
+</script>
+</body>
+</html>

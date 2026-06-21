@@ -10,6 +10,11 @@ sealed interface HomeUiState {
 
     data class Content(
         val activities: List<ActivityEvent>,
+        // True only when [activities] came from a provider endpoint (Spotify
+        // recently-played) rather than the local activity log. The live local
+        // observer uses this to decide whether it owns the feed — see
+        // HomeViewModel.observeRecentHistory.
+        val activitiesFromRemote: Boolean = false,
         val jumpBackInItems: List<HomeJumpBackInItem>,
         val memoryTeaser: MemoryTeaser? = null,
     ) : HomeUiState
@@ -19,8 +24,15 @@ sealed interface HomeUiState {
 
 data class MemoryTeaser(
     val albumId: String,
+    // Deck-matching id == AlbumMemoryCandidate.sessionId == MemoryEntry.sourceActivityId.
+    // Carried verbatim so tapping the teaser can open the deck stopped on this album;
+    // never recompute it from albumId — the session-id hash uses the raw album id + profile.
+    val sessionId: Long,
     val title: String,
     val supportingText: String,
+    // A formed memory speaks in a recall voice; a still-forming one nudges the
+    // user to finish shaping it. Drives the supporting copy + the row icon.
+    val isFormed: Boolean,
 )
 
 sealed interface HomeJumpBackInItem {

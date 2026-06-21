@@ -73,7 +73,7 @@ fun AboutFullscreenPane(
                 YoinMotion.fadeOut(role = YoinMotionRole.Standard)
         },
         contentKey = { it::class },
-        modifier = modifier.edgeFade(top = 32.dp, bottom = 64.dp),
+        modifier = modifier.edgeFade(bottom = 64.dp),
         label = "aboutContent",
     ) { state ->
         when (state) {

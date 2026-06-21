@@ -9,7 +9,6 @@ import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
@@ -23,7 +22,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
@@ -42,9 +40,7 @@ import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.LibraryMusic
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material3.ButtonGroup
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.ButtonGroupDefaults
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.FilledTonalButton
@@ -81,9 +77,12 @@ import kotlinx.coroutines.delay
 import kotlin.math.sin
 
 /**
- * Floating navigation/playback group built on the official Material 3 Expressive
- * `ButtonGroup` API. The container itself is custom, but item interaction, pressed
- * width animation and selection affordances stay inside the official MD3 system.
+ * Floating navigation/playback group. Visually a Material 3 Expressive connected
+ * button group, but laid out with a plain `Row` (see the comment at the Row for
+ * why `ButtonGroup` had to go). The selection pill and the press-to-expand /
+ * neighbour-compress reaction — the expressive `animateWidth` feel — are
+ * hand-rolled here on top of layout weight + aspect ratio, which stays
+ * crash-safe under the foldable shared-transition lookahead.
  */
 @OptIn(
     ExperimentalFoundationApi::class,
@@ -194,16 +193,48 @@ fun YoinButtonGroup(
                 tonalElevation = 8.dp,
                 shadowElevation = 12.dp,
             ) {
-                val homeAspect by animateFloatAsState(
-                    targetValue = if (selectedSection == YoinSection.HOME) 1.5f else 1f,
+                // Interaction sources are hoisted so the press of any one button
+                // can drive the widths of the others (neighbour compression).
+                val homeInteraction = rememberButtonGroupInteractionSource()
+                val centerInteraction = rememberButtonGroupInteractionSource()
+                val libraryInteraction = rememberButtonGroupInteractionSource()
+                val homePressed by homeInteraction.collectIsPressedAsState()
+                val centerPressed by centerInteraction.collectIsPressedAsState()
+                val libraryPressed by libraryInteraction.collectIsPressedAsState()
+
+                // Selection affordance: the active tab settles into a wider pill.
+                // Soft spatial spring — this is a state change, not a touch echo.
+                val homeSelectionAspect by animateFloatAsState(
+                    targetValue = if (selectedSection == YoinSection.HOME) SELECTED_ASPECT else BASE_ASPECT,
                     animationSpec = YoinMotion.defaultSpatialSpec(),
-                    label = "homeAspect",
+                    label = "homeSelectionAspect",
                 )
-                val libraryAspect by animateFloatAsState(
-                    targetValue = if (selectedSection == YoinSection.LIBRARY) 1.5f else 1f,
+                val librarySelectionAspect by animateFloatAsState(
+                    targetValue = if (selectedSection == YoinSection.LIBRARY) SELECTED_ASPECT else BASE_ASPECT,
                     animationSpec = YoinMotion.defaultSpatialSpec(),
-                    label = "libraryAspect",
+                    label = "librarySelectionAspect",
                 )
+                // Press affordance: the pressed icon button widens and the centre
+                // (the weighted filler) absorbs it — the M3 expressive
+                // `animateWidth` bulge — while pressing the centre nudges both
+                // icon buttons narrower so it grows in turn. Quick spring so it
+                // reads as a direct touch echo. Driven through aspect/weight, so
+                // it can never produce the negative child width that crashed the
+                // real ButtonGroup under the foldable lookahead.
+                val homePressDelta by animateFloatAsState(
+                    targetValue = (if (homePressed) PRESS_EXPAND else 0f) -
+                        (if (centerPressed) NEIGHBOUR_SQUEEZE else 0f),
+                    animationSpec = YoinMotion.fastSpatialSpec(),
+                    label = "homePressDelta",
+                )
+                val libraryPressDelta by animateFloatAsState(
+                    targetValue = (if (libraryPressed) PRESS_EXPAND else 0f) -
+                        (if (centerPressed) NEIGHBOUR_SQUEEZE else 0f),
+                    animationSpec = YoinMotion.fastSpatialSpec(),
+                    label = "libraryPressDelta",
+                )
+                val homeAspect = (homeSelectionAspect + homePressDelta).coerceAtLeast(MIN_ASPECT)
+                val libraryAspect = (librarySelectionAspect + libraryPressDelta).coerceAtLeast(MIN_ASPECT)
                 val waveTransition = rememberInfiniteTransition(label = "wave")
                 val wavePhase by waveTransition.animateFloat(
                     initialValue = 0f,
@@ -220,51 +251,43 @@ fun YoinButtonGroup(
                     label = "waveAmplitude",
                 )
 
-                ButtonGroup(
-                    overflowIndicator = { _ -> },
+                // Plain Row instead of the M3 ButtonGroup. ButtonGroupMeasurePolicy
+                // does an asymmetric neighbour-compression (widths[i-1]/[i+1] -=
+                // growth) that, under the Pixel Fold's shared-transition LOOKAHEAD
+                // (degenerate maxWidth + the weighted centre item), drives a child
+                // width NEGATIVE and throws in Constraints.copy. A Row never does
+                // that. (animateWidth was a ButtonGroupScope extension; dropped.)
+                Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(IntrinsicSize.Max)
+                        .height(68.dp)
                         .padding(horizontal = 10.dp, vertical = 10.dp),
-                    expandedRatio = ButtonGroupDefaults.ExpandedRatio,
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    customItem(
-                        buttonGroupContent = {
-                            val interactionSource = rememberButtonGroupInteractionSource()
-                            FilledIconButton(
-                                onClick = {
-                                    haptics.performClick()
-                                    onHomeClick()
-                                },
-                                modifier = Modifier
-                                    .fillMaxHeight()
-                                    .aspectRatio(homeAspect)
-                                    .animateWidth(interactionSource),
-                                interactionSource = interactionSource,
-                                colors = IconButtonDefaults.filledIconButtonColors(
-                                    containerColor = homeContainerColor,
-                                    contentColor = homeContentColor,
-                                ),
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Filled.Home,
-                                    contentDescription = "Home",
-                                )
-                            }
-                        },
-                        menuContent = { _ ->
+                    run {
+                        FilledIconButton(
+                            onClick = {
+                                haptics.performClick()
+                                onHomeClick()
+                            },
+                            modifier = Modifier
+                                .fillMaxHeight()
+                                .aspectRatio(homeAspect),
+                            interactionSource = homeInteraction,
+                            colors = IconButtonDefaults.filledIconButtonColors(
+                                containerColor = homeContainerColor,
+                                contentColor = homeContentColor,
+                            ),
+                        ) {
                             Icon(
                                 imageVector = Icons.Filled.Home,
                                 contentDescription = "Home",
                             )
-                        },
-                    )
+                        }
+                    }
 
-                customItem(
-                    buttonGroupContent = {
-                        val interactionSource = rememberButtonGroupInteractionSource()
+                    run {
                         val clampedProgress = playbackProgress.coerceIn(0f, 1f)
 
                         FilledTonalButton(
@@ -274,10 +297,8 @@ fun YoinButtonGroup(
                             },
                             modifier = Modifier
                                 .weight(1.65f)
-                                .fillMaxHeight()
-                                .animateWidth(interactionSource)
-                                .animateContentSize(animationSpec = YoinMotion.defaultSpatialSpec()),
-                            interactionSource = interactionSource,
+                                .fillMaxHeight(),
+                            interactionSource = centerInteraction,
                             shape = MaterialTheme.shapes.extraLarge,
                             contentPadding = PaddingValues(0.dp),
                             colors = ButtonDefaults.filledTonalButtonColors(
@@ -426,14 +447,9 @@ fun YoinButtonGroup(
                                 }
                             }
                         }
-                    },
-                    menuContent = { _ -> },
-                )
+                    }
 
-                customItem(
-                    buttonGroupContent = {
-                        val interactionSource = rememberButtonGroupInteractionSource()
-                        val libraryPressed by interactionSource.collectIsPressedAsState()
+                    run {
                         LaunchedEffect(libraryPressed) {
                             if (libraryPressed) {
                                 delay(LIBRARY_SEARCH_HINT_DELAY_MS)
@@ -447,9 +463,8 @@ fun YoinButtonGroup(
                             modifier = Modifier
                                 .fillMaxHeight()
                                 .aspectRatio(libraryAspect)
-                                .animateWidth(interactionSource)
                                 .combinedClickable(
-                                    interactionSource = interactionSource,
+                                    interactionSource = libraryInteraction,
                                     indication = null,
                                     onClick = {
                                         haptics.performClick()
@@ -477,15 +492,8 @@ fun YoinButtonGroup(
                                 )
                             }
                         }
-                    },
-                    menuContent = { _ ->
-                        Icon(
-                            imageVector = Icons.Filled.LibraryMusic,
-                            contentDescription = "Library",
-                        )
-                    },
-                )
-            }
+                    }
+                }
             }
             LibrarySearchShortcutHint(
                 visible = showLibrarySearchHint,
@@ -545,6 +553,14 @@ private fun LibrarySearchShortcutHint(
 @Composable
 private fun rememberButtonGroupInteractionSource() =
     remember { MutableInteractionSource() }
+
+// Icon-button width is height × aspect. Selection swaps the resting aspect;
+// press adds a transient delta. See the press/selection comment in YoinButtonGroup.
+private const val BASE_ASPECT = 1f
+private const val SELECTED_ASPECT = 1.5f
+private const val PRESS_EXPAND = 0.25f
+private const val NEIGHBOUR_SQUEEZE = 0.12f
+private const val MIN_ASPECT = 0.7f
 
 private const val LIBRARY_SEARCH_HINT_DELAY_MS = 240L
 private const val LIBRARY_SEARCH_HINT_SETTLE_MS = 120L

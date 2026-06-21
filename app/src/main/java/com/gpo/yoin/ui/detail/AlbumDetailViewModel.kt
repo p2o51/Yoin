@@ -144,11 +144,10 @@ class AlbumDetailViewModel(
                         ratings[it.id]?.rating?.takeIf { r -> r > 0f }
                     }
                     val avg = ratedValues.takeIf { it.isNotEmpty() }?.average()?.toFloat()
-                    val lastPlayed = albumSongs
-                        .mapNotNull {
-                            runCatching { repository.getMostRecentPlay(it.id)?.playedAt }.getOrNull()
-                        }
-                        .maxOrNull()
+                    // One grouped MAX(playedAt) query for the whole album, not one
+                    // per track (a 50-track album was 50 serial round-trips).
+                    val lastPlayed =
+                        runCatching { repository.getAlbumLastPlayed(parsedAlbumId) }.getOrNull()
                     val cur = _uiState.value as? AlbumDetailUiState.Content ?: return@launch
                     _uiState.value = cur.copy(
                         averageTrackRating = avg,
@@ -166,12 +165,26 @@ class AlbumDetailViewModel(
 
     fun toggleStar(songId: String) {
         val track = albumSongs.find { it.id.toString() == songId } ?: return
+        val target = !track.isStarred
+        // Optimistic locally, then revert if the write fails — the favoriteOverrides
+        // observer can't revert (it bails when the override is cleared on failure).
+        setSongStarred(songId, target)
         viewModelScope.launch {
-            repository.setFavorite(track, favorite = !track.isStarred)
-                .onSuccess {
-                    applyFavoriteOverrides(repository.favoriteOverrides.value)
-                }
+            repository.setFavorite(track, favorite = target)
+                .onFailure { setSongStarred(songId, !target) }
         }
+    }
+
+    private fun setSongStarred(songId: String, starred: Boolean) {
+        albumSongs = albumSongs.map { track ->
+            if (track.id.toString() == songId) track.copy(isStarred = starred) else track
+        }
+        val current = _uiState.value as? AlbumDetailUiState.Content ?: return
+        _uiState.value = current.copy(
+            songs = current.songs.map { song ->
+                if (song.id == songId) song.copy(isStarred = starred) else song
+            },
+        )
     }
 
     private fun observeFavoriteOverrides() {

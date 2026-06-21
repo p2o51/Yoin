@@ -15,6 +15,7 @@
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
         android:supportsRtl="true"
+        android:resizeableActivity="true"
         android:theme="@style/Theme.Yoin"
         android:enableOnBackInvokedCallback="true"
         android:usesCleartextTraffic="true">
@@ -23,6 +24,7 @@
             android:name=".MainActivity"
             android:exported="true"
             android:theme="@style/Theme.Yoin.Splash"
+            android:configChanges="screenSize|smallestScreenSize|screenLayout|orientation|keyboardHidden|uiMode|density"
             android:windowSoftInputMode="adjustResize">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />

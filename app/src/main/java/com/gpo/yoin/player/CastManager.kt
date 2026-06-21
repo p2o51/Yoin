@@ -8,9 +8,17 @@ import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import com.google.android.gms.cast.framework.CastContext
 import com.google.android.gms.cast.framework.CastState as GmsCastState
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.transformLatest
 import java.util.concurrent.Executors
 
 /** Chromecast connection states exposed to the UI layer. */
@@ -19,6 +27,10 @@ sealed interface CastState {
     data object Available : CastState
     data class Connected(val deviceName: String) : CastState
 }
+
+/** How long the Available<->NotAvailable discovery churn must settle before the
+ *  Cast pill reacts (Connected transitions bypass this). */
+private const val CAST_DISCOVERY_DEBOUNCE_MS = 450L
 
 /**
  * Manages Chromecast integration via Media3 [CastPlayer].
@@ -35,7 +47,29 @@ class CastManager(private val context: Context) {
     private var localPlayerProvider: (() -> Player?)? = null
 
     private val _castState = MutableStateFlow<CastState>(CastState.NotAvailable)
-    val castState: StateFlow<CastState> = _castState.asStateFlow()
+    private val castScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
+    /**
+     * The GMS [CastState] listener flaps between NO_DEVICES_AVAILABLE and
+     * NOT_CONNECTED many times during route discovery (mDNS scan finding/losing
+     * routes), which made the Cast pill flicker in and out. [Connected] is emitted
+     * instantly (a real session transition must never lag), but the
+     * Available<->NotAvailable discovery churn is settled with a short debounce so
+     * the pill only changes once the scan has stabilised.
+     */
+    @kotlin.OptIn(ExperimentalCoroutinesApi::class)
+    val castState: StateFlow<CastState> =
+        _castState
+            .transformLatest { state ->
+                if (state is CastState.Connected) {
+                    emit(state)
+                } else {
+                    delay(CAST_DISCOVERY_DEBOUNCE_MS)
+                    emit(state)
+                }
+            }
+            .distinctUntilChanged()
+            .stateIn(castScope, SharingStarted.Eagerly, CastState.NotAvailable)
 
     /**
      * Provide a lambda that returns the current local [Player] (typically a

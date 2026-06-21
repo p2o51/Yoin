@@ -26,11 +26,14 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 
 @OptIn(FlowPreview::class, ExperimentalCoroutinesApi::class)
@@ -102,6 +105,18 @@ class LibraryViewModel(
 
     private fun loadInitialData(forceSpotifyRefresh: Boolean = false) {
         viewModelScope.launch {
+            // Cold-start race: the ProfileManager resolves the active profile and
+            // builds its MusicSource asynchronously in its own init, so for a beat
+            // after launch `activeSource` is null and the very first library load
+            // would throw "No profile configured". Wait briefly for the source to
+            // arrive before loading. Bounded so a genuinely profile-less install
+            // (no source will ever come) still falls through to the error/empty
+            // state instead of hanging on the loading spinner forever.
+            if (repository.currentProviderId() == null) {
+                withTimeoutOrNull(ACTIVE_SOURCE_WAIT_MS) {
+                    repository.activeProviderId.filterNotNull().first()
+                }
+            }
             try {
                 if (isSpotifyProvider()) {
                     repository.refreshSpotifyLibrary(force = forceSpotifyRefresh)
@@ -596,6 +611,10 @@ class LibraryViewModel(
 
     companion object {
         private const val SEARCH_DEBOUNCE_MS = 300L
+
+        /** Max wait for the active [MusicSource] to resolve on a cold start
+         *  before the first library load gives up (see [loadInitialData]). */
+        private const val ACTIVE_SOURCE_WAIT_MS = 4_000L
         private const val LOCAL_SEARCH_LIMIT_PER_TYPE = 40
     }
 }

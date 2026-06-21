@@ -34,6 +34,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.gpo.yoin.player.CastState
 import com.gpo.yoin.ui.component.CastButton
@@ -53,6 +54,9 @@ internal fun BottomPills(
     onWriteClick: () -> Unit,
     castState: CastState = CastState.NotAvailable,
     onCastClick: () -> Unit = {},
+    showWrite: Boolean = true,
+    pillHeight: Dp = 44.dp,
+    forceCapsule: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     ProvideYoinMotionRole(role = YoinMotionRole.Standard) {
@@ -98,6 +102,7 @@ internal fun BottomPills(
                             showLabel = !anyPressed || queuePressed,
                             interactionSource = queueInteraction,
                             shape = YoinShapeTokens.Full,
+                            pillHeight = pillHeight,
                         )
                     },
                     menuContent = { _ -> },
@@ -113,27 +118,35 @@ internal fun BottomPills(
                             label = "Devices",
                             showLabel = !anyPressed || devicesPressed,
                             interactionSource = devicesInteraction,
-                            shape = RoundedCornerShape(20.dp),
-                        )
-                    },
-                    menuContent = { _ -> },
-                )
-                customItem(
-                    buttonGroupContent = {
-                        PillButton(
-                            onClick = {
-                                haptics.performContextClick()
-                                onWriteClick()
+                            shape = if (forceCapsule) {
+                                YoinShapeTokens.Full
+                            } else {
+                                RoundedCornerShape(20.dp)
                             },
-                            icon = Icons.AutoMirrored.Rounded.StickyNote2,
-                            label = "Write",
-                            showLabel = !anyPressed || writePressed,
-                            interactionSource = writeInteraction,
-                            shape = YoinShapeTokens.Full,
+                            pillHeight = pillHeight,
                         )
                     },
                     menuContent = { _ -> },
                 )
+                if (showWrite) {
+                    customItem(
+                        buttonGroupContent = {
+                            PillButton(
+                                onClick = {
+                                    haptics.performContextClick()
+                                    onWriteClick()
+                                },
+                                icon = Icons.AutoMirrored.Rounded.StickyNote2,
+                                label = "Write",
+                                showLabel = !anyPressed || writePressed,
+                                interactionSource = writeInteraction,
+                                shape = YoinShapeTokens.Full,
+                                pillHeight = pillHeight,
+                            )
+                        },
+                        menuContent = { _ -> },
+                    )
+                }
             }
         }
     }
@@ -149,6 +162,7 @@ private fun ButtonGroupScope.PillButton(
     showLabel: Boolean,
     interactionSource: MutableInteractionSource,
     shape: androidx.compose.ui.graphics.Shape,
+    pillHeight: Dp = 44.dp,
 ) {
     val pressed by interactionSource.collectIsPressedAsState()
     val labelFraction by animateFloatAsState(
@@ -165,12 +179,12 @@ private fun ButtonGroupScope.PillButton(
     FilledTonalButton(
         onClick = onClick,
         modifier = Modifier
-            .height(44.dp)
+            .height(pillHeight)
             .minimumTouchTarget()
             .animateWidth(interactionSource),
         interactionSource = interactionSource,
         shape = shape,
-        contentPadding = PaddingValues(horizontal = 10.dp),
+        contentPadding = PaddingValues(horizontal = (pillHeight.value * 0.3f).dp),
         colors = ButtonDefaults.filledTonalButtonColors(
             containerColor = MaterialTheme.colorScheme.primary,
             contentColor = MaterialTheme.colorScheme.onPrimary,
@@ -179,7 +193,7 @@ private fun ButtonGroupScope.PillButton(
         Icon(
             imageVector = icon,
             contentDescription = label,
-            modifier = Modifier.size(16.dp),
+            modifier = Modifier.size((pillHeight.value * 0.36f).dp),
         )
         // Keep text always in composition — animate width to 0 via layout
         // so there's no sudden jump when content is removed

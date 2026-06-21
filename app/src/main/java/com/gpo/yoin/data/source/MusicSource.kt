@@ -78,6 +78,12 @@ interface MusicLibrary {
     suspend fun getArtists(): List<ArtistIndex>
     suspend fun getArtist(id: MediaId): ArtistDetail?
 
+    /**
+     * The artist's most-popular tracks (the "Popular" section). Defaults to empty
+     * for providers without a top-tracks concept; Spotify overrides it.
+     */
+    suspend fun getArtistTopTracks(id: MediaId): List<Track> = emptyList()
+
     suspend fun getPlaylists(): List<Playlist>
     suspend fun getPlaylist(id: MediaId): Playlist?
 
@@ -94,6 +100,15 @@ interface MusicMetadata {
 interface MusicWriteActions {
     /** Favourite / like / star — semantics vary, but the UI concept is boolean. */
     suspend fun setFavorite(id: MediaId, favorite: Boolean): Result<Unit>
+
+    /**
+     * Follow / unfollow an artist. Distinct from [setFavorite] because some
+     * providers separate the two (Spotify: `PUT /me/following?type=artist`,
+     * NOT the saved-tracks library). Defaults to [setFavorite] for providers
+     * where starring an artist and following it are the same action (Subsonic).
+     */
+    suspend fun setArtistFollowed(id: MediaId, followed: Boolean): Result<Unit> =
+        setFavorite(id, followed)
 
     /** 0–5 star rating (Subsonic). Providers without this concept return failure. */
     suspend fun setRating(trackId: MediaId, rating: Int): Result<Unit>

@@ -105,6 +105,19 @@ class SubsonicMusicSource(
                 }
             }
 
+        // Subsonic has no "follow" — starring an artist is its equivalent, but it
+        // MUST go through the artistId param (not the song-oriented id param) or
+        // spec-strict servers won't star the artist.
+        override suspend fun setArtistFollowed(id: MediaId, followed: Boolean): Result<Unit> =
+            runCatching {
+                val rawId = id.requireSubsonic()
+                if (followed) {
+                    unwrap(api.star(artistId = rawId))
+                } else {
+                    unwrap(api.unstar(artistId = rawId))
+                }
+            }
+
         override suspend fun setRating(trackId: MediaId, rating: Int): Result<Unit> =
             runCatching {
                 val clamped = rating.coerceIn(0, 5)

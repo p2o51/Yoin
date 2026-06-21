@@ -53,6 +53,7 @@ import com.gpo.yoin.data.source.Capability
 import com.gpo.yoin.data.source.MusicSource
 import com.gpo.yoin.data.source.spotify.SpotifyLibrarySyncCoordinator
 import com.gpo.yoin.data.source.spotify.SpotifyMusicSource
+import com.gpo.yoin.data.source.spotify.SpotifyPlayHistoryObject
 import com.gpo.yoin.data.source.spotify.SpotifyRateLimitGate
 import com.gpo.yoin.data.source.spotify.toSpotifyLibraryTrackCache
 import com.gpo.yoin.data.source.spotify.toTrack
@@ -75,6 +76,7 @@ import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import java.security.MessageDigest
+import java.time.Instant
 import kotlin.math.roundToInt
 
 /**
@@ -125,6 +127,13 @@ class YoinRepository(
     // served without a network hit for a week (instant cold-start / offline);
     // playlists are mutable and always revalidate (see getPlaylist).
     private val detailDiskFreshMs = 7L * 24 * 60 * 60 * 1000
+
+    // Stale-while-revalidate: a disk-served album/artist older than this triggers
+    // a gated background refresh, so a like/follow toggled on another device or
+    // the official app converges on the next open instead of lingering for the
+    // full disk-fresh week. Short-enough to catch real changes, long-enough not
+    // to refetch something just opened (respects the Spotify rate-limit gate).
+    private val detailRevalidateAfterMs = 2L * 60 * 60 * 1000
 
     /** Size-bounded, TTL'd in-memory cache for one detail type. Thread-safe. */
     private class DetailMemoryCache<V : Any>(
@@ -431,7 +440,7 @@ class YoinRepository(
 
     suspend fun getAlbum(id: MediaId): Album? = loadCachedDetail(
         mem = albumDetailCache,
-        key = id.toString(),
+        baseKey = id.toString(),
         diskFreshMs = detailDiskFreshMs,
         diskRead = { profileId -> detailCacheStore?.readAlbum(profileId, id.toString()) },
         diskWrite = { profileId, value -> detailCacheStore?.writeAlbum(profileId, id.toString(), value) },
@@ -460,12 +469,16 @@ class YoinRepository(
 
     suspend fun getArtist(id: MediaId): ArtistDetail? = loadCachedDetail(
         mem = artistDetailCache,
-        key = id.toString(),
+        baseKey = id.toString(),
         diskFreshMs = detailDiskFreshMs,
         diskRead = { profileId -> detailCacheStore?.readArtist(profileId, id.toString()) },
         diskWrite = { profileId, value -> detailCacheStore?.writeArtist(profileId, id.toString(), value) },
         fetch = { requireSource().library().getArtist(id) },
     )
+
+    /** The artist's most-popular tracks (Spotify "Popular"; empty for providers without it). */
+    suspend fun getArtistTopTracks(id: MediaId): List<Track> =
+        requireSource().library().getArtistTopTracks(id)
 
     // ── Search ─────────────────────────────────────────────────────────
 
@@ -484,10 +497,33 @@ class YoinRepository(
     }
 
     suspend fun setFavorite(track: Track, favorite: Boolean): Result<Unit> {
-        if (track.id.provider == MediaId.PROVIDER_SPOTIFY && isSpotifyActive()) {
-            return setSpotifyFavorite(track = track, id = track.id, favorite = favorite)
+        val result = if (track.id.provider == MediaId.PROVIDER_SPOTIFY && isSpotifyActive()) {
+            setSpotifyFavorite(track = track, id = track.id, favorite = favorite)
+        } else {
+            setFavorite(track.id, favorite)
         }
-        return setFavorite(track.id, favorite)
+        // The cached album bakes in each track's isStarred at fetch time; drop it
+        // so the next open re-derives the star instead of showing the pre-toggle
+        // state once the transient favoriteOverrides entry is cleared.
+        return result.onSuccess { track.albumId?.let { invalidateAlbumDetail(it) } }
+    }
+
+    /**
+     * Follow / unfollow an artist — a distinct action from [setFavorite] (on
+     * Spotify the follow endpoint, not the saved-tracks library). Optimistic via
+     * [favoriteOverrides]; invalidates the cached artist detail on success so the
+     * follow heart isn't served stale on re-open.
+     */
+    suspend fun setArtistFollowed(id: MediaId, followed: Boolean): Result<Unit> {
+        _favoriteOverrides.value = _favoriteOverrides.value + (id to followed)
+        return requireSource().writeActions().setArtistFollowed(id, followed)
+            .onSuccess {
+                invalidateArtistDetail(id)
+                _favoriteOverrides.value = _favoriteOverrides.value - id
+            }
+            .onFailure {
+                _favoriteOverrides.value = _favoriteOverrides.value - id
+            }
     }
 
     suspend fun getStarred(): Starred {
@@ -499,6 +535,7 @@ class YoinRepository(
         }
         return requireSource().library().getStarred()
     }
+
 
     // ── Random ─────────────────────────────────────────────────────────
 
@@ -607,7 +644,7 @@ class YoinRepository(
 
     suspend fun getPlaylist(id: MediaId): Playlist? = loadCachedDetail(
         mem = playlistDetailCache,
-        key = id.toString(),
+        baseKey = id.toString(),
         // Playlists are user-mutable → always revalidate online; disk is only an
         // offline fallback (and is overwritten by the next successful fetch).
         diskFreshMs = 0L,
@@ -619,34 +656,98 @@ class YoinRepository(
     // ── Detail cache read-through + preload ────────────────────────────
 
     /**
+     * In-memory cache key, profile-scoped so one account's detail can never be
+     * served under another's (the disk layer is already keyed by profileId).
+     * Neither a profile id nor a MediaId contains a space, so it's unambiguous.
+     */
+    private fun memKey(baseKey: String, profileId: String? = activeProfileId.value): String =
+        if (profileId != null) "$profileId $baseKey" else baseKey
+
+    /**
      * Layered read: in-memory fresh → disk-fresh (skip network) → network (write
      * both layers) → on error, any disk / in-memory copy (offline resilience).
      * Disk is profile-scoped + size-bounded ([DetailCacheStore]); mem is the hot
-     * front. `profileId == null` (no active profile) just skips the disk layer.
+     * front keyed by [memKey] so accounts never cross.
+     *
+     * `diskFreshMs == 0` (playlists) means "always revalidate online": neither
+     * the mem nor the disk fresh fast-path is trusted, so external edits aren't
+     * masked; the caches then serve only as an offline fallback. For trusted
+     * (album/artist) entries a disk hit older than [detailRevalidateAfterMs]
+     * kicks off a background refresh (stale-while-revalidate).
      */
     private suspend fun <V : Any> loadCachedDetail(
         mem: DetailMemoryCache<V>,
-        key: String,
+        baseKey: String,
         diskFreshMs: Long,
         diskRead: suspend (profileId: String) -> Cached<V>?,
         diskWrite: suspend (profileId: String, value: V) -> Unit,
         fetch: suspend () -> V?,
     ): V? {
-        mem.getFresh(key)?.let { return it }
         val profileId = activeProfileId.value
+        val key = memKey(baseKey, profileId)
+        val trustCache = diskFreshMs > 0L
+        if (trustCache) {
+            mem.getFresh(key)?.let { return it }
+        }
         val disk = profileId?.let { runCatching { diskRead(it) }.getOrNull() }
-        if (disk != null && clock() - disk.cachedAt <= diskFreshMs) {
+        if (trustCache && disk != null && clock() - disk.cachedAt <= diskFreshMs) {
             mem.put(key, disk.value)
+            if (clock() - disk.cachedAt > detailRevalidateAfterMs) {
+                revalidateDetail(mem, key, profileId, diskWrite, fetch)
+            }
             return disk.value
         }
         return try {
             fetch()?.also { value ->
-                mem.put(key, value)
-                if (profileId != null) runCatching { diskWrite(profileId, value) }
+                // TOCTOU: only persist if still on the profile we resolved under —
+                // a mid-flight account switch must not poison the other account.
+                if (activeProfileId.value == profileId) {
+                    mem.put(key, value)
+                    if (profileId != null) runCatching { diskWrite(profileId, value) }
+                }
             }
         } catch (e: Exception) {
             disk?.value?.also { mem.put(key, it) } ?: mem.getStale(key) ?: throw e
         }
+    }
+
+    /** Background refresh of an already-served (slightly stale) disk entry. */
+    private fun <V : Any> revalidateDetail(
+        mem: DetailMemoryCache<V>,
+        key: String,
+        profileId: String?,
+        diskWrite: suspend (profileId: String, value: V) -> Unit,
+        fetch: suspend () -> V?,
+    ) {
+        repositoryScope.launch {
+            runCatching { fetch() }.getOrNull()?.let { value ->
+                if (activeProfileId.value == profileId) {
+                    mem.put(key, value)
+                    if (profileId != null) runCatching { diskWrite(profileId, value) }
+                }
+            }
+        }
+    }
+
+    /** Drop the cached album detail (mem + disk) so its next read re-derives. */
+    private fun invalidateAlbumDetail(id: MediaId) {
+        val profileId = activeProfileId.value
+        albumDetailCache.remove(memKey(id.toString(), profileId))
+        profileId?.let { p -> repositoryScope.launch { detailCacheStore?.removeAlbum(p, id.toString()) } }
+    }
+
+    /** Drop the cached artist detail (mem + disk) — e.g. after a follow toggle. */
+    private fun invalidateArtistDetail(id: MediaId) {
+        val profileId = activeProfileId.value
+        artistDetailCache.remove(memKey(id.toString(), profileId))
+        profileId?.let { p -> repositoryScope.launch { detailCacheStore?.removeArtist(p, id.toString()) } }
+    }
+
+    /** Drop the cached playlist detail (mem + disk) after a playlist edit. */
+    private suspend fun invalidatePlaylistDetail(id: MediaId) {
+        val profileId = activeProfileId.value
+        playlistDetailCache.remove(memKey(id.toString(), profileId))
+        profileId?.let { detailCacheStore?.removePlaylist(it, id.toString()) }
     }
 
     /**
@@ -663,10 +764,10 @@ class YoinRepository(
 
     private fun <V : Any> prefetchDetail(
         cache: DetailMemoryCache<V>,
-        key: String,
+        baseKey: String,
         load: suspend () -> V?,
     ) {
-        if (cache.getFresh(key) != null) return
+        if (cache.getFresh(memKey(baseKey)) != null) return
         repositoryScope.launch { runCatching { load() } }
     }
 
@@ -682,14 +783,14 @@ class YoinRepository(
         requireSource().writeActions().renamePlaylist(id = id, name = name, description = description)
             .onSuccess {
                 markSpotifyLibraryStaleIfNeeded()
-                playlistDetailCache.remove(id.toString())
+                invalidatePlaylistDetail(id)
             }
 
     suspend fun deletePlaylist(id: MediaId): Result<Unit> =
         requireSource().writeActions().deletePlaylist(id)
             .onSuccess {
                 markSpotifyLibraryStaleIfNeeded()
-                playlistDetailCache.remove(id.toString())
+                invalidatePlaylistDetail(id)
             }
 
     suspend fun addTracksToPlaylist(
@@ -699,7 +800,7 @@ class YoinRepository(
         requireSource().writeActions().addTracksToPlaylist(playlistId = playlistId, tracks = tracks)
             .onSuccess {
                 markSpotifyLibraryStaleIfNeeded()
-                playlistDetailCache.remove(playlistId.toString())
+                invalidatePlaylistDetail(playlistId)
             }
 
     suspend fun removeTracksFromPlaylist(
@@ -1791,6 +1892,104 @@ class YoinRepository(
         }
             .map { events -> collapseToLatestUnique(events).take(limit) }
 
+    /**
+     * Spotify-only Activities source: the user's real recently-played history
+     * (newest first), mapped into the same [ActivityEvent] shape the home feed
+     * already consumes. Each play contributes an album, primary-artist and song
+     * entry (deduped) so Activities can open the album, artist *and* song pages
+     * — context the local visit/play recorder can't capture for Spotify.
+     *
+     * Throws on transport/auth failure (including 403 when the
+     * `user-read-recently-played` scope is missing) so callers can fall back to
+     * [getRecentActivities]. Returns empty — not an error — when the user simply
+     * has no recent plays.
+     */
+    suspend fun getSpotifyRecentActivities(limit: Int = 20): List<ActivityEvent> {
+        val source = activeSource.value as? SpotifyMusicSource ?: return emptyList()
+        val profileId = spotifyProfileId(source)
+        // Pull the full page (50, the endpoint max); one play fans out to
+        // album/artist/song so the deduped feed still has plenty after take().
+        val history = source.getRecentlyPlayed(limit = 50)
+        return mapSpotifyRecentlyPlayedToActivities(history, profileId).take(limit)
+    }
+
+    private fun mapSpotifyRecentlyPlayedToActivities(
+        history: List<SpotifyPlayHistoryObject>,
+        profileId: String,
+    ): List<ActivityEvent> {
+        // First (newest) occurrence of each entity wins, and LinkedHashMap
+        // preserves insertion order — which, because `history` is already
+        // Spotify's newest-first order and each play offers album → artist →
+        // song, IS the desired feed order. Deliberately NOT re-sorted by parsed
+        // timestamp: a null/unparseable played_at (stamped `clock()` by the
+        // fallback) would otherwise jump ahead of genuinely newer plays.
+        val byEntity = LinkedHashMap<String, ActivityEvent>()
+        fun offer(event: ActivityEvent) {
+            byEntity.getOrPut("${event.entityType}:${event.entityId}") { event }
+        }
+        history.forEach { play ->
+            val track = play.track ?: return@forEach
+            val playedAt = parseSpotifyPlayedAt(play.playedAt)
+            val album = track.album
+            val artist = track.artists.firstOrNull()
+            if (album != null) {
+                offer(
+                    ActivityEvent(
+                        entityType = ActivityEntityType.ALBUM.name,
+                        actionType = ActivityActionType.PLAYED.name,
+                        entityId = album.id,
+                        profileId = profileId,
+                        provider = MediaId.PROVIDER_SPOTIFY,
+                        title = album.name,
+                        subtitle = album.artists.firstOrNull()?.name ?: artist?.name.orEmpty(),
+                        coverArtId = album.images.firstOrNull()?.url,
+                        albumId = album.id,
+                        artistId = album.artists.firstOrNull()?.id,
+                        timestamp = playedAt,
+                    ),
+                )
+            }
+            if (artist != null) {
+                offer(
+                    ActivityEvent(
+                        entityType = ActivityEntityType.ARTIST.name,
+                        actionType = ActivityActionType.PLAYED.name,
+                        entityId = artist.id,
+                        profileId = profileId,
+                        provider = MediaId.PROVIDER_SPOTIFY,
+                        title = artist.name,
+                        subtitle = "Artist",
+                        artistId = artist.id,
+                        timestamp = playedAt,
+                    ),
+                )
+            }
+            val trackId = track.id
+            if (trackId != null) {
+                offer(
+                    ActivityEvent(
+                        entityType = ActivityEntityType.SONG.name,
+                        actionType = ActivityActionType.PLAYED.name,
+                        entityId = trackId,
+                        profileId = profileId,
+                        provider = MediaId.PROVIDER_SPOTIFY,
+                        title = track.name,
+                        subtitle = artist?.name.orEmpty(),
+                        coverArtId = album?.images?.firstOrNull()?.url,
+                        songId = trackId,
+                        albumId = album?.id,
+                        artistId = artist?.id,
+                        timestamp = playedAt,
+                    ),
+                )
+            }
+        }
+        return byEntity.values.toList()
+    }
+
+    private fun parseSpotifyPlayedAt(raw: String?): Long =
+        raw?.let { runCatching { Instant.parse(it).toEpochMilli() }.getOrNull() } ?: clock()
+
     suspend fun getRecentMemoryActivities(limit: Int = 48): List<ActivityEvent> {
         val provider = activeSource.value?.id ?: return emptyList()
         val profileId = activeProfileId.value ?: return emptyList()
@@ -1810,8 +2009,17 @@ class YoinRepository(
             database.playHistoryDao().getMostRecentPlay(trackId.rawId, trackId.provider, profileId)
         }
 
+    /** Most-recent play across all of an album's tracks, as one grouped query. */
+    suspend fun getAlbumLastPlayed(albumId: MediaId): Long? =
+        activeProfileId.value?.let { profileId ->
+            database.playHistoryDao().getAlbumLastPlayed(albumId.rawId, albumId.provider, profileId)
+        }
+
     suspend fun recordAlbumVisit(album: Album) {
         val profileId = activeProfileId.value ?: return
+        // Fire-and-forget telemetry — a failed insert (disk full, locked DB) must
+        // never bubble into the caller's load try/catch and mask a loaded page.
+        runCatching {
         database.activityEventDao().insert(
             ActivityEvent(
                 entityType = ActivityEntityType.ALBUM.name,
@@ -1831,10 +2039,12 @@ class YoinRepository(
                 artistId = album.artistId?.rawId,
             ),
         )
+        }
     }
 
     suspend fun recordArtistVisit(artist: ArtistDetail) {
         val profileId = activeProfileId.value ?: return
+        runCatching {
         database.activityEventDao().insert(
             ActivityEvent(
                 entityType = ActivityEntityType.ARTIST.name,
@@ -1848,6 +2058,7 @@ class YoinRepository(
                 artistId = artist.id.rawId,
             ),
         )
+        }
     }
 
     // ── URLs (provider-agnostic) ───────────────────────────────────────

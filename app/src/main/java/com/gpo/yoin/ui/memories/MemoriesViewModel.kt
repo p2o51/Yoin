@@ -9,6 +9,7 @@ import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.repository.YoinRepository
 import com.gpo.yoin.ui.experience.ExperienceSessionStore
 import com.gpo.yoin.ui.experience.MemoryScrollPosition
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -17,6 +18,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
@@ -62,10 +64,24 @@ class MemoriesViewModel(
                     ensureLoaded(force = true)
                 }
         }
+        // The home teaser parks a focus request in the session store; consume it
+        // here so the deck opens stopped on that album whether the screen is
+        // already mounted or about to mount.
+        viewModelScope.launch {
+            sessionState
+                .map { state -> state.pendingFocusSessionId }
+                .distinctUntilChanged()
+                .collect { focusSessionId ->
+                    if (focusSessionId != null) ensureLoadedFocused(focusSessionId)
+                }
+        }
     }
 
     fun ensureLoaded(force: Boolean = false) {
         if (!force) {
+            // A pending focus request owns the next load — let ensureLoadedFocused
+            // build the focused deck instead of racing a generic one in.
+            if (sessionState.value.pendingFocusSessionId != null) return
             when (_uiState.value) {
                 is MemoriesUiState.Content,
                 MemoriesUiState.Empty,
@@ -75,7 +91,13 @@ class MemoriesViewModel(
             if (initialLoadJob?.isActive == true) return
         }
 
-        initialLoadJob = viewModelScope.launch {
+        // Single-writer: cancel any in-flight load (a focused load, or a prior
+        // generic one) so only the latest request writes the deck. The captured
+        // `job` + identity check in `finally` stops a superseded job — whose
+        // cancellation `finally` runs late on Main.immediate — from nulling the
+        // live job's reference and defeating the isActive guard.
+        initialLoadJob?.cancel()
+        val job = viewModelScope.launch {
             _uiState.value = MemoriesUiState.Loading
             try {
                 if (force) {
@@ -93,14 +115,55 @@ class MemoriesViewModel(
                         deckDirection = MemoryDeckDirection.Forward,
                     )
                 }
+            } catch (cancellation: CancellationException) {
+                // A focused load (or profile switch) superseded this one — don't
+                // paint an Error over the deck the winning load is building.
+                throw cancellation
             } catch (error: Exception) {
                 _uiState.value = MemoriesUiState.Error(
                     error.message ?: "Failed to load memories",
                 )
             } finally {
-                initialLoadJob = null
+                if (initialLoadJob === coroutineContext[Job]) initialLoadJob = null
             }
         }
+        initialLoadJob = job
+    }
+
+    /**
+     * Rebuild the deck stopped on [focusSessionId] (home teaser entry). Cancels
+     * any in-flight load so a teaser tap always wins, reuses the cached candidate
+     * pool (no full re-scan), and clears the pending focus request when done.
+     */
+    private fun ensureLoadedFocused(focusSessionId: Long) {
+        initialLoadJob?.cancel()
+        val job = viewModelScope.launch {
+            _uiState.value = MemoriesUiState.Loading
+            try {
+                val memories = deckCoordinator.ensureDeckFocused(focusSessionId)
+                _uiState.value = if (memories.isEmpty()) {
+                    MemoriesUiState.Empty
+                } else {
+                    MemoriesUiState.Content(
+                        memories = memories,
+                        deckRevision = sessionState.value.deckId.toInt(),
+                        deckDirection = MemoryDeckDirection.Forward,
+                    )
+                }
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (error: Exception) {
+                _uiState.value = MemoriesUiState.Error(
+                    error.message ?: "Failed to load memories",
+                )
+            } finally {
+                // Compare-and-clear: only retire the focus request this job is
+                // consuming, so a superseded job can't wipe a newer tap's request.
+                sessionStore.clearMemoriesFocus(focusSessionId)
+                if (initialLoadJob === coroutineContext[Job]) initialLoadJob = null
+            }
+        }
+        initialLoadJob = job
     }
 
     fun refresh() {

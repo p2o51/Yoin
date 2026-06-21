@@ -21,6 +21,10 @@ data class MemoriesSessionState(
     val currentDeckActivityIds: List<Long> = emptyList(),
     val currentPage: Int = 0,
     val perMemoryScrollOffsets: Map<Long, MemoryScrollPosition> = emptyMap(),
+    // A pending request (from the home teaser) to open the deck stopped on a
+    // specific album. Holds the candidate's sessionId. Consumed and cleared by
+    // MemoriesViewModel once the focused deck is built. Reset by clearMemories().
+    val pendingFocusSessionId: Long? = null,
 )
 
 data class ExperienceSessionState(
@@ -40,6 +44,27 @@ class ExperienceSessionStore {
 
     fun setHomeSurface(surface: HomeSurface) {
         _state.update { current -> current.copy(homeSurface = surface) }
+    }
+
+    /** Ask the Memories deck to open stopped on a specific album (by candidate sessionId). */
+    fun requestMemoriesFocus(sessionId: Long) {
+        _state.update { current ->
+            current.copy(memories = current.memories.copy(pendingFocusSessionId = sessionId))
+        }
+    }
+
+    /**
+     * Retire a consumed focus request, but only if it still matches [expected] —
+     * so a superseded load can't wipe a newer tap's pending focus.
+     */
+    fun clearMemoriesFocus(expected: Long) {
+        _state.update { current ->
+            if (current.memories.pendingFocusSessionId != expected) {
+                current
+            } else {
+                current.copy(memories = current.memories.copy(pendingFocusSessionId = null))
+            }
+        }
     }
 
     fun setNowPlayingExpanded(expanded: Boolean) {

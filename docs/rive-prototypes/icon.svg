@@ -1,0 +1,36 @@
+<!-- Yoin app icon · "kun" (鲲) whale mascot.
+     Exported verbatim from Figma file hxhPpgHySKdFw4JknPWFne ("Momoda · Icon"), frame "Frame 1" (node 1:2).
+     Layers (back→front): orbit rings + 2 white motion strokes (Group 3); body gradient + light wing;
+     three abstract "arrow" fins — cyan (lower-left), tan (right), cream (top-left) — the mascot's hands. -->
+<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg">
+<g id="Frame 1" clip-path="url(#clip0_1_2)">
+<rect width="512" height="512" fill="#334B67"/>
+<g id="Group 3">
+<path id="ring-inner" d="M256 422C350.441 422 427 345.441 427 251C427 156.559 350.441 80 256 80C161.559 80 85 156.559 85 251C85 345.441 161.559 422 256 422Z" stroke="url(#paint0_linear_1_2)" stroke-width="8"/>
+<path id="ring-outer" opacity="0.2" d="M256 442C361.486 442 447 356.486 447 251C447 145.514 361.486 60 256 60C150.514 60 65 145.514 65 251C65 356.486 150.514 442 256 442Z" stroke="white" stroke-width="2"/>
+<path id="streak-tl" opacity="0.9" d="M128 225C130.491 201.531 137.913 178.831 149.792 158.343C161.671 137.856 177.748 120.03 197 106" stroke="white" stroke-width="4" stroke-linecap="round"/>
+<path id="streak-br" opacity="0.9" d="M371 281C368.509 304.469 361.087 327.169 349.208 347.657C337.329 368.144 321.252 385.97 302 400" stroke="white" stroke-width="4" stroke-linecap="round"/>
+</g>
+<g id="Group 1">
+<path id="body" d="M372.5 93C410 106 456.239 141.822 462.718 187.923C385.593 247.892 353.335 322.731 348.351 323.431C342.121 324.307 216.372 378.827 157.811 387.057C99.2503 395.287 52.3949 342.155 9.17643 332.982C68.633 322.085 106.178 306.432 148.106 272.798C190.355 238.907 192.115 150.611 252.566 112C293.373 85.935 332.273 79.0547 372.5 93Z" fill="url(#paint1_linear_1_2)"/>
+<path id="wing" d="M232.431 366.524C404.53 352.501 462.5 249.027 462.5 182C462.5 150.175 434.996 146.43 404.5 152.987C370 162 355 170.435 336.5 195.5C318 220.565 315 265.5 299.5 294.5C284 323.5 263 343.5 232.431 366.524Z" fill="#E1F4F7"/>
+<path id="fin-cyan" d="M69.5357 327.618C24.9361 315.779 13.8924 258.964 29.5033 246.957C52.0926 231.287 81.2735 256.121 93.0402 270.496C87.9291 257.39 80.8542 224.697 92.1946 219.104C105.061 212.757 149.308 223.669 143.474 253.002C138.807 276.469 151.888 294.092 159.013 299.971C144.054 313.133 105.215 337.089 69.5357 327.618Z" fill="#47D6EA" fill-opacity="0.2"/>
+<path id="fin-tan" d="M471.393 225.062C470.715 221.451 468.469 218.285 465.227 216.557C435.672 200.805 411.284 221.889 432.9 244.009C407.613 240.904 396.493 261.785 424.117 273.732C403.887 271.249 400.783 296.535 426.07 299.64C450.289 302.614 479.255 266.927 471.393 225.062Z" fill="#BC977B"/>
+<path id="fin-cream" d="M183.741 142.964C186.799 139.666 191.718 138.977 195.653 141.157C212.201 150.327 220.201 160.005 208.011 169.337C221.902 176.112 222.073 193.392 203.438 196.34C217.33 203.116 210.555 217.007 191.92 219.956C205.812 226.732 192.091 237.235 172.608 224.294C154.3 212.133 157.682 171.068 183.741 142.964Z" fill="#FFEADB"/>
+</g>
+</g>
+<defs>
+<linearGradient id="paint0_linear_1_2" x1="85" y1="422" x2="427" y2="80" gradientUnits="userSpaceOnUse">
+<stop stop-color="white" stop-opacity="0"/>
+<stop offset="0.5" stop-color="white" stop-opacity="0.8"/>
+<stop offset="1" stop-color="white" stop-opacity="0"/>
+</linearGradient>
+<linearGradient id="paint1_linear_1_2" x1="213.374" y1="99.838" x2="251.882" y2="373.836" gradientUnits="userSpaceOnUse">
+<stop stop-color="#819FEF"/>
+<stop offset="1" stop-color="#697491"/>
+</linearGradient>
+<clipPath id="clip0_1_2">
+<rect width="512" height="512" fill="white"/>
+</clipPath>
+</defs>
+</svg>

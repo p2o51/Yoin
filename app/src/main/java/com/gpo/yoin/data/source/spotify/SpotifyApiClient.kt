@@ -152,6 +152,17 @@ class SpotifyApiClient(
         )
     }
 
+    /** The artist's ~10 most popular tracks in the user's market. One request. */
+    suspend fun getArtistTopTracks(id: String): List<SpotifyTrackObject> = withContext(Dispatchers.IO) {
+        getDecoded(
+            url = apiUrl("v1", "artists", id, "top-tracks")
+                .newBuilder()
+                .addQueryParameter("market", "from_token")
+                .build(),
+            deserializer = SpotifyArtistTopTracksResponse.serializer(),
+        ).tracks
+    }
+
     suspend fun getArtistAlbums(
         id: String,
         limit: Int = DEFAULT_COLLECTION_LIMIT,
@@ -211,6 +222,27 @@ class SpotifyApiClient(
         ).devices
     }
 
+    /**
+     * Most recently played tracks (newest first), with the "playing from"
+     * context where Spotify supplies it. Single cursor page — 50 plays is far
+     * more than the home feed shows, so we don't follow the `next` cursor.
+     *
+     * Requires the `user-read-recently-played` scope; profiles authorised
+     * before that scope was added will 403 here (callers fall back to the
+     * locally recorded activity feed until the user reconnects).
+     */
+    suspend fun getRecentlyPlayed(
+        limit: Int = RECENTLY_PLAYED_LIMIT,
+    ): List<SpotifyPlayHistoryObject> = withContext(Dispatchers.IO) {
+        getDecoded(
+            url = apiUrl("v1", "me", "player", "recently-played")
+                .newBuilder()
+                .addQueryParameter("limit", limit.coerceIn(1, RECENTLY_PLAYED_LIMIT).toString())
+                .build(),
+            deserializer = SpotifyCursorPagingObject.serializer(SpotifyPlayHistoryObject.serializer()),
+        ).items
+    }
+
     suspend fun transferPlayback(deviceId: String, play: Boolean = true) = withContext(Dispatchers.IO) {
         val body = JSON.encodeToString(
             SpotifyTransferPlaybackRequest.serializer(),
@@ -232,6 +264,29 @@ class SpotifyApiClient(
 
     suspend fun removeFromLibrary(uri: String) {
         mutateLibrary(method = "DELETE", uri = uri)
+    }
+
+    /** Follow (PUT) / unfollow (DELETE) an artist: `/v1/me/following?type=artist`. */
+    suspend fun setArtistFollowed(artistId: String, followed: Boolean) = withContext(Dispatchers.IO) {
+        val url = apiUrl("v1", "me", "following")
+            .newBuilder()
+            .addQueryParameter("type", "artist")
+            .addQueryParameter("ids", artistId)
+            .build()
+        ensureNotRateLimited(url.toString())
+        executeWithAuthRetry { accessToken ->
+            Request.Builder()
+                .url(url)
+                .header("Authorization", "Bearer $accessToken")
+                .method(if (followed) "PUT" else "DELETE", EMPTY_BODY)
+                .build()
+                .let(httpClient::newCall)
+                .execute()
+        }.use { response ->
+            if (!response.isSuccessful) {
+                throw response.toSpotifyFailure(url.toString())
+            }
+        }
     }
 
     // ── Playlist mutation ───────────────────────────────────────────────
@@ -595,6 +650,7 @@ class SpotifyApiClient(
         private const val MAX_RETRY_AFTER_SECONDS = 24L * 60L * 60L
         private const val REFRESH_BUFFER_MS = 60_000L
         private const val PAGE_LIMIT = 50
+        private const val RECENTLY_PLAYED_LIMIT = 50
         private const val DEFAULT_COLLECTION_LIMIT = 200
         private const val DEFAULT_TRACKS_LIMIT = 300
         private const val DEFAULT_SEARCH_LIMIT = 12

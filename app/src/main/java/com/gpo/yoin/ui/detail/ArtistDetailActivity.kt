@@ -2,6 +2,7 @@ package com.gpo.yoin.ui.detail
 
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -14,6 +15,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.gpo.yoin.YoinActivityRoot
 import com.gpo.yoin.YoinApplication
+import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.repository.ActivityContext
 import com.gpo.yoin.enableYoinEdgeToEdge
 import kotlinx.coroutines.launch
@@ -58,6 +60,38 @@ class ArtistDetailActivity : ComponentActivity() {
                     }
                 }
 
+                fun openInSpotify() {
+                    // Saved/liked tracks aren't mirrored in-app — bounce to the
+                    // Spotify app (or web) on the artist, where they live.
+                    val rawId = MediaId.parseOrNull(artistId)?.rawId ?: return
+                    val intent = Intent(
+                        Intent.ACTION_VIEW,
+                        Uri.parse("https://open.spotify.com/artist/$rawId"),
+                    )
+                    runCatching { context.startActivity(intent) }
+                }
+
+                fun playTopTracks(startIndex: Int) {
+                    scope.launch {
+                        // Awaits the in-flight top-tracks load, so an early tap still
+                        // plays Popular instead of dumping the whole discography.
+                        val tracks = viewModel.getTopTracks()
+                        if (tracks.isEmpty()) {
+                            // Genuinely none (Subsonic / artist has none) → discography.
+                            playArtist(shuffle = false)
+                            return@launch
+                        }
+                        app.container.profileManager.activeSource.value?.let { source ->
+                            app.container.playbackManager.play(
+                                tracks = tracks,
+                                startIndex = startIndex,
+                                source = source,
+                                activityContext = ActivityContext.None,
+                            )
+                        }
+                    }
+                }
+
                 ArtistDetailScreen(
                     uiState = uiState,
                     onBackClick = { finish() },
@@ -66,8 +100,10 @@ class ArtistDetailActivity : ComponentActivity() {
                     },
                     onRetry = viewModel::retry,
                     onToggleFollow = viewModel::toggleFollow,
-                    onPlay = { playArtist(shuffle = false) },
+                    onPlay = { playTopTracks(0) },
                     onShuffle = { playArtist(shuffle = true) },
+                    onOpenInSpotify = { openInSpotify() },
+                    onTopTrackClick = { index -> playTopTracks(index) },
                     onShare = {
                         val text = (uiState as? ArtistDetailUiState.Content)?.artistName
                             ?: "Check out this artist"

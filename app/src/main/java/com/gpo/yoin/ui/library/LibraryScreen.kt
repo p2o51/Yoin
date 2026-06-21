@@ -16,7 +16,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.navigationBars
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -25,8 +24,10 @@ import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.input.rememberTextFieldState
+import androidx.compose.foundation.text.input.setTextAndPlaceCursorAtEnd
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Clear
@@ -35,14 +36,20 @@ import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.AppBarWithSearch
+import androidx.compose.material3.ExpandedFullScreenSearchBar
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.SearchBarDefaults
+import androidx.compose.material3.SearchBarValue
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberSearchBarState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.unit.Dp
@@ -50,14 +57,14 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
@@ -92,6 +99,7 @@ import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinMotionRole
 import com.gpo.yoin.ui.theme.YoinShapeTokens
 import com.gpo.yoin.ui.theme.YoinTheme
+import kotlinx.coroutines.launch
 
 private val FloatingBottomGroupContentPaddingBase = 108.dp
 private const val MaxAnimatedLibraryItems = 10
@@ -264,6 +272,7 @@ fun LibraryContent(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun LibraryContentBody(
     state: LibraryUiState.Content,
@@ -286,59 +295,134 @@ private fun LibraryContentBody(
     coverArtUrlBuilder: ((String) -> String)?,
 ) {
     val haptics = rememberYoinHaptics()
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(horizontal = 16.dp, vertical = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
-    ) {
-        SearchHeader(
-            searchQuery = state.searchQuery,
-            isSearching = state.isSearching,
-            placeholder = state.searchScope.placeholder(),
-            focusRequestId = state.searchFocusRequestId,
-            onSearchQueryChanged = onSearchQueryChanged,
-            onClearSearch = onClearSearch,
-            onNavigateToSettings = onNavigateToSettings,
+    val scope = rememberCoroutineScope()
+
+    // M3 Expressive Search. The collapsed bar lives in the page header; tapping
+    // it morphs the input into a full-screen results surface (the official
+    // SearchBarState animation + predictive-back). The new InputField is driven
+    // by a TextFieldState, which we bridge to the existing debounced
+    // viewModel.search()/clearSearch() so the data layer is untouched.
+    val searchBarState = rememberSearchBarState()
+    val textFieldState = rememberTextFieldState(state.searchQuery)
+    val expanded = searchBarState.targetValue == SearchBarValue.Expanded
+
+    // Field text → debounced VM search (mirrors the old per-keystroke onValueChange).
+    LaunchedEffect(Unit) {
+        snapshotFlow { textFieldState.text.toString() }
+            .collect { onSearchQueryChanged(it) }
+    }
+    // External query resets (clear) → field, so the two never drift apart.
+    LaunchedEffect(state.searchQuery) {
+        if (state.searchQuery != textFieldState.text.toString()) {
+            textFieldState.setTextAndPlaceCursorAtEnd(state.searchQuery)
+        }
+    }
+    // A focus request from elsewhere (e.g. a "search" shortcut) opens the bar.
+    LaunchedEffect(state.searchFocusRequestId) {
+        if (state.searchFocusRequestId > 0L) {
+            searchBarState.animateToExpanded()
+        }
+    }
+    // Collapsing the bar (back gesture / close) leaves the search context.
+    LaunchedEffect(searchBarState.currentValue) {
+        if (searchBarState.currentValue == SearchBarValue.Collapsed &&
+            state.searchQuery.isNotBlank()
+        ) {
+            onClearSearch()
+        }
+    }
+
+    val inputField: @Composable () -> Unit = {
+        SearchBarDefaults.InputField(
+            textFieldState = textFieldState,
+            searchBarState = searchBarState,
+            onSearch = { onSearchQueryChanged(it) },
+            placeholder = { Text(state.searchScope.placeholder()) },
+            leadingIcon = {
+                if (expanded) {
+                    IconButton(
+                        onClick = {
+                            haptics.performTick()
+                            scope.launch { searchBarState.animateToCollapsed() }
+                        },
+                    ) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = "Close search",
+                        )
+                    }
+                } else {
+                    Icon(imageVector = Icons.Filled.Search, contentDescription = null)
+                }
+            },
+            trailingIcon = {
+                if (state.isSearching) {
+                    YoinLoadingIndicator(modifier = Modifier.size(18.dp), size = 18.dp)
+                } else if (textFieldState.text.isNotEmpty()) {
+                    IconButton(
+                        onClick = {
+                            haptics.performTick()
+                            textFieldState.setTextAndPlaceCursorAtEnd("")
+                        },
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.Clear,
+                            contentDescription = "Clear search",
+                        )
+                    }
+                }
+            },
+        )
+    }
+
+    Column(modifier = Modifier.fillMaxSize()) {
+        AppBarWithSearch(
+            state = searchBarState,
+            inputField = inputField,
+            // Blend the collapsed bar into the page: a transparent app-bar band
+            // (also drops the tonal/shadow elevation seam) over the
+            // ExpressivePageBackground gradient, and a pill tinted to the page's
+            // top stop (surfaceContainer) so it reads as part of the surface
+            // rather than a raised, different-coloured chip. The expanded
+            // full-screen search surface keeps its own opaque default colors.
+            colors = SearchBarDefaults.appBarWithSearchColors(
+                appBarContainerColor = Color.Transparent,
+                scrolledAppBarContainerColor = Color.Transparent,
+                searchBarColors = SearchBarDefaults.colors(
+                    containerColor = MaterialTheme.colorScheme.surfaceContainer,
+                ),
+                scrolledSearchBarContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+            ),
+            actions = {
+                IconButton(
+                    onClick = {
+                        haptics.performContextClick()
+                        onNavigateToSettings()
+                    },
+                    modifier = Modifier.minimumTouchTarget(),
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Settings,
+                        contentDescription = "Settings",
+                    )
+                }
+            },
         )
 
-        if (state.canSearchSpotifyCatalog) {
-            LibrarySearchScopeChips(
-                selectedScope = state.searchScope,
-                onScopeSelected = onSearchScopeSelected,
-            )
-        }
-
-        if (state.searchQuery.isBlank() && state.searchScope == LibrarySearchScope.CurrentLibrary) {
+        // Browse (collapsed): filter chips + the per-tab grid/list, unchanged.
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
             LibraryFilterChips(
                 tabs = state.availableTabs,
                 selectedTab = state.selectedTab,
                 onTabSelected = onTabSelected,
             )
-        }
-
-        Box(
-            modifier = Modifier.weight(1f),
-        ) {
-            if (state.searchQuery.isNotBlank()) {
-                SearchResultsContent(
-                    searchResults = state.searchResults,
-                    isSearching = state.isSearching,
-                    activeSongId = activeSongId,
-                    isPlaying = isPlaying,
-                    playbackSignal = playbackSignal,
-                    notedSongIds = notedSongIds,
-                    onArtistClick = onArtistClick,
-                    onAlbumClick = onAlbumClick,
-                    onPlaylistClick = onPlaylistClick,
-                    onSongClick = onSongClick,
-                    onAddSongToPlaylist = onAddSongToPlaylist,
-                    coverArtUrlBuilder = coverArtUrlBuilder,
-                    modifier = Modifier.fillMaxSize(),
-                )
-            } else if (state.searchScope == LibrarySearchScope.SpotifyGlobal) {
-                Box(modifier = Modifier.fillMaxSize())
-            } else {
+            Box(modifier = Modifier.weight(1f)) {
                 AnimatedContent(
                     targetState = state.selectedTab,
                     transitionSpec = {
@@ -393,128 +477,36 @@ private fun LibraryContentBody(
             }
         }
     }
-}
 
-@Composable
-private fun SearchHeader(
-    searchQuery: String,
-    isSearching: Boolean,
-    placeholder: String,
-    focusRequestId: Long,
-    onSearchQueryChanged: (String) -> Unit,
-    onClearSearch: () -> Unit,
-    onNavigateToSettings: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    val haptics = rememberYoinHaptics()
-    val focusRequester = remember { FocusRequester() }
-    LaunchedEffect(focusRequestId) {
-        if (focusRequestId > 0L) {
-            focusRequester.requestFocus()
-        }
-    }
-    Column(
-        modifier = modifier
-            .fillMaxWidth()
-            .statusBarsPadding(),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+    // Expanded: the full-screen search surface (scope chips + live results).
+    ExpandedFullScreenSearchBar(
+        state = searchBarState,
+        inputField = inputField,
     ) {
-        Text(
-            text = "Library",
-            style = MaterialTheme.typography.headlineMedium,
-            color = MaterialTheme.colorScheme.onSurface,
-        )
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Surface(
-                modifier = Modifier.weight(1f),
-                shape = RoundedCornerShape(22.dp),
-                color = MaterialTheme.colorScheme.surfaceContainerLow.copy(alpha = 0.96f),
-                tonalElevation = 0.dp,
-                shadowElevation = 0.dp,
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 13.dp),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    if (isSearching) {
-                        YoinLoadingIndicator(
-                            modifier = Modifier.size(18.dp),
-                            size = 18.dp,
-                        )
-                    } else {
-                        Icon(
-                            imageVector = Icons.Filled.Search,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                    BasicTextField(
-                        value = searchQuery,
-                        onValueChange = onSearchQueryChanged,
-                        modifier = Modifier
-                            .weight(1f)
-                            .focusRequester(focusRequester),
-                        singleLine = true,
-                        textStyle = MaterialTheme.typography.bodyLarge.copy(
-                            color = MaterialTheme.colorScheme.onSurface,
-                        ),
-                        cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
-                        decorationBox = { innerTextField ->
-                            Box(contentAlignment = Alignment.CenterStart) {
-                                if (searchQuery.isBlank()) {
-                                    Text(
-                                        text = placeholder,
-                                        style = MaterialTheme.typography.bodyLarge,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f),
-                                    )
-                                }
-                                innerTextField()
-                            }
-                        },
-                    )
-                    if (searchQuery.isNotBlank()) {
-                        IconButton(
-                            onClick = {
-                                haptics.performTick()
-                                onClearSearch()
-                            },
-                            modifier = Modifier.minimumTouchTarget(),
-                        ) {
-                            Icon(
-                                imageVector = Icons.Filled.Clear,
-                                contentDescription = "Clear search",
-                            )
-                        }
-                    }
-                }
-            }
-
-            androidx.compose.material3.FilledIconButton(
-                onClick = {
-                    haptics.performContextClick()
-                    onNavigateToSettings()
-                },
-                modifier = Modifier
-                    .size(52.dp)
-                    .minimumTouchTarget(),
-                colors = androidx.compose.material3.IconButtonDefaults.filledIconButtonColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceContainerLow.copy(alpha = 0.96f),
-                    contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                ),
-            ) {
-                Icon(
-                    imageVector = Icons.Filled.Settings,
-                    contentDescription = "Settings",
-                )
-            }
+        if (state.canSearchSpotifyCatalog) {
+            LibrarySearchScopeChips(
+                selectedScope = state.searchScope,
+                onScopeSelected = onSearchScopeSelected,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+            )
         }
+        SearchResultsContent(
+            searchResults = state.searchResults,
+            isSearching = state.isSearching,
+            activeSongId = activeSongId,
+            isPlaying = isPlaying,
+            playbackSignal = playbackSignal,
+            notedSongIds = notedSongIds,
+            onArtistClick = onArtistClick,
+            onAlbumClick = onAlbumClick,
+            onPlaylistClick = onPlaylistClick,
+            onSongClick = onSongClick,
+            onAddSongToPlaylist = onAddSongToPlaylist,
+            coverArtUrlBuilder = coverArtUrlBuilder,
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f),
+        )
     }
 }
 

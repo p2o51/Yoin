@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Yoin · 欢迎页(重力)+ 开屏(bloom) · Material You</title>
+<style>
+  :root{
+    --s-big:linear(0,0.06,0.22,0.44,0.66,0.85,1.0,1.1,1.15,1.16,1.13,1.08,1.02,0.97,0.945,0.94,0.955,0.98,1.005,1.02,1.022,1.014,1.004,0.998,1);
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:#0e0f17;color:#d8d8ea;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,"PingFang SC",system-ui,sans-serif;-webkit-font-smoothing:antialiased;
+    min-height:100vh;display:flex;flex-direction:column;align-items:center;padding:34px 18px 60px}
+  h1{font-size:23px;font-weight:600;margin:0 0 6px;color:#fff;letter-spacing:-.01em;text-align:center}
+  .lede{color:#9a9ac0;font-size:14px;line-height:1.6;max-width:600px;text-align:center;margin:0 0 22px}
+  /* ---- palette (Material You preview) ---- */
+  .pal{display:flex;gap:10px;flex-wrap:wrap;justify-content:center;margin-bottom:30px}
+  .chip{display:flex;align-items:center;gap:9px;background:#191b29;border:1.5px solid #2a2c44;border-radius:30px;padding:8px 16px 8px 10px;cursor:pointer;color:#c9c8e4;font-size:13px;font-weight:500;transition:border-color .2s,background .2s}
+  .chip:hover{background:#1f2236}
+  .chip.on{border-color:#fff;background:#23263b}
+  .sw{display:flex}
+  .sw i{width:15px;height:15px;border-radius:50%;display:block;margin-left:-5px;border:2px solid #191b29}
+  .sw i:first-child{margin-left:0}
+  /* ---- app root holds the active scheme vars ---- */
+  .app{--line:#F1ECFF;--onP:#fff}
+  .app[data-scheme="brand"]{--p:#7C5CFF;--s:#C6B2FF;--t:#A8A3C2;--bg1:#241F38;--bg2:#100E1C;--line:#F1ECFF;--on:#EEEAFB;--onP:#fff}
+  .app[data-scheme="teal"]{--p:#3FD4C4;--s:#A9ECE4;--t:#8FB6B2;--bg1:#10241F;--bg2:#06140F;--line:#E9FFFB;--on:#E6FFFA;--onP:#04302b}
+  .app[data-scheme="coral"]{--p:#FF7E63;--s:#FFC1B2;--t:#C7A79E;--bg1:#2A1712;--bg2:#150B08;--line:#FFF0EB;--on:#FFEDE7;--onP:#3a1206}
+  .app[data-scheme="forest"]{--p:#88C95C;--s:#C8E9A9;--t:#A6B795;--bg1:#16240F;--bg2:#0A1407;--line:#F1FFE7;--on:#EEFCE3;--onP:#10300a}
+  .row{display:flex;gap:34px;flex-wrap:wrap;justify-content:center;align-items:flex-start}
+  .case{display:flex;flex-direction:column;align-items:center;width:300px}
+  .phone{width:300px;height:620px;border-radius:46px;background:#06070f;padding:10px;position:relative;
+    box-shadow:0 26px 70px rgba(0,0,0,.55),inset 0 0 0 2px #1c1e30}
+  .screen{width:100%;height:100%;border-radius:36px;overflow:hidden;position:relative;
+    background:radial-gradient(circle at 50% 46%,var(--bg1) 0%,var(--bg2) 70%,#000 100%);
+    transition:background .55s ease;
+    display:flex;flex-direction:column;align-items:center;color:var(--on);touch-action:none}
+  .sb{position:absolute;top:0;left:0;right:0;height:34px;display:flex;align-items:center;justify-content:space-between;
+    padding:0 22px;font-size:12px;font-weight:500;color:var(--on);opacity:.85;z-index:3}
+  .bat{width:22px;height:11px;border:1.4px solid currentColor;border-radius:3px;position:relative;opacity:.8}
+  .bat::before{content:"";position:absolute;left:1px;top:1px;bottom:1px;width:13px;background:currentColor;border-radius:1px}
+  .holo{overflow:visible}
+  .holo svg{width:100%;height:100%;overflow:visible}
+  .arm,.arms{transform-box:view-box;transform-origin:512px 500px;will-change:transform}
+  .af{transition:fill .55s ease}.ln-stroke,.ln-fill{transition:fill .55s ease,stroke .55s ease}
+  .role-p .af{fill:var(--p)}.role-s .af{fill:var(--s)}.role-t .af{fill:var(--t)}
+  .ln-stroke{stroke:var(--line);fill:none;stroke-width:8;stroke-linecap:round}
+  .ln-fill{fill:var(--line)}
+  .wm{font-size:34px;font-weight:600;letter-spacing:.06em;opacity:0}
+  .wm-sub{font-size:13px;letter-spacing:.42em;margin-top:7px;opacity:0;color:var(--s)}
+  /* splash phone */
+  .splash .holo{width:200px;height:200px}
+  .splash .center{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center}
+  .splash .wm{margin-top:20px}
+  /* welcome phone */
+  .welcome .holo{width:210px;height:210px}
+  .welcome .hero{flex:1;display:flex;align-items:center;justify-content:center;width:100%;min-height:0}
+  .welcome .copy{padding:0 28px 30px;display:flex;flex-direction:column;align-items:center;width:100%}
+  .welcome .sub{font-size:14px;color:var(--on);opacity:.66;margin:14px 0 0;text-align:center}
+  .welcome .hint{font-size:11.5px;color:var(--s);opacity:.85;margin:18px 0 12px;letter-spacing:.02em}
+  .welcome .cta{width:100%;background:var(--p);color:var(--onP);border:none;border-radius:26px;padding:15px;font-size:15px;font-weight:600;cursor:pointer;transition:background .55s ease,transform .1s}
+  .welcome .cta:active{transform:scale(.97)}
+  .label{margin-top:18px;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#8d7bf0;font-weight:600}
+  .cap{margin-top:6px;width:300px;color:#9a9ac0;font-size:12.5px;line-height:1.55;text-align:center}
+  .cap b{color:#c5c4e6;font-weight:500}
+  .mini-ctrl{margin-top:14px;display:flex;gap:10px;justify-content:center}
+  .btn{background:#1d2740;color:#dfe3ff;border:1px solid #2f3a5c;border-radius:20px;padding:9px 18px;font-size:13px;font-weight:500;cursor:pointer}
+  .btn:active{transform:scale(.96)}
+  footer{margin-top:46px;border-top:1px solid #25273a;padding-top:22px;color:#83829f;font-size:13px;line-height:1.7;max-width:820px;text-align:center}
+  footer b{color:#c5c4e6;font-weight:500}footer code{background:#1d1f30;color:#b9b8e0;padding:1px 6px;border-radius:5px;font-size:12px}
+</style>
+</head>
+<body>
+  <h1>Yoin · 欢迎页(重力)＋ 开屏(只做 bloom)</h1>
+  <p class="lede">三个箭头 = <b style="color:#c9b6ff">primary 深紫</b> / <b style="color:#c6b2ff">secondary 浅紫</b> / <b style="color:#a8a3c2">tertiary 对应灰</b>。整套走 Material You,跟随壁纸 —— 点下面色板,预览不同壁纸下的重新着色。纯 Compose 可实现,无需 Rive。</p>
+
+  <div class="app" data-scheme="brand" id="app">
+    <div class="pal" id="pal">
+      <button class="chip on" data-s="brand"><span class="sw"><i style="background:#7C5CFF"></i><i style="background:#C6B2FF"></i><i style="background:#A8A3C2"></i></span>品牌紫</button>
+      <button class="chip" data-s="teal"><span class="sw"><i style="background:#3FD4C4"></i><i style="background:#A9ECE4"></i><i style="background:#8FB6B2"></i></span>壁纸·青</button>
+      <button class="chip" data-s="coral"><span class="sw"><i style="background:#FF7E63"></i><i style="background:#FFC1B2"></i><i style="background:#C7A79E"></i></span>壁纸·珊瑚</button>
+      <button class="chip" data-s="forest"><span class="sw"><i style="background:#88C95C"></i><i style="background:#C8E9A9"></i><i style="background:#A6B795"></i></span>壁纸·森绿</button>
+    </div>
+
+    <div class="row">
+      <!-- WELCOME (gravity hero) -->
+      <div class="case">
+        <div class="phone"><div class="screen welcome" id="welScreen">
+          <div class="sb"><span>9:41</span><span class="bat"></span></div>
+          <div class="hero"><div class="holo" id="welHolo"></div></div>
+          <div class="copy">
+            <div class="wm" id="welWm">Yoin</div>
+            <div class="wm-sub" id="welSub">余韻</div>
+            <div class="sub">让每一次聆听,都有回响</div>
+            <div class="hint" id="welHint">倾斜手机,和它玩玩 · 或拖动</div>
+            <button class="cta">开始聆听</button>
+          </div>
+        </div></div>
+        <div class="label">欢迎页 · 重力感应</div>
+        <div class="cap">以图标为视觉中心,停留可玩才合理。<br><b>Compose:</b> SensorManager <code style="font-size:11px">TYPE_GRAVITY</code> → 每箭头 Animatable + spring()</div>
+      </div>
+
+      <!-- SPLASH (bloom only) -->
+      <div class="case">
+        <div class="phone"><div class="screen splash" id="splScreen">
+          <div class="sb"><span>9:41</span><span class="bat"></span></div>
+          <div class="center"><div class="holo" id="splHolo"></div>
+            <div class="wm" id="splWm">Yoin</div>
+            <div class="wm-sub" id="splSub">余韻</div>
+          </div>
+        </div></div>
+        <div class="label">开屏 · 只做动画</div>
+        <div class="cap">冷启动很快交给首页,不在 splash 上停留玩重力。<br><b>Compose:</b> SplashScreen API + 一段入场 spring,播完即退</div>
+        <div class="mini-ctrl"><button class="btn" id="splReplay">↻ 重放开屏</button></div>
+      </div>
+    </div>
+  </div>
+
+  <footer>
+    <p><b>落地(纯 Compose,无 Rive)。</b>颜色 = <code>dynamicColorScheme(context)</code>(API 31+ 跟随壁纸,低版本回落品牌紫);三箭头 fill 绑 <code>colorScheme.primary / secondary / tertiary</code>。开屏 = 入场 bloom(逐箭头 spring,错峰 120ms),播完退出;欢迎页 = 同一 bloom 落定后挂重力跟随(per-arrow <code>spring(dampingRatio≈0.45)</code>),拖动/倾斜驱动。</p>
+  </footer>
+
+<script>
+/* Real Yoin icon — three abstract arrows; fills bound to M3 roles via CSS classes (role-p/s/t). */
+const ARMS=[
+ {key:'grey', role:'t', out:[-0.9,0.42],
+  d:'M172.678 401.921C149.97 396.319 99.5819 390.37 66.6847 432.804C32.9531 476.314 41.3602 538.563 85.4627 571.842C106.711 587.875 134.238 598.446 151.945 604.775C173.271 612.397 197.656 619.65 221.53 626.142C228.147 627.941 256.803 632.768 263.5 634.5C258.128 687.726 249.508 750.719 310.209 800.246C352.996 835.156 416.368 829.236 451.753 787.025C486.19 745.944 506.216 688.882 466.5 653.5C466.5 653.5 448.817 634.685 456.166 622.084C459.88 615.715 482.277 584.668 503.523 555.516C522.775 529.098 509.29 491.515 477.595 483.515L431.67 471.924L172.678 401.921Z',
+  line:{type:'stroke',d:'M87 437C131.456 476.373 325.523 529.493 417 551.132C380.523 608.976 329.456 678.162 417 762'}},
+ {key:'violet', role:'p', out:[0,-1],
+  d:'M772.889 238.22C815.814 242.707 846.934 281.138 842.398 324.057C837.862 366.977 799.388 398.132 756.464 393.645C727.689 390.638 679.626 406.139 627.397 433.316C603.678 445.659 582.756 458.439 567.736 468.172C560.271 473.008 554.378 477.018 550.455 479.743C548.496 481.103 547.036 482.138 546.125 482.79C545.67 483.115 545.353 483.344 545.18 483.469C545.148 483.492 545.121 483.511 545.099 483.526C510.406 508.975 461.453 501.677 436.034 467.022C435.982 466.953 435.872 466.806 435.701 466.584C435.279 466.033 434.497 465.027 433.37 463.625C431.11 460.817 427.489 456.458 422.606 451.018C412.779 440.07 398.19 425.13 379.663 409.763C341.67 378.251 292.47 349.338 237.539 342.845C194.68 337.779 164.082 298.932 169.197 256.077C174.312 213.222 213.202 182.588 256.062 187.654C352.455 199.048 429.312 247.783 479.545 289.447C491.717 299.544 502.639 309.485 512.232 318.788C525.125 311.108 539.674 302.873 555.354 294.713C609.061 266.767 693.88 229.962 772.889 238.22ZM545.029 483.579C545.031 483.577 545.033 483.576 545.036 483.574C545.042 483.569 545.05 483.563 545.061 483.555C545.066 483.551 545.076 483.545 545.079 483.543L545.078 483.542C545.052 483.561 545.036 483.574 545.029 483.579Z',
+  line:{type:'fill',d:'M511.972 414.52L509.931 415.967L511.37 417.997L513.408 416.564L511.972 414.52ZM209.285 219L208.945 221.477C299.039 233.708 374.271 282.255 427.066 327.894C453.446 350.699 474.179 372.738 488.313 389.073C495.379 397.238 500.793 403.975 504.436 408.665C506.257 411.009 507.636 412.842 508.557 414.085C509.017 414.706 509.363 415.18 509.593 415.497C509.708 415.656 509.794 415.775 509.85 415.854C509.878 415.893 509.899 415.922 509.913 415.941C509.919 415.951 509.924 415.958 509.927 415.962C509.929 415.964 509.93 415.966 509.931 415.967C509.931 415.967 509.931 415.967 511.972 414.52C514.012 413.073 514.011 413.072 514.01 413.07C514.009 413.068 514.007 413.066 514.005 413.063C514.001 413.057 513.995 413.048 513.987 413.037C513.971 413.014 513.947 412.982 513.916 412.939C513.855 412.853 513.764 412.727 513.644 412.561C513.404 412.23 513.048 411.742 512.577 411.106C511.634 409.834 510.233 407.971 508.387 405.595C504.695 400.843 499.226 394.038 492.097 385.799C477.841 369.324 456.939 347.105 430.339 324.11C377.173 278.15 301.062 228.937 209.624 216.523L209.285 219ZM511.972 414.52C513.408 416.564 513.408 416.564 513.409 416.563C513.411 416.563 513.412 416.561 513.415 416.559C513.42 416.556 513.429 416.55 513.44 416.542C513.462 416.526 513.496 416.503 513.542 416.471C513.633 416.407 513.769 416.312 513.951 416.186C514.315 415.934 514.858 415.558 515.573 415.069C517.004 414.089 519.123 412.652 521.867 410.827C527.357 407.178 535.349 401.977 545.345 395.784C565.34 383.397 593.341 367.047 625.364 351.193C689.565 319.408 769.366 289.913 833.233 297.712L833.539 295.231L833.845 292.749C768.383 284.755 687.4 314.904 623.15 346.713C590.948 362.656 562.805 379.089 542.715 391.536C532.668 397.76 524.631 402.99 519.102 406.666C516.337 408.504 514.2 409.954 512.751 410.945C512.027 411.441 511.475 411.822 511.103 412.08C510.917 412.209 510.776 412.307 510.681 412.374C510.634 412.407 510.598 412.432 510.574 412.449C510.562 412.458 510.552 412.464 510.546 412.469C510.543 412.471 510.54 412.473 510.539 412.474C510.537 412.475 510.536 412.476 511.972 414.52Z'}},
+ {key:'navy', role:'s', out:[0.9,0.44],
+  d:'M767.435 383.407C788.087 343.579 835.72 324.591 878.753 340.771C925.194 358.234 948.689 410.045 931.23 456.494C914.712 500.436 877.296 527.369 853.146 542.122C825.327 559.116 792.803 573.003 761.852 584.176C739.154 592.37 715.544 599.723 692.517 606.16C694.132 611.89 695.648 617.706 697.044 623.59C708.757 672.964 715.743 742.622 684.615 806.496C662.876 851.103 609.099 869.638 564.499 847.896C519.9 826.154 501.368 772.368 523.106 727.761C527.415 718.919 530.182 698.615 522.225 665.077C514.774 633.667 501.025 604.12 491.764 588.484L475.768 561.478C451.638 520.739 475.49 468.426 522.07 459.928L552.934 454.296C591.446 447.27 650.468 433.336 700.854 415.148C726.258 405.977 746.213 396.875 759.491 388.764C763.261 386.461 765.811 384.655 767.435 383.407Z',
+  line:{type:'stroke',d:'M900 381C870.952 458.266 639.23 518.528 527 539.001C562.367 598.701 621.217 742.48 573.684 840'}}
+];
+const NS='http://www.w3.org/2000/svg';
+function buildIcon(){
+  const svg=document.createElementNS(NS,'svg');svg.setAttribute('viewBox','0 0 1024 1024');svg.setAttribute('fill','none');
+  const g0=document.createElementNS(NS,'g');g0.setAttribute('class','arms');
+  ARMS.forEach(a=>{const g=document.createElementNS(NS,'g');g.setAttribute('class','arm arm-'+a.key+' role-'+a.role);
+    const f=document.createElementNS(NS,'path');f.setAttribute('d',a.d);f.setAttribute('class','af');g.appendChild(f);
+    const l=document.createElementNS(NS,'path');l.setAttribute('d',a.line.d);
+    l.setAttribute('class', a.line.type==='stroke'?'ln-stroke':'ln-fill');
+    g.appendChild(l);g0.appendChild(g);});
+  svg.appendChild(g0);return svg;
+}
+
+/* ---------- SPLASH: bloom only (no gravity) ---------- */
+function makeSplash(holo, wm, sub){
+  const svg=buildIcon();holo.appendChild(svg);
+  const arms=ARMS.map(a=>svg.querySelector('.arm-'+a.key));
+  const armsG=svg.querySelector('.arms');let breath=null;
+  function bloom(){
+    if(breath){breath.cancel();breath=null;}
+    armsG.style.transform='none';
+    wm.style.transition='none';wm.style.opacity='0';wm.style.transform='translateY(6px)';
+    sub.style.transition='none';sub.style.opacity='0';sub.style.transform='translateY(6px)';
+    arms.forEach(el=>{el.style.transition='none';el.style.transform='scale(0) rotate(-150deg)';el.style.opacity='0';});
+    requestAnimationFrame(()=>requestAnimationFrame(()=>{
+      arms.forEach((el,j)=>{el.style.transition='transform .95s var(--s-big),opacity .4s ease';el.style.transitionDelay=(j*0.12)+'s';el.style.transform='scale(1) rotate(0)';el.style.opacity='1';});
+      wm.style.transition='opacity .7s ease .55s,transform .7s ease .55s';wm.style.opacity='1';wm.style.transform='none';
+      sub.style.transition='opacity .7s ease .7s,transform .7s ease .7s';sub.style.opacity='1';sub.style.transform='none';
+    }));
+    setTimeout(()=>{ // settle into a barely-there idle breath — entrance only, no interaction
+      breath=armsG.animate([{transform:'scale(1)'},{transform:'scale(1.018)'}],{duration:3400,direction:'alternate',iterations:Infinity,easing:'ease-in-out'});
+    },1500);
+  }
+  bloom();return {bloom};
+}
+
+/* ---------- WELCOME: bloom → gravity jelly ---------- */
+function makeWelcome(screen, holo, wm, sub, hint){
+  const svg=buildIcon();holo.appendChild(svg);
+  const armsG=svg.querySelector('.arms');
+  const arms=ARMS.map(a=>svg.querySelector('.arm-'+a.key));
+  let mode='intro';
+  const P=arms.map((el,i)=>({x:0,y:0,vx:0,vy:0,k:120-i*22,d:13}));
+  let tx=0,ty=0,src='idle',t=0,bRef=null,squashV=0,squashY=1;
+  screen.addEventListener('pointermove',e=>{if(src==='tilt')return;const r=screen.getBoundingClientRect();src='pointer';tx=(e.clientX-r.left)/r.width-0.5;ty=(e.clientY-r.top)/r.height-0.5;});
+  screen.addEventListener('pointerleave',()=>{if(src==='pointer')src='idle';});
+  function onTilt(e){if(e.gamma==null&&e.beta==null)return;src='tilt';if(bRef==null)bRef=e.beta||0;tx=Math.max(-1,Math.min(1,(e.gamma||0)/30))*0.5;ty=Math.max(-1,Math.min(1,((e.beta||0)-bRef)/30))*0.5;}
+  const needsPerm=typeof DeviceOrientationEvent!=='undefined'&&typeof DeviceOrientationEvent.requestPermission==='function';
+  if(!needsPerm){window.addEventListener('deviceorientation',onTilt);}
+  else{screen.addEventListener('pointerdown',async()=>{try{if(await DeviceOrientationEvent.requestPermission()==='granted')window.addEventListener('deviceorientation',onTilt);}catch(_){}},{once:true});}
+  function poke(){squashV-=5.6;}
+  screen.addEventListener('pointerdown',poke);
+  function bloom(){
+    mode='intro';
+    wm.style.transition='none';wm.style.opacity='0';wm.style.transform='translateY(6px)';
+    sub.style.transition='none';sub.style.opacity='0';sub.style.transform='translateY(6px)';
+    armsG.style.transition='none';armsG.style.transform='none';
+    arms.forEach(el=>{el.style.transition='none';el.style.transform='scale(0) rotate(-150deg)';el.style.opacity='0';});
+    P.forEach(s=>{s.x=s.y=s.vx=s.vy=0;});squashV=0;squashY=1;
+    requestAnimationFrame(()=>requestAnimationFrame(()=>{
+      arms.forEach((el,j)=>{el.style.transition='transform .95s var(--s-big),opacity .4s ease';el.style.transitionDelay=(j*0.12)+'s';el.style.transform='scale(1) rotate(0)';el.style.opacity='1';});
+      wm.style.transition='opacity .7s ease .5s,transform .7s ease .5s';wm.style.opacity='1';wm.style.transform='none';
+      sub.style.transition='opacity .7s ease .65s,transform .7s ease .65s';sub.style.opacity='1';sub.style.transform='none';
+    }));
+    setTimeout(()=>{arms.forEach(el=>{el.style.transition='none';el.style.transitionDelay='0s';});mode='jelly';},1500);
+  }
+  let last=performance.now();
+  function frame(n){
+    let dt=Math.min((n-last)/1000,.032);last=n;t+=dt;
+    squashV+=(-210*(squashY-1)-14*squashV)*dt;squashY+=squashV*dt;if(squashY<0.3){squashY=0.3;squashV=Math.abs(squashV)*.4;}
+    if(mode==='jelly'){
+      const sf=Math.max(-0.26,Math.min(0.26,-squashV*0.02));
+      armsG.style.transform='scale('+(squashY*(1+sf)).toFixed(4)+','+(squashY*(1-sf)).toFixed(4)+')';
+      let gx,gy;if(src==='idle'){gx=Math.cos(t*1.05)*0.5;gy=Math.sin(t*1.05)*0.5;}else{gx=tx;gy=ty;}
+      const M=80;
+      P.forEach((s,i)=>{s.vx+=(-s.k*(s.x-gx*M)-s.d*s.vx)*dt;s.vy+=(-s.k*(s.y-gy*M)-s.d*s.vy)*dt;s.x+=s.vx*dt;s.y+=s.vy*dt;
+        arms[i].style.transform='translate('+s.x.toFixed(2)+'px,'+s.y.toFixed(2)+'px) rotate('+(s.x*0.15).toFixed(2)+'deg)';});
+    }
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+  bloom();return {bloom};
+}
+
+const spl=makeSplash(document.getElementById('splHolo'),document.getElementById('splWm'),document.getElementById('splSub'));
+makeWelcome(document.getElementById('welScreen'),document.getElementById('welHolo'),document.getElementById('welWm'),document.getElementById('welSub'),document.getElementById('welHint'));
+document.getElementById('splReplay').addEventListener('click',spl.bloom);
+
+/* palette switcher */
+const app=document.getElementById('app');
+document.getElementById('pal').addEventListener('click',e=>{const c=e.target.closest('.chip');if(!c)return;
+  app.dataset.scheme=c.dataset.s;
+  [...document.querySelectorAll('.chip')].forEach(x=>x.classList.toggle('on',x===c));});
+</script>
+</body>
+</html>

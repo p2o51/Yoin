@@ -10,6 +10,10 @@ import com.gpo.yoin.data.repository.YoinRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 
@@ -20,6 +24,14 @@ class ArtistDetailViewModel(
 
     private val _uiState = MutableStateFlow<ArtistDetailUiState>(ArtistDetailUiState.Loading)
     val uiState: StateFlow<ArtistDetailUiState> = _uiState.asStateFlow()
+
+    /**
+     * In-flight load of the artist's most-popular tracks. A Deferred (not a plain
+     * list) so Play can AWAIT it — tapping Play in the instant before the load
+     * resolves must still play the top tracks, not silently fall back to the
+     * whole discography.
+     */
+    private var topTracksDeferred: Deferred<List<Track>>? = null
 
     init {
         loadArtist()
@@ -58,6 +70,7 @@ class ArtistDetailViewModel(
                         )
                     },
                 )
+                loadSecondaryContent(artist.id)
             } catch (e: Exception) {
                 _uiState.value = ArtistDetailUiState.Error(
                     e.message ?: "Failed to load artist",
@@ -66,12 +79,57 @@ class ArtistDetailViewModel(
         }
     }
 
-    /** Follow / unfollow the artist. Optimistic via [observeFollow]. */
+    /**
+     * After the main content paints, load the artist's Popular tracks and merge
+     * them in. Kept off the main load so it never blocks the hero/carousel.
+     * Best-effort: a failure just leaves the section empty.
+     */
+    private fun loadSecondaryContent(artistId: MediaId) {
+        val deferred = viewModelScope.async {
+            runCatching { repository.getArtistTopTracks(artistId) }.getOrDefault(emptyList())
+        }
+        topTracksDeferred = deferred
+        viewModelScope.launch {
+            val top = deferred.await()
+            val topRows = top.map { track ->
+                ArtistTopTrack(
+                    id = track.id.toString(),
+                    title = track.title.orEmpty(),
+                    artist = track.artist.orEmpty(),
+                    coverArtUrl = track.coverArt?.let { repository.resolveCoverUrl(it) },
+                    durationSec = track.durationSec,
+                )
+            }
+            (_uiState.value as? ArtistDetailUiState.Content)?.let { current ->
+                _uiState.value = current.copy(topTracks = topRows)
+            }
+        }
+    }
+
+    /**
+     * The artist's Popular tracks, for default Play / a Popular row tap. Awaits
+     * the in-flight load so an early Play uses the real list (or empty when the
+     * artist genuinely has none / a non-Spotify source), never a stale snapshot.
+     */
+    suspend fun getTopTracks(): List<Track> = topTracksDeferred?.await() ?: emptyList()
+
+    /**
+     * Follow / unfollow the artist via the real follow endpoint (NOT setFavorite,
+     * which is the saved-tracks like). Optimistic locally, reverted if the write
+     * fails — the override observer can't revert (it bails when the override
+     * clears on failure).
+     */
     fun toggleFollow() {
         val current = _uiState.value as? ArtistDetailUiState.Content ?: return
         val id = MediaId.parseOrNull(artistId) ?: return
+        val target = !current.isStarred
+        _uiState.value = current.copy(isStarred = target)
         viewModelScope.launch {
-            repository.setFavorite(id, favorite = !current.isStarred)
+            repository.setArtistFollowed(id, followed = target).onFailure {
+                (_uiState.value as? ArtistDetailUiState.Content)?.let { c ->
+                    _uiState.value = c.copy(isStarred = !target)
+                }
+            }
         }
     }
 
@@ -96,11 +154,17 @@ class ArtistDetailViewModel(
      */
     suspend fun getAllTracks(): List<Track> {
         val albums = (uiState.value as? ArtistDetailUiState.Content)?.albums ?: return emptyList()
-        return albums.flatMap { album ->
-            runCatching { repository.getAlbum(MediaId.parse(album.id))?.tracks }
-                .getOrNull()
-                .orEmpty()
-        }
+        // Load albums concurrently (cap via the repo's own gating) so Play/Shuffle
+        // doesn't stall on N serial network round-trips on a cold cache.
+        return coroutineScope {
+            albums.map { album ->
+                async {
+                    runCatching { repository.getAlbum(MediaId.parse(album.id))?.tracks }
+                        .getOrNull()
+                        .orEmpty()
+                }
+            }.awaitAll()
+        }.flatten()
     }
 
     class Factory(

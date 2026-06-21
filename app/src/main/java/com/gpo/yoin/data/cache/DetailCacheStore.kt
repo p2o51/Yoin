@@ -56,6 +56,16 @@ class DetailCacheStore(
             json.encodeToString(PlaylistDto.serializer(), PlaylistDto.from(value))
         }
 
+    /** Drop an album's cached copy (e.g. after a track favorite changes it). */
+    suspend fun removeAlbum(profileId: String, id: String) {
+        runCatching { dao.delete(profileId, KIND_ALBUM, id) }
+    }
+
+    /** Drop an artist's cached copy after a follow toggle. */
+    suspend fun removeArtist(profileId: String, id: String) {
+        runCatching { dao.delete(profileId, KIND_ARTIST, id) }
+    }
+
     /** Drop a playlist's cached copy after the user edits it. */
     suspend fun removePlaylist(profileId: String, id: String) {
         runCatching { dao.delete(profileId, KIND_PLAYLIST, id) }

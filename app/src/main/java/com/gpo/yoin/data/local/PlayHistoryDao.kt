@@ -22,6 +22,12 @@ interface PlayHistoryDao {
     )
     suspend fun getMostRecentPlay(songId: String, provider: String, profileId: String): PlayHistory?
 
+    @Query(
+        "SELECT MAX(playedAt) FROM play_history " +
+            "WHERE albumId = :albumId AND provider = :provider AND profileId = :profileId",
+    )
+    suspend fun getAlbumLastPlayed(albumId: String, provider: String, profileId: String): Long?
+
     @Insert
     suspend fun insert(entry: PlayHistory)
 

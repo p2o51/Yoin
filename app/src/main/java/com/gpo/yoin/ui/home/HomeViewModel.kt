@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.gpo.yoin.AppContainer
+import com.gpo.yoin.data.local.ActivityEvent
 import com.gpo.yoin.data.memory.AlbumMemoryCandidate
 import com.gpo.yoin.data.model.Album
 import com.gpo.yoin.data.model.Artist
@@ -12,6 +13,7 @@ import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.Track
 import com.gpo.yoin.data.repository.YoinRepository
 import com.gpo.yoin.data.source.Capability
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
@@ -166,9 +168,7 @@ class HomeViewModel(
     private suspend fun loadSpotifyHomeContent(
         profileId: String,
     ): HomeUiState.Content = coroutineScope {
-        val activitiesDeferred = async {
-            repository.getRecentActivities(limit = 20).first()
-        }
+        val activitiesDeferred = async { resolveSpotifyActivities() }
         val albumDeferred = async {
             repository.getAlbumList("random", size = JUMP_BACK_IN_ALBUM_REQUEST_SIZE)
         }
@@ -179,7 +179,7 @@ class HomeViewModel(
             repository.getTopAlbumMemoryCandidate()?.toMemoryTeaser()
         }
 
-        val activities = activitiesDeferred.await()
+        val (activities, activitiesFromRemote) = activitiesDeferred.await()
         val shuffledAlbums = albumDeferred.await()
             .distinctBy { album -> album.id }
             .shuffled()
@@ -199,6 +199,7 @@ class HomeViewModel(
 
         HomeUiState.Content(
             activities = activities,
+            activitiesFromRemote = activitiesFromRemote,
             jumpBackInItems = buildJumpBackInBatch(
                 albumCandidates = shuffledAlbums,
                 songCandidates = emptyList(),
@@ -209,6 +210,30 @@ class HomeViewModel(
             ),
             memoryTeaser = memoryTeaserDeferred.await(),
         )
+    }
+
+    /**
+     * Spotify Activities prefer the real recently-played endpoint, falling back
+     * to the locally recorded feed when the endpoint fails (e.g.
+     * user-read-recently-played not granted) or the account has no recent
+     * plays. Returns the events plus whether they came from the endpoint, so
+     * [observeRecentHistory] knows whether the endpoint owns the feed.
+     * CancellationException is rethrown so cooperative cancellation isn't
+     * swallowed by the fallback.
+     */
+    private suspend fun resolveSpotifyActivities(): Pair<List<ActivityEvent>, Boolean> {
+        val remote = try {
+            repository.getSpotifyRecentActivities(limit = 20)
+        } catch (cancellation: CancellationException) {
+            throw cancellation
+        } catch (_: Exception) {
+            null
+        }
+        return if (!remote.isNullOrEmpty()) {
+            remote to true
+        } else {
+            repository.getRecentActivities(limit = 20).first() to false
+        }
     }
 
     private suspend fun loadJumpBackInItems(
@@ -241,10 +266,19 @@ class HomeViewModel(
 
     private fun observeRecentHistory() {
         viewModelScope.launch {
-            repository.getRecentActivities(limit = 20).collectLatest { activities ->
+            repository.getRecentActivities(limit = 20).collectLatest { localActivities ->
                 val currentContent = _uiState.value as? HomeUiState.Content ?: return@collectLatest
+                // The recently-played endpoint owns the Spotify feed ONLY when
+                // the activities actually came from it; on the local fallback
+                // (scope missing / no recent plays) the feed must keep
+                // live-updating from local writes like every other provider.
+                // Otherwise a local activity-event write must not clobber the
+                // endpoint feed. The memory teaser refreshes for all providers.
+                val keepEndpointFeed = currentContent.activitiesFromRemote &&
+                    repository.currentProviderId() == MediaId.PROVIDER_SPOTIFY
                 val nextContent = currentContent.copy(
-                    activities = activities,
+                    activities = if (keepEndpointFeed) currentContent.activities else localActivities,
+                    activitiesFromRemote = keepEndpointFeed,
                     memoryTeaser = repository.getTopAlbumMemoryCandidate()?.toMemoryTeaser(),
                 )
                 homeContentCache[homeScopeKey(repository.currentProviderId(), activeProfileId.value)] = nextContent
@@ -253,21 +287,51 @@ class HomeViewModel(
         }
     }
 
-    private fun AlbumMemoryCandidate.toMemoryTeaser(): MemoryTeaser =
-        MemoryTeaser(
+    private fun AlbumMemoryCandidate.toMemoryTeaser(): MemoryTeaser {
+        // A "formed" memory speaks in a recall voice; a still-forming one nudges
+        // the user to finish shaping it. The coverage gate mirrors the original
+        // Memory rule, so a fully-rated album counts as formed even without a
+        // written review.
+        val formed = hasAlbumReview || ratingCoverage >= MEMORY_FORMED_COVERAGE
+        val timeHook = recallTimePhrase(lastPlayedAt ?: firstPlayedAt)
+        return MemoryTeaser(
             albumId = "$provider:$albumId",
+            sessionId = sessionId,
             title = albumName,
-            supportingText = when {
-                hasAlbumReview ->
-                    "Your album review is ready to revisit."
-                totalTracks > 0 && ratedTrackCount > 0 ->
-                    "Rated $ratedTrackCount/$totalTracks songs. Shape it into an album memory."
-                noteCount >= 2 ->
-                    "$noteCount notes are waiting to become an album memory."
-                else ->
-                    "There is enough signal to shape this album into a memory."
+            isFormed = formed,
+            supportingText = if (formed) {
+                when {
+                    timeHook != null -> "You shaped this memory — last with it $timeHook."
+                    else -> "Your album memory is here whenever you want to revisit it."
+                }
+            } else {
+                when {
+                    totalTracks > 0 && ratedTrackCount > 0 ->
+                        "Rated $ratedTrackCount/$totalTracks songs. Shape it into an album memory."
+                    noteCount >= 2 ->
+                        "$noteCount notes are waiting to become an album memory."
+                    else ->
+                        "There is enough signal to shape this album into a memory."
+                }
             },
         )
+    }
+
+    // Warm, relative recall phrase for a formed memory's last touch. Null when
+    // the candidate has no usable timestamp (e.g. a review with no recorded play).
+    private fun recallTimePhrase(epochMillis: Long?): String? {
+        if (epochMillis == null || epochMillis <= 0L) return null
+        val days = ((System.currentTimeMillis() - epochMillis).coerceAtLeast(0L)) / 86_400_000L
+        return when {
+            days <= 0L -> "earlier today"
+            days == 1L -> "yesterday"
+            days < 7L -> "$days days ago"
+            days < 14L -> "last week"
+            days < 60L -> "${days / 7} weeks ago"
+            days < 365L -> "${(days / 30).coerceAtLeast(1)} months ago"
+            else -> "${(days / 365).coerceAtLeast(1)} years ago"
+        }
+    }
 
     private fun buildJumpBackInBatch(
         albumCandidates: List<Album>,
@@ -381,18 +445,24 @@ class HomeViewModel(
     }
 
     private companion object {
-        // 3-column grid × 6 rows = 18 Jump Back In cards, fixed. No paged
-        // "load more" — previous implementation fired a new network batch
-        // each time the user scrolled near the bottom, and the palette-
-        // extracting render cost piled up so fast that the whole list
-        // felt like it was fighting for frames. A fixed recommendation
-        // block is enough signal for the user; refreshJumpBackIn() is
-        // still wired through for pull-to-reshuffle.
-        private const val JUMP_BACK_IN_FIXED_COUNT = 18
+        // 3-column grid × 3 rows = 9 Jump Back In cards, fixed. The section
+        // used to be 18 (six rows) which dominated the feed for the little
+        // signal it carried; three rows is enough of a "pick up where you
+        // left off" nudge without pushing everything else off-screen. The
+        // candidate request/cache pools stay larger so pull-to-reshuffle
+        // (refreshJumpBackIn) still has fresh material to draw from. No paged
+        // "load more" — the previous bottom-scroll pagination fired a network
+        // batch per scroll and the palette-extracting render cost piled up
+        // until the list fought for frames.
+        private const val JUMP_BACK_IN_FIXED_COUNT = 9
         private const val JUMP_BACK_IN_ALBUM_REQUEST_SIZE = 18
         private const val JUMP_BACK_IN_SONG_REQUEST_SIZE = 18
         private const val SpotifyHomeCacheCandidateCount = 18
         private const val SpotifyHomeCacheTtlMillis = 60L * 60L * 1000L
+
+        // Rated-coverage at/above which an album reads as a "formed" memory in
+        // the home teaser, matching the original Memory recommendation rule.
+        private const val MEMORY_FORMED_COVERAGE = 0.6f
         private val homeContentCache = mutableMapOf<String, HomeUiState.Content>()
 
         private fun homeScopeKey(providerId: String?, profileId: String?): String =

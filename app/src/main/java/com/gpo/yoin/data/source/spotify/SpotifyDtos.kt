@@ -61,6 +61,12 @@ data class SpotifyTrackObject(
     @SerialName("track_number") val trackNumber: Int? = null,
 )
 
+/** Response of GET /v1/artists/{id}/top-tracks. */
+@Serializable
+data class SpotifyArtistTopTracksResponse(
+    val tracks: List<SpotifyTrackObject> = emptyList(),
+)
+
 @Serializable
 data class SpotifyAlbumObject(
     val id: String,
@@ -110,6 +116,21 @@ data class SpotifySavedTrackObject(
 data class SpotifySavedAlbumObject(
     @SerialName("added_at") val addedAt: String? = null,
     val album: SpotifyAlbumObject? = null,
+)
+
+@Serializable
+data class SpotifyPlayHistoryObject(
+    val track: SpotifyTrackObject? = null,
+    @SerialName("played_at") val playedAt: String? = null,
+    val context: SpotifyPlayContextObject? = null,
+)
+
+@Serializable
+data class SpotifyPlayContextObject(
+    /** "album" | "artist" | "playlist" | "show". */
+    val type: String? = null,
+    val uri: String? = null,
+    @SerialName("external_urls") val externalUrls: SpotifyExternalUrls? = null,
 )
 
 @Serializable

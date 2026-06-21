@@ -226,12 +226,16 @@ private fun AlbumDetailContent(
         revealState.launchAnimateTo(scope, if (expanded) 0f else 1f)
     }
     val setExpanded: (Boolean) -> Unit = { target -> expanded = target }
-    BackHandler(enabled = expanded) { setExpanded(false) }
-
-    val expand = 1f - revealState.fraction
 
     // Horizontal pager: page 0 = this overview, page 1 = scores/About sample.
     val pagerState = rememberPagerState(pageCount = { 2 })
+
+    // The secondary page is a horizontal swipe, NOT a back-stack destination, so
+    // back must ignore it. Intercept ONLY to collapse the pulled-up track list on
+    // page 0; on page 1 (or the page-0 hero) back falls through to finish the
+    // Activity (native cross-Activity predictive back). The page==0 guard is what
+    // stops back from silently collapsing the off-screen reshape on page 1.
+    BackHandler(enabled = expanded && pagerState.currentPage == 0) { setExpanded(false) }
 
     var showEditSheet by remember { mutableStateOf(false) }
 
@@ -262,7 +266,6 @@ private fun AlbumDetailContent(
                         bunContainer = bunContainer,
                         bunContent = bunContent,
                         revealState = revealState,
-                        expand = expand,
                         expanded = expanded,
                         onExpandedCommit = { expanded = it },
                         notedSongIds = notedSongIds,
@@ -381,7 +384,6 @@ private fun AlbumOverviewPage(
     bunContainer: Color,
     bunContent: Color,
     revealState: RevealState,
-    expand: Float,
     expanded: Boolean,
     onExpandedCommit: (Boolean) -> Unit,
     notedSongIds: Set<String>,
@@ -445,6 +447,11 @@ private fun AlbumOverviewPage(
                 }
             }
         }
+
+        // Reveal fraction read HERE (not in the parent scope) so only this page —
+        // not the whole screen, header, pager and toolbar — recomposes per frame
+        // during the reshape settle. 1 = hero, 0 = track list; expand 0→1.
+        val expand = 1f - revealState.fraction
 
         // Cover geometry: hero square → state-2 capsule (small pill when many
         // tracks, big capsule when few). Everything lerps on `expand`.

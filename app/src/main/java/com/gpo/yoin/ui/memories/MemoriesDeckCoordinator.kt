@@ -58,6 +58,63 @@ class MemoriesDeckCoordinator(
         return memories
     }
 
+    /**
+     * Build a deck guaranteed to contain [focusSessionId] as its first card,
+     * filling the rest from the usual sample. Used when the home teaser routes
+     * the user into Memories — so the album the teaser showed is what they land
+     * on, not a random card from a re-sampled deck.
+     *
+     * Reuses the cached candidate pool (no [invalidate]), so this is as cheap as
+     * a normal open. If the focus album isn't in the pool (rare — it ranks high
+     * by the same builder), the deck degrades gracefully to its first resolved
+     * card.
+     */
+    suspend fun ensureDeckFocused(focusSessionId: Long): List<MemoryEntry> {
+        var candidates = ensureCandidates()
+        // The cached pool is only invalidated on profile switch / force refresh,
+        // not on rating/note/review writes. If the just-tapped album became
+        // eligible (or top) after the pool was built, it'd be missing here and
+        // focus would silently fall back to the first card. Rebuild once so the
+        // teaser's album is honored.
+        if (candidates.isNotEmpty() &&
+            candidates.none { candidate -> candidate.sessionId == focusSessionId }
+        ) {
+            invalidate()
+            candidates = ensureCandidates()
+        }
+        if (candidates.isEmpty()) {
+            sessionStore.clearMemories()
+            return emptyList()
+        }
+
+        val desiredCandidateIds = (
+            listOf(focusSessionId) +
+                sampleDeckCandidates(
+                    candidates = candidates,
+                    excludedCandidateIds = setOf(focusSessionId),
+                ).map(AlbumMemoryCandidate::sessionId)
+            ).distinct().take(MEMORY_DECK_SIZE)
+
+        val memories = resolveDeck(desiredCandidateIds)
+        if (memories.isEmpty()) {
+            sessionStore.clearMemories()
+            return emptyList()
+        }
+
+        // Index from the RESOLVED list — resolveAlbumMemory can drop the focus
+        // album on a cold getAlbum failure, so never assume index 0.
+        val focusPage = memories
+            .indexOfFirst { memory -> memory.sourceActivityId == focusSessionId }
+            .coerceAtLeast(0)
+        // Persist unconditionally: bumping deckId is what makes the keyed pager
+        // re-read initialPage and jump to the focused card.
+        sessionStore.replaceMemoriesDeck(
+            activityIds = memories.map(MemoryEntry::sourceActivityId),
+            currentPage = focusPage,
+        )
+        return memories
+    }
+
     suspend fun advanceDeck(direction: MemoryDeckDirection): List<MemoryEntry> {
         val candidates = ensureCandidates()
         if (candidates.isEmpty()) {

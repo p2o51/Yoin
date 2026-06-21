@@ -37,6 +37,8 @@ import androidx.compose.ui.unit.Velocity
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.QueueMusic
+import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.LibraryMusic
 import androidx.compose.material.icons.filled.Person
@@ -147,6 +149,9 @@ internal fun HomeEditorialContent(
     activeSongId: String? = null,
     onNavigateToSettings: () -> Unit,
     onNavigateToMemories: () -> Unit,
+    // Teaser-only: open the deck stopped on this specific album (by candidate
+    // sessionId). The chevron + pull-to-reveal stay generic via onNavigateToMemories.
+    onOpenMemoryFocus: (sessionId: Long) -> Unit = {},
     memoriesRevealState: RevealState = rememberRevealState(),
     onCommitMemoriesReveal: () -> Unit = {},
     onAlbumClick: (albumId: String, sharedTransitionKey: String?) -> Unit,
@@ -279,10 +284,18 @@ internal fun HomeEditorialContent(
             )
         }
 
-        memoryTeaser?.let { teaser ->
-            item(key = "memory-teaser") {
+        item(key = "memory-teaser") {
+            // A candidate album → nudge to revisit it; otherwise a standing
+            // guide so the Memories mechanic is discoverable before the user
+            // has ever rated or noted anything.
+            if (memoryTeaser != null) {
                 MemoryTeaserRow(
-                    teaser = teaser,
+                    teaser = memoryTeaser,
+                    onClick = { onOpenMemoryFocus(memoryTeaser.sessionId) },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            } else {
+                MemoryGuideRow(
                     onClick = onNavigateToMemories,
                     modifier = Modifier.fillMaxWidth(),
                 )
@@ -292,7 +305,7 @@ internal fun HomeEditorialContent(
         item {
             AnimatedVisibility(visible = activityEntries.isNotEmpty()) {
                 ActivityGrid(
-                    entries = activityEntries.take(6),
+                    entries = activityEntries.take(4),
                     activeSongId = activeSongId,
                     isPlaying = isPlaying,
                     playbackSignal = playbackSignal,
@@ -433,7 +446,12 @@ private fun MemoryTeaserRow(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Icon(
-                imageVector = Icons.Filled.LibraryMusic,
+                // A formed memory recalls (history); a forming one invites shaping.
+                imageVector = if (teaser.isFormed) {
+                    Icons.Filled.History
+                } else {
+                    Icons.Filled.LibraryMusic
+                },
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.secondary,
                 modifier = Modifier.size(22.dp),
@@ -451,6 +469,66 @@ private fun MemoryTeaserRow(
                 )
                 Text(
                     text = teaser.supportingText,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            Icon(
+                imageVector = Icons.Filled.KeyboardArrowDown,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(20.dp),
+            )
+        }
+    }
+}
+
+@Composable
+private fun MemoryGuideRow(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val haptics = rememberYoinHaptics()
+    Surface(
+        modifier = modifier,
+        onClick = {
+            haptics.performContextClick()
+            onClick()
+        },
+        shape = YoinShapeTokens.Large,
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        tonalElevation = 0.dp,
+        shadowElevation = 0.dp,
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .minimumTouchTarget()
+                .padding(horizontal = 14.dp, vertical = 12.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                imageVector = Icons.Filled.AutoAwesome,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.secondary,
+                modifier = Modifier.size(22.dp),
+            )
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                Text(
+                    text = "Start an album memory",
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    text = "Rate songs, jot a note, or review an album — it surfaces here as a memory.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 2,

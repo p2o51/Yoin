@@ -34,6 +34,10 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
+/** Sentinel id a Spotify App Remote track gets when its uri is blank
+ *  (mirror of SpotifyAppRemotePlayer's fallback). Such a track can't be saved. */
+private const val REMOTE_UNKNOWN_TRACK_ID = "spotify-remote-unknown"
+
 @OptIn(ExperimentalCoroutinesApi::class)
 class NowPlayingViewModel(
     private val playbackManager: PlaybackManager,
@@ -142,8 +146,10 @@ class NowPlayingViewModel(
 
     // Authoritative saved-state from the library cache (Spotify), reactive so a
     // background sync or a confirmed favorite write keeps the heart correct.
-    // null = not a cached Spotify track → fall back to the playback track's own
-    // isStarred.
+    // null = not a cached Spotify track → fall back to [_isStarred] which is
+    // updated by [toggleFavorite] on success, so the heart never reverts to a
+    // stale playback-track flag (Spotify App Remote’s PlayerState does not
+    // reflect live favorite changes).
     private val cachedFavoriteFlow: Flow<Boolean?> = currentSongId.flatMapLatest { songId ->
         if (songId != null) repository.observeSpotifyFavorite(songId) else flowOf(null)
     }
@@ -151,13 +157,14 @@ class NowPlayingViewModel(
     private val favoriteFlow = combine(
         currentSongId,
         cachedFavoriteFlow,
-        playbackManager.playbackState.map { state -> state.currentTrack?.isStarred == true },
+        _isStarred,
         repository.favoriteOverrides,
-    ) { songId, cachedFavorite, trackStarred, overrides ->
+    ) { songId, cachedFavorite, vmStarred, overrides ->
         // Override (the user's just-tapped intent) wins; then the cache (real
-        // library state); then the playback track's flag. The override is
-        // cleared on success only AFTER the cache reflects it, so no revert.
-        songId?.let(overrides::get) ?: cachedFavorite ?: trackStarred
+        // library state); then the ViewModel's own last-known state. The
+        // override is cleared on success only AFTER the cache reflects it,
+        // so no revert.
+        songId?.let(overrides::get) ?: cachedFavorite ?: vmStarred
     }
 
     val notesState: StateFlow<List<SongNote>> = currentSongId
@@ -558,13 +565,31 @@ class NowPlayingViewModel(
     fun toggleFavorite() {
         val track = playbackManager.playbackState.value.currentTrack ?: return
         val songId = track.id
+        // A track started externally via Spotify App Remote can arrive without a
+        // resolvable id (blank uri → this sentinel). Saving it would PUT a bogus
+        // id and 4xx-fail, which used to just silently revert the optimistic
+        // heart — looking like the tap "did nothing". Refuse with a reason instead.
+        if (songId.rawId.isBlank() || songId.rawId == REMOTE_UNKNOWN_TRACK_ID) {
+            _addToPlaylistMessages.tryEmit("Can't save — track info unavailable")
+            return
+        }
         val currentFavorite = (uiState.value as? NowPlayingUiState.Playing)?.isStarred
             ?: _isStarred.value
         val nextFavorite = !currentFavorite
         viewModelScope.launch {
-            repository.setFavorite(track, nextFavorite).onSuccess {
-                _isStarred.value = nextFavorite
-            }
+            repository.setFavorite(track, nextFavorite)
+                .onSuccess {
+                    _isStarred.value = nextFavorite
+                }
+                .onFailure { error ->
+                    // The optimistic heart has already reverted in the repository;
+                    // surface WHY instead of leaving a silent no-op (the symptom
+                    // was "heart bounces but nothing sticks").
+                    _addToPlaylistMessages.tryEmit(
+                        error.message?.takeIf { it.isNotBlank() }
+                            ?: if (nextFavorite) "Couldn't save to favorites" else "Couldn't remove from favorites",
+                    )
+                }
         }
     }
 

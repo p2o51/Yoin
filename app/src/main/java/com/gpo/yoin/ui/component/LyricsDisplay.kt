@@ -2,26 +2,29 @@ package com.gpo.yoin.ui.component
 
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
-import androidx.compose.ui.draw.clipToBounds
-import androidx.compose.ui.draw.drawWithContent
-import androidx.compose.ui.graphics.BlendMode
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
@@ -30,18 +33,29 @@ import androidx.compose.ui.unit.dp
 import com.gpo.yoin.ui.nowplaying.LyricLine
 import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinTheme
+import kotlin.math.abs
+import kotlinx.coroutines.flow.first
 
 /**
- * Synced lyrics display — fixed-height container showing the current line
- * (bold) plus the next few lines. Bottom fade mask hides overflow.
- * Near the end of a song, lines stay in place and only the highlight moves.
+ * Synced lyrics display — a compact, fixed-height window onto the full lyric list
+ * that keeps the current line anchored near the top (one "past" line above it,
+ * upcoming lines below) and smoothly auto-scrolls as playback advances.
+ *
+ * The list data NEVER mutates — only the scroll position and per-line active state
+ * change — so the top line LEAVING and the bottom line ENTERING are the *same*
+ * continuous scroll at both edges (dissolved by the [edgeFade] masks), with no
+ * lazy-insertion animation to misfire. End-of-song falls out naturally: the scroll
+ * just stops once the last lines are all in view.
  *
  * @param lyrics list of lyric lines (may be synced or unsynced)
  * @param positionMs current playback position in milliseconds
  * @param loading true while the ViewModel's fetch is in flight; renders the
  *  expressive [YoinLoadingIndicator] instead of the "No lyrics available" text
- * @param visibleLines how many lines to show (including current)
- * @param fixedHeight the fixed height of the lyrics container
+ * @param visibleLines retained for source compatibility; the visible line count is
+ *  now driven by the container height (the modifier), not this value
+ * @param fixedHeight retained for source compatibility; unused
+ * @param fontScale multiplies BOTH the font size and the line height, so growing
+ *  the text never cramps the line spacing
  */
 @Composable
 fun LyricsDisplay(
@@ -51,6 +65,7 @@ fun LyricsDisplay(
     loading: Boolean = false,
     visibleLines: Int = 5,
     fixedHeight: Dp = 160.dp,
+    fontScale: Float = 1f,
 ) {
     if (lyrics.isEmpty()) {
         Box(
@@ -75,41 +90,50 @@ fun LyricsDisplay(
     val currentIndex = remember(lyrics, positionMs) {
         findCurrentLyricIndex(lyrics, positionMs)
     }
+    val listState = rememberLazyListState()
+    // First centring is INSTANT (no animated jump) the moment the list has a real
+    // viewport; resets per song so a new track re-anchors immediately.
+    var hasCentered by remember(lyrics) { mutableStateOf(false) }
 
-    // Clamp the window so end-of-song lyrics stay in place
-    val maxStartIndex = (lyrics.size - visibleLines).coerceAtLeast(0)
-    val startIndex = currentIndex.coerceAtLeast(0).coerceAtMost(maxStartIndex)
-    val endIndex = (startIndex + visibleLines).coerceAtMost(lyrics.size)
-    val visibleLyrics = lyrics.subList(startIndex, endIndex)
-    val activeIndexInWindow = currentIndex - startIndex
+    // ONE settle driver owns the scroll. Anchor the active line ~22% from the top
+    // so there is roughly one past line above it and the upcoming lines below.
+    LaunchedEffect(currentIndex, listState) {
+        if (currentIndex < 0) return@LaunchedEffect
+        // Wait for a non-zero viewport — during an expand the height is ~0, so the
+        // offset would resolve to 0 and the real anchoring would slip a line.
+        val viewportPx = snapshotFlow { listState.layoutInfo.viewportSize.height }
+            .first { it > 0 }
+        val offsetPx = -(viewportPx * 0.22f).toInt()
+        val target = currentIndex.coerceIn(0, lyrics.lastIndex)
+        if (hasCentered) {
+            listState.animateScrollToItem(index = target, scrollOffset = offsetPx)
+        } else {
+            listState.scrollToItem(index = target, scrollOffset = offsetPx)
+            hasCentered = true
+        }
+    }
 
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .clipToBounds()
-            .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
-            .drawWithContent {
-                drawContent()
-                // Bottom fade mask
-                val fadeHeight = 48.dp.toPx()
-                drawRect(
-                    brush = Brush.verticalGradient(
-                        colors = listOf(Color.Black, Color.Transparent),
-                        startY = size.height - fadeHeight,
-                        endY = size.height,
-                    ),
-                    blendMode = BlendMode.DstIn,
-                )
-            },
+            // Both edges dissolve: the leaving line fades out at the top, the
+            // entering line fades in at the bottom — symmetric by construction.
+            // Kept modest so a short (3-line) collapsed box isn't eaten by the fade.
+            .edgeFade(top = 16.dp, bottom = 24.dp),
     ) {
-        Column(
-            modifier = Modifier.fillMaxWidth(),
+        LazyColumn(
+            state = listState,
+            modifier = Modifier.fillMaxSize(),
+            userScrollEnabled = false,
+            verticalArrangement = Arrangement.spacedBy(2.dp),
+            contentPadding = PaddingValues(vertical = 12.dp),
         ) {
-            visibleLyrics.forEachIndexed { index, line ->
-                val isCurrentLine = (index == activeIndexInWindow && currentIndex >= 0)
+            itemsIndexed(lyrics, key = { i, _ -> i }) { index, line ->
                 LyricLineItem(
                     text = line.text,
-                    isActive = isCurrentLine,
+                    isActive = index == currentIndex && currentIndex >= 0,
+                    distance = if (currentIndex >= 0) abs(index - currentIndex) else 99,
+                    fontScale = fontScale,
                 )
             }
         }
@@ -121,7 +145,17 @@ private fun LyricLineItem(
     text: String,
     isActive: Boolean,
     modifier: Modifier = Modifier,
+    distance: Int = 0,
+    fontScale: Float = 1f,
 ) {
+    // Distance-based falloff (not just active/inactive): lines dim the further they
+    // are from the current one, for the smooth Apple-style gradient.
+    val targetAlpha = when {
+        isActive -> 1f
+        distance <= 1 -> 0.55f
+        distance == 2 -> 0.40f
+        else -> 0.28f
+    }
     val textColor by animateColorAsState(
         targetValue = if (isActive) {
             MaterialTheme.colorScheme.primary
@@ -132,22 +166,40 @@ private fun LyricLineItem(
         label = "lyricColor",
     )
     val alpha by animateFloatAsState(
-        targetValue = if (isActive) 1f else 0.6f,
+        targetValue = targetAlpha,
         animationSpec = YoinMotion.effectsSpring(),
         label = "lyricAlpha",
     )
+    // The active line springs up to full scale (anchored at its left edge) while
+    // neighbours sit a touch smaller — it "lands" as it becomes current.
+    val scale by animateFloatAsState(
+        targetValue = if (isActive) 1f else 0.94f,
+        animationSpec = YoinMotion.spatialSpring(),
+        label = "lyricScale",
+    )
 
+    val baseStyle = if (isActive) {
+        MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Bold)
+    } else {
+        MaterialTheme.typography.bodyMedium
+    }
     Text(
         text = text,
-        style = if (isActive) {
-            MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Bold)
-        } else {
-            MaterialTheme.typography.bodyMedium
-        },
+        // Scale fontSize AND lineHeight by the same factor — scaling only the font
+        // grows glyphs into a fixed line box and cramps the spacing.
+        style = baseStyle.copy(
+            fontSize = baseStyle.fontSize * fontScale,
+            lineHeight = baseStyle.lineHeight * fontScale,
+        ),
         color = textColor,
         modifier = modifier
             .fillMaxWidth()
-            .alpha(alpha)
+            .graphicsLayer {
+                this.alpha = alpha
+                scaleX = scale
+                scaleY = scale
+                transformOrigin = TransformOrigin(0f, 0.5f)
+            }
             .padding(vertical = 4.dp),
     )
 }
@@ -180,6 +232,7 @@ private fun LyricsDisplaySyncedPreview() {
                 LyricLine(startMs = 25000, text = "Sixth line upcoming"),
             ),
             positionMs = 12000L,
+            modifier = Modifier.height(180.dp),
         )
     }
 }
@@ -196,6 +249,7 @@ private fun LyricsDisplayEndOfSongPreview() {
                 LyricLine(startMs = 15000, text = "Last line of the song"),
             ),
             positionMs = 16000L,
+            modifier = Modifier.height(180.dp),
         )
     }
 }

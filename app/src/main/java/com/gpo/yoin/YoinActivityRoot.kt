@@ -19,8 +19,10 @@ import coil3.size.Size
 import coil3.toBitmap
 import com.gpo.yoin.ui.experience.LocalMotionCapabilityProvider
 import com.gpo.yoin.ui.experience.LocalMotionProfile
+import com.gpo.yoin.ui.experience.LocalYoinWindowInfo
 import com.gpo.yoin.ui.experience.MotionCapabilityProvider
 import com.gpo.yoin.ui.experience.MotionProfile
+import com.gpo.yoin.ui.experience.rememberYoinWindowInfo
 import com.gpo.yoin.ui.theme.CoverColorState
 import com.gpo.yoin.ui.theme.LocalCoverColorState
 import com.gpo.yoin.ui.theme.YoinTheme
@@ -92,9 +94,21 @@ private fun YoinAppEnvironment(content: @Composable () -> Unit) {
         }
     }
 
+    // Window size + fold posture, observed once per Activity. Drives the
+    // Compact / Wide / Tabletop render dimension (orthogonal to stage mode).
+    val windowInfo = rememberYoinWindowInfo()
+    // TODO(responsive Phase 0): remove this verification log once Wide/Tabletop land.
+    LaunchedEffect(windowInfo) {
+        android.util.Log.d(
+            "YoinWindowInfo",
+            "layoutMode=${windowInfo.layoutMode} width>=Medium=${windowInfo.isWidthAtLeastMedium} hinge=${windowInfo.hingeBounds}",
+        )
+    }
+
     CompositionLocalProvider(
         LocalMotionCapabilityProvider provides motionCapabilityProvider,
         LocalMotionProfile provides motionProfile,
+        LocalYoinWindowInfo provides windowInfo,
     ) {
         content()
     }

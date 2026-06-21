@@ -127,6 +127,18 @@ class SpotifyMusicSource(
             )
         }
 
+        override suspend fun getArtistTopTracks(id: MediaId): List<Track> =
+            withSpotifyId(id) { rawId ->
+                // Best-effort: a market/region hiccup just hides the Popular
+                // section rather than failing the whole artist page. NOTE: no
+                // savedTrackIds() here — these tracks are a play queue / display
+                // rows that don't read isStarred, so warming the saved-tracks set
+                // (up to a full paginated fetch on a cold cache) would be wasted.
+                runCatching { apiClient.getArtistTopTracks(rawId) }
+                    .getOrDefault(emptyList())
+                    .map { it.toTrack() }
+            }.orEmpty()
+
         override suspend fun getPlaylists(): List<Playlist> {
             val meId = apiClient.getCurrentUserId()
             return currentUserPlaylists()
@@ -197,9 +209,8 @@ class SpotifyMusicSource(
     private val writeActions = object : MusicWriteActions {
         override suspend fun setFavorite(id: MediaId, favorite: Boolean): Result<Unit> = runCatching {
             val rawId = requireSpotify(id).rawId
-            // Current callsites only toggle favorite for tracks. If future UI
-            // starts starring albums/artists/playlists, this interface needs an
-            // explicit entity type rather than a bare MediaId.
+            // setFavorite is the TRACK like (saved-tracks library). Artist follow
+            // goes through setArtistFollowed below, which hits a different endpoint.
             val uri = "spotify:track:$rawId"
             if (favorite) {
                 apiClient.saveToLibrary(uri)
@@ -208,6 +219,14 @@ class SpotifyMusicSource(
             }
             savedTracksCache = null
         }
+
+        override suspend fun setArtistFollowed(id: MediaId, followed: Boolean): Result<Unit> =
+            runCatching {
+                val rawId = requireSpotify(id).rawId
+                apiClient.setArtistFollowed(rawId, followed)
+                // Re-derive follow state on the next artist read.
+                followedArtistsCache = null
+            }
 
         override suspend fun setRating(trackId: MediaId, rating: Int): Result<Unit> =
             Result.failure(UnsupportedOperationException("Spotify has no 5-star rating"))
@@ -325,6 +344,10 @@ class SpotifyMusicSource(
     suspend fun transferPlayback(deviceId: String, play: Boolean = true) {
         apiClient.transferPlayback(deviceId = deviceId, play = play)
     }
+
+    /** Recently played tracks (newest first) for the Spotify activity feed. */
+    suspend fun getRecentlyPlayed(limit: Int): List<SpotifyPlayHistoryObject> =
+        apiClient.getRecentlyPlayed(limit = limit)
 
     /**
      * Translate the visible row index in Yoin's filtered playlist view back

@@ -29,7 +29,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
-import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.filter
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
@@ -84,26 +84,36 @@ fun LyricsFullscreenPane(
     // beat. Resets per song so a new track re-centres instantly.
     var hasCentered by remember(lyrics) { mutableStateOf(false) }
 
-    // Offset by ~38% of the viewport so the active line reads as the
-    // center of attention instead of a literal midpoint.
-    LaunchedEffect(currentIndex, listState, autoScrollEnabled, recenterRequestKey) {
-        if (!autoScrollEnabled) return@LaunchedEffect
-        if (currentIndex < 0) return@LaunchedEffect
-        // Wait for a non-zero viewport: while the pane is still expanding its
-        // height is ~0, so reading it directly yields offset 0 and the real
-        // centring would only happen on the NEXT lyric line. Suspending here
-        // returns immediately once laid out (and immediately during playback,
-        // where the viewport is already non-zero).
-        val viewportPx = snapshotFlow { listState.layoutInfo.viewportSize.height }
-            .first { it > 0 }
-        val offsetPx = -(viewportPx * 0.38f).toInt()
+    // Offset by ~38% of the viewport so the active line reads as the centre of
+    // attention rather than a literal midpoint. KEYED on currentIndex / showTranslation
+    // so the effect RESTARTS and re-reads them when the line advances or the
+    // translation layer toggles — a captured `val` read inside snapshotFlow never
+    // re-emits (records no snapshot state), which is why the expanded pane stopped
+    // following. The compact LyricsDisplay keys on currentIndex for the same reason.
+    // While the pane is still expanding the viewport grows 0 -> full, so we re-anchor
+    // on every growth frame and the active line stays centred through and after it.
+    LaunchedEffect(listState, autoScrollEnabled, recenterRequestKey, currentIndex, showTranslation) {
+        if (!autoScrollEnabled || currentIndex < 0) return@LaunchedEffect
         val target = currentIndex.coerceIn(0, lyrics.lastIndex)
-        if (hasCentered) {
-            listState.animateScrollToItem(index = target, scrollOffset = offsetPx)
-        } else {
-            listState.scrollToItem(index = target, scrollOffset = offsetPx)
-            hasCentered = true
-        }
+        var firstAnchor = true
+        snapshotFlow { listState.layoutInfo.viewportSize.height }
+            .filter { it > 0 }
+            .collect { vp ->
+                val offsetPx = -(vp * 0.38f).toInt()
+                when {
+                    // Very first centre of the song: instant, no animation.
+                    !hasCentered -> {
+                        listState.scrollToItem(target, offsetPx)
+                        hasCentered = true
+                    }
+                    // First reaction to this advance / translation toggle / recenter: glide.
+                    firstAnchor -> listState.animateScrollToItem(target, offsetPx)
+                    // Later viewport-growth frames mid-expand: snap so it tracks the
+                    // growing viewport without lagging behind.
+                    else -> listState.scrollToItem(target, offsetPx)
+                }
+                firstAnchor = false
+            }
     }
 
     val latestOnUserScroll by rememberUpdatedState(onUserScroll)

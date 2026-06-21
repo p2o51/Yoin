@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Yoin · 鲲 mascot · 摸鱼 & 重力</title>
+<style>
+  :root{
+    --bg:#0a0f1a; --card:#0e1422; --ink:#eaf0fb; --muted:#8b93ab;
+    --cream:#FFEADB; --tan:#BC977B; --cyan:#47D6EA; --body:#819FEF;
+    --s-soft:linear(0,0.026,0.097,0.2,0.325,0.46,0.594,0.717,0.823,0.908,0.971,1.012,1.033,1.04,1.036,1.026,1.013,1.001,0.993,0.988,0.987,0.989,0.993,0.997,1);
+    --s-bounce:linear(0,0.044,0.165,0.338,0.522,0.693,0.835,0.943,1.013,1.05,1.061,1.052,1.032,1.009,0.991,0.98,0.977,0.981,0.989,0.997,1.003,1.005,1.004,1.001,1);
+    --s-big:linear(0,0.06,0.22,0.44,0.66,0.85,1.0,1.1,1.15,1.16,1.13,1.08,1.02,0.97,0.945,0.94,0.955,0.98,1.005,1.02,1.022,1.014,1.004,0.998,1);
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;background:var(--bg);color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,"PingFang SC",system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:1160px;margin:0 auto;padding:40px 24px 72px}
+  header h1{font-size:26px;font-weight:600;margin:0 0 6px;letter-spacing:-.01em}
+  header h1 b{color:var(--cyan);font-weight:600}
+  header .sub{color:#9aa2bd;font-size:15px;line-height:1.65;margin:0 0 4px;max-width:820px}
+  header .sub b{color:#c7cee6;font-weight:500}
+  header code{background:#141c2e;color:#b6bedb;padding:1px 6px;border-radius:5px;font-size:12px}
+  .reduced-note{display:none;color:#cfd6ee;font-size:12px;margin-top:8px}
+  @media (prefers-reduced-motion: reduce){ .reduced-note{display:block} }
+
+  .section-label{font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:#6c748f;margin:30px 0 14px;display:flex;align-items:center;gap:10px}
+  .section-label::after{content:"";flex:1;height:1px;background:#1a2236}
+
+  .feature{display:grid;grid-template-columns:repeat(auto-fit,minmax(380px,1fr));gap:22px}
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:18px}
+  .card{background:var(--card);border:1px solid #1a2236;border-radius:18px;overflow:hidden;display:flex;flex-direction:column}
+  .card.lg{border-color:#243049}
+  .stage{position:relative;aspect-ratio:1/1;display:flex;align-items:center;justify-content:center;cursor:pointer;overflow:hidden;
+    background:radial-gradient(circle at 50% 46%,#3a5575 0%,#2f4661 48%,#1c2c42 100%)}
+  .stage svg{width:80%;height:80%;overflow:visible;display:block}
+  .card.lg .stage svg{width:72%;height:72%}
+  .badge{position:absolute;top:12px;left:12px;font-size:11px;letter-spacing:.04em;text-transform:uppercase;z-index:2;
+    color:#d6dcf2;background:rgba(10,16,32,.5);border:1px solid rgba(150,160,200,.25);border-radius:999px;padding:4px 11px;backdrop-filter:blur(6px)}
+  .hint{position:absolute;bottom:11px;right:13px;font-size:11px;color:#cfd6ee;background:rgba(8,12,26,.45);
+    border-radius:8px;padding:3px 8px;pointer-events:none;opacity:0;transition:opacity .3s;z-index:2}
+  .stage:hover .hint{opacity:1}
+  .info{padding:15px 17px 17px}
+  .card.lg .info{padding:18px 20px 20px}
+  .info h3{margin:0 0 5px;font-size:15.5px;font-weight:600}
+  .card.lg .info h3{font-size:18px}
+  .info p{margin:0;font-size:13px;line-height:1.55;color:#9aa2bd}
+  .card.lg .info p{font-size:13.5px;line-height:1.6}
+  .rive{margin-top:10px;font-size:11.5px;line-height:1.5;color:#828aa8;border-top:1px dashed #232b40;padding-top:9px}
+  .rive b{color:#a7afd0;font-weight:500}
+  .rive code{background:#141c2e;color:#b6bedb;padding:1px 5px;border-radius:4px;font-size:11px}
+
+  /* per-layer pivots, resolved in the icon's 0–512 viewBox space */
+  .creature,.body,.halo{transform-box:view-box;transform-origin:256px 251px;will-change:transform}
+  .fin{transform-box:view-box;will-change:transform}
+  .fin-cream{transform-origin:210px 219px}
+  .fin-tan{transform-origin:405px 270px}
+  .fin-cyan{transform-origin:152px 293px}
+
+  /* gravity controls */
+  .tiltbtn{position:absolute;bottom:14px;left:50%;transform:translateX(-50%);z-index:3;
+    font:500 12.5px/1 inherit;color:#06121a;background:#7fe0ee;border:none;border-radius:999px;padding:9px 18px;cursor:pointer;
+    box-shadow:0 4px 16px rgba(71,214,234,.4);transition:transform .15s ease}
+  .tiltbtn:active{transform:translateX(-50%) scale(.94)}
+  .tiltstatus{position:absolute;top:12px;right:12px;z-index:2;font-size:11px;color:#dfe6f8;
+    background:rgba(8,12,26,.5);border:1px solid rgba(150,160,200,.2);border-radius:8px;padding:4px 9px;pointer-events:none;backdrop-filter:blur(6px)}
+
+  footer{margin-top:46px;border-top:1px solid #1a2236;padding-top:24px;color:#828aa8;font-size:13px;line-height:1.7;max-width:880px}
+  footer b{color:#bcc4e0;font-weight:500}
+  footer code{background:#141c2e;color:#b6bedb;padding:1px 6px;border-radius:5px;font-size:12px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Yoin · <b>鲲</b> mascot · 摸鱼 &amp; 重力</h1>
+    <p class="sub">两个继续打磨的方向。图标是一个 <b>摸鱼</b> 的双关:蓝色身体是「鲲」(鱼),两只浅色拳头是<b>正在摸鱼的两只手</b>,左下青色是<b>尾巴</b>。
+       —— 听歌本就是光明正大的摸鱼。下面 ② 让两只手顺着身体曲线上下抚摸、尾巴慵懒摆动;⑥ 把指针换成<b>手机重力感应</b>(桌面用指针回退)。</p>
+    <p class="reduced-note">系统已开启「减弱动态效果」—— 动效已降为轻柔呼吸。</p>
+  </header>
+
+  <div class="section-label">主方向 · 继续打磨</div>
+  <div class="feature" id="feature"></div>
+
+  <div class="section-label">其他探索 · 备选</div>
+  <div class="grid" id="grid"></div>
+
+  <footer>
+    <p><b>这些动效怎么进到 app。</b>每个原型对应一个用 Rive Editor MCP 编写的 <b>State Machine</b>,导出 <code>.riv</code>,由 <b>rive-android</b> 播放。
+       <b>②摸鱼</b>:身体呼吸 + 尾巴摆动用 Rive 循环 timeline(<b>Elastic</b>);两只手「沿曲线抚摸」用 Rive 的 <b>骨骼/Path 约束</b>或把手绑到一条 bone 上,沿身体的引导线往复 —— 想随手势/进度调速就把相位喂一个 <code>number</code>。
+       <b>⑥重力</b>:手机端用 <code>SensorManager</code> / <code>TYPE_GRAVITY</code>(或 Compose 的 <code>rememberSensorState</code>)读倾斜,把 x/y 经 <code>androidx.compose.animation.core.spring</code> 平滑后喂 Rive 的两个 <code>number</code> input,每片鳍不同刚度产生拖尾。Kotlin 接缝:<code>vmi.setNumberProperty("tiltX", v)</code>。⑥ 也可和现有 NowPlaying 极光脉冲共用动机。</p>
+  </footer>
+</div>
+
+<script>
+/* real kun icon, layered; gradient ids uniquified per instance */
+const ICON = (u)=>`
+<svg viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg">
+ <defs>
+  <linearGradient id="ring${u}" x1="85" y1="422" x2="427" y2="80" gradientUnits="userSpaceOnUse">
+   <stop stop-color="#fff" stop-opacity="0"/><stop offset=".5" stop-color="#fff" stop-opacity=".8"/><stop offset="1" stop-color="#fff" stop-opacity="0"/>
+  </linearGradient>
+  <linearGradient id="body${u}" x1="213.374" y1="99.838" x2="251.882" y2="373.836" gradientUnits="userSpaceOnUse">
+   <stop stop-color="#819FEF"/><stop offset="1" stop-color="#697491"/>
+  </linearGradient>
+ </defs>
+ <g class="halo">
+  <path opacity=".2" d="M256 442C361.486 442 447 356.486 447 251C447 145.514 361.486 60 256 60C150.514 60 65 145.514 65 251C65 356.486 150.514 442 256 442Z" stroke="#fff" stroke-width="2" fill="none"/>
+  <path d="M256 422C350.441 422 427 345.441 427 251C427 156.559 350.441 80 256 80C161.559 80 85 156.559 85 251C85 345.441 161.559 422 256 422Z" stroke="url(#ring${u})" stroke-width="8" fill="none"/>
+  <path opacity=".9" d="M128 225C130.491 201.531 137.913 178.831 149.792 158.343C161.671 137.856 177.748 120.03 197 106" stroke="#fff" stroke-width="4" stroke-linecap="round" fill="none"/>
+  <path opacity=".9" d="M371 281C368.509 304.469 361.087 327.169 349.208 347.657C337.329 368.144 321.252 385.97 302 400" stroke="#fff" stroke-width="4" stroke-linecap="round" fill="none"/>
+ </g>
+ <g class="creature">
+  <g class="body">
+   <path d="M372.5 93C410 106 456.239 141.822 462.718 187.923C385.593 247.892 353.335 322.731 348.351 323.431C342.121 324.307 216.372 378.827 157.811 387.057C99.2503 395.287 52.3949 342.155 9.17643 332.982C68.633 322.085 106.178 306.432 148.106 272.798C190.355 238.907 192.115 150.611 252.566 112C293.373 85.935 332.273 79.0547 372.5 93Z" fill="url(#body${u})"/>
+   <path d="M232.431 366.524C404.53 352.501 462.5 249.027 462.5 182C462.5 150.175 434.996 146.43 404.5 152.987C370 162 355 170.435 336.5 195.5C318 220.565 315 265.5 299.5 294.5C284 323.5 263 343.5 232.431 366.524Z" fill="#E1F4F7"/>
+  </g>
+  <path class="fin fin-cyan" d="M69.5357 327.618C24.9361 315.779 13.8924 258.964 29.5033 246.957C52.0926 231.287 81.2735 256.121 93.0402 270.496C87.9291 257.39 80.8542 224.697 92.1946 219.104C105.061 212.757 149.308 223.669 143.474 253.002C138.807 276.469 151.888 294.092 159.013 299.971C144.054 313.133 105.215 337.089 69.5357 327.618Z" fill="#47D6EA" fill-opacity="0.28"/>
+  <path class="fin fin-tan" d="M471.393 225.062C470.715 221.451 468.469 218.285 465.227 216.557C435.672 200.805 411.284 221.889 432.9 244.009C407.613 240.904 396.493 261.785 424.117 273.732C403.887 271.249 400.783 296.535 426.07 299.64C450.289 302.614 479.255 266.927 471.393 225.062Z" fill="#BC977B"/>
+  <path class="fin fin-cream" d="M183.741 142.964C186.799 139.666 191.718 138.977 195.653 141.157C212.201 150.327 220.201 160.005 208.011 169.337C221.902 176.112 222.073 193.392 203.438 196.34C217.33 203.116 210.555 217.007 191.92 219.956C205.812 226.732 192.091 237.235 172.608 224.294C154.3 212.133 157.682 171.068 183.741 142.964Z" fill="#FFEADB"/>
+ </g>
+</svg>`;
+
+/* outward radial unit vectors (fin centroid - icon center 256,251) */
+const FINS=[
+  {sel:'.fin-cream', out:[-0.69,-0.72]},
+  {sel:'.fin-tan',   out:[ 1.00, 0.04]},
+  {sel:'.fin-cyan',  out:[-0.99, 0.13]},
+];
+const REDUCED = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+/* ===================== FEATURED (kept) ===================== */
+const featured = [
+  { tag:'02 · 摸鱼', title:'Pet the kun · 摸鱼',
+    desc:'两只手顺着鲲身体的曲线上下抚摸(沿身体边缘的切线滑动,带一点外凸的弧度像滑过隆起),左右手错相;鲲被摸得轻轻起伏呼吸,左下尾巴慵懒地放大缩小、来回摆动。听歌 = 光明正大的摸鱼。',
+    rive:'<b>Rive:</b> 把两只手各绑到一条沿身体的引导 Path / bone 上,<code>offset</code> 往复;尾巴一条 scale+rotate 的 idle timeline。想随播放进度调抚摸速度就喂一个 <code>number</code>。',
+    hint:'auto · 抚摸中',
+    init(svg){
+      const body=svg.querySelector('.body'), halo=svg.querySelector('.halo');
+      const cream=svg.querySelector('.fin-cream'), tan=svg.querySelector('.fin-tan'), cyan=svg.querySelector('.fin-cyan');
+      // the kun reacts to being petted — slow breathe + micro sway
+      body.animate([{transform:'scale(1) rotate(-1deg)'},{transform:'scale(1.022) rotate(1deg)'}],
+        {duration:2600,direction:'alternate',iterations:Infinity,easing:'ease-in-out'});
+      halo.animate([{transform:'scale(1)'},{transform:'scale(1.02)'}],
+        {duration:4200,direction:'alternate',iterations:Infinity,easing:'ease-in-out'});
+      // tail: lazy swish + scale up/down
+      cyan.animate(
+        [{transform:'translate(0,0) scale(.9) rotate(-6deg)'},{transform:'translate(-10px,2px) scale(1.14) rotate(6deg)'}],
+        {duration:3400,direction:'alternate',iterations:Infinity,easing:'ease-in-out'});
+      // hands: stroke along the body contour (axis = local tangent, bow = outward radial)
+      const hands=[
+        {el:cream, axis:[ 0.54,-0.84], perp:FINS[0].out, amp:26, bend:7, ph:0},
+        {el:tan,   axis:[-0.64, 0.76], perp:FINS[1].out, amp:26, bend:7, ph:Math.PI},
+      ];
+      let last=performance.now(),raf,t=0;
+      const frame=(now)=>{ let dt=Math.min((now-last)/1000,.05); last=now; t+=dt;
+        hands.forEach(h=>{ const s=Math.sin(t*1.7+h.ph), bow=s*s;
+          const dx=s*h.amp*h.axis[0]+bow*h.bend*h.perp[0];
+          const dy=s*h.amp*h.axis[1]+bow*h.bend*h.perp[1];
+          const rot=s*6, sc=1+0.045*(1-Math.abs(s));
+          h.el.style.transform=`translate(${dx.toFixed(2)}px,${dy.toFixed(2)}px) rotate(${rot.toFixed(2)}deg) scale(${sc.toFixed(3)})`;
+        });
+        raf=requestAnimationFrame(frame); };
+      raf=requestAnimationFrame(frame);
+      return {raf};
+    }},
+
+  { tag:'06 · 重力', title:'Gravity tilt · 重力感应',
+    desc:'移动端把指针换成手机重力:倾斜手机,三片鳍朝重力方向倾去,各用不同弹簧刚度而拖尾晃动,身体也轻轻偏。桌面无传感器时自动回退到指针跟随。',
+    rive:'<b>Rive:</b> 倾斜 x/y 各绑一个 <code>number</code>;per-fin 阻尼留在 Compose <code>spring()</code>,Rive 映射到 translate/rotate。iOS 需手势授权,Android 直读 <code>TYPE_GRAVITY</code>。',
+    hint:'tilt / 指针',
+    init(svg,stage){
+      const fins=FINS.map(f=>svg.querySelector(f.sel)), body=svg.querySelector('.body');
+      const st=fins.map((el,i)=>({x:0,y:0,vx:0,vy:0,k:120-i*22,d:13}));
+      const bs={x:0,y:0,vx:0,vy:0,k:90,d:14};
+      let tx=0,ty=0,src='idle',t=0,betaRef=null;
+      // pointer fallback (desktop / no sensor)
+      stage.addEventListener('pointermove',e=>{ if(src==='tilt')return; const r=stage.getBoundingClientRect();
+        src='pointer'; tx=(e.clientX-r.left)/r.width-0.5; ty=(e.clientY-r.top)/r.height-0.5; });
+      stage.addEventListener('pointerleave',()=>{ if(src==='pointer')src='idle'; });
+      // gravity
+      function onTilt(e){ if(e.gamma==null&&e.beta==null)return; src='tilt';
+        if(betaRef==null) betaRef=e.beta||0;
+        tx=Math.max(-1,Math.min(1,(e.gamma||0)/30))*0.5;
+        ty=Math.max(-1,Math.min(1,((e.beta||0)-betaRef)/30))*0.5; }
+      const status=document.createElement('div'); status.className='tiltstatus'; stage.appendChild(status);
+      const btn=document.createElement('button'); btn.className='tiltbtn'; btn.textContent='开启重力感应'; stage.appendChild(btn);
+      const needsPerm = typeof DeviceOrientationEvent!=='undefined' && typeof DeviceOrientationEvent.requestPermission==='function';
+      async function enable(){
+        try{
+          if(needsPerm){ const p=await DeviceOrientationEvent.requestPermission(); if(p!=='granted'){ status.textContent='权限被拒 · 用指针'; return; } }
+          window.addEventListener('deviceorientation', onTilt);
+          btn.style.display='none';
+        }catch(_){ status.textContent='此设备无重力 · 用指针'; btn.style.display='none'; }
+      }
+      btn.addEventListener('click',enable);
+      if(!needsPerm){ window.addEventListener('deviceorientation', onTilt); btn.style.display='none'; }
+      let last=performance.now(),raf;
+      const frame=(now)=>{ let dt=Math.min((now-last)/1000,.032); last=now; t+=dt;
+        let gx,gy;
+        if(src==='idle'){ gx=Math.cos(t*1.1)*0.5; gy=Math.sin(t*1.1)*0.5; } else { gx=tx; gy=ty; }
+        const M=70;
+        bs.vx+=(-bs.k*(bs.x-gx*M*0.5)-bs.d*bs.vx)*dt; bs.vy+=(-bs.k*(bs.y-gy*M*0.5)-bs.d*bs.vy)*dt; bs.x+=bs.vx*dt; bs.y+=bs.vy*dt;
+        body.style.transform=`translate(${bs.x.toFixed(2)}px,${bs.y.toFixed(2)}px) rotate(${(bs.x*0.08).toFixed(2)}deg)`;
+        st.forEach((s,i)=>{ s.vx+=(-s.k*(s.x-gx*M)-s.d*s.vx)*dt; s.vy+=(-s.k*(s.y-gy*M)-s.d*s.vy)*dt; s.x+=s.vx*dt; s.y+=s.vy*dt;
+          fins[i].style.transform=`translate(${s.x.toFixed(2)}px,${s.y.toFixed(2)}px) rotate(${(s.x*0.16).toFixed(2)}deg)`; });
+        status.textContent = src==='tilt' ? '重力感应中 · 倾斜手机'
+          : (src==='pointer' ? '指针跟随 · 桌面回退'
+          : (btn.style.display==='none' ? '移动指针 · 或倾斜手机' : '点按钮开启重力'));
+        raf=requestAnimationFrame(frame); };
+      raf=requestAnimationFrame(frame);
+      return {raf};
+    }},
+];
+
+/* ===================== OTHERS (alternatives) ===================== */
+const others = [
+  { tag:'01 · ambient', title:'Idle swim · 待机游动',
+    desc:'静息姿态:整只鲲缓缓上下漂浮、轻微侧摆,三片鳍各自错相轻颤,光环呼吸。',
+    rive:'<b>Rive:</b> 循环 idle state,低幅度 sine translate/rotate;三鳍各一条偏相位 timeline。',
+    hint:'always on',
+    init(svg){
+      const c=svg.querySelector('.creature'), halo=svg.querySelector('.halo');
+      c.animate([{transform:'translate(0px,-7px) rotate(-2.2deg)'},{transform:'translate(0px,7px) rotate(2.2deg)'}],
+        {duration:3600,direction:'alternate',iterations:Infinity,easing:'ease-in-out'});
+      halo.animate([{transform:'scale(1)'},{transform:'scale(1.025)'}],{duration:4200,direction:'alternate',iterations:Infinity,easing:'ease-in-out'});
+      FINS.forEach((f,i)=>svg.querySelector(f.sel).animate(
+        [{transform:'rotate(-4deg) scale(1)'},{transform:'rotate(5deg) scale(1.05)'}],
+        {duration:2000+i*430,delay:i*240,direction:'alternate',iterations:Infinity,easing:'ease-in-out'}));
+      return {};
+    }},
+  { tag:'03 · tap', title:'Breach · 跃身击浪',
+    desc:'戳它一下。随戳击力度的果冻回弹:先压扁蓄力,再纵向拉伸跃出、向上一窜,阻尼弹簧收住。',
+    rive:'<b>Rive:</b> 命中区 → breach(Elastic);真正随速度的果冻把 <code>number</code> 从 Compose <code>spring()</code> 喂进去。',
+    hint:'tap to poke',
+    init(svg,stage){
+      const c=svg.querySelector('.creature'); let y=1,v=0; const k=205,d=14;
+      const kick=()=>{ v-=6.2; }; stage.addEventListener('pointerdown',kick);
+      let last=performance.now(),raf;
+      const frame=(now)=>{ let dt=Math.min((now-last)/1000,.032); last=now;
+        v+=(-k*(y-1)-d*v)*dt; y+=v*dt; if(y<0.3){y=0.3;v=Math.abs(v)*.4;}
+        const f=Math.max(-0.3,Math.min(0.3,-v*0.02));
+        c.style.transform=`translateY(${((y-1)*-26).toFixed(2)}px) scale(${(y*(1+f)).toFixed(4)},${(y*(1-f)).toFixed(4)})`;
+        raf=requestAnimationFrame(frame); };
+      raf=requestAnimationFrame(frame); const timer=setInterval(kick,2700); return {raf,timer};
+    }},
+  { tag:'04 · loop', title:'Splash assemble · 开屏组装',
+    desc:'冷启动:身体从中心放大淡入,三片鳍带回拉过冲一片片弹出归位,光环亮起。',
+    rive:'<b>Rive:</b> entry state,身体 scale 0→1 + 三鳍展开,<b>Elastic</b>,逐鳍 120ms 偏移,<code>trigger</code> 点火。',
+    hint:'auto-loops',
+    init(svg){
+      const body=svg.querySelector('.body'), halo=svg.querySelector('.halo'); const fins=FINS.map(f=>svg.querySelector(f.sel));
+      const reset=()=>{ body.style.transition='none'; body.style.transform='scale(.35)'; body.style.opacity='0';
+        halo.style.transition='none'; halo.style.opacity='0';
+        fins.forEach((el,j)=>{ const o=FINS[j].out; el.style.transition='none';
+          el.style.transform=`translate(${-o[0]*20}px,${-o[1]*20}px) scale(0) rotate(-110deg)`; el.style.opacity='0'; }); };
+      const grow=()=>{ body.style.transition='transform .8s var(--s-big), opacity .45s ease'; body.style.transform='scale(1)'; body.style.opacity='1';
+        halo.style.transition='opacity .9s ease .2s'; halo.style.opacity='1';
+        fins.forEach((el,j)=>{ el.style.transition='transform .95s var(--s-big), opacity .4s ease';
+          el.style.transitionDelay=(0.28+j*0.12)+'s'; el.style.transform='translate(0,0) scale(1) rotate(0)'; el.style.opacity='1'; }); };
+      const run=()=>{ reset(); requestAnimationFrame(()=>requestAnimationFrame(grow)); };
+      run(); return {timer:setInterval(run,2900)};
+    }},
+  { tag:'05 · loop', title:'Joy barrel-roll · 庆祝翻滚',
+    desc:'整只鲲带弹性过冲翻 360°,翻滚途中三片鳍向外撒开再收拢。最适合呼应切歌/播放脉冲。',
+    rive:'<b>Rive:</b> skip/play <code>trigger</code> 播一次 360°(Elastic)+ 鳍 splay→tuck;与 aurora pulse 同源。',
+    hint:'auto-loops',
+    init(svg){
+      const c=svg.querySelector('.creature'); const fins=FINS.map(f=>svg.querySelector(f.sel));
+      c.style.transition='transform 1.0s var(--s-big)'; fins.forEach(el=>el.style.transition='transform .42s var(--s-bounce)');
+      let rot=0; const cycle=()=>{ rot+=360; c.style.transform='rotate('+rot+'deg)';
+        fins.forEach((el,j)=>{ const o=FINS[j].out; el.style.transform=`translate(${o[0]*26}px,${o[1]*26}px) scale(1.12)`; });
+        setTimeout(()=>fins.forEach(el=>el.style.transform='translate(0,0) scale(1)'),520); };
+      cycle(); return {timer:setInterval(cycle,2100)};
+    }},
+];
+
+let uid=0;
+function mountCard(p, container, big){
+  const card=document.createElement('div'); card.className='card'+(big?' lg':'');
+  const stage=document.createElement('div'); stage.className='stage';
+  stage.innerHTML=ICON(uid++);
+  const svg=stage.querySelector('svg');
+  const badge=document.createElement('div'); badge.className='badge'; badge.textContent=p.tag; stage.appendChild(badge);
+  const hint=document.createElement('div'); hint.className='hint'; hint.textContent=p.hint; stage.appendChild(hint);
+  const info=document.createElement('div'); info.className='info';
+  info.innerHTML='<h3>'+p.title+'</h3><p>'+p.desc+'</p><div class="rive">'+p.rive+'</div>';
+  card.appendChild(stage); card.appendChild(info); container.appendChild(card);
+
+  if(REDUCED){ svg.querySelector('.creature').animate([{opacity:.74},{opacity:1}],{duration:2300,direction:'alternate',iterations:Infinity,easing:'ease-in-out'}); return; }
+  let started=false;
+  const io=new IntersectionObserver((ents)=>{ ents.forEach(e=>{ if(e.isIntersecting && !started){ started=true; p.init(svg,stage); } }); },{threshold:.2});
+  io.observe(stage);
+}
+
+const featEl=document.getElementById('feature'), gridEl=document.getElementById('grid');
+featured.forEach(p=>mountCard(p,featEl,true));
+others.forEach(p=>mountCard(p,gridEl,false));
+</script>
+</body>
+</html>

@@ -18,6 +18,11 @@ sealed interface ArtistDetailUiState {
         val albums: List<ArtistAlbum>,
         /** Whether the user follows / has starred this artist (the Follow toggle). */
         val isStarred: Boolean = false,
+        /**
+         * The artist's most-popular tracks (the "Popular" section). Spotify only;
+         * empty otherwise → the section is hidden. Loaded after the main content.
+         */
+        val topTracks: List<ArtistTopTrack> = emptyList(),
     ) : ArtistDetailUiState
 
     data class Error(val message: String) : ArtistDetailUiState
@@ -29,4 +34,13 @@ data class ArtistAlbum(
     val coverArtUrl: String?,
     val year: Int?,
     val songCount: Int?,
+)
+
+/** A single row in the artist's "Popular" top-tracks list. */
+data class ArtistTopTrack(
+    val id: String,
+    val title: String,
+    val artist: String,
+    val coverArtUrl: String?,
+    val durationSec: Int?,
 )

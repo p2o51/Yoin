@@ -41,6 +41,12 @@ object SpotifyAuthConfig {
         "playlist-read-private",
         "playlist-read-collaborative",
         "user-follow-read",
+        // Web API PUT/DELETE /me/following?type=artist — the artist page Follow
+        // toggle. Without it the read state is correct but the toggle 403s and
+        // reverts. NOT in REQUIRED_SCOPES (a single feature, not worth forcing a
+        // reconnect on every existing profile); a profile minted before this bump
+        // keeps working and just can't follow/unfollow until it next reconnects.
+        "user-follow-modify",
         // App Remote control + audio streaming — required for in-app Spotify playback.
         APP_REMOTE_CONTROL_SCOPE,
         "streaming",
@@ -52,6 +58,12 @@ object SpotifyAuthConfig {
         // right "playing from X" context and recommendations work). Without
         // this scope we fall back to App Remote's bare-track-uri path.
         "user-modify-playback-state",
+        // Web API GET /me/player/recently-played — sources the home Activities
+        // feed from the user's real Spotify listening (album/artist/song
+        // context). Deliberately NOT in REQUIRED_SCOPES: a profile minted
+        // before this bump keeps working and just falls back to the locally
+        // recorded activity feed until it next reconnects.
+        "user-read-recently-played",
     )
 
     /**
