@@ -73,6 +73,7 @@ class YoinDatabaseMigrationTest {
                 AppContainer.MIGRATION_19_20,
                 AppContainer.MIGRATION_20_21,
                 AppContainer.MIGRATION_21_22,
+                AppContainer.MIGRATION_22_23,
             )
             .allowMainThreadQueries()
             .build()
@@ -164,6 +165,7 @@ class YoinDatabaseMigrationTest {
                 AppContainer.MIGRATION_19_20,
                 AppContainer.MIGRATION_20_21,
                 AppContainer.MIGRATION_21_22,
+                AppContainer.MIGRATION_22_23,
             )
             .allowMainThreadQueries()
             .build()
@@ -238,6 +240,7 @@ class YoinDatabaseMigrationTest {
                 AppContainer.MIGRATION_19_20,
                 AppContainer.MIGRATION_20_21,
                 AppContainer.MIGRATION_21_22,
+                AppContainer.MIGRATION_22_23,
             )
             .allowMainThreadQueries()
             .build()
@@ -295,6 +298,7 @@ class YoinDatabaseMigrationTest {
                 AppContainer.MIGRATION_19_20,
                 AppContainer.MIGRATION_20_21,
                 AppContainer.MIGRATION_21_22,
+                AppContainer.MIGRATION_22_23,
             )
             .allowMainThreadQueries()
             .build()
@@ -378,6 +382,7 @@ class YoinDatabaseMigrationTest {
                 AppContainer.MIGRATION_19_20,
                 AppContainer.MIGRATION_20_21,
                 AppContainer.MIGRATION_21_22,
+                AppContainer.MIGRATION_22_23,
             )
             .allowMainThreadQueries()
             .build()
@@ -467,6 +472,7 @@ class YoinDatabaseMigrationTest {
                 AppContainer.MIGRATION_19_20,
                 AppContainer.MIGRATION_20_21,
                 AppContainer.MIGRATION_21_22,
+                AppContainer.MIGRATION_22_23,
             )
             .allowMainThreadQueries()
             .build()
@@ -533,6 +539,7 @@ class YoinDatabaseMigrationTest {
                 AppContainer.MIGRATION_19_20,
                 AppContainer.MIGRATION_20_21,
                 AppContainer.MIGRATION_21_22,
+                AppContainer.MIGRATION_22_23,
             )
             .allowMainThreadQueries()
             .build()
@@ -594,6 +601,7 @@ class YoinDatabaseMigrationTest {
                 AppContainer.MIGRATION_19_20,
                 AppContainer.MIGRATION_20_21,
                 AppContainer.MIGRATION_21_22,
+                AppContainer.MIGRATION_22_23,
             )
             .allowMainThreadQueries()
             .build()
@@ -655,6 +663,7 @@ class YoinDatabaseMigrationTest {
                 AppContainer.MIGRATION_19_20,
                 AppContainer.MIGRATION_20_21,
                 AppContainer.MIGRATION_21_22,
+                AppContainer.MIGRATION_22_23,
             )
             .allowMainThreadQueries()
             .build()
@@ -741,6 +750,7 @@ class YoinDatabaseMigrationTest {
                 AppContainer.MIGRATION_19_20,
                 AppContainer.MIGRATION_20_21,
                 AppContainer.MIGRATION_21_22,
+                AppContainer.MIGRATION_22_23,
             )
             .allowMainThreadQueries()
             .build()
@@ -846,6 +856,7 @@ class YoinDatabaseMigrationTest {
                 AppContainer.MIGRATION_19_20,
                 AppContainer.MIGRATION_20_21,
                 AppContainer.MIGRATION_21_22,
+                AppContainer.MIGRATION_22_23,
             )
             .allowMainThreadQueries()
             .build()
@@ -906,6 +917,7 @@ class YoinDatabaseMigrationTest {
                 AppContainer.MIGRATION_19_20,
                 AppContainer.MIGRATION_20_21,
                 AppContainer.MIGRATION_21_22,
+                AppContainer.MIGRATION_22_23,
             )
             .allowMainThreadQueries()
             .build()
