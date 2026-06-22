@@ -94,6 +94,27 @@ android {
     }
 
     // Room schema export — will be configured in Phase 3 with androidx.room plugin
+
+    testOptions {
+        unitTests {
+            // Production code (e.g. the detail-cache android.util.LruCache) touches
+            // android.* utility classes from JVM unit tests. Return defaults instead
+            // of throwing "Method ... not mocked"; tests that need real Android
+            // behaviour use Robolectric explicitly.
+            isReturnDefaultValues = true
+        }
+    }
+
+    lint {
+        // Adopt Android Lint as a CI gate without fixing all pre-existing debt in
+        // one go: existing issues are recorded in lint-baseline.xml, so the build
+        // only fails on NEW lint errors. Regenerate after intentionally clearing
+        // debt with: ./gradlew :app:updateLintBaseline
+        baseline = file("lint-baseline.xml")
+        abortOnError = true
+        warningsAsErrors = false
+        checkDependencies = false
+    }
 }
 
 ktlint {
