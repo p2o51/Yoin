@@ -2276,19 +2276,27 @@ private fun List<String>.appearsMostlyChinese(): Boolean {
     return hanRatio >= 0.72f || (han >= 20 && hanRatio >= 0.60f)
 }
 
-private fun Char.isHanIdeograph(): Boolean {
-    val block = Character.UnicodeBlock.of(this)
-    return block == Character.UnicodeBlock.CJK_UNIFIED_IDEOGRAPHS ||
-        block == Character.UnicodeBlock.CJK_UNIFIED_IDEOGRAPHS_EXTENSION_A ||
-        block == Character.UnicodeBlock.CJK_UNIFIED_IDEOGRAPHS_EXTENSION_B ||
-        block == Character.UnicodeBlock.CJK_UNIFIED_IDEOGRAPHS_EXTENSION_C ||
-        block == Character.UnicodeBlock.CJK_UNIFIED_IDEOGRAPHS_EXTENSION_D ||
-        block == Character.UnicodeBlock.CJK_UNIFIED_IDEOGRAPHS_EXTENSION_E ||
-        block == Character.UnicodeBlock.CJK_UNIFIED_IDEOGRAPHS_EXTENSION_F ||
-        block == Character.UnicodeBlock.CJK_UNIFIED_IDEOGRAPHS_EXTENSION_G ||
-        block == Character.UnicodeBlock.CJK_UNIFIED_IDEOGRAPHS_EXTENSION_H ||
-        block == Character.UnicodeBlock.CJK_COMPATIBILITY_IDEOGRAPHS ||
-        block == Character.UnicodeBlock.CJK_COMPATIBILITY_IDEOGRAPHS_SUPPLEMENT
+// Classify by fixed Unicode code-point ranges rather than Character.UnicodeBlock:
+// the Extension E–H block constants require API 34/36 and crash with
+// NoSuchFieldError below minSdk (26). The ranges below are immutable Unicode block
+// boundaries, so this is equivalent to the previous UnicodeBlock comparisons while
+// staying API-safe. (A single UTF-16 Char never reaches the supplementary-plane
+// blocks > U+FFFF, exactly as before — the caller iterates Char-by-Char.)
+private fun Char.isHanIdeograph(): Boolean = when (code) {
+    in 0x4E00..0x9FFF, // CJK Unified Ideographs
+    in 0x3400..0x4DBF, // Extension A
+    in 0x20000..0x2A6DF, // Extension B
+    in 0x2A700..0x2B73F, // Extension C
+    in 0x2B740..0x2B81F, // Extension D
+    in 0x2B820..0x2CEAF, // Extension E
+    in 0x2CEB0..0x2EBEF, // Extension F
+    in 0x30000..0x3134F, // Extension G
+    in 0x31350..0x323AF, // Extension H
+    in 0xF900..0xFAFF, // CJK Compatibility Ideographs
+    in 0x2F800..0x2FA1F, // CJK Compatibility Ideographs Supplement
+    -> true
+
+    else -> false
 }
 
 private fun Char.isJapaneseKana(): Boolean {
