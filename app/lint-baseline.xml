@@ -2,61 +2,6 @@
 <issues format="6" by="lint 9.1.0" type="baseline" client="gradle" dependencies="false" name="AGP (9.1.0)" variant="all" version="9.1.0">
 
     <issue
-        id="NewApi"
-        message="Call requires API level 33, or core library desugaring (current min is 26): `java.net.URLEncoder#encode`"
-        errorLine1="        java.net.URLEncoder.encode(value, Charsets.UTF_8)"
-        errorLine2="                            ~~~~~~">
-        <location
-            file="src/main/java/com/gpo/yoin/data/integration/neodb/NeoDBApi.kt"
-            line="354"
-            column="29"/>
-    </issue>
-
-    <issue
-        id="NewApi"
-        message="Field requires API level 34 (current min is 26): `java.lang.Character.UnicodeBlock#CJK_UNIFIED_IDEOGRAPHS_EXTENSION_E`"
-        errorLine1="        block == Character.UnicodeBlock.CJK_UNIFIED_IDEOGRAPHS_EXTENSION_E ||"
-        errorLine2="                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/com/gpo/yoin/data/repository/YoinRepository.kt"
-            line="2286"
-            column="18"/>
-    </issue>
-
-    <issue
-        id="NewApi"
-        message="Field requires API level 34 (current min is 26): `java.lang.Character.UnicodeBlock#CJK_UNIFIED_IDEOGRAPHS_EXTENSION_F`"
-        errorLine1="        block == Character.UnicodeBlock.CJK_UNIFIED_IDEOGRAPHS_EXTENSION_F ||"
-        errorLine2="                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/com/gpo/yoin/data/repository/YoinRepository.kt"
-            line="2287"
-            column="18"/>
-    </issue>
-
-    <issue
-        id="NewApi"
-        message="Field requires API level 34 (current min is 26): `java.lang.Character.UnicodeBlock#CJK_UNIFIED_IDEOGRAPHS_EXTENSION_G`"
-        errorLine1="        block == Character.UnicodeBlock.CJK_UNIFIED_IDEOGRAPHS_EXTENSION_G ||"
-        errorLine2="                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/com/gpo/yoin/data/repository/YoinRepository.kt"
-            line="2288"
-            column="18"/>
-    </issue>
-
-    <issue
-        id="NewApi"
-        message="Field requires API level 36 (current min is 26): `java.lang.Character.UnicodeBlock#CJK_UNIFIED_IDEOGRAPHS_EXTENSION_H`"
-        errorLine1="        block == Character.UnicodeBlock.CJK_UNIFIED_IDEOGRAPHS_EXTENSION_H ||"
-        errorLine2="                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/com/gpo/yoin/data/repository/YoinRepository.kt"
-            line="2289"
-            column="18"/>
-    </issue>
-
-    <issue
         id="UnusedAttribute"
         message="Attribute `enableOnBackInvokedCallback` is only used in API level 33 and higher (current min is 26)"
         errorLine1="        android:enableOnBackInvokedCallback=&quot;true&quot;"

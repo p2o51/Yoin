@@ -351,7 +351,9 @@ internal class NeoDBApi(
     }
 
     private fun encode(value: String): String =
-        java.net.URLEncoder.encode(value, Charsets.UTF_8)
+        // The Charset overload of URLEncoder.encode requires API 33; the charset-name
+        // overload is available since API 1 and produces identical UTF-8 output.
+        java.net.URLEncoder.encode(value, "UTF-8")
 
     private fun Response.toNeoDBException(body: String): NeoDBException {
         val message = parseErrorMessage(body) ?: body.take(200)
