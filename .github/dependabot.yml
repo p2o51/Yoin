@@ -1,0 +1,35 @@
+version: 2
+updates:
+  # Gradle dependencies (reads gradle/libs.versions.toml + build files)
+  - package-ecosystem: gradle
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 8
+    labels: [ dependencies ]
+    commit-message:
+      prefix: "chore(deps)"
+    groups:
+      androidx:
+        patterns: [ "androidx.*" ]
+      compose:
+        patterns: [ "androidx.compose.*" ]
+      kotlin:
+        patterns: [ "org.jetbrains.kotlin*", "com.google.devtools.ksp*" ]
+      coroutines:
+        patterns: [ "org.jetbrains.kotlinx:kotlinx-coroutines*" ]
+      networking:
+        patterns: [ "com.squareup.*" ]
+      test:
+        patterns: [ "*junit*", "*mockk*", "*robolectric*", "*turbine*" ]
+
+  # GitHub Actions used by the workflows in this repo
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    labels: [ dependencies, ci ]
+    commit-message:
+      prefix: "chore(ci)"

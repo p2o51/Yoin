@@ -1,5 +1,7 @@
 # Yoin - Android Music Client
 
+[![CI](https://github.com/p2o51/Yoin/actions/workflows/ci.yml/badge.svg)](https://github.com/p2o51/Yoin/actions/workflows/ci.yml)
+
 Yoin is an animation-first Android Compose music client. The shipped backend is
 Subsonic/OpenSubsonic; Spotify is being added through profile-based source
 switching, read-only catalog access, and Android App Remote playback.
@@ -26,6 +28,13 @@ export ANDROID_HOME="$HOME/Library/Android/sdk"
 See [docs/design.md](docs/design.md) for the full design specification.
 See [docs/release-0.5-closed-test.md](docs/release-0.5-closed-test.md) for the
 current Play Console closed-test checklist and upload-key setup.
+
+## Contributing & CI
+
+Pull requests run ktlint, unit tests, Android Lint, and a debug build through
+GitHub Actions; `main` is protected and requires a green `CI gate`. See
+[CONTRIBUTING.md](CONTRIBUTING.md) for the branch/PR flow and
+[docs/ci-cd.md](docs/ci-cd.md) for the full pipeline and release/secrets setup.
 
 ## Local Tooling
 
