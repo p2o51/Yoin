@@ -18,3 +18,16 @@ local.properties
 .kotlin/
 .gradle-local/
 /projects/
+
+# --- Local scratch & dev-tool artifacts (not part of the project) ---
+# Ad-hoc Python scripts at repo root (extract.py, fix*.py, …)
+/*.py
+# Scratch sync/test scripts dropped under playground/
+/playground/*.py
+# Scratch screenshots
+/yoin-*.png
+# Local skills lockfile
+/skills-lock.json
+# Agent / tooling working dirs
+.claude/
+.commandcode/
