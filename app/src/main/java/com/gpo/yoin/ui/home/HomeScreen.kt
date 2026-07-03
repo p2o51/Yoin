@@ -1,9 +1,12 @@
 package com.gpo.yoin.ui.home
 
+import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -69,6 +72,7 @@ import com.gpo.yoin.ui.theme.YoinMotionRole
 import com.gpo.yoin.ui.theme.YoinShapeTokens
 import com.gpo.yoin.ui.theme.YoinTheme
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.drop
 
 private val FloatingBottomGroupClearance = 132.dp
 private const val HomeLoadingIndicatorDelayMillis = 180L
@@ -81,6 +85,11 @@ fun HomeScreen(
     isPlaying: Boolean,
     playbackSignal: Float,
     activeSongId: String? = null,
+    // True while an overlay above Home (Now Playing) owns back. The layout
+    // editor's BackHandler registers AFTER the shell's NP handlers (composition
+    // order) and would otherwise win the dispatcher's LIFO priority and eat
+    // back presses meant to collapse Now Playing.
+    suppressBackHandling: Boolean = false,
     onNavigateToSettings: () -> Unit,
     onNavigateToMemories: () -> Unit,
     onOpenMemoryFocus: (sessionId: Long) -> Unit = {},
@@ -95,9 +104,24 @@ fun HomeScreen(
     modifier: Modifier = Modifier,
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    val homeLayout by viewModel.homeLayout.collectAsState()
+    var isEditMode by rememberSaveable { mutableStateOf(false) }
+    // Close the editor if the active profile changes underneath it — its draft
+    // belongs to the old profile and must not be written into the new one.
+    // drop(1) skips the value already current at subscription, so rotation
+    // (which restarts this effect) doesn't kick the user out of edit mode.
+    LaunchedEffect(Unit) {
+        viewModel.activeProfileId.drop(1).collect { isEditMode = false }
+    }
+    BackHandler(enabled = isEditMode && !suppressBackHandling) { isEditMode = false }
 
     HomeContent(
         uiState = uiState,
+        sections = homeLayout.sections,
+        isEditMode = isEditMode,
+        onEnterEditMode = { isEditMode = true },
+        onExitEditMode = { isEditMode = false },
+        onLayoutChange = viewModel::setHomeLayout,
         isPlaying = isPlaying,
         playbackSignal = playbackSignal,
         activeSongId = activeSongId,
@@ -122,6 +146,11 @@ fun HomeScreen(
 @Composable
 fun HomeContent(
     uiState: HomeUiState,
+    sections: List<HomeSectionState> = HomeLayout.Default.sections,
+    isEditMode: Boolean = false,
+    onEnterEditMode: () -> Unit = {},
+    onExitEditMode: () -> Unit = {},
+    onLayoutChange: (HomeLayout) -> Unit = {},
     isPlaying: Boolean,
     playbackSignal: Float,
     activeSongId: String? = null,
@@ -225,27 +254,54 @@ fun HomeContent(
                                 translationY = (1f - contentOffsetProgress) * contentEntranceOffsetPx
                             },
                     ) {
-                        HomeEditorialContent(
-                            activities = uiState.activities,
-                            jumpBackInItems = uiState.jumpBackInItems,
-                            memoryTeaser = uiState.memoryTeaser,
-                            isPlaying = isPlaying,
-                            playbackSignal = playbackSignal,
-                            activeSongId = activeSongId,
-                            onNavigateToSettings = onNavigateToSettings,
-                            onNavigateToMemories = onNavigateToMemories,
-                            onOpenMemoryFocus = onOpenMemoryFocus,
-                            memoriesRevealState = memoriesRevealState,
-                            onCommitMemoriesReveal = onCommitMemoriesReveal,
-                            onAlbumClick = onAlbumClick,
-                            onArtistClick = onArtistClick,
-                            onPlaylistClick = onPlaylistClick,
-                            onSongClick = onSongClick,
-                            buildCoverArtUrl = buildCoverArtUrl,
-                            sharedTransitionScope = sharedTransitionScope,
-                            animatedVisibilityScope = animatedVisibilityScope,
-                            modifier = Modifier.fillMaxSize(),
-                        )
+                        AnimatedContent(
+                            targetState = isEditMode,
+                            transitionSpec = {
+                                (
+                                    YoinMotion.fadeIn(role = YoinMotionRole.Expressive) +
+                                        YoinMotion.scaleIn(
+                                            role = YoinMotionRole.Expressive,
+                                            initialScale = 0.98f,
+                                        )
+                                    )
+                                    .togetherWith(YoinMotion.fadeOut(role = YoinMotionRole.Expressive))
+                            },
+                            label = "homeEditMode",
+                        ) { editing ->
+                            if (editing) {
+                                HomeLayoutEditor(
+                                    sections = sections,
+                                    onLayoutChange = onLayoutChange,
+                                    onDone = onExitEditMode,
+                                    modifier = Modifier.fillMaxSize(),
+                                )
+                            } else {
+                                HomeEditorialContent(
+                                    activities = uiState.activities,
+                                    jumpBackInItems = uiState.jumpBackInItems,
+                                    memoryTeaser = uiState.memoryTeaser,
+                                    recentlyAdded = uiState.recentlyAdded,
+                                    sections = sections,
+                                    isPlaying = isPlaying,
+                                    playbackSignal = playbackSignal,
+                                    activeSongId = activeSongId,
+                                    onNavigateToSettings = onNavigateToSettings,
+                                    onNavigateToMemories = onNavigateToMemories,
+                                    onEnterEditMode = onEnterEditMode,
+                                    onOpenMemoryFocus = onOpenMemoryFocus,
+                                    memoriesRevealState = memoriesRevealState,
+                                    onCommitMemoriesReveal = onCommitMemoriesReveal,
+                                    onAlbumClick = onAlbumClick,
+                                    onArtistClick = onArtistClick,
+                                    onPlaylistClick = onPlaylistClick,
+                                    onSongClick = onSongClick,
+                                    buildCoverArtUrl = buildCoverArtUrl,
+                                    sharedTransitionScope = sharedTransitionScope,
+                                    animatedVisibilityScope = animatedVisibilityScope,
+                                    modifier = Modifier.fillMaxSize(),
+                                )
+                            }
+                        }
                     }
                 }
             }

@@ -17,6 +17,10 @@ sealed interface HomeUiState {
         val activitiesFromRemote: Boolean = false,
         val jumpBackInItems: List<HomeJumpBackInItem>,
         val memoryTeaser: MemoryTeaser? = null,
+        // Library items added within the last week (Spotify saved / Subsonic
+        // starred), newest first. Empty when nothing was added recently or the
+        // fetch failed — the section then renders nothing.
+        val recentlyAdded: List<Track> = emptyList(),
     ) : HomeUiState
 
     data class Error(val message: String) : HomeUiState

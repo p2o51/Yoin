@@ -1,6 +1,7 @@
 package com.gpo.yoin.data.repository
 
-import android.util.LruCache
+import java.util.Collections
+import java.util.LinkedHashMap
 import androidx.room.withTransaction
 import com.gpo.yoin.data.local.ActivityActionType
 import com.gpo.yoin.data.local.ActivityEntityType
@@ -143,17 +144,22 @@ class YoinRepository(
     ) {
         private class Entry<V>(val value: V, val cachedAt: Long)
 
-        private val lru = LruCache<String, Entry<V>>(maxSize)
+        private val lru = Collections.synchronizedMap(
+            object : LinkedHashMap<String, Entry<V>>(maxSize, 0.75f, true) {
+                override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Entry<V>>?): Boolean =
+                    size > maxSize
+            },
+        )
 
         fun getFresh(key: String): V? {
-            val entry = lru.get(key) ?: return null
+            val entry = lru[key] ?: return null
             return entry.value.takeIf { clock() - entry.cachedAt <= ttlMs }
         }
 
-        fun getStale(key: String): V? = lru.get(key)?.value
+        fun getStale(key: String): V? = lru[key]?.value
 
         fun put(key: String, value: V) {
-            lru.put(key, Entry(value, clock()))
+            lru[key] = Entry(value, clock())
         }
 
         fun remove(key: String) {
@@ -161,7 +167,7 @@ class YoinRepository(
         }
 
         fun clear() {
-            lru.evictAll()
+            lru.clear()
         }
     }
 

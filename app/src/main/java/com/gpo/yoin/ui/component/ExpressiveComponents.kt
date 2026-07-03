@@ -1,6 +1,10 @@
 package com.gpo.yoin.ui.component
 
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -28,8 +32,13 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.ui.graphics.lerp
+import kotlin.math.PI
+import kotlin.math.sin
+import kotlinx.coroutines.isActive
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -54,19 +63,63 @@ import com.gpo.yoin.ui.theme.GoogleSansFlex
 import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinShapeTokens
 
+// One full cycle of the playing-state wash — intentionally slow so the page
+// feels alive without competing with cover art or scrolling content.
+private const val ExpressivePageBackgroundDriftMillis = 75_000
+
 @Composable
 internal fun ExpressivePageBackground(
     accentColor: androidx.compose.ui.graphics.Color? = null,
+    isPlaying: Boolean = false,
+    playbackSignal: Float = 0f,
     modifier: Modifier = Modifier,
     content: @Composable BoxScope.() -> Unit,
 ) {
-    val topColor = accentColor?.let { accent ->
-        androidx.compose.ui.graphics.lerp(
-            start = MaterialTheme.colorScheme.surfaceContainer,
-            stop = accent,
-            fraction = 0.18f,
-        )
-    } ?: MaterialTheme.colorScheme.surfaceContainer
+    val scheme = MaterialTheme.colorScheme
+    val baseTopColor = accentColor?.let { accent ->
+        lerp(scheme.surfaceContainer, accent, 0.18f)
+    } ?: scheme.surfaceContainer
+
+    val drift = remember { Animatable(0f) }
+    LaunchedEffect(isPlaying) {
+        if (isPlaying) {
+            while (isActive) {
+                drift.animateTo(
+                    targetValue = 1f,
+                    animationSpec = tween(
+                        durationMillis = ExpressivePageBackgroundDriftMillis,
+                        easing = LinearEasing,
+                    ),
+                )
+                drift.snapTo(0f)
+            }
+        } else {
+            drift.stop()
+            drift.animateTo(
+                targetValue = 0f,
+                animationSpec = tween(durationMillis = 900, easing = FastOutSlowInEasing),
+            )
+        }
+    }
+
+    val phase = drift.value
+    val playingWobble = if (isPlaying) {
+        val wave = sin(phase * 2f * PI.toFloat()) * 0.5f + 0.5f
+        wave * 0.08f + playbackSignal.coerceIn(0f, 1f) * 0.03f
+    } else {
+        0f
+    }
+    val topColor = if (accentColor != null && isPlaying) {
+        lerp(baseTopColor, accentColor, playingWobble)
+    } else {
+        baseTopColor
+    }
+    val midColor = if (isPlaying) {
+        lerp(scheme.background, scheme.surfaceContainerLow, playingWobble * 0.35f)
+    } else {
+        scheme.background
+    }
+
     Box(
         modifier = modifier
             .fillMaxSize()
@@ -74,8 +127,8 @@ internal fun ExpressivePageBackground(
                 Brush.verticalGradient(
                     colors = listOf(
                         topColor,
-                        MaterialTheme.colorScheme.background,
-                        MaterialTheme.colorScheme.surfaceContainerLow,
+                        midColor,
+                        scheme.surfaceContainerLow,
                     ),
                 ),
             ),

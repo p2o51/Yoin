@@ -5,6 +5,7 @@ import androidx.room.Room
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import com.gpo.yoin.data.cache.DetailCacheStore
+import com.gpo.yoin.data.home.HomeLayoutStore
 import com.gpo.yoin.data.local.YoinDatabase
 import com.gpo.yoin.data.lyrics.LyricsProviderRegistry
 import com.gpo.yoin.data.model.MediaId
@@ -82,6 +83,7 @@ class AppContainer(private val context: Context) {
                 MIGRATION_20_21,
                 MIGRATION_21_22,
                 MIGRATION_22_23,
+                MIGRATION_23_24,
             )
             // v11 冻结了 0.3 schema；0.5 上架前的备份降级保险（用户拿着 v11
             // 备份在旧版设备恢复）走这条：数据丢但应用不崩。没数据丢失比
@@ -389,6 +391,10 @@ class AppContainer(private val context: Context) {
         DetailCacheStore(database.detailCacheDao())
     }
 
+    val homeLayoutStore: HomeLayoutStore by lazy {
+        HomeLayoutStore(database.homeLayoutDao())
+    }
+
     val repository: YoinRepository by lazy {
         YoinRepository(
             activeSource = profileManager.activeSource,
@@ -417,6 +423,24 @@ class AppContainer(private val context: Context) {
 
     companion object {
         const val ProviderHttpCacheBytes: Long = 50L * 1024L * 1024L
+
+        // v23 → v24: per-profile customizable home layout. One row per profile
+        // holds the ordered/toggled section list as JSON; absence = catalog
+        // defaults, so existing users keep today's home until they customize.
+        val MIGRATION_23_24 = object : Migration(23, 24) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `home_layout` (
+                        `profileId` TEXT NOT NULL,
+                        `sectionsJson` TEXT NOT NULL,
+                        `updatedAt` INTEGER NOT NULL,
+                        PRIMARY KEY(`profileId`)
+                    )
+                    """.trimIndent(),
+                )
+            }
+        }
 
         val MIGRATION_22_23 = object : Migration(22, 23) {
             override fun migrate(db: SupportSQLiteDatabase) {

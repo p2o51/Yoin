@@ -1,7 +1,6 @@
 package com.gpo.yoin.ui.detail
 
 import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -34,23 +33,16 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Album
 import androidx.compose.material.icons.filled.Favorite
-import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Launch
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Person
-import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material.icons.rounded.IosShare
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
-import androidx.compose.material3.FloatingToolbarDefaults
-import androidx.compose.material3.HorizontalFloatingToolbar
 import androidx.compose.material3.MediumFlexibleTopAppBar
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.TopAppBarDefaults
@@ -60,8 +52,6 @@ import androidx.compose.material3.MaterialShapes
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.carousel.HorizontalMultiBrowseCarousel
 import androidx.compose.material3.carousel.rememberCarouselState
-import androidx.compose.material3.SplitButtonDefaults
-import androidx.compose.material3.SplitButtonLayout
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -76,14 +66,15 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.ui.component.AlbumCard
 import com.gpo.yoin.ui.component.ExpressiveMediaArtwork
+import com.gpo.yoin.ui.component.ExpressivePageBackground
 import com.gpo.yoin.ui.component.YoinDropdownMenu
 import com.gpo.yoin.ui.component.YoinDropdownMenuItem
 import com.gpo.yoin.ui.component.YoinLoadingIndicator
@@ -93,11 +84,10 @@ import com.gpo.yoin.ui.experience.rememberYoinHaptics
 import com.gpo.yoin.ui.theme.ProvideYoinMotionRole
 import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinMotionRole
+import com.gpo.yoin.ui.theme.YoinShapeTokens
 import com.gpo.yoin.ui.theme.YoinTheme
 import com.gpo.yoin.ui.theme.rememberCoverColorScheme
 import com.gpo.yoin.ui.theme.withTabularFigures
-
-private val ArtistToolbarButtonHeight = 60.dp
 
 @Composable
 fun ArtistDetailScreen(
@@ -111,14 +101,23 @@ fun ArtistDetailScreen(
     onOpenInSpotify: () -> Unit = {},
     onTopTrackClick: (index: Int) -> Unit = {},
     onShare: () -> Unit = {},
+    isPlaying: Boolean = false,
+    playbackSignal: Float = 0f,
     modifier: Modifier = Modifier,
 ) {
+    val content = uiState as? ArtistDetailUiState.Content
+    val pageAccent = rememberDetailPageAccent(
+        content?.heroCoverArtUrl ?: content?.albums?.firstOrNull()?.coverArtUrl,
+    )
+
     ProvideYoinMotionRole(role = YoinMotionRole.Expressive) {
-        Box(
-            modifier = modifier
-                .fillMaxSize()
-                .background(MaterialTheme.colorScheme.surface),
+        ExpressivePageBackground(
+            accentColor = pageAccent,
+            isPlaying = isPlaying,
+            playbackSignal = playbackSignal,
+            modifier = modifier,
         ) {
+            Box(modifier = Modifier.fillMaxSize()) {
             when (uiState) {
                 is ArtistDetailUiState.Loading ->
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -140,6 +139,7 @@ fun ArtistDetailScreen(
                         onTopTrackClick = onTopTrackClick,
                         onShare = onShare,
                     )
+            }
             }
         }
     }
@@ -164,14 +164,11 @@ private fun ArtistDetailContent(
     // Material roles seeded from the artist portrait (same path as the album page).
     val coverScheme = rememberCoverColorScheme(heroUrl)
     val s = coverScheme ?: MaterialTheme.colorScheme
-    val primaryBlock by animateColorAsState(s.primary, tween(420), label = "artistPrimaryBlock")
-    val titleColor by animateColorAsState(s.primary, tween(420), label = "artistTitleColor")
+    val primaryBlock by animateColorAsState(s.primary, YoinMotion.effectsSpring(), label = "artistPrimaryBlock")
+    val secondaryBlock by animateColorAsState(s.secondary, YoinMotion.effectsSpring(), label = "artistSecondaryBlock")
+    val titleColor by animateColorAsState(s.primary, YoinMotion.effectsSpring(), label = "artistTitleColor")
     val accentText = s.secondary
-    val toolbarTint = androidx.compose.ui.graphics.lerp(
-        MaterialTheme.colorScheme.surfaceContainer,
-        s.secondaryContainer,
-        0.5f,
-    )
+    val toolbarTint = rememberDetailToolbarTint(s)
 
     // M3 medium-flexible top bar: large on arrival, collapses to a small bar as
     // the page scrolls and stays small until scrolled back to the top.
@@ -206,13 +203,7 @@ private fun ArtistDetailContent(
                         )
                     },
                     navigationIcon = {
-                        IconButton(onClick = onBackClick) {
-                            Icon(
-                                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                                contentDescription = "Back",
-                                tint = MaterialTheme.colorScheme.onSurface,
-                            )
-                        }
+                        DetailBackButton(onClick = onBackClick)
                     },
                     // Both states = the page's own surface (NOT Color.Transparent —
                     // transparent is transparent-BLACK, so collapsing would lerp
@@ -220,8 +211,8 @@ private fun ArtistDetailContent(
                     // Same colour both ends → the bar just blends with the page and
                     // only its height changes on scroll.
                     colors = TopAppBarDefaults.topAppBarColors(
-                        containerColor = MaterialTheme.colorScheme.surface,
-                        scrolledContainerColor = MaterialTheme.colorScheme.surface,
+                        containerColor = Color.Transparent,
+                        scrolledContainerColor = Color.Transparent,
                         titleContentColor = titleColor,
                         navigationIconContentColor = MaterialTheme.colorScheme.onSurface,
                     ),
@@ -234,6 +225,8 @@ private fun ArtistDetailContent(
             ArtistOverviewPage(
                 content = content,
                 heroUrl = heroUrl,
+                primaryBlock = primaryBlock,
+                secondaryBlock = secondaryBlock,
                 accent = primaryBlock,
                 accentOn = s.onPrimary,
                 onAlbumClick = onAlbumClick,
@@ -268,6 +261,8 @@ private fun ArtistDetailContent(
 private fun ArtistOverviewPage(
     content: ArtistDetailUiState.Content,
     heroUrl: String?,
+    primaryBlock: Color,
+    secondaryBlock: Color,
     accent: Color,
     accentOn: Color,
     onAlbumClick: (String) -> Unit,
@@ -295,12 +290,25 @@ private fun ArtistOverviewPage(
             val followLabel = if (content.isStarred) followActive else followIdle
 
             // Hero — Albums (left) · portrait (center) · Follow (right).
-            Row(
+            Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp),
-                verticalAlignment = Alignment.CenterVertically,
             ) {
+                AlbumArrowBackground(
+                    primaryBlock = primaryBlock,
+                    secondaryBlock = secondaryBlock,
+                    lineColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.22f),
+                    markHeight = portraitSize + 48.dp,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(portraitSize + 64.dp)
+                        .align(Alignment.TopCenter),
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
                 Column(
                     modifier = Modifier.weight(1f),
                     horizontalAlignment = Alignment.Start,
@@ -341,6 +349,7 @@ private fun ArtistOverviewPage(
                         onToggle = onToggleFollow,
                     )
                 }
+            }
             }
 
             Spacer(modifier = Modifier.height(24.dp))
@@ -406,7 +415,7 @@ private fun ArtistDiscographyCarousel(
         Box(
             modifier = Modifier
                 .height(220.dp)
-                .maskClip(RoundedCornerShape(20.dp))
+                .maskClip(YoinShapeTokens.LargeIncreased)
                 .clickable { onAlbumClick(album.id) },
         ) {
             ExpressiveMediaArtwork(
@@ -525,26 +534,31 @@ private fun ArtistTopTrackRow(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val haptics = rememberYoinHaptics()
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(16.dp))
-            .clickable(onClick = onClick)
-            .padding(horizontal = 6.dp, vertical = 8.dp),
+            .clip(YoinShapeTokens.Large)
+            .clickable {
+                haptics.performClick()
+                onClick()
+            }
+            .padding(horizontal = 8.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Text(
             text = rank.toString(),
-            style = MaterialTheme.typography.labelLarge.copy(fontFamily = FontFamily.Monospace),
+            style = MaterialTheme.typography.labelMedium.withTabularFigures(),
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.widthIn(min = 20.dp),
+            textAlign = TextAlign.End,
+            modifier = Modifier.widthIn(min = 18.dp),
         )
         ExpressiveMediaArtwork(
             model = track.coverArtUrl,
             contentDescription = null,
             modifier = Modifier.size(46.dp),
-            shape = RoundedCornerShape(8.dp),
+            shape = YoinShapeTokens.Small,
             fallbackIcon = Icons.Filled.MusicNote,
             border = null,
             shadowElevation = 0.dp,
@@ -572,7 +586,7 @@ private fun ArtistTopTrackRow(
         track.durationSec?.let { secs ->
             Text(
                 text = formatArtistTrackDuration(secs),
-                style = MaterialTheme.typography.labelMedium.copy(fontFamily = FontFamily.Monospace),
+                style = MaterialTheme.typography.labelLarge.withTabularFigures(),
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
@@ -592,121 +606,41 @@ private fun ArtistBottomToolbar(
     onShare: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    HorizontalFloatingToolbar(
-        expanded = true,
-        colors = FloatingToolbarDefaults.standardFloatingToolbarColors(
-            toolbarContainerColor = toolbarContainer,
-        ),
+    DetailFloatingToolbar(
+        toolbarContainer = toolbarContainer,
         modifier = modifier,
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = onShare, modifier = Modifier.size(52.dp)) {
-                Icon(
-                    imageVector = Icons.Rounded.IosShare,
-                    contentDescription = "Share",
-                    tint = MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier.size(24.dp),
-                )
-            }
-            Spacer(modifier = Modifier.width(8.dp))
-            ArtistPlaySplitButton(
-                playContainer = playContainer,
-                playContent = playContent,
-                onPlay = onPlay,
-                onShuffle = onShuffle,
-                showOpenInSpotify = showOpenInSpotify,
-                onOpenInSpotify = onOpenInSpotify,
+        IconButton(onClick = onShare, modifier = Modifier.size(52.dp)) {
+            Icon(
+                imageVector = Icons.Rounded.IosShare,
+                contentDescription = "Share",
+                tint = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.size(24.dp),
             )
         }
+        Spacer(modifier = Modifier.width(8.dp))
+        DetailPlaySplitButton(
+            playContainer = playContainer,
+            playContent = playContent,
+            onPlay = onPlay,
+            onShuffle = onShuffle,
+        ) { dismissMenu ->
+            if (showOpenInSpotify) {
+                YoinDropdownMenuItem(
+                    text = "Open in Spotify",
+                    onClick = {
+                        dismissMenu()
+                        onOpenInSpotify()
+                    },
+                    leadingIcon = {
+                        Icon(Icons.Filled.Launch, contentDescription = null, modifier = Modifier.size(22.dp))
+                    },
+                    textStyle = MaterialTheme.typography.titleMedium,
+                    contentPadding = PaddingValues(horizontal = 20.dp, vertical = 14.dp),
+                )
+            }
+        }
     }
-}
-
-@OptIn(ExperimentalMaterial3ExpressiveApi::class)
-@Composable
-private fun ArtistPlaySplitButton(
-    playContainer: Color,
-    playContent: Color,
-    onPlay: () -> Unit,
-    onShuffle: () -> Unit,
-    showOpenInSpotify: Boolean,
-    onOpenInSpotify: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    var menuOpen by remember { mutableStateOf(false) }
-    val buttonColors = ButtonDefaults.buttonColors(
-        containerColor = playContainer,
-        contentColor = playContent,
-    )
-    SplitButtonLayout(
-        modifier = modifier,
-        leadingButton = {
-            SplitButtonDefaults.LeadingButton(
-                onClick = onPlay,
-                colors = buttonColors,
-                modifier = Modifier.height(ArtistToolbarButtonHeight),
-                contentPadding = PaddingValues(horizontal = 26.dp),
-            ) {
-                Icon(
-                    imageVector = Icons.Filled.PlayArrow,
-                    contentDescription = null,
-                    modifier = Modifier.size(SplitButtonDefaults.LeadingIconSize),
-                )
-                Spacer(modifier = Modifier.width(ButtonDefaults.IconSpacing))
-                Text("Play", style = MaterialTheme.typography.titleMedium)
-            }
-        },
-        trailingButton = {
-            SplitButtonDefaults.TrailingButton(
-                checked = menuOpen,
-                onCheckedChange = { menuOpen = it },
-                colors = buttonColors,
-                modifier = Modifier.height(ArtistToolbarButtonHeight),
-                contentPadding = PaddingValues(horizontal = 20.dp),
-            ) {
-                Icon(
-                    imageVector = Icons.Filled.KeyboardArrowDown,
-                    contentDescription = "More play options",
-                    modifier = Modifier
-                        .size(SplitButtonDefaults.TrailingIconSize)
-                        .graphicsLayer { rotationZ = if (menuOpen) 180f else 0f },
-                )
-                YoinDropdownMenu(
-                    expanded = menuOpen,
-                    onDismissRequest = { menuOpen = false },
-                    shadowElevation = 0.dp,
-                ) {
-                    YoinDropdownMenuItem(
-                        text = "Shuffle play",
-                        onClick = {
-                            menuOpen = false
-                            onShuffle()
-                        },
-                        leadingIcon = {
-                            Icon(Icons.Filled.Shuffle, contentDescription = null, modifier = Modifier.size(22.dp))
-                        },
-                        textStyle = MaterialTheme.typography.titleMedium,
-                        contentPadding = PaddingValues(horizontal = 20.dp, vertical = 14.dp),
-                    )
-                    // Saved/liked tracks aren't mirrored in-app — open the artist
-                    // in Spotify, where the user's saved songs live. Spotify only.
-                    if (showOpenInSpotify) {
-                        YoinDropdownMenuItem(
-                            text = "Open in Spotify",
-                            onClick = {
-                                menuOpen = false
-                                onOpenInSpotify()
-                            },
-                            leadingIcon = {
-                                Icon(Icons.Filled.Launch, contentDescription = null, modifier = Modifier.size(22.dp))
-                            },
-                            textStyle = MaterialTheme.typography.titleMedium,
-                            contentPadding = PaddingValues(horizontal = 20.dp, vertical = 14.dp),
-                        )
-                    }
-                }
-            }
-        },
-    )
 }
 
 @Composable
@@ -721,13 +655,10 @@ private fun ArtistErrorState(
             .fillMaxSize()
             .statusBarsPadding(),
     ) {
-        IconButton(onClick = onBackClick, modifier = Modifier.padding(4.dp)) {
-            Icon(
-                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                contentDescription = "Back",
-                tint = MaterialTheme.colorScheme.onSurface,
-            )
-        }
+        DetailBackButton(
+            onClick = onBackClick,
+            modifier = Modifier.padding(4.dp),
+        )
         Column(
             modifier = Modifier
                 .align(Alignment.Center)

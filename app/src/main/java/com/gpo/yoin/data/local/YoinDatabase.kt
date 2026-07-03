@@ -29,8 +29,9 @@ import androidx.room.RoomDatabase
         MemoryCopyCache::class,
         NeoDBConfig::class,
         DetailCacheEntry::class,
+        HomeLayoutPreference::class,
     ],
-    version = 23,
+    version = 24,
     exportSchema = true,
 )
 abstract class YoinDatabase : RoomDatabase() {
@@ -71,4 +72,6 @@ abstract class YoinDatabase : RoomDatabase() {
     abstract fun neoDbConfigDao(): NeoDBConfigDao
 
     abstract fun detailCacheDao(): DetailCacheDao
+
+    abstract fun homeLayoutDao(): HomeLayoutDao
 }

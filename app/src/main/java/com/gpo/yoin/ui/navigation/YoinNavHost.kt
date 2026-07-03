@@ -568,6 +568,7 @@ private fun YoinShell(
                             isPlaying = playbackState.isPlaying,
                             playbackSignal = if (playbackState.isPlaying) playbackSignal else 0f,
                             activeSongId = playbackState.currentTrack?.id?.toString(),
+                            suppressBackHandling = showNowPlaying,
                             onNavigateToSettings = { navigateToSettingsFromShell(null) },
                             onNavigateToMemories = {
                                 experienceSessionStore.setHomeSurface(HomeSurface.Memories)

@@ -47,7 +47,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.RoundRect
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Outline
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.text.LinkAnnotation
@@ -62,7 +68,9 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
 import com.gpo.yoin.ui.component.YoinArmTransform
@@ -78,8 +86,10 @@ import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.time.temporal.ChronoUnit
+import kotlin.math.PI
 import kotlin.math.absoluteValue
 import kotlin.math.roundToInt
+import kotlin.math.sin
 
 // ---------------------------------------------------------------------------
 // Arrow-mark background — the two enlarged, off-edge-bled color blocks.
@@ -185,6 +195,64 @@ internal fun AlbumPageDots(
 }
 
 // ---------------------------------------------------------------------------
+// Docked-cover "wavy band" — the thin rectangle the hero cover morphs into when
+// the track list is pulled up (replaces the old right-docked capsule).
+// ---------------------------------------------------------------------------
+
+/**
+ * A rectangle whose top & bottom edges are sine waves run HALF a wavelength out
+ * of phase ([bottomPhase]) — so the two edges stagger (错落) and the band pinches
+ * & bulges instead of undulating as a constant-thickness ribbon. [expand] gates
+ * the wave amplitude in from 0 → full and relaxes the corner radius, so the album
+ * cover morphs from a plain rounded square (expand 0, hero) into a thin wavy band
+ * (expand 1, docked) along the reshape — one continuous [Shape], no crossfade.
+ */
+internal class WavyBandShape(
+    private val expand: Float,
+    private val amplitude: Dp = 3.5.dp,
+    private val waveLength: Dp = 48.dp,
+    private val heroCorner: Dp = 28.dp,
+    private val bottomPhase: Float = PI.toFloat(),
+) : Shape {
+    override fun createOutline(
+        size: Size,
+        layoutDirection: LayoutDirection,
+        density: Density,
+    ): Outline {
+        val e = expand.coerceIn(0f, 1f)
+        val amp = with(density) { amplitude.toPx() } * e
+        // Near the hero end the waves are sub-pixel — fall back to a rounded rect
+        // whose corner relaxes toward 0 as it docks.
+        if (amp < 0.75f) {
+            val r = with(density) { heroCorner.toPx() } * (1f - e)
+            return Outline.Rounded(
+                RoundRect(0f, 0f, size.width, size.height, CornerRadius(r, r)),
+            )
+        }
+        val w = size.width
+        val h = size.height
+        val wl = with(density) { waveLength.toPx() }.coerceAtLeast(1f)
+        val k = (2f * PI.toFloat()) / wl
+        val segments = (w / 3f).toInt().coerceIn(24, 400)
+        val path = Path()
+        // Top edge L→R, baseline at `amp`, oscillating in [0, 2·amp].
+        path.moveTo(0f, amp)
+        for (i in 1..segments) {
+            val x = w * i / segments
+            path.lineTo(x, amp + amp * sin(k * x))
+        }
+        // Bottom edge R→L, run out of phase with the top (bottomPhase) so the two
+        // edges stagger — the band pinches & bulges rather than moving in parallel.
+        for (i in segments downTo 0) {
+            val x = w * i / segments
+            path.lineTo(x, (h - amp) + amp * sin(k * x + bottomPhase))
+        }
+        path.close()
+        return Outline.Generic(path)
+    }
+}
+
+// ---------------------------------------------------------------------------
 // "Avg." Bun score chip (MaterialShapes.Bun).
 // ---------------------------------------------------------------------------
 
@@ -275,6 +343,31 @@ internal fun AlbumSectionLabel(
         )
         if (trailing != null) trailing()
     }
+}
+
+// ---------------------------------------------------------------------------
+// Total track-count label — used in both the hero (above flowing titles)
+// and the pulled-up list (below the wavy band).
+// ---------------------------------------------------------------------------
+
+@Composable
+internal fun AlbumTrackCountLabel(
+    count: Int,
+    totalDurationSeconds: Int?,
+    modifier: Modifier = Modifier,
+) {
+    val tracks = if (count == 1) "1 track" else "$count tracks"
+    Text(
+        text = buildString {
+            append(tracks)
+            totalDurationSeconds?.takeIf { it > 0 }?.let {
+                append("  ·  ${formatAlbumTotalDuration(it)}")
+            }
+        },
+        style = MaterialTheme.typography.labelMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = modifier,
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -581,6 +674,14 @@ private fun formatTrackDuration(seconds: Int): String {
     val mins = seconds / 60
     val secs = seconds % 60
     return "%d:%02d".format(mins, secs)
+}
+
+/** Album total runtime → "38m" / "1h 12m" (matches the playlist pill format). */
+internal fun formatAlbumTotalDuration(seconds: Int): String {
+    val totalMin = seconds / 60
+    val h = totalMin / 60
+    val m = totalMin % 60
+    return if (h > 0) "${h}h ${m}m" else "${m}m"
 }
 
 /**

@@ -42,6 +42,8 @@ class AlbumDetailActivity : ComponentActivity() {
                 val notedSongIds by viewModel.notedSongIds.collectAsState()
                 val expandedSongId by viewModel.expandedSongId.collectAsState()
                 val expandedNoteBundle by viewModel.expandedNoteBundle.collectAsState()
+                val playbackState by app.container.playbackManager.playbackState.collectAsState()
+                val playbackSignal by app.container.audioVisualizerManager.playbackSignal.collectAsState()
 
                 fun playFrom(startIndex: Int, shuffle: Boolean) {
                     val ordered = viewModel.getAlbumSongs()
@@ -99,6 +101,8 @@ class AlbumDetailActivity : ComponentActivity() {
                     onOpenArtist = (uiState as? AlbumDetailUiState.Content)?.artistId?.let { artistId ->
                         { context.startActivity(ArtistDetailActivity.intent(context, artistId)) }
                     },
+                    isPlaying = playbackState.isPlaying,
+                    playbackSignal = if (playbackState.isPlaying) playbackSignal else 0f,
                     modifier = Modifier.fillMaxSize(),
                 )
             }

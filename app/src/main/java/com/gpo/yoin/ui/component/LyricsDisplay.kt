@@ -34,7 +34,7 @@ import com.gpo.yoin.ui.nowplaying.LyricLine
 import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinTheme
 import kotlin.math.abs
-import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.filter
 
 /**
  * Synced lyrics display — a compact, fixed-height window onto the full lyric list
@@ -97,20 +97,40 @@ fun LyricsDisplay(
 
     // ONE settle driver owns the scroll. Anchor the active line ~22% from the top
     // so there is roughly one past line above it and the upcoming lines below.
+    //
+    // Re-anchor on EVERY viewport-size change, not just when the line advances:
+    // this compact window is resized IN PLACE as the NP stage reshapes (Compact
+    // <-> Expanded, and the hinge lyricsEmphasis lerp). The stored scroll offset is
+    // in PIXELS, derived as a fraction of the viewport at anchor time — so if the
+    // last anchor happened while the box was tall (expanded), that pixel offset is
+    // far too large once the box shrinks back to the collapsed height and the active
+    // line lands well below centre. Collecting the viewport height (as
+    // LyricsFullscreenPane does) re-derives the offset for each new height, so the
+    // line snaps back to the intended 22% whenever the box grows or shrinks.
     LaunchedEffect(currentIndex, listState) {
         if (currentIndex < 0) return@LaunchedEffect
-        // Wait for a non-zero viewport — during an expand the height is ~0, so the
-        // offset would resolve to 0 and the real anchoring would slip a line.
-        val viewportPx = snapshotFlow { listState.layoutInfo.viewportSize.height }
-            .first { it > 0 }
-        val offsetPx = -(viewportPx * 0.22f).toInt()
         val target = currentIndex.coerceIn(0, lyrics.lastIndex)
-        if (hasCentered) {
-            listState.animateScrollToItem(index = target, scrollOffset = offsetPx)
-        } else {
-            listState.scrollToItem(index = target, scrollOffset = offsetPx)
-            hasCentered = true
-        }
+        var firstAnchor = true
+        // filter { it > 0 }: during an expand the height is ~0 for a frame, and a 0
+        // offset would slip the anchoring by a line.
+        snapshotFlow { listState.layoutInfo.viewportSize.height }
+            .filter { it > 0 }
+            .collect { viewportPx ->
+                val offsetPx = -(viewportPx * 0.22f).toInt()
+                when {
+                    // Very first centre of the song: instant, no animation.
+                    !hasCentered -> {
+                        listState.scrollToItem(index = target, scrollOffset = offsetPx)
+                        hasCentered = true
+                    }
+                    // First reaction to this line advance: glide.
+                    firstAnchor -> listState.animateScrollToItem(index = target, scrollOffset = offsetPx)
+                    // Later frames while the box is mid-resize: snap so the active
+                    // line tracks the changing viewport instead of lagging behind.
+                    else -> listState.scrollToItem(index = target, scrollOffset = offsetPx)
+                }
+                firstAnchor = false
+            }
     }
 
     Box(

@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.navigationBars
@@ -27,9 +28,13 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
@@ -144,11 +149,15 @@ internal fun HomeEditorialContent(
     activities: List<ActivityEvent>,
     jumpBackInItems: List<HomeJumpBackInItem>,
     memoryTeaser: MemoryTeaser? = null,
+    recentlyAdded: List<Track> = emptyList(),
+    sections: List<HomeSectionState> = HomeLayout.Default.sections,
     isPlaying: Boolean,
     playbackSignal: Float,
     activeSongId: String? = null,
     onNavigateToSettings: () -> Unit,
     onNavigateToMemories: () -> Unit,
+    // Long-press anywhere on the feed enters the home layout editor.
+    onEnterEditMode: () -> Unit = {},
     // Teaser-only: open the deck stopped on this specific album (by candidate
     // sessionId). The chevron + pull-to-reveal stay generic via onNavigateToMemories.
     onOpenMemoryFocus: (sessionId: Long) -> Unit = {},
@@ -243,6 +252,7 @@ internal fun HomeEditorialContent(
     val onArtistClickState = rememberUpdatedState(onArtistClick)
     val onPlaylistClickState = rememberUpdatedState(onPlaylistClick)
     val onSongClickState = rememberUpdatedState(onSongClick)
+    val onEnterEditModeState = rememberUpdatedState(onEnterEditMode)
     val onEntryClick = remember {
         { target: HomeEntryTarget ->
             when (target) {
@@ -265,7 +275,18 @@ internal fun HomeEditorialContent(
         modifier = modifier
             .fillMaxSize()
             .onSizeChanged { containerHeightPx = it.height.toFloat().coerceAtLeast(1f) }
-            .nestedScroll(pullToMemoriesConnection),
+            .nestedScroll(pullToMemoriesConnection)
+            // Long-press → layout editor. Cards only consume taps
+            // (noRippleClickable), so the press passes through them; any scroll
+            // movement cancels it before the timeout.
+            .pointerInput(Unit) {
+                detectTapGestures(
+                    onLongPress = {
+                        haptics.performLongPress()
+                        onEnterEditModeState.value()
+                    },
+                )
+            },
         contentPadding = PaddingValues(
             start = 16.dp,
             end = 16.dp,
@@ -274,9 +295,13 @@ internal fun HomeEditorialContent(
         ),
         verticalArrangement = Arrangement.spacedBy(18.dp),
     ) {
-        item {
+        // The page header (title + nav icons) is pinned above the reorderable
+        // sections — it's chrome, not a section.
+        item(key = "home-header") {
             HomeContentHeader(
-                title = "Activities",
+                // Page-level title: sections below it are user-reorderable, so
+                // the header can't borrow the first section's name anymore.
+                title = "Home",
                 onNavigateToSettings = onNavigateToSettings,
                 onNavigateToMemories = onNavigateToMemories,
                 memoriesHintProgress = memoriesHintProgress,
@@ -284,81 +309,109 @@ internal fun HomeEditorialContent(
             )
         }
 
-        item(key = "memory-teaser") {
-            // A candidate album → nudge to revisit it; otherwise a standing
-            // guide so the Memories mechanic is discoverable before the user
-            // has ever rated or noted anything.
-            if (memoryTeaser != null) {
-                MemoryTeaserRow(
-                    teaser = memoryTeaser,
-                    onClick = { onOpenMemoryFocus(memoryTeaser.sessionId) },
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            } else {
-                MemoryGuideRow(
-                    onClick = onNavigateToMemories,
-                    modifier = Modifier.fillMaxWidth(),
-                )
+        // Data-driven feed: render each enabled section in the user's chosen
+        // order. The default layout reproduces the original hardcoded order
+        // (memory teaser → activities → jump back in).
+        for (sectionState in sections) {
+            if (!sectionState.enabled) continue
+            when (sectionState.section) {
+                HomeSection.MemoryTeaser -> item(key = "section-memory-teaser") {
+                    // A candidate album → nudge to revisit it; otherwise a
+                    // standing guide so the Memories mechanic is discoverable
+                    // before the user has ever rated or noted anything.
+                    if (memoryTeaser != null) {
+                        MemoryTeaserRow(
+                            teaser = memoryTeaser,
+                            onClick = { onOpenMemoryFocus(memoryTeaser.sessionId) },
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    } else {
+                        MemoryGuideRow(
+                            onClick = onNavigateToMemories,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
+                }
+
+                HomeSection.Activities -> item(key = "section-activities") {
+                    AnimatedVisibility(visible = activityEntries.isNotEmpty()) {
+                        ActivityGrid(
+                            entries = activityEntries.take(4),
+                            activeSongId = activeSongId,
+                            isPlaying = isPlaying,
+                            playbackSignal = playbackSignal,
+                            extractBackdropColors = shouldExtractBackdropColors,
+                            onEntryClick = onEntryClick,
+                            sharedTransitionScope = sharedTransitionScope,
+                            animatedVisibilityScope = animatedVisibilityScope,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
+                    if (activityEntries.isEmpty()) {
+                        HomeEmptyCard(
+                            title = "No recent activity yet",
+                            supporting = "Once you listen or visit albums and artists, this feed will start filling in.",
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
+                }
+
+                // Only render when there's something added this week — an empty
+                // "recently added" shelf is noise, not information.
+                HomeSection.RecentlyAdded -> if (recentlyAdded.isNotEmpty()) {
+                    item(key = "section-recently-added") {
+                        RecentlyAddedSection(
+                            tracks = recentlyAdded,
+                            activeSongId = activeSongId,
+                            isPlaying = isPlaying,
+                            playbackSignal = playbackSignal,
+                            extractBackdropColors = shouldExtractBackdropColors,
+                            onTrackClick = { track -> onEntryClick(HomeEntryTarget.SongTarget(track)) },
+                            buildCoverArtUrl = buildCoverArtUrl,
+                            sharedTransitionScope = sharedTransitionScope,
+                            animatedVisibilityScope = animatedVisibilityScope,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
+                }
+
+                HomeSection.JumpBackIn -> {
+                    item(key = "section-jump-back-in-header") {
+                        JumpBackInHeader(
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
+
+                    if (jumpRows.isEmpty()) {
+                        item(key = "section-jump-back-in-empty") {
+                            HomeEmptyCard(
+                                title = "Jump Back In is waiting",
+                                supporting = "Scroll a little and refresh when you want another batch of albums, songs, and artists.",
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                        }
+                    } else {
+                        itemsIndexed(
+                            items = jumpRows,
+                            key = { _, row -> row.joinToString(separator = "|") { it.stableId } },
+                        ) { index, row ->
+                            JumpBackInRow(
+                                entries = row,
+                                rowIndex = index,
+                                activeSongId = activeSongId,
+                                isPlaying = isPlaying,
+                                playbackSignal = playbackSignal,
+                                extractBackdropColors = shouldExtractBackdropColors,
+                                onEntryClick = onEntryClick,
+                                sharedTransitionScope = sharedTransitionScope,
+                                animatedVisibilityScope = animatedVisibilityScope,
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                        }
+                    }
+                }
             }
         }
-
-        item {
-            AnimatedVisibility(visible = activityEntries.isNotEmpty()) {
-                ActivityGrid(
-                    entries = activityEntries.take(4),
-                    activeSongId = activeSongId,
-                    isPlaying = isPlaying,
-                    playbackSignal = playbackSignal,
-                    extractBackdropColors = shouldExtractBackdropColors,
-                    onEntryClick = onEntryClick,
-                    sharedTransitionScope = sharedTransitionScope,
-                    animatedVisibilityScope = animatedVisibilityScope,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            }
-            if (activityEntries.isEmpty()) {
-                HomeEmptyCard(
-                    title = "No recent activity yet",
-                    supporting = "Once you listen or visit albums and artists, this feed will start filling in.",
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            }
-        }
-
-        item {
-            JumpBackInHeader(
-                modifier = Modifier.fillMaxWidth(),
-            )
-        }
-
-        if (jumpRows.isEmpty()) {
-            item {
-                HomeEmptyCard(
-                    title = "Jump Back In is waiting",
-                    supporting = "Scroll a little and refresh when you want another batch of albums, songs, and artists.",
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            }
-        } else {
-            itemsIndexed(
-                items = jumpRows,
-                key = { _, row -> row.joinToString(separator = "|") { it.stableId } },
-            ) { index, row ->
-                JumpBackInRow(
-                    entries = row,
-                    rowIndex = index,
-                    activeSongId = activeSongId,
-                    isPlaying = isPlaying,
-                    playbackSignal = playbackSignal,
-                    extractBackdropColors = shouldExtractBackdropColors,
-                    onEntryClick = onEntryClick,
-                    sharedTransitionScope = sharedTransitionScope,
-                    animatedVisibilityScope = animatedVisibilityScope,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            }
-        }
-
     }
 }
 
@@ -672,6 +725,111 @@ private fun ActivityCard(
                     overflow = TextOverflow.Ellipsis,
                 )
             }
+        }
+    }
+}
+
+@OptIn(ExperimentalSharedTransitionApi::class)
+@Composable
+private fun RecentlyAddedSection(
+    tracks: List<Track>,
+    activeSongId: String?,
+    isPlaying: Boolean,
+    playbackSignal: Float,
+    extractBackdropColors: Boolean,
+    onTrackClick: (Track) -> Unit,
+    buildCoverArtUrl: (String) -> String,
+    sharedTransitionScope: SharedTransitionScope? = null,
+    animatedVisibilityScope: AnimatedVisibilityScope? = null,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier = modifier,
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Text(
+            text = "Recently Added",
+            style = MaterialTheme.typography.headlineMedium,
+            color = MaterialTheme.colorScheme.onSurface,
+        )
+        LazyRow(
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            items(
+                items = tracks,
+                key = { track -> "recently-added:${track.id}" },
+            ) { track ->
+                RecentlyAddedTile(
+                    track = track,
+                    activeSongId = activeSongId,
+                    isPlaying = isPlaying,
+                    playbackSignal = playbackSignal,
+                    extractBackdropColors = extractBackdropColors,
+                    onClick = { onTrackClick(track) },
+                    buildCoverArtUrl = buildCoverArtUrl,
+                    sharedTransitionScope = sharedTransitionScope,
+                    animatedVisibilityScope = animatedVisibilityScope,
+                )
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalSharedTransitionApi::class)
+@Composable
+private fun RecentlyAddedTile(
+    track: Track,
+    activeSongId: String?,
+    isPlaying: Boolean,
+    playbackSignal: Float,
+    extractBackdropColors: Boolean,
+    onClick: () -> Unit,
+    buildCoverArtUrl: (String) -> String,
+    sharedTransitionScope: SharedTransitionScope? = null,
+    animatedVisibilityScope: AnimatedVisibilityScope? = null,
+    modifier: Modifier = Modifier,
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val songId = track.id.toString()
+    val isPlaybackActive = isPlaying && songId == activeSongId
+    val coverArtUrl = resolveHomeCoverArtUrl(track.coverArt, buildCoverArtUrl)
+        ?: track.albumId?.let { buildCoverArtUrl(it.rawId) }
+    Column(
+        modifier = modifier
+            .width(132.dp)
+            .noRippleClickable(interactionSource = interactionSource, onClick = onClick),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        ExpressiveArtwork(
+            model = coverArtUrl,
+            contentDescription = track.title.orEmpty(),
+            isPlaybackActive = isPlaybackActive,
+            playbackSignal = playbackSignal,
+            extractBackdropColors = extractBackdropColors,
+            sharedTransitionScope = sharedTransitionScope,
+            animatedVisibilityScope = animatedVisibilityScope,
+            interactionSource = interactionSource,
+            modifier = Modifier
+                .fillMaxWidth()
+                .aspectRatio(1f),
+            fillFraction = 1f,
+            shape = YoinShapeTokens.Medium,
+            fallbackIcon = Icons.Filled.LibraryMusic,
+        )
+        MarqueeTitle(
+            text = track.title.orEmpty(),
+            style = MaterialTheme.typography.titleSmall,
+            color = MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.fillMaxWidth(),
+        )
+        track.artist?.takeIf { it.isNotBlank() }?.let { artist ->
+            Text(
+                text = artist,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
         }
     }
 }
