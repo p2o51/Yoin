@@ -26,6 +26,7 @@ local.properties
 /playground/*.py
 # Scratch screenshots
 /yoin-*.png
+.screenshot-*.png
 # Local skills lockfile
 /skills-lock.json
 # Agent / tooling working dirs
