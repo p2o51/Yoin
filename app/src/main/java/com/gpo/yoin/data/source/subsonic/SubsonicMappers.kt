@@ -44,6 +44,10 @@ internal fun SubsonicSong.toTrack(): Track {
         userRating = userRating,
         isStarred = !starred.isNullOrEmpty(),
         extras = extras,
+        // `starred` is the per-user "when I starred this" timestamp (ISO-8601);
+        // carry it as addedAt so it feeds the home "Recently Added" shelf, the
+        // same field Spotify populates from a saved track's added_at.
+        addedAt = starred,
     )
 }
 

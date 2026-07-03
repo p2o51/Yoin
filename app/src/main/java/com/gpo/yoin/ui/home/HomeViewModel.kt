@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.gpo.yoin.AppContainer
+import com.gpo.yoin.data.home.HomeLayoutStore
 import com.gpo.yoin.data.local.ActivityEvent
 import com.gpo.yoin.data.memory.AlbumMemoryCandidate
 import com.gpo.yoin.data.model.Album
@@ -14,19 +15,34 @@ import com.gpo.yoin.data.model.Track
 import com.gpo.yoin.data.repository.YoinRepository
 import com.gpo.yoin.data.source.Capability
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import java.time.Instant
+import java.time.LocalDate
+import java.time.LocalDateTime
+import java.time.OffsetDateTime
+import java.time.ZoneOffset
 
 class HomeViewModel(
     private val repository: YoinRepository,
-    private val activeProfileId: StateFlow<String?>,
+    // Public so the edit-mode UI can watch for profile switches: an open layout
+    // editor must close when the profile changes, or its draft (belonging to
+    // the old profile) would be persisted into the new one.
+    val activeProfileId: StateFlow<String?>,
+    private val homeLayoutStore: HomeLayoutStore,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow<HomeUiState>(HomeUiState.Loading)
@@ -34,9 +50,37 @@ class HomeViewModel(
     private var artistPool: List<Artist> = emptyList()
     private var artistPoolWarmupJob: Job? = null
 
+    /**
+     * The active profile's home layout (which sections show, in what order),
+     * reconciled against the live section catalog. Orthogonal to [uiState]:
+     * content loads the same regardless of layout, and the feed renders from
+     * this. Falls back to [HomeLayout.Default] when no profile is active or the
+     * profile hasn't customized.
+     */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val homeLayout: StateFlow<HomeLayout> =
+        activeProfileId
+            .flatMapLatest { profileId ->
+                if (profileId.isNullOrBlank()) {
+                    flowOf(HomeLayout.Default)
+                } else {
+                    homeLayoutStore.layoutFlow(profileId).map(HomeLayout::reconcile)
+                }
+            }
+            .stateIn(viewModelScope, SharingStarted.Eagerly, HomeLayout.Default)
+
     init {
         refresh()
         observeRecentHistory()
+    }
+
+    /** Persist a new home layout for the active profile (no-op with no profile). */
+    fun setHomeLayout(layout: HomeLayout) {
+        val profileId = activeProfileId.value
+        if (profileId.isNullOrBlank()) return
+        viewModelScope.launch {
+            homeLayoutStore.setLayout(profileId, layout.toPrefs())
+        }
     }
 
     fun refresh() {
@@ -119,12 +163,38 @@ class HomeViewModel(
                 repository.getTopAlbumMemoryCandidate()?.toMemoryTeaser()
             }
 
+            val recentlyAddedDeferred = async { loadRecentlyAdded() }
+
             HomeUiState.Content(
                 activities = activitiesDeferred.await(),
                 jumpBackInItems = jumpBackInDeferred.await(),
                 memoryTeaser = memoryTeaserDeferred.await(),
+                recentlyAdded = recentlyAddedDeferred.await(),
             )
         }
+
+    /**
+     * Library items added within the last week, newest first. Provider-agnostic:
+     * reads the unified starred/saved library ([YoinRepository.getStarred]) and
+     * keeps tracks whose [Track.addedAt] parses to within the window. Failures
+     * degrade to an empty shelf rather than breaking the whole home load;
+     * cooperative cancellation is rethrown.
+     */
+    private suspend fun loadRecentlyAdded(): List<Track> {
+        return try {
+            val cutoff = System.currentTimeMillis() - RECENTLY_ADDED_WINDOW_MS
+            repository.getStarred().tracks
+                .mapNotNull { track -> parseAddedAtMillis(track.addedAt)?.let { millis -> millis to track } }
+                .filter { (addedMs, _) -> addedMs >= cutoff }
+                .sortedByDescending { (addedMs, _) -> addedMs }
+                .take(RECENTLY_ADDED_LIMIT)
+                .map { (_, track) -> track }
+        } catch (cancellation: CancellationException) {
+            throw cancellation
+        } catch (_: Exception) {
+            emptyList()
+        }
+    }
 
     private suspend fun loadCachedSpotifyHomeContent(
         profileId: String,
@@ -178,6 +248,7 @@ class HomeViewModel(
         val memoryTeaserDeferred = async {
             repository.getTopAlbumMemoryCandidate()?.toMemoryTeaser()
         }
+        val recentlyAddedDeferred = async { loadRecentlyAdded() }
 
         val (activities, activitiesFromRemote) = activitiesDeferred.await()
         val shuffledAlbums = albumDeferred.await()
@@ -209,6 +280,7 @@ class HomeViewModel(
                 shuffleCandidates = false,
             ),
             memoryTeaser = memoryTeaserDeferred.await(),
+            recentlyAdded = recentlyAddedDeferred.await(),
         )
     }
 
@@ -441,6 +513,7 @@ class HomeViewModel(
             HomeViewModel(
                 repository = container.repository,
                 activeProfileId = container.profileManager.activeProfileId,
+                homeLayoutStore = container.homeLayoutStore,
             ) as T
     }
 
@@ -455,6 +528,10 @@ class HomeViewModel(
         // batch per scroll and the palette-extracting render cost piled up
         // until the list fought for frames.
         private const val JUMP_BACK_IN_FIXED_COUNT = 9
+
+        // "Recently Added" home shelf: library items added within the last week.
+        private const val RECENTLY_ADDED_WINDOW_MS = 7L * 24 * 60 * 60 * 1000
+        private const val RECENTLY_ADDED_LIMIT = 12
         private const val JUMP_BACK_IN_ALBUM_REQUEST_SIZE = 18
         private const val JUMP_BACK_IN_SONG_REQUEST_SIZE = 18
         private const val SpotifyHomeCacheCandidateCount = 18
@@ -468,4 +545,24 @@ class HomeViewModel(
         private fun homeScopeKey(providerId: String?, profileId: String?): String =
             "${providerId.orEmpty()}|${profileId.orEmpty()}"
     }
+}
+
+/**
+ * Parse a library "added at" / "starred at" ISO-8601 string to epoch millis,
+ * tolerating the shapes seen across providers: an instant with `Z` (Spotify
+ * `added_at`), an offset date-time, a zone-less date-time (legacy Subsonic
+ * `starred`, read as UTC), and date-only. Unparseable / blank → null, so the
+ * item is dropped from the shelf.
+ */
+private fun parseAddedAtMillis(addedAt: String?): Long? {
+    if (addedAt.isNullOrBlank()) return null
+    return runCatching { Instant.parse(addedAt).toEpochMilli() }
+        .recoverCatching { OffsetDateTime.parse(addedAt).toInstant().toEpochMilli() }
+        .recoverCatching {
+            LocalDateTime.parse(addedAt).toInstant(ZoneOffset.UTC).toEpochMilli()
+        }
+        .recoverCatching {
+            LocalDate.parse(addedAt).atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli()
+        }
+        .getOrNull()
 }

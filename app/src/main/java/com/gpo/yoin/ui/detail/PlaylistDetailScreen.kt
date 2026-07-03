@@ -8,33 +8,38 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.wrapContentHeight
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.LibraryMusic
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import com.gpo.yoin.ui.component.YoinDropdownMenu
 import com.gpo.yoin.ui.component.YoinDropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.MediumFlexibleTopAppBar
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -43,23 +48,30 @@ import androidx.compose.runtime.setValue
 import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionScope
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.text.LinkAnnotation
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextLinkStyles
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.withLink
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
-import com.gpo.yoin.ui.component.ExpressiveHeaderBlock
 import com.gpo.yoin.ui.component.ExpressiveMediaArtwork
-import com.gpo.yoin.ui.component.ExpressiveMetaPill
 import com.gpo.yoin.ui.component.ExpressivePageBackground
 import com.gpo.yoin.ui.component.ExpressiveSectionPanel
-import com.gpo.yoin.ui.component.SongListItem
 import com.gpo.yoin.ui.component.YoinLoadingIndicator
-import com.gpo.yoin.ui.component.rememberExpressiveBackdropColors
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
 import com.gpo.yoin.ui.navigation.playlistCoverSharedKey
 import com.gpo.yoin.ui.navigation.rememberActiveOnlySharedContentConfig
@@ -67,23 +79,28 @@ import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinMotionRole
 import com.gpo.yoin.ui.theme.YoinShapeTokens
 import com.gpo.yoin.ui.theme.YoinTheme
+import com.gpo.yoin.ui.theme.rememberCoverColorScheme
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalSharedTransitionApi::class)
+@OptIn(
+    ExperimentalMaterial3Api::class,
+    ExperimentalMaterial3ExpressiveApi::class,
+    ExperimentalSharedTransitionApi::class,
+)
 @Composable
 fun PlaylistDetailScreen(
     uiState: PlaylistDetailUiState,
     onBackClick: () -> Unit,
     onPlayAllClick: () -> Unit,
+    onShufflePlay: () -> Unit = {},
     onSongClick: (songId: String) -> Unit,
-    onAddSongToPlaylist: (songId: String) -> Unit = {},
     onRetry: () -> Unit,
     onRename: (name: String) -> Unit = {},
     onDelete: () -> Unit = {},
-    onRemoveTrack: (position: Int, trackId: String) -> Unit = { _, _ -> },
-    notedSongIds: Set<String> = emptySet(),
     sharedTransitionKey: String? = null,
     sharedTransitionScope: SharedTransitionScope? = null,
     animatedVisibilityScope: AnimatedVisibilityScope? = null,
+    isPlaying: Boolean = false,
+    playbackSignal: Float = 0f,
     modifier: Modifier = Modifier,
 ) {
     val haptics = rememberYoinHaptics()
@@ -95,40 +112,61 @@ fun PlaylistDetailScreen(
     var showDeleteConfirm by remember { mutableStateOf(false) }
     val content = uiState as? PlaylistDetailUiState.Content
 
-    // See AlbumDetailScreen for why we gate on isResolvedFromPalette.
-    val accentColor = (uiState as? PlaylistDetailUiState.Content)?.coverArtUrl?.let { coverArtUrl ->
-        val colors = rememberExpressiveBackdropColors(
-            model = coverArtUrl,
-            fallbackBaseColor = MaterialTheme.colorScheme.surfaceContainer,
-            fallbackAccentColor = MaterialTheme.colorScheme.secondaryContainer,
-        )
-        colors.accentColor.takeIf { colors.isResolvedFromPalette }
-    }
+    // Header title/subtitle colors seeded from the cover (same MCU path as the
+    // Album & Artist pages); animated so the resolve doesn't pop on load.
+    val coverScheme = rememberCoverColorScheme(content?.coverArtUrl)
+    val headerScheme = coverScheme ?: MaterialTheme.colorScheme
+    val titleColor by animateColorAsState(headerScheme.primary, YoinMotion.effectsSpring(), label = "playlistTitleColor")
+    val accentText = headerScheme.secondary
+    // Bottom-toolbar palette, identical recipe to the Album / Artist pages: the
+    // Play button rides the cover-seeded primary; the toolbar bar tints halfway
+    // toward the cover's secondary container.
+    val toolbarTint = rememberDetailToolbarTint(headerScheme)
+    val playContent = headerScheme.onPrimary
+
+    // Medium-flexible bar: large on arrival, collapses to a small bar on scroll —
+    // same height/behaviour as the Artist page's top bar.
+    val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
+
+    val accentColor = rememberDetailPageAccent(content?.coverArtUrl)
     ExpressivePageBackground(
         accentColor = accentColor,
+        isPlaying = isPlaying,
+        playbackSignal = playbackSignal,
         modifier = modifier,
     ) {
         Scaffold(
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier
+                .fillMaxSize()
+                .nestedScroll(scrollBehavior.nestedScrollConnection),
             containerColor = Color.Transparent,
             contentColor = MaterialTheme.colorScheme.onSurface,
             contentWindowInsets = WindowInsets(0, 0, 0, 0),
             topBar = {
-                TopAppBar(
+                MediumFlexibleTopAppBar(
                     title = {
                         Text(
                             text = content?.playlistName.orEmpty(),
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
+                            color = titleColor,
+                        )
+                    },
+                    subtitle = {
+                        // Mirrors the Album credit ("Artist  ·  Album 2025"), but
+                        // the playlist owner is parenthesised: "(gpo)  ·  Playlist".
+                        Text(
+                            text = buildString {
+                                content?.owner?.takeIf { it.isNotBlank() }?.let { append("($it)  ·  ") }
+                                append("Playlist")
+                            },
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            color = accentText,
                         )
                     },
                     navigationIcon = {
-                        IconButton(onClick = onBackClick) {
-                            Icon(
-                                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                                contentDescription = "Back",
-                            )
-                        }
+                        DetailBackButton(onClick = onBackClick)
                     },
                     actions = {
                         // Overflow only renders when the current profile can
@@ -177,11 +215,15 @@ fun PlaylistDetailScreen(
                             }
                         }
                     },
+                    // Transparent both ends so the bar blends with the gradient
+                    // page background (no surface band, no collapse colour flash).
                     colors = TopAppBarDefaults.topAppBarColors(
                         containerColor = Color.Transparent,
-                        titleContentColor = MaterialTheme.colorScheme.onSurface,
+                        scrolledContainerColor = Color.Transparent,
+                        titleContentColor = titleColor,
                         navigationIconContentColor = MaterialTheme.colorScheme.onSurface,
                     ),
+                    scrollBehavior = scrollBehavior,
                 )
             },
         ) { innerPadding ->
@@ -231,11 +273,7 @@ fun PlaylistDetailScreen(
                 is PlaylistDetailUiState.Content -> {
                     PlaylistDetailContent(
                         content = uiState,
-                        onPlayAllClick = onPlayAllClick,
                         onSongClick = onSongClick,
-                        onAddSongToPlaylist = onAddSongToPlaylist,
-                        onRemoveTrack = onRemoveTrack,
-                        notedSongIds = notedSongIds,
                         sharedTransitionKey = sharedTransitionKey,
                         sharedTransitionScope = sharedTransitionScope,
                         animatedVisibilityScope = animatedVisibilityScope,
@@ -243,6 +281,22 @@ fun PlaylistDetailScreen(
                     )
                 }
             }
+        }
+
+        // Pinned bottom toolbar — shuffle sits on the outside, Play rides the
+        // cover-seeded primary (same floating bar as the Album / Artist pages).
+        if (content != null && content.songs.isNotEmpty()) {
+            PlaylistBottomToolbar(
+                playContainer = titleColor,
+                playContent = playContent,
+                toolbarContainer = toolbarTint,
+                onPlay = onPlayAllClick,
+                onShuffle = onShufflePlay,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .navigationBarsPadding()
+                    .padding(bottom = 12.dp),
+            )
         }
     }
 
@@ -316,103 +370,164 @@ private fun RenamePlaylistDialog(
 @Composable
 private fun PlaylistDetailContent(
     content: PlaylistDetailUiState.Content,
-    onPlayAllClick: () -> Unit,
     onSongClick: (songId: String) -> Unit,
-    onAddSongToPlaylist: (songId: String) -> Unit,
-    onRemoveTrack: (position: Int, trackId: String) -> Unit,
-    notedSongIds: Set<String>,
     sharedTransitionKey: String? = null,
     sharedTransitionScope: SharedTransitionScope? = null,
     animatedVisibilityScope: AnimatedVisibilityScope? = null,
     modifier: Modifier = Modifier,
 ) {
-    val haptics = rememberYoinHaptics()
     val navBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
-    androidx.compose.foundation.lazy.LazyColumn(
-        modifier = modifier.fillMaxSize(),
-        contentPadding = PaddingValues(
-            start = 16.dp,
-            top = 16.dp,
-            end = 16.dp,
-            bottom = 24.dp + navBottom,
-        ),
+    // Match the Album hero cover footprint: centered square, capped at 300dp.
+    val screenWidth = LocalConfiguration.current.screenWidthDp.dp
+    val coverSide = minOf(screenWidth * 0.74f, 300.dp)
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(
+                start = 16.dp,
+                top = 16.dp,
+                end = 16.dp,
+                // Room for the flowing titles to clear the floating toolbar.
+                bottom = 120.dp + navBottom,
+            ),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        item {
-            androidx.compose.foundation.layout.Column(
+        // Centered album-sized cover (name/owner credit now live in the
+        // top app bar, like the Album & Artist pages).
+        PlaylistHeroArtwork(
+            playlistId = content.playlistId,
+            sharedTransitionKey = sharedTransitionKey,
+            coverArtUrl = content.coverArtUrl,
+            playlistName = content.playlistName,
+            sharedTransitionScope = sharedTransitionScope,
+            animatedVisibilityScope = animatedVisibilityScope,
+            modifier = Modifier.size(coverSide),
+        )
+        content.comment?.takeIf { it.isNotBlank() }?.let { description ->
+            Text(
+                text = description,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(14.dp),
+            )
+        }
+        if (content.songs.isNotEmpty()) {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
             ) {
-                PlaylistHeroArtwork(
-                    playlistId = content.playlistId,
-                    sharedTransitionKey = sharedTransitionKey,
-                    coverArtUrl = content.coverArtUrl,
-                    playlistName = content.playlistName,
-                    sharedTransitionScope = sharedTransitionScope,
-                    animatedVisibilityScope = animatedVisibilityScope,
+                // "N tracks · 38m" — same label style as the Album page.
+                AlbumTrackCountLabel(
+                    count = content.songCount ?: content.songs.size,
+                    totalDurationSeconds = content.totalDuration,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                // Flowing track titles — each title is its own clickable link that
+                // plays just that song. Intentionally NOT truncated: it flows down
+                // behind the toolbar and past the bottom safe area (Album page parity).
+                Text(
+                    text = buildPlaylistTrackTitles(
+                        songs = content.songs,
+                        separatorColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                        onSongClick = onSongClick,
+                    ),
+                    style = MaterialTheme.typography.headlineMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    overflow = TextOverflow.Visible,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .aspectRatio(1f),
+                        .wrapContentHeight(align = Alignment.Top, unbounded = true),
                 )
-                androidx.compose.foundation.layout.Column(
-                    modifier = Modifier.padding(top = 2.dp, bottom = 10.dp),
-                    verticalArrangement = Arrangement.spacedBy(14.dp),
-                ) {
-                    ExpressiveHeaderBlock(
-                        title = content.playlistName,
-                        overline = "Playlist",
-                        supporting = content.comment?.takeIf { it.isNotBlank() } ?: "Hand-picked tracks ready to play through.",
-                    )
-                    PlaylistMetaRow(content = content)
-                    if (content.songs.isNotEmpty()) {
-                        Button(
-                            onClick = {
-                                haptics.performClick()
-                                onPlayAllClick()
-                            },
-                            modifier = Modifier.fillMaxWidth(),
-                        ) {
-                            Icon(
-                                imageVector = Icons.Filled.PlayArrow,
-                                contentDescription = null,
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text("Play All")
-                        }
-                    }
-                }
             }
         }
+    }
+}
 
-        item {
-            Text(
-                text = "Tracks",
-                style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(horizontal = 4.dp, vertical = 10.dp),
+// Plain text normally (no link blue / underline — inherit the surrounding style);
+// an underline appears while a title is pressed. Mirrors the Album hero titles.
+private val PlaylistTitleLinkStyles = TextLinkStyles(
+    style = SpanStyle(),
+    pressedStyle = SpanStyle(textDecoration = TextDecoration.Underline),
+)
+
+private fun buildPlaylistTrackTitles(
+    songs: List<PlaylistSong>,
+    separatorColor: Color,
+    onSongClick: ((String) -> Unit)?,
+) = buildAnnotatedString {
+    songs.forEachIndexed { index, song ->
+        if (index > 0) {
+            withStyle(SpanStyle(color = separatorColor)) { append("  •  ") }
+        }
+        if (onSongClick != null) {
+            withLink(
+                LinkAnnotation.Clickable(
+                    tag = song.id,
+                    styles = PlaylistTitleLinkStyles,
+                    linkInteractionListener = { onSongClick(song.id) },
+                ),
+            ) { append(song.title) }
+        } else {
+            append(song.title)
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+private fun PlaylistBottomToolbar(
+    playContainer: Color,
+    playContent: Color,
+    toolbarContainer: Color,
+    onPlay: () -> Unit,
+    onShuffle: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val haptics = rememberYoinHaptics()
+    DetailFloatingToolbar(
+        toolbarContainer = toolbarContainer,
+        modifier = modifier,
+    ) {
+        // Shuffle lives on the outside of the bar (not buried in a ▾ menu).
+        IconButton(
+            onClick = {
+                haptics.performClick()
+                onShuffle()
+            },
+            modifier = Modifier.size(52.dp),
+        ) {
+            Icon(
+                imageVector = Icons.Filled.Shuffle,
+                contentDescription = "Shuffle play",
+                tint = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.size(24.dp),
             )
         }
-
-        items(content.songs, key = { "${it.position}-${it.id}" }) { song ->
-            SongListItem(
-                title = song.title,
-                artist = song.artist,
-                album = song.album,
-                durationSeconds = song.duration,
-                coverArtUrl = song.coverArtUrl,
-                onClick = { onSongClick(song.id) },
-                onLongClick = { onAddSongToPlaylist(song.id) },
-                hasNote = song.id in notedSongIds,
-                trailingContent = if (content.canWrite) {
-                    {
-                        SongRowOverflow(
-                            onRemove = { onRemoveTrack(song.position, song.id) },
-                        )
-                    }
-                } else null,
+        Spacer(modifier = Modifier.width(8.dp))
+        Button(
+            onClick = {
+                haptics.performClick()
+                onPlay()
+            },
+            colors = ButtonDefaults.buttonColors(
+                containerColor = playContainer,
+                contentColor = playContent,
+            ),
+            modifier = Modifier.height(60.dp),
+            contentPadding = PaddingValues(horizontal = 26.dp),
+        ) {
+            Icon(
+                imageVector = Icons.Filled.PlayArrow,
+                contentDescription = null,
             )
+            Spacer(modifier = Modifier.width(ButtonDefaults.IconSpacing))
+            Text("Play", style = MaterialTheme.typography.titleMedium)
         }
-
-        item { Spacer(modifier = Modifier.height(24.dp)) }
     }
 }
 
@@ -464,69 +579,11 @@ private fun PlaylistHeroArtwork(
             modifier = Modifier.fillMaxSize(),
             shape = shape,
             fallbackIcon = Icons.Filled.LibraryMusic,
-            shadowElevation = 12.dp,
+            // No shadow / border — flat, exactly like the Album hero cover.
+            border = null,
+            shadowElevation = 0.dp,
             tonalElevation = 3.dp,
         )
-    }
-}
-
-@Composable
-private fun PlaylistMetaRow(
-    content: PlaylistDetailUiState.Content,
-    modifier: Modifier = Modifier,
-) {
-    Row(
-        modifier = modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        content.owner.takeIf { it.isNotBlank() }?.let { ExpressiveMetaPill(text = it) }
-        content.songCount?.let { ExpressiveMetaPill(text = "$it tracks") }
-        content.totalDuration?.takeIf { it > 0 }?.let { ExpressiveMetaPill(text = formatPlaylistDuration(it)) }
-        content.isPublic?.let { ExpressiveMetaPill(text = if (it) "Public" else "Private") }
-    }
-}
-
-@Composable
-private fun SongRowOverflow(onRemove: () -> Unit) {
-    val haptics = rememberYoinHaptics()
-    var expanded by remember { mutableStateOf(false) }
-    Box {
-        IconButton(
-            onClick = {
-                haptics.performTick()
-                expanded = true
-            },
-        ) {
-            Icon(
-                imageVector = Icons.Filled.MoreVert,
-                contentDescription = "Track actions",
-            )
-        }
-        YoinDropdownMenu(
-            expanded = expanded,
-            onDismissRequest = { expanded = false },
-        ) {
-            YoinDropdownMenuItem(
-                text = "Remove from playlist",
-                leadingIcon = {
-                    Icon(Icons.Filled.Delete, contentDescription = null)
-                },
-                onClick = {
-                    expanded = false
-                    onRemove()
-                },
-            )
-        }
-    }
-}
-
-private fun formatPlaylistDuration(seconds: Int): String {
-    val hours = seconds / 3600
-    val minutes = (seconds % 3600) / 60
-    return when {
-        hours > 0 -> "${hours}h ${minutes}m"
-        else -> "${minutes}m"
     }
 }
 

@@ -24,12 +24,8 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.gpo.yoin.YoinActivityRoot
 import com.gpo.yoin.YoinApplication
 import com.gpo.yoin.enableYoinEdgeToEdge
-import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.repository.ActivityContext
-import com.gpo.yoin.data.source.Capability
-import com.gpo.yoin.ui.component.AddToPlaylistSheet
 import com.gpo.yoin.ui.navigation.trackCoverArtId
-import com.gpo.yoin.ui.nowplaying.NowPlayingViewModel
 
 /**
  * Standalone Activity for a playlist detail page. Unlike the shell-hosted
@@ -53,22 +49,14 @@ class PlaylistDetailActivity : ComponentActivity() {
                 val viewModel: PlaylistDetailViewModel = viewModel(
                     factory = PlaylistDetailViewModel.Factory(playlistId, app.container),
                 )
-                // Own NowPlayingViewModel just for the AddToPlaylist affordance.
-                val nowPlayingViewModel: NowPlayingViewModel = viewModel(
-                    factory = NowPlayingViewModel.Factory(app.container),
-                )
                 val uiState by viewModel.uiState.collectAsState()
-                val notedSongIds by viewModel.notedSongIds.collectAsState()
                 val snackbarHostState = remember { SnackbarHostState() }
+                val playbackState by app.container.playbackManager.playbackState.collectAsState()
+                val playbackSignal by app.container.audioVisualizerManager.playbackSignal.collectAsState()
 
-                // Rename/delete/remove outcomes + AddToPlaylist messages.
+                // Rename/delete/remove outcomes surface as snackbars.
                 LaunchedEffect(viewModel) {
                     viewModel.messages.collect { message ->
-                        snackbarHostState.showSnackbar(message, duration = SnackbarDuration.Short)
-                    }
-                }
-                LaunchedEffect(nowPlayingViewModel) {
-                    nowPlayingViewModel.addToPlaylistMessages.collect { message ->
                         snackbarHostState.showSnackbar(message, duration = SnackbarDuration.Short)
                     }
                 }
@@ -77,81 +65,52 @@ class PlaylistDetailActivity : ComponentActivity() {
                     viewModel.deleted.collect { finish() }
                 }
 
+                // Shared play path: optional shuffle, with a stable playlist
+                // ActivityContext (cover derived from the un-shuffled order).
+                fun playFrom(startIndex: Int, shuffle: Boolean) {
+                    val ordered = viewModel.getPlaylistSongs()
+                    if (ordered.isEmpty()) return
+                    val tracks = if (shuffle) ordered.shuffled() else ordered
+                    val activityContext = (uiState as? PlaylistDetailUiState.Content)?.let { content ->
+                        ActivityContext.Playlist(
+                            playlistId = playlistId,
+                            playlistName = content.playlistName,
+                            owner = content.owner.takeIf { it.isNotBlank() },
+                            coverArtId = ordered.firstNotNullOfOrNull(::trackCoverArtId),
+                        )
+                    } ?: ActivityContext.None
+                    app.container.profileManager.activeSource.value?.let { source ->
+                        app.container.playbackManager.play(
+                            tracks = tracks,
+                            startIndex = startIndex.coerceIn(0, tracks.lastIndex),
+                            source = source,
+                            activityContext = activityContext,
+                        )
+                    }
+                }
+
                 Box(modifier = Modifier.fillMaxSize()) {
                     PlaylistDetailScreen(
                         uiState = uiState,
                         onBackClick = { finish() },
-                        onPlayAllClick = {
-                            val songs = viewModel.getPlaylistSongs()
-                            if (songs.isNotEmpty()) {
-                                val activityContext = (uiState as? PlaylistDetailUiState.Content)?.let { content ->
-                                    ActivityContext.Playlist(
-                                        playlistId = playlistId,
-                                        playlistName = content.playlistName,
-                                        owner = content.owner.takeIf { it.isNotBlank() },
-                                        coverArtId = songs.firstNotNullOfOrNull(::trackCoverArtId),
-                                    )
-                                } ?: ActivityContext.None
-                                app.container.profileManager.activeSource.value?.let { source ->
-                                    app.container.playbackManager.play(
-                                        tracks = songs,
-                                        startIndex = 0,
-                                        source = source,
-                                        activityContext = activityContext,
-                                    )
-                                }
-                            }
-                        },
+                        onPlayAllClick = { playFrom(startIndex = 0, shuffle = false) },
+                        onShufflePlay = { playFrom(startIndex = 0, shuffle = true) },
                         onSongClick = { songId ->
-                            val songs = viewModel.getPlaylistSongs()
-                            val index = songs.indexOfFirst { it.id.toString() == songId }
+                            val index = viewModel.getPlaylistSongs()
+                                .indexOfFirst { it.id.toString() == songId }
                                 .coerceAtLeast(0)
-                            val activityContext = (uiState as? PlaylistDetailUiState.Content)?.let { content ->
-                                ActivityContext.Playlist(
-                                    playlistId = playlistId,
-                                    playlistName = content.playlistName,
-                                    owner = content.owner.takeIf { it.isNotBlank() },
-                                    coverArtId = songs.firstNotNullOfOrNull(::trackCoverArtId),
-                                )
-                            } ?: ActivityContext.None
-                            app.container.profileManager.activeSource.value?.let { source ->
-                                app.container.playbackManager.play(
-                                    tracks = songs,
-                                    startIndex = index,
-                                    source = source,
-                                    activityContext = activityContext,
-                                )
-                            }
+                            playFrom(startIndex = index, shuffle = false)
                         },
                         onRetry = viewModel::retry,
-                        onAddSongToPlaylist = { songId ->
-                            nowPlayingViewModel.requestAddTracksToPlaylist(
-                                listOf(MediaId.parse(songId)),
-                            )
-                        },
                         onRename = viewModel::rename,
                         onDelete = viewModel::delete,
-                        onRemoveTrack = viewModel::removeTrack,
-                        notedSongIds = notedSongIds,
+                        isPlaying = playbackState.isPlaying,
+                        playbackSignal = if (playbackState.isPlaying) playbackSignal else 0f,
                         sharedTransitionKey = null,
                         sharedTransitionScope = null,
                         animatedVisibilityScope = null,
                         modifier = Modifier.fillMaxSize(),
                     )
-
-                    val addTargets by nowPlayingViewModel.addToPlaylistTarget.collectAsState()
-                    if (addTargets != null) {
-                        val writablePlaylists by nowPlayingViewModel.writablePlaylists.collectAsState()
-                        val canCreate = Capability.PLAYLISTS_WRITE in
-                            app.container.repository.currentCapabilities()
-                        AddToPlaylistSheet(
-                            writablePlaylists = writablePlaylists,
-                            onCreateAndAdd = nowPlayingViewModel::createPlaylistAndAddTargets
-                                .takeIf { canCreate },
-                            onAddToExisting = nowPlayingViewModel::addTargetsToExistingPlaylist,
-                            onDismiss = nowPlayingViewModel::dismissAddToPlaylistSheet,
-                        )
-                    }
 
                     SnackbarHost(
                         hostState = snackbarHostState,

@@ -1,9 +1,7 @@
 package com.gpo.yoin.ui.detail
 
-import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.draggable
@@ -34,25 +32,18 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.LibraryMusic
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material.icons.outlined.Insights
 import androidx.compose.material.icons.rounded.IosShare
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
-import androidx.compose.material3.FloatingToolbarDefaults
-import androidx.compose.material3.HorizontalFloatingToolbar
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.SplitButtonDefaults
-import androidx.compose.material3.SplitButtonLayout
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -84,6 +75,7 @@ import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.lerp
 import com.gpo.yoin.ui.component.ExpressiveMediaArtwork
+import com.gpo.yoin.ui.component.ExpressivePageBackground
 import com.gpo.yoin.ui.component.YoinDropdownMenu
 import com.gpo.yoin.ui.component.YoinDropdownMenuItem
 import com.gpo.yoin.ui.component.YoinLoadingIndicator
@@ -91,14 +83,15 @@ import com.gpo.yoin.ui.component.minimumTouchTarget
 import com.gpo.yoin.ui.experience.RevealState
 import com.gpo.yoin.ui.experience.rememberRevealState
 import com.gpo.yoin.ui.theme.ProvideYoinMotionRole
+import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.rememberCoverColorScheme
 import com.gpo.yoin.ui.theme.YoinMotionRole
 import com.gpo.yoin.ui.theme.YoinShapeTokens
 import com.gpo.yoin.ui.theme.YoinTheme
 
-// Above this track count the cover docks to a small pill at the top of the
-// list page; at or below it the cover stays a large hero capsule.
-private const val AlbumManyTracksThreshold = 7
+// At or below this track count the cover docks to a big rounded "capsule"; above
+// it, to the thin full-bleed wavy band (a long list needs the band's vertical room).
+private const val AlbumManyTracksThreshold = 5
 
 // Velocity-or-position settle decision for the hero<->tracklist reshape,
 // mirroring RevealState.chooseTarget but WITHOUT animating (the single
@@ -133,14 +126,21 @@ fun AlbumDetailScreen(
     onShufflePlay: () -> Unit = {},
     onShare: () -> Unit = {},
     onOpenArtist: (() -> Unit)? = null,
+    isPlaying: Boolean = false,
+    playbackSignal: Float = 0f,
     modifier: Modifier = Modifier,
 ) {
+    val content = uiState as? AlbumDetailUiState.Content
+    val pageAccent = rememberDetailPageAccent(content?.coverArtUrl)
+
     ProvideYoinMotionRole(role = YoinMotionRole.Expressive) {
-        Box(
-            modifier = modifier
-                .fillMaxSize()
-                .background(MaterialTheme.colorScheme.surface),
+        ExpressivePageBackground(
+            accentColor = pageAccent,
+            isPlaying = isPlaying,
+            playbackSignal = playbackSignal,
+            modifier = modifier,
         ) {
+            Box(modifier = Modifier.fillMaxSize()) {
             when (uiState) {
                 is AlbumDetailUiState.Loading ->
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -168,6 +168,7 @@ fun AlbumDetailScreen(
                         onShare = onShare,
                         onOpenArtist = onOpenArtist,
                     )
+            }
             }
         }
     }
@@ -200,18 +201,14 @@ private fun AlbumDetailContent(
     // yields no seed. Animate the block + title colors so the resolve doesn't pop.
     val coverScheme = rememberCoverColorScheme(content.coverArtUrl)
     val s = coverScheme ?: MaterialTheme.colorScheme
-    val primaryBlock by animateColorAsState(s.primary, tween(420), label = "albumPrimaryBlock")
-    val secondaryBlock by animateColorAsState(s.secondary, tween(420), label = "albumSecondaryBlock")
-    val titleColor by animateColorAsState(s.primary, tween(420), label = "albumTitleColor")
+    val primaryBlock by animateColorAsState(s.primary, YoinMotion.effectsSpring(), label = "albumPrimaryBlock")
+    val secondaryBlock by animateColorAsState(s.secondary, YoinMotion.effectsSpring(), label = "albumSecondaryBlock")
+    val titleColor by animateColorAsState(s.primary, YoinMotion.effectsSpring(), label = "albumTitleColor")
     val accentText = s.secondary
     val bunContainer = s.primaryContainer
     val bunContent = s.onPrimaryContainer
     val playContent = s.onPrimary
-    val toolbarTint = androidx.compose.ui.graphics.lerp(
-        MaterialTheme.colorScheme.surfaceContainer,
-        s.secondaryContainer,
-        0.5f,
-    )
+    val toolbarTint = rememberDetailToolbarTint(s)
 
     // Pull-up reshape: reuse RevealState. fraction 1 = hero, 0 = track list.
     val revealState = rememberRevealState(initialFraction = 1f)
@@ -225,17 +222,13 @@ private fun AlbumDetailContent(
     LaunchedEffect(expanded) {
         revealState.launchAnimateTo(scope, if (expanded) 0f else 1f)
     }
-    val setExpanded: (Boolean) -> Unit = { target -> expanded = target }
 
     // Horizontal pager: page 0 = this overview, page 1 = scores/About sample.
     val pagerState = rememberPagerState(pageCount = { 2 })
 
-    // The secondary page is a horizontal swipe, NOT a back-stack destination, so
-    // back must ignore it. Intercept ONLY to collapse the pulled-up track list on
-    // page 0; on page 1 (or the page-0 hero) back falls through to finish the
-    // Activity (native cross-Activity predictive back). The page==0 guard is what
-    // stops back from silently collapsing the off-screen reshape on page 1.
-    BackHandler(enabled = expanded && pagerState.currentPage == 0) { setExpanded(false) }
+    // Back always finishes the Activity (native cross-Activity predictive back):
+    // the pulled-up track list is NOT a back stop, so one back press leaves the
+    // page instead of first collapsing the reshape.
 
     var showEditSheet by remember { mutableStateOf(false) }
 
@@ -329,13 +322,7 @@ private fun AlbumTopHeader(
             .padding(start = 8.dp, end = 16.dp, top = 4.dp, bottom = 6.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = onBackClick) {
-                Icon(
-                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                    contentDescription = "Back",
-                    tint = MaterialTheme.colorScheme.onSurface,
-                )
-            }
+            DetailBackButton(onClick = onBackClick)
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = albumName,
@@ -453,19 +440,22 @@ private fun AlbumOverviewPage(
         // during the reshape settle. 1 = hero, 0 = track list; expand 0→1.
         val expand = 1f - revealState.fraction
 
-        // Cover geometry: hero square → state-2 capsule (small pill when many
-        // tracks, big capsule when few). Everything lerps on `expand`.
+        // Cover geometry: hero square → a thin, full-width "wavy band" docked just
+        // under the page dots (replaces the old right-docked capsule). The square
+        // morphs into the band via WavyBandShape; everything else lerps on `expand`.
         val heroCoverSide = minOf(maxW * 0.74f, 300.dp)
-        val state2CoverHeight = if (isMany) 54.dp else minOf(maxHeight * 0.26f, 220.dp)
-        val state2CoverWidth = if (isMany) 122.dp else maxW - 32.dp
+        // Many tracks → thin full-bleed wavy band (the long list needs the room).
+        // Few tracks → a big, centered rounded "capsule" inset from the edges.
+        val state2CoverHeight = if (isMany) 56.dp else minOf(maxHeight * 0.26f, 220.dp)
+        val state2CoverWidth = if (isMany) maxW else maxW - 32.dp
         val coverHeight = lerp(heroCoverSide, state2CoverHeight, expand)
         val coverWidth = lerp(heroCoverSide, state2CoverWidth, expand)
-        // 28dp like Now Playing in the hero; lerp toward a stadium as it docks.
+        // Capsule corner (few-tracks only): 28dp hero → ~stadium as it docks.
         val coverCorner = lerp(28.dp, 100.dp, expand.coerceIn(0f, 1f))
         // Band behind the cover for the arrow mark; collapses as the cover docks.
         val arrowBand = lerp(56.dp, 0.dp, expand.coerceIn(0f, 1f))
-        // Dock the pill toward the trailing edge as it shrinks (many tracks).
-        val coverBias = if (isMany) expand * 0.86f else 0f
+        // Centered in both states — no right-dock.
+        val coverBias = 0f
 
         Box(modifier = Modifier.fillMaxSize()) {
             // Full-bleed arrow-mark backdrop in the top cover band — edge to edge,
@@ -498,10 +488,11 @@ private fun AlbumOverviewPage(
                         } else {
                             Modifier
                         },
-                    )
-                    .padding(horizontal = 16.dp),
+                    ),
+                // NOTE: no horizontal padding here — the cover/band is full-bleed;
+                // the 16dp inset lives on the content Box below instead.
             ) {
-                // Cover floats on top of the full-bleed arrow backdrop.
+                // Cover floats on top of the full-bleed arrow backdrop, edge to edge.
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -514,7 +505,12 @@ private fun AlbumOverviewPage(
                         modifier = Modifier
                             .width(coverWidth)
                             .height(coverHeight),
-                        shape = RoundedCornerShape(coverCorner),
+                        // Long lists dock to the wavy band; short ones to a capsule.
+                        shape = if (isMany) {
+                            WavyBandShape(expand = expand)
+                        } else {
+                            RoundedCornerShape(coverCorner)
+                        },
                         fallbackIcon = Icons.Filled.LibraryMusic,
                         border = null,
                         shadowElevation = 0.dp,
@@ -523,7 +519,11 @@ private fun AlbumOverviewPage(
                     )
                 }
 
-                Box(modifier = Modifier.weight(1f)) {
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(horizontal = 16.dp),
+                ) {
                     if (expand > 0.001f) {
                         AlbumTrackList(
                             content = content,
@@ -661,6 +661,16 @@ private fun AlbumHeroDetails(
 
         Spacer(modifier = Modifier.height(28.dp))
 
+        // Total track count + runtime — left-aligned with the flowing titles.
+        if (content.songs.isNotEmpty()) {
+            AlbumTrackCountLabel(
+                count = content.trackTotal,
+                totalDurationSeconds = content.totalDuration,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Spacer(modifier = Modifier.height(6.dp))
+        }
+
         // Flowing track titles — clickable, intentionally NOT truncated: it
         // flows down behind the toolbar and past the bottom safe area (unbounded
         // height + overflow Visible), which reads better than a hard ellipsis cut.
@@ -704,6 +714,16 @@ private fun AlbumTrackList(
         modifier = modifier,
         contentPadding = PaddingValues(top = 4.dp, bottom = 112.dp + navBottom),
     ) {
+        // Track count + runtime sits just below the wavy band, above row 1.
+        if (content.songs.isNotEmpty()) {
+            item {
+                AlbumTrackCountLabel(
+                    count = content.trackTotal,
+                    totalDurationSeconds = content.totalDuration,
+                    modifier = Modifier.padding(start = 8.dp, top = 2.dp, bottom = 10.dp),
+                )
+            }
+        }
         itemsIndexed(content.songs, key = { _, song -> song.id }) { index, song ->
             Column {
                 AlbumTrackRow(
@@ -760,9 +780,7 @@ private fun AlbumSecondaryPage(modifier: Modifier = Modifier) {
     }
 }
 
-// Shared height for both split-button halves so leading & trailing match exactly.
-private val AlbumToolbarButtonHeight = 60.dp
-
+// Pinned bottom toolbar — present on both pages, like the Figma frames.
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun AlbumBottomToolbar(
@@ -775,139 +793,48 @@ private fun AlbumBottomToolbar(
     onOpenArtist: (() -> Unit)?,
     modifier: Modifier = Modifier,
 ) {
-    HorizontalFloatingToolbar(
-        expanded = true,
-        colors = FloatingToolbarDefaults.standardFloatingToolbarColors(
-            toolbarContainerColor = toolbarContainer,
-        ),
+    DetailFloatingToolbar(
+        toolbarContainer = toolbarContainer,
         modifier = modifier,
     ) {
-        // One centered Row so the share button + split button sit on the same
-        // vertical centre line (the toolbar's own row alignment was off).
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            IconButton(
-                onClick = onShare,
-                modifier = Modifier.size(52.dp),
-            ) {
-                Icon(
-                    imageVector = Icons.Rounded.IosShare,
-                    contentDescription = "Share",
-                    tint = MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier.size(24.dp),
-                )
-            }
-            Spacer(modifier = Modifier.width(8.dp))
-            AlbumPlaySplitButton(
-                playContainer = playContainer,
-                playContent = playContent,
-                onPlay = onPlay,
-                onShuffle = onShuffle,
-                onOpenArtist = onOpenArtist,
+        IconButton(
+            onClick = onShare,
+            modifier = Modifier.size(52.dp),
+        ) {
+            Icon(
+                imageVector = Icons.Rounded.IosShare,
+                contentDescription = "Share",
+                tint = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.size(24.dp),
             )
         }
-    }
-}
-
-@OptIn(ExperimentalMaterial3ExpressiveApi::class)
-@Composable
-private fun AlbumPlaySplitButton(
-    playContainer: Color,
-    playContent: Color,
-    onPlay: () -> Unit,
-    onShuffle: () -> Unit,
-    onOpenArtist: (() -> Unit)?,
-    modifier: Modifier = Modifier,
-) {
-    var menuOpen by remember { mutableStateOf(false) }
-    val buttonColors = ButtonDefaults.buttonColors(
-        containerColor = playContainer,
-        contentColor = playContent,
-    )
-    // Menu sizing knobs (this menu only): bigger text + roomier rows.
-    val menuTextStyle = MaterialTheme.typography.titleMedium
-    val menuItemPadding = PaddingValues(horizontal = 20.dp, vertical = 14.dp)
-    SplitButtonLayout(
-        modifier = modifier,
-        leadingButton = {
-            SplitButtonDefaults.LeadingButton(
-                onClick = onPlay,
-                colors = buttonColors,
-                // Force the height on BOTH buttons so they match — the toggle
-                // trailing button doesn't grow to the leading's height on its own,
-                // so it rendered a ring shorter. Width comes from horizontal padding.
-                modifier = Modifier.height(AlbumToolbarButtonHeight),
-                contentPadding = PaddingValues(horizontal = 26.dp),
-            ) {
-                Icon(
-                    imageVector = Icons.Filled.PlayArrow,
-                    contentDescription = null,
-                    modifier = Modifier.size(SplitButtonDefaults.LeadingIconSize),
-                )
-                Spacer(modifier = Modifier.width(ButtonDefaults.IconSpacing))
-                Text("Play", style = MaterialTheme.typography.titleMedium)
-            }
-        },
-        trailingButton = {
-            SplitButtonDefaults.TrailingButton(
-                checked = menuOpen,
-                onCheckedChange = { menuOpen = it },
-                colors = buttonColors,
-                modifier = Modifier.height(AlbumToolbarButtonHeight),
-                contentPadding = PaddingValues(horizontal = 20.dp),
-            ) {
-                Icon(
-                    imageVector = Icons.Filled.KeyboardArrowDown,
-                    contentDescription = "More play options",
-                    modifier = Modifier
-                        .size(SplitButtonDefaults.TrailingIconSize)
-                        .graphicsLayer { rotationZ = if (menuOpen) 180f else 0f },
-                )
-                // Anchor the menu inside the trailing button's content (a Popup,
-                // zero layout size) — no wrapper Box, which was misaligning the
-                // leading vs. trailing button.
-                YoinDropdownMenu(
-                    expanded = menuOpen,
-                    onDismissRequest = { menuOpen = false },
-                    shadowElevation = 0.dp,
-                ) {
-                    YoinDropdownMenuItem(
-                        text = "Shuffle play",
-                        onClick = {
-                            menuOpen = false
-                            onShuffle()
-                        },
-                        leadingIcon = {
-                            Icon(
-                                Icons.Filled.Shuffle,
-                                contentDescription = null,
-                                modifier = Modifier.size(22.dp),
-                            )
-                        },
-                        textStyle = menuTextStyle,
-                        contentPadding = menuItemPadding,
-                    )
-                    if (onOpenArtist != null) {
-                        YoinDropdownMenuItem(
-                            text = "Go to artist",
-                            onClick = {
-                                menuOpen = false
-                                onOpenArtist()
-                            },
-                            leadingIcon = {
-                                Icon(
-                                    Icons.Filled.Person,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(22.dp),
-                                )
-                            },
-                            textStyle = menuTextStyle,
-                            contentPadding = menuItemPadding,
+        Spacer(modifier = Modifier.width(8.dp))
+        DetailPlaySplitButton(
+            playContainer = playContainer,
+            playContent = playContent,
+            onPlay = onPlay,
+            onShuffle = onShuffle,
+        ) { dismissMenu ->
+            if (onOpenArtist != null) {
+                YoinDropdownMenuItem(
+                    text = "Go to artist",
+                    onClick = {
+                        dismissMenu()
+                        onOpenArtist()
+                    },
+                    leadingIcon = {
+                        Icon(
+                            Icons.Filled.Person,
+                            contentDescription = null,
+                            modifier = Modifier.size(22.dp),
                         )
-                    }
-                }
+                    },
+                    textStyle = MaterialTheme.typography.titleMedium,
+                    contentPadding = PaddingValues(horizontal = 20.dp, vertical = 14.dp),
+                )
             }
-        },
-    )
+        }
+    }
 }
 
 @Composable
@@ -962,13 +889,10 @@ private fun AlbumErrorState(
             .fillMaxSize()
             .statusBarsPadding(),
     ) {
-        IconButton(onClick = onBackClick, modifier = Modifier.padding(4.dp)) {
-            Icon(
-                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                contentDescription = "Back",
-                tint = MaterialTheme.colorScheme.onSurface,
-            )
-        }
+        DetailBackButton(
+            onClick = onBackClick,
+            modifier = Modifier.padding(4.dp),
+        )
         Column(
             modifier = Modifier
                 .align(Alignment.Center)

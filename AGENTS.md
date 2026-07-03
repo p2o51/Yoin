@@ -6,15 +6,9 @@ This file applies to the entire repository.
 
 ## Project
 
-This repository is **Yoin**, an Android Compose music client focused on MD3
-Expressive, immersive surfaces, and continuous motion. The app is multi-
-provider by design — Subsonic/OpenSubsonic is the only shipped backend today,
-Spotify (via Android App Remote + Web API) is planned as the second
-implementation.
+This repository is **Yoin**, an Android Compose music client focused on MD3 Expressive, immersive surfaces, and continuous motion. The app is multi- provider by design — Subsonic/OpenSubsonic is the only shipped backend today, Spotify (via Android App Remote + Web API) is planned as the second implementation.
 
-`docs/design.md` is the source of truth for UI and product decisions. If the
-design doc and local code disagree, follow the design doc unless the task
-explicitly requires a different direction.
+`docs/design.md` is the source of truth for UI and product decisions. If the design doc and local code disagree, follow the design doc unless the task explicitly requires a different direction.
 
 ## Build & Run
 
@@ -57,9 +51,7 @@ When a task touches Expressive components, tokens, or motion APIs:
 
 Only build what is in the MVP or explicitly requested.
 
-Do not add out-of-scope features such as podcast, radio, chat, user management,
-jukebox, bookmarks, shares, video, or phase-2 playlist CRUD unless the task
-explicitly asks for them.
+Do not add out-of-scope features such as podcast, radio, chat, user management, jukebox, bookmarks, shares, video, or phase-2 playlist CRUD unless the task explicitly asks for them.
 
 ### Dark theme defaults
 
@@ -70,134 +62,64 @@ explicitly asks for them.
 ## Architecture & Code Style
 
 - Follow Kotlin naming conventions.
-- Public Composables should provide a `@Preview` unless there is a concrete
-  reason not to.
+- Public Composables should provide a `@Preview` unless there is a concrete reason not to.
 - Keep Composables stateless by default and hoist state to ViewModels.
 - Prefer feature-based package structure.
 - Prefer `StateFlow` over `LiveData`.
-- Keep provider-specific transport code in `data/remote/<provider>/`
-  (e.g. `data/remote/` currently houses Subsonic — future providers get their
-  own subpackage).
+- Keep provider-specific transport code in `data/remote/<provider>/`(e.g. `data/remote/` currently houses Subsonic — future providers get their own subpackage).
 - Keep Room entities and local persistence code in `data/local/`.
 - Use `sealed interface` and `data class` patterns for UI state modeling.
 
 ## Multi-Provider Architecture
 
-The data layer is built to support multiple music backends behind a single
-provider-agnostic interface. The abstraction, Profile/Room plumbing, neutral
-domain models, Repository migration, playback handle split, and Settings
-profile switcher are all landed. The remaining provider work is Spotify
-content/playback, capability-gated UI, and shipping hardening.
+The data layer is built to support multiple music backends behind a single provider-agnostic interface. The abstraction, Profile/Room plumbing, neutral domain models, Repository migration, playback handle split, and Settings profile switcher are all landed. The remaining provider work is Spotify content/playback, capability-gated UI, and shipping hardening.
 
 ### Core abstractions
 
-- `data/model/` — neutral domain models used by every provider. `MediaId`
-  namespaces every remote id as `(provider, rawId)`; `Track`, `Album`,
-  `Artist`, `Playlist`, `Lyrics`, `SearchResults`, `Starred`, `CoverRef`, and
-  `PlaybackHandle` all carry `MediaId`s. Do not leak provider-shaped DTOs
-  (e.g. `com.gpo.yoin.data.remote.Song`) across this boundary.
-- `data/source/MusicSource` — the provider interface. Sliced by concern
-  (`MusicLibrary`, `MusicMetadata`, `MusicWriteActions`, `MusicPlayback`) and
-  gated by a `Capability` set so the UI can hide affordances a provider can't
-  support (e.g. five-star rating for Spotify). `MusicPlayback.handleFor(track)`
-  returns a `PlaybackHandle`: `DirectStream(uri)` for servers the player can
-  stream directly (Subsonic), or `ExternalController(...)` for providers that
-  require delegation (Spotify App Remote).
+- `data/model/` — neutral domain models used by every provider. `MediaId`namespaces every remote id as `(provider, rawId)`; `Track`, `Album`, `Artist`, `Playlist`, `Lyrics`, `SearchResults`, `Starred`, `CoverRef`, and `PlaybackHandle` all carry `MediaId`s. Do not leak provider-shaped DTOs (e.g. `com.gpo.yoin.data.remote.Song`) across this boundary.
+- `data/source/MusicSource` — the provider interface. Sliced by concern (`MusicLibrary`, `MusicMetadata`, `MusicWriteActions`, `MusicPlayback`) and gated by a `Capability` set so the UI can hide affordances a provider can't support (e.g. five-star rating for Spotify). `MusicPlayback.handleFor(track)`returns a `PlaybackHandle`: `DirectStream(uri)` for servers the player can stream directly (Subsonic), or `ExternalController(...)` for providers that require delegation (Spotify App Remote).
 - `data/source/subsonic/SubsonicMusicSource` — first provider. Ships.
-- `data/source/spotify/SpotifyMusicSource` — second provider. Owns OAuth via
-  `SpotifyOAuthActivity`, read-only Web API integration (search, playlists,
-  saved items, album/artist detail), and App Remote playback through
-  `player/SpotifyAppRemotePlayer`. The App Remote base infrastructure is
-  landed; remaining Spotify work is robustness, capability gating, re-auth,
-  and QA.
-- `data/model/LegacyViewCompat.kt` — temporary presentation-layer aliases
-  (`album.song`, `playlist.entry`, etc.) kept only to reduce churn while the
-  UI settles on canonical neutral names. New code should prefer the real
-  neutral fields directly.
+- `data/source/spotify/SpotifyMusicSource` — second provider. Owns OAuth via `SpotifyOAuthActivity`, read-only Web API integration (search, playlists, saved items, album/artist detail), and App Remote playback through `player/SpotifyAppRemotePlayer`. The App Remote base infrastructure is landed; remaining Spotify work is robustness, capability gating, re-auth, and QA.
+- `data/model/LegacyViewCompat.kt` — temporary presentation-layer aliases (`album.song`, `playlist.entry`, etc.) kept only to reduce churn while the UI settles on canonical neutral names. New code should prefer the real neutral fields directly.
 
 ### Profiles & credentials
 
-- `data/local/Profile` + `ProfileDao` — Room-backed list of configured
-  accounts. Each profile carries a `provider` token and an opaque
-  `credentialsJson` blob. Multiple profiles per provider are allowed (e.g.
-  two Subsonic servers).
-- `data/profile/ProfileCredentials` — sealed, `@Serializable`. Add a subtype
-  per provider (`Subsonic`, `Spotify`, ...).
-- `data/profile/ProfileCredentialsCodec` — serialises credentials. v1 uses
-  `PlaintextProfileCredentialsCodec` matching the existing posture; an
-  encrypted impl (EncryptedSharedPreferences / Tink) should replace it before
-  shipping.
-- `data/profile/ProfileManager` — owns the profile list and the active
-  profile. Exposes `activeProfile: StateFlow<Profile?>` and
-  `activeSource: StateFlow<MusicSource?>`. On profile switch, disposes the
-  previous source and builds a new one. `migrateLegacyServerConfigIfNeeded()`
-  is idempotent and runs on app start to seed a Subsonic Profile from a v3
-  `server_config` row.
+- `data/local/Profile` + `ProfileDao` — Room-backed list of configured accounts. Each profile carries a `provider` token and an opaque `credentialsJson` blob. Multiple profiles per provider are allowed (e.g. two Subsonic servers).
+- `data/profile/ProfileCredentials` — sealed, `@Serializable`. Add a subtype per provider (`Subsonic`, `Spotify`, ...).
+- `data/profile/ProfileCredentialsCodec` — serialises credentials. v1 uses `PlaintextProfileCredentialsCodec` matching the existing posture; an encrypted impl (EncryptedSharedPreferences / Tink) should replace it before shipping.
+- `data/profile/ProfileManager` — owns the profile list and the active profile. Exposes `activeProfile: StateFlow<Profile?>` and `activeSource: StateFlow<MusicSource?>`. On profile switch, disposes the previous source and builds a new one. `migrateLegacyServerConfigIfNeeded()`is idempotent and runs on app start to seed a Subsonic Profile from a v3 `server_config` row.
 
 ### Room schema & the `provider` column
 
-Every table that references a remote entity id carries a `provider` column
-and, where applicable, includes it in the primary key. This prevents cross-
-provider collisions when two profiles are configured.
+Every table that references a remote entity id carries a `provider` column and, where applicable, includes it in the primary key. This prevents cross- provider collisions when two profiles are configured.
 
-- `local_ratings`, `song_info`, `cache_metadata` — composite PK
-  `(songId, provider)`.
+- `local_ratings`, `song_info`, `cache_metadata` — composite PK `(songId, provider)`.
 - `play_history`, `activity_events` — `provider` as a regular column.
-- Default value for migrated rows and for Kotlin defaults is
-  `MediaId.PROVIDER_SUBSONIC`.
+- Default value for migrated rows and for Kotlin defaults is `MediaId.PROVIDER_SUBSONIC`.
 
-When adding a new table that references remote ids, always include a
-`provider: String` column. DAO queries must filter on both `songId` and
-`provider` (see `LocalRatingDao.getRating`, `PlayHistoryDao.getMostRecentPlay`,
-`SongInfoDao.getBySongId`, `CacheMetadataDao.getBySongId`).
+When adding a new table that references remote ids, always include a `provider: String` column. DAO queries must filter on both `songId` and `provider` (see `LocalRatingDao.getRating`, `PlayHistoryDao.getMostRecentPlay`, `SongInfoDao.getBySongId`, `CacheMetadataDao.getBySongId`).
 
 ### When implementing a new feature that hits a remote backend
 
-1. If the feature maps to an existing `MusicLibrary` / `MusicMetadata` /
-   `MusicWriteActions` / `MusicPlayback` method, reuse it.
-2. If it needs a new capability, add a method to the appropriate sliced
-   interface in `data/source/MusicSource.kt`, declare a matching
-   `Capability`, and implement it in every `MusicSource` subclass. Providers
-   that cannot support it return `Result.failure(UnsupportedOperationException)`.
-3. If the feature needs local persistence of remote ids, add a `provider`
-   column to the Room entity and include it in the DAO signature.
-4. Gate UI affordances on `source.capabilities.contains(Capability.X)` so
-   providers that don't support the feature degrade gracefully.
+1. If the feature maps to an existing `MusicLibrary` / `MusicMetadata` / `MusicWriteActions` / `MusicPlayback` method, reuse it.
+2. If it needs a new capability, add a method to the appropriate sliced interface in `data/source/MusicSource.kt`, declare a matching `Capability`, and implement it in every `MusicSource` subclass. Providers that cannot support it return `Result.failure(UnsupportedOperationException)`.
+3. If the feature needs local persistence of remote ids, add a `provider`column to the Room entity and include it in the DAO signature.
+4. Gate UI affordances on `source.capabilities.contains(Capability.X)` so providers that don't support the feature degrade gracefully.
 
 ### Current landed state
 
 - `YoinRepository` is already slimmed onto `ProfileManager.activeSource`.
 - ViewModels and Composables consume `data.model.*` neutral models.
-- `PlaybackManager` branches on `PlaybackHandle` and routes
-  `ExternalController` to `SpotifyAppRemotePlayer`. The `PlaybackState`
-  carries a `connectionPhase` (`Idle` / `Connecting` / `Ready` / `Error`)
-  plus `pendingTrack` so Spotify doesn't fake "already playing" before the
-  first real `PlayerState` arrives from App Remote.
-- Spotify connect failures are typed (`SpotifyConnectFailure.NoClientId`,
-  `SpotifyAppMissing`, `PremiumRequired`, `AuthFailure`, `TransportFailure`)
-  and surface through `PlaybackManager.events` — `YoinNavHost` collects
-  them into an actionable snackbar at the shell level.
-- `SettingsScreen` exposes profile list / switch / create / edit / delete
-  UI, Spotify OAuth bootstrap, runtime Spotify Client ID config with a
-  deep-linkable `focusSection = "spotify"` entry point, and "No Client ID"
-  badge on unavailable profile cards.
+- `PlaybackManager` branches on `PlaybackHandle` and routes `ExternalController` to `SpotifyAppRemotePlayer`. The `PlaybackState`carries a `connectionPhase` (`Idle` / `Connecting` / `Ready` / `Error`) plus `pendingTrack` so Spotify doesn't fake "already playing" before the first real `PlayerState` arrives from App Remote.
+- Spotify connect failures are typed (`SpotifyConnectFailure.NoClientId`, `SpotifyAppMissing`, `PremiumRequired`, `AuthFailure`, `TransportFailure`) and surface through `PlaybackManager.events` — `YoinNavHost` collects them into an actionable snackbar at the shell level.
+- `SettingsScreen` exposes profile list / switch / create / edit / delete UI, Spotify OAuth bootstrap, runtime Spotify Client ID config with a deep-linkable `focusSection = "spotify"` entry point, and "No Client ID" badge on unavailable profile cards.
 
 ### Remaining phases
 
 - Phase A (**done**) — Spotify read-only content in `SpotifyMusicSource`.
-- Phase B (**done: base**) — App Remote plumbing (connection lifecycle,
-  typed failures, `ExternalController` dispatch, Launching / ConnectError
-  UI states, shell snackbar actions, Client ID onboarding).
-- Phase C — capability-gated UI: hide five-star rating / lyrics tab /
-  random-songs / favorite toggle etc. based on `source.capabilities`. Pass
-  the active `Set<Capability>` through `PlaybackState` (or a parallel
-  `ActiveProviderState` flow) — feature composables must not reach up to
-  `AppContainer`.
-- Phase D — encrypted `ProfileCredentialsCodec`, Spotify `invalid_grant`
-  re-auth UX (`ProfileState.NeedsReconnect` + `Reconnect(profileId)` mode
-  on `SpotifyOAuthActivity`), QA pass on real device, and removal of
-  legacy migration shims (`LegacyViewCompat.kt`, `server_config` write
-  path).
+- Phase B (**done: base**) — App Remote plumbing (connection lifecycle, typed failures, `ExternalController` dispatch, Launching / ConnectError UI states, shell snackbar actions, Client ID onboarding).
+- Phase C — capability-gated UI: hide five-star rating / lyrics tab / random-songs / favorite toggle etc. based on `source.capabilities`. Pass the active `Set<Capability>` through `PlaybackState` (or a parallel `ActiveProviderState` flow) — feature composables must not reach up to `AppContainer`.
+- Phase D — encrypted `ProfileCredentialsCodec`, Spotify `invalid_grant`re-auth UX (`ProfileState.NeedsReconnect` + `Reconnect(profileId)` mode on `SpotifyOAuthActivity`), QA pass on real device, and removal of legacy migration shims (`LegacyViewCompat.kt`, `server_config` write path).
 
 ## Testing
 
@@ -216,13 +138,11 @@ When adding a new table that references remote ids, always include a
 
 ## Predictive Back Is Part Of The Product
 
-Back behavior is not a generic navigation detail. It is part of the page
-experience and must feel consistent across the app.
+Back behavior is not a generic navigation detail. It is part of the page experience and must feel consistent across the app.
 
 For every returnable screen:
 
-- The user should see a clear destination preview or recovery direction during
-  system back.
+- The user should see a clear destination preview or recovery direction during system back.
 - Gesture progress must directly drive UI state.
 - Cancel and commit must use the same motion tokens.
 - Custom dismiss gestures and system predictive back must share one controller.
@@ -259,8 +179,7 @@ Example: `Now Playing`
 
 - Shell-owned overlay, not a regular route
 - Back semantics are "collapse downward to host/anchor"
-- System predictive back, drag-to-dismiss, and dismiss buttons must share one
-  controller
+- System predictive back, drag-to-dismiss, and dismiss buttons must share one controller
 - Do not maintain multiple primary displacement states
 
 ### ShellOverlayUp
@@ -279,8 +198,7 @@ Before building a new page, answer these five questions:
 1. Which back surface type is it?
 2. Where does back return to?
 3. Does it need an explicit back button?
-4. Does it support gesture dismissal, and if so, does that gesture share the
-   same controller as system predictive back?
+4. Does it support gesture dismissal, and if so, does that gesture share the same controller as system predictive back?
 5. Does it fully reuse the existing back tokens, motion, and wrappers?
 
 If these are not answered, implementation is not ready.
@@ -290,19 +208,14 @@ If these are not answered, implementation is not ready.
 - `Shell` owns the root experience and immersive overlays.
 - `Settings` and detail pages are pushed routes.
 - `Now Playing` and `Memories` are shell overlays, not ordinary routes.
-- Default to `PushPage` unless the screen clearly expands from or collapses back
-  into a shell-owned anchor.
+- Default to `PushPage` unless the screen clearly expands from or collapses back into a shell-owned anchor.
 - Do not model the same page as both a route and an overlay.
-- Keep `Now Playing` as a shell overlay; do not reintroduce mixed route/overlay
-  behavior.
-- `Settings` must align with other pushed pages and always expose a clear back
-  affordance.
+- Keep `Now Playing` as a shell overlay; do not reintroduce mixed route/overlay behavior.
+- `Settings` must align with other pushed pages and always expose a clear back affordance.
 
 ## Hard Prohibitions
 
-- Do not write raw `PredictiveBackHandler` directly in feature screens such as
-  detail, settings, now playing, memories, or other feature packages unless the
-  task is explicitly about back infrastructure.
+- Do not write raw `PredictiveBackHandler` directly in feature screens such as detail, settings, now playing, memories, or other feature packages unless the task is explicitly about back infrastructure.
 - Do not implement system back and drag dismissal as separate motion systems.
 - Do not add new back-related magic numbers in feature screens.
 - Do not omit the explicit back button on `PushPage`.
@@ -328,8 +241,7 @@ Prefer existing shared infrastructure such as:
 
 - Dismiss button, system back, and gesture input must feed the same controller.
 - The screen should read one primary progress/displacement model.
-- Shared element, scrim, and shell feedback should stay in the same progress
-  family whenever possible.
+- Shared element, scrim, and shell feedback should stay in the same progress family whenever possible.
 
 ## Pre-Submission Checklist For Screen Work
 

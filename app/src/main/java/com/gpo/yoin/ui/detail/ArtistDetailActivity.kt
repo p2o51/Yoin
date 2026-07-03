@@ -43,6 +43,8 @@ class ArtistDetailActivity : ComponentActivity() {
                     factory = ArtistDetailViewModel.Factory(artistId, app.container),
                 )
                 val uiState by viewModel.uiState.collectAsState()
+                val playbackState by app.container.playbackManager.playbackState.collectAsState()
+                val playbackSignal by app.container.audioVisualizerManager.playbackSignal.collectAsState()
 
                 fun playArtist(shuffle: Boolean) {
                     scope.launch {
@@ -113,6 +115,8 @@ class ArtistDetailActivity : ComponentActivity() {
                         }
                         context.startActivity(Intent.createChooser(send, null))
                     },
+                    isPlaying = playbackState.isPlaying,
+                    playbackSignal = if (playbackState.isPlaying) playbackSignal else 0f,
                     modifier = Modifier.fillMaxSize(),
                 )
             }
