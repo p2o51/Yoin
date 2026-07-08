@@ -6,6 +6,10 @@
             android:name=".debug.DetailScreenshotActivity"
             android:exported="true"
             android:theme="@style/Theme.Yoin" />
+        <activity
+            android:name=".debug.MemoriesScreenshotActivity"
+            android:exported="true"
+            android:theme="@style/Theme.Yoin" />
         <provider
             android:name=".debug.SpotifyTokenExportProvider"
             android:authorities="${applicationId}.debug.spotifytoken"
