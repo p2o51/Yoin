@@ -89,6 +89,8 @@ import com.gpo.yoin.ui.theme.YoinMotionRole
 import com.gpo.yoin.ui.theme.YoinTheme
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
@@ -267,11 +269,30 @@ private fun YoinShell(
     val showNowPlaying = experienceSession.nowPlayingExpanded
     val musicConfigurationRevision by app.container.musicConfigurationRevision.collectAsState()
     val playlistMutationRevision by app.container.playlistMutationRevision.collectAsState()
-    val playbackState by app.container.playbackManager.playbackState.collectAsState()
+    val playbackManager = app.container.playbackManager
+    // PlaybackState carries `position`, which ticks 4×/s while music plays.
+    // Collecting the FULL state here re-executed the whole shell body (Home/
+    // Library + bottom nav) on every tick, even with Now Playing collapsed.
+    // The shell only needs these rarely-changing slices, so collect narrow
+    // distinct projections instead; the 4Hz progress for the mini player is
+    // derived inside the bottom-nav subtree below, and Now Playing reads the
+    // ViewModel's positionMs/bufferedMs flows inside its own overlay subtree.
+    val currentTrack by remember(playbackManager) {
+        playbackManager.playbackState.map { it.currentTrack }.distinctUntilChanged()
+    }.collectAsState(initial = playbackManager.playbackState.value.currentTrack)
+    val isPlaying by remember(playbackManager) {
+        playbackManager.playbackState.map { it.isPlaying }.distinctUntilChanged()
+    }.collectAsState(initial = playbackManager.playbackState.value.isPlaying)
+    val isPlaybackReady by remember(playbackManager) {
+        playbackManager.playbackState.map { it.controllerReady }.distinctUntilChanged()
+    }.collectAsState(initial = playbackManager.playbackState.value.controllerReady)
+    val playbackConnectionError by remember(playbackManager) {
+        playbackManager.playbackState.map { it.connectionErrorMessage }.distinctUntilChanged()
+    }.collectAsState(initial = playbackManager.playbackState.value.connectionErrorMessage)
     // playbackSignal is a heavily-throttled Float (≤3% change to emit); safe
     // to collect at the shell level without recomposing at ~30Hz.
-    // The full VisualizerData stream is subscribed only inside the Now
-    // Playing overlay where the FFT bars actually render.
+    // The full VisualizerData stream stays out of composition entirely — the
+    // Now Playing overlay only derives a Boolean spectrum-presence from it.
     val playbackSignal by app.container.audioVisualizerManager.playbackSignal.collectAsState()
     val castState by app.container.castManager.castState.collectAsState()
     val nowPlayingUiState by nowPlayingViewModel.uiState.collectAsState()
@@ -315,7 +336,7 @@ private fun YoinShell(
         label = "stageBackScale",
     )
 
-    val coverArtUrl = playbackState.currentTrack?.coverArt?.let { coverArt ->
+    val coverArtUrl = currentTrack?.coverArt?.let { coverArt ->
         app.container.repository.resolveCoverUrl(coverArt)
     }
 
@@ -422,13 +443,15 @@ private fun YoinShell(
     // Drive open/close animation from the surface flag. If a gesture has
     // already brought the reveal to the matching endpoint, the guard skips
     // the no-op animation so the gesture-driven settle isn't interrupted.
+    // launchAnimateTo is settleJob-tracked, so a drag that starts while the
+    // panel is animating cancels the spring instead of fighting it.
     LaunchedEffect(homeSurface) {
         when (homeSurface) {
             HomeSurface.Memories -> if (memoriesReveal.fraction > 0.001f) {
-                memoriesReveal.animateTo(0f)
+                memoriesReveal.launchAnimateTo(this, 0f)
             }
             HomeSurface.Feed -> if (memoriesReveal.fraction < 0.999f) {
-                memoriesReveal.animateTo(1f)
+                memoriesReveal.launchAnimateTo(this, 1f)
             }
         }
     }
@@ -565,9 +588,9 @@ private fun YoinShell(
                     ) {
                         HomeScreen(
                             viewModel = homeViewModel,
-                            isPlaying = playbackState.isPlaying,
-                            playbackSignal = if (playbackState.isPlaying) playbackSignal else 0f,
-                            activeSongId = playbackState.currentTrack?.id?.toString(),
+                            isPlaying = isPlaying,
+                            playbackSignal = if (isPlaying) playbackSignal else 0f,
+                            activeSongId = currentTrack?.id?.toString(),
                             suppressBackHandling = showNowPlaying,
                             onNavigateToSettings = { navigateToSettingsFromShell(null) },
                             onNavigateToMemories = {
@@ -653,9 +676,9 @@ private fun YoinShell(
 
                 YoinSection.LIBRARY -> LibraryScreen(
                     viewModel = libraryViewModel,
-                    activeSongId = playbackState.currentTrack?.id?.toString(),
-                    isPlaying = playbackState.isPlaying,
-                    playbackSignal = if (playbackState.isPlaying) playbackSignal else 0f,
+                    activeSongId = currentTrack?.id?.toString(),
+                    isPlaying = isPlaying,
+                    playbackSignal = if (isPlaying) playbackSignal else 0f,
                     onNavigateToSettings = { navigateToSettingsFromShell(null) },
                     onArtistClick = { artistId -> navigateToArtistFromShell(artistId, null) },
                     onAlbumClick = { albumId -> navigateToAlbumFromShell(albumId, null) },
@@ -717,10 +740,22 @@ private fun YoinShell(
             modifier = Modifier.fillMaxSize(),
         ) {
             val npAvScope = this
-            // Subscribe to the full VisualizerData stream only while NP is
-            // composed; keeps the shell clear of 30Hz recompositions.
-            val visualizerData by app.container.audioVisualizerManager.visualizerData
-                .collectAsState()
+            // The 4Hz playhead is collected HERE (not in the shell body) and
+            // handed to the screen as reader lambdas, so only the leaves that
+            // invoke them (progress bar, lyrics) recompose per tick.
+            val nowPlayingPositionMs = nowPlayingViewModel.positionMs.collectAsState()
+            val nowPlayingBufferedMs = nowPlayingViewModel.bufferedMs.collectAsState()
+            // The raw FFT stream updates 10–30Hz; NowPlayingScreen only needs
+            // "is a spectrum present", so subscribe to that distinct Boolean
+            // and keep the frames out of composition entirely.
+            val hasAudioSpectrum by remember(app) {
+                app.container.audioVisualizerManager.visualizerData
+                    .map { it.fft.isNotEmpty() }
+                    .distinctUntilChanged()
+            }.collectAsState(
+                initial = app.container.audioVisualizerManager
+                    .visualizerData.value.fft.isNotEmpty(),
+            )
             val draggableState = rememberDraggableState { delta ->
                 if (delta > 0f || dismissDragPx > 0f) {
                     dismissDragPx = (dismissDragPx + delta).coerceAtLeast(0f)
@@ -759,7 +794,11 @@ private fun YoinShell(
             ) {
                 NowPlayingScreen(
                     uiState = nowPlayingUiState,
-                    visualizerData = visualizerData,
+                    // Mirrors the dismissFraction pattern below: reader lambdas
+                    // over collected State, invoked only at the consuming leaves.
+                    positionMs = { nowPlayingPositionMs.value },
+                    bufferedMs = { nowPlayingBufferedMs.value },
+                    hasAudioSpectrum = hasAudioSpectrum,
                     onTogglePlayPause = nowPlayingViewModel::togglePlayPause,
                     onSkipNext = nowPlayingViewModel::skipNext,
                     onSkipPrevious = nowPlayingViewModel::skipPrevious,
@@ -858,6 +897,31 @@ private fun YoinShell(
                 YoinMotion.slideOutVertically(role = YoinMotionRole.Standard) { it + navBarBottomPx },
         ) {
             val bgAvScope = this
+            // The mini player's progress ring is the ONLY shell consumer of the
+            // 4Hz position tick. Derive it inside this bottom-nav subtree so
+            // ticks recompose just this block — and stop entirely while Now
+            // Playing is open (this AnimatedVisibility content is disposed).
+            val playbackProgress by remember(playbackManager) {
+                playbackManager.playbackState
+                    .map { state ->
+                        if (state.duration > 0L) {
+                            (state.position.toFloat() / state.duration).coerceIn(0f, 1f)
+                        } else {
+                            0f
+                        }
+                    }
+                    .distinctUntilChanged()
+            }.collectAsState(
+                // Seed from the live state, not 0f: this subtree remounts every
+                // time Now Playing closes, and a 0% first frame reads as a blip.
+                initial = playbackManager.playbackState.value.let { state ->
+                    if (state.duration > 0L) {
+                        (state.position.toFloat() / state.duration).coerceIn(0f, 1f)
+                    } else {
+                        0f
+                    }
+                },
+            )
 
             Box(
                 modifier = Modifier
@@ -874,19 +938,14 @@ private fun YoinShell(
             ) {
                 YoinButtonGroup(
                     selectedSection = selectedSection,
-                    currentTrackId = playbackState.currentTrack?.id?.toString(),
-                    currentTrackTitle = playbackState.currentTrack?.title,
-                    currentTrackArtist = playbackState.currentTrack?.artist,
+                    currentTrackId = currentTrack?.id?.toString(),
+                    currentTrackTitle = currentTrack?.title,
+                    currentTrackArtist = currentTrack?.artist,
                     currentTrackCoverArtUrl = coverArtUrl,
-                    isPlaybackReady = playbackState.controllerReady,
-                    connectionErrorMessage = playbackState.connectionErrorMessage,
-                    playbackProgress = if (playbackState.duration > 0L) {
-                        (playbackState.position.toFloat() / playbackState.duration)
-                            .coerceIn(0f, 1f)
-                    } else {
-                        0f
-                    },
-                    isPlaying = playbackState.isPlaying,
+                    isPlaybackReady = isPlaybackReady,
+                    connectionErrorMessage = playbackConnectionError,
+                    playbackProgress = playbackProgress,
+                    isPlaying = isPlaying,
                     onHomeClick = {
                         experienceSessionStore.setSelectedSection(YoinSection.HOME)
                         experienceSessionStore.setHomeSurface(HomeSurface.Feed)

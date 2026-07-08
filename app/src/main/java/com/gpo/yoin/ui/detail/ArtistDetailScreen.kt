@@ -79,6 +79,7 @@ import com.gpo.yoin.ui.component.YoinDropdownMenu
 import com.gpo.yoin.ui.component.YoinDropdownMenuItem
 import com.gpo.yoin.ui.component.YoinLoadingIndicator
 import com.gpo.yoin.ui.component.elasticPress
+import com.gpo.yoin.ui.component.formatTrackDuration
 import com.gpo.yoin.ui.component.minimumTouchTarget
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
 import com.gpo.yoin.ui.theme.ProvideYoinMotionRole
@@ -205,11 +206,8 @@ private fun ArtistDetailContent(
                     navigationIcon = {
                         DetailBackButton(onClick = onBackClick)
                     },
-                    // Both states = the page's own surface (NOT Color.Transparent —
-                    // transparent is transparent-BLACK, so collapsing would lerp
-                    // through a semi-transparent dark gray = a visible dark flash).
-                    // Same colour both ends → the bar just blends with the page and
-                    // only its height changes on scroll.
+                    // Transparent both ends so the bar blends with the gradient
+                    // page background (no surface band, no collapse colour flash).
                     colors = TopAppBarDefaults.topAppBarColors(
                         containerColor = Color.Transparent,
                         scrolledContainerColor = Color.Transparent,
@@ -520,12 +518,6 @@ private fun ArtistFollowBun(
     }
 }
 
-private fun formatArtistTrackDuration(seconds: Int): String {
-    val mins = seconds / 60
-    val secs = seconds % 60
-    return "%d:%02d".format(mins, secs)
-}
-
 /** One row in the "Popular" list: rank · thumbnail · title/artist · duration. */
 @Composable
 private fun ArtistTopTrackRow(
@@ -585,7 +577,7 @@ private fun ArtistTopTrackRow(
         }
         track.durationSec?.let { secs ->
             Text(
-                text = formatArtistTrackDuration(secs),
+                text = formatTrackDuration(secs),
                 style = MaterialTheme.typography.labelLarge.withTabularFigures(),
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )

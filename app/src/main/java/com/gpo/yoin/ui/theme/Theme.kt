@@ -55,8 +55,13 @@ fun YoinTheme(
     content: @Composable () -> Unit,
 ) {
     val context = LocalContext.current
+    // Remembered so recompositions reuse ONE instance: dynamic*ColorScheme()
+    // allocates a fresh (identity-unequal) scheme per call, and downstream
+    // consumers key on the instance — see animateColorScheme's wash dedup.
     val defaultScheme = colorSchemeOverride ?: if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-        if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
+        remember(context, darkTheme) {
+            if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
+        }
     } else {
         if (darkTheme) YoinDarkColorScheme else YoinLightColorScheme
     }

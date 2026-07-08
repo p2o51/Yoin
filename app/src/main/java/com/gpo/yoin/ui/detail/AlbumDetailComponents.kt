@@ -76,6 +76,8 @@ import androidx.compose.ui.unit.em
 import com.gpo.yoin.ui.component.YoinArmTransform
 import com.gpo.yoin.ui.component.YoinMark
 import com.gpo.yoin.ui.component.elasticPress
+import com.gpo.yoin.ui.component.formatTotalDuration
+import com.gpo.yoin.ui.component.formatTrackDuration
 import com.gpo.yoin.ui.component.minimumTouchTarget
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
 import com.gpo.yoin.ui.theme.YoinMotion
@@ -361,7 +363,7 @@ internal fun AlbumTrackCountLabel(
         text = buildString {
             append(tracks)
             totalDurationSeconds?.takeIf { it > 0 }?.let {
-                append("  ·  ${formatAlbumTotalDuration(it)}")
+                append("  ·  ${formatTotalDuration(it)}")
             }
         },
         style = MaterialTheme.typography.labelMedium,
@@ -668,20 +670,6 @@ internal fun formatAlbumScore(rating: Float): String {
     val roundedTenths = (rating.coerceIn(0f, 10f) * 10f).roundToInt()
     if (roundedTenths >= 100) return "10"
     return "%d.%d".format(roundedTenths / 10, roundedTenths % 10)
-}
-
-private fun formatTrackDuration(seconds: Int): String {
-    val mins = seconds / 60
-    val secs = seconds % 60
-    return "%d:%02d".format(mins, secs)
-}
-
-/** Album total runtime → "38m" / "1h 12m" (matches the playlist pill format). */
-internal fun formatAlbumTotalDuration(seconds: Int): String {
-    val totalMin = seconds / 60
-    val h = totalMin / 60
-    val m = totalMin % 60
-    return if (h > 0) "${h}h ${m}m" else "${m}m"
 }
 
 /**

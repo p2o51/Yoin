@@ -8,12 +8,14 @@ import androidx.room.Upsert
 interface MemoryCopyCacheDao {
     @Query(
         "SELECT * FROM memory_copy_cache " +
-            "WHERE provider = :provider " +
+            "WHERE profileId = :profileId " +
+            "AND provider = :provider " +
             "AND entityType = :entityType " +
             "AND entityId = :entityId " +
             "LIMIT 1",
     )
     suspend fun get(
+        profileId: String,
         provider: String,
         entityType: String,
         entityId: String,
@@ -24,11 +26,13 @@ interface MemoryCopyCacheDao {
 
     @Query(
         "DELETE FROM memory_copy_cache " +
-            "WHERE provider = :provider " +
+            "WHERE profileId = :profileId " +
+            "AND provider = :provider " +
             "AND entityType = :entityType " +
             "AND entityId = :entityId",
     )
     suspend fun delete(
+        profileId: String,
         provider: String,
         entityType: String,
         entityId: String,

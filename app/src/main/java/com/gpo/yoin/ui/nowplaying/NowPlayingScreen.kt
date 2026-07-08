@@ -83,6 +83,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -120,7 +121,6 @@ import com.gpo.yoin.data.model.YoinDevice
 import com.gpo.yoin.data.repository.ActivityContext
 import com.gpo.yoin.player.CastState
 import com.gpo.yoin.data.local.SongNote
-import com.gpo.yoin.player.VisualizerData
 import com.gpo.yoin.ui.component.CastButton
 import com.gpo.yoin.ui.component.DevicesSheet
 import com.gpo.yoin.ui.component.WriteNoteSheet
@@ -163,7 +163,16 @@ import kotlinx.coroutines.launch
 @Composable
 fun NowPlayingScreen(
     uiState: NowPlayingUiState,
-    visualizerData: VisualizerData,
+    // 4Hz playhead readers. Lambdas (not values) on purpose: the tick is read
+    // only inside the leaves that render position (wave progress bar, time
+    // labels, lyrics highlight), so a position tick never recomposes this
+    // screen or the layout bodies below it.
+    positionMs: () -> Long,
+    bufferedMs: () -> Long,
+    // True while the audio session is producing FFT frames. Replaces the raw
+    // VisualizerData param — the frames themselves updated 10–30Hz and their
+    // ONLY consumer here was this presence check.
+    hasAudioSpectrum: Boolean,
     // Predictive-back collapse preview: the stage CONTENT recedes to this scale
     // over the aurora (full-screen on the outer Box), so the peek never reveals
     // the shell behind. 1f = inert.
@@ -240,7 +249,7 @@ fun NowPlayingScreen(
         tag = "now-playing",
         isHighPressure = uiState is NowPlayingUiState.Playing &&
             uiState.isPlaying &&
-            visualizerData.fft.isNotEmpty(),
+            hasAudioSpectrum,
     )
 
     ProvideYoinMotionRole(role = YoinMotionRole.Expressive) {
@@ -281,6 +290,8 @@ fun NowPlayingScreen(
                 )
                 is NowPlayingUiState.Playing -> PlayingContent(
                     state = uiState,
+                    positionMs = positionMs,
+                    bufferedMs = bufferedMs,
                     onTogglePlayPause = onTogglePlayPause,
                     onSkipNext = onSkipNext,
                     onSkipPrevious = onSkipPrevious,
@@ -529,6 +540,9 @@ private data class NowPlayingNavigationActions(
 @Composable
 private fun PlayingContent(
     state: NowPlayingUiState.Playing,
+    // 4Hz playhead readers — threaded down untouched; only leaves invoke them.
+    positionMs: () -> Long,
+    bufferedMs: () -> Long,
     // Predictive-back collapse preview: the STAGE (cover / tabs / lyrics) recedes to
     // this scale while the top bar, controls, title/artist and pills stay fixed as a
     // stable frame. 1f = inert.
@@ -609,6 +623,8 @@ private fun PlayingContent(
     when (layoutMode) {
         LayoutMode.Wide -> WidePlayingContent(
             state = state,
+            positionMs = positionMs,
+            bufferedMs = bufferedMs,
             onTogglePlayPause = onTogglePlayPause,
             onSkipNext = onSkipNext,
             onSkipPrevious = onSkipPrevious,
@@ -660,6 +676,8 @@ private fun PlayingContent(
         )
         LayoutMode.Tabletop -> TabletopPlayingContent(
             state = state,
+            positionMs = positionMs,
+            bufferedMs = bufferedMs,
             onTogglePlayPause = onTogglePlayPause,
             onSkipNext = onSkipNext,
             onSkipPrevious = onSkipPrevious,
@@ -711,6 +729,8 @@ private fun PlayingContent(
         )
         LayoutMode.Compact -> CompactPlayingContent(
             state = state,
+            positionMs = positionMs,
+            bufferedMs = bufferedMs,
             contentScale = contentScale,
             onTogglePlayPause = onTogglePlayPause,
             onSkipNext = onSkipNext,
@@ -773,6 +793,9 @@ private fun PlayingContent(
 @Composable
 private fun CompactPlayingContent(
     state: NowPlayingUiState.Playing,
+    // 4Hz playhead readers; invoked only by TickingPlaybackControls / lyrics leaves.
+    positionMs: () -> Long,
+    bufferedMs: () -> Long,
     // Predictive-back collapse preview: the STAGE recedes to this scale; the
     // controls, title/artist and pills stay fixed. 1f = inert.
     contentScale: Float = 1f,
@@ -835,16 +858,6 @@ private fun CompactPlayingContent(
         role = YoinMotionRole.Expressive,
         expressiveScheme = MaterialTheme.motionScheme,
     )
-    val progress = if (state.durationMs > 0) {
-        (state.positionMs.toFloat() / state.durationMs).coerceIn(0f, 1f)
-    } else {
-        0f
-    }
-    val buffered = if (state.durationMs > 0) {
-        (state.bufferedMs.toFloat() / state.durationMs).coerceIn(0f, 1f)
-    } else {
-        0f
-    }
 
     var showQueue by remember { mutableStateOf(false) }
     var showDevicesSheet by remember(state.songId) { mutableStateOf(false) }
@@ -1184,6 +1197,7 @@ private fun CompactPlayingContent(
                                 CompactDetailPage(
                                     page = NowPlayingDetailPage.entries[page],
                                     state = state,
+                                    positionMs = positionMs,
                                     aboutUiState = aboutUiState,
                                     notes = notesState,
                                     immersiveProgress = immersiveProgress,
@@ -1200,15 +1214,16 @@ private fun CompactPlayingContent(
                                     ExpandedDetailPage(
                                         page = NowPlayingDetailPage.entries[page],
                                         state = state,
+                                        positionMs = positionMs,
                                         aboutUiState = aboutUiState,
                                         notes = notesState,
                                         lyricsAutoScroll = lyricsAutoScroll,
                                         lyricsRecenterTick = lyricsRecenterTick,
                                         onLyricsUserScroll = { lyricsAutoScroll = false },
-                                        onSeekToMs = { positionMs ->
+                                        onSeekToMs = { targetMs ->
                                             lyricsAutoScroll = true
                                             lyricsRecenterTick += 1
-                                            lyricsActions.onSeekToMs(positionMs)
+                                            lyricsActions.onSeekToMs(targetMs)
                                         },
                                         onRetryCanonical = onRetryFetchSongInfo,
                                         onSaveNote = onSaveNote,
@@ -1249,15 +1264,14 @@ private fun CompactPlayingContent(
                         height = controlsHeight,
                         alpha = compactProgress,
                     ) {
-                        PlaybackControls(
+                        TickingPlaybackControls(
                             isPlaying = state.isPlaying,
                             onTogglePlayPause = playbackActions.onTogglePlayPause,
                             onSkipNext = playbackActions.onSkipNext,
                             onSkipPrevious = playbackActions.onSkipPrevious,
-                            positionMs = state.positionMs,
+                            positionMs = positionMs,
+                            bufferedMs = bufferedMs,
                             durationMs = state.durationMs,
-                            progress = progress,
-                            buffered = buffered,
                             onSeek = playbackActions.onSeek,
                             playInteractionSource = playInteractionSource,
                             nextInteractionSource = nextInteractionSource,
@@ -1473,6 +1487,9 @@ private fun CompactPlayingContent(
 @Composable
 private fun WidePlayingContent(
     state: NowPlayingUiState.Playing,
+    // 4Hz playhead readers; invoked only by TickingPlaybackControls / lyrics leaves.
+    positionMs: () -> Long,
+    bufferedMs: () -> Long,
     onTogglePlayPause: () -> Unit,
     onSkipNext: () -> Unit,
     onSkipPrevious: () -> Unit,
@@ -1522,16 +1539,6 @@ private fun WidePlayingContent(
     animatedVisibilityScope: AnimatedVisibilityScope? = null,
     modifier: Modifier = Modifier,
 ) {
-    val progress = if (state.durationMs > 0) {
-        (state.positionMs.toFloat() / state.durationMs).coerceIn(0f, 1f)
-    } else {
-        0f
-    }
-    val buffered = if (state.durationMs > 0) {
-        (state.bufferedMs.toFloat() / state.durationMs).coerceIn(0f, 1f)
-    } else {
-        0f
-    }
     val albumId = state.albumId
     val artistId = state.artistId
 
@@ -1767,15 +1774,14 @@ private fun WidePlayingContent(
                     Spacer(modifier = Modifier.height(16.dp))
                     // Transport + progress live in the left column now (the right
                     // column is lyrics-only with a small tab indicator).
-                    PlaybackControls(
+                    TickingPlaybackControls(
                         isPlaying = state.isPlaying,
                         onTogglePlayPause = onTogglePlayPause,
                         onSkipNext = onSkipNext,
                         onSkipPrevious = onSkipPrevious,
-                        positionMs = state.positionMs,
+                        positionMs = positionMs,
+                        bufferedMs = bufferedMs,
                         durationMs = state.durationMs,
-                        progress = progress,
-                        buffered = buffered,
                         onSeek = onSeek,
                         playInteractionSource = playInteractionSource,
                         nextInteractionSource = nextInteractionSource,
@@ -1838,15 +1844,16 @@ private fun WidePlayingContent(
                         ExpandedDetailPage(
                             page = NowPlayingDetailPage.entries[page],
                             state = state,
+                            positionMs = positionMs,
                             aboutUiState = aboutUiState,
                             notes = notesState,
                             lyricsAutoScroll = lyricsAutoScroll,
                             lyricsRecenterTick = lyricsRecenterTick,
                             onLyricsUserScroll = { lyricsAutoScroll = false },
-                            onSeekToMs = { positionMs ->
+                            onSeekToMs = { targetMs ->
                                 lyricsAutoScroll = true
                                 lyricsRecenterTick += 1
-                                onSeekToMs(positionMs)
+                                onSeekToMs(targetMs)
                             },
                             onRetryCanonical = onRetryFetchSongInfo,
                             onSaveNote = onSaveNote,
@@ -1995,6 +2002,9 @@ private fun WidePlayingContent(
 @Composable
 private fun TabletopPlayingContent(
     state: NowPlayingUiState.Playing,
+    // 4Hz playhead readers; invoked only by TickingPlaybackControls / lyrics leaves.
+    positionMs: () -> Long,
+    bufferedMs: () -> Long,
     onTogglePlayPause: () -> Unit,
     onSkipNext: () -> Unit,
     onSkipPrevious: () -> Unit,
@@ -2044,16 +2054,6 @@ private fun TabletopPlayingContent(
     animatedVisibilityScope: AnimatedVisibilityScope? = null,
     modifier: Modifier = Modifier,
 ) {
-    val progress = if (state.durationMs > 0) {
-        (state.positionMs.toFloat() / state.durationMs).coerceIn(0f, 1f)
-    } else {
-        0f
-    }
-    val buffered = if (state.durationMs > 0) {
-        (state.bufferedMs.toFloat() / state.durationMs).coerceIn(0f, 1f)
-    } else {
-        0f
-    }
     val albumId = state.albumId
     val artistId = state.artistId
 
@@ -2192,7 +2192,7 @@ private fun TabletopPlayingContent(
                             )
                             LyricsDisplay(
                                 lyrics = state.lyrics,
-                                positionMs = state.positionMs,
+                                positionMs = positionMs,
                                 loading = state.lyricsLoading,
                                 fontScale = 0.95f + 0.45f * lyricsEmphasis,
                                 modifier = Modifier
@@ -2238,15 +2238,14 @@ private fun TabletopPlayingContent(
                     .padding(horizontal = 24.dp, vertical = 16.dp),
                 verticalArrangement = Arrangement.Bottom,
             ) {
-                PlaybackControls(
+                TickingPlaybackControls(
                     isPlaying = state.isPlaying,
                     onTogglePlayPause = onTogglePlayPause,
                     onSkipNext = onSkipNext,
                     onSkipPrevious = onSkipPrevious,
-                    positionMs = state.positionMs,
+                    positionMs = positionMs,
+                    bufferedMs = bufferedMs,
                     durationMs = state.durationMs,
-                    progress = progress,
-                    buffered = buffered,
                     onSeek = onSeek,
                     playInteractionSource = playInteractionSource,
                     nextInteractionSource = nextInteractionSource,
@@ -2600,6 +2599,7 @@ private fun CompactTextTabs(
 private fun CompactDetailPage(
     page: NowPlayingDetailPage,
     state: NowPlayingUiState.Playing,
+    positionMs: () -> Long,
     aboutUiState: AboutUiState,
     notes: List<SongNote>,
     immersiveProgress: Float,
@@ -2610,7 +2610,7 @@ private fun CompactDetailPage(
         NowPlayingDetailPage.Lyrics -> Box(modifier = modifier.clipToBounds()) {
             LyricsDisplay(
                 lyrics = state.lyrics,
-                positionMs = state.positionMs,
+                positionMs = positionMs,
                 loading = state.lyricsLoading,
                 modifier = Modifier
                     .fillMaxSize()
@@ -2621,6 +2621,7 @@ private fun CompactDetailPage(
             )
             OneLineLyricPreview(
                 state = state,
+                positionMs = positionMs,
                 modifier = Modifier
                     .fillMaxSize()
                     .graphicsLayer {
@@ -2644,13 +2645,19 @@ private fun CompactDetailPage(
 @Composable
 internal fun OneLineLyricPreview(
     state: NowPlayingUiState.Playing,
+    positionMs: () -> Long,
     modifier: Modifier = Modifier,
 ) {
-    val lyricText = remember(state.lyrics, state.positionMs, state.showLyricsTranslation) {
-        state.lyrics.currentLyricText(
-            positionMs = state.positionMs,
-            showTranslation = state.showLyricsTranslation,
-        )
+    // derivedStateOf absorbs the 4Hz position tick: the text recomputes per
+    // tick, but this composable only recomposes when the resolved line changes.
+    val currentPositionMs by rememberUpdatedState(positionMs)
+    val lyricText by remember(state.lyrics, state.showLyricsTranslation) {
+        derivedStateOf {
+            state.lyrics.currentLyricText(
+                positionMs = currentPositionMs(),
+                showTranslation = state.showLyricsTranslation,
+            )
+        }
     }
     val displayText = when {
         state.lyricsLoading -> "Loading lyrics"
@@ -2682,6 +2689,7 @@ internal fun OneLineLyricPreview(
 private fun ExpandedDetailPage(
     page: NowPlayingDetailPage,
     state: NowPlayingUiState.Playing,
+    positionMs: () -> Long,
     aboutUiState: AboutUiState,
     notes: List<SongNote>,
     lyricsAutoScroll: Boolean,
@@ -2696,7 +2704,7 @@ private fun ExpandedDetailPage(
     when (page) {
         NowPlayingDetailPage.Lyrics -> LyricsFullscreenPane(
             lyrics = state.lyrics,
-            positionMs = state.positionMs,
+            positionMs = positionMs,
             loading = state.lyricsLoading,
             showTranslation = state.showLyricsTranslation,
             autoScrollEnabled = lyricsAutoScroll,
@@ -2718,6 +2726,68 @@ private fun ExpandedDetailPage(
             modifier = modifier,
         )
     }
+}
+
+/**
+ * Thin wrapper around [PlaybackControls] that owns the 4Hz playhead reads.
+ * [positionMs]/[bufferedMs] are invoked HERE — a dedicated restartable scope —
+ * so each position tick recomposes only this transport row, never the
+ * enclosing Compact/Wide/Tabletop layout body. Progress/buffered fractions
+ * are derived here too, so the callers stay entirely position-free.
+ */
+@Composable
+private fun TickingPlaybackControls(
+    isPlaying: Boolean,
+    onTogglePlayPause: () -> Unit,
+    onSkipNext: () -> Unit,
+    onSkipPrevious: () -> Unit,
+    positionMs: () -> Long,
+    bufferedMs: () -> Long,
+    durationMs: Long,
+    onSeek: (Float) -> Unit,
+    playInteractionSource: MutableInteractionSource,
+    nextInteractionSource: MutableInteractionSource,
+    playPressed: Boolean,
+    nextPressed: Boolean,
+    shuffleEnabled: Boolean = false,
+    onToggleShuffle: () -> Unit = {},
+    controlSize: Dp = 56.dp,
+    lyricsExpanded: Boolean = false,
+    onExpandLyrics: (() -> Unit)? = null,
+    modifier: Modifier = Modifier,
+) {
+    val position = positionMs()
+    val progress = if (durationMs > 0) {
+        (position.toFloat() / durationMs).coerceIn(0f, 1f)
+    } else {
+        0f
+    }
+    val buffered = if (durationMs > 0) {
+        (bufferedMs().toFloat() / durationMs).coerceIn(0f, 1f)
+    } else {
+        0f
+    }
+    PlaybackControls(
+        isPlaying = isPlaying,
+        onTogglePlayPause = onTogglePlayPause,
+        onSkipNext = onSkipNext,
+        onSkipPrevious = onSkipPrevious,
+        positionMs = position,
+        durationMs = durationMs,
+        progress = progress,
+        buffered = buffered,
+        onSeek = onSeek,
+        playInteractionSource = playInteractionSource,
+        nextInteractionSource = nextInteractionSource,
+        playPressed = playPressed,
+        nextPressed = nextPressed,
+        shuffleEnabled = shuffleEnabled,
+        onToggleShuffle = onToggleShuffle,
+        controlSize = controlSize,
+        lyricsExpanded = lyricsExpanded,
+        onExpandLyrics = onExpandLyrics,
+        modifier = modifier,
+    )
 }
 
 @Composable
@@ -3334,9 +3404,7 @@ private val previewPlayingState = NowPlayingUiState.Playing(
     albumName = "Black Holes and Revelations",
     coverArtUrl = null,
     isPlaying = true,
-    positionMs = 125_000L,
     durationMs = 240_000L,
-    bufferedMs = 180_000L,
     songId = "1",
     rating = 7.4f,
     isStarred = true,
@@ -3361,21 +3429,15 @@ private val previewPlayingState = NowPlayingUiState.Playing(
     activityContext = ActivityContext.None,
 )
 
-private val previewVisualizerData = VisualizerData(
-    fft = FloatArray(32) { i ->
-        val t = i.toFloat() / 32
-        (kotlin.math.sin(t * Math.PI * 2).toFloat() * 0.4f + 0.5f)
-            .coerceIn(0f, 1f)
-    },
-)
-
 @Preview(showBackground = true, backgroundColor = 0xFF1C1B1F, showSystemUi = true)
 @Composable
 private fun NowPlayingScreenPlayingPreview() {
     YoinTheme {
         NowPlayingScreen(
             uiState = previewPlayingState,
-            visualizerData = previewVisualizerData,
+            positionMs = { 125_000L },
+            bufferedMs = { 180_000L },
+            hasAudioSpectrum = true,
             onTogglePlayPause = {},
             onSkipNext = {},
             onSkipPrevious = {},
@@ -3394,7 +3456,9 @@ private fun NowPlayingScreenIdlePreview() {
     YoinTheme {
         NowPlayingScreen(
             uiState = NowPlayingUiState.Idle,
-            visualizerData = VisualizerData.Empty,
+            positionMs = { 0L },
+            bufferedMs = { 0L },
+            hasAudioSpectrum = false,
             onTogglePlayPause = {},
             onSkipNext = {},
             onSkipPrevious = {},

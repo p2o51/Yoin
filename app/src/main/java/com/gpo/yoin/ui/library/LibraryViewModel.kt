@@ -61,6 +61,9 @@ class LibraryViewModel(
     private var pendingSearchShortcutScope: LibrarySearchScope? = null
     private var searchFocusRequestCounter = 0L
 
+    /** Monotonic id per selectTab load; a stale failure must not revert a newer selection. */
+    private var tabLoadGeneration = 0L
+
     val notedSongIds: StateFlow<Set<String>> = uiState
         .flatMapLatest { state ->
             val visibleTrackIds = when (state) {
@@ -208,6 +211,8 @@ class LibraryViewModel(
 
     fun selectTab(tab: LibraryTab) {
         val current = _uiState.value as? LibraryUiState.Content ?: return
+        val previousTab = current.selectedTab
+        val loadGeneration = ++tabLoadGeneration
         _uiState.value = current.copy(selectedTab = tab)
         viewModelScope.launch {
             try {
@@ -249,8 +254,25 @@ class LibraryViewModel(
                 if (isSpotifyProvider() && hasSpotifyTabCache(tab)) {
                     return@launch
                 }
-                _uiState.value = LibraryUiState.Error(
-                    e.message ?: "Failed to load ${tab.name}",
+                val content = _uiState.value as? LibraryUiState.Content
+                if (content == null) {
+                    _uiState.value = LibraryUiState.Error(
+                        e.message ?: "Failed to load ${tab.name}",
+                    )
+                    return@launch
+                }
+                // One tab failing shouldn't blank the whole library: keep the
+                // Content we have and explain via snackbar. The failed tab has
+                // nothing to show (its empty payload would render a misleading
+                // "No X found"), so step back to the tab the user came from —
+                // unless they've already moved on, or a NEWER load of this same
+                // tab is in flight (a stale failure must not undo its selection).
+                if (content.selectedTab == tab && loadGeneration == tabLoadGeneration) {
+                    _uiState.value = content.copy(selectedTab = previousTab)
+                }
+                _messages.tryEmit(
+                    e.message?.takeIf { it.isNotBlank() }
+                        ?: "Failed to load ${tab.name}",
                 )
             }
         }

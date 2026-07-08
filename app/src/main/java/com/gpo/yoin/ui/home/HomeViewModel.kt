@@ -16,6 +16,7 @@ import com.gpo.yoin.data.repository.YoinRepository
 import com.gpo.yoin.data.source.Capability
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
@@ -24,6 +25,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
@@ -336,26 +338,33 @@ class HomeViewModel(
         )
     }
 
+    @OptIn(FlowPreview::class)
     private fun observeRecentHistory() {
         viewModelScope.launch {
-            repository.getRecentActivities(limit = 20).collectLatest { localActivities ->
-                val currentContent = _uiState.value as? HomeUiState.Content ?: return@collectLatest
-                // The recently-played endpoint owns the Spotify feed ONLY when
-                // the activities actually came from it; on the local fallback
-                // (scope missing / no recent plays) the feed must keep
-                // live-updating from local writes like every other provider.
-                // Otherwise a local activity-event write must not clobber the
-                // endpoint feed. The memory teaser refreshes for all providers.
-                val keepEndpointFeed = currentContent.activitiesFromRemote &&
-                    repository.currentProviderId() == MediaId.PROVIDER_SPOTIFY
-                val nextContent = currentContent.copy(
-                    activities = if (keepEndpointFeed) currentContent.activities else localActivities,
-                    activitiesFromRemote = keepEndpointFeed,
-                    memoryTeaser = repository.getTopAlbumMemoryCandidate()?.toMemoryTeaser(),
-                )
-                homeContentCache[homeScopeKey(repository.currentProviderId(), activeProfileId.value)] = nextContent
-                _uiState.value = nextContent
-            }
+            // Room re-emits on every activity_events insert — i.e. every track
+            // change and every detail-page visit — and each emission re-runs the
+            // memory-teaser candidate scan. Debounce coalesces those bursts so a
+            // rapid skip-through doesn't re-derive the teaser per song.
+            repository.getRecentActivities(limit = 20)
+                .debounce(RECENT_HISTORY_DEBOUNCE_MS)
+                .collectLatest { localActivities ->
+                    val currentContent = _uiState.value as? HomeUiState.Content ?: return@collectLatest
+                    // The recently-played endpoint owns the Spotify feed ONLY when
+                    // the activities actually came from it; on the local fallback
+                    // (scope missing / no recent plays) the feed must keep
+                    // live-updating from local writes like every other provider.
+                    // Otherwise a local activity-event write must not clobber the
+                    // endpoint feed. The memory teaser refreshes for all providers.
+                    val keepEndpointFeed = currentContent.activitiesFromRemote &&
+                        repository.currentProviderId() == MediaId.PROVIDER_SPOTIFY
+                    val nextContent = currentContent.copy(
+                        activities = if (keepEndpointFeed) currentContent.activities else localActivities,
+                        activitiesFromRemote = keepEndpointFeed,
+                        memoryTeaser = repository.getTopAlbumMemoryCandidate()?.toMemoryTeaser(),
+                    )
+                    homeContentCache[homeScopeKey(repository.currentProviderId(), activeProfileId.value)] = nextContent
+                    _uiState.value = nextContent
+                }
         }
     }
 
@@ -540,6 +549,10 @@ class HomeViewModel(
         // Rated-coverage at/above which an album reads as a "formed" memory in
         // the home teaser, matching the original Memory recommendation rule.
         private const val MEMORY_FORMED_COVERAGE = 0.6f
+
+        // Coalesces activity-event bursts (track skips, detail visits) before
+        // re-running the memory-teaser candidate scan.
+        private const val RECENT_HISTORY_DEBOUNCE_MS = 1_000L
         private val homeContentCache = mutableMapOf<String, HomeUiState.Content>()
 
         private fun homeScopeKey(providerId: String?, profileId: String?): String =

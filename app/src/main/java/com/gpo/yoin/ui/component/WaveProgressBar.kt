@@ -32,7 +32,6 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
-import com.gpo.yoin.ui.nowplaying.formatTime
 import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinShapeTokens
 import com.gpo.yoin.ui.theme.YoinTheme
@@ -155,7 +154,7 @@ fun WaveProgressBar(
         val activePreviewFraction = previewFraction
         if (activePreviewFraction != null) {
             PreviewTimeBubble(
-                timeText = formatTime((durationMs.toFloat() * activePreviewFraction).roundToLong()),
+                timeText = formatTrackDurationMs((durationMs.toFloat() * activePreviewFraction).roundToLong()),
                 modifier = Modifier
                     .align(Alignment.TopStart)
                     .onSizeChanged { labelWidthPx = it.width }

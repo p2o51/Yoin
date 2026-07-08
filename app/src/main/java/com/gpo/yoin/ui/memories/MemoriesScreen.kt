@@ -77,6 +77,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.gpo.yoin.ui.component.ExpressiveMediaArtwork
 import com.gpo.yoin.ui.component.ExpressivePageBackground
 import com.gpo.yoin.ui.component.YoinLoadingIndicator
+import com.gpo.yoin.ui.component.formatTrackDuration
 import com.gpo.yoin.ui.component.rememberExpressiveBackdropColors
 import com.gpo.yoin.ui.experience.DeckIndicatorTransitionState
 import com.gpo.yoin.ui.experience.EdgeAdvanceDirection
@@ -933,7 +934,7 @@ private fun MemoryTrackRow(
             }
             track.durationSeconds?.let { duration ->
                 Text(
-                    text = duration.toCompactDuration(),
+                    text = formatTrackDuration(duration),
                     style = MaterialTheme.typography.labelLarge.withTabularFigures(),
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -970,12 +971,6 @@ private fun Long.toRelativeMemoryTime(): String {
         days < 7L -> "${days}d ago"
         else -> "${days / 7}w ago"
     }
-}
-
-private fun Int.toCompactDuration(): String {
-    val minutes = this / 60
-    val seconds = this % 60
-    return "%d:%02d".format(minutes, seconds)
 }
 
 private fun Float.formatMemoryTrackRating(): String =

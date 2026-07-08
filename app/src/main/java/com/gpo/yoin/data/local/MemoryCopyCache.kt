@@ -4,7 +4,9 @@ import androidx.room.Entity
 import com.gpo.yoin.data.model.MediaId
 
 /**
- * 「余音 Gemini 文案」缓存 —— 按 (provider, entityType, entityId) 唯一。
+ * 「余音 Gemini 文案」缓存 —— 按 (profileId, provider, entityType, entityId)
+ * 唯一。profileId 必须进 PK：两个 Subsonic profile（不同服务器）共享
+ * provider="subsonic"，raw id 又在同一命名空间，少了 profileId 会串号。
  *
  * [copy] 是已渲染好的短句，展示在 Memory 卡片的情绪提示位；
  * [promptHash] 是生成时输入信号的稳定 hash（例如 title+artist+avgScore+
@@ -15,9 +17,10 @@ import com.gpo.yoin.data.model.MediaId
  */
 @Entity(
     tableName = "memory_copy_cache",
-    primaryKeys = ["provider", "entityType", "entityId"],
+    primaryKeys = ["profileId", "provider", "entityType", "entityId"],
 )
 data class MemoryCopyCache(
+    val profileId: String,
     val provider: String = MediaId.PROVIDER_SUBSONIC,
     val entityType: String,
     val entityId: String,

@@ -217,7 +217,14 @@ class NowPlayingViewModel(
     val devicesState: StateFlow<DevicesSheetState> = _devicesState.asStateFlow()
 
     private val playbackAndContext = combine(
-        playbackManager.playbackState,
+        // position/bufferedPosition tick 4×/s during playback, but [uiState]
+        // no longer embeds them (the screen reads [positionMs]/[bufferedMs]
+        // directly). Strip the ticking fields BEFORE the big combine so a
+        // pure position tick dedupes right here instead of rebuilding — and
+        // re-emitting — a fresh Playing instance 4×/s.
+        playbackManager.playbackState
+            .map { it.copy(position = 0L, bufferedPosition = 0L) }
+            .distinctUntilChanged(),
         playbackManager.currentActivityContext,
     ) { state, ctx -> state to ctx }
 
@@ -259,9 +266,7 @@ class NowPlayingViewModel(
                 albumName = song.album.orEmpty(),
                 coverArtUrl = repository.resolveCoverUrl(song.coverArt),
                 isPlaying = state.isPlaying,
-                positionMs = state.position,
                 durationMs = state.duration,
-                bufferedMs = state.bufferedPosition,
                 songId = song.id.toString(),
                 rating = rating,
                 isStarred = isStarred,
@@ -310,6 +315,37 @@ class NowPlayingViewModel(
             else -> NowPlayingUiState.Idle
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), NowPlayingUiState.Idle)
+
+    /**
+     * 4Hz playhead position, deliberately kept OUT of [uiState] (see
+     * [playbackAndContext]) so only the leaves that render position — wave
+     * progress bar, time labels, lyrics highlight — recompose per tick.
+     *
+     * Shared EAGERLY, not WhileSubscribed: the only collector lives inside the
+     * Now Playing overlay, so with WhileSubscribed the flow went cold 5s after
+     * a dismiss and cached the close-time position — reopening then composed
+     * its first frame against that stale value (collectAsState always seeds
+     * from StateFlow.value) and the lyric panes instant-anchored to the wrong
+     * line before re-gliding. Eager upkeep is two field projections per 250ms
+     * tick (and the ticker only runs while playing) — cheap insurance that
+     * `.value` is never stale.
+     */
+    val positionMs: StateFlow<Long> = playbackManager.playbackState
+        .map { it.position }
+        .stateIn(
+            viewModelScope,
+            SharingStarted.Eagerly,
+            playbackManager.playbackState.value.position,
+        )
+
+    /** Buffered position, split out of [uiState] for the same reason as [positionMs]. */
+    val bufferedMs: StateFlow<Long> = playbackManager.playbackState
+        .map { it.bufferedPosition }
+        .stateIn(
+            viewModelScope,
+            SharingStarted.Eagerly,
+            playbackManager.playbackState.value.bufferedPosition,
+        )
 
     fun togglePlayPause() {
         val state = playbackManager.playbackState.value

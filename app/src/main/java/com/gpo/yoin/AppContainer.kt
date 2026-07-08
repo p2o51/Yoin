@@ -84,6 +84,7 @@ class AppContainer(private val context: Context) {
                 MIGRATION_21_22,
                 MIGRATION_22_23,
                 MIGRATION_23_24,
+                MIGRATION_24_25,
             )
             // v11 冻结了 0.3 schema；0.5 上架前的备份降级保险（用户拿着 v11
             // 备份在旧版设备恢复）走这条：数据丢但应用不崩。没数据丢失比
@@ -423,6 +424,38 @@ class AppContainer(private val context: Context) {
 
     companion object {
         const val ProviderHttpCacheBytes: Long = 50L * 1024L * 1024L
+
+        // v24 → v25: memory_copy_cache 的 PK 加 profileId。两个 Subsonic
+        // profile（不同服务器）共享 provider="subsonic"，raw album id 又在
+        // 同一命名空间，旧 PK (provider, entityType, entityId) 会让 B 号
+        // 吃到 A 号的 Gemini 文案。SQLite 改不了 PK，旧行也没法可靠补
+        // profileId —— 文案本来就是可再生的 AI 缓存，直接重建表最干净。
+        // 顺带给 detail_cache.accessedAt 建索引（LRU 淘汰按它排序扫描）。
+        val MIGRATION_24_25 = object : Migration(24, 25) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("DROP TABLE IF EXISTS `memory_copy_cache`")
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `memory_copy_cache` (
+                        `profileId` TEXT NOT NULL,
+                        `provider` TEXT NOT NULL,
+                        `entityType` TEXT NOT NULL,
+                        `entityId` TEXT NOT NULL,
+                        `copy` TEXT NOT NULL,
+                        `promptHash` TEXT NOT NULL,
+                        `generatedAt` INTEGER NOT NULL,
+                        PRIMARY KEY(`profileId`, `provider`, `entityType`, `entityId`)
+                    )
+                    """.trimIndent(),
+                )
+                db.execSQL(
+                    """
+                    CREATE INDEX IF NOT EXISTS `index_detail_cache_accessedAt`
+                    ON `detail_cache` (`accessedAt`)
+                    """.trimIndent(),
+                )
+            }
+        }
 
         // v23 → v24: per-profile customizable home layout. One row per profile
         // holds the ordered/toggled section list as JSON; absence = catalog

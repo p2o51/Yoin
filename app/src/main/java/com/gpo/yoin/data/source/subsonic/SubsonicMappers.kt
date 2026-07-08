@@ -119,7 +119,11 @@ internal fun SubsonicLyricsList.toLyrics(): Lyrics? {
     return if (structured.synced && structured.line.any { it.start != null }) {
         Lyrics.Synced(
             language = structured.lang,
-            lines = structured.line.map { LyricLine(startMs = it.start ?: 0L, text = it.value) },
+            // Servers may emit lines out of order; ascending startMs is an
+            // invariant the lyric-index scans (early-break) rely on.
+            lines = structured.line
+                .map { LyricLine(startMs = it.start ?: 0L, text = it.value) }
+                .sortedBy { it.startMs },
         )
     } else {
         Lyrics.Unsynced(

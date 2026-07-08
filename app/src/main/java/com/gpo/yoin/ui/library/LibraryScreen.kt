@@ -91,6 +91,7 @@ import com.gpo.yoin.ui.component.ExpressiveSegmentedTabs
 import com.gpo.yoin.ui.component.SongListItem
 import com.gpo.yoin.ui.component.YoinLoadingIndicator
 import com.gpo.yoin.ui.component.expressiveEntrance
+import com.gpo.yoin.ui.component.formatTotalDuration
 import com.gpo.yoin.ui.component.minimumTouchTarget
 import com.gpo.yoin.ui.component.rememberExpressiveEntranceProgress
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
@@ -1164,17 +1165,8 @@ private fun buildPlaylistMeta(playlist: Playlist): String {
     val parts = mutableListOf<String>()
     playlist.owner?.takeIf { it.isNotBlank() }?.let(parts::add)
     playlist.songCount?.let { parts.add("$it tracks") }
-    playlist.durationSec?.takeIf { it > 0 }?.let { parts.add(formatPlaylistDuration(it)) }
+    playlist.durationSec?.takeIf { it > 0 }?.let { parts.add(formatTotalDuration(it)) }
     return parts.joinToString(" · ").ifBlank { "Playlist" }
-}
-
-private fun formatPlaylistDuration(seconds: Int): String {
-    val hours = seconds / 3600
-    val minutes = (seconds % 3600) / 60
-    return when {
-        hours > 0 -> "${hours}h ${minutes}m"
-        else -> "${minutes}m"
-    }
 }
 
 @Composable

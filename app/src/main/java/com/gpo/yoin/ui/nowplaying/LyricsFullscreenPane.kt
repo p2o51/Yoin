@@ -23,6 +23,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -47,7 +48,7 @@ import com.gpo.yoin.ui.component.edgeFade
 @Composable
 fun LyricsFullscreenPane(
     lyrics: List<LyricLine>,
-    positionMs: Long,
+    positionMs: () -> Long,
     loading: Boolean,
     showTranslation: Boolean,
     autoScrollEnabled: Boolean,
@@ -74,8 +75,12 @@ fun LyricsFullscreenPane(
         return
     }
 
-    val currentIndex = remember(lyrics, positionMs) {
-        findCurrentLyricIndex(lyrics, positionMs)
+    // derivedStateOf absorbs the 4Hz position tick: the index recomputes per
+    // tick, but readers (the LaunchedEffect key, per-row isActive) only
+    // recompose when the resolved line actually advances.
+    val currentPositionMs by rememberUpdatedState(positionMs)
+    val currentIndex by remember(lyrics) {
+        derivedStateOf { findCurrentLyricIndex(lyrics, currentPositionMs()) }
     }
     val listState = rememberLazyListState()
     // First centring is INSTANT (no animated jump) and happens the moment the
@@ -92,7 +97,12 @@ fun LyricsFullscreenPane(
     // following. The compact LyricsDisplay keys on currentIndex for the same reason.
     // While the pane is still expanding the viewport grows 0 -> full, so we re-anchor
     // on every growth frame and the active line stays centred through and after it.
-    LaunchedEffect(listState, autoScrollEnabled, recenterRequestKey, currentIndex, showTranslation) {
+    // `lyrics` MUST be a key (same rule as LyricsDisplay): hasCentered is
+    // remember(lyrics)-scoped, so a track change that leaves the derived index
+    // numerically equal would otherwise keep the old coroutine alive with the
+    // OLD list and OLD hasCentered captured, skipping the per-song instant
+    // recentre and turning the next advance into a snap instead of a glide.
+    LaunchedEffect(lyrics, listState, autoScrollEnabled, recenterRequestKey, currentIndex, showTranslation) {
         if (!autoScrollEnabled || currentIndex < 0) return@LaunchedEffect
         val target = currentIndex.coerceIn(0, lyrics.lastIndex)
         var firstAnchor = true
@@ -226,13 +236,20 @@ private fun Modifier.tapWithoutConsumingDrag(onTap: () -> Unit): Modifier =
         }
     }
 
+/**
+ * Find the index of the lyric line active at [positionMs] — the LAST
+ * timestamped line whose startMs is at or before the playhead. Untimed
+ * lines (null startMs) are skipped; an all-untimed list yields -1. Runs
+ * once per 250ms tick, so break as soon as a timestamped line passes the
+ * playhead (provider lines arrive in ascending startMs order) instead of
+ * scanning the whole list every call.
+ */
 private fun findCurrentLyricIndex(lyrics: List<LyricLine>, positionMs: Long): Int {
-    if (lyrics.isEmpty()) return -1
-    if (lyrics.all { it.startMs == null }) return -1
     var result = -1
     for (i in lyrics.indices) {
         val start = lyrics[i].startMs ?: continue
-        if (positionMs >= start) result = i
+        if (start > positionMs) break
+        result = i
     }
     return result
 }

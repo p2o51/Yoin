@@ -137,7 +137,7 @@ fun SongListItem(
             if (durationSeconds != null) {
                 Spacer(modifier = Modifier.width(6.dp))
                 Text(
-                    text = formatDuration(durationSeconds),
+                    text = formatTrackDuration(durationSeconds),
                     style = MaterialTheme.typography.labelLarge.withTabularFigures(),
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -149,12 +149,6 @@ fun SongListItem(
             }
         }
     }
-}
-
-private fun formatDuration(seconds: Int): String {
-    val mins = seconds / 60
-    val secs = seconds % 60
-    return "%d:%02d".format(mins, secs)
 }
 
 @Preview(showBackground = true, backgroundColor = 0xFF1C1B1F)

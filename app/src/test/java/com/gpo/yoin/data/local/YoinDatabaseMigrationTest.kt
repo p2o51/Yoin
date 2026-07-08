@@ -75,6 +75,7 @@ class YoinDatabaseMigrationTest {
                 AppContainer.MIGRATION_21_22,
                 AppContainer.MIGRATION_22_23,
                 AppContainer.MIGRATION_23_24,
+                AppContainer.MIGRATION_24_25,
             )
             .allowMainThreadQueries()
             .build()
@@ -168,6 +169,7 @@ class YoinDatabaseMigrationTest {
                 AppContainer.MIGRATION_21_22,
                 AppContainer.MIGRATION_22_23,
                 AppContainer.MIGRATION_23_24,
+                AppContainer.MIGRATION_24_25,
             )
             .allowMainThreadQueries()
             .build()
@@ -244,6 +246,7 @@ class YoinDatabaseMigrationTest {
                 AppContainer.MIGRATION_21_22,
                 AppContainer.MIGRATION_22_23,
                 AppContainer.MIGRATION_23_24,
+                AppContainer.MIGRATION_24_25,
             )
             .allowMainThreadQueries()
             .build()
@@ -303,6 +306,7 @@ class YoinDatabaseMigrationTest {
                 AppContainer.MIGRATION_21_22,
                 AppContainer.MIGRATION_22_23,
                 AppContainer.MIGRATION_23_24,
+                AppContainer.MIGRATION_24_25,
             )
             .allowMainThreadQueries()
             .build()
@@ -388,6 +392,7 @@ class YoinDatabaseMigrationTest {
                 AppContainer.MIGRATION_21_22,
                 AppContainer.MIGRATION_22_23,
                 AppContainer.MIGRATION_23_24,
+                AppContainer.MIGRATION_24_25,
             )
             .allowMainThreadQueries()
             .build()
@@ -479,6 +484,7 @@ class YoinDatabaseMigrationTest {
                 AppContainer.MIGRATION_21_22,
                 AppContainer.MIGRATION_22_23,
                 AppContainer.MIGRATION_23_24,
+                AppContainer.MIGRATION_24_25,
             )
             .allowMainThreadQueries()
             .build()
@@ -547,6 +553,7 @@ class YoinDatabaseMigrationTest {
                 AppContainer.MIGRATION_21_22,
                 AppContainer.MIGRATION_22_23,
                 AppContainer.MIGRATION_23_24,
+                AppContainer.MIGRATION_24_25,
             )
             .allowMainThreadQueries()
             .build()
@@ -610,6 +617,7 @@ class YoinDatabaseMigrationTest {
                 AppContainer.MIGRATION_21_22,
                 AppContainer.MIGRATION_22_23,
                 AppContainer.MIGRATION_23_24,
+                AppContainer.MIGRATION_24_25,
             )
             .allowMainThreadQueries()
             .build()
@@ -673,6 +681,7 @@ class YoinDatabaseMigrationTest {
                 AppContainer.MIGRATION_21_22,
                 AppContainer.MIGRATION_22_23,
                 AppContainer.MIGRATION_23_24,
+                AppContainer.MIGRATION_24_25,
             )
             .allowMainThreadQueries()
             .build()
@@ -761,6 +770,7 @@ class YoinDatabaseMigrationTest {
                 AppContainer.MIGRATION_21_22,
                 AppContainer.MIGRATION_22_23,
                 AppContainer.MIGRATION_23_24,
+                AppContainer.MIGRATION_24_25,
             )
             .allowMainThreadQueries()
             .build()
@@ -868,6 +878,7 @@ class YoinDatabaseMigrationTest {
                 AppContainer.MIGRATION_21_22,
                 AppContainer.MIGRATION_22_23,
                 AppContainer.MIGRATION_23_24,
+                AppContainer.MIGRATION_24_25,
             )
             .allowMainThreadQueries()
             .build()
@@ -930,6 +941,7 @@ class YoinDatabaseMigrationTest {
                 AppContainer.MIGRATION_21_22,
                 AppContainer.MIGRATION_22_23,
                 AppContainer.MIGRATION_23_24,
+                AppContainer.MIGRATION_24_25,
             )
             .allowMainThreadQueries()
             .build()
@@ -953,6 +965,109 @@ class YoinDatabaseMigrationTest {
             model = "gemini-3.1-flash-lite",
         )
         assertEquals("""["第一句"]""", cached?.translationsJson)
+
+        migrated.close()
+    }
+
+    @Test
+    fun should_scope_memory_copy_cache_by_profile_when_migrating_24_to_25() = runTest {
+        val helper = FrameworkSQLiteOpenHelperFactory().create(
+            SupportSQLiteOpenHelper.Configuration.builder(context)
+                .name(dbName)
+                .callback(
+                    object : SupportSQLiteOpenHelper.Callback(24) {
+                        override fun onCreate(db: SupportSQLiteDatabase) {
+                            createVersion24Schema(db)
+                            // 旧 PK 没有 profileId —— 这行没法可靠归属到某个
+                            // profile，v25 会整表重建把它丢掉（文案可再生）。
+                            db.execSQL(
+                                """
+                                INSERT INTO `memory_copy_cache`
+                                    (`provider`, `entityType`, `entityId`, `copy`, `promptHash`, `generatedAt`)
+                                VALUES ('subsonic', 'album', 'album-1', 'legacy copy', 'hash-1', 1000)
+                                """.trimIndent(),
+                            )
+                            db.execSQL(
+                                """
+                                INSERT INTO `detail_cache`
+                                    (`profileId`, `kind`, `entityId`, `json`, `cachedAt`, `accessedAt`)
+                                VALUES ('sub-profile-a', 'album', 'album-1', '{}', 1000, 1000)
+                                """.trimIndent(),
+                            )
+                        }
+
+                        override fun onUpgrade(
+                            db: SupportSQLiteDatabase,
+                            oldVersion: Int,
+                            newVersion: Int,
+                        ) = Unit
+                    },
+                )
+                .build(),
+        )
+        helper.writableDatabase.close()
+        helper.close()
+
+        val migrated = Room.databaseBuilder(context, YoinDatabase::class.java, dbName)
+            .addMigrations(
+                AppContainer.MIGRATION_24_25,
+            )
+            .allowMainThreadQueries()
+            .build()
+
+        val sqlDb = migrated.openHelper.writableDatabase
+        // 重建表 = 丢掉无法归属 profile 的旧文案行。
+        sqlDb.query("SELECT COUNT(*) FROM `memory_copy_cache`").use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            assertEquals(0, cursor.getInt(0))
+        }
+        // detail_cache 行原样保留，新的 accessedAt 索引已建好。
+        sqlDb.query("SELECT COUNT(*) FROM `detail_cache`").use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            assertEquals(1, cursor.getInt(0))
+        }
+        sqlDb.query(
+            "SELECT name FROM sqlite_master WHERE type='index' AND name='index_detail_cache_accessedAt'",
+        ).use { cursor ->
+            assertEquals(1, cursor.count)
+        }
+
+        // 新 PK 按 profile 隔离：同一 (provider, entityType, entityId) 在
+        // 两个 profile 下各存一份，互不覆盖。
+        migrated.memoryCopyCacheDao().upsert(
+            MemoryCopyCache(
+                profileId = "sub-profile-a",
+                provider = MediaId.PROVIDER_SUBSONIC,
+                entityType = MemoryCopyCache.ENTITY_ALBUM,
+                entityId = "album-1",
+                copy = "copy for A",
+                promptHash = "hash-a",
+                generatedAt = 2000L,
+            ),
+        )
+        migrated.memoryCopyCacheDao().upsert(
+            MemoryCopyCache(
+                profileId = "sub-profile-b",
+                provider = MediaId.PROVIDER_SUBSONIC,
+                entityType = MemoryCopyCache.ENTITY_ALBUM,
+                entityId = "album-1",
+                copy = "copy for B",
+                promptHash = "hash-b",
+                generatedAt = 2001L,
+            ),
+        )
+        assertEquals(
+            "copy for A",
+            migrated.memoryCopyCacheDao()
+                .get("sub-profile-a", MediaId.PROVIDER_SUBSONIC, MemoryCopyCache.ENTITY_ALBUM, "album-1")
+                ?.copy,
+        )
+        assertEquals(
+            "copy for B",
+            migrated.memoryCopyCacheDao()
+                .get("sub-profile-b", MediaId.PROVIDER_SUBSONIC, MemoryCopyCache.ENTITY_ALBUM, "album-1")
+                ?.copy,
+        )
 
         migrated.close()
     }
@@ -993,6 +1108,16 @@ class YoinDatabaseMigrationTest {
         createVersion16Schema(db)
         AppContainer.MIGRATION_16_17.migrate(db)
         AppContainer.MIGRATION_17_18.migrate(db)
+    }
+
+    private fun createVersion24Schema(db: SupportSQLiteDatabase) {
+        createVersion18Schema(db)
+        AppContainer.MIGRATION_18_19.migrate(db)
+        AppContainer.MIGRATION_19_20.migrate(db)
+        AppContainer.MIGRATION_20_21.migrate(db)
+        AppContainer.MIGRATION_21_22.migrate(db)
+        AppContainer.MIGRATION_22_23.migrate(db)
+        AppContainer.MIGRATION_23_24.migrate(db)
     }
 
     private fun createVersion10Schema(db: SupportSQLiteDatabase) {

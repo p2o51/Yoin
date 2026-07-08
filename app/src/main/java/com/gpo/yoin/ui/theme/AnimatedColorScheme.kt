@@ -1,6 +1,6 @@
 package com.gpo.yoin.ui.theme
 
-import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Animatable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -15,19 +15,40 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+
+/**
+ * Number of discrete steps a color wash is quantized into. Each step emits exactly one
+ * new [ColorScheme] instance; animation frames between steps reuse the previous one.
+ */
+private const val COLOR_WASH_STEPS = 12
 
 /**
  * Smoothly transitions **every** token in [targetColorScheme] using the theme's
  * default effects motion bucket.
  *
  * When the target changes — e.g. new album cover → new palette — all colors animate
- * in concert, producing a seamless global wash across the entire app.
+ * in concert (one shared spring), producing a seamless global wash across the entire app.
+ *
+ * PERFORMANCE CONSTRAINT — every distinct [ColorScheme] instance returned here
+ * recomposes the entire app: it feeds both [MaterialTheme]'s internal static
+ * CompositionLocal and [LocalYoinColors], whose providers compare by identity.
+ * Emit as few instances as possible: the wash is driven by a single progress
+ * animation quantized into [COLOR_WASH_STEPS] steps (one new instance per step),
+ * frames between steps return the same instance, and at rest the exact
+ * [targetColorScheme] instance is returned so steady state does zero work.
+ * Do not regress this to per-frame instance creation (e.g. per-token
+ * animateColorAsState + rebuilding the scheme in the composable body).
  */
 @Composable
 fun animateColorScheme(
@@ -35,246 +56,209 @@ fun animateColorScheme(
     darkTheme: Boolean,
     motionScheme: MotionScheme,
 ): ColorScheme {
-    val spec = YoinMotion.defaultEffectsSpec<Color>(
+    // Same motion bucket the per-token animation used; the spring parameters are
+    // identical regardless of the animated type, so driving a single 0→1 progress
+    // and lerping every token by it reproduces the exact same motion feel.
+    val spec = YoinMotion.defaultEffectsSpec<Float>(
         role = YoinMotionRole.Expressive,
         expressiveScheme = motionScheme,
     )
 
-    // ── Primary ──────────────────────────────────────────────────────────
-    val primary by animateColorAsState(targetColorScheme.primary, spec, label = "primary")
-    val onPrimary by animateColorAsState(targetColorScheme.onPrimary, spec, label = "onPrimary")
-    val primaryContainer by animateColorAsState(
-        targetColorScheme.primaryContainer,
-        spec,
-        label = "primaryContainer",
-    )
-    val onPrimaryContainer by animateColorAsState(
-        targetColorScheme.onPrimaryContainer,
-        spec,
-        label = "onPrimaryContainer",
-    )
-    val inversePrimary by animateColorAsState(
-        targetColorScheme.inversePrimary,
-        spec,
-        label = "inversePrimary",
-    )
+    // The scheme currently on screen. Starts at the target — the first composition
+    // shows it immediately with no wash, matching animateColorAsState's behavior.
+    var displayed by remember { mutableStateOf(targetColorScheme) }
 
-    // ── Secondary ────────────────────────────────────────────────────────
-    val secondary by animateColorAsState(targetColorScheme.secondary, spec, label = "secondary")
-    val onSecondary by animateColorAsState(
-        targetColorScheme.onSecondary,
-        spec,
-        label = "onSecondary",
-    )
-    val secondaryContainer by animateColorAsState(
-        targetColorScheme.secondaryContainer,
-        spec,
-        label = "secondaryContainer",
-    )
-    val onSecondaryContainer by animateColorAsState(
-        targetColorScheme.onSecondaryContainer,
-        spec,
-        label = "onSecondaryContainer",
-    )
+    // Dedup the wash DESTINATION by value, not instance: if the caller rebuilds a
+    // value-equal target mid-wash (each displayed step recomposes the theme), a
+    // fresh instance as the effect key would cancel and restart the spring every
+    // step — a feedback loop that never settles. Only a target that actually
+    // differs from the current destination may re-key the effect.
+    val washHolder = remember { WashTargetHolder(targetColorScheme) }
+    if (washHolder.value !== targetColorScheme &&
+        !sameAnimatedTokens(washHolder.value, targetColorScheme)
+    ) {
+        washHolder.value = targetColorScheme
+    }
+    val washTarget = washHolder.value
 
-    // ── Tertiary ─────────────────────────────────────────────────────────
-    val tertiary by animateColorAsState(targetColorScheme.tertiary, spec, label = "tertiary")
-    val onTertiary by animateColorAsState(
-        targetColorScheme.onTertiary,
-        spec,
-        label = "onTertiary",
-    )
-    val tertiaryContainer by animateColorAsState(
-        targetColorScheme.tertiaryContainer,
-        spec,
-        label = "tertiaryContainer",
-    )
-    val onTertiaryContainer by animateColorAsState(
-        targetColorScheme.onTertiaryContainer,
-        spec,
-        label = "onTertiaryContainer",
-    )
+    LaunchedEffect(washTarget, darkTheme) {
+        // Skip no-op washes and keep the currently displayed instance: adopting a
+        // value-equal replacement would needlessly invalidate the static locals.
+        if (displayed === washTarget ||
+            sameAnimatedTokens(displayed, washTarget)
+        ) {
+            return@LaunchedEffect
+        }
+        // A mid-flight retarget cancels this effect and restarts the wash from
+        // whatever (possibly mid-lerp) scheme is currently displayed.
+        val from = displayed
+        var lastStep = 0
+        Animatable(0f).animateTo(targetValue = 1f, animationSpec = spec) {
+            val step = (value * COLOR_WASH_STEPS).toInt().coerceIn(0, COLOR_WASH_STEPS)
+            if (step > lastStep) {
+                lastStep = step
+                displayed = if (step == COLOR_WASH_STEPS) {
+                    washTarget
+                } else {
+                    lerpColorScheme(
+                        from = from,
+                        to = washTarget,
+                        fraction = step / COLOR_WASH_STEPS.toFloat(),
+                        darkTheme = darkTheme,
+                    )
+                }
+            }
+        }
+        // The spring settles asymptotically; land exactly on the target instance so
+        // steady-state recompositions of the theme return an identical value.
+        displayed = washTarget
+    }
 
-    // ── Background & Surface ─────────────────────────────────────────────
-    val background by animateColorAsState(
-        targetColorScheme.background,
-        spec,
-        label = "background",
-    )
-    val onBackground by animateColorAsState(
-        targetColorScheme.onBackground,
-        spec,
-        label = "onBackground",
-    )
-    val surface by animateColorAsState(targetColorScheme.surface, spec, label = "surface")
-    val onSurface by animateColorAsState(targetColorScheme.onSurface, spec, label = "onSurface")
-    val surfaceVariant by animateColorAsState(
-        targetColorScheme.surfaceVariant,
-        spec,
-        label = "surfaceVariant",
-    )
-    val onSurfaceVariant by animateColorAsState(
-        targetColorScheme.onSurfaceVariant,
-        spec,
-        label = "onSurfaceVariant",
-    )
-    val surfaceTint by animateColorAsState(
-        targetColorScheme.surfaceTint,
-        spec,
-        label = "surfaceTint",
-    )
+    return displayed
+}
 
-    // ── Inverse ──────────────────────────────────────────────────────────
-    val inverseSurface by animateColorAsState(
-        targetColorScheme.inverseSurface,
-        spec,
-        label = "inverseSurface",
-    )
-    val inverseOnSurface by animateColorAsState(
-        targetColorScheme.inverseOnSurface,
-        spec,
-        label = "inverseOnSurface",
-    )
+/**
+ * Plain (non-snapshot) holder for the current wash destination. Mutated during
+ * composition — safe because the update is idempotent and deliberately does NOT
+ * trigger recomposition; it only feeds [LaunchedEffect]'s key comparison.
+ */
+private class WashTargetHolder(var value: ColorScheme)
 
-    // ── Error ────────────────────────────────────────────────────────────
-    val error by animateColorAsState(targetColorScheme.error, spec, label = "error")
-    val onError by animateColorAsState(targetColorScheme.onError, spec, label = "onError")
-    val errorContainer by animateColorAsState(
-        targetColorScheme.errorContainer,
-        spec,
-        label = "errorContainer",
-    )
-    val onErrorContainer by animateColorAsState(
-        targetColorScheme.onErrorContainer,
-        spec,
-        label = "onErrorContainer",
-    )
+/**
+ * True when the 36 wash-animated tokens of [a] and [b] are identical — used to skip
+ * no-op washes for value-equal target instances. The 12 Fixed-tone tokens are
+ * deliberately ignored (unused app-wide, never animated).
+ */
+private fun sameAnimatedTokens(a: ColorScheme, b: ColorScheme): Boolean =
+    a.primary == b.primary &&
+        a.onPrimary == b.onPrimary &&
+        a.primaryContainer == b.primaryContainer &&
+        a.onPrimaryContainer == b.onPrimaryContainer &&
+        a.inversePrimary == b.inversePrimary &&
+        a.secondary == b.secondary &&
+        a.onSecondary == b.onSecondary &&
+        a.secondaryContainer == b.secondaryContainer &&
+        a.onSecondaryContainer == b.onSecondaryContainer &&
+        a.tertiary == b.tertiary &&
+        a.onTertiary == b.onTertiary &&
+        a.tertiaryContainer == b.tertiaryContainer &&
+        a.onTertiaryContainer == b.onTertiaryContainer &&
+        a.background == b.background &&
+        a.onBackground == b.onBackground &&
+        a.surface == b.surface &&
+        a.onSurface == b.onSurface &&
+        a.surfaceVariant == b.surfaceVariant &&
+        a.onSurfaceVariant == b.onSurfaceVariant &&
+        a.surfaceTint == b.surfaceTint &&
+        a.inverseSurface == b.inverseSurface &&
+        a.inverseOnSurface == b.inverseOnSurface &&
+        a.error == b.error &&
+        a.onError == b.onError &&
+        a.errorContainer == b.errorContainer &&
+        a.onErrorContainer == b.onErrorContainer &&
+        a.outline == b.outline &&
+        a.outlineVariant == b.outlineVariant &&
+        a.scrim == b.scrim &&
+        a.surfaceBright == b.surfaceBright &&
+        a.surfaceDim == b.surfaceDim &&
+        a.surfaceContainer == b.surfaceContainer &&
+        a.surfaceContainerHigh == b.surfaceContainerHigh &&
+        a.surfaceContainerHighest == b.surfaceContainerHighest &&
+        a.surfaceContainerLow == b.surfaceContainerLow &&
+        a.surfaceContainerLowest == b.surfaceContainerLowest
 
-    // ── Outline ──────────────────────────────────────────────────────────
-    val outline by animateColorAsState(targetColorScheme.outline, spec, label = "outline")
-    val outlineVariant by animateColorAsState(
-        targetColorScheme.outlineVariant,
-        spec,
-        label = "outlineVariant",
-    )
-
-    // ── Scrim ────────────────────────────────────────────────────────────
-    val scrim by animateColorAsState(targetColorScheme.scrim, spec, label = "scrim")
-
-    // ── Surface variants ─────────────────────────────────────────────────
-    val surfaceBright by animateColorAsState(
-        targetColorScheme.surfaceBright,
-        spec,
-        label = "surfaceBright",
-    )
-    val surfaceDim by animateColorAsState(
-        targetColorScheme.surfaceDim,
-        spec,
-        label = "surfaceDim",
-    )
-    val surfaceContainer by animateColorAsState(
-        targetColorScheme.surfaceContainer,
-        spec,
-        label = "surfaceContainer",
-    )
-    val surfaceContainerHigh by animateColorAsState(
-        targetColorScheme.surfaceContainerHigh,
-        spec,
-        label = "surfaceContainerHigh",
-    )
-    val surfaceContainerHighest by animateColorAsState(
-        targetColorScheme.surfaceContainerHighest,
-        spec,
-        label = "surfaceContainerHighest",
-    )
-    val surfaceContainerLow by animateColorAsState(
-        targetColorScheme.surfaceContainerLow,
-        spec,
-        label = "surfaceContainerLow",
-    )
-    val surfaceContainerLowest by animateColorAsState(
-        targetColorScheme.surfaceContainerLowest,
-        spec,
-        label = "surfaceContainerLowest",
-    )
+/**
+ * Lerps the 36 tokens the wash animates and rebuilds the scheme via
+ * [darkColorScheme] / [lightColorScheme]. The 12 Fixed-tone tokens are intentionally
+ * left at the builders' baseline defaults — exactly what the previous per-token
+ * animation did (they are unused app-wide).
+ */
+private fun lerpColorScheme(
+    from: ColorScheme,
+    to: ColorScheme,
+    fraction: Float,
+    darkTheme: Boolean,
+): ColorScheme {
+    fun token(select: (ColorScheme) -> Color): Color =
+        lerp(select(from), select(to), fraction)
 
     return if (darkTheme) {
         darkColorScheme(
-            primary = primary,
-            onPrimary = onPrimary,
-            primaryContainer = primaryContainer,
-            onPrimaryContainer = onPrimaryContainer,
-            inversePrimary = inversePrimary,
-            secondary = secondary,
-            onSecondary = onSecondary,
-            secondaryContainer = secondaryContainer,
-            onSecondaryContainer = onSecondaryContainer,
-            tertiary = tertiary,
-            onTertiary = onTertiary,
-            tertiaryContainer = tertiaryContainer,
-            onTertiaryContainer = onTertiaryContainer,
-            background = background,
-            onBackground = onBackground,
-            surface = surface,
-            onSurface = onSurface,
-            surfaceVariant = surfaceVariant,
-            onSurfaceVariant = onSurfaceVariant,
-            surfaceTint = surfaceTint,
-            inverseSurface = inverseSurface,
-            inverseOnSurface = inverseOnSurface,
-            error = error,
-            onError = onError,
-            errorContainer = errorContainer,
-            onErrorContainer = onErrorContainer,
-            outline = outline,
-            outlineVariant = outlineVariant,
-            scrim = scrim,
-            surfaceBright = surfaceBright,
-            surfaceDim = surfaceDim,
-            surfaceContainer = surfaceContainer,
-            surfaceContainerHigh = surfaceContainerHigh,
-            surfaceContainerHighest = surfaceContainerHighest,
-            surfaceContainerLow = surfaceContainerLow,
-            surfaceContainerLowest = surfaceContainerLowest,
+            primary = token { it.primary },
+            onPrimary = token { it.onPrimary },
+            primaryContainer = token { it.primaryContainer },
+            onPrimaryContainer = token { it.onPrimaryContainer },
+            inversePrimary = token { it.inversePrimary },
+            secondary = token { it.secondary },
+            onSecondary = token { it.onSecondary },
+            secondaryContainer = token { it.secondaryContainer },
+            onSecondaryContainer = token { it.onSecondaryContainer },
+            tertiary = token { it.tertiary },
+            onTertiary = token { it.onTertiary },
+            tertiaryContainer = token { it.tertiaryContainer },
+            onTertiaryContainer = token { it.onTertiaryContainer },
+            background = token { it.background },
+            onBackground = token { it.onBackground },
+            surface = token { it.surface },
+            onSurface = token { it.onSurface },
+            surfaceVariant = token { it.surfaceVariant },
+            onSurfaceVariant = token { it.onSurfaceVariant },
+            surfaceTint = token { it.surfaceTint },
+            inverseSurface = token { it.inverseSurface },
+            inverseOnSurface = token { it.inverseOnSurface },
+            error = token { it.error },
+            onError = token { it.onError },
+            errorContainer = token { it.errorContainer },
+            onErrorContainer = token { it.onErrorContainer },
+            outline = token { it.outline },
+            outlineVariant = token { it.outlineVariant },
+            scrim = token { it.scrim },
+            surfaceBright = token { it.surfaceBright },
+            surfaceDim = token { it.surfaceDim },
+            surfaceContainer = token { it.surfaceContainer },
+            surfaceContainerHigh = token { it.surfaceContainerHigh },
+            surfaceContainerHighest = token { it.surfaceContainerHighest },
+            surfaceContainerLow = token { it.surfaceContainerLow },
+            surfaceContainerLowest = token { it.surfaceContainerLowest },
         )
     } else {
         lightColorScheme(
-            primary = primary,
-            onPrimary = onPrimary,
-            primaryContainer = primaryContainer,
-            onPrimaryContainer = onPrimaryContainer,
-            inversePrimary = inversePrimary,
-            secondary = secondary,
-            onSecondary = onSecondary,
-            secondaryContainer = secondaryContainer,
-            onSecondaryContainer = onSecondaryContainer,
-            tertiary = tertiary,
-            onTertiary = onTertiary,
-            tertiaryContainer = tertiaryContainer,
-            onTertiaryContainer = onTertiaryContainer,
-            background = background,
-            onBackground = onBackground,
-            surface = surface,
-            onSurface = onSurface,
-            surfaceVariant = surfaceVariant,
-            onSurfaceVariant = onSurfaceVariant,
-            surfaceTint = surfaceTint,
-            inverseSurface = inverseSurface,
-            inverseOnSurface = inverseOnSurface,
-            error = error,
-            onError = onError,
-            errorContainer = errorContainer,
-            onErrorContainer = onErrorContainer,
-            outline = outline,
-            outlineVariant = outlineVariant,
-            scrim = scrim,
-            surfaceBright = surfaceBright,
-            surfaceDim = surfaceDim,
-            surfaceContainer = surfaceContainer,
-            surfaceContainerHigh = surfaceContainerHigh,
-            surfaceContainerHighest = surfaceContainerHighest,
-            surfaceContainerLow = surfaceContainerLow,
-            surfaceContainerLowest = surfaceContainerLowest,
+            primary = token { it.primary },
+            onPrimary = token { it.onPrimary },
+            primaryContainer = token { it.primaryContainer },
+            onPrimaryContainer = token { it.onPrimaryContainer },
+            inversePrimary = token { it.inversePrimary },
+            secondary = token { it.secondary },
+            onSecondary = token { it.onSecondary },
+            secondaryContainer = token { it.secondaryContainer },
+            onSecondaryContainer = token { it.onSecondaryContainer },
+            tertiary = token { it.tertiary },
+            onTertiary = token { it.onTertiary },
+            tertiaryContainer = token { it.tertiaryContainer },
+            onTertiaryContainer = token { it.onTertiaryContainer },
+            background = token { it.background },
+            onBackground = token { it.onBackground },
+            surface = token { it.surface },
+            onSurface = token { it.onSurface },
+            surfaceVariant = token { it.surfaceVariant },
+            onSurfaceVariant = token { it.onSurfaceVariant },
+            surfaceTint = token { it.surfaceTint },
+            inverseSurface = token { it.inverseSurface },
+            inverseOnSurface = token { it.inverseOnSurface },
+            error = token { it.error },
+            onError = token { it.onError },
+            errorContainer = token { it.errorContainer },
+            onErrorContainer = token { it.onErrorContainer },
+            outline = token { it.outline },
+            outlineVariant = token { it.outlineVariant },
+            scrim = token { it.scrim },
+            surfaceBright = token { it.surfaceBright },
+            surfaceDim = token { it.surfaceDim },
+            surfaceContainer = token { it.surfaceContainer },
+            surfaceContainerHigh = token { it.surfaceContainerHigh },
+            surfaceContainerHighest = token { it.surfaceContainerHighest },
+            surfaceContainerLow = token { it.surfaceContainerLow },
+            surfaceContainerLowest = token { it.surfaceContainerLowest },
         )
     }
 }

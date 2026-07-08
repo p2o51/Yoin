@@ -60,8 +60,6 @@ import com.gpo.yoin.data.model.Track
 // VisualizerData intentionally removed: HomeScreen consumes a pre-smoothed
 // playbackSignal from AudioVisualizerManager instead.
 import com.gpo.yoin.ui.component.AlbumCard
-import com.gpo.yoin.ui.component.AudioVisualizer
-import com.gpo.yoin.ui.component.VisualizerStyle
 import com.gpo.yoin.ui.component.YoinLoadingIndicator
 import com.gpo.yoin.ui.experience.ReportMotionPressure
 import com.gpo.yoin.ui.experience.RevealState
