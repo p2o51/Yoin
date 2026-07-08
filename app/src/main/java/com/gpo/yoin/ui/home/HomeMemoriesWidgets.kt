@@ -50,11 +50,11 @@ private const val MemoryArtworkFraction = 0.72f
 private const val MemoriesGridColumns = 3
 
 /**
- * The home "Memories" shelf (Figma node 405:361). Reviewed / noted memories
- * lead as wide "1×2" cards (cover + rating + review copy); the rest follow as a
- * grid of compact "1×1" covers. Every card is a plain tap that pushes into the
- * Memories deck stopped on that album — no shared-element or predictive-back
- * choreography, just a unified open.
+ * The home "Memories" shelf (Figma node 405:361). A masonry over a 3-column
+ * grid: a wide "1×2" card (cover + rating + review copy) spans two columns and
+ * shares its row with a compact "1×1" cover; unpaired covers fill rows of three.
+ * Every card is a plain tap that pushes into the Memories deck stopped on that
+ * album — no shared-element or predictive-back choreography, just a unified open.
  */
 @Composable
 internal fun HomeMemoriesSection(
@@ -64,8 +64,7 @@ internal fun HomeMemoriesSection(
     modifier: Modifier = Modifier,
 ) {
     if (memories.isEmpty()) return
-    val expanded = memories.filter { it.expanded }
-    val compact = memories.filterNot { it.expanded }
+    val rows = remember(memories) { packMemoryRows(memories) }
 
     Column(
         modifier = modifier,
@@ -76,35 +75,70 @@ internal fun HomeMemoriesSection(
             style = MaterialTheme.typography.headlineMedium,
             color = MaterialTheme.colorScheme.onSurface,
         )
-        expanded.forEach { memory ->
-            MemoryWidget12(
-                memory = memory,
-                extractBackdropColors = extractBackdropColors,
-                onClick = { onOpenMemory(memory.sessionId) },
-                modifier = Modifier.fillMaxWidth(),
-            )
-        }
-        compact.chunked(MemoriesGridColumns).forEach { row ->
+        rows.forEach { row ->
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
+                // A 1×2 is taller than the 1×1 beside it; top-align so the cover
+                // block hangs from the same line and the review copy runs below.
+                verticalAlignment = Alignment.Top,
             ) {
+                var units = 0
                 row.forEach { memory ->
-                    MemoryCoverBlock(
-                        memory = memory,
-                        extractBackdropColors = extractBackdropColors,
-                        onClick = { onOpenMemory(memory.sessionId) },
-                        modifier = Modifier.weight(1f),
-                    )
+                    if (memory.expanded) {
+                        units += 2
+                        MemoryWidget12(
+                            memory = memory,
+                            extractBackdropColors = extractBackdropColors,
+                            onClick = { onOpenMemory(memory.sessionId) },
+                            modifier = Modifier.weight(2f),
+                        )
+                    } else {
+                        units += 1
+                        MemoryCoverBlock(
+                            memory = memory,
+                            extractBackdropColors = extractBackdropColors,
+                            onClick = { onOpenMemory(memory.sessionId) },
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
                 }
-                // Pad a short final row so the covers keep their column width
-                // instead of stretching across the leftover space.
-                repeat(MemoriesGridColumns - row.size) {
+                // Pad short rows so cards keep their column width instead of
+                // stretching across the leftover space.
+                repeat(MemoriesGridColumns - units) {
                     Spacer(modifier = Modifier.weight(1f))
                 }
             }
         }
     }
+}
+
+/**
+ * Pack the shelf into rows of [MemoriesGridColumns] units — a 1×2 is two units,
+ * a 1×1 is one. Each 1×2 is paired with the next 1×1 (alternating sides so the
+ * wide card doesn't always hug the same edge, mirroring the Figma masonry);
+ * leftover 1×1 covers fill full rows of three. Order otherwise follows memory
+ * rank, so the strongest memories still lead.
+ */
+private fun packMemoryRows(
+    memories: List<HomeMemoryWidget>,
+): List<List<HomeMemoryWidget>> {
+    val wide = memories.filter { it.expanded }.toMutableList()
+    val compact = memories.filterNot { it.expanded }.toMutableList()
+    val rows = mutableListOf<List<HomeMemoryWidget>>()
+    var pairIndex = 0
+    while (wide.isNotEmpty()) {
+        val big = wide.removeAt(0)
+        val small = if (compact.isNotEmpty()) compact.removeAt(0) else null
+        rows += when {
+            small == null -> listOf(big)
+            pairIndex % 2 == 0 -> listOf(big, small)
+            else -> listOf(small, big)
+        }
+        pairIndex++
+    }
+    compact.chunked(MemoriesGridColumns).forEach { chunk -> rows += chunk }
+    return rows
 }
 
 /**
@@ -134,7 +168,8 @@ private fun MemoryWidget12(
                 onClick()
             },
         horizontalArrangement = Arrangement.spacedBy(16.dp),
-        verticalAlignment = Alignment.CenterVertically,
+        // Hang the rating from the cover's top edge (Figma), not the row centre.
+        verticalAlignment = Alignment.Top,
     ) {
         MemoryCoverBlock(
             memory = memory,

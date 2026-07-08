@@ -78,7 +78,7 @@ class MemoriesScreenshotActivity : ComponentActivity() {
             coverArtUrl = swatchCover("coral", 0xFFD85A30.toInt()),
             ratingText = "8.4",
             ratingBasis = "Jun 26",
-            comment = "Six months on it still opens the same door — warmer every time.",
+            comment = "Still opens the same door, six months on.",
             expanded = true,
         ),
         HomeMemoryWidget(
