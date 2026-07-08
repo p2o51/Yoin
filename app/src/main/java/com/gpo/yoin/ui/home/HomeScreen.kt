@@ -279,6 +279,7 @@ fun HomeContent(
                                     jumpBackInItems = uiState.jumpBackInItems,
                                     memoryTeaser = uiState.memoryTeaser,
                                     recentlyAdded = uiState.recentlyAdded,
+                                    memories = uiState.memories,
                                     sections = sections,
                                     isPlaying = isPlaying,
                                     playbackSignal = playbackSignal,

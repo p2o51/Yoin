@@ -150,6 +150,7 @@ internal fun HomeEditorialContent(
     jumpBackInItems: List<HomeJumpBackInItem>,
     memoryTeaser: MemoryTeaser? = null,
     recentlyAdded: List<Track> = emptyList(),
+    memories: List<HomeMemoryWidget> = emptyList(),
     sections: List<HomeSectionState> = HomeLayout.Default.sections,
     isPlaying: Boolean,
     playbackSignal: Float,
@@ -351,6 +352,19 @@ internal fun HomeEditorialContent(
                         HomeEmptyCard(
                             title = "No recent activity yet",
                             supporting = "Once you listen or visit albums and artists, this feed will start filling in.",
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
+                }
+
+                // The memory widget shelf. Empty until something becomes a
+                // memory (a rating, review, or note), so skip it entirely then.
+                HomeSection.Memories -> if (memories.isNotEmpty()) {
+                    item(key = "section-memories") {
+                        HomeMemoriesSection(
+                            memories = memories,
+                            extractBackdropColors = shouldExtractBackdropColors,
+                            onOpenMemory = onOpenMemoryFocus,
                             modifier = Modifier.fillMaxWidth(),
                         )
                     }

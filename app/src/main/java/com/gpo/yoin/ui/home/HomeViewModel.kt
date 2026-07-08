@@ -36,7 +36,9 @@ import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.OffsetDateTime
+import java.time.ZoneId
 import java.time.ZoneOffset
+import java.util.Locale
 
 class HomeViewModel(
     private val repository: YoinRepository,
@@ -166,12 +168,14 @@ class HomeViewModel(
             }
 
             val recentlyAddedDeferred = async { loadRecentlyAdded() }
+            val memoriesDeferred = async { loadHomeMemories() }
 
             HomeUiState.Content(
                 activities = activitiesDeferred.await(),
                 jumpBackInItems = jumpBackInDeferred.await(),
                 memoryTeaser = memoryTeaserDeferred.await(),
                 recentlyAdded = recentlyAddedDeferred.await(),
+                memories = memoriesDeferred.await(),
             )
         }
 
@@ -213,6 +217,7 @@ class HomeViewModel(
         val memoryTeaserDeferred = async {
             repository.getTopAlbumMemoryCandidate()?.toMemoryTeaser()
         }
+        val memoriesDeferred = async { loadHomeMemories() }
 
         val activities = activitiesDeferred.await()
         val cacheSnapshot = cacheSnapshotDeferred.await()
@@ -226,13 +231,15 @@ class HomeViewModel(
         )
 
         val memoryTeaser = memoryTeaserDeferred.await()
-        if (activities.isEmpty() && jumpBackInItems.isEmpty() && memoryTeaser == null) {
+        val memories = memoriesDeferred.await()
+        if (activities.isEmpty() && jumpBackInItems.isEmpty() && memoryTeaser == null && memories.isEmpty()) {
             null
         } else {
             HomeUiState.Content(
                 activities = activities,
                 jumpBackInItems = jumpBackInItems,
                 memoryTeaser = memoryTeaser,
+                memories = memories,
             )
         }
     }
@@ -251,6 +258,7 @@ class HomeViewModel(
             repository.getTopAlbumMemoryCandidate()?.toMemoryTeaser()
         }
         val recentlyAddedDeferred = async { loadRecentlyAdded() }
+        val memoriesDeferred = async { loadHomeMemories() }
 
         val (activities, activitiesFromRemote) = activitiesDeferred.await()
         val shuffledAlbums = albumDeferred.await()
@@ -283,6 +291,7 @@ class HomeViewModel(
             ),
             memoryTeaser = memoryTeaserDeferred.await(),
             recentlyAdded = recentlyAddedDeferred.await(),
+            memories = memoriesDeferred.await(),
         )
     }
 
@@ -361,11 +370,92 @@ class HomeViewModel(
                         activities = if (keepEndpointFeed) currentContent.activities else localActivities,
                         activitiesFromRemote = keepEndpointFeed,
                         memoryTeaser = repository.getTopAlbumMemoryCandidate()?.toMemoryTeaser(),
+                        memories = loadHomeMemories(),
                     )
                     homeContentCache[homeScopeKey(repository.currentProviderId(), activeProfileId.value)] = nextContent
                     _uiState.value = nextContent
                 }
         }
+    }
+
+    /**
+     * Build the home "Memories" shelf from the ranked album-memory candidates.
+     * Provider-agnostic and cheap: the candidate pool is already cached
+     * (mem LRU + disk + single-flight), so this is a scan over in-memory data,
+     * not a network fan-out.
+     *
+     * Cards with a review or notes are eligible to render as the wide "1×2"
+     * variant, but only the first [HOME_MEMORIES_EXPANDED_CAP] actually expand
+     * — the design's "数量控制" so the shelf can't balloon. Review text is
+     * fetched only for those few expanded cards. Failures degrade to an empty
+     * shelf; cancellation is rethrown.
+     */
+    private suspend fun loadHomeMemories(): List<HomeMemoryWidget> {
+        val candidates = try {
+            repository.getAlbumMemoryCandidates(limit = HOME_MEMORIES_LIMIT)
+        } catch (cancellation: CancellationException) {
+            throw cancellation
+        } catch (_: Exception) {
+            return emptyList()
+        }
+        if (candidates.isEmpty()) return emptyList()
+
+        val expandableIds = candidates
+            .filter { candidate -> candidate.hasAlbumReview || candidate.noteCount > 0 }
+            .take(HOME_MEMORIES_EXPANDED_CAP)
+            .map { candidate -> candidate.sessionId }
+            .toSet()
+
+        return candidates.map { candidate ->
+            val eligible = candidate.sessionId in expandableIds
+            val comment = if (eligible && candidate.hasAlbumReview) {
+                loadAlbumReviewText(candidate)
+            } else {
+                null
+            }
+            candidate.toHomeMemoryWidget(expanded = eligible, comment = comment)
+        }
+    }
+
+    private suspend fun loadAlbumReviewText(candidate: AlbumMemoryCandidate): String? {
+        val rawAlbumId = candidate.albumId.substringAfterLast(':')
+        return try {
+            repository.observeAlbumRating(MediaId(candidate.provider, rawAlbumId))
+                .first()
+                ?.review
+                ?.takeIf { it.isNotBlank() }
+        } catch (cancellation: CancellationException) {
+            throw cancellation
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    private fun AlbumMemoryCandidate.toHomeMemoryWidget(
+        expanded: Boolean,
+        comment: String?,
+    ): HomeMemoryWidget {
+        val rating = albumRating ?: averageSongRating
+        // A reviewed memory dates itself off its last touch (like the Figma
+        // "record" card); an auto-averaged one shows what the score rests on.
+        val basis = when {
+            comment != null -> (lastPlayedAt ?: firstPlayedAt)?.let(::formatMemoryDate)
+            ratedTrackCount > 0 && totalTracks > 0 -> "Based on $ratedTrackCount/$totalTracks tracks"
+            else -> null
+        }
+        return HomeMemoryWidget(
+            sessionId = sessionId,
+            entityType = com.gpo.yoin.ui.memories.MemoryEntityType.ALBUM,
+            title = albumName,
+            subtitle = artistName?.takeIf { it.isNotBlank() }
+                ?.let { artist -> "Album · $artist" }
+                ?: "Album",
+            coverArtUrl = coverArtUrl,
+            ratingText = formatMemoryScore(rating),
+            ratingBasis = basis,
+            comment = comment,
+            expanded = expanded,
+        )
     }
 
     private fun AlbumMemoryCandidate.toMemoryTeaser(): MemoryTeaser {
@@ -397,6 +487,18 @@ class HomeViewModel(
             },
         )
     }
+
+    private fun formatMemoryScore(rating: Float?): String =
+        if (rating != null && rating > 0f) {
+            String.format(Locale.US, "%.1f", rating)
+        } else {
+            "N/A"
+        }
+
+    private fun formatMemoryDate(epochMillis: Long): String =
+        Instant.ofEpochMilli(epochMillis)
+            .atZone(ZoneId.systemDefault())
+            .format(MemoryDateFormatter)
 
     // Warm, relative recall phrase for a formed memory's last touch. Null when
     // the candidate has no usable timestamp (e.g. a review with no recorded play).
@@ -549,6 +651,14 @@ class HomeViewModel(
         // Rated-coverage at/above which an album reads as a "formed" memory in
         // the home teaser, matching the original Memory recommendation rule.
         private const val MEMORY_FORMED_COVERAGE = 0.6f
+
+        // "Memories" home shelf. LIMIT bounds the whole shelf; EXPANDED_CAP
+        // bounds how many reviewed/noted memories widen into the "1×2" card
+        // (and thus how many review-text lookups run) — the design's 数量控制.
+        private const val HOME_MEMORIES_LIMIT = 9
+        private const val HOME_MEMORIES_EXPANDED_CAP = 3
+        private val MemoryDateFormatter: java.time.format.DateTimeFormatter =
+            java.time.format.DateTimeFormatter.ofPattern("MMM d", Locale.US)
 
         // Coalesces activity-event bursts (track skips, detail visits) before
         // re-running the memory-teaser candidate scan.

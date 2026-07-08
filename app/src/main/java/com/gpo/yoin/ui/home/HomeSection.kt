@@ -34,6 +34,12 @@ enum class HomeSection(
         supportingText = "Your recent plays and visits",
         defaultEnabled = true,
     ),
+    Memories(
+        id = "memories",
+        title = "Memories",
+        supportingText = "Albums and songs you've rated, reviewed, or noted",
+        defaultEnabled = true,
+    ),
     RecentlyAdded(
         id = "recently_added",
         title = "Recently Added",
