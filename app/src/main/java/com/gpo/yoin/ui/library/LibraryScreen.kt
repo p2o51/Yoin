@@ -2,8 +2,10 @@ package com.gpo.yoin.ui.library
 
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -18,6 +20,7 @@ import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.itemsIndexed
@@ -68,9 +71,11 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import com.gpo.yoin.data.model.Album
 import com.gpo.yoin.data.model.Artist
@@ -91,7 +96,9 @@ import com.gpo.yoin.ui.component.ExpressiveSectionPanel
 import com.gpo.yoin.ui.component.ExpressiveSegmentedTabs
 import com.gpo.yoin.ui.component.SongListItem
 import com.gpo.yoin.ui.component.YoinLoadingIndicator
+import com.gpo.yoin.ui.component.elasticPress
 import com.gpo.yoin.ui.component.expressiveEntrance
+import com.gpo.yoin.ui.component.noRippleClickable
 import com.gpo.yoin.ui.component.formatTotalDuration
 import com.gpo.yoin.ui.component.minimumTouchTarget
 import com.gpo.yoin.ui.component.rememberExpressiveEntranceProgress
@@ -579,14 +586,18 @@ private fun ArtistsTabContent(
         EmptyState(message = "No artists found", modifier = modifier)
         return
     }
-    LazyColumn(
+    // 3-column portrait grid — one artist per row wasted most of the width.
+    LazyVerticalGrid(
+        columns = GridCells.Fixed(3),
         modifier = modifier.fillMaxSize(),
         contentPadding = PaddingValues(
-            start = 0.dp,
-            top = 8.dp,
-            end = 0.dp,
+            start = 16.dp,
+            top = 12.dp,
+            end = 16.dp,
             bottom = floatingBottomGroupContentPadding(),
         ),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         itemsIndexed(artists, key = { _, artist -> artist.id.toString() }) { index, artist ->
             val entranceProgress = rememberLibraryItemEntrance(
@@ -594,11 +605,79 @@ private fun ArtistsTabContent(
                 index = index,
                 delayStepMillis = 24L,
             )
-            ArtistListItem(
+            ArtistGridItem(
                 artist = artist,
                 coverArtUrl = libraryCoverArtUrl(artist.coverArt, coverArtUrlBuilder),
                 onClick = { onArtistClick(artist.id.toString()) },
-                modifier = Modifier.expressiveEntrance(entranceProgress),
+                modifier = Modifier.expressiveEntrance(
+                    progress = entranceProgress,
+                    initialOffsetY = 22.dp,
+                    initialScale = 0.92f,
+                ),
+            )
+        }
+    }
+}
+
+@Composable
+private fun ArtistGridItem(
+    artist: Artist,
+    coverArtUrl: String?,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    Column(
+        modifier = modifier.noRippleClickable(interactionSource = interactionSource, onClick = onClick),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth()
+                .aspectRatio(1f)
+                .elasticPress(interactionSource),
+            shape = CircleShape,
+            color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.84f),
+        ) {
+            if (coverArtUrl != null) {
+                AsyncImage(
+                    model = coverArtUrl,
+                    contentDescription = artist.name,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            } else {
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Person,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                        modifier = Modifier.size(28.dp),
+                    )
+                }
+            }
+        }
+        Spacer(modifier = Modifier.height(5.dp))
+        Text(
+            text = artist.name,
+            style = MaterialTheme.typography.titleSmall,
+            color = MaterialTheme.colorScheme.onSurface,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.fillMaxWidth(),
+        )
+        artist.albumCount?.let { count ->
+            Text(
+                text = "$count albums",
+                style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth(),
             )
         }
     }
@@ -1253,25 +1332,32 @@ private fun SearchResultsContent(
             item {
                 SectionHeader(title = "Albums")
             }
-            itemsIndexed(
-                items = searchResults.albums,
-                key = { _, album -> "search-album-${album.id}" },
-            ) { index, album ->
-                val entranceProgress = rememberLibraryItemEntrance(
-                    key = "search-album-${album.id}",
-                    index = index,
-                    delayStepMillis = 24L,
-                    enabled = false,
-                )
-                AlbumListItem(
-                    album = album,
-                    onClick = { onAlbumClick(album.id.toString()) },
-                    coverArtUrl =
-                        libraryCoverArtUrl(album.coverArt, coverArtUrlBuilder)
-                            ?: album.id.takeIf { it.provider == MediaId.PROVIDER_SUBSONIC }
-                                ?.rawId?.let { coverArtUrlBuilder?.invoke(it) },
-                    modifier = Modifier.expressiveEntrance(entranceProgress),
-                )
+            // 3-up grid rows — full-width rows wasted the width on covers.
+            items(
+                items = searchResults.albums.chunked(3),
+                key = { row -> row.joinToString("|") { "search-album-${it.id}" } },
+            ) { row ->
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    row.forEach { album ->
+                        AlbumGridItem(
+                            album = album,
+                            onClick = { onAlbumClick(album.id.toString()) },
+                            coverArtUrl =
+                                libraryCoverArtUrl(album.coverArt, coverArtUrlBuilder)
+                                    ?: album.id.takeIf { it.provider == MediaId.PROVIDER_SUBSONIC }
+                                        ?.rawId?.let { coverArtUrlBuilder?.invoke(it) },
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
+                    repeat(3 - row.size) {
+                        Spacer(modifier = Modifier.weight(1f))
+                    }
+                }
             }
         }
         if (searchResults.playlists.isNotEmpty()) {

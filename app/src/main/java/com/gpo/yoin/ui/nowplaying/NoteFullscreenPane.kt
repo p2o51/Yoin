@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.EditNote
@@ -23,7 +24,7 @@ import androidx.compose.ui.unit.dp
 import com.gpo.yoin.data.local.SongNote
 import com.gpo.yoin.ui.component.NoteCard
 import com.gpo.yoin.ui.component.NoteComposer
-import com.gpo.yoin.ui.component.edgeFade
+import com.gpo.yoin.ui.component.verticalEdgeFadeOnScroll
 
 /**
  * Fullscreen Note page — the primary editable surface after retiring
@@ -71,11 +72,13 @@ fun NoteFullscreenPane(
                 }
             }
         } else {
+            val notesListState = rememberLazyListState()
             LazyColumn(
+                state = notesListState,
                 modifier = Modifier
                     .fillMaxWidth()
                     .heightIn(max = 360.dp)
-                    .edgeFade(bottom = 32.dp),
+                    .verticalEdgeFadeOnScroll(notesListState, bottom = 32.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 items(items = notes, key = SongNote::id) { note ->

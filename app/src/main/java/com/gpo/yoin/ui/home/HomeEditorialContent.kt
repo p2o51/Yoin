@@ -3,12 +3,10 @@ package com.gpo.yoin.ui.home
 import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionScope
-import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -50,7 +48,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
@@ -61,14 +58,11 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
 import com.gpo.yoin.data.local.ActivityEntityType
@@ -78,8 +72,8 @@ import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.Track
 import com.gpo.yoin.ui.component.ExpressiveMediaArtwork
 import com.gpo.yoin.ui.component.ExpressiveSectionPanel
+import com.gpo.yoin.ui.component.MarqueeText
 import com.gpo.yoin.ui.component.horizontalEdgeFadeOnScroll
-import com.gpo.yoin.ui.component.horizontalFadeMask
 import com.gpo.yoin.ui.component.ignoreParentHorizontalPadding
 import com.gpo.yoin.ui.component.noRippleClickable
 import com.gpo.yoin.ui.component.rememberExpressiveBackdropColors
@@ -568,7 +562,7 @@ private fun ActivityHeroCard(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-                MarqueeTitle(
+                MarqueeText(
                     text = entry.title,
                     style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.SemiBold),
                     color = colors.content,
@@ -703,7 +697,7 @@ private fun ActivityWideCard(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-                MarqueeTitle(
+                MarqueeText(
                     text = entry.title,
                     style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
                     color = colors.content,
@@ -877,63 +871,6 @@ private fun RecentlyAddedTile(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
-            )
-        }
-    }
-}
-
-@Composable
-private fun MarqueeTitle(
-    text: String,
-    style: androidx.compose.ui.text.TextStyle,
-    color: Color,
-    modifier: Modifier = Modifier,
-) {
-    BoxWithConstraints(modifier = modifier) {
-        val textMeasurer = rememberTextMeasurer()
-        val density = LocalDensity.current
-        val availableWidthPx = with(density) { maxWidth.roundToPx() }
-        val shouldMarquee = remember(text, style, availableWidthPx) {
-            if (availableWidthPx <= 0) {
-                false
-            } else {
-                textMeasurer.measure(
-                    text = AnnotatedString(text),
-                    style = style,
-                    maxLines = 1,
-                    softWrap = false,
-                    overflow = TextOverflow.Clip,
-                    constraints = Constraints(maxWidth = Constraints.Infinity),
-                ).size.width > availableWidthPx
-            }
-        }
-
-        Box(
-            modifier = if (shouldMarquee) {
-                Modifier
-                    .fillMaxWidth()
-                    .clipToBounds()
-                    .horizontalFadeMask(edgeWidth = 18.dp)
-            } else {
-                Modifier.fillMaxWidth()
-            },
-        ) {
-            Text(
-                text = text,
-                style = style,
-                color = color,
-                maxLines = 1,
-                softWrap = false,
-                overflow = TextOverflow.Clip,
-                modifier = if (shouldMarquee) {
-                    Modifier.basicMarquee(
-                        iterations = Int.MAX_VALUE,
-                        repeatDelayMillis = 1800,
-                        initialDelayMillis = 1200,
-                    )
-                } else {
-                    Modifier
-                },
             )
         }
     }

@@ -38,7 +38,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.gpo.yoin.ui.component.YoinLoadingIndicator
-import com.gpo.yoin.ui.component.edgeFade
+import com.gpo.yoin.ui.component.verticalEdgeFadeOnScroll
 
 /**
  * Fullscreen Lyrics viewer. Unlike the compact [com.gpo.yoin.ui.component.LyricsDisplay]
@@ -135,10 +135,13 @@ fun LyricsFullscreenPane(
         }
     }
 
+    // Scroll-aware: the fades release at the list's ends, so the first and
+    // last lyric lines read crisp instead of sitting permanently half-faded
+    // above the tab group / Ask Gemini bar.
     Box(
         modifier = modifier
             .fillMaxSize()
-            .edgeFade(top = 64.dp, bottom = 64.dp),
+            .verticalEdgeFadeOnScroll(listState, top = 64.dp, bottom = 64.dp),
     ) {
         LazyColumn(
             state = listState,

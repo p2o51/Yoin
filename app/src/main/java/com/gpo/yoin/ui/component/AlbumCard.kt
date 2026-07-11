@@ -97,12 +97,13 @@ fun AlbumCard(
                 ExpressiveMetaPill(text = metaLabel)
                 Spacer(modifier = Modifier.height(3.dp))
             }
-            Text(
+            // One line only — overflow scrolls (marquee) instead of wrapping,
+            // so long titles never make one card taller than its row.
+            MarqueeText(
                 text = title,
                 style = MaterialTheme.typography.titleSmall,
                 color = MaterialTheme.colorScheme.onSurface,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.fillMaxWidth(),
             )
             if (!subtitle.isNullOrBlank()) {
                 Text(

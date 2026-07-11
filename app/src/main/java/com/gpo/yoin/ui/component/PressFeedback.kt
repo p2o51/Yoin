@@ -74,16 +74,18 @@ internal fun Modifier.horizontalFadeMask(edgeWidth: Dp = 20.dp): Modifier = comp
             val safeEdge = edgeWidthPx.coerceAtMost(size.width / 2f)
             if (safeEdge <= 0f || size.width <= 0f) return@drawWithContent
 
-            val leftStop = safeEdge / size.width
-            val rightStop = 1f - leftStop
+            // Smoothstep-eased ramps: a linear fade has a visible onset
+            // line that reads as a milky band over light backgrounds.
+            val eased = listOf(0f, 0.104f, 0.352f, 0.648f, 0.896f, 1f)
+            val leftStops = eased.mapIndexed { index, alpha ->
+                (safeEdge / size.width) * (index / 5f) to Color.Black.copy(alpha = alpha)
+            }
+            val rightStops = eased.mapIndexed { index, alpha ->
+                1f - (safeEdge / size.width) * (index / 5f) to Color.Black.copy(alpha = alpha)
+            }.reversed()
             drawRect(
                 brush = Brush.horizontalGradient(
-                    colorStops = arrayOf(
-                        0f to Color.Transparent,
-                        leftStop to Color.Black,
-                        rightStop to Color.Black,
-                        1f to Color.Transparent,
-                    ),
+                    colorStops = (leftStops + rightStops).toTypedArray(),
                 ),
                 blendMode = BlendMode.DstIn,
             )
@@ -141,12 +143,11 @@ internal fun Modifier.horizontalEdgeFadeOnScroll(
             if (startFade > 0f) {
                 drawRect(
                     brush = Brush.horizontalGradient(
-                        // Alpha-lerp instead of resizing keeps the gradient
-                        // geometry stable while the fade animates in/out.
-                        colors = listOf(
-                            Color.Black.copy(alpha = 1f - startFade),
-                            Color.Black,
-                        ),
+                        // Smoothstep-eased, alpha-lerped by the animated fade —
+                        // no onset line, stable geometry while animating.
+                        colors = listOf(0f, 0.104f, 0.352f, 0.648f, 0.896f, 1f).map { t ->
+                            Color.Black.copy(alpha = (1f - startFade) + startFade * t)
+                        },
                         startX = 0f,
                         endX = safeEdge,
                     ),
@@ -157,10 +158,9 @@ internal fun Modifier.horizontalEdgeFadeOnScroll(
             if (endFade > 0f) {
                 drawRect(
                     brush = Brush.horizontalGradient(
-                        colors = listOf(
-                            Color.Black,
-                            Color.Black.copy(alpha = 1f - endFade),
-                        ),
+                        colors = listOf(0f, 0.104f, 0.352f, 0.648f, 0.896f, 1f).map { t ->
+                            Color.Black.copy(alpha = (1f - endFade) + endFade * t)
+                        }.reversed(),
                         startX = size.width - safeEdge,
                         endX = size.width,
                     ),
