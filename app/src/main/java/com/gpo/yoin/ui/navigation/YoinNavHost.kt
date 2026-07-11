@@ -1043,7 +1043,11 @@ private fun MemoryEntry.toPlaybackActivityContext(): ActivityContext {
         MemoryEntityType.PLAYLIST -> ActivityContext.Playlist(
             playlistId = entityId,
             playlistName = title,
-            coverArtId = coverArtId,
+            // Prefer the playlist's own art. The memory's cover is a resolved
+            // URL — a valid storage key on Spotify only; Subsonic resolved
+            // URLs embed a rotating token, so those keep the track fallback.
+            coverArtId = coverArtUrl.takeIf { entityProvider == MediaId.PROVIDER_SPOTIFY }
+                ?: coverArtId,
         )
 
         MemoryEntityType.SONG -> ActivityContext.None

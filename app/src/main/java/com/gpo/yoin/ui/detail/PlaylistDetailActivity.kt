@@ -66,7 +66,9 @@ class PlaylistDetailActivity : ComponentActivity() {
                 }
 
                 // Shared play path: optional shuffle, with a stable playlist
-                // ActivityContext (cover derived from the un-shuffled order).
+                // ActivityContext. The cover is the playlist's OWN art —
+                // a track cover only when the playlist has none — so the Home
+                // activity card wears the playlist's face, not the first song's.
                 fun playFrom(startIndex: Int, shuffle: Boolean) {
                     val ordered = viewModel.getPlaylistSongs()
                     if (ordered.isEmpty()) return
@@ -76,7 +78,8 @@ class PlaylistDetailActivity : ComponentActivity() {
                             playlistId = playlistId,
                             playlistName = content.playlistName,
                             owner = content.owner.takeIf { it.isNotBlank() },
-                            coverArtId = ordered.firstNotNullOfOrNull(::trackCoverArtId),
+                            coverArtId = viewModel.getPlaylistCoverArtKey()
+                                ?: ordered.firstNotNullOfOrNull(::trackCoverArtId),
                         )
                     } ?: ActivityContext.None
                     app.container.profileManager.activeSource.value?.let { source ->

@@ -98,7 +98,10 @@ private data class HomeMomentEntry(
     val entityType: String,
     val title: String,
     val subtitle: String,
-    val footnote: String,
+    // Split so the small bento card can stack them ("Playlist" / "1d ago",
+    // the Figma layout); hero/wide join them with a dot.
+    val typeLabel: String,
+    val timeAgo: String,
     val coverArtUrl: String?,
     val target: HomeEntryTarget,
 )
@@ -499,6 +502,9 @@ private fun rememberActivityCardColors(
     )
 }
 
+// Background-less by design decision: the hero and wide cards float straight
+// on the page (the shape+cover carries the colour), only the small square and
+// the strip keep a tinted container.
 @Composable
 private fun ActivityHeroCard(
     entry: HomeMomentEntry,
@@ -508,63 +514,53 @@ private fun ActivityHeroCard(
     modifier: Modifier = Modifier,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
-    val colors = rememberActivityCardColors(entry.coverArtUrl, extractBackdropColors)
-    Surface(
-        modifier = modifier,
-        shape = YoinShapeTokens.Large,
-        color = colors.container,
-        tonalElevation = 0.dp,
-        shadowElevation = 0.dp,
+    Row(
+        modifier = modifier
+            .noRippleClickable(interactionSource = interactionSource, onClick = onClick)
+            .padding(vertical = 4.dp),
+        horizontalArrangement = Arrangement.spacedBy(16.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .noRippleClickable(interactionSource = interactionSource, onClick = onClick)
-                .padding(horizontal = 14.dp, vertical = 14.dp),
-            horizontalArrangement = Arrangement.spacedBy(14.dp),
-            verticalAlignment = Alignment.CenterVertically,
+        WidgetBackdropArtwork(
+            model = entry.coverArtUrl,
+            kind = widgetShapeKindForActivity(entry.entityType),
+            contentDescription = entry.title,
+            extractBackdropColors = extractBackdropColors,
+            interactionSource = interactionSource,
+            modifier = Modifier.size(100.dp),
+        )
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(3.dp),
         ) {
-            WidgetBackdropArtwork(
-                model = entry.coverArtUrl,
-                kind = widgetShapeKindForActivity(entry.entityType),
-                contentDescription = entry.title,
-                extractBackdropColors = extractBackdropColors,
-                interactionSource = interactionSource,
-                modifier = Modifier.size(96.dp),
+            Text(
+                text = "${entry.typeLabel} · ${entry.timeAgo}",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
-            Column(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(3.dp),
-            ) {
+            MarqueeTitle(
+                text = entry.title,
+                style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.SemiBold),
+                color = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Text(
+                text = entry.subtitle,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            footnoteExtra?.let { extra ->
                 Text(
-                    text = entry.footnote,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = colors.contentMuted,
+                    text = extra,
+                    style = MaterialTheme.typography.labelSmall.withTabularFigures(),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-                MarqueeTitle(
-                    text = entry.title,
-                    style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.SemiBold),
-                    color = colors.content,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                Text(
-                    text = entry.subtitle,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = colors.contentMuted,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                footnoteExtra?.let { extra ->
-                    Text(
-                        text = extra,
-                        style = MaterialTheme.typography.labelSmall.withTabularFigures(),
-                        color = colors.contentMuted,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
             }
         }
     }
@@ -592,24 +588,40 @@ private fun ActivitySmallCard(
                 .padding(10.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
-            ExpressiveMediaArtwork(
-                model = entry.coverArtUrl,
-                contentDescription = entry.title,
-                modifier = Modifier.size(28.dp),
-                shape = YoinShapeTokens.Small,
-                fallbackIcon = Icons.Filled.LibraryMusic,
-                interactionSource = interactionSource,
-                tonalElevation = 1.dp,
-                shadowElevation = 0.dp,
-            )
+            // Figma: the tiny cover with the type + time stacked to its right,
+            // no separator dot — two short lines.
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                ExpressiveMediaArtwork(
+                    model = entry.coverArtUrl,
+                    contentDescription = entry.title,
+                    modifier = Modifier.size(28.dp),
+                    shape = YoinShapeTokens.Small,
+                    fallbackIcon = Icons.Filled.LibraryMusic,
+                    interactionSource = interactionSource,
+                    tonalElevation = 1.dp,
+                    shadowElevation = 0.dp,
+                )
+                Column {
+                    Text(
+                        text = entry.typeLabel,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = colors.contentMuted,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Text(
+                        text = entry.timeAgo,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = colors.contentMuted,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
             Spacer(modifier = Modifier.weight(1f))
-            Text(
-                text = entry.footnote,
-                style = MaterialTheme.typography.labelSmall,
-                color = colors.contentMuted,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
             Text(
                 text = entry.title,
                 style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
@@ -629,54 +641,45 @@ private fun ActivityWideCard(
     modifier: Modifier = Modifier,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
-    val colors = rememberActivityCardColors(entry.coverArtUrl, extractBackdropColors)
-    Surface(
-        modifier = modifier,
-        shape = YoinShapeTokens.Large,
-        color = colors.container,
-        tonalElevation = 0.dp,
-        shadowElevation = 0.dp,
+    Row(
+        modifier = modifier
+            .noRippleClickable(interactionSource = interactionSource, onClick = onClick)
+            .padding(vertical = 6.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Row(
-            modifier = Modifier
-                .noRippleClickable(interactionSource = interactionSource, onClick = onClick)
-                .padding(12.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-            verticalAlignment = Alignment.CenterVertically,
+        WidgetBackdropArtwork(
+            model = entry.coverArtUrl,
+            kind = widgetShapeKindForActivity(entry.entityType),
+            contentDescription = entry.title,
+            extractBackdropColors = extractBackdropColors,
+            interactionSource = interactionSource,
+            modifier = Modifier.size(84.dp),
+        )
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
-            WidgetBackdropArtwork(
-                model = entry.coverArtUrl,
-                kind = widgetShapeKindForActivity(entry.entityType),
-                contentDescription = entry.title,
-                extractBackdropColors = extractBackdropColors,
-                interactionSource = interactionSource,
-                modifier = Modifier.size(76.dp),
+            Text(
+                text = "${entry.typeLabel} · ${entry.timeAgo}",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
-            Column(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(2.dp),
-            ) {
-                Text(
-                    text = entry.footnote,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = colors.contentMuted,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                MarqueeTitle(
-                    text = entry.title,
-                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
-                    color = colors.content,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                Text(
-                    text = entry.subtitle,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = colors.contentMuted,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
+            MarqueeTitle(
+                text = entry.title,
+                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+                color = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Text(
+                text = entry.subtitle,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
         }
     }
 }
@@ -719,7 +722,7 @@ private fun ActivityStripCard(
                 modifier = Modifier.weight(1f),
             )
             Text(
-                text = entry.footnote,
+                text = "${entry.typeLabel} · ${entry.timeAgo}",
                 style = MaterialTheme.typography.labelSmall,
                 color = colors.contentMuted,
                 maxLines = 1,
@@ -962,7 +965,8 @@ private fun buildActivityEntries(
                 else -> "Recently active"
             }
         },
-        footnote = buildActivityFootnote(activity),
+        typeLabel = activityTypeLabel(activity.entityType),
+        timeAgo = formatTimeAgo(activity.timestamp),
         coverArtUrl = buildActivityCoverArtUrl(activity, buildCoverArtUrl),
         target = target,
     )
@@ -1022,14 +1026,11 @@ private fun resolveHomeCoverArtUrl(
     is CoverRef.SourceRelative -> buildCoverArtUrl(ref.coverArtId)
 }
 
-private fun buildActivityFootnote(activity: ActivityEvent): String {
-    val label = when (activity.entityType) {
-        ActivityEntityType.ALBUM.name -> "Album"
-        ActivityEntityType.ARTIST.name -> "Artist"
-        ActivityEntityType.PLAYLIST.name -> "Playlist"
-        else -> "Track"
-    }
-    return "$label · ${formatTimeAgo(activity.timestamp)}"
+private fun activityTypeLabel(entityType: String): String = when (entityType) {
+    ActivityEntityType.ALBUM.name -> "Album"
+    ActivityEntityType.ARTIST.name -> "Artist"
+    ActivityEntityType.PLAYLIST.name -> "Playlist"
+    else -> "Track"
 }
 
 private fun LazyListState.isAtTop(): Boolean =

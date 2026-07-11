@@ -48,6 +48,11 @@ class PlaylistDetailViewModel(
     // Spotify snapshot for concurrency on subsequent mutations. Refreshed on
     // every [loadPlaylist]; ignored by Subsonic (always null there).
     private var snapshotId: String? = null
+    // The playlist's OWN cover ref (Spotify mosaic/custom art, Subsonic
+    // playlist cover). Kept for the playback ActivityContext — recording the
+    // first track's art there is the bug where a played playlist shows up on
+    // Home wearing a song's cover.
+    private var playlistCoverArt: CoverRef? = null
 
     val notedSongIds: StateFlow<Set<String>> = playlistTrackIds
         .flatMapLatest(repository::observeTracksWithNotes)
@@ -59,6 +64,14 @@ class PlaylistDetailViewModel(
     }
 
     fun getPlaylistSongs(): List<Track> = playlistSongs
+
+    /**
+     * Storage key of the playlist's own cover art (URL for Spotify, raw id for
+     * Subsonic), for the playback [com.gpo.yoin.data.repository.ActivityContext].
+     * Null when the playlist has no art of its own — callers fall back to a
+     * track cover.
+     */
+    fun getPlaylistCoverArtKey(): String? = CoverRef.toStorageKey(playlistCoverArt)
 
     fun retry() {
         _uiState.value = PlaylistDetailUiState.Loading
@@ -128,6 +141,7 @@ class PlaylistDetailViewModel(
                 playlistSongs = playlist.tracks
                 playlistTrackIds.value = playlistSongs.map(Track::id)
                 snapshotId = playlist.snapshotId
+                playlistCoverArt = playlist.coverArt
                 val heroSong = playlist.tracks.firstOrNull()
                 val heroCoverRef = heroSong?.coverArt ?: heroSong?.albumId?.let { CoverRef.SourceRelative(it.rawId) }
                 _uiState.value = PlaylistDetailUiState.Content(
