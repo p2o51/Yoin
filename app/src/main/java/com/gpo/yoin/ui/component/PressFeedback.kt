@@ -18,8 +18,12 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.foundation.gestures.ScrollableState
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.layout.layout
 import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinMotionRole
 
@@ -83,5 +87,87 @@ internal fun Modifier.horizontalFadeMask(edgeWidth: Dp = 20.dp): Modifier = comp
                 ),
                 blendMode = BlendMode.DstIn,
             )
+        }
+}
+
+/**
+ * Let a horizontally scrolling child escape its parent's horizontal content
+ * padding and span the full width, so scrolled items run under the screen
+ * edges instead of being chopped at a mid-page padding line. Pair with the
+ * same value as the child's own `contentPadding` so resting items still align
+ * with the page margin.
+ */
+internal fun Modifier.ignoreParentHorizontalPadding(horizontal: Dp): Modifier = layout { measurable, constraints ->
+    val extraPx = (horizontal * 2).roundToPx()
+    val placeable = measurable.measure(
+        constraints.copy(maxWidth = constraints.maxWidth + extraPx),
+    )
+    layout(constraints.maxWidth, placeable.height) {
+        placeable.place(x = -(extraPx / 2), y = 0)
+    }
+}
+
+/**
+ * Scroll-aware edge fade for horizontal lists: each edge fades ONLY while
+ * more content lies beyond it, so nothing ever ends in a hard cut, and the
+ * resting ends of the list stay crisp (a static mask would dim the first and
+ * last items even when fully scrolled). Fades animate in/out with the scroll
+ * position.
+ */
+internal fun Modifier.horizontalEdgeFadeOnScroll(
+    state: ScrollableState,
+    edgeWidth: Dp = 24.dp,
+): Modifier = composed {
+    val density = LocalDensity.current
+    val edgeWidthPx = remember(edgeWidth, density) {
+        with(density) { edgeWidth.toPx() }
+    }
+    val startFade by animateFloatAsState(
+        targetValue = if (state.canScrollBackward) 1f else 0f,
+        animationSpec = YoinMotion.defaultEffectsSpec(),
+        label = "edgeFadeStart",
+    )
+    val endFade by animateFloatAsState(
+        targetValue = if (state.canScrollForward) 1f else 0f,
+        animationSpec = YoinMotion.defaultEffectsSpec(),
+        label = "edgeFadeEnd",
+    )
+
+    graphicsLayer(compositingStrategy = CompositingStrategy.Offscreen)
+        .drawWithContent {
+            drawContent()
+            val safeEdge = edgeWidthPx.coerceAtMost(size.width / 3f)
+            if (safeEdge <= 0f || size.width <= 0f) return@drawWithContent
+            if (startFade > 0f) {
+                drawRect(
+                    brush = Brush.horizontalGradient(
+                        // Alpha-lerp instead of resizing keeps the gradient
+                        // geometry stable while the fade animates in/out.
+                        colors = listOf(
+                            Color.Black.copy(alpha = 1f - startFade),
+                            Color.Black,
+                        ),
+                        startX = 0f,
+                        endX = safeEdge,
+                    ),
+                    size = Size(safeEdge, size.height),
+                    blendMode = BlendMode.DstIn,
+                )
+            }
+            if (endFade > 0f) {
+                drawRect(
+                    brush = Brush.horizontalGradient(
+                        colors = listOf(
+                            Color.Black,
+                            Color.Black.copy(alpha = 1f - endFade),
+                        ),
+                        startX = size.width - safeEdge,
+                        endX = size.width,
+                    ),
+                    topLeft = Offset(size.width - safeEdge, 0f),
+                    size = Size(safeEdge, size.height),
+                    blendMode = BlendMode.DstIn,
+                )
+            }
         }
 }

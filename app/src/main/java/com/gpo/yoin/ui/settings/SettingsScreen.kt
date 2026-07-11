@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -81,6 +82,8 @@ import com.gpo.yoin.data.profile.ProfileManager
 import com.gpo.yoin.data.profile.ProviderKind
 import com.gpo.yoin.data.source.spotify.SpotifyOAuthContract
 import com.gpo.yoin.ui.component.ExpressiveHeaderBlock
+import com.gpo.yoin.ui.component.horizontalEdgeFadeOnScroll
+import com.gpo.yoin.ui.component.ignoreParentHorizontalPadding
 import com.gpo.yoin.ui.component.ExpressivePageBackground
 import com.gpo.yoin.ui.component.ExpressiveSectionPanel
 import com.gpo.yoin.ui.component.ExpressiveTextField
@@ -412,10 +415,18 @@ private fun ProfileSwitcherSection(
                 )
             }
 
+            val profileRowState = rememberLazyListState()
             LazyRow(
-                contentPadding = PaddingValues(vertical = 4.dp),
+                state = profileRowState,
+                // Full-bleed past the page's 18dp padding — scrolled cards run
+                // under the screen edges with a soft fade instead of being
+                // chopped at the padding line.
+                contentPadding = PaddingValues(horizontal = 18.dp, vertical = 4.dp),
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .ignoreParentHorizontalPadding(18.dp)
+                    .horizontalEdgeFadeOnScroll(profileRowState),
             ) {
                 items(
                     items = profileCards,

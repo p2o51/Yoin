@@ -85,6 +85,7 @@ import com.gpo.yoin.data.model.Track
 import com.gpo.yoin.ui.component.ExpressiveBackdropArtwork
 import com.gpo.yoin.ui.component.ExpressiveBackdropVariant
 import com.gpo.yoin.ui.component.ExpressiveMetaPill
+import com.gpo.yoin.ui.component.ignoreParentHorizontalPadding
 import com.gpo.yoin.ui.component.ExpressivePageBackground
 import com.gpo.yoin.ui.component.ExpressiveSectionPanel
 import com.gpo.yoin.ui.component.ExpressiveSegmentedTabs
@@ -521,12 +522,19 @@ private fun LibraryFilterChips(
     // Render only tabs the active source supports (e.g. drop Playlists on a
     // provider without PLAYLISTS_READ). Callers pass
     // `LibraryUiState.Content.availableTabs`.
+    // Full-bleed: escape the header column's 16dp padding so the chip row
+    // scrolls under the screen edges (scroll-aware fade) instead of being
+    // chopped at the padding line; contentPadding keeps the resting chips on
+    // the page margin.
     ExpressiveSegmentedTabs(
         items = tabs,
         selectedItem = selectedTab,
         label = { it.name },
         onSelectedChange = onTabSelected,
-        modifier = modifier.fillMaxWidth(),
+        modifier = modifier
+            .fillMaxWidth()
+            .ignoreParentHorizontalPadding(16.dp),
+        contentPadding = PaddingValues(horizontal = 16.dp),
     )
 }
 

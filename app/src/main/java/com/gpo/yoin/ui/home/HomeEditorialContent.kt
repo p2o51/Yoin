@@ -78,7 +78,9 @@ import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.Track
 import com.gpo.yoin.ui.component.ExpressiveMediaArtwork
 import com.gpo.yoin.ui.component.ExpressiveSectionPanel
+import com.gpo.yoin.ui.component.horizontalEdgeFadeOnScroll
 import com.gpo.yoin.ui.component.horizontalFadeMask
+import com.gpo.yoin.ui.component.ignoreParentHorizontalPadding
 import com.gpo.yoin.ui.component.noRippleClickable
 import com.gpo.yoin.ui.component.rememberExpressiveBackdropColors
 import com.gpo.yoin.ui.experience.RevealState
@@ -794,12 +796,22 @@ private fun RecentlyAddedSection(
     animatedVisibilityScope: AnimatedVisibilityScope? = null,
     modifier: Modifier = Modifier,
 ) {
+    val listState = rememberLazyListState()
     Column(
         modifier = modifier,
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         HomeSectionTitle(text = "Recently Added")
+        // Full-bleed: the shelf escapes the feed's 16dp padding so scrolled
+        // tiles run under the screen edges (with a soft scroll-aware fade)
+        // instead of being chopped at a mid-page line; contentPadding keeps
+        // the resting tiles on the 16dp page margin.
         LazyRow(
+            state = listState,
+            modifier = Modifier
+                .ignoreParentHorizontalPadding(16.dp)
+                .horizontalEdgeFadeOnScroll(listState),
+            contentPadding = PaddingValues(horizontal = 16.dp),
             horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             items(
