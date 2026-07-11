@@ -62,6 +62,9 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextOverflow
@@ -724,10 +727,19 @@ private fun ActivityStripCard(
     modifier: Modifier = Modifier,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
+    // Text-only, per the design — no cover chip. The TITLE is bold (Figma),
+    // the ・artist tail stays regular so the pair reads as one line without
+    // flattening into a single weight.
     val stripTitle = remember(entry) {
-        listOf(entry.title, entry.subtitle)
-            .filter { it.isNotBlank() }
-            .joinToString(separator = "・")
+        buildAnnotatedString {
+            withStyle(SpanStyle(fontWeight = FontWeight.SemiBold)) {
+                append(entry.title)
+            }
+            if (entry.subtitle.isNotBlank()) {
+                append("・")
+                append(entry.subtitle)
+            }
+        }
     }
     val colors = rememberActivityCardColors(entry.coverArtUrl, extractBackdropColors)
     Surface(
@@ -741,20 +753,10 @@ private fun ActivityStripCard(
             modifier = Modifier
                 .fillMaxWidth()
                 .noRippleClickable(interactionSource = interactionSource, onClick = onClick)
-                .padding(horizontal = 14.dp, vertical = 10.dp),
+                .padding(horizontal = 16.dp, vertical = 12.dp),
             horizontalArrangement = Arrangement.spacedBy(10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            ExpressiveMediaArtwork(
-                model = entry.coverArtUrl,
-                contentDescription = entry.title,
-                modifier = Modifier.size(26.dp),
-                shape = YoinShapeTokens.Small,
-                fallbackIcon = Icons.Filled.LibraryMusic,
-                interactionSource = interactionSource,
-                tonalElevation = 1.dp,
-                shadowElevation = 0.dp,
-            )
             Text(
                 text = stripTitle,
                 style = MaterialTheme.typography.bodyMedium,
