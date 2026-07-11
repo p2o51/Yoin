@@ -67,7 +67,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withLink
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.tooling.preview.Preview
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.gpo.yoin.ui.component.ExpressiveMediaArtwork
 import com.gpo.yoin.ui.component.ExpressivePageBackground
@@ -102,8 +101,8 @@ fun PlaylistDetailScreen(
     animatedVisibilityScope: AnimatedVisibilityScope? = null,
     isPlaying: Boolean = false,
     playbackSignal: Float = 0f,
-    // Extra bottom clearance for the docked mini-player, if visible.
-    bottomOverlayInset: Dp = 0.dp,
+    // Slot docked bottom-end on the toolbar row (detail mini-player).
+    bottomEndAccessory: (@Composable () -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     val haptics = rememberYoinHaptics()
@@ -298,9 +297,23 @@ fun PlaylistDetailScreen(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .navigationBarsPadding()
-                    // Lifts above the detail mini-player when one is docked.
-                    .padding(bottom = 12.dp + bottomOverlayInset),
+                    .padding(bottom = 12.dp),
             )
+        }
+
+        // Now-playing dock, same row as the toolbar (identical inset chain,
+        // so the two are vertically centered on each other by construction).
+        bottomEndAccessory?.let { accessory ->
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .navigationBarsPadding()
+                    // 12dp baseline + 4dp: centers the 64dp dock on the
+                    // 72dp-tall floating toolbar beside it.
+                    .padding(end = 16.dp, bottom = 16.dp),
+            ) {
+                accessory()
+            }
         }
     }
 

@@ -4,20 +4,12 @@ import android.content.Context
 import android.content.Intent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.MusicNote
-import androidx.compose.material.icons.rounded.Pause
-import androidx.compose.material.icons.rounded.PlayArrow
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.State
 import androidx.compose.runtime.collectAsState
@@ -29,24 +21,21 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathMeasure
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.lerp
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.foundation.shape.RoundedCornerShape
 import com.gpo.yoin.AppContainer
 import com.gpo.yoin.MainActivity
 import com.gpo.yoin.ui.component.ExpressiveMediaArtwork
-import com.gpo.yoin.ui.component.MarqueeText
 import com.gpo.yoin.ui.component.noRippleClickable
 import com.gpo.yoin.ui.component.rememberExpressiveBackdropColors
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
 import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinMotionRole
-import com.gpo.yoin.ui.theme.YoinShapeTokens
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 
@@ -55,11 +44,11 @@ import kotlinx.coroutines.flow.map
  * overlay can't reach these standalone Activities, so browsing an album /
  * artist / playlist while music played used to mean flying blind.
  *
- * Layout (user-specified): a square cover, the same height as the capsule
- * beside it, wearing the track progress as a stroke that traces the cover's
- * rounded-square perimeter; then a single-line capsule (title · artist,
- * marquee) with the play/pause button docked at its trailing edge. One row,
- * no nesting — the earlier bar-in-bar, two-text-line take read as clutter.
+ * Shape (user-specified, round 3): ONLY the square cover, the track progress
+ * traced as a stroke around its rounded-square perimeter, docked to the
+ * RIGHT of the floating share/play toolbar on the same row — not a bar of
+ * its own below it. Tap = open the shell with Now Playing expanded; title
+ * and transport controls live there, one tap away.
  */
 data class DetailMiniPlayerState(
     val title: String,
@@ -71,9 +60,9 @@ data class DetailMiniPlayerState(
 /**
  * Narrow projection of the playback state for the mini player. Deliberately
  * NOT the raw [com.gpo.yoin.player.PlaybackState]: that carries per-tick
- * position fields, and collecting it directly would recompose the bar every
+ * position fields, and collecting it directly would recompose the dock every
  * playback tick (the project's NP-dedup invariant). distinctUntilChanged on
- * this tiny snapshot means the bar recomposes only on track / play changes.
+ * this tiny snapshot means it recomposes only on track / play changes.
  */
 @Composable
 fun rememberDetailMiniPlayerState(container: AppContainer): State<DetailMiniPlayerState?> =
@@ -133,12 +122,19 @@ fun launchShellFromDetail(
     )
 }
 
+// Same height as the M3 HorizontalFloatingToolbar it sits beside, so the
+// two read as peers on one row.
+private val DockSize = 64.dp
+private val RingStroke = 3.dp
+private val DockCorner = 18.dp
+private val ArtSize = 50.dp
+private val ArtCorner = 12.dp
+
 @Composable
 fun DetailMiniPlayer(
     state: DetailMiniPlayerState?,
     progress: () -> Float,
     onOpenNowPlaying: () -> Unit,
-    onTogglePlay: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     // Keep the last non-null state so the exit slide animates with content.
@@ -153,28 +149,20 @@ fun DetailMiniPlayer(
         modifier = modifier,
     ) {
         lastState?.let { current ->
-            DetailMiniPlayerBar(
+            DetailMiniPlayerDock(
                 state = current,
                 progress = progress,
                 onOpenNowPlaying = onOpenNowPlaying,
-                onTogglePlay = onTogglePlay,
             )
         }
     }
 }
 
-private val BarHeight = 56.dp
-private val RingStroke = 3.dp
-private val CoverCorner = 16.dp
-private val ArtSize = 44.dp
-private val ArtCorner = 10.dp
-
 @Composable
-private fun DetailMiniPlayerBar(
+private fun DetailMiniPlayerDock(
     state: DetailMiniPlayerState,
     progress: () -> Float,
     onOpenNowPlaying: () -> Unit,
-    onTogglePlay: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val haptics = rememberYoinHaptics()
@@ -183,15 +171,11 @@ private fun DetailMiniPlayerBar(
         fallbackBaseColor = MaterialTheme.colorScheme.secondaryContainer,
         fallbackAccentColor = MaterialTheme.colorScheme.tertiaryContainer,
     )
-    val capsuleColor = lerp(
+    val ringTrackColor = lerp(
         MaterialTheme.colorScheme.surfaceContainerHigh,
         backdrop.baseColor,
         0.4f,
     )
-    val contentColor = MaterialTheme.colorScheme.onSurface
-    // One step darker than the capsule REGARDLESS of palette — a lerp along
-    // the base color alone collapses to near-identical on pale fallbacks.
-    val buttonColor = lerp(capsuleColor, contentColor, 0.12f)
     // Pale extracted accents disappear as a 3dp stroke — fall back to the
     // theme primary until the palette resolves something with presence.
     val ringColor = if (backdrop.isResolvedFromPalette) {
@@ -199,98 +183,31 @@ private fun DetailMiniPlayerBar(
     } else {
         MaterialTheme.colorScheme.primary
     }
-    val ringTrackColor = capsuleColor
-    val coverInteraction = remember { MutableInteractionSource() }
-    val capsuleInteraction = remember { MutableInteractionSource() }
-    val playInteraction = remember { MutableInteractionSource() }
+    val interaction = remember { MutableInteractionSource() }
 
-    Row(
-        modifier = modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        // The square cover, progress traced around its perimeter.
-        Box(
-            modifier = Modifier
-                .size(BarHeight)
-                .coverProgressRing(
-                    progress = progress,
-                    trackColor = ringTrackColor,
-                    ringColor = ringColor,
-                )
-                .noRippleClickable(interactionSource = coverInteraction) {
-                    haptics.performContextClick()
-                    onOpenNowPlaying()
-                },
-            contentAlignment = Alignment.Center,
-        ) {
-            ExpressiveMediaArtwork(
-                model = state.coverArtUrl,
-                contentDescription = state.title,
-                modifier = Modifier.size(ArtSize),
-                shape = RoundedCornerShape(ArtCorner),
-                fallbackIcon = Icons.Rounded.MusicNote,
-                tonalElevation = 0.dp,
-                shadowElevation = 0.dp,
+    Box(
+        modifier = modifier
+            .size(DockSize)
+            .coverProgressRing(
+                progress = progress,
+                trackColor = ringTrackColor,
+                ringColor = ringColor,
             )
-        }
-        // Single-line capsule: title · artist marquee + play/pause.
-        Surface(
-            modifier = Modifier
-                .weight(1f)
-                .height(BarHeight)
-                .noRippleClickable(interactionSource = capsuleInteraction) {
-                    haptics.performContextClick()
-                    onOpenNowPlaying()
-                },
-            shape = YoinShapeTokens.Full,
-            color = capsuleColor,
+            .noRippleClickable(interactionSource = interaction) {
+                haptics.performContextClick()
+                onOpenNowPlaying()
+            },
+        contentAlignment = Alignment.Center,
+    ) {
+        ExpressiveMediaArtwork(
+            model = state.coverArtUrl,
+            contentDescription = state.title,
+            modifier = Modifier.size(ArtSize),
+            shape = RoundedCornerShape(ArtCorner),
+            fallbackIcon = Icons.Rounded.MusicNote,
             tonalElevation = 0.dp,
             shadowElevation = 0.dp,
-        ) {
-            Row(
-                modifier = Modifier.padding(start = 20.dp, end = 6.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                val line = if (state.artist.isBlank()) {
-                    state.title
-                } else {
-                    "${state.title} · ${state.artist}"
-                }
-                MarqueeText(
-                    text = line,
-                    style = MaterialTheme.typography.titleSmall,
-                    color = contentColor,
-                    modifier = Modifier.weight(1f),
-                )
-                Surface(
-                    modifier = Modifier
-                        .size(44.dp)
-                        .noRippleClickable(interactionSource = playInteraction) {
-                            haptics.performContextClick()
-                            onTogglePlay()
-                        },
-                    shape = YoinShapeTokens.Full,
-                    color = buttonColor,
-                    tonalElevation = 0.dp,
-                    shadowElevation = 0.dp,
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Icon(
-                            imageVector = if (state.isPlaying) {
-                                Icons.Rounded.Pause
-                            } else {
-                                Icons.Rounded.PlayArrow
-                            },
-                            contentDescription = if (state.isPlaying) "Pause" else "Play",
-                            tint = contentColor,
-                            modifier = Modifier.size(22.dp),
-                        )
-                    }
-                }
-            }
-        }
+        )
     }
 }
 
@@ -302,12 +219,12 @@ private fun DetailMiniPlayerBar(
  */
 private fun Modifier.coverProgressRing(
     progress: () -> Float,
-    trackColor: androidx.compose.ui.graphics.Color,
-    ringColor: androidx.compose.ui.graphics.Color,
+    trackColor: Color,
+    ringColor: Color,
 ): Modifier = drawWithCache {
     val strokePx = RingStroke.toPx()
     val inset = strokePx / 2f
-    val radius = (CoverCorner.toPx() - inset).coerceAtLeast(1f)
+    val radius = (DockCorner.toPx() - inset).coerceAtLeast(1f)
     val w = size.width
     val h = size.height
     val left = inset

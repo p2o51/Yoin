@@ -5,7 +5,6 @@ import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.navigationBarsPadding
@@ -76,10 +75,6 @@ class AlbumDetailActivity : ComponentActivity() {
 
                 val miniPlayerState by rememberDetailMiniPlayerState(app.container)
                 val miniPlayerProgress = rememberDetailMiniPlayerProgress(app.container)
-                val miniPlayerInset by animateDpAsState(
-                    targetValue = if (miniPlayerState != null) 72.dp else 0.dp,
-                    label = "miniPlayerInset",
-                )
 
                 Box(modifier = Modifier.fillMaxSize()) {
                 AlbumDetailScreen(
@@ -117,26 +112,16 @@ class AlbumDetailActivity : ComponentActivity() {
                     },
                     isPlaying = playbackState.isPlaying,
                     playbackSignal = if (playbackState.isPlaying) playbackSignal else 0f,
-                    bottomOverlayInset = miniPlayerInset,
+                    bottomEndAccessory = {
+                        DetailMiniPlayer(
+                            state = miniPlayerState,
+                            progress = { miniPlayerProgress.value },
+                            onOpenNowPlaying = { launchShellFromDetail(context, app.container, expandNowPlaying = true) },
+                        )
+                    },
                     modifier = Modifier.fillMaxSize(),
                 )
 
-                    DetailMiniPlayer(
-                        state = miniPlayerState,
-                        progress = { miniPlayerProgress.value },
-                        onOpenNowPlaying = { launchShellFromDetail(context, app.container, expandNowPlaying = true) },
-                        onTogglePlay = {
-                            if (miniPlayerState?.isPlaying == true) {
-                                app.container.playbackManager.pause()
-                            } else {
-                                app.container.playbackManager.resume()
-                            }
-                        },
-                        modifier = Modifier
-                            .align(Alignment.BottomCenter)
-                            .navigationBarsPadding()
-                            .padding(start = 16.dp, end = 16.dp, bottom = 8.dp),
-                    )
                 }
             }
         }

@@ -70,7 +70,6 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.ui.component.AlbumCard
@@ -105,8 +104,8 @@ fun ArtistDetailScreen(
     onShare: () -> Unit = {},
     isPlaying: Boolean = false,
     playbackSignal: Float = 0f,
-    // Extra bottom clearance for the docked mini-player, if visible.
-    bottomOverlayInset: Dp = 0.dp,
+    // Slot docked bottom-end on the toolbar row (detail mini-player).
+    bottomEndAccessory: (@Composable () -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     val content = uiState as? ArtistDetailUiState.Content
@@ -142,7 +141,7 @@ fun ArtistDetailScreen(
                         onOpenInSpotify = onOpenInSpotify,
                         onTopTrackClick = onTopTrackClick,
                         onShare = onShare,
-                        bottomOverlayInset = bottomOverlayInset,
+                        bottomEndAccessory = bottomEndAccessory,
                     )
             }
             }
@@ -162,7 +161,7 @@ private fun ArtistDetailContent(
     onOpenInSpotify: () -> Unit,
     onTopTrackClick: (index: Int) -> Unit,
     onShare: () -> Unit,
-    bottomOverlayInset: Dp,
+    bottomEndAccessory: (@Composable () -> Unit)?,
 ) {
     // Portrait → first album cover fallback (older Subsonic has no artist.jpg).
     val heroUrl = content.heroCoverArtUrl ?: content.albums.firstOrNull()?.coverArtUrl
@@ -255,9 +254,23 @@ private fun ArtistDetailContent(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .navigationBarsPadding()
-                // Lifts above the detail mini-player when one is docked.
-                .padding(bottom = 12.dp + bottomOverlayInset),
+                .padding(bottom = 12.dp),
         )
+
+        // Now-playing dock, same row as the toolbar (identical inset chain,
+        // so the two are vertically centered on each other by construction).
+        bottomEndAccessory?.let { accessory ->
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .navigationBarsPadding()
+                    // 12dp baseline + 4dp: centers the 64dp dock on the
+                    // 72dp-tall floating toolbar beside it.
+                    .padding(end = 16.dp, bottom = 16.dp),
+            ) {
+                accessory()
+            }
+        }
     }
 }
 

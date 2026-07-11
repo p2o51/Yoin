@@ -128,8 +128,8 @@ fun AlbumDetailScreen(
     onOpenArtist: (() -> Unit)? = null,
     isPlaying: Boolean = false,
     playbackSignal: Float = 0f,
-    // Extra bottom clearance for the docked mini-player, if visible.
-    bottomOverlayInset: Dp = 0.dp,
+    // Slot docked bottom-end on the toolbar row (detail mini-player).
+    bottomEndAccessory: (@Composable () -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     val content = uiState as? AlbumDetailUiState.Content
@@ -169,7 +169,7 @@ fun AlbumDetailScreen(
                         onShufflePlay = onShufflePlay,
                         onShare = onShare,
                         onOpenArtist = onOpenArtist,
-                        bottomOverlayInset = bottomOverlayInset,
+                        bottomEndAccessory = bottomEndAccessory,
                     )
             }
             }
@@ -195,7 +195,7 @@ private fun AlbumDetailContent(
     onShufflePlay: () -> Unit,
     onShare: () -> Unit,
     onOpenArtist: (() -> Unit)?,
-    bottomOverlayInset: Dp,
+    bottomEndAccessory: (@Composable () -> Unit)?,
 ) {
     val scope = rememberCoroutineScope()
 
@@ -291,9 +291,23 @@ private fun AlbumDetailContent(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .navigationBarsPadding()
-                // Lifts above the detail mini-player when one is docked.
-                .padding(bottom = 12.dp + bottomOverlayInset),
+                .padding(bottom = 12.dp),
         )
+
+        // Now-playing dock, same row as the toolbar (identical inset chain,
+        // so the two are vertically centered on each other by construction).
+        bottomEndAccessory?.let { accessory ->
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .navigationBarsPadding()
+                    // 12dp baseline + 4dp: centers the 64dp dock on the
+                    // 72dp-tall floating toolbar beside it.
+                    .padding(end = 16.dp, bottom = 16.dp),
+            ) {
+                accessory()
+            }
+        }
     }
 
     if (showEditSheet) {

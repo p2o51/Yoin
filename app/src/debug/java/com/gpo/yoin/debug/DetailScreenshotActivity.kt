@@ -58,24 +58,19 @@ class DetailScreenshotActivity : ComponentActivity() {
                     onRetry = {},
                     isPlaying = true,
                     playbackSignal = 0.35f,
-                    bottomOverlayInset = 72.dp,
-                )
-
-                // Fake docked mini-player so the bar can be QA'd without playback.
-                DetailMiniPlayer(
-                    state = DetailMiniPlayerState(
-                        title = "Cherries & Cream",
-                        artist = "Hannah Jadagu",
-                        coverArtUrl = null,
-                        isPlaying = true,
-                    ),
-                    progress = { 0.37f },
-                    onOpenNowPlaying = {},
-                    onTogglePlay = {},
-                    modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .navigationBarsPadding()
-                        .padding(start = 16.dp, end = 16.dp, bottom = 8.dp),
+                    // Fake docked mini-player so the dock can be QA'd without playback.
+                    bottomEndAccessory = {
+                        DetailMiniPlayer(
+                            state = DetailMiniPlayerState(
+                                title = "Cherries & Cream",
+                                artist = "Hannah Jadagu",
+                                coverArtUrl = null,
+                                isPlaying = true,
+                            ),
+                            progress = { 0.37f },
+                            onOpenNowPlaying = {},
+                        )
+                    },
                 )
                 }
             }
