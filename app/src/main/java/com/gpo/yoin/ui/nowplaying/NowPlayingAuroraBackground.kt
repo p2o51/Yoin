@@ -22,6 +22,7 @@ import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
 import kotlin.math.PI
@@ -218,30 +219,49 @@ fun Modifier.nowPlayingAuroraBackground(
             val coreAlphaCap = if (isDark) AURORA_CORE_ALPHA_DARK else AURORA_CORE_ALPHA_LIGHT
             val burstAlphaCap = if (isDark) PULSE_CORE_ALPHA_DARK else PULSE_CORE_ALPHA_LIGHT
 
-            // Gemini thinking wash (unchanged): four drifting, breathing blooms.
+            // Gemini thinking wash: drifting, breathing blooms with layered
+            // depth. The old version anchored the blooms at the CORNERS, so
+            // their bright cores orbited mostly off-canvas and only the faint
+            // outer falloff reached the screen — "基本上看不见". Anchors now sit
+            // inside the canvas, each bloom orbits at its own speed (parallax
+            // = the 3D-ish depth), and the hue itself travels around the
+            // palette so colour visibly flows from bloom to bloom.
             val frac = activeFraction
             if (frac > 0.001f && auroraColors.isNotEmpty()) {
                 val flow = flowPhase.value
                 val breath = breathPhase.value
-                val corners = listOf(
-                    Offset(0f, 0f),
-                    Offset(w, 0f),
-                    Offset(w, h),
-                    Offset(0f, h),
+                val anchors = listOf(
+                    Offset(w * 0.22f, h * 0.18f),
+                    Offset(w * 0.80f, h * 0.32f),
+                    Offset(w * 0.74f, h * 0.78f),
+                    Offset(w * 0.26f, h * 0.66f),
                 )
+                val paletteSize = auroraColors.size
                 auroraColors.forEachIndexed { i, color ->
-                    val anchor = corners[i % corners.size]
-                    val angle = TWO_PI * flow + i * TWO_PI / auroraColors.size
+                    val anchor = anchors[i % anchors.size]
+                    // Per-bloom speed + phase: layered motion, not one rigid wheel.
+                    val angle = TWO_PI * flow * (0.7f + 0.35f * i) + i * TWO_PI / paletteSize
                     val center = Offset(
                         x = anchor.x + cos(angle) * w * AURORA_ORBIT,
                         y = anchor.y + sin(angle * 1.3f) * h * AURORA_ORBIT,
                     )
                     val wobble = sin(TWO_PI * breath + i.toFloat())
-                    val radius = maxDim * (AURORA_RADIUS_BASE + AURORA_RADIUS_WOBBLE * wobble)
-                    val coreAlpha = coreAlphaCap * frac * (0.82f + 0.18f * wobble)
+                    // Depth: nearer blooms render bigger and brighter.
+                    val depth = 1f - i * 0.16f
+                    // The moving gradient: each bloom's hue slides toward its
+                    // palette neighbour and back, phase-offset per bloom.
+                    val cycled = lerp(
+                        color,
+                        auroraColors[(i + 1) % paletteSize],
+                        0.5f + 0.5f * sin(TWO_PI * flow + i.toFloat()),
+                    )
+                    val radius = maxDim *
+                        (AURORA_RADIUS_BASE + AURORA_RADIUS_WOBBLE * wobble) * depth
+                    val coreAlpha = coreAlphaCap * frac *
+                        (0.82f + 0.18f * wobble) * (0.72f + 0.28f * depth)
                     drawCircle(
                         brush = Brush.radialGradient(
-                            colors = listOf(color.copy(alpha = coreAlpha), color.copy(alpha = 0f)),
+                            colors = listOf(cycled.copy(alpha = coreAlpha), cycled.copy(alpha = 0f)),
                             center = center,
                             radius = radius,
                         ),
@@ -333,8 +353,10 @@ fun Modifier.nowPlayingAuroraBackground(
         }
 }
 
-private const val AURORA_CORE_ALPHA_DARK = 0.42f
-private const val AURORA_CORE_ALPHA_LIGHT = 0.16f
+// Raised after design review ("Ask Gemini 的渐变基本看不见"): light mode needs
+// real tint strength under SrcOver; dark mode can glow harder under Screen.
+private const val AURORA_CORE_ALPHA_DARK = 0.5f
+private const val AURORA_CORE_ALPHA_LIGHT = 0.3f
 private const val PULSE_CORE_ALPHA_DARK = 0.22f
 private const val PULSE_CORE_ALPHA_LIGHT = 0.16f
 private const val AURORA_RADIUS_BASE = 0.52f

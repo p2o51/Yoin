@@ -317,6 +317,25 @@ private fun MemoriesContent(
             val deckTransitionDirection = contentState.deckDirection
             val adjacentDeckDirection = edgeAdvanceState.direction?.toMemoryDeckDirection()
 
+            // Ambient moving-gradient wash in the CURRENT memory's palette —
+            // swiping re-tints the whole atmosphere (the palette's own 380ms
+            // hand-off animates the transition). Loops run only while the
+            // deck is actually on screen.
+            val auroraColors = rememberExpressiveBackdropColors(
+                model = selectedMemory.coverArtUrl,
+                fallbackBaseColor = MaterialTheme.colorScheme.primaryContainer,
+                fallbackAccentColor = MaterialTheme.colorScheme.tertiaryContainer,
+            )
+            Box(
+                modifier = Modifier
+                    .matchParentSize()
+                    .memoriesAuroraBackground(
+                        baseColor = auroraColors.baseColor,
+                        accentColor = auroraColors.accentColor,
+                        visible = revealState.fraction < 0.999f,
+                    ),
+            )
+
             LaunchedEffect(containerHeightPx) {
                 latestContainerHeightPx = containerHeightPx
             }
