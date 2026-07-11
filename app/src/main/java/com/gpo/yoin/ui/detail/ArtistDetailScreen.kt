@@ -208,8 +208,17 @@ private fun ArtistDetailContent(
                         )
                     },
                     navigationIcon = {
-                        DetailBackButton(onClick = onBackClick)
+                        // end padding widens the nav slot so the COLLAPSED
+                        // title clears the button halo; the expanded title is
+                        // placed from the bar edge and stays at 16dp.
+                        DetailBackButton(
+                            onClick = onBackClick,
+                            modifier = Modifier.padding(end = 14.dp),
+                        )
                     },
+                    // Default 136dp packs the title right under the back
+                    // button; extra height = breathing room between them.
+                    expandedHeight = 156.dp,
                     // Transparent both ends so the bar blends with the gradient
                     // page background (no surface band, no collapse colour flash).
                     colors = TopAppBarDefaults.topAppBarColors(

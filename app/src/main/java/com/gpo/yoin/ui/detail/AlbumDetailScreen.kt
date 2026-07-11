@@ -342,6 +342,9 @@ private fun AlbumTopHeader(
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             DetailBackButton(onClick = onBackClick)
+            // Air between the button's touch halo and the title cluster —
+            // flush against the arrow it read as one crowded blob.
+            Spacer(modifier = Modifier.width(14.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = albumName,
