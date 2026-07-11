@@ -387,19 +387,19 @@ private fun LibraryContentBody(
         AppBarWithSearch(
             state = searchBarState,
             inputField = inputField,
-            // Blend the collapsed bar into the page: a transparent app-bar band
-            // (also drops the tonal/shadow elevation seam) over the
-            // ExpressivePageBackground gradient, and a pill tinted to the page's
-            // top stop (surfaceContainer) so it reads as part of the surface
-            // rather than a raised, different-coloured chip. The expanded
-            // full-screen search surface keeps its own opaque default colors.
+            // Transparent app-bar band (drops the tonal/shadow elevation seam)
+            // over the ExpressivePageBackground gradient. The pill itself is a
+            // step BRIGHTER than the page's top stop: surfaceContainer matched
+            // the gradient exactly and the pill dissolved into the background
+            // (design review: 对比度太低) — surfaceContainerHighest stays in the
+            // surface family but reads as a control.
             colors = SearchBarDefaults.appBarWithSearchColors(
                 appBarContainerColor = Color.Transparent,
                 scrolledAppBarContainerColor = Color.Transparent,
                 searchBarColors = SearchBarDefaults.colors(
-                    containerColor = MaterialTheme.colorScheme.surfaceContainer,
+                    containerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
                 ),
-                scrolledSearchBarContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                scrolledSearchBarContainerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
             ),
             actions = {
                 IconButton(
