@@ -67,6 +67,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withLink
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.gpo.yoin.ui.component.ExpressiveMediaArtwork
 import com.gpo.yoin.ui.component.ExpressivePageBackground
@@ -101,6 +102,8 @@ fun PlaylistDetailScreen(
     animatedVisibilityScope: AnimatedVisibilityScope? = null,
     isPlaying: Boolean = false,
     playbackSignal: Float = 0f,
+    // Extra bottom clearance for the docked mini-player, if visible.
+    bottomOverlayInset: Dp = 0.dp,
     modifier: Modifier = Modifier,
 ) {
     val haptics = rememberYoinHaptics()
@@ -295,7 +298,8 @@ fun PlaylistDetailScreen(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .navigationBarsPadding()
-                    .padding(bottom = 12.dp),
+                    // Lifts above the detail mini-player when one is docked.
+                    .padding(bottom = 12.dp + bottomOverlayInset),
             )
         }
     }

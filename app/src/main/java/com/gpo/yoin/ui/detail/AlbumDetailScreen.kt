@@ -128,6 +128,8 @@ fun AlbumDetailScreen(
     onOpenArtist: (() -> Unit)? = null,
     isPlaying: Boolean = false,
     playbackSignal: Float = 0f,
+    // Extra bottom clearance for the docked mini-player, if visible.
+    bottomOverlayInset: Dp = 0.dp,
     modifier: Modifier = Modifier,
 ) {
     val content = uiState as? AlbumDetailUiState.Content
@@ -167,6 +169,7 @@ fun AlbumDetailScreen(
                         onShufflePlay = onShufflePlay,
                         onShare = onShare,
                         onOpenArtist = onOpenArtist,
+                        bottomOverlayInset = bottomOverlayInset,
                     )
             }
             }
@@ -192,6 +195,7 @@ private fun AlbumDetailContent(
     onShufflePlay: () -> Unit,
     onShare: () -> Unit,
     onOpenArtist: (() -> Unit)?,
+    bottomOverlayInset: Dp,
 ) {
     val scope = rememberCoroutineScope()
 
@@ -287,7 +291,8 @@ private fun AlbumDetailContent(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .navigationBarsPadding()
-                .padding(bottom = 12.dp),
+                // Lifts above the detail mini-player when one is docked.
+                .padding(bottom = 12.dp + bottomOverlayInset),
         )
     }
 

@@ -6,12 +6,18 @@ import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.gpo.yoin.YoinActivityRoot
 import com.gpo.yoin.YoinApplication
@@ -94,6 +100,13 @@ class ArtistDetailActivity : ComponentActivity() {
                     }
                 }
 
+                val miniPlayerState by rememberDetailMiniPlayerState(app.container)
+                val miniPlayerInset by animateDpAsState(
+                    targetValue = if (miniPlayerState != null) 72.dp else 0.dp,
+                    label = "miniPlayerInset",
+                )
+
+                Box(modifier = Modifier.fillMaxSize()) {
                 ArtistDetailScreen(
                     uiState = uiState,
                     onBackClick = { finish() },
@@ -117,8 +130,27 @@ class ArtistDetailActivity : ComponentActivity() {
                     },
                     isPlaying = playbackState.isPlaying,
                     playbackSignal = if (playbackState.isPlaying) playbackSignal else 0f,
+                    bottomOverlayInset = miniPlayerInset,
                     modifier = Modifier.fillMaxSize(),
                 )
+
+                    DetailMiniPlayer(
+                        state = miniPlayerState,
+                        onHome = { launchShellFromDetail(context, app.container, expandNowPlaying = false) },
+                        onOpenNowPlaying = { launchShellFromDetail(context, app.container, expandNowPlaying = true) },
+                        onTogglePlay = {
+                            if (miniPlayerState?.isPlaying == true) {
+                                app.container.playbackManager.pause()
+                            } else {
+                                app.container.playbackManager.resume()
+                            }
+                        },
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .navigationBarsPadding()
+                            .padding(start = 12.dp, end = 12.dp, bottom = 8.dp),
+                    )
+                }
             }
         }
     }

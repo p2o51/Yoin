@@ -70,6 +70,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.ui.component.AlbumCard
@@ -104,6 +105,8 @@ fun ArtistDetailScreen(
     onShare: () -> Unit = {},
     isPlaying: Boolean = false,
     playbackSignal: Float = 0f,
+    // Extra bottom clearance for the docked mini-player, if visible.
+    bottomOverlayInset: Dp = 0.dp,
     modifier: Modifier = Modifier,
 ) {
     val content = uiState as? ArtistDetailUiState.Content
@@ -139,6 +142,7 @@ fun ArtistDetailScreen(
                         onOpenInSpotify = onOpenInSpotify,
                         onTopTrackClick = onTopTrackClick,
                         onShare = onShare,
+                        bottomOverlayInset = bottomOverlayInset,
                     )
             }
             }
@@ -158,6 +162,7 @@ private fun ArtistDetailContent(
     onOpenInSpotify: () -> Unit,
     onTopTrackClick: (index: Int) -> Unit,
     onShare: () -> Unit,
+    bottomOverlayInset: Dp,
 ) {
     // Portrait → first album cover fallback (older Subsonic has no artist.jpg).
     val heroUrl = content.heroCoverArtUrl ?: content.albums.firstOrNull()?.coverArtUrl
@@ -250,7 +255,8 @@ private fun ArtistDetailContent(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .navigationBarsPadding()
-                .padding(bottom = 12.dp),
+                // Lifts above the detail mini-player when one is docked.
+                .padding(bottom = 12.dp + bottomOverlayInset),
         )
     }
 }
