@@ -39,7 +39,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalFocusManager
-import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -214,9 +213,10 @@ private fun FocusedLayout(
                 .fillMaxWidth()
                 .weight(1f)
                 .focusRequester(focusRequester),
-            textStyle = TextStyle(
+            // Inherit the themed style (Google Sans Flex + its tracking) —
+            // a bare TextStyle here fell back to the system font.
+            textStyle = MaterialTheme.typography.titleMedium.copy(
                 color = MaterialTheme.colorScheme.onPrimaryContainer,
-                fontSize = MaterialTheme.typography.titleMedium.fontSize,
             ),
             singleLine = false,
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),

@@ -4,6 +4,7 @@ import androidx.compose.material3.Typography
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.sp
 import com.gpo.yoin.R
 
 val GoogleSansFlex = FontFamily(
@@ -15,22 +16,75 @@ val GoogleSansFlex = FontFamily(
 private val defaultTypography = Typography()
 
 /**
- * MD3 type scale using Google Sans Flex.
+ * MD3 type scale using Google Sans Flex, with tracking retuned for it.
+ *
+ * The M3 defaults carry Roboto's letter-spacing (body +0.25…0.5sp, labels
+ * +0.5sp). Google Sans Flex is drawn with wider, rounder counters and is
+ * meant to be set solid — and half of this app's content is CJK, where
+ * positive tracking visibly scatters the glyphs. So: 0 across the scale,
+ * except a hair (+0.1sp) on the two smallest label styles where tiny Latin
+ * text benefits from a touch of air. Deliberate per-moment exceptions (the
+ * Now Playing time's play-state tracking pulse) stay local to their screens.
  */
 val YoinTypography = Typography(
-    displayLarge = defaultTypography.displayLarge.copy(fontFamily = GoogleSansFlex),
-    displayMedium = defaultTypography.displayMedium.copy(fontFamily = GoogleSansFlex),
-    displaySmall = defaultTypography.displaySmall.copy(fontFamily = GoogleSansFlex),
-    headlineLarge = defaultTypography.headlineLarge.copy(fontFamily = GoogleSansFlex),
-    headlineMedium = defaultTypography.headlineMedium.copy(fontFamily = GoogleSansFlex),
-    headlineSmall = defaultTypography.headlineSmall.copy(fontFamily = GoogleSansFlex),
-    titleLarge = defaultTypography.titleLarge.copy(fontFamily = GoogleSansFlex),
-    titleMedium = defaultTypography.titleMedium.copy(fontFamily = GoogleSansFlex),
-    titleSmall = defaultTypography.titleSmall.copy(fontFamily = GoogleSansFlex),
-    bodyLarge = defaultTypography.bodyLarge.copy(fontFamily = GoogleSansFlex),
-    bodyMedium = defaultTypography.bodyMedium.copy(fontFamily = GoogleSansFlex),
-    bodySmall = defaultTypography.bodySmall.copy(fontFamily = GoogleSansFlex),
-    labelLarge = defaultTypography.labelLarge.copy(fontFamily = GoogleSansFlex),
-    labelMedium = defaultTypography.labelMedium.copy(fontFamily = GoogleSansFlex),
-    labelSmall = defaultTypography.labelSmall.copy(fontFamily = GoogleSansFlex),
+    displayLarge = defaultTypography.displayLarge.copy(
+        fontFamily = GoogleSansFlex,
+        letterSpacing = 0.sp,
+    ),
+    displayMedium = defaultTypography.displayMedium.copy(
+        fontFamily = GoogleSansFlex,
+        letterSpacing = 0.sp,
+    ),
+    displaySmall = defaultTypography.displaySmall.copy(
+        fontFamily = GoogleSansFlex,
+        letterSpacing = 0.sp,
+    ),
+    headlineLarge = defaultTypography.headlineLarge.copy(
+        fontFamily = GoogleSansFlex,
+        letterSpacing = 0.sp,
+    ),
+    headlineMedium = defaultTypography.headlineMedium.copy(
+        fontFamily = GoogleSansFlex,
+        letterSpacing = 0.sp,
+    ),
+    headlineSmall = defaultTypography.headlineSmall.copy(
+        fontFamily = GoogleSansFlex,
+        letterSpacing = 0.sp,
+    ),
+    titleLarge = defaultTypography.titleLarge.copy(
+        fontFamily = GoogleSansFlex,
+        letterSpacing = 0.sp,
+    ),
+    titleMedium = defaultTypography.titleMedium.copy(
+        fontFamily = GoogleSansFlex,
+        letterSpacing = 0.sp,
+    ),
+    titleSmall = defaultTypography.titleSmall.copy(
+        fontFamily = GoogleSansFlex,
+        letterSpacing = 0.sp,
+    ),
+    bodyLarge = defaultTypography.bodyLarge.copy(
+        fontFamily = GoogleSansFlex,
+        letterSpacing = 0.sp,
+    ),
+    bodyMedium = defaultTypography.bodyMedium.copy(
+        fontFamily = GoogleSansFlex,
+        letterSpacing = 0.sp,
+    ),
+    bodySmall = defaultTypography.bodySmall.copy(
+        fontFamily = GoogleSansFlex,
+        letterSpacing = 0.sp,
+    ),
+    labelLarge = defaultTypography.labelLarge.copy(
+        fontFamily = GoogleSansFlex,
+        letterSpacing = 0.sp,
+    ),
+    labelMedium = defaultTypography.labelMedium.copy(
+        fontFamily = GoogleSansFlex,
+        letterSpacing = 0.1.sp,
+    ),
+    labelSmall = defaultTypography.labelSmall.copy(
+        fontFamily = GoogleSansFlex,
+        letterSpacing = 0.1.sp,
+    ),
 )
