@@ -93,7 +93,9 @@ class MemoriesScreenshotActivity : ComponentActivity() {
                 entityType = ActivityEntityType.PLAYLIST.name,
                 actionType = ActivityActionType.VISITED.name,
                 entityId = "p1",
-                title = "Clock",
+                // Long on purpose: the small bento card must wrap this onto
+                // two lines instead of truncating at one.
+                title = "Clock — late night drives",
                 subtitle = "51",
                 coverArtId = swatchCover("pink", 0xFFD4537E.toInt()),
                 timestamp = now - 26L * 60 * 60 * 1000,

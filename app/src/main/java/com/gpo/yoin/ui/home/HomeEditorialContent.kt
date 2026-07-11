@@ -37,7 +37,6 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -54,7 +53,6 @@ import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
@@ -77,7 +75,6 @@ import com.gpo.yoin.ui.component.ExpressiveMediaArtwork
 import com.gpo.yoin.ui.component.ExpressiveSectionPanel
 import com.gpo.yoin.ui.component.horizontalFadeMask
 import com.gpo.yoin.ui.component.noRippleClickable
-import com.gpo.yoin.ui.component.rememberExpressiveBackdropColors
 import com.gpo.yoin.ui.experience.RevealState
 import com.gpo.yoin.ui.experience.rememberRevealState
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
@@ -479,45 +476,10 @@ private fun ActivityBento(
     }
 }
 
-private data class ActivityCardColors(
-    val container: Color,
-    val content: Color,
-    val contentMuted: Color,
-)
-
-/**
- * Container wash lerped straight from this card's own cover palette — NOT an
- * `ExpressiveColorSchemeFactory.fromSeed` scheme, whose M3-Expressive hue
- * rotation turns a green cover into a peach card. The direct lerp keeps each
- * card hue-faithful to its artwork (the Figma look) and skips building a
- * ColorScheme per palette-animation frame. Text stays on the theme's
- * on-surface roles, which hold contrast on the soft wash in both modes.
- */
-@Composable
-private fun rememberActivityCardColors(
-    coverArtUrl: String?,
-    extractBackdropColors: Boolean,
-): ActivityCardColors {
-    val backdrop = rememberExpressiveBackdropColors(
-        model = coverArtUrl,
-        fallbackBaseColor = MaterialTheme.colorScheme.secondaryContainer,
-        fallbackAccentColor = MaterialTheme.colorScheme.tertiaryContainer,
-        enabled = extractBackdropColors,
-    )
-    return ActivityCardColors(
-        container = lerp(
-            MaterialTheme.colorScheme.surfaceContainerLow,
-            backdrop.baseColor,
-            0.30f,
-        ),
-        content = MaterialTheme.colorScheme.onSurface,
-        contentMuted = MaterialTheme.colorScheme.onSurfaceVariant,
-    )
-}
-
-// Background-less by design decision: the hero and wide cards float straight
-// on the page (the shape+cover carries the colour), only the small square and
-// the strip keep a tinted container.
+// Background-less by design decision: every activities card floats straight
+// on the page and the palette-tinted backdrop shape carries the colour —
+// matching the widget grid below. Containers on some-but-not-all cards read
+// as arbitrary; all-or-none, and none won.
 @Composable
 private fun ActivityHeroCard(
     entry: HomeMomentEntry,
@@ -587,62 +549,52 @@ private fun ActivitySmallCard(
     modifier: Modifier = Modifier,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
-    val colors = rememberActivityCardColors(entry.coverArtUrl, extractBackdropColors)
-    Surface(
-        modifier = modifier,
-        shape = YoinShapeTokens.Large,
-        color = colors.container,
-        tonalElevation = 0.dp,
-        shadowElevation = 0.dp,
+    Column(
+        modifier = modifier
+            .noRippleClickable(interactionSource = interactionSource, onClick = onClick)
+            .padding(vertical = 4.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
-        Column(
-            modifier = Modifier
-                .noRippleClickable(interactionSource = interactionSource, onClick = onClick)
-                .padding(10.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp),
+        // The entity shape+cover anchors the slot (same language as every
+        // other card), with the type + time stacked to its right — two plain
+        // lines, no separator dot.
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            // Figma: the tiny cover with the type + time stacked to its right,
-            // no separator dot — two short lines.
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                ExpressiveMediaArtwork(
-                    model = entry.coverArtUrl,
-                    contentDescription = entry.title,
-                    modifier = Modifier.size(28.dp),
-                    shape = YoinShapeTokens.Small,
-                    fallbackIcon = Icons.Filled.LibraryMusic,
-                    interactionSource = interactionSource,
-                    tonalElevation = 1.dp,
-                    shadowElevation = 0.dp,
-                )
-                Column {
-                    Text(
-                        text = entry.typeLabel,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = colors.contentMuted,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    Text(
-                        text = entry.timeAgo,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = colors.contentMuted,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-            }
-            Spacer(modifier = Modifier.weight(1f))
-            Text(
-                text = entry.title,
-                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
-                color = colors.content,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
+            WidgetBackdropArtwork(
+                model = entry.coverArtUrl,
+                kind = widgetShapeKindForActivity(entry.entityType),
+                contentDescription = entry.title,
+                extractBackdropColors = extractBackdropColors,
+                interactionSource = interactionSource,
+                modifier = Modifier.size(48.dp),
             )
+            Column {
+                Text(
+                    text = entry.typeLabel,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    text = entry.timeAgo,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
         }
+        Spacer(modifier = Modifier.weight(1f))
+        Text(
+            text = entry.title,
+            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+            color = MaterialTheme.colorScheme.onSurface,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
 }
 
@@ -705,42 +657,43 @@ private fun ActivityStripCard(
     modifier: Modifier = Modifier,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
-    val colors = rememberActivityCardColors(entry.coverArtUrl, extractBackdropColors)
     val stripTitle = remember(entry) {
         listOf(entry.title, entry.subtitle)
             .filter { it.isNotBlank() }
             .joinToString(separator = "・")
     }
-    Surface(
-        modifier = modifier,
-        shape = YoinShapeTokens.Full,
-        color = colors.container,
-        tonalElevation = 0.dp,
-        shadowElevation = 0.dp,
+    // A small plain cover anchors the strip now that it has no container.
+    Row(
+        modifier = modifier
+            .noRippleClickable(interactionSource = interactionSource, onClick = onClick)
+            .padding(vertical = 6.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .noRippleClickable(interactionSource = interactionSource, onClick = onClick)
-                .padding(horizontal = 16.dp, vertical = 12.dp),
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                text = stripTitle,
-                style = MaterialTheme.typography.bodyMedium,
-                color = colors.content,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f),
-            )
-            Text(
-                text = "${entry.typeLabel} · ${entry.timeAgo}",
-                style = MaterialTheme.typography.labelSmall,
-                color = colors.contentMuted,
-                maxLines = 1,
-            )
-        }
+        ExpressiveMediaArtwork(
+            model = entry.coverArtUrl,
+            contentDescription = entry.title,
+            modifier = Modifier.size(26.dp),
+            shape = YoinShapeTokens.Small,
+            fallbackIcon = Icons.Filled.LibraryMusic,
+            interactionSource = interactionSource,
+            tonalElevation = 1.dp,
+            shadowElevation = 0.dp,
+        )
+        Text(
+            text = stripTitle,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurface,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f),
+        )
+        Text(
+            text = "${entry.typeLabel} · ${entry.timeAgo}",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+        )
     }
 }
 
