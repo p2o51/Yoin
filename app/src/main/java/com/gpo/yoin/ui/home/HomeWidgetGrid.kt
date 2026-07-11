@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -214,7 +215,9 @@ private fun WidgetCard12(
         )
         Column(
             modifier = Modifier.weight(1f),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
+            // The rating's own line box already carries generous leading —
+            // 3dp keeps the comment visually attached to its score.
+            verticalArrangement = Arrangement.spacedBy(3.dp),
         ) {
             card.ratingText?.let { rating ->
                 // The palette's base tone (L* capped at 0.62) reads fine on a
@@ -282,9 +285,13 @@ private fun WidgetCoverBlock(
     } else {
         Modifier
     }
+    // Spacing rhythm: the title + subtitle sit flush (their line-height
+    // leading alone separates them) so they read as ONE text cluster, with a
+    // single deliberate gap between that cluster and the artwork. A uniform
+    // spacedBy here made every gap equal and the whole card read as loose,
+    // unrelated lines.
     Column(
         modifier = modifier.then(clickModifier),
-        verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         WidgetBackdropArtwork(
             model = card.coverArtUrl,
@@ -294,6 +301,7 @@ private fun WidgetCoverBlock(
             interactionSource = ownInteractionSource,
             modifier = Modifier.size(WidgetCoverSize),
         )
+        Spacer(modifier = Modifier.height(5.dp))
         Text(
             text = card.title,
             style = MaterialTheme.typography.titleSmall,

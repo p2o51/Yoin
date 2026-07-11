@@ -831,11 +831,12 @@ private fun RecentlyAddedTile(
     val interactionSource = remember { MutableInteractionSource() }
     val coverArtUrl = resolveHomeCoverArtUrl(track.coverArt, buildCoverArtUrl)
         ?: track.albumId?.let { buildCoverArtUrl(it.rawId) }
+    // Same spacing rhythm as the widget grid: one gap after the artwork, then
+    // the title + artist flush so they read as a single text cluster.
     Column(
         modifier = modifier
             .width(96.dp)
             .noRippleClickable(interactionSource = interactionSource, onClick = onClick),
-        verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         ExpressiveMediaArtwork(
             model = coverArtUrl,
@@ -849,6 +850,7 @@ private fun RecentlyAddedTile(
             tonalElevation = 1.dp,
             shadowElevation = 0.dp,
         )
+        Spacer(modifier = Modifier.height(5.dp))
         Text(
             text = track.title.orEmpty(),
             style = MaterialTheme.typography.bodyMedium,
