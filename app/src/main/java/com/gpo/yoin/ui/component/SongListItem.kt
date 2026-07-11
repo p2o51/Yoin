@@ -81,22 +81,23 @@ fun SongListItem(
                 model = coverArtUrl,
                 contentDescription = title,
                 variant = ExpressiveBackdropVariant.Circle,
-                modifier = Modifier.size(54.dp),
+                // 48dp full-bleed: the old 54dp slot at 0.78 fill drew a ~42dp
+                // cover with ghost margins (leftovers of the removed backdrop
+                // shape) that never lined up with the 48dp artist avatars.
+                modifier = Modifier.size(48.dp),
                 shape = YoinShapeTokens.Small,
                 fallbackIcon = Icons.Filled.MusicNote,
                 interactionSource = interactionSource,
                 isPlaybackActive = isNowPlaying,
                 playbackSignal = playbackSignal,
-                fillFraction = 0.78f,
-                backdropScale = 0.78f,
-                artworkShiftFraction = 0.06f,
+                fillFraction = 1f,
                 tonalElevation = 0.dp,
                 extractBackdropColors = extractBackdropColors,
             )
 
+            // Title + subtitle flush — the line-height leading separates them.
             Column(
                 modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(3.dp),
             ) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,

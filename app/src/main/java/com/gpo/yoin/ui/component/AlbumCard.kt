@@ -63,6 +63,11 @@ fun AlbumCard(
         tonalElevation = 0.dp,
         shadowElevation = 0.dp,
     ) {
+        // Spacing rhythm: full-bleed cover (the sub-1f fill fractions and the
+        // end/bottom inset were placeholders for the removed animated backdrop
+        // shape — pure ghost margins now), one deliberate 5dp gap to the text,
+        // and the title + subtitle flush so they read as a single cluster. No
+        // reserved min-height: a one-line card ends where its text ends.
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -72,59 +77,41 @@ fun AlbumCard(
                     role = Role.Button,
                     onClick = onClick,
                 ),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Box(
+            ExpressiveBackdropArtwork(
+                model = coverArtUrl,
+                contentDescription = title,
+                variant = ExpressiveBackdropVariant.Bun,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .aspectRatio(1f)
-                    .padding(end = 8.dp, bottom = 8.dp),
-            ) {
-                ExpressiveBackdropArtwork(
-                    model = coverArtUrl,
-                    contentDescription = title,
-                    variant = ExpressiveBackdropVariant.Bun,
-                    modifier = Modifier.fillMaxSize(),
-                    shape = YoinShapeTokens.Small,
-                    fallbackIcon = Icons.Filled.LibraryMusic,
-                    interactionSource = interactionSource,
-                    fillFraction = 0.82f,
-                    backdropScale = 0.8f,
-                    artworkShiftFraction = 0.06f,
-                    offsetX = 8.dp,
-                    offsetY = 10.dp,
-                    tonalElevation = 0.dp,
-                    extractBackdropColors = extractBackdropColors,
-                )
+                    .aspectRatio(1f),
+                shape = YoinShapeTokens.Small,
+                fallbackIcon = Icons.Filled.LibraryMusic,
+                interactionSource = interactionSource,
+                fillFraction = 1f,
+                tonalElevation = 0.dp,
+                extractBackdropColors = extractBackdropColors,
+            )
+            Spacer(modifier = Modifier.height(5.dp))
+            if (!metaLabel.isNullOrBlank()) {
+                ExpressiveMetaPill(text = metaLabel)
+                Spacer(modifier = Modifier.height(3.dp))
             }
-
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(min = 68.dp)
-                    .padding(end = 8.dp),
-                verticalArrangement = Arrangement.spacedBy(4.dp),
-            ) {
-                if (!metaLabel.isNullOrBlank()) {
-                    ExpressiveMetaPill(text = metaLabel)
-                }
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+            if (!subtitle.isNullOrBlank()) {
                 Text(
-                    text = title,
-                    style = MaterialTheme.typography.titleSmall,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    maxLines = 2,
+                    text = subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-                if (!subtitle.isNullOrBlank()) {
-                    Text(
-                        text = subtitle,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-                Spacer(modifier = Modifier.height(2.dp))
             }
         }
     }

@@ -574,9 +574,9 @@ private fun ArtistsTabContent(
     LazyColumn(
         modifier = modifier.fillMaxSize(),
         contentPadding = PaddingValues(
-            start = 4.dp,
+            start = 0.dp,
             top = 8.dp,
-            end = 4.dp,
+            end = 0.dp,
             bottom = floatingBottomGroupContentPadding(),
         ),
     ) {
@@ -674,14 +674,16 @@ private fun AlbumsTabContent(
     LazyVerticalGrid(
         columns = GridCells.Fixed(3),
         modifier = modifier.fillMaxSize(),
+        // 16dp page margins to match the home feed; 12dp gutters, and a
+        // tighter row gap now that the cards no longer reserve dead space.
         contentPadding = PaddingValues(
-            start = 4.dp,
+            start = 16.dp,
             top = 12.dp,
-            end = 4.dp,
+            end = 16.dp,
             bottom = floatingBottomGroupContentPadding(),
         ),
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
-        verticalArrangement = Arrangement.spacedBy(18.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         itemsIndexed(albums, key = { _, album -> album.id.toString() }) { index, album ->
             val entranceProgress = rememberLibraryItemEntrance(
@@ -750,9 +752,9 @@ private fun SongsTabContent(
     LazyColumn(
         modifier = modifier.fillMaxSize(),
         contentPadding = PaddingValues(
-            start = 4.dp,
+            start = 0.dp,
             top = 8.dp,
-            end = 4.dp,
+            end = 0.dp,
             bottom = floatingBottomGroupContentPadding(),
         ),
     ) {
@@ -833,9 +835,9 @@ private fun PlaylistsTabContent(
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(
-                    start = 4.dp,
+                    start = 0.dp,
                     top = 8.dp,
-                    end = 4.dp,
+                    end = 0.dp,
                     bottom = floatingBottomGroupContentPadding(),
                 ),
             ) {
@@ -959,9 +961,9 @@ private fun PlaylistListItem(
                 modifier = Modifier.size(48.dp),
                 shape = YoinShapeTokens.Small,
                 fallbackIcon = Icons.AutoMirrored.Filled.QueueMusic,
-                fillFraction = 0.8f,
-                backdropScale = 0.8f,
-                artworkShiftFraction = 0.06f,
+                // Full-bleed: the sub-1f fractions were placeholders for the
+                // removed animated backdrop shape and just left ghost margins.
+                fillFraction = 1f,
                 tonalElevation = 0.dp,
                 extractBackdropColors = false,
             )
@@ -1019,9 +1021,9 @@ private fun FavoritesTabContent(
     LazyColumn(
         modifier = modifier.fillMaxSize(),
         contentPadding = PaddingValues(
-            start = 4.dp,
+            start = 0.dp,
             top = 8.dp,
-            end = 4.dp,
+            end = 0.dp,
             bottom = floatingBottomGroupContentPadding(),
         ),
     ) {
@@ -1129,12 +1131,13 @@ private fun AlbumListItem(
                 model = coverArtUrl,
                 contentDescription = album.name,
                 variant = ExpressiveBackdropVariant.Bun,
-                modifier = Modifier.size(52.dp),
+                // 48dp aligns these covers with the artist avatars beside
+                // them in the Favorites mixed list; full-bleed kills the
+                // ghost margin left by the removed backdrop shape.
+                modifier = Modifier.size(48.dp),
                 shape = YoinShapeTokens.Small,
                 fallbackIcon = Icons.Filled.LibraryMusic,
-                fillFraction = 0.8f,
-                backdropScale = 0.8f,
-                artworkShiftFraction = 0.06f,
+                fillFraction = 1f,
                 tonalElevation = 0.dp,
                 extractBackdropColors = false,
             )
@@ -1210,9 +1213,9 @@ private fun SearchResultsContent(
     LazyColumn(
         modifier = modifier.fillMaxSize(),
         contentPadding = PaddingValues(
-            start = 4.dp,
+            start = 0.dp,
             top = 8.dp,
-            end = 4.dp,
+            end = 0.dp,
             bottom = floatingBottomGroupContentPadding(),
         ),
     ) {
@@ -1398,7 +1401,9 @@ private fun SectionHeader(
         text = title,
         style = MaterialTheme.typography.labelLarge,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
-        modifier = modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+        // Top-heavy: the header belongs to the group BELOW it, so it pulls
+        // away from the previous list and sits close to its own.
+        modifier = modifier.padding(start = 16.dp, end = 16.dp, top = 18.dp, bottom = 6.dp),
     )
 }
 
