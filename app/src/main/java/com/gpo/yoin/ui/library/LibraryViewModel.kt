@@ -225,7 +225,9 @@ class LibraryViewModel(
                     }
                     LibraryTab.Albums -> {
                         if (cachedAlbums == null) {
-                            cachedAlbums = repository.getAlbumList("alphabeticalByName", size = 500)
+                            // 最近添加 newest-first — "newest" is recently ADDED on
+                            // both providers (Subsonic native; Spotify addedAt sort).
+                            cachedAlbums = repository.getAlbumList("newest", size = 500)
                         }
                         updateContent { copy(albums = cachedAlbums.orEmpty()) }
                     }

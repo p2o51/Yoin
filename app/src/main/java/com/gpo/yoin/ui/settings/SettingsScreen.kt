@@ -391,7 +391,7 @@ private fun ProfileSwitcherSection(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 18.dp, vertical = 18.dp),
+                .padding(horizontal = 16.dp, vertical = 18.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Row(
@@ -421,11 +421,11 @@ private fun ProfileSwitcherSection(
                 // Full-bleed past the page's 18dp padding — scrolled cards run
                 // under the screen edges with a soft fade instead of being
                 // chopped at the padding line.
-                contentPadding = PaddingValues(horizontal = 18.dp, vertical = 4.dp),
+                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .ignoreParentHorizontalPadding(18.dp)
+                    .ignoreParentHorizontalPadding(16.dp)
                     .horizontalEdgeFadeOnScroll(profileRowState),
             ) {
                 items(

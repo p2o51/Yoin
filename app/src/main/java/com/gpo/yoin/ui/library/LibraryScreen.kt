@@ -90,7 +90,6 @@ import com.gpo.yoin.data.model.Track
 import com.gpo.yoin.ui.component.ExpressiveBackdropArtwork
 import com.gpo.yoin.ui.component.ExpressiveBackdropVariant
 import com.gpo.yoin.ui.component.ExpressiveMetaPill
-import com.gpo.yoin.ui.component.ignoreParentHorizontalPadding
 import com.gpo.yoin.ui.component.ExpressivePageBackground
 import com.gpo.yoin.ui.component.ExpressiveSectionPanel
 import com.gpo.yoin.ui.component.ExpressiveSegmentedTabs
@@ -418,12 +417,15 @@ private fun LibraryContentBody(
             },
         )
 
-        // Browse (collapsed): filter chips + the per-tab grid/list, unchanged.
+        // Browse (collapsed): filter chips + the per-tab grid/list. No column
+        // padding here — every child carries its own 16dp so the chips, the
+        // grid covers, the list rows and the search pill all share ONE left
+        // edge (the old outer 16dp stacked with the children's 16dp into a
+        // misaligned 32dp).
         Column(
             modifier = Modifier
                 .weight(1f)
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp),
+                .fillMaxWidth(),
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
             LibraryFilterChips(
@@ -529,18 +531,15 @@ private fun LibraryFilterChips(
     // Render only tabs the active source supports (e.g. drop Playlists on a
     // provider without PLAYLISTS_READ). Callers pass
     // `LibraryUiState.Content.availableTabs`.
-    // Full-bleed: escape the header column's 16dp padding so the chip row
-    // scrolls under the screen edges (scroll-aware fade) instead of being
-    // chopped at the padding line; contentPadding keeps the resting chips on
-    // the page margin.
+    // Full-width row; contentPadding keeps the resting chips on the 16dp
+    // page margin while scrolled chips run under the screen edges with the
+    // scroll-aware fade.
     ExpressiveSegmentedTabs(
         items = tabs,
         selectedItem = selectedTab,
         label = { it.name },
         onSelectedChange = onTabSelected,
-        modifier = modifier
-            .fillMaxWidth()
-            .ignoreParentHorizontalPadding(16.dp),
+        modifier = modifier.fillMaxWidth(),
         contentPadding = PaddingValues(horizontal = 16.dp),
     )
 }

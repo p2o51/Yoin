@@ -472,7 +472,10 @@ class YoinRepository(
             val albums = spotifyCoordinator().readAlbums(profileId)
             val sorted = when (type) {
                 "alphabeticalByName" -> albums.sortedBy { it.name.lowercase() }
-                "recent" -> albums.sortedByDescending { it.addedAt.orEmpty() }
+                // Subsonic semantics: "newest" = recently ADDED, "recent" =
+                // recently played. Spotify's library only has addedAt, so both
+                // map to it — callers use "newest" for 最近添加 across providers.
+                "newest", "recent" -> albums.sortedByDescending { it.addedAt.orEmpty() }
                 "random" -> albums.shuffled()
                 else -> albums
             }
