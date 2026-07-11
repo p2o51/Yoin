@@ -135,11 +135,7 @@ class HomeViewModel(
             val activitiesDeferred = async {
                 repository.getRecentActivities(limit = 20).first()
             }
-            val widgetGridDeferred = async {
-                buildWidgetGrid(albums = {
-                    repository.getAlbumList("random", size = GRID_ALBUM_REQUEST_SIZE)
-                })
-            }
+            val widgetGridDeferred = async { resolveWidgetGrid(localOnly = false) }
             val recentlyAddedDeferred = async { loadRecentlyAdded() }
             // Parallel with the grid/shelf loads: on a cold detail cache this can
             // be a network fetch, and it must not serialize the first paint.
@@ -179,28 +175,17 @@ class HomeViewModel(
     }
 
     private suspend fun loadCachedSpotifyHomeContent(
-        profileId: String,
+        @Suppress("UNUSED_PARAMETER") profileId: String,
     ): HomeUiState.Content? = coroutineScope {
         val activitiesDeferred = async {
             repository.getRecentActivities(limit = 20).first()
         }
-        val cacheSnapshotDeferred = async {
-            repository.getCachedSpotifyHomeJumpBackIn(
-                profileId = profileId,
-                maxAgeMs = SpotifyHomeCacheTtlMillis,
-            )
-        }
+        // Instant pre-paint: pools of any age from disk, never the network.
+        // The fresh load right behind this rotates them only if expired.
+        val widgetGridDeferred = async { resolveWidgetGrid(localOnly = true) }
 
         val activities = activitiesDeferred.await()
-        val cacheSnapshot = cacheSnapshotDeferred.await()
-        // Local-only: the cached path must render instantly (or not at all), so
-        // the grid draws from cached albums + local Room signals and skips the
-        // playlist / library fetches. The fresh load right behind it fills in.
-        val widgetGrid = buildWidgetGrid(
-            albums = { cacheSnapshot.albums },
-            localOnly = true,
-        )
-
+        val widgetGrid = widgetGridDeferred.await()
         if (activities.isEmpty() && widgetGrid.isEmpty()) {
             null
         } else {
@@ -212,30 +197,14 @@ class HomeViewModel(
     }
 
     private suspend fun loadSpotifyHomeContent(
-        profileId: String,
+        @Suppress("UNUSED_PARAMETER") profileId: String,
     ): HomeUiState.Content = coroutineScope {
         val activitiesDeferred = async { resolveSpotifyActivities() }
-        val albumDeferred = async {
-            repository.getAlbumList("random", size = GRID_ALBUM_REQUEST_SIZE)
-        }
+        val widgetGridDeferred = async { resolveWidgetGrid(localOnly = false) }
         val recentlyAddedDeferred = async { loadRecentlyAdded() }
 
         val (activities, activitiesFromRemote) = activitiesDeferred.await()
-        val shuffledAlbums = albumDeferred.await()
-            .distinctBy { album -> album.id }
-            .shuffled()
-            .take(SpotifyHomeCacheCandidateCount)
-
-        // The widget grid no longer renders artists, so the artist slot of the
-        // cache is left empty rather than fetched-and-ignored.
-        repository.replaceSpotifyHomeJumpBackInCache(
-            profileId = profileId,
-            albums = shuffledAlbums,
-            artists = emptyList(),
-        )
-
         val heroFootnoteDeferred = async { loadActivityHeroFootnote(activities) }
-        val widgetGridDeferred = async { buildWidgetGrid(albums = { shuffledAlbums }) }
         HomeUiState.Content(
             activities = activities,
             activitiesFromRemote = activitiesFromRemote,
@@ -292,8 +261,8 @@ class HomeViewModel(
                     // Only re-resolve the hero footnote when the hero actually
                     // changed — resolving per emission is wasted work, and a
                     // transient getAlbum failure would wipe a good footnote.
-                    val newHero = dedupeActivitiesForHome(effectiveActivities).firstOrNull()
-                    val oldHero = dedupeActivitiesForHome(currentContent.activities).firstOrNull()
+                    val newHero = selectHomeHeroActivity(effectiveActivities)
+                    val oldHero = selectHomeHeroActivity(currentContent.activities)
                     val heroUnchanged = newHero?.entityType == oldHero?.entityType &&
                         newHero?.entityId == oldHero?.entityId
                     val nextContent = currentContent.copy(
@@ -366,44 +335,89 @@ class HomeViewModel(
     // ── Widget grid (Jump Back In × memories) ────────────────────────────
 
     /**
-     * Assemble the 3×4 = 12-cell home widget grid. The design composition:
-     * one noted track (1×2) + two plain tracks + three playlists + four albums,
-     * of which one carries a rating/review (1×2) — 2+2+3+3+2 = 12 cells.
-     *
-     * Every source is fetched independently and degrades to empty on failure,
-     * then leftover candidates top the grid back up toward 12 cells, so a
-     * missing signal (no notes yet, no playlists, no ratings) shrinks a card
-     * back to 1×1 or swaps in another recommendation instead of blanking the
-     * section. [localOnly] skips the remote fetches (playlists / library
-     * tracks) for the instant cached path.
+     * Resolve the widget grid through the persisted candidate pools: fresh
+     * pools compose instantly with zero network; expired pools trigger one
+     * re-fetch — the shelf's rotation moment, at most once per
+     * [GRID_POOLS_TTL_MS] — and the [localOnly] pre-paint path accepts any age
+     * and never touches the network. The memory / noted signal cards are
+     * always resolved live regardless of pool age.
+     */
+    private suspend fun resolveWidgetGrid(localOnly: Boolean): List<HomeWidgetCard> {
+        val fresh = guardedOrNull { repository.getCachedHomeGridPools(maxAgeMs = GRID_POOLS_TTL_MS) }
+        if (fresh != null) return buildWidgetGrid(fresh)
+        if (localOnly) {
+            val stale = guardedOrNull { repository.getCachedHomeGridPools(maxAgeMs = null) }
+            return stale?.let { buildWidgetGrid(it) } ?: emptyList()
+        }
+        return buildWidgetGrid(fetchAndPersistGridPools())
+    }
+
+    /**
+     * One network fan-out builds the next batch of recommendation pools,
+     * pre-shuffled into their final order and persisted — so every open until
+     * the TTL expires reads the same shelf straight from disk.
+     */
+    private suspend fun fetchAndPersistGridPools(): YoinRepository.HomeGridPoolSnapshot =
+        coroutineScope {
+            val albumsDeferred = async {
+                guardedList { repository.getAlbumList("random", size = GRID_ALBUM_REQUEST_SIZE) }
+            }
+            val tracksDeferred = async { guardedList { loadGridTracks() } }
+            val playlistsDeferred = async { guardedList { repository.getPlaylists() } }
+            val snapshot = YoinRepository.HomeGridPoolSnapshot(
+                albums = albumsDeferred.await()
+                    .distinctBy { album -> album.id }
+                    .shuffled()
+                    .take(GRID_POOL_ALBUMS),
+                // loadGridTracks is already random/shuffled at the source.
+                tracks = tracksDeferred.await()
+                    .distinctBy { track -> track.id }
+                    .take(GRID_POOL_TRACKS),
+                playlists = playlistsDeferred.await()
+                    .distinctBy { playlist -> playlist.id }
+                    .shuffled()
+                    .take(GRID_POOL_PLAYLISTS),
+                cachedAt = System.currentTimeMillis(),
+            )
+            // Persist failure must not cost the grid — worst case the next
+            // open re-fetches instead of reading disk.
+            try {
+                repository.replaceHomeGridPools(
+                    albums = snapshot.albums,
+                    tracks = snapshot.tracks,
+                    playlists = snapshot.playlists,
+                )
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (_: Exception) {
+            }
+            snapshot
+        }
+
+    /**
+     * Assemble the 3×4 = 12-cell home widget grid from prepared pools. The
+     * design composition: one noted track (1×2) + two plain tracks + three
+     * playlists + four albums, of which one carries a rating/review (1×2) —
+     * 2+2+3+3+2 = 12 cells. Deterministic given the pools (no shuffling here):
+     * the shelf only changes when the pools rotate or a memory signal moves.
+     * Leftover candidates top the grid back up toward 12 cells when a signal
+     * is missing.
      */
     private suspend fun buildWidgetGrid(
-        albums: suspend () -> List<Album>,
-        localOnly: Boolean = false,
+        pools: YoinRepository.HomeGridPoolSnapshot,
     ): List<HomeWidgetCard> = coroutineScope {
-        val albumPoolDeferred = async { guardedList { albums() } }
         val memoryDeferred = async { loadMemoryAlbumCard() }
         val noteDeferred = async { loadNotedTrackCard() }
-        val playlistsDeferred = async {
-            if (localOnly) emptyList() else guardedList { repository.getPlaylists() }
-        }
-        val tracksDeferred = async {
-            if (localOnly) emptyList() else guardedList { loadGridTracks() }
-        }
 
         val memory = memoryDeferred.await()
         val note = noteDeferred.await()
-        val albumPool = albumPoolDeferred.await()
-            .distinctBy { album -> album.id }
+        val albumPool = pools.albums
             .filterNot { album -> album.id == memory?.second }
             .map { album -> album.toWidgetCard() }
-        val trackPool = tracksDeferred.await()
-            .distinctBy { track -> track.id }
+        val trackPool = pools.tracks
             .filterNot { track -> track.id == note?.second }
             .map { track -> track.toWidgetCard() }
-        val playlistPool = playlistsDeferred.await()
-            .distinctBy { playlist -> playlist.id }
-            .shuffled()
+        val playlistPool = pools.playlists
             .map { playlist -> playlist.toWidgetCard() }
 
         val wideCards = listOfNotNull(memory?.first, note?.first)
@@ -575,13 +589,15 @@ class HomeViewModel(
     }
 
     /**
-     * "2024 · 12 songs · 44 min" for the hero (first deduped) activity when it
-     * is an album. Resolved through the detail cache ([YoinRepository.getAlbum]
-     * is LRU + disk backed), so this is usually a local read; any failure just
-     * drops the line.
+     * "2024 · 12 songs · 44 min" for the hero bento slot — the same entry
+     * [selectHomeHeroActivity] crowns for the UI (first album/playlist).
+     * Albums only: playlist metadata isn't disk-cached, so a playlist hero
+     * just skips the line. Resolved through the detail cache
+     * ([YoinRepository.getAlbum] is LRU + disk backed), so this is usually a
+     * local read; any failure just drops the line.
      */
     private suspend fun loadActivityHeroFootnote(activities: List<ActivityEvent>): String? {
-        val hero = dedupeActivitiesForHome(activities).firstOrNull() ?: return null
+        val hero = selectHomeHeroActivity(activities) ?: return null
         if (hero.entityType != ActivityEntityType.ALBUM.name) return null
         val album = try {
             repository.getAlbum(MediaId(hero.provider, rawEntityId(hero.entityId)))
@@ -653,11 +669,18 @@ class HomeViewModel(
         private const val GRID_TRACK_REQUEST_SIZE = 12
         private const val GRID_MEMORY_CANDIDATE_LIMIT = 12
 
+        // Persisted pool sizes (enough to fill 12 cells even when both wide
+        // cards are missing and dedup bites) and the rotation cadence: the
+        // shelf re-rolls at most every 6 hours, otherwise it reads from disk
+        // with zero network.
+        private const val GRID_POOL_ALBUMS = 8
+        private const val GRID_POOL_TRACKS = 6
+        private const val GRID_POOL_PLAYLISTS = 6
+        private const val GRID_POOLS_TTL_MS = 6L * 60L * 60L * 1000L
+
         // "Recently Added" home shelf: library items added within the last week.
         private const val RECENTLY_ADDED_WINDOW_MS = 7L * 24 * 60 * 60 * 1000
         private const val RECENTLY_ADDED_LIMIT = 12
-        private const val SpotifyHomeCacheCandidateCount = 18
-        private const val SpotifyHomeCacheTtlMillis = 60L * 60L * 1000L
 
         // Coalesces activity-event bursts (track skips, detail visits) before
         // rebuilding the live activities feed.

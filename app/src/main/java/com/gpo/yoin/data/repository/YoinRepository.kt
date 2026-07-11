@@ -26,6 +26,11 @@ import com.gpo.yoin.data.local.MemoryCopyCacheDao
 import com.gpo.yoin.data.local.PlayHistory
 import com.gpo.yoin.data.local.SongAboutEntry
 import com.gpo.yoin.data.local.SongAboutEntryDao
+import com.gpo.yoin.data.local.HomeGridPoolCache
+import com.gpo.yoin.data.local.toAlbum
+import com.gpo.yoin.data.local.toGridPoolRow
+import com.gpo.yoin.data.local.toPlaylist
+import com.gpo.yoin.data.local.toTrack
 import com.gpo.yoin.data.local.SongNote
 import com.gpo.yoin.data.local.SongNoteDao
 import com.gpo.yoin.data.local.SongNoteKey
@@ -636,6 +641,65 @@ class YoinRepository(
                         )
                     },
             )
+        }
+    }
+
+    // ── Home grid pool cache ──────────────────────────────────────────
+
+    data class HomeGridPoolSnapshot(
+        val albums: List<Album>,
+        val tracks: List<Track>,
+        val playlists: List<Playlist>,
+        val cachedAt: Long,
+    )
+
+    /**
+     * The persisted Jump Back In candidate pools for the active
+     * profile+provider, in their stored (pre-shuffled) order. Null when
+     * nothing is cached, or when [maxAgeMs] is given and the pools are older —
+     * pass null to accept any age (the instant pre-paint path).
+     */
+    suspend fun getCachedHomeGridPools(maxAgeMs: Long?): HomeGridPoolSnapshot? {
+        val provider = activeSource.value?.id ?: return null
+        val profileId = activeProfileId.value ?: return null
+        val rows = database.homeGridPoolDao().getForProfile(profileId, provider)
+        if (rows.isEmpty()) return null
+        val cachedAt = rows.minOf(HomeGridPoolCache::cachedAt)
+        if (maxAgeMs != null && cachedAt < System.currentTimeMillis() - maxAgeMs) return null
+        return HomeGridPoolSnapshot(
+            albums = rows.filter { it.itemType == HomeGridPoolCache.TYPE_ALBUM }
+                .map(HomeGridPoolCache::toAlbum),
+            tracks = rows.filter { it.itemType == HomeGridPoolCache.TYPE_TRACK }
+                .map(HomeGridPoolCache::toTrack),
+            playlists = rows.filter { it.itemType == HomeGridPoolCache.TYPE_PLAYLIST }
+                .map(HomeGridPoolCache::toPlaylist),
+            cachedAt = cachedAt,
+        )
+    }
+
+    /** Replace the active profile+provider's pools atomically, in list order. */
+    suspend fun replaceHomeGridPools(
+        albums: List<Album>,
+        tracks: List<Track>,
+        playlists: List<Playlist>,
+    ) {
+        val provider = activeSource.value?.id ?: return
+        val profileId = activeProfileId.value ?: return
+        val cachedAt = clock()
+        val rows = buildList {
+            albums.filter { it.id.provider == provider }.mapIndexedTo(this) { index, album ->
+                album.toGridPoolRow(profileId, index, cachedAt)
+            }
+            tracks.filter { it.id.provider == provider }.mapIndexedTo(this) { index, track ->
+                track.toGridPoolRow(profileId, index, cachedAt)
+            }
+            playlists.filter { it.id.provider == provider }.mapIndexedTo(this) { index, playlist ->
+                playlist.toGridPoolRow(profileId, index, cachedAt)
+            }
+        }
+        database.withTransaction {
+            database.homeGridPoolDao().deleteForProfile(profileId, provider)
+            database.homeGridPoolDao().insertAll(rows)
         }
     }
 

@@ -280,8 +280,17 @@ internal fun HomeEditorialContent(
             when (sectionState.section) {
                 HomeSection.Activities -> item(key = "section-activities") {
                     if (activityEntries.isNotEmpty()) {
+                        // Hero slot = first album/playlist; artists fill the
+                        // smaller cards in recency order.
+                        val heroEntry = activityEntries.firstOrNull { entry ->
+                            entry.entityType == ActivityEntityType.ALBUM.name ||
+                                entry.entityType == ActivityEntityType.PLAYLIST.name
+                        }
                         ActivityBento(
-                            entries = activityEntries.take(4),
+                            hero = heroEntry,
+                            supporting = activityEntries
+                                .filterNot { it === heroEntry }
+                                .take(3),
                             heroFootnoteExtra = activityHeroFootnote,
                             extractBackdropColors = shouldExtractBackdropColors,
                             onEntryClick = onEntryClick,
@@ -395,7 +404,11 @@ private fun HomeContentHeader(
 
 @Composable
 private fun ActivityBento(
-    entries: List<HomeMomentEntry>,
+    // The hero slot only carries an album / playlist (or nothing); the
+    // supporting cards take the rest in recency order: [0] small square,
+    // [1] wide, [2] strip.
+    hero: HomeMomentEntry?,
+    supporting: List<HomeMomentEntry>,
     heroFootnoteExtra: String?,
     extractBackdropColors: Boolean,
     onEntryClick: (HomeEntryTarget) -> Unit,
@@ -409,16 +422,16 @@ private fun ActivityBento(
             text = "Activities",
             modifier = Modifier.padding(bottom = 6.dp),
         )
-        entries.getOrNull(0)?.let { hero ->
+        hero?.let { entry ->
             ActivityHeroCard(
-                entry = hero,
+                entry = entry,
                 footnoteExtra = heroFootnoteExtra,
                 extractBackdropColors = extractBackdropColors,
-                onClick = { onEntryClick(hero.target) },
+                onClick = { onEntryClick(entry.target) },
                 modifier = Modifier.fillMaxWidth(),
             )
         }
-        if (entries.size > 1) {
+        if (supporting.isNotEmpty()) {
             // Fixed row height (Figma: 97pt), scaled with the user's font size:
             // IntrinsicSize would crash here — MarqueeTitle's BoxWithConstraints
             // is a SubcomposeLayout, which cannot answer intrinsic measurements.
@@ -429,7 +442,7 @@ private fun ActivityBento(
                     .height(104.dp * fontScale),
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                entries.getOrNull(1)?.let { small ->
+                supporting.getOrNull(0)?.let { small ->
                     ActivitySmallCard(
                         entry = small,
                         extractBackdropColors = extractBackdropColors,
@@ -439,23 +452,23 @@ private fun ActivityBento(
                             .fillMaxHeight(),
                     )
                 }
-                if (entries.size > 2) {
+                supporting.getOrNull(1)?.let { wide ->
                     ActivityWideCard(
-                        entry = entries[2],
+                        entry = wide,
                         extractBackdropColors = extractBackdropColors,
-                        onClick = { onEntryClick(entries[2].target) },
+                        onClick = { onEntryClick(wide.target) },
                         modifier = Modifier
                             .weight(2f)
                             .fillMaxHeight(),
                     )
-                } else {
+                } ?: run {
                     // Keep the lone small card at column width instead of
                     // letting its weight stretch it across the whole row.
                     Spacer(modifier = Modifier.weight(2f))
                 }
             }
         }
-        entries.getOrNull(3)?.let { strip ->
+        supporting.getOrNull(2)?.let { strip ->
             ActivityStripCard(
                 entry = strip,
                 extractBackdropColors = extractBackdropColors,
@@ -917,6 +930,28 @@ internal fun dedupeActivitiesForHome(
 ): List<ActivityEvent> = activities.distinctBy(::homeActivityDedupKey)
 
 /**
+ * What the Activities bento actually shows: deduped, and tracks dropped —
+ * the bento opens album / playlist / artist pages only, single plays don't
+ * earn a card.
+ */
+internal fun selectHomeActivities(
+    activities: List<ActivityEvent>,
+): List<ActivityEvent> = dedupeActivitiesForHome(activities)
+    .filterNot { it.entityType == ActivityEntityType.SONG.name }
+
+/**
+ * The hero (topmost, biggest) bento slot only ever shows an album or a
+ * playlist — artists keep to the smaller cards. Shared with the ViewModel so
+ * the hero footnote is resolved for the same entry the UI crowns.
+ */
+internal fun selectHomeHeroActivity(
+    activities: List<ActivityEvent>,
+): ActivityEvent? = selectHomeActivities(activities).firstOrNull {
+    it.entityType == ActivityEntityType.ALBUM.name ||
+        it.entityType == ActivityEntityType.PLAYLIST.name
+}
+
+/**
  * `ActivityEvent.entityId` / `songId` 历史上存过两种形态：
  *   • 裸 rawId — 当前所有写入路径（`YoinRepository.recordAlbumVisit` /
  *     `recordArtistVisit` 等）统一写入这个形态
@@ -945,7 +980,7 @@ private fun homeActivityDedupKey(activity: ActivityEvent): String {
 private fun buildActivityEntries(
     activities: List<ActivityEvent>,
     buildCoverArtUrl: (String) -> String,
-): List<HomeMomentEntry> = dedupeActivitiesForHome(activities).take(6).map { activity ->
+): List<HomeMomentEntry> = selectHomeActivities(activities).take(6).map { activity ->
     val stableId = "activity:${activity.id}:${activity.entityType}:${activity.entityId}:${activity.actionType}"
     val rawEntityId = activityEntityRawId(activity.entityId)
     val entityMediaId = "${activity.provider}:$rawEntityId"

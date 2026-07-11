@@ -43,7 +43,7 @@ class HomeViewModelTest {
     val mainDispatcherRule = MainDispatcherRule(StandardTestDispatcher())
 
     @Test
-    fun should_render_cached_spotify_widget_grid_before_network_refresh() = runTest {
+    fun should_render_stale_grid_pools_before_network_rotation() = runTest {
         val repository = mockk<YoinRepository>(relaxed = true)
         val profileId = MutableStateFlow("spotify-profile")
         val gate = CompletableDeferred<Unit>()
@@ -53,26 +53,22 @@ class HomeViewModelTest {
         every { repository.currentProviderId() } returns MediaId.PROVIDER_SPOTIFY
         every { repository.currentCapabilities() } returns emptySet()
         every { repository.getRecentActivities(limit = 20) } returns flowOf(emptyList<ActivityEvent>())
-        coEvery {
-            repository.getCachedSpotifyHomeJumpBackIn(
-                profileId = "spotify-profile",
-                maxAgeMs = any(),
+        // TTL-bounded read: pools have expired → the fresh path must rotate.
+        coEvery { repository.getCachedHomeGridPools(isNull(inverse = true)) } returns null
+        // Any-age read: the instant pre-paint path still has the old batch.
+        coEvery { repository.getCachedHomeGridPools(isNull()) } returns
+            YoinRepository.HomeGridPoolSnapshot(
+                albums = listOf(cachedAlbum),
+                tracks = emptyList(),
+                playlists = emptyList(),
+                cachedAt = 1L,
             )
-        } returns YoinRepository.SpotifyHomeJumpBackInCacheSnapshot(
-            albums = listOf(cachedAlbum),
-            artists = emptyList(),
-        )
         coEvery { repository.getAlbumList("random", 18, 0) } coAnswers {
             gate.await()
             listOf(freshAlbum)
         }
         coEvery {
-            repository.replaceSpotifyHomeJumpBackInCache(
-                profileId = "spotify-profile",
-                albums = listOf(freshAlbum),
-                artists = emptyList(),
-                cachedAt = any(),
-            )
+            repository.replaceHomeGridPools(albums = any(), tracks = any(), playlists = any())
         } just runs
 
         val homeLayoutStore = mockk<HomeLayoutStore>(relaxed = true)
@@ -102,12 +98,12 @@ class HomeViewModelTest {
                 card.target == HomeWidgetTarget.AlbumDetail(freshAlbum.id.toString())
             },
         )
+        // The rotated batch is persisted for the next opens.
         coVerify {
-            repository.replaceSpotifyHomeJumpBackInCache(
-                profileId = "spotify-profile",
+            repository.replaceHomeGridPools(
                 albums = listOf(freshAlbum),
-                artists = emptyList(),
-                cachedAt = any(),
+                tracks = any(),
+                playlists = any(),
             )
         }
     }
@@ -124,18 +120,11 @@ class HomeViewModelTest {
         every { repository.currentCapabilities() } returns emptySet()
         every { repository.getRecentActivities(limit = 20) } returns flowOf(emptyList<ActivityEvent>())
         coEvery { repository.getSpotifyRecentActivities(20) } returns emptyList()
-        coEvery {
-            repository.getCachedSpotifyHomeJumpBackIn(profileId = any(), maxAgeMs = any())
-        } returns YoinRepository.SpotifyHomeJumpBackInCacheSnapshot(albums = emptyList(), artists = emptyList())
+        coEvery { repository.getCachedHomeGridPools(any()) } returns null
+        coEvery { repository.getCachedHomeGridPools(isNull()) } returns null
         coEvery { repository.getAlbumList("random", any(), any()) } returns emptyList()
-        coEvery { repository.getArtists() } returns emptyList()
         coEvery {
-            repository.replaceSpotifyHomeJumpBackInCache(
-                profileId = any(),
-                albums = any(),
-                artists = any(),
-                cachedAt = any(),
-            )
+            repository.replaceHomeGridPools(albums = any(), tracks = any(), playlists = any())
         } just runs
 
         val now = Instant.now()
@@ -187,6 +176,12 @@ class HomeViewModelTest {
         every { repository.getRating(any()) } returns flowOf(null)
         coEvery { repository.getMostRecentPlay(any()) } returns null
         coEvery { repository.getStarred() } returns com.gpo.yoin.data.model.Starred()
+        // No persisted pools → the grid builds (and persists) a fresh batch.
+        coEvery { repository.getCachedHomeGridPools(any()) } returns null
+        coEvery { repository.getCachedHomeGridPools(isNull()) } returns null
+        coEvery {
+            repository.replaceHomeGridPools(albums = any(), tracks = any(), playlists = any())
+        } just runs
 
         // One reviewed memory candidate (album a1) → the memory 1×2 card.
         coEvery { repository.getAlbumMemoryCandidates(any()) } returns listOf(
