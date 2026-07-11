@@ -75,6 +75,7 @@ class AlbumDetailActivity : ComponentActivity() {
                 }
 
                 val miniPlayerState by rememberDetailMiniPlayerState(app.container)
+                val miniPlayerProgress = rememberDetailMiniPlayerProgress(app.container)
                 val miniPlayerInset by animateDpAsState(
                     targetValue = if (miniPlayerState != null) 72.dp else 0.dp,
                     label = "miniPlayerInset",
@@ -122,7 +123,7 @@ class AlbumDetailActivity : ComponentActivity() {
 
                     DetailMiniPlayer(
                         state = miniPlayerState,
-                        onHome = { launchShellFromDetail(context, app.container, expandNowPlaying = false) },
+                        progress = { miniPlayerProgress.value },
                         onOpenNowPlaying = { launchShellFromDetail(context, app.container, expandNowPlaying = true) },
                         onTogglePlay = {
                             if (miniPlayerState?.isPlaying == true) {
@@ -134,7 +135,7 @@ class AlbumDetailActivity : ComponentActivity() {
                         modifier = Modifier
                             .align(Alignment.BottomCenter)
                             .navigationBarsPadding()
-                            .padding(start = 12.dp, end = 12.dp, bottom = 8.dp),
+                            .padding(start = 16.dp, end = 16.dp, bottom = 8.dp),
                     )
                 }
             }

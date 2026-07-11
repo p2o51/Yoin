@@ -69,13 +69,13 @@ class DetailScreenshotActivity : ComponentActivity() {
                         coverArtUrl = null,
                         isPlaying = true,
                     ),
-                    onHome = {},
+                    progress = { 0.37f },
                     onOpenNowPlaying = {},
                     onTogglePlay = {},
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
                         .navigationBarsPadding()
-                        .padding(start = 12.dp, end = 12.dp, bottom = 8.dp),
+                        .padding(start = 16.dp, end = 16.dp, bottom = 8.dp),
                 )
                 }
             }
