@@ -2,6 +2,7 @@ package com.gpo.yoin.ui.home
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -16,6 +17,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.filled.LibraryMusic
 import androidx.compose.material.icons.filled.MusicNote
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.MaterialShapes
 import androidx.compose.material3.MaterialTheme
@@ -39,42 +41,75 @@ import com.gpo.yoin.ui.component.noRippleClickable
 import com.gpo.yoin.ui.component.rememberExpressiveBackdropColors
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
 import com.gpo.yoin.ui.memories.MemoryEntityType
+import com.gpo.yoin.ui.theme.GoogleSansFlex
 import com.gpo.yoin.ui.theme.YoinShapeTokens
 import com.gpo.yoin.ui.theme.withTabularFigures
 
 // The compact "1×1" cover is 100dp wide in the Figma; the backdrop shape fills
 // it while the artwork sits at ~73/100 in the bottom-right so the shape peeks
 // out around it. The wide "1×2" card reuses that same 100dp cover on the left.
-private val MemoryCoverSize = 100.dp
-private const val MemoryArtworkFraction = 0.72f
-private const val MemoriesGridColumns = 3
+private val WidgetCoverSize = 100.dp
+private const val WidgetArtworkFraction = 0.72f
+private const val WidgetGridColumns = 3
 
 /**
- * The home "Memories" shelf (Figma node 405:361). A masonry over a 3-column
- * grid: a wide "1×2" card (cover + rating + review copy) spans two columns and
- * shares its row with a compact "1×1" cover; unpaired covers fill rows of three.
- * Every card is a plain tap that pushes into the Memories deck stopped on that
- * album — no shared-element or predictive-back choreography, just a unified open.
+ * Which backdrop shape sits behind a cover — the "题材" mapping recovered from
+ * the original ExpressiveBackdrop: entity type → Material 3 expressive shape.
  */
+internal enum class WidgetShapeKind {
+    Album,
+    Song,
+    Playlist,
+    Artist,
+}
+
+internal fun MemoryEntityType.toWidgetShapeKind(): WidgetShapeKind = when (this) {
+    MemoryEntityType.ALBUM -> WidgetShapeKind.Album
+    MemoryEntityType.SONG -> WidgetShapeKind.Song
+    MemoryEntityType.PLAYLIST -> WidgetShapeKind.Playlist
+}
+
+/** The design-language section heading shared by the home feed sections. */
 @Composable
-internal fun HomeMemoriesSection(
-    memories: List<HomeMemoryWidget>,
-    extractBackdropColors: Boolean,
-    onOpenMemory: (sessionId: Long) -> Unit,
+internal fun HomeSectionTitle(
+    text: String,
     modifier: Modifier = Modifier,
 ) {
-    if (memories.isEmpty()) return
-    val rows = remember(memories) { packMemoryRows(memories) }
+    Text(
+        text = text,
+        style = MaterialTheme.typography.titleLarge.copy(
+            fontWeight = FontWeight.SemiBold,
+            fontFamily = GoogleSansFlex,
+            fontSize = 18.sp,
+        ),
+        color = MaterialTheme.colorScheme.onSurface,
+        modifier = modifier,
+    )
+}
+
+/**
+ * The home widget grid (Figma node 405:361, "Memories" visual language): a
+ * masonry over a 3-column grid where a wide "1×2" card spans two columns and
+ * shares its row with a compact "1×1" cover; unpaired covers fill rows of
+ * three. Cards are plain taps — album/playlist push their detail, songs play,
+ * memory cards push into the Memories deck. No predictive-back choreography.
+ */
+@Composable
+internal fun HomeWidgetGridSection(
+    title: String,
+    cards: List<HomeWidgetCard>,
+    extractBackdropColors: Boolean,
+    onCardClick: (HomeWidgetTarget) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    if (cards.isEmpty()) return
+    val rows = remember(cards) { packWidgetRows(cards) }
 
     Column(
         modifier = modifier,
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        Text(
-            text = "Memories",
-            style = MaterialTheme.typography.headlineMedium,
-            color = MaterialTheme.colorScheme.onSurface,
-        )
+        HomeSectionTitle(text = title)
         rows.forEach { row ->
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -84,28 +119,28 @@ internal fun HomeMemoriesSection(
                 verticalAlignment = Alignment.Top,
             ) {
                 var units = 0
-                row.forEach { memory ->
-                    if (memory.expanded) {
+                row.forEach { card ->
+                    if (card.expanded) {
                         units += 2
-                        MemoryWidget12(
-                            memory = memory,
+                        WidgetCard12(
+                            card = card,
                             extractBackdropColors = extractBackdropColors,
-                            onClick = { onOpenMemory(memory.sessionId) },
+                            onClick = { onCardClick(card.target) },
                             modifier = Modifier.weight(2f),
                         )
                     } else {
                         units += 1
-                        MemoryCoverBlock(
-                            memory = memory,
+                        WidgetCoverBlock(
+                            card = card,
                             extractBackdropColors = extractBackdropColors,
-                            onClick = { onOpenMemory(memory.sessionId) },
+                            onClick = { onCardClick(card.target) },
                             modifier = Modifier.weight(1f),
                         )
                     }
                 }
                 // Pad short rows so cards keep their column width instead of
                 // stretching across the leftover space.
-                repeat(MemoriesGridColumns - units) {
+                repeat(WidgetGridColumns - units) {
                     Spacer(modifier = Modifier.weight(1f))
                 }
             }
@@ -114,18 +149,18 @@ internal fun HomeMemoriesSection(
 }
 
 /**
- * Pack the shelf into rows of [MemoriesGridColumns] units — a 1×2 is two units,
+ * Pack the grid into rows of [WidgetGridColumns] units — a 1×2 is two units,
  * a 1×1 is one. Each 1×2 is paired with the next 1×1 (alternating sides so the
  * wide card doesn't always hug the same edge, mirroring the Figma masonry);
- * leftover 1×1 covers fill full rows of three. Order otherwise follows memory
- * rank, so the strongest memories still lead.
+ * leftover 1×1 covers fill full rows of three. Order otherwise follows the
+ * incoming ranking, so the strongest cards still lead.
  */
-private fun packMemoryRows(
-    memories: List<HomeMemoryWidget>,
-): List<List<HomeMemoryWidget>> {
-    val wide = memories.filter { it.expanded }.toMutableList()
-    val compact = memories.filterNot { it.expanded }.toMutableList()
-    val rows = mutableListOf<List<HomeMemoryWidget>>()
+private fun packWidgetRows(
+    cards: List<HomeWidgetCard>,
+): List<List<HomeWidgetCard>> {
+    val wide = cards.filter { it.expanded }.toMutableList()
+    val compact = cards.filterNot { it.expanded }.toMutableList()
+    val rows = mutableListOf<List<HomeWidgetCard>>()
     var pairIndex = 0
     while (wide.isNotEmpty()) {
         val big = wide.removeAt(0)
@@ -137,25 +172,25 @@ private fun packMemoryRows(
         }
         pairIndex++
     }
-    compact.chunked(MemoriesGridColumns).forEach { chunk -> rows += chunk }
+    compact.chunked(WidgetGridColumns).forEach { chunk -> rows += chunk }
     return rows
 }
 
 /**
  * The wide "1×2" card: the 1×1 cover block on the left, and a column on the
  * right with the rating (tinted to the cover), what it's based on, and — when
- * present — the review copy in a serif face echoing the Figma.
+ * present — the review/note copy in a serif face echoing the Figma.
  */
 @Composable
-private fun MemoryWidget12(
-    memory: HomeMemoryWidget,
+private fun WidgetCard12(
+    card: HomeWidgetCard,
     extractBackdropColors: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val backdropColors = rememberExpressiveBackdropColors(
-        model = memory.coverArtUrl,
+        model = card.coverArtUrl,
         fallbackBaseColor = MaterialTheme.colorScheme.secondary,
         fallbackAccentColor = MaterialTheme.colorScheme.tertiary,
         enabled = extractBackdropColors,
@@ -171,37 +206,47 @@ private fun MemoryWidget12(
         // Hang the rating from the cover's top edge (Figma), not the row centre.
         verticalAlignment = Alignment.Top,
     ) {
-        MemoryCoverBlock(
-            memory = memory,
+        WidgetCoverBlock(
+            card = card,
             extractBackdropColors = extractBackdropColors,
             interactionSource = interactionSource,
-            modifier = Modifier.width(MemoryCoverSize),
+            modifier = Modifier.width(WidgetCoverSize),
         )
         Column(
             modifier = Modifier.weight(1f),
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                verticalAlignment = Alignment.Bottom,
-            ) {
-                Text(
-                    text = memory.ratingText,
-                    style = MaterialTheme.typography.headlineSmall.copy(
-                        fontWeight = FontWeight.Bold,
-                    ).withTabularFigures(),
-                    color = backdropColors.baseColor,
-                )
-                memory.ratingBasis?.let { basis ->
+            card.ratingText?.let { rating ->
+                // The palette's base tone (L* capped at 0.62) reads fine on a
+                // light surface but sinks into a dark one — use the brighter
+                // accent tone there, same hue family.
+                val ratingColor = if (isSystemInDarkTheme()) {
+                    backdropColors.accentColor
+                } else {
+                    backdropColors.baseColor
+                }
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.Bottom,
+                ) {
                     Text(
-                        text = basis,
-                        style = MaterialTheme.typography.labelSmall.withTabularFigures(),
-                        color = backdropColors.baseColor.copy(alpha = 0.85f),
-                        modifier = Modifier.padding(bottom = 3.dp),
+                        text = rating,
+                        style = MaterialTheme.typography.headlineSmall.copy(
+                            fontWeight = FontWeight.Bold,
+                        ).withTabularFigures(),
+                        color = ratingColor,
                     )
+                    card.ratingBasis?.let { basis ->
+                        Text(
+                            text = basis,
+                            style = MaterialTheme.typography.labelSmall.withTabularFigures(),
+                            color = ratingColor.copy(alpha = 0.85f),
+                            modifier = Modifier.padding(bottom = 3.dp),
+                        )
+                    }
                 }
             }
-            memory.comment?.let { comment ->
+            card.comment?.let { comment ->
                 Text(
                     text = comment,
                     style = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Serif),
@@ -217,11 +262,11 @@ private fun MemoryWidget12(
 /**
  * The 1×1 cover: an entity-type backdrop shape with the artwork nested inside
  * it, then the title and subtitle. Used standalone in the grid and as the left
- * half of a [MemoryWidget12].
+ * half of a [WidgetCard12].
  */
 @Composable
-private fun MemoryCoverBlock(
-    memory: HomeMemoryWidget,
+private fun WidgetCoverBlock(
+    card: HomeWidgetCard,
     extractBackdropColors: Boolean,
     modifier: Modifier = Modifier,
     interactionSource: MutableInteractionSource? = null,
@@ -241,23 +286,23 @@ private fun MemoryCoverBlock(
         modifier = modifier.then(clickModifier),
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        MemoryBackdropArtwork(
-            model = memory.coverArtUrl,
-            entityType = memory.entityType,
-            contentDescription = memory.title,
+        WidgetBackdropArtwork(
+            model = card.coverArtUrl,
+            kind = card.entityType.toWidgetShapeKind(),
+            contentDescription = card.title,
             extractBackdropColors = extractBackdropColors,
             interactionSource = ownInteractionSource,
-            modifier = Modifier.size(MemoryCoverSize),
+            modifier = Modifier.size(WidgetCoverSize),
         )
         Text(
-            text = memory.title,
+            text = card.title,
             style = MaterialTheme.typography.titleSmall,
             color = MaterialTheme.colorScheme.onSurface,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
         Text(
-            text = memory.subtitle,
+            text = card.subtitle,
             style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp),
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             maxLines = 1,
@@ -269,15 +314,16 @@ private fun MemoryCoverBlock(
 /**
  * Static entity-type backdrop, the lightweight revival of the old
  * `ExpressiveBackdrop`: a filled [MaterialShapes] blob tinted to the cover's
- * palette, with the artwork nested at [MemoryArtworkFraction] in the
+ * palette, with the artwork nested at [WidgetArtworkFraction] in the
  * bottom-right so the shape peeks out around it. No morph / scale / FFT pulse —
  * those were the parts that cost frames and got cut; only the shape stays.
+ * Shared by the widget grid and the Activities bento.
  */
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
-private fun MemoryBackdropArtwork(
+internal fun WidgetBackdropArtwork(
     model: String?,
-    entityType: MemoryEntityType,
+    kind: WidgetShapeKind,
     contentDescription: String,
     extractBackdropColors: Boolean,
     modifier: Modifier = Modifier,
@@ -289,10 +335,11 @@ private fun MemoryBackdropArtwork(
         fallbackAccentColor = MaterialTheme.colorScheme.tertiaryContainer,
         enabled = extractBackdropColors,
     )
-    val backdropShape: Shape = when (entityType) {
-        MemoryEntityType.ALBUM -> MaterialShapes.Bun.toShape()
-        MemoryEntityType.SONG -> MaterialShapes.Circle.toShape()
-        MemoryEntityType.PLAYLIST -> MaterialShapes.Ghostish.toShape()
+    val backdropShape: Shape = when (kind) {
+        WidgetShapeKind.Album -> MaterialShapes.Bun.toShape()
+        WidgetShapeKind.Song -> MaterialShapes.Circle.toShape()
+        WidgetShapeKind.Playlist -> MaterialShapes.Ghostish.toShape()
+        WidgetShapeKind.Artist -> MaterialShapes.SoftBoom.toShape()
     }
     Box(modifier = modifier) {
         Box(
@@ -306,7 +353,7 @@ private fun MemoryBackdropArtwork(
             model = model,
             contentDescription = contentDescription,
             modifier = Modifier
-                .fillMaxSize(MemoryArtworkFraction)
+                .fillMaxSize(WidgetArtworkFraction)
                 .align(Alignment.BottomEnd)
                 .then(
                     if (interactionSource != null) {
@@ -318,15 +365,16 @@ private fun MemoryBackdropArtwork(
             // Covers stay square-ish rounded rects like the Figma; only the
             // backdrop shape behind them varies by entity type.
             shape = YoinShapeTokens.Small,
-            fallbackIcon = memoryFallbackIcon(entityType),
+            fallbackIcon = widgetFallbackIcon(kind),
             tonalElevation = 1.dp,
             shadowElevation = 0.dp,
         )
     }
 }
 
-private fun memoryFallbackIcon(entityType: MemoryEntityType): ImageVector = when (entityType) {
-    MemoryEntityType.PLAYLIST -> Icons.AutoMirrored.Filled.QueueMusic
-    MemoryEntityType.SONG -> Icons.Filled.MusicNote
-    MemoryEntityType.ALBUM -> Icons.Filled.LibraryMusic
+private fun widgetFallbackIcon(kind: WidgetShapeKind): ImageVector = when (kind) {
+    WidgetShapeKind.Playlist -> Icons.AutoMirrored.Filled.QueueMusic
+    WidgetShapeKind.Song -> Icons.Filled.MusicNote
+    WidgetShapeKind.Album -> Icons.Filled.LibraryMusic
+    WidgetShapeKind.Artist -> Icons.Filled.Person
 }

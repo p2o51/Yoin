@@ -1,52 +1,38 @@
 package com.gpo.yoin.ui.home
 
 import androidx.compose.animation.AnimatedVisibilityScope
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionScope
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.basicMarquee
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.asPaddingValues
-import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.LazyListState
-import androidx.compose.foundation.gestures.Orientation
-import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
-import androidx.compose.ui.input.nestedscroll.NestedScrollSource
-import androidx.compose.ui.input.nestedscroll.nestedScroll
-import androidx.compose.ui.unit.Velocity
-import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.QueueMusic
-import androidx.compose.material.icons.filled.AutoAwesome
-import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.LibraryMusic
-import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -56,53 +42,47 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
-import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.layout.onSizeChanged
-import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.geometry.Rect
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Shape
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Constraints
-import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
 import com.gpo.yoin.data.local.ActivityEntityType
 import com.gpo.yoin.data.local.ActivityEvent
-import com.gpo.yoin.data.model.Artist
 import com.gpo.yoin.data.model.CoverRef
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.Track
 import com.gpo.yoin.ui.component.ExpressiveMediaArtwork
 import com.gpo.yoin.ui.component.ExpressiveSectionPanel
-import com.gpo.yoin.ui.component.elasticPress
-import com.gpo.yoin.ui.component.expressiveEntrance
-import com.gpo.yoin.ui.component.rememberExpressiveEntranceProgress
 import com.gpo.yoin.ui.component.horizontalFadeMask
-import com.gpo.yoin.ui.component.minimumTouchTarget
 import com.gpo.yoin.ui.component.noRippleClickable
 import com.gpo.yoin.ui.component.rememberExpressiveBackdropColors
 import com.gpo.yoin.ui.experience.RevealState
 import com.gpo.yoin.ui.experience.rememberRevealState
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
-import com.gpo.yoin.ui.navigation.albumCoverSharedKey
-import com.gpo.yoin.ui.navigation.rememberActiveOnlySharedContentConfig
-import com.gpo.yoin.ui.theme.YoinMotion
-import com.gpo.yoin.ui.theme.YoinMotionRole
 import com.gpo.yoin.ui.theme.YoinShapeTokens
+import com.gpo.yoin.ui.theme.withTabularFigures
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 
@@ -115,29 +95,11 @@ internal sealed interface HomeEntryTarget {
 
 private data class HomeMomentEntry(
     val stableId: String,
+    val entityType: String,
     val title: String,
     val subtitle: String,
     val footnote: String,
     val coverArtUrl: String?,
-    val sharedAlbumId: String?,
-    val sharedSourceKey: String?,
-    val songId: String?,
-    val shape: Shape,
-    val fallbackIcon: androidx.compose.ui.graphics.vector.ImageVector,
-    val target: HomeEntryTarget,
-)
-
-private data class JumpBackInVisualEntry(
-    val stableId: String,
-    val title: String,
-    val subtitle: String?,
-    val metaText: String?,
-    val coverArtUrl: String?,
-    val sharedAlbumId: String?,
-    val sharedSourceKey: String?,
-    val songId: String?,
-    val shape: Shape,
-    val fallbackIcon: androidx.compose.ui.graphics.vector.ImageVector,
     val target: HomeEntryTarget,
 )
 
@@ -147,20 +109,17 @@ private const val HomeBackdropPaletteWarmupDelayMillis = 350L
 @Composable
 internal fun HomeEditorialContent(
     activities: List<ActivityEvent>,
-    jumpBackInItems: List<HomeJumpBackInItem>,
-    memoryTeaser: MemoryTeaser? = null,
+    widgetGrid: List<HomeWidgetCard> = emptyList(),
+    activityHeroFootnote: String? = null,
     recentlyAdded: List<Track> = emptyList(),
-    memories: List<HomeMemoryWidget> = emptyList(),
     sections: List<HomeSectionState> = HomeLayout.Default.sections,
-    isPlaying: Boolean,
-    playbackSignal: Float,
-    activeSongId: String? = null,
     onNavigateToSettings: () -> Unit,
     onNavigateToMemories: () -> Unit,
     // Long-press anywhere on the feed enters the home layout editor.
     onEnterEditMode: () -> Unit = {},
-    // Teaser-only: open the deck stopped on this specific album (by candidate
-    // sessionId). The chevron + pull-to-reveal stay generic via onNavigateToMemories.
+    // Memory-flavoured grid cards open the deck stopped on a specific album
+    // (by candidate sessionId). The chevron + pull-to-reveal stay generic via
+    // onNavigateToMemories.
     onOpenMemoryFocus: (sessionId: Long) -> Unit = {},
     memoriesRevealState: RevealState = rememberRevealState(),
     onCommitMemoriesReveal: () -> Unit = {},
@@ -236,16 +195,6 @@ internal fun HomeEditorialContent(
             buildCoverArtUrl = buildCoverArtUrl,
         )
     }
-    val jumpRows = remember(jumpBackInItems, buildCoverArtUrl) {
-        jumpBackInItems
-            .map { item ->
-                buildJumpBackInEntry(
-                    item = item,
-                    buildCoverArtUrl = buildCoverArtUrl,
-                )
-            }
-            .chunked(3)
-    }
     // Keep a single stable dispatcher for entry clicks. Nav lambdas are held
     // via rememberUpdatedState so each call reaches the latest referenced
     // lambda without invalidating `remember`-cached entry lists.
@@ -253,6 +202,7 @@ internal fun HomeEditorialContent(
     val onArtistClickState = rememberUpdatedState(onArtistClick)
     val onPlaylistClickState = rememberUpdatedState(onPlaylistClick)
     val onSongClickState = rememberUpdatedState(onSongClick)
+    val onOpenMemoryFocusState = rememberUpdatedState(onOpenMemoryFocus)
     val onEnterEditModeState = rememberUpdatedState(onEnterEditMode)
     val onEntryClick = remember {
         { target: HomeEntryTarget ->
@@ -264,6 +214,16 @@ internal fun HomeEditorialContent(
                 is HomeEntryTarget.Artist -> onArtistClickState.value(target.artistId)
                 is HomeEntryTarget.Playlist -> onPlaylistClickState.value(target.playlistId)
                 is HomeEntryTarget.SongTarget -> onSongClickState.value(target.song)
+            }
+        }
+    }
+    val onWidgetCardClick = remember {
+        { target: HomeWidgetTarget ->
+            when (target) {
+                is HomeWidgetTarget.AlbumDetail -> onAlbumClickState.value(target.albumId, null)
+                is HomeWidgetTarget.PlaylistDetail -> onPlaylistClickState.value(target.playlistId)
+                is HomeWidgetTarget.PlaySong -> onSongClickState.value(target.song)
+                is HomeWidgetTarget.MemoryFocus -> onOpenMemoryFocusState.value(target.sessionId)
             }
         }
     }
@@ -311,44 +271,20 @@ internal fun HomeEditorialContent(
         }
 
         // Data-driven feed: render each enabled section in the user's chosen
-        // order. The default layout reproduces the original hardcoded order
-        // (memory teaser → activities → jump back in).
+        // order.
         for (sectionState in sections) {
             if (!sectionState.enabled) continue
             when (sectionState.section) {
-                HomeSection.MemoryTeaser -> item(key = "section-memory-teaser") {
-                    // A candidate album → nudge to revisit it; otherwise a
-                    // standing guide so the Memories mechanic is discoverable
-                    // before the user has ever rated or noted anything.
-                    if (memoryTeaser != null) {
-                        MemoryTeaserRow(
-                            teaser = memoryTeaser,
-                            onClick = { onOpenMemoryFocus(memoryTeaser.sessionId) },
+                HomeSection.Activities -> item(key = "section-activities") {
+                    if (activityEntries.isNotEmpty()) {
+                        ActivityBento(
+                            entries = activityEntries.take(4),
+                            heroFootnoteExtra = activityHeroFootnote,
+                            extractBackdropColors = shouldExtractBackdropColors,
+                            onEntryClick = onEntryClick,
                             modifier = Modifier.fillMaxWidth(),
                         )
                     } else {
-                        MemoryGuideRow(
-                            onClick = onNavigateToMemories,
-                            modifier = Modifier.fillMaxWidth(),
-                        )
-                    }
-                }
-
-                HomeSection.Activities -> item(key = "section-activities") {
-                    AnimatedVisibility(visible = activityEntries.isNotEmpty()) {
-                        ActivityGrid(
-                            entries = activityEntries.take(4),
-                            activeSongId = activeSongId,
-                            isPlaying = isPlaying,
-                            playbackSignal = playbackSignal,
-                            extractBackdropColors = shouldExtractBackdropColors,
-                            onEntryClick = onEntryClick,
-                            sharedTransitionScope = sharedTransitionScope,
-                            animatedVisibilityScope = animatedVisibilityScope,
-                            modifier = Modifier.fillMaxWidth(),
-                        )
-                    }
-                    if (activityEntries.isEmpty()) {
                         HomeEmptyCard(
                             title = "No recent activity yet",
                             supporting = "Once you listen or visit albums and artists, this feed will start filling in.",
@@ -357,14 +293,15 @@ internal fun HomeEditorialContent(
                     }
                 }
 
-                // The memory widget shelf. Empty until something becomes a
-                // memory (a rating, review, or note), so skip it entirely then.
-                HomeSection.Memories -> if (memories.isNotEmpty()) {
-                    item(key = "section-memories") {
-                        HomeMemoriesSection(
-                            memories = memories,
+                // The merged Jump Back In × memories widget grid. Empty means
+                // nothing resolved from any source — skip the section entirely.
+                HomeSection.JumpBackIn -> if (widgetGrid.isNotEmpty()) {
+                    item(key = "section-widget-grid") {
+                        HomeWidgetGridSection(
+                            title = "Jump Back In",
+                            cards = widgetGrid,
                             extractBackdropColors = shouldExtractBackdropColors,
-                            onOpenMemory = onOpenMemoryFocus,
+                            onCardClick = onWidgetCardClick,
                             modifier = Modifier.fillMaxWidth(),
                         )
                     }
@@ -376,52 +313,12 @@ internal fun HomeEditorialContent(
                     item(key = "section-recently-added") {
                         RecentlyAddedSection(
                             tracks = recentlyAdded,
-                            activeSongId = activeSongId,
-                            isPlaying = isPlaying,
-                            playbackSignal = playbackSignal,
-                            extractBackdropColors = shouldExtractBackdropColors,
                             onTrackClick = { track -> onEntryClick(HomeEntryTarget.SongTarget(track)) },
                             buildCoverArtUrl = buildCoverArtUrl,
                             sharedTransitionScope = sharedTransitionScope,
                             animatedVisibilityScope = animatedVisibilityScope,
                             modifier = Modifier.fillMaxWidth(),
                         )
-                    }
-                }
-
-                HomeSection.JumpBackIn -> {
-                    item(key = "section-jump-back-in-header") {
-                        JumpBackInHeader(
-                            modifier = Modifier.fillMaxWidth(),
-                        )
-                    }
-
-                    if (jumpRows.isEmpty()) {
-                        item(key = "section-jump-back-in-empty") {
-                            HomeEmptyCard(
-                                title = "Jump Back In is waiting",
-                                supporting = "Scroll a little and refresh when you want another batch of albums, songs, and artists.",
-                                modifier = Modifier.fillMaxWidth(),
-                            )
-                        }
-                    } else {
-                        itemsIndexed(
-                            items = jumpRows,
-                            key = { _, row -> row.joinToString(separator = "|") { it.stableId } },
-                        ) { index, row ->
-                            JumpBackInRow(
-                                entries = row,
-                                rowIndex = index,
-                                activeSongId = activeSongId,
-                                isPlaying = isPlaying,
-                                playbackSignal = playbackSignal,
-                                extractBackdropColors = shouldExtractBackdropColors,
-                                onEntryClick = onEntryClick,
-                                sharedTransitionScope = sharedTransitionScope,
-                                animatedVisibilityScope = animatedVisibilityScope,
-                                modifier = Modifier.fillMaxWidth(),
-                            )
-                        }
                     }
                 }
             }
@@ -486,255 +383,296 @@ private fun HomeContentHeader(
     }
 }
 
-@Composable
-private fun MemoryTeaserRow(
-    teaser: MemoryTeaser,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    val haptics = rememberYoinHaptics()
-    Surface(
-        modifier = modifier,
-        onClick = {
-            haptics.performContextClick()
-            onClick()
-        },
-        shape = YoinShapeTokens.Large,
-        color = MaterialTheme.colorScheme.surfaceContainerLow,
-        tonalElevation = 0.dp,
-        shadowElevation = 0.dp,
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .minimumTouchTarget()
-                .padding(horizontal = 14.dp, vertical = 12.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Icon(
-                // A formed memory recalls (history); a forming one invites shaping.
-                imageVector = if (teaser.isFormed) {
-                    Icons.Filled.History
-                } else {
-                    Icons.Filled.LibraryMusic
-                },
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.secondary,
-                modifier = Modifier.size(22.dp),
-            )
-            Column(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(2.dp),
-            ) {
-                Text(
-                    text = teaser.title,
-                    style = MaterialTheme.typography.titleSmall,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Text(
-                    text = teaser.supportingText,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-            Icon(
-                imageVector = Icons.Filled.KeyboardArrowDown,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(20.dp),
-            )
-        }
-    }
-}
+// ── Activities bento (Figma node 405:362) ──────────────────────────────
+//
+// Four recent activities in a bento of decreasing prominence: a full-width
+// hero, a small square + wide card row, and a single-line strip. Each card's
+// container is tonally derived from its own cover art, echoing the mockup's
+// per-card colour washes.
 
 @Composable
-private fun MemoryGuideRow(
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    val haptics = rememberYoinHaptics()
-    Surface(
-        modifier = modifier,
-        onClick = {
-            haptics.performContextClick()
-            onClick()
-        },
-        shape = YoinShapeTokens.Large,
-        color = MaterialTheme.colorScheme.surfaceContainerLow,
-        tonalElevation = 0.dp,
-        shadowElevation = 0.dp,
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .minimumTouchTarget()
-                .padding(horizontal = 14.dp, vertical = 12.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Icon(
-                imageVector = Icons.Filled.AutoAwesome,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.secondary,
-                modifier = Modifier.size(22.dp),
-            )
-            Column(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(2.dp),
-            ) {
-                Text(
-                    text = "Start an album memory",
-                    style = MaterialTheme.typography.titleSmall,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Text(
-                    text = "Rate songs, jot a note, or review an album — it surfaces here as a memory.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-            Icon(
-                imageVector = Icons.Filled.KeyboardArrowDown,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(20.dp),
-            )
-        }
-    }
-}
-
-@OptIn(ExperimentalSharedTransitionApi::class)
-@Composable
-private fun ActivityGrid(
+private fun ActivityBento(
     entries: List<HomeMomentEntry>,
-    activeSongId: String? = null,
-    isPlaying: Boolean,
-    playbackSignal: Float,
+    heroFootnoteExtra: String?,
     extractBackdropColors: Boolean,
     onEntryClick: (HomeEntryTarget) -> Unit,
-    sharedTransitionScope: SharedTransitionScope? = null,
-    animatedVisibilityScope: AnimatedVisibilityScope? = null,
     modifier: Modifier = Modifier,
 ) {
     Column(
         modifier = modifier,
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        entries.chunked(2).forEachIndexed { rowIndex, rowEntries ->
-            key(rowEntries.joinToString(separator = "|") { it.stableId }) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                ) {
-                    rowEntries.forEachIndexed { columnIndex, entry ->
-                        key(entry.stableId) {
-                            ActivityCard(
-                                entry = entry,
-                                activeSongId = activeSongId,
-                                isPlaying = isPlaying,
-                                playbackSignal = playbackSignal,
-                                extractBackdropColors = extractBackdropColors,
-                                delayMillis = ((rowIndex * 2) + columnIndex) * 36L,
-                                onClick = { onEntryClick(entry.target) },
-                                sharedTransitionScope = sharedTransitionScope,
-                                animatedVisibilityScope = animatedVisibilityScope,
-                                modifier = Modifier.weight(1f),
-                            )
-                        }
-                    }
-                    if (rowEntries.size == 1) {
-                        Spacer(modifier = Modifier.weight(1f))
-                    }
+        HomeSectionTitle(
+            text = "Activities",
+            modifier = Modifier.padding(bottom = 6.dp),
+        )
+        entries.getOrNull(0)?.let { hero ->
+            ActivityHeroCard(
+                entry = hero,
+                footnoteExtra = heroFootnoteExtra,
+                extractBackdropColors = extractBackdropColors,
+                onClick = { onEntryClick(hero.target) },
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
+        if (entries.size > 1) {
+            // Fixed row height (Figma: 97pt), scaled with the user's font size:
+            // IntrinsicSize would crash here — MarqueeTitle's BoxWithConstraints
+            // is a SubcomposeLayout, which cannot answer intrinsic measurements.
+            val fontScale = LocalDensity.current.fontScale.coerceAtLeast(1f)
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(104.dp * fontScale),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                entries.getOrNull(1)?.let { small ->
+                    ActivitySmallCard(
+                        entry = small,
+                        extractBackdropColors = extractBackdropColors,
+                        onClick = { onEntryClick(small.target) },
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxHeight(),
+                    )
+                }
+                if (entries.size > 2) {
+                    ActivityWideCard(
+                        entry = entries[2],
+                        extractBackdropColors = extractBackdropColors,
+                        onClick = { onEntryClick(entries[2].target) },
+                        modifier = Modifier
+                            .weight(2f)
+                            .fillMaxHeight(),
+                    )
+                } else {
+                    // Keep the lone small card at column width instead of
+                    // letting its weight stretch it across the whole row.
+                    Spacer(modifier = Modifier.weight(2f))
                 }
             }
+        }
+        entries.getOrNull(3)?.let { strip ->
+            ActivityStripCard(
+                entry = strip,
+                extractBackdropColors = extractBackdropColors,
+                onClick = { onEntryClick(strip.target) },
+                modifier = Modifier.fillMaxWidth(),
+            )
         }
     }
 }
 
-@OptIn(ExperimentalSharedTransitionApi::class)
+private data class ActivityCardColors(
+    val container: Color,
+    val content: Color,
+    val contentMuted: Color,
+)
+
+/**
+ * Container wash lerped straight from this card's own cover palette — NOT an
+ * `ExpressiveColorSchemeFactory.fromSeed` scheme, whose M3-Expressive hue
+ * rotation turns a green cover into a peach card. The direct lerp keeps each
+ * card hue-faithful to its artwork (the Figma look) and skips building a
+ * ColorScheme per palette-animation frame. Text stays on the theme's
+ * on-surface roles, which hold contrast on the soft wash in both modes.
+ */
 @Composable
-private fun ActivityCard(
+private fun rememberActivityCardColors(
+    coverArtUrl: String?,
+    extractBackdropColors: Boolean,
+): ActivityCardColors {
+    val backdrop = rememberExpressiveBackdropColors(
+        model = coverArtUrl,
+        fallbackBaseColor = MaterialTheme.colorScheme.secondaryContainer,
+        fallbackAccentColor = MaterialTheme.colorScheme.tertiaryContainer,
+        enabled = extractBackdropColors,
+    )
+    return ActivityCardColors(
+        container = lerp(
+            MaterialTheme.colorScheme.surfaceContainerLow,
+            backdrop.baseColor,
+            0.30f,
+        ),
+        content = MaterialTheme.colorScheme.onSurface,
+        contentMuted = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+}
+
+@Composable
+private fun ActivityHeroCard(
     entry: HomeMomentEntry,
-    activeSongId: String? = null,
-    isPlaying: Boolean,
-    playbackSignal: Float,
+    footnoteExtra: String?,
     extractBackdropColors: Boolean,
     onClick: () -> Unit,
-    delayMillis: Long = 0L,
-    sharedTransitionScope: SharedTransitionScope? = null,
-    animatedVisibilityScope: AnimatedVisibilityScope? = null,
     modifier: Modifier = Modifier,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
-    val isPlaybackActive = isPlaying && entry.songId != null && entry.songId == activeSongId
-    val entranceProgress = rememberExpressiveEntranceProgress(
-        key = entry.stableId,
-        delayMillis = delayMillis,
-    )
-
+    val colors = rememberActivityCardColors(entry.coverArtUrl, extractBackdropColors)
     Surface(
-        modifier = modifier.expressiveEntrance(entranceProgress),
+        modifier = modifier,
         shape = YoinShapeTokens.Large,
-        color = MaterialTheme.colorScheme.surfaceContainerLow,
-        tonalElevation = 2.dp,
+        color = colors.container,
+        tonalElevation = 0.dp,
         shadowElevation = 0.dp,
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .noRippleClickable(interactionSource = interactionSource, onClick = onClick)
-                .padding(horizontal = 8.dp, vertical = 8.dp),
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                .padding(horizontal = 14.dp, vertical = 14.dp),
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            ExpressiveArtwork(
+            WidgetBackdropArtwork(
                 model = entry.coverArtUrl,
+                kind = widgetShapeKindForActivity(entry.entityType),
                 contentDescription = entry.title,
-                sharedAlbumId = entry.sharedAlbumId,
-                sharedSourceKey = entry.sharedSourceKey,
-                isPlaybackActive = isPlaybackActive,
-                playbackSignal = playbackSignal,
                 extractBackdropColors = extractBackdropColors,
-                sharedTransitionScope = sharedTransitionScope,
-                animatedVisibilityScope = animatedVisibilityScope,
                 interactionSource = interactionSource,
-                modifier = Modifier.size(58.dp),
-                fillFraction = 1f,
-                offsetX = 2.dp,
-                offsetY = 3.dp,
-                shape = entry.shape,
-                fallbackIcon = entry.fallbackIcon,
+                modifier = Modifier.size(96.dp),
             )
             Column(
                 modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(2.dp),
+                verticalArrangement = Arrangement.spacedBy(3.dp),
             ) {
+                Text(
+                    text = entry.footnote,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = colors.contentMuted,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
                 MarqueeTitle(
                     text = entry.title,
-                    style = MaterialTheme.typography.titleSmall,
-                    color = MaterialTheme.colorScheme.onSurface,
+                    style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.SemiBold),
+                    color = colors.content,
                     modifier = Modifier.fillMaxWidth(),
                 )
                 Text(
                     text = entry.subtitle,
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = colors.contentMuted,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
+                footnoteExtra?.let { extra ->
+                    Text(
+                        text = extra,
+                        style = MaterialTheme.typography.labelSmall.withTabularFigures(),
+                        color = colors.contentMuted,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ActivitySmallCard(
+    entry: HomeMomentEntry,
+    extractBackdropColors: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val colors = rememberActivityCardColors(entry.coverArtUrl, extractBackdropColors)
+    Surface(
+        modifier = modifier,
+        shape = YoinShapeTokens.Large,
+        color = colors.container,
+        tonalElevation = 0.dp,
+        shadowElevation = 0.dp,
+    ) {
+        Column(
+            modifier = Modifier
+                .noRippleClickable(interactionSource = interactionSource, onClick = onClick)
+                .padding(10.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            ExpressiveMediaArtwork(
+                model = entry.coverArtUrl,
+                contentDescription = entry.title,
+                modifier = Modifier.size(28.dp),
+                shape = YoinShapeTokens.Small,
+                fallbackIcon = Icons.Filled.LibraryMusic,
+                interactionSource = interactionSource,
+                tonalElevation = 1.dp,
+                shadowElevation = 0.dp,
+            )
+            Spacer(modifier = Modifier.weight(1f))
+            Text(
+                text = entry.footnote,
+                style = MaterialTheme.typography.labelSmall,
+                color = colors.contentMuted,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                text = entry.title,
+                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+                color = colors.content,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
+}
+
+@Composable
+private fun ActivityWideCard(
+    entry: HomeMomentEntry,
+    extractBackdropColors: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val colors = rememberActivityCardColors(entry.coverArtUrl, extractBackdropColors)
+    Surface(
+        modifier = modifier,
+        shape = YoinShapeTokens.Large,
+        color = colors.container,
+        tonalElevation = 0.dp,
+        shadowElevation = 0.dp,
+    ) {
+        Row(
+            modifier = Modifier
+                .noRippleClickable(interactionSource = interactionSource, onClick = onClick)
+                .padding(12.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            WidgetBackdropArtwork(
+                model = entry.coverArtUrl,
+                kind = widgetShapeKindForActivity(entry.entityType),
+                contentDescription = entry.title,
+                extractBackdropColors = extractBackdropColors,
+                interactionSource = interactionSource,
+                modifier = Modifier.size(76.dp),
+            )
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
                 Text(
                     text = entry.footnote,
                     style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f),
+                    color = colors.contentMuted,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                MarqueeTitle(
+                    text = entry.title,
+                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+                    color = colors.content,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Text(
+                    text = entry.subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = colors.contentMuted,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
@@ -743,14 +681,66 @@ private fun ActivityCard(
     }
 }
 
+@Composable
+private fun ActivityStripCard(
+    entry: HomeMomentEntry,
+    extractBackdropColors: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val colors = rememberActivityCardColors(entry.coverArtUrl, extractBackdropColors)
+    val stripTitle = remember(entry) {
+        listOf(entry.title, entry.subtitle)
+            .filter { it.isNotBlank() }
+            .joinToString(separator = "・")
+    }
+    Surface(
+        modifier = modifier,
+        shape = YoinShapeTokens.Full,
+        color = colors.container,
+        tonalElevation = 0.dp,
+        shadowElevation = 0.dp,
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .noRippleClickable(interactionSource = interactionSource, onClick = onClick)
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = stripTitle,
+                style = MaterialTheme.typography.bodyMedium,
+                color = colors.content,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+            Text(
+                text = entry.footnote,
+                style = MaterialTheme.typography.labelSmall,
+                color = colors.contentMuted,
+                maxLines = 1,
+            )
+        }
+    }
+}
+
+private fun widgetShapeKindForActivity(entityType: String): WidgetShapeKind = when (entityType) {
+    ActivityEntityType.SONG.name -> WidgetShapeKind.Song
+    ActivityEntityType.PLAYLIST.name -> WidgetShapeKind.Playlist
+    ActivityEntityType.ARTIST.name -> WidgetShapeKind.Artist
+    else -> WidgetShapeKind.Album
+}
+
+// ── Recently Added (compact horizontal shelf) ──────────────────────────
+
 @OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
 private fun RecentlyAddedSection(
     tracks: List<Track>,
-    activeSongId: String?,
-    isPlaying: Boolean,
-    playbackSignal: Float,
-    extractBackdropColors: Boolean,
     onTrackClick: (Track) -> Unit,
     buildCoverArtUrl: (String) -> String,
     sharedTransitionScope: SharedTransitionScope? = null,
@@ -761,13 +751,9 @@ private fun RecentlyAddedSection(
         modifier = modifier,
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Text(
-            text = "Recently Added",
-            style = MaterialTheme.typography.headlineMedium,
-            color = MaterialTheme.colorScheme.onSurface,
-        )
+        HomeSectionTitle(text = "Recently Added")
         LazyRow(
-            horizontalArrangement = Arrangement.spacedBy(14.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             items(
                 items = tracks,
@@ -775,10 +761,6 @@ private fun RecentlyAddedSection(
             ) { track ->
                 RecentlyAddedTile(
                     track = track,
-                    activeSongId = activeSongId,
-                    isPlaying = isPlaying,
-                    playbackSignal = playbackSignal,
-                    extractBackdropColors = extractBackdropColors,
                     onClick = { onTrackClick(track) },
                     buildCoverArtUrl = buildCoverArtUrl,
                     sharedTransitionScope = sharedTransitionScope,
@@ -793,182 +775,44 @@ private fun RecentlyAddedSection(
 @Composable
 private fun RecentlyAddedTile(
     track: Track,
-    activeSongId: String?,
-    isPlaying: Boolean,
-    playbackSignal: Float,
-    extractBackdropColors: Boolean,
     onClick: () -> Unit,
     buildCoverArtUrl: (String) -> String,
-    sharedTransitionScope: SharedTransitionScope? = null,
-    animatedVisibilityScope: AnimatedVisibilityScope? = null,
+    @Suppress("UNUSED_PARAMETER") sharedTransitionScope: SharedTransitionScope? = null,
+    @Suppress("UNUSED_PARAMETER") animatedVisibilityScope: AnimatedVisibilityScope? = null,
     modifier: Modifier = Modifier,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
-    val songId = track.id.toString()
-    val isPlaybackActive = isPlaying && songId == activeSongId
     val coverArtUrl = resolveHomeCoverArtUrl(track.coverArt, buildCoverArtUrl)
         ?: track.albumId?.let { buildCoverArtUrl(it.rawId) }
     Column(
         modifier = modifier
-            .width(132.dp)
+            .width(96.dp)
             .noRippleClickable(interactionSource = interactionSource, onClick = onClick),
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
-        ExpressiveArtwork(
+        ExpressiveMediaArtwork(
             model = coverArtUrl,
             contentDescription = track.title.orEmpty(),
-            isPlaybackActive = isPlaybackActive,
-            playbackSignal = playbackSignal,
-            extractBackdropColors = extractBackdropColors,
-            sharedTransitionScope = sharedTransitionScope,
-            animatedVisibilityScope = animatedVisibilityScope,
-            interactionSource = interactionSource,
             modifier = Modifier
                 .fillMaxWidth()
                 .aspectRatio(1f),
-            fillFraction = 1f,
-            shape = YoinShapeTokens.Medium,
+            shape = YoinShapeTokens.Small,
             fallbackIcon = Icons.Filled.LibraryMusic,
+            interactionSource = interactionSource,
+            tonalElevation = 1.dp,
+            shadowElevation = 0.dp,
         )
-        MarqueeTitle(
+        Text(
             text = track.title.orEmpty(),
-            style = MaterialTheme.typography.titleSmall,
+            style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurface,
-            modifier = Modifier.fillMaxWidth(),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
         )
         track.artist?.takeIf { it.isNotBlank() }?.let { artist ->
             Text(
                 text = artist,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
-    }
-}
-
-@Composable
-private fun JumpBackInHeader(
-    modifier: Modifier = Modifier,
-) {
-    Row(
-        modifier = modifier,
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(
-            text = "Jump Back In",
-            style = MaterialTheme.typography.headlineMedium,
-            color = MaterialTheme.colorScheme.onSurface,
-        )
-    }
-}
-
-@OptIn(ExperimentalSharedTransitionApi::class)
-@Composable
-private fun JumpBackInRow(
-    entries: List<JumpBackInVisualEntry>,
-    rowIndex: Int,
-    activeSongId: String? = null,
-    isPlaying: Boolean,
-    playbackSignal: Float,
-    extractBackdropColors: Boolean,
-    onEntryClick: (HomeEntryTarget) -> Unit,
-    sharedTransitionScope: SharedTransitionScope? = null,
-    animatedVisibilityScope: AnimatedVisibilityScope? = null,
-    modifier: Modifier = Modifier,
-) {
-    // Stagger only the first two rows — these are the user's first
-    // perceivable impression. Rows beyond that (including anything the
-    // pagination appends) still fade/scale in, but without the cascading
-    // delay so fresh pages don't feel like a heavy entrance animation.
-    val staggerRow = rowIndex < 2
-    Row(
-        modifier = modifier,
-        horizontalArrangement = Arrangement.spacedBy(14.dp),
-        verticalAlignment = Alignment.Top,
-    ) {
-        entries.forEachIndexed { index, entry ->
-            JumpBackInTile(
-                entry = entry,
-                activeSongId = activeSongId,
-                isPlaying = isPlaying,
-                playbackSignal = playbackSignal,
-                extractBackdropColors = extractBackdropColors,
-                delayMillis = if (staggerRow) index * 42L else 0L,
-                onClick = { onEntryClick(entry.target) },
-                sharedTransitionScope = sharedTransitionScope,
-                animatedVisibilityScope = animatedVisibilityScope,
-                modifier = Modifier.weight(1f),
-            )
-        }
-        repeat(3 - entries.size) {
-            Spacer(modifier = Modifier.weight(1f))
-        }
-    }
-}
-
-@OptIn(ExperimentalSharedTransitionApi::class)
-@Composable
-private fun JumpBackInTile(
-    entry: JumpBackInVisualEntry,
-    activeSongId: String? = null,
-    isPlaying: Boolean,
-    playbackSignal: Float,
-    extractBackdropColors: Boolean,
-    onClick: () -> Unit,
-    delayMillis: Long = 0L,
-    sharedTransitionScope: SharedTransitionScope? = null,
-    animatedVisibilityScope: AnimatedVisibilityScope? = null,
-    modifier: Modifier = Modifier,
-) {
-    val interactionSource = remember { MutableInteractionSource() }
-    val isPlaybackActive = isPlaying && entry.songId != null && entry.songId == activeSongId
-    val entranceProgress = rememberExpressiveEntranceProgress(
-        key = entry.stableId,
-        delayMillis = delayMillis,
-    )
-    Column(
-        modifier = modifier
-            .expressiveEntrance(entranceProgress)
-            .noRippleClickable(interactionSource = interactionSource, onClick = onClick),
-        verticalArrangement = Arrangement.spacedBy(4.dp),
-    ) {
-        ExpressiveArtwork(
-            model = entry.coverArtUrl,
-            contentDescription = entry.title,
-            sharedAlbumId = entry.sharedAlbumId,
-            sharedSourceKey = entry.sharedSourceKey,
-            isPlaybackActive = isPlaybackActive,
-            playbackSignal = playbackSignal,
-            extractBackdropColors = extractBackdropColors,
-            sharedTransitionScope = sharedTransitionScope,
-            animatedVisibilityScope = animatedVisibilityScope,
-            interactionSource = interactionSource,
-            modifier = Modifier
-                .fillMaxWidth()
-                .aspectRatio(1f),
-            fillFraction = 1f,
-            offsetX = 3.dp,
-            offsetY = 5.dp,
-            shape = entry.shape,
-            fallbackIcon = entry.fallbackIcon,
-        )
-        MarqueeTitle(
-            text = entry.title,
-            style = MaterialTheme.typography.titleSmall,
-            color = MaterialTheme.colorScheme.onSurface,
-            modifier = Modifier.fillMaxWidth(),
-        )
-        entry.subtitle?.let { subtitle ->
-            val supportingText = listOfNotNull(
-                subtitle.takeIf { it.isNotBlank() },
-                entry.metaText?.takeIf { it.isNotBlank() },
-            ).joinToString(" · ")
-            Text(
-                text = supportingText,
-                style = MaterialTheme.typography.bodySmall,
+                style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
@@ -1029,90 +873,6 @@ private fun MarqueeTitle(
                 } else {
                     Modifier
                 },
-            )
-        }
-    }
-}
-
-@OptIn(ExperimentalSharedTransitionApi::class)
-@Composable
-private fun ExpressiveArtwork(
-    model: String?,
-    contentDescription: String,
-    extractBackdropColors: Boolean,
-    sharedAlbumId: String? = null,
-    sharedSourceKey: String? = null,
-    @Suppress("UNUSED_PARAMETER") isPlaybackActive: Boolean = false,
-    @Suppress("UNUSED_PARAMETER") playbackSignal: Float = 0f,
-    sharedTransitionScope: SharedTransitionScope? = null,
-    animatedVisibilityScope: AnimatedVisibilityScope? = null,
-    modifier: Modifier = Modifier,
-    interactionSource: MutableInteractionSource? = null,
-    fillFraction: Float = 0.78f,
-    @Suppress("UNUSED_PARAMETER") offsetX: Dp = 8.dp,
-    @Suppress("UNUSED_PARAMETER") offsetY: Dp = 10.dp,
-    shape: Shape = YoinShapeTokens.ExtraLarge,
-    fallbackIcon: androidx.compose.ui.graphics.vector.ImageVector = Icons.Filled.LibraryMusic,
-) {
-    // Keep color extraction active to populate the palette cache for page-level backgrounds
-    val backdropColors = rememberExpressiveBackdropColors(
-        model = model,
-        fallbackBaseColor = MaterialTheme.colorScheme.secondaryContainer,
-        fallbackAccentColor = MaterialTheme.colorScheme.tertiaryContainer,
-        enabled = extractBackdropColors,
-    )
-
-    Box(modifier = modifier) {
-        val coverModifier = Modifier
-            .fillMaxSize(fillFraction)
-            .align(Alignment.Center)
-            .then(
-                if (interactionSource != null) {
-                    Modifier.elasticPress(interactionSource)
-                } else {
-                    Modifier
-                },
-            )
-        val sharedArtworkBoundsSpec = YoinMotion.defaultSpatialSpec<Rect>(
-            role = YoinMotionRole.Expressive,
-            expressiveScheme = MaterialTheme.motionScheme,
-        )
-
-        val sharedArtworkModifier = if (
-            sharedAlbumId != null &&
-            sharedTransitionScope != null &&
-            animatedVisibilityScope != null
-        ) {
-            val sharedContentConfig =
-                rememberActiveOnlySharedContentConfig(
-                    animatedVisibilityScope = animatedVisibilityScope,
-                )
-            with(sharedTransitionScope) {
-                Modifier
-                    .fillMaxSize()
-                    .sharedElement(
-                        sharedContentState = rememberSharedContentState(
-                            key = albumCoverSharedKey(sharedAlbumId, sharedSourceKey),
-                            config = sharedContentConfig,
-                        ),
-                        animatedVisibilityScope = animatedVisibilityScope,
-                        boundsTransform = { _, _ -> sharedArtworkBoundsSpec },
-                        zIndexInOverlay = 1f,
-                    )
-            }
-        } else {
-            Modifier.fillMaxSize()
-        }
-
-        Box(modifier = coverModifier) {
-            ExpressiveMediaArtwork(
-                model = model,
-                contentDescription = contentDescription,
-                modifier = sharedArtworkModifier,
-                shape = shape,
-                fallbackIcon = fallbackIcon,
-                tonalElevation = 1.dp,
-                shadowElevation = 0.dp,
             )
         }
     }
@@ -1194,6 +954,7 @@ private fun buildActivityEntries(
     }
     HomeMomentEntry(
         stableId = stableId,
+        entityType = activity.entityType,
         title = activity.title,
         subtitle = activity.subtitle.ifBlank {
             when (activity.entityType) {
@@ -1203,76 +964,8 @@ private fun buildActivityEntries(
         },
         footnote = buildActivityFootnote(activity),
         coverArtUrl = buildActivityCoverArtUrl(activity, buildCoverArtUrl),
-        sharedAlbumId = entityMediaId.takeIf { activity.entityType == ActivityEntityType.ALBUM.name },
-        sharedSourceKey = stableId.takeIf { activity.entityType == ActivityEntityType.ALBUM.name },
-        songId = activity.takeIf { activity.entityType == ActivityEntityType.SONG.name }
-            ?.let { "${it.provider}:${activityEntityRawId(it.songId ?: it.entityId)}" },
-        shape = artworkShapeForEntityType(activity.entityType),
-        fallbackIcon = artworkFallbackIconForEntityType(activity.entityType),
         target = target,
     )
-}
-
-private fun buildJumpBackInEntry(
-    item: HomeJumpBackInItem,
-    buildCoverArtUrl: (String) -> String,
-): JumpBackInVisualEntry = when (item) {
-    is HomeJumpBackInItem.AlbumItem -> JumpBackInVisualEntry(
-        stableId = item.stableId,
-        title = item.album.name,
-        subtitle = item.album.artist,
-        metaText = item.album.songCount?.let { "$it tracks" },
-        coverArtUrl = resolveHomeCoverArtUrl(item.album.coverArt, buildCoverArtUrl)
-            ?: buildCoverArtUrl(item.album.id.rawId),
-        sharedAlbumId = item.album.id.toString(),
-        sharedSourceKey = item.stableId,
-        songId = null,
-        shape = YoinShapeTokens.Medium,
-        fallbackIcon = Icons.Filled.LibraryMusic,
-        target = HomeEntryTarget.Album(item.album.id.toString(), item.stableId),
-    )
-
-    is HomeJumpBackInItem.SongItem -> JumpBackInVisualEntry(
-        stableId = item.stableId,
-        title = item.song.title.orEmpty(),
-        subtitle = item.song.artist,
-        metaText = "Single",
-        coverArtUrl = resolveHomeCoverArtUrl(item.song.coverArt, buildCoverArtUrl)
-            ?: item.song.albumId?.let { buildCoverArtUrl(it.rawId) },
-        sharedAlbumId = null,
-        sharedSourceKey = null,
-        songId = item.song.id.toString(),
-        shape = YoinShapeTokens.Medium,
-        fallbackIcon = Icons.Filled.LibraryMusic,
-        target = HomeEntryTarget.SongTarget(item.song),
-    )
-
-    is HomeJumpBackInItem.ArtistItem -> JumpBackInVisualEntry(
-        stableId = item.stableId,
-        title = item.artist.name,
-        subtitle = "Artist",
-        metaText = null,
-        coverArtUrl = resolveHomeCoverArtUrl(item.artist.coverArt, buildCoverArtUrl),
-        sharedAlbumId = null,
-        sharedSourceKey = null,
-        songId = null,
-        shape = CircleShape,
-        fallbackIcon = Icons.Filled.Person,
-        target = HomeEntryTarget.Artist(item.artist.id.toString()),
-    )
-}
-
-private fun artworkShapeForEntityType(entityType: String): Shape = when (entityType) {
-    ActivityEntityType.ARTIST.name -> CircleShape
-    else -> YoinShapeTokens.Small
-}
-
-private fun artworkFallbackIconForEntityType(
-    entityType: String,
-): androidx.compose.ui.graphics.vector.ImageVector = when (entityType) {
-    ActivityEntityType.ARTIST.name -> Icons.Filled.Person
-    ActivityEntityType.PLAYLIST.name -> Icons.AutoMirrored.Filled.QueueMusic
-    else -> Icons.Filled.LibraryMusic
 }
 
 private fun ActivityEvent.asSong(): Track = Track(

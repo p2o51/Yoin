@@ -29,6 +29,16 @@ interface LocalRatingDao {
     )
     fun getRatingsNeedingSync(provider: String, profileId: String): Flow<List<LocalRating>>
 
+    /**
+     * Change stamp: re-emits whenever the profile's track ratings change.
+     * COUNT catches deletes, MAX(updatedAt) catches inserts/edits.
+     */
+    @Query(
+        "SELECT COUNT(*) + IFNULL(MAX(updatedAt), 0) FROM local_ratings " +
+            "WHERE profileId = :profileId AND provider = :provider",
+    )
+    fun observeChangeStamp(provider: String, profileId: String): Flow<Long>
+
     @Upsert
     suspend fun upsert(rating: LocalRating)
 

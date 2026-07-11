@@ -53,7 +53,6 @@ import com.gpo.yoin.data.local.ActivityEntityType
 import com.gpo.yoin.data.local.ActivityEvent
 import com.gpo.yoin.data.local.PlayHistory
 import com.gpo.yoin.data.model.Album
-import com.gpo.yoin.data.model.Artist
 import com.gpo.yoin.data.model.CoverRef
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.Track
@@ -64,6 +63,7 @@ import com.gpo.yoin.ui.component.YoinLoadingIndicator
 import com.gpo.yoin.ui.experience.ReportMotionPressure
 import com.gpo.yoin.ui.experience.RevealState
 import com.gpo.yoin.ui.experience.rememberRevealState
+import com.gpo.yoin.ui.memories.MemoryEntityType
 import com.gpo.yoin.ui.theme.ProvideYoinMotionRole
 import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinMotionRole
@@ -276,14 +276,10 @@ fun HomeContent(
                             } else {
                                 HomeEditorialContent(
                                     activities = uiState.activities,
-                                    jumpBackInItems = uiState.jumpBackInItems,
-                                    memoryTeaser = uiState.memoryTeaser,
+                                    widgetGrid = uiState.widgetGrid,
+                                    activityHeroFootnote = uiState.activityHeroFootnote,
                                     recentlyAdded = uiState.recentlyAdded,
-                                    memories = uiState.memories,
                                     sections = sections,
-                                    isPlaying = isPlaying,
-                                    playbackSignal = playbackSignal,
-                                    activeSongId = activeSongId,
                                     onNavigateToSettings = onNavigateToSettings,
                                     onNavigateToMemories = onNavigateToMemories,
                                     onEnterEditMode = onEnterEditMode,
@@ -804,43 +800,49 @@ private fun HomeContentPreview() {
                         timestamp = System.currentTimeMillis() - 172_800_000L,
                     ),
                 ),
-                jumpBackInItems = listOf(
-                    HomeJumpBackInItem.AlbumItem(
-                        Album(
-                            id = MediaId.subsonic("ja1"),
-                            name = "Describe",
-                            artist = "Hannah Jadagu",
-                            artistId = null,
-                            coverArt = CoverRef.SourceRelative("cover-ja1"),
-                            songCount = 12,
-                            durationSec = null,
-                            year = null,
-                            genre = null,
+                widgetGrid = listOf(
+                    HomeWidgetCard(
+                        stableId = "grid-memory:preview",
+                        entityType = MemoryEntityType.ALBUM,
+                        title = "Describe",
+                        subtitle = "Album · Hannah Jadagu",
+                        coverArtUrl = null,
+                        ratingText = "7.0",
+                        ratingBasis = "Based on 5/5 tracks",
+                        comment = "小さな家路で、愛を歌う",
+                        expanded = true,
+                        target = HomeWidgetTarget.MemoryFocus(sessionId = 1L),
+                    ),
+                    HomeWidgetCard(
+                        stableId = "grid-song:preview",
+                        entityType = MemoryEntityType.SONG,
+                        title = "Little House",
+                        subtitle = "Single · Rachel Chinouriri",
+                        coverArtUrl = null,
+                        target = HomeWidgetTarget.PlaySong(
+                            Track(
+                                id = MediaId.subsonic("js1"),
+                                title = "Little House",
+                                artist = "Rachel Chinouriri",
+                                album = "Little House",
+                                artistId = null,
+                                albumId = MediaId.subsonic("album-js1"),
+                                coverArt = CoverRef.SourceRelative("cover-js1"),
+                                durationSec = null,
+                                trackNumber = null,
+                                year = null,
+                                genre = null,
+                                userRating = null,
+                            ),
                         ),
                     ),
-                    HomeJumpBackInItem.SongItem(
-                        Track(
-                            id = MediaId.subsonic("js1"),
-                            title = "Little House",
-                            artist = "Rachel Chinouriri",
-                            album = "Little House",
-                            artistId = null,
-                            albumId = MediaId.subsonic("album-js1"),
-                            coverArt = CoverRef.SourceRelative("cover-js1"),
-                            durationSec = null,
-                            trackNumber = null,
-                            year = null,
-                            genre = null,
-                            userRating = null,
-                        ),
-                    ),
-                    HomeJumpBackInItem.ArtistItem(
-                        Artist(
-                            id = MediaId.subsonic("artist-ja1"),
-                            name = "Daft Punk",
-                            coverArt = CoverRef.SourceRelative("artist-cover-1"),
-                            albumCount = 4,
-                        ),
+                    HomeWidgetCard(
+                        stableId = "grid-playlist:preview",
+                        entityType = MemoryEntityType.PLAYLIST,
+                        title = "Endless Natsu",
+                        subtitle = "Playlist · 51",
+                        coverArtUrl = null,
+                        target = HomeWidgetTarget.PlaylistDetail("subsonic:pl1"),
                     ),
                 ),
             ),

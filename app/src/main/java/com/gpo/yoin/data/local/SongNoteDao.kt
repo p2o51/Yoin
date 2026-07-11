@@ -50,6 +50,24 @@ interface SongNoteDao {
         profileId: String,
     ): List<SongNote>
 
+    @Query(
+        "SELECT * FROM song_notes " +
+            "WHERE profileId = :profileId AND provider = :provider " +
+            "ORDER BY updatedAt DESC LIMIT :limit",
+    )
+    suspend fun getRecent(provider: String, profileId: String, limit: Int): List<SongNote>
+
+    /**
+     * Change stamp: re-emits whenever the profile's notes change. COUNT catches
+     * deletes, MAX(updatedAt) catches inserts/edits — together any write moves
+     * the value. Cheap enough to observe permanently.
+     */
+    @Query(
+        "SELECT COUNT(*) + IFNULL(MAX(updatedAt), 0) FROM song_notes " +
+            "WHERE profileId = :profileId AND provider = :provider",
+    )
+    fun observeChangeStamp(provider: String, profileId: String): Flow<Long>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insert(note: SongNote)
 

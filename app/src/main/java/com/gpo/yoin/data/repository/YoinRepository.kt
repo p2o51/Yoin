@@ -70,6 +70,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
@@ -1264,6 +1265,40 @@ class YoinRepository(
 
     suspend fun getTopAlbumMemoryCandidate(): AlbumMemoryCandidate? =
         getAlbumMemoryCandidates(limit = 1).firstOrNull()
+
+    /**
+     * The active profile's most recently touched song notes on the current
+     * provider, newest first. Feeds the home widget grid's noted-track card.
+     */
+    suspend fun getRecentSongNotes(limit: Int = 8): List<SongNote> {
+        val provider = activeSource.value?.id ?: return emptyList()
+        val profileId = activeProfileId.value ?: return emptyList()
+        return songNoteDao.getRecent(provider = provider, profileId = profileId, limit = limit)
+    }
+
+    /**
+     * Re-emits whenever the active profile's memory signals change — a song
+     * note, a track rating, or an album rating/review write on the current
+     * provider. The home widget grid listens to this to keep its two
+     * memory-flavoured cards live: those writes create no activity event, so
+     * observing the tables directly is the only reliable trigger.
+     */
+    fun observeMemorySignalStamp(): Flow<Long> =
+        combine(activeProfileId, activeSource) { profileId, source ->
+            profileId to source?.id
+        }
+            .flatMapLatest { (profileId, provider) ->
+                if (profileId.isNullOrBlank() || provider == null) {
+                    flowOf(0L)
+                } else {
+                    combine(
+                        songNoteDao.observeChangeStamp(provider, profileId),
+                        database.localRatingDao().observeChangeStamp(provider, profileId),
+                        albumRatingDao.observeChangeStamp(provider, profileId),
+                    ) { notes, ratings, albums -> notes + ratings + albums }
+                }
+            }
+            .distinctUntilChanged()
 
     // ── Memory copy cache (Gemini 感性文案) ─────────────────────────────
 
