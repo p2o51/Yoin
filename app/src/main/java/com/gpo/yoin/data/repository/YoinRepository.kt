@@ -1127,7 +1127,7 @@ class YoinRepository(
     }
 
     /** User tapped Save —— 为当前曲目追加一条新的笔记。content 空串会被忽略。 */
-    suspend fun addNote(track: Track, content: String): SongNote? {
+    suspend fun addNote(track: Track, content: String, positionMs: Long? = null): SongNote? {
         val profileId = activeProfileId.value ?: return null
         val trimmed = content.trim()
         if (trimmed.isEmpty()) return null
@@ -1142,6 +1142,7 @@ class YoinRepository(
             updatedAt = now,
             title = track.title.orEmpty(),
             artist = track.artist.orEmpty(),
+            positionMs = positionMs,
         )
         songNoteDao.insert(note)
         return note

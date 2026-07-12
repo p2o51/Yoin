@@ -88,6 +88,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
@@ -121,6 +122,7 @@ import com.gpo.yoin.data.model.YoinDevice
 import com.gpo.yoin.data.repository.ActivityContext
 import com.gpo.yoin.player.CastState
 import com.gpo.yoin.data.local.SongNote
+import com.gpo.yoin.ui.component.NoteSortMode
 import com.gpo.yoin.ui.component.CastButton
 import com.gpo.yoin.ui.component.DevicesSheet
 import com.gpo.yoin.ui.component.WriteNoteSheet
@@ -215,7 +217,7 @@ fun NowPlayingScreen(
     onStageBack: () -> Boolean = { false },
     onDetailPageChange: (NowPlayingDetailPage) -> Unit = {},
     notesState: List<SongNote> = emptyList(),
-    onSaveNote: (String) -> Unit = {},
+    onSaveNote: (String, Long?) -> Unit = { _, _ -> },
     onDeleteNote: (String) -> Unit = {},
     devicesState: DevicesSheetState = DevicesSheetState(),
     onRefreshDevices: () -> Unit = {},
@@ -226,6 +228,10 @@ fun NowPlayingScreen(
     animatedVisibilityScope: AnimatedVisibilityScope? = null,
     modifier: Modifier = Modifier,
 ) {
+    // Note ordering is a reading preference, not per-song state — held here
+    // so the compact pane, expanded pane, and every window layout share one
+    // choice. Saveable so rotation keeps it.
+    var noteSortMode by rememberSaveable { mutableStateOf(NoteSortMode.Timeline) }
     val scheme = MaterialTheme.colorScheme
     val surfaceContainer = scheme.surfaceContainer
     val background = scheme.background
@@ -331,6 +337,8 @@ fun NowPlayingScreen(
                     onDetailPageChange = onDetailPageChange,
                     notesState = notesState,
                     onSaveNote = onSaveNote,
+                    noteSortMode = noteSortMode,
+                    onNoteSortModeChange = { noteSortMode = it },
                     onDeleteNote = onDeleteNote,
                     devicesState = devicesState,
                     onRefreshDevices = onRefreshDevices,
@@ -585,7 +593,9 @@ private fun PlayingContent(
     onStageBack: () -> Boolean = { false },
     onDetailPageChange: (NowPlayingDetailPage) -> Unit = {},
     notesState: List<SongNote> = emptyList(),
-    onSaveNote: (String) -> Unit = {},
+    onSaveNote: (String, Long?) -> Unit = { _, _ -> },
+    noteSortMode: NoteSortMode = NoteSortMode.Timeline,
+    onNoteSortModeChange: (NoteSortMode) -> Unit = {},
     onDeleteNote: (String) -> Unit = {},
     devicesState: DevicesSheetState = DevicesSheetState(),
     onRefreshDevices: () -> Unit = {},
@@ -664,6 +674,8 @@ private fun PlayingContent(
             onDetailPageChange = onDetailPageChange,
             notesState = notesState,
             onSaveNote = onSaveNote,
+            noteSortMode = noteSortMode,
+            onNoteSortModeChange = onNoteSortModeChange,
             onDeleteNote = onDeleteNote,
             devicesState = devicesState,
             onRefreshDevices = onRefreshDevices,
@@ -771,6 +783,8 @@ private fun PlayingContent(
             onDetailPageChange = onDetailPageChange,
             notesState = notesState,
             onSaveNote = onSaveNote,
+            noteSortMode = noteSortMode,
+            onNoteSortModeChange = onNoteSortModeChange,
             onDeleteNote = onDeleteNote,
             devicesState = devicesState,
             onRefreshDevices = onRefreshDevices,
@@ -837,7 +851,9 @@ private fun CompactPlayingContent(
     onStageBack: () -> Boolean = { false },
     onDetailPageChange: (NowPlayingDetailPage) -> Unit = {},
     notesState: List<SongNote> = emptyList(),
-    onSaveNote: (String) -> Unit = {},
+    onSaveNote: (String, Long?) -> Unit = { _, _ -> },
+    noteSortMode: NoteSortMode = NoteSortMode.Timeline,
+    onNoteSortModeChange: (NoteSortMode) -> Unit = {},
     onDeleteNote: (String) -> Unit = {},
     devicesState: DevicesSheetState = DevicesSheetState(),
     onRefreshDevices: () -> Unit = {},
@@ -1200,6 +1216,8 @@ private fun CompactPlayingContent(
                                     positionMs = positionMs,
                                     aboutUiState = aboutUiState,
                                     notes = notesState,
+                                    noteSortMode = noteSortMode,
+                                    onNoteSortModeChange = onNoteSortModeChange,
                                     immersiveProgress = immersiveProgress,
                                     onRetryFetchSongInfo = onRetryFetchSongInfo,
                                     modifier = pageModifier.graphicsLayer {
@@ -1217,6 +1235,8 @@ private fun CompactPlayingContent(
                                         positionMs = positionMs,
                                         aboutUiState = aboutUiState,
                                         notes = notesState,
+                                        noteSortMode = noteSortMode,
+                                        onNoteSortModeChange = onNoteSortModeChange,
                                         lyricsAutoScroll = lyricsAutoScroll,
                                         lyricsRecenterTick = lyricsRecenterTick,
                                         onLyricsUserScroll = { lyricsAutoScroll = false },
@@ -1468,6 +1488,8 @@ private fun CompactPlayingContent(
         ProvideYoinMotionRole(role = YoinMotionRole.Standard) {
             WriteNoteSheet(
                 onSave = onSaveNote,
+                positionMs = positionMs,
+                trackTitle = state.songTitle,
                 onDismiss = { showWriteSheet = false },
             )
         }
@@ -1528,7 +1550,9 @@ private fun WidePlayingContent(
     onStageBack: () -> Boolean = { false },
     onDetailPageChange: (NowPlayingDetailPage) -> Unit = {},
     notesState: List<SongNote> = emptyList(),
-    onSaveNote: (String) -> Unit = {},
+    onSaveNote: (String, Long?) -> Unit = { _, _ -> },
+    noteSortMode: NoteSortMode = NoteSortMode.Timeline,
+    onNoteSortModeChange: (NoteSortMode) -> Unit = {},
     onDeleteNote: (String) -> Unit = {},
     devicesState: DevicesSheetState = DevicesSheetState(),
     onRefreshDevices: () -> Unit = {},
@@ -1847,6 +1871,8 @@ private fun WidePlayingContent(
                             positionMs = positionMs,
                             aboutUiState = aboutUiState,
                             notes = notesState,
+                            noteSortMode = noteSortMode,
+                            onNoteSortModeChange = onNoteSortModeChange,
                             lyricsAutoScroll = lyricsAutoScroll,
                             lyricsRecenterTick = lyricsRecenterTick,
                             onLyricsUserScroll = { lyricsAutoScroll = false },
@@ -1983,6 +2009,8 @@ private fun WidePlayingContent(
         ProvideYoinMotionRole(role = YoinMotionRole.Standard) {
             WriteNoteSheet(
                 onSave = onSaveNote,
+                positionMs = positionMs,
+                trackTitle = state.songTitle,
                 onDismiss = { showWriteSheet = false },
             )
         }
@@ -2043,7 +2071,7 @@ private fun TabletopPlayingContent(
     onStageBack: () -> Boolean = { false },
     onDetailPageChange: (NowPlayingDetailPage) -> Unit = {},
     notesState: List<SongNote> = emptyList(),
-    onSaveNote: (String) -> Unit = {},
+    onSaveNote: (String, Long?) -> Unit = { _, _ -> },
     onDeleteNote: (String) -> Unit = {},
     devicesState: DevicesSheetState = DevicesSheetState(),
     onRefreshDevices: () -> Unit = {},
@@ -2602,6 +2630,8 @@ private fun CompactDetailPage(
     positionMs: () -> Long,
     aboutUiState: AboutUiState,
     notes: List<SongNote>,
+    noteSortMode: NoteSortMode,
+    onNoteSortModeChange: (NoteSortMode) -> Unit,
     immersiveProgress: Float,
     onRetryFetchSongInfo: () -> Unit,
     modifier: Modifier = Modifier,
@@ -2637,6 +2667,9 @@ private fun CompactDetailPage(
         )
         NowPlayingDetailPage.Note -> NoteCompactPane(
             notes = notes,
+            sortMode = noteSortMode,
+            onSortModeChange = onNoteSortModeChange,
+            positionMs = positionMs,
             modifier = modifier,
         )
     }
@@ -2692,12 +2725,14 @@ private fun ExpandedDetailPage(
     positionMs: () -> Long,
     aboutUiState: AboutUiState,
     notes: List<SongNote>,
+    noteSortMode: NoteSortMode,
+    onNoteSortModeChange: (NoteSortMode) -> Unit,
     lyricsAutoScroll: Boolean,
     lyricsRecenterTick: Int,
     onLyricsUserScroll: () -> Unit,
     onSeekToMs: (Long) -> Unit,
     onRetryCanonical: () -> Unit,
-    onSaveNote: (String) -> Unit,
+    onSaveNote: (String, Long?) -> Unit,
     onDeleteNote: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -2720,6 +2755,10 @@ private fun ExpandedDetailPage(
         )
         NowPlayingDetailPage.Note -> NoteFullscreenPane(
             notes = notes,
+            sortMode = noteSortMode,
+            onSortModeChange = onNoteSortModeChange,
+            positionMs = positionMs,
+            onSeekToMs = onSeekToMs,
             onSave = onSaveNote,
             onDelete = onDeleteNote,
             autoFocusComposer = false,

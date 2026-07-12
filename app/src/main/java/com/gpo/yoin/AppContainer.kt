@@ -86,6 +86,7 @@ class AppContainer(private val context: Context) {
                 MIGRATION_23_24,
                 MIGRATION_24_25,
                 MIGRATION_25_26,
+                MIGRATION_26_27,
             )
             // v11 冻结了 0.3 schema；0.5 上架前的备份降级保险（用户拿着 v11
             // 备份在旧版设备恢复）走这条：数据丢但应用不崩。没数据丢失比
@@ -436,6 +437,14 @@ class AppContainer(private val context: Context) {
         // widget grid. Written pre-shuffled at fetch time so the shelf is
         // deterministic across app opens until the pools age out — the grid
         // rotates on a TTL instead of re-rolling every cold start.
+        // song_notes 加歌内时间戳：笔记锚定到歌曲时间线（时间线排序 +
+        // 随播放高亮当前条）。旧行保持 NULL = 未锚定。
+        val MIGRATION_26_27 = object : Migration(26, 27) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE song_notes ADD COLUMN positionMs INTEGER")
+            }
+        }
+
         val MIGRATION_25_26 = object : Migration(25, 26) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL(

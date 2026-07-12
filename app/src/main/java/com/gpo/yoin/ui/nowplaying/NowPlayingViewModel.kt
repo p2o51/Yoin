@@ -629,11 +629,11 @@ class NowPlayingViewModel(
         }
     }
 
-    fun saveCurrentNote(content: String) {
+    fun saveCurrentNote(content: String, positionMs: Long? = null) {
         if (content.isBlank()) return
         val track = playbackManager.playbackState.value.currentTrack ?: return
         viewModelScope.launch {
-            repository.addNote(track, content)
+            repository.addNote(track, content, positionMs)
         }
     }
 
