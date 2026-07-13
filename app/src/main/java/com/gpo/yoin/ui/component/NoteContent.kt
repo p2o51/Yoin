@@ -341,7 +341,10 @@ fun NoteComposer(
     autoFocus: Boolean = false,
 ) {
     var draft by remember { mutableStateOf("") }
-    var anchorMs by remember { mutableStateOf<Long?>(null) }
+    // Every note gets a song-moment anchor — recording the moment IS the
+    // default. Seeded at composition, re-synced the instant writing begins,
+    // and tappable to re-align to "now" after a long stretch of typing.
+    var anchorMs by remember { mutableStateOf(positionMs()) }
     var focused by remember { mutableStateOf(false) }
     val focusRequester = remember { FocusRequester() }
     val haptics = rememberYoinHaptics()
@@ -420,9 +423,9 @@ fun NoteComposer(
         ) {
             NoteAnchorChip(
                 anchorMs = anchorMs,
-                onToggle = {
+                onRealign = {
                     haptics.performTick()
-                    anchorMs = if (anchorMs != null) null else positionMs()
+                    anchorMs = positionMs()
                 },
             )
             NoteSavePill(
@@ -433,7 +436,7 @@ fun NoteComposer(
                         haptics.performConfirm()
                         onSave(trimmed, anchorMs)
                         draft = ""
-                        anchorMs = null
+                        anchorMs = positionMs()
                     }
                 },
             )
@@ -442,34 +445,19 @@ fun NoteComposer(
 }
 
 /**
- * Song-moment anchor for the note being written. Anchored = tinted capsule
- * showing the captured m:ss; tap clears it; tap again re-captures "now".
+ * The song-moment this note will anchor to — captured when writing begins.
+ * Tap to re-align to the current playhead (after a long stretch of typing).
  */
 @Composable
 private fun NoteAnchorChip(
-    anchorMs: Long?,
-    onToggle: () -> Unit,
+    anchorMs: Long,
+    onRealign: () -> Unit,
 ) {
-    val anchored = anchorMs != null
-    val container by animateColorAsState(
-        targetValue = if (anchored) {
-            MaterialTheme.colorScheme.secondaryContainer
-        } else {
-            MaterialTheme.colorScheme.surfaceContainerHigh
-        },
-        animationSpec = YoinMotion.effectsSpring(),
-        label = "anchorChip",
-    )
-    val content = if (anchored) {
-        MaterialTheme.colorScheme.onSecondaryContainer
-    } else {
-        MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-    }
     val interaction = remember { MutableInteractionSource() }
     Surface(
-        modifier = Modifier.noRippleClickable(interactionSource = interaction, onClick = onToggle),
+        modifier = Modifier.noRippleClickable(interactionSource = interaction, onClick = onRealign),
         shape = YoinShapeTokens.Full,
-        color = container,
+        color = MaterialTheme.colorScheme.secondaryContainer,
         tonalElevation = 0.dp,
     ) {
         Row(
@@ -479,14 +467,14 @@ private fun NoteAnchorChip(
         ) {
             Icon(
                 imageVector = Icons.Rounded.MusicNote,
-                contentDescription = if (anchored) "取消时间点" else "标记时间点",
-                tint = content,
+                contentDescription = "对齐到当前时刻",
+                tint = MaterialTheme.colorScheme.onSecondaryContainer,
                 modifier = Modifier.size(14.dp),
             )
             Text(
-                text = anchorMs?.let(::formatNotePosition) ?: "不标时间点",
+                text = formatNotePosition(anchorMs),
                 style = MaterialTheme.typography.labelMedium,
-                color = content,
+                color = MaterialTheme.colorScheme.onSecondaryContainer,
             )
         }
     }
