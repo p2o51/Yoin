@@ -1,4 +1,5 @@
 package com.gpo.yoin.ui.component
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -55,8 +56,22 @@ fun WaveProgressBar(
     isPlaying: Boolean = true,
     trackColor: Color = MaterialTheme.colorScheme.surfaceContainerHighest,
     progressColor: Color = MaterialTheme.colorScheme.primary,
+    // Song-moment note anchors: scrubbing across one ticks the haptics and
+    // the preview bubble reads "Note" while the thumb sits on it.
+    noteAnchorsMs: List<Long> = emptyList(),
 ) {
     val haptics = rememberYoinHaptics()
+    val noteAnchorFractions = remember(noteAnchorsMs, durationMs) {
+        if (durationMs <= 0L) emptyList()
+        else noteAnchorsMs.map { (it.toFloat() / durationMs).coerceIn(0f, 1f) }.sorted()
+    }
+    // "On a note" window: ±1.5s of song, floored at 1% of the bar so short
+    // songs stay hittable and long songs don't turn the whole bar into Note.
+    val noteWindow = if (durationMs > 0L) {
+        (1_500f / durationMs).coerceAtLeast(0.01f)
+    } else {
+        0f
+    }
     var isDragging by remember { mutableStateOf(false) }
     var dragFraction by remember { mutableFloatStateOf(0f) }
     var previewFraction by remember { mutableStateOf<Float?>(null) }
@@ -144,8 +159,18 @@ fun WaveProgressBar(
                         previewFraction = null
                     },
                     onHorizontalDrag = { _, dragAmount ->
+                        val before = dragFraction
                         dragFraction = (dragFraction + dragAmount / size.width).coerceIn(0f, 1f)
                         previewFraction = dragFraction
+                        // Tick once per anchor the thumb sweeps across, either
+                        // direction — the notches you feel are your notes.
+                        val lo = minOf(before, dragFraction)
+                        val hi = maxOf(before, dragFraction)
+                        if (before != dragFraction &&
+                            noteAnchorFractions.any { it > lo && it <= hi }
+                        ) {
+                            haptics.performTick()
+                        }
                     },
                 )
             },
@@ -153,8 +178,16 @@ fun WaveProgressBar(
 
         val activePreviewFraction = previewFraction
         if (activePreviewFraction != null) {
+            val onNote = noteAnchorFractions.any {
+                kotlin.math.abs(activePreviewFraction - it) <= noteWindow
+            }
             PreviewTimeBubble(
-                timeText = formatTrackDurationMs((durationMs.toFloat() * activePreviewFraction).roundToLong()),
+                timeText = if (onNote) {
+                    "Note"
+                } else {
+                    formatTrackDurationMs((durationMs.toFloat() * activePreviewFraction).roundToLong())
+                },
+                emphasized = onNote,
                 modifier = Modifier
                     .align(Alignment.TopStart)
                     .onSizeChanged { labelWidthPx = it.width }
@@ -196,18 +229,33 @@ fun WaveProgressBar(
 private fun PreviewTimeBubble(
     timeText: String,
     modifier: Modifier = Modifier,
+    emphasized: Boolean = false,
 ) {
+    val container by animateColorAsState(
+        targetValue = if (emphasized) {
+            MaterialTheme.colorScheme.primary
+        } else {
+            MaterialTheme.colorScheme.secondaryContainer
+        },
+        animationSpec = YoinMotion.defaultEffectsSpec(),
+        label = "previewBubble",
+    )
+    val content = if (emphasized) {
+        MaterialTheme.colorScheme.onPrimary
+    } else {
+        MaterialTheme.colorScheme.onSecondaryContainer
+    }
     Surface(
         modifier = modifier,
         shape = YoinShapeTokens.Full,
-        color = MaterialTheme.colorScheme.secondaryContainer,
+        color = container,
         tonalElevation = 4.dp,
         shadowElevation = 0.dp,
     ) {
         Text(
             text = timeText,
             style = MaterialTheme.typography.labelLarge.withTabularFigures(),
-            color = MaterialTheme.colorScheme.onSecondaryContainer,
+            color = content,
             modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
         )
     }

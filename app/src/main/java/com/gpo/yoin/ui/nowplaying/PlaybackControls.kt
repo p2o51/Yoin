@@ -81,6 +81,7 @@ internal fun PlaybackControls(
     controlSize: Dp = 56.dp,
     lyricsExpanded: Boolean = false,
     onExpandLyrics: (() -> Unit)? = null,
+    noteAnchorsMs: List<Long> = emptyList(),
     modifier: Modifier = Modifier,
 ) {
     ProvideYoinMotionRole(role = YoinMotionRole.Standard) {
@@ -363,6 +364,7 @@ internal fun PlaybackControls(
                             durationMs = durationMs,
                             onSeek = onSeek,
                             isPlaying = isPlaying,
+                            noteAnchorsMs = noteAnchorsMs,
                             modifier = Modifier.weight(1f),
                         )
                         if (labelsInline) {

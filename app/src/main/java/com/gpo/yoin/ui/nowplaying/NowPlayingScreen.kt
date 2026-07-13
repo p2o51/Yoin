@@ -1216,8 +1216,6 @@ private fun CompactPlayingContent(
                                     positionMs = positionMs,
                                     aboutUiState = aboutUiState,
                                     notes = notesState,
-                                    noteSortMode = noteSortMode,
-                                    onNoteSortModeChange = onNoteSortModeChange,
                                     immersiveProgress = immersiveProgress,
                                     onRetryFetchSongInfo = onRetryFetchSongInfo,
                                     modifier = pageModifier.graphicsLayer {
@@ -1285,6 +1283,7 @@ private fun CompactPlayingContent(
                         alpha = compactProgress,
                     ) {
                         TickingPlaybackControls(
+                            noteAnchorsMs = remember(notesState) { notesState.mapNotNull { it.positionMs }.sorted() },
                             isPlaying = state.isPlaying,
                             onTogglePlayPause = playbackActions.onTogglePlayPause,
                             onSkipNext = playbackActions.onSkipNext,
@@ -1799,6 +1798,7 @@ private fun WidePlayingContent(
                     // Transport + progress live in the left column now (the right
                     // column is lyrics-only with a small tab indicator).
                     TickingPlaybackControls(
+                        noteAnchorsMs = remember(notesState) { notesState.mapNotNull { it.positionMs }.sorted() },
                         isPlaying = state.isPlaying,
                         onTogglePlayPause = onTogglePlayPause,
                         onSkipNext = onSkipNext,
@@ -2267,6 +2267,7 @@ private fun TabletopPlayingContent(
                 verticalArrangement = Arrangement.Bottom,
             ) {
                 TickingPlaybackControls(
+                    noteAnchorsMs = remember(notesState) { notesState.mapNotNull { it.positionMs }.sorted() },
                     isPlaying = state.isPlaying,
                     onTogglePlayPause = onTogglePlayPause,
                     onSkipNext = onSkipNext,
@@ -2630,8 +2631,6 @@ private fun CompactDetailPage(
     positionMs: () -> Long,
     aboutUiState: AboutUiState,
     notes: List<SongNote>,
-    noteSortMode: NoteSortMode,
-    onNoteSortModeChange: (NoteSortMode) -> Unit,
     immersiveProgress: Float,
     onRetryFetchSongInfo: () -> Unit,
     modifier: Modifier = Modifier,
@@ -2667,8 +2666,6 @@ private fun CompactDetailPage(
         )
         NowPlayingDetailPage.Note -> NoteCompactPane(
             notes = notes,
-            sortMode = noteSortMode,
-            onSortModeChange = onNoteSortModeChange,
             positionMs = positionMs,
             modifier = modifier,
         )
@@ -2793,6 +2790,7 @@ private fun TickingPlaybackControls(
     controlSize: Dp = 56.dp,
     lyricsExpanded: Boolean = false,
     onExpandLyrics: (() -> Unit)? = null,
+    noteAnchorsMs: List<Long> = emptyList(),
     modifier: Modifier = Modifier,
 ) {
     val position = positionMs()
@@ -2807,6 +2805,7 @@ private fun TickingPlaybackControls(
         0f
     }
     PlaybackControls(
+        noteAnchorsMs = noteAnchorsMs,
         isPlaying = isPlaying,
         onTogglePlayPause = onTogglePlayPause,
         onSkipNext = onSkipNext,
