@@ -170,10 +170,9 @@ internal fun ExpressiveMediaArtwork(
     contentScale: ContentScale = ContentScale.Crop,
     tonalElevation: Dp = 2.dp,
     shadowElevation: Dp = 0.dp,
-    border: BorderStroke? = BorderStroke(
-        width = 1.dp,
-        color = MaterialTheme.colorScheme.outline.copy(alpha = 0.14f),
-    ),
+    // No default hairline: cover art everywhere (home grid, cards, docks, NP)
+    // reads cleaner naked — the user explicitly banned cover outlines.
+    border: BorderStroke? = null,
     filterQuality: FilterQuality = FilterQuality.Low,
     // When set, the bitmap resolves at this fixed square size instead of the
     // live layout size — required when the artwork's size is being animated.
