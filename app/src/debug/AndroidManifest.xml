@@ -18,6 +18,10 @@
             android:name=".debug.AuroraPreviewActivity"
             android:exported="true"
             android:theme="@style/Theme.Yoin" />
+        <activity
+            android:name=".debug.BarMorphPreviewActivity"
+            android:exported="true"
+            android:theme="@style/Theme.Yoin" />
         <provider
             android:name=".debug.SpotifyTokenExportProvider"
             android:authorities="${applicationId}.debug.spotifytoken"

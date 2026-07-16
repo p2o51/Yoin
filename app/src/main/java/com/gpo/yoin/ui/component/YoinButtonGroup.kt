@@ -1,26 +1,25 @@
 package com.gpo.yoin.ui.component
 
-import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionScope
-import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Home
@@ -40,32 +39,34 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.lerp
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
 import com.gpo.yoin.ui.navigation.YoinSection
 import com.gpo.yoin.ui.theme.ProvideYoinMotionRole
 import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinMotionRole
-import com.gpo.yoin.ui.theme.YoinMotionSpeed
 import kotlinx.coroutines.delay
 
 /**
- * Floating navigation/playback group. Visually a Material 3 Expressive connected
- * button group, but laid out with a plain `Row` (see the comment at the Row for
- * why `ButtonGroup` had to go). The selection pill and the press-to-expand /
- * neighbour-compress reaction — the expressive `animateWidth` feel — are
- * hand-rolled here on top of layout weight + aspect ratio, which stays
- * crash-safe under the foldable shared-transition lookahead.
+ * Floating navigation/playback group. Visually a Material 3 Expressive
+ * connected button group, hand-rolled on plain Row/Box with dp-interpolated
+ * slot widths: the bar lives inside the shell's SharedTransitionLayout, whose
+ * lookahead pass hangs/crashes exotic multi-child measure policies (M3
+ * ButtonGroup's neighbour compression, SplitButtonLayout, AnimatedContent
+ * size transforms) whenever the pill's shared elements are active. Plain
+ * layouts + animateFloatAsState survive it; keep it that way.
  *
- * Two chrome modes, morphed in place ([detailChrome]):
- *  - Nav (shell): [Home] [now-playing pill] [Library]
- *  - Detail: [Play split button] [shorter now-playing pill]
+ * Two chrome modes morphed in place by [detailChrome]:
+ *  - Nav (shell): [Home] [now-playing pill (fills)] [Library]
+ *  - Detail: [Play split (fills)] [now-playing pill (~25%)]
  * The shell flips to Detail the moment a detail launch is tapped, so the
  * morph IS the tap feedback; the detail window then fades in over the settled
- * morph onto its own pixel-identical [DetailBottomBar]. The split button here
- * is purely the morph visual — its real, functional twin lives in the detail
- * window that is already fading in above.
+ * morph onto its own pixel-identical DetailBottomBar. The split button here
+ * is purely the morph visual — the functional twin lives in the detail
+ * window already fading in above.
  */
 @OptIn(
     ExperimentalMaterial3ExpressiveApi::class,
@@ -130,7 +131,6 @@ fun YoinButtonGroup(
             label = "buttonGroupLibraryContent",
         )
         var showLibrarySearchHint by remember { mutableStateOf(false) }
-        val slotSizeSpec = YoinMotion.defaultSpatialSpec<IntSize>()
 
         FloatingBottomBar(
             modifier = modifier,
@@ -143,7 +143,7 @@ fun YoinButtonGroup(
                         .offset(y = (-46).dp),
                 )
             },
-        ) {
+        ) { innerWidth ->
             // Interaction sources are hoisted so the press of any one button
             // can drive the widths of the others (neighbour compression).
             val homeInteraction = rememberButtonGroupInteractionSource()
@@ -165,13 +165,10 @@ fun YoinButtonGroup(
                 animationSpec = YoinMotion.defaultSpatialSpec(),
                 label = "librarySelectionAspect",
             )
-            // Press affordance: the pressed icon button widens and the centre
-            // (the weighted filler) absorbs it — the M3 expressive
-            // `animateWidth` bulge — while pressing the centre nudges both
-            // icon buttons narrower so it grows in turn. Quick spring so it
-            // reads as a direct touch echo. Driven through aspect/weight, so
-            // it can never produce the negative child width that crashed the
-            // real ButtonGroup under the foldable lookahead.
+            // Press affordance: the pressed icon button widens and the pill
+            // absorbs it — the M3 expressive `animateWidth` bulge — while
+            // pressing the pill nudges both icon buttons narrower so it grows
+            // in turn. Quick spring so it reads as a direct touch echo.
             val homePressDelta by animateFloatAsState(
                 targetValue = (if (homePressed) PRESS_EXPAND else 0f) -
                     (if (centerPressed) NEIGHBOUR_SQUEEZE else 0f),
@@ -187,41 +184,50 @@ fun YoinButtonGroup(
             val homeAspect = (homeSelectionAspect + homePressDelta).coerceAtLeast(MIN_ASPECT)
             val libraryAspect = (librarySelectionAspect + libraryPressDelta).coerceAtLeast(MIN_ASPECT)
 
-            // LEFT SLOT — Home ⇄ Play-split morph. AnimatedContent's size
-            // transform grows the slot from the 48dp icon to the split
-            // button's intrinsic width; the weighted pill absorbs the rest.
-            AnimatedContent(
-                targetState = detailChrome,
-                transitionSpec = {
-                    (
-                        YoinMotion.fadeIn(YoinMotionRole.Standard, YoinMotionSpeed.Fast) +
-                            YoinMotion.scaleIn(YoinMotionRole.Standard, initialScale = 0.85f)
-                        ).togetherWith(
-                            YoinMotion.fadeOut(YoinMotionRole.Standard, YoinMotionSpeed.Fast) +
-                                YoinMotion.scaleOut(YoinMotionRole.Standard, targetScale = 0.85f),
-                        ).using(SizeTransform(clip = false) { _, _ -> slotSizeSpec })
-                },
-                label = "barLeftSlot",
-            ) { inDetail ->
-                if (inDetail) {
-                    // Morph visual only: the functional split button lives in
-                    // the detail window fading in above this one.
-                    PlaySplitButton(
-                        playContainer = MaterialTheme.colorScheme.primary,
-                        playContent = MaterialTheme.colorScheme.onPrimary,
-                        onPlay = {},
-                        onShuffle = {},
-                        buttonHeight = FloatingBarButtonHeight,
-                    )
-                } else {
+            // The nav⇄detail morph, one progress value driving every slot
+            // width. All plain Row/Box + width(dp) — see the class KDoc for
+            // why nothing fancier is allowed in here.
+            val morph by animateFloatAsState(
+                targetValue = if (detailChrome) 1f else 0f,
+                animationSpec = YoinMotion.defaultSpatialSpec(),
+                label = "barChromeMorph",
+            )
+            val homeWidth = FloatingBarButtonHeight * homeAspect
+            val libraryWidth = FloatingBarButtonHeight * libraryAspect
+            val pillNavWidth =
+                innerWidth - homeWidth - libraryWidth - FloatingBarItemGap * 2
+            val pillDetailWidth =
+                (innerWidth * FloatingBarDetailPillFraction)
+                    .coerceAtLeast(FloatingBarDetailPillMinWidth)
+            val pillWidth = lerp(pillNavWidth, pillDetailWidth, morph)
+            val leftWidth = lerp(
+                homeWidth,
+                innerWidth - pillWidth - FloatingBarItemGap,
+                morph,
+            )
+            // Library slot carries its own leading gap so both collapse to 0.
+            val rightWidth = lerp(FloatingBarItemGap + libraryWidth, 0.dp, morph)
+            val navAlpha = (1f - morph / 0.6f).coerceIn(0f, 1f)
+            val splitAlpha = ((morph - 0.4f) / 0.6f).coerceIn(0f, 1f)
+
+            // LEFT SLOT — Home fading out beneath the stretching Play split.
+            Box(
+                modifier = Modifier
+                    .width(leftWidth)
+                    .height(FloatingBarButtonHeight)
+                    .clipToBounds(),
+            ) {
+                if (morph < 0.99f) {
                     FilledIconButton(
                         onClick = {
                             haptics.performClick()
                             onHomeClick()
                         },
                         modifier = Modifier
-                            .height(FloatingBarButtonHeight)
-                            .aspectRatio(homeAspect),
+                            .align(Alignment.CenterStart)
+                            .width(homeWidth)
+                            .fillMaxHeight()
+                            .graphicsLayer { alpha = navAlpha },
                         interactionSource = homeInteraction,
                         colors = IconButtonDefaults.filledIconButtonColors(
                             containerColor = homeContainerColor,
@@ -234,17 +240,27 @@ fun YoinButtonGroup(
                         )
                     }
                 }
+                if (morph > 0.01f) {
+                    // Morph visual only: the functional split button lives in
+                    // the detail window fading in above this one.
+                    PlaySplitButton(
+                        playContainer = MaterialTheme.colorScheme.primary,
+                        playContent = MaterialTheme.colorScheme.onPrimary,
+                        onPlay = {},
+                        onShuffle = {},
+                        buttonHeight = FloatingBarButtonHeight,
+                        fillPlay = true,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .graphicsLayer { alpha = splitAlpha },
+                    )
+                }
             }
 
-            // CENTER — the now-playing pill; the only weighted child, so it
-            // absorbs whatever the side slots release. Detail mode pads its
-            // start so the pill reads as its own island beside the split
-            // button (mirrors DetailBottomBar's gap).
-            val pillStartGap by animateDpAsState(
-                targetValue = if (detailChrome) DetailBarPillGapInShell else 0.dp,
-                animationSpec = YoinMotion.defaultSpatialSpec(),
-                label = "pillStartGap",
-            )
+            Spacer(modifier = Modifier.width(FloatingBarItemGap))
+
+            // CENTER — the now-playing pill, absorbing whatever the sides
+            // release.
             NowPlayingPill(
                 currentTrackId = currentTrackId,
                 currentTrackTitle = currentTrackTitle,
@@ -258,59 +274,62 @@ fun YoinButtonGroup(
                 animatedVisibilityScope = animatedVisibilityScope,
                 interactionSource = centerInteraction,
                 modifier = Modifier
-                    .weight(1f)
-                    .fillMaxHeight()
-                    .padding(start = pillStartGap),
+                    .width(pillWidth)
+                    .fillMaxHeight(),
             )
 
-            // RIGHT SLOT — Library, collapses away in detail chrome.
-            AnimatedVisibility(
-                visible = !detailChrome,
-                enter = YoinMotion.expandHorizontally(role = YoinMotionRole.Standard) +
-                    YoinMotion.fadeIn(role = YoinMotionRole.Standard),
-                exit = YoinMotion.shrinkHorizontally(role = YoinMotionRole.Standard) +
-                    YoinMotion.fadeOut(role = YoinMotionRole.Standard),
+            // RIGHT SLOT — Library (with its leading gap), collapsing away
+            // in detail chrome.
+            Box(
+                modifier = Modifier
+                    .width(rightWidth)
+                    .height(FloatingBarButtonHeight)
+                    .clipToBounds(),
             ) {
-                LaunchedEffect(libraryPressed) {
-                    if (libraryPressed) {
-                        delay(LIBRARY_SEARCH_HINT_DELAY_MS)
-                        showLibrarySearchHint = true
-                    } else {
-                        delay(LIBRARY_SEARCH_HINT_SETTLE_MS)
-                        showLibrarySearchHint = false
+                if (morph < 0.99f) {
+                    LaunchedEffect(libraryPressed) {
+                        if (libraryPressed) {
+                            delay(LIBRARY_SEARCH_HINT_DELAY_MS)
+                            showLibrarySearchHint = true
+                        } else {
+                            delay(LIBRARY_SEARCH_HINT_SETTLE_MS)
+                            showLibrarySearchHint = false
+                        }
                     }
-                }
-                Surface(
-                    modifier = Modifier
-                        .height(FloatingBarButtonHeight)
-                        .aspectRatio(libraryAspect)
-                        .combinedClickable(
-                            interactionSource = libraryInteraction,
-                            indication = null,
-                            onClick = {
-                                haptics.performClick()
-                                onLibraryClick()
-                            },
-                            onLongClick = {
-                                showLibrarySearchHint = true
-                                haptics.performContextClick()
-                                onLibraryLongClick()
-                            },
-                        ),
-                    shape = MaterialTheme.shapes.extraLarge,
-                    color = libraryContainerColor,
-                    contentColor = libraryContentColor,
-                    tonalElevation = 0.dp,
-                    shadowElevation = 0.dp,
-                ) {
-                    Box(
-                        modifier = Modifier.fillMaxSize(),
-                        contentAlignment = Alignment.Center,
+                    Surface(
+                        modifier = Modifier
+                            .align(Alignment.CenterEnd)
+                            .width(libraryWidth)
+                            .fillMaxHeight()
+                            .graphicsLayer { alpha = navAlpha }
+                            .combinedClickable(
+                                interactionSource = libraryInteraction,
+                                indication = null,
+                                onClick = {
+                                    haptics.performClick()
+                                    onLibraryClick()
+                                },
+                                onLongClick = {
+                                    showLibrarySearchHint = true
+                                    haptics.performContextClick()
+                                    onLibraryLongClick()
+                                },
+                            ),
+                        shape = MaterialTheme.shapes.extraLarge,
+                        color = libraryContainerColor,
+                        contentColor = libraryContentColor,
+                        tonalElevation = 0.dp,
+                        shadowElevation = 0.dp,
                     ) {
-                        Icon(
-                            imageVector = Icons.Filled.LibraryMusic,
-                            contentDescription = "Library",
-                        )
+                        Box(
+                            modifier = Modifier.fillMaxSize(),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.LibraryMusic,
+                                contentDescription = "Library",
+                            )
+                        }
                     }
                 }
             }
@@ -376,7 +395,3 @@ private const val MIN_ASPECT = 0.7f
 
 private const val LIBRARY_SEARCH_HINT_DELAY_MS = 240L
 private const val LIBRARY_SEARCH_HINT_SETTLE_MS = 120L
-
-// Mirrors DetailBottomBar's DetailBarPillGap — kept as a local constant so
-// ui/component doesn't depend on ui/detail; change the two together.
-private val DetailBarPillGapInShell = 16.dp

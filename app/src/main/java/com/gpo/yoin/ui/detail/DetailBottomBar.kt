@@ -4,14 +4,17 @@ import android.app.ActivityOptions
 import android.content.Context
 import android.content.Intent
 import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
-import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.unit.dp
 import com.gpo.yoin.R
 import com.gpo.yoin.ui.component.FloatingBarButtonHeight
+import com.gpo.yoin.ui.component.FloatingBarDetailPillFraction
+import com.gpo.yoin.ui.component.FloatingBarDetailPillMinWidth
+import com.gpo.yoin.ui.component.FloatingBarItemGap
 import com.gpo.yoin.ui.component.FloatingBottomBar
 import com.gpo.yoin.ui.component.NowPlayingPill
 import com.gpo.yoin.ui.component.PlaySplitButton
@@ -41,15 +44,18 @@ fun DetailBottomBar(
     modifier: Modifier = Modifier,
     menuItems: @Composable ColumnScope.(dismissMenu: () -> Unit) -> Unit = {},
 ) {
-    FloatingBottomBar(modifier = modifier) {
+    FloatingBottomBar(modifier = modifier) { innerWidth ->
         PlaySplitButton(
             playContainer = playContainer,
             playContent = playContent,
             onPlay = onPlay,
             onShuffle = onShuffle,
             buttonHeight = FloatingBarButtonHeight,
+            fillPlay = true,
             trailingMenuItems = menuItems,
+            modifier = Modifier.weight(1f),
         )
+        Spacer(modifier = Modifier.width(FloatingBarItemGap))
         NowPlayingPill(
             currentTrackId = null,
             currentTrackTitle = miniPlayer?.title,
@@ -60,11 +66,11 @@ fun DetailBottomBar(
             isPlaying = miniPlayer?.isPlaying == true,
             onClick = onOpenNowPlaying,
             modifier = Modifier
-                .weight(1f)
-                .fillMaxHeight()
-                // Extra start gap so the pill reads as its own island beside
-                // the split button — mirrors the shell bar's detail-mode pad.
-                .padding(start = DetailBarPillGap),
+                .width(
+                    (innerWidth * FloatingBarDetailPillFraction)
+                        .coerceAtLeast(FloatingBarDetailPillMinWidth),
+                )
+                .fillMaxHeight(),
         )
     }
 }
@@ -83,6 +89,3 @@ fun launchDetailFromShell(context: Context, intent: Intent) {
     )
     context.startActivity(intent, options.toBundle())
 }
-
-/** Detail-mode gap between the split button and the pill (on top of the row's 8dp). */
-val DetailBarPillGap = 16.dp

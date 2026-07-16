@@ -4,6 +4,7 @@ import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -16,6 +17,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.gpo.yoin.ui.theme.YoinMotion
 
@@ -26,21 +28,25 @@ import com.gpo.yoin.ui.theme.YoinMotion
  * onto the other's, so the two must be pixel twins; any metric change here
  * moves both together.
  *
- * Inner row height is 48dp (68dp bar minus 10dp vertical padding) — size
- * fixed-height children with [FloatingBarButtonHeight].
+ * The content lambda receives the inner row's width so callers can size
+ * slots in absolute dp (the shell's morph interpolates widths by hand —
+ * plain Row/Box only, exotic measure policies hang under the shell's
+ * shared-transition lookahead). No implicit child spacing: callers own
+ * their gaps.
  */
 @Composable
 fun FloatingBottomBar(
     modifier: Modifier = Modifier,
     overlay: @Composable BoxScope.() -> Unit = {},
-    content: @Composable RowScope.() -> Unit,
+    content: @Composable RowScope.(innerWidth: Dp) -> Unit,
 ) {
-    Box(
+    BoxWithConstraints(
         modifier = modifier
             .fillMaxWidth()
             .navigationBarsPadding()
             .padding(horizontal = 16.dp, vertical = 12.dp),
     ) {
+        val innerWidth = maxWidth - 20.dp // row's 10dp horizontal padding × 2
         val surfaceColor by animateColorAsState(
             targetValue = MaterialTheme.colorScheme.surfaceContainerHigh,
             animationSpec = YoinMotion.defaultEffectsSpec(),
@@ -58,10 +64,11 @@ fun FloatingBottomBar(
                     .fillMaxWidth()
                     .height(68.dp)
                     .padding(horizontal = 10.dp, vertical = 10.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                horizontalArrangement = Arrangement.Start,
                 verticalAlignment = Alignment.CenterVertically,
-                content = content,
-            )
+            ) {
+                content(innerWidth)
+            }
         }
         overlay()
     }
@@ -69,3 +76,12 @@ fun FloatingBottomBar(
 
 /** Height of fixed-height children inside the bar's inner row. */
 val FloatingBarButtonHeight = 48.dp
+
+/** Gap between bar islands (split button / pill / nav buttons). */
+val FloatingBarItemGap = 8.dp
+
+/** Detail chrome: the now-playing pill's share of the inner row width. */
+const val FloatingBarDetailPillFraction = 0.25f
+
+/** Detail chrome: pill floor so cover + a sliver of title always fit. */
+val FloatingBarDetailPillMinWidth = 96.dp
