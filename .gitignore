@@ -11,7 +11,9 @@ local.properties
 /app/build
 /playground/*/build
 /app/release
+/release/
 *.apk
+*.apk.idsig
 *.aab
 *.jks
 *.keystore
