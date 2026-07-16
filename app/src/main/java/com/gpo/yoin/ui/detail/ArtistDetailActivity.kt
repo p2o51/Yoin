@@ -39,6 +39,9 @@ class ArtistDetailActivity : ComponentActivity() {
             finish()
             return
         }
+        // Entrance-only: a recreated Activity (rotation, process restore)
+        // must not replay the Button-Group → dock morph.
+        val dockMorphSource = if (savedInstanceState == null) readDockMorphHandoff(intent) else null
         setContent {
             YoinActivityRoot {
                 val context = LocalContext.current
@@ -101,8 +104,13 @@ class ArtistDetailActivity : ComponentActivity() {
 
                 val miniPlayerState by rememberDetailMiniPlayerState(app.container)
                 val miniPlayerProgress = rememberDetailMiniPlayerProgress(app.container)
+                val dockMorph = rememberDetailDockMorph(
+                    source = dockMorphSource,
+                    coverArtUrl = miniPlayerState?.coverArtUrl,
+                )
+                val dockBloom = rememberDockBloom(miniPlayerState?.coverArtUrl)
 
-                Box(modifier = Modifier.fillMaxSize()) {
+                Box(modifier = Modifier.fillMaxSize().dockBloomOverlay(dockBloom)) {
                 ArtistDetailScreen(
                     uiState = uiState,
                     onBackClick = { finish() },
@@ -126,19 +134,35 @@ class ArtistDetailActivity : ComponentActivity() {
                     },
                     isPlaying = playbackState.isPlaying,
                     playbackSignal = if (playbackState.isPlaying) playbackSignal else 0f,
-                    bottomEndAccessory = {
+                    miniPlayer = {
                         DetailMiniPlayer(
                             state = miniPlayerState,
                             progress = { miniPlayerProgress.value },
-                            onOpenNowPlaying = { launchShellFromDetail(context, app.container, expandNowPlaying = true) },
+                            onOpenNowPlaying = {
+                                scope.launch {
+                                    dockBloom.bloomIntoNowPlaying(context, app.container)
+                                }
+                            },
+                            bloom = dockBloom,
+                            dockMorph = dockMorph,
                         )
                     },
+                    dockMorph = dockMorph,
                     modifier = Modifier.fillMaxSize(),
                 )
 
                 }
             }
         }
+    }
+
+    override fun onStop() {
+        super.onStop()
+        // The system defers onStop past the exit animation, so this is the
+        // moment this window is truly off screen — the shell's pending NP
+        // expansion (dock tap) waits for it before playing the bar→NP rise.
+        (application as YoinApplication).container.experienceSessionStore
+            .noteDetailWindowSettled()
     }
 
     companion object {

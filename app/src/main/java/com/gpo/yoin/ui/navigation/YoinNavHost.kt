@@ -4,6 +4,7 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.PredictiveBackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.MutableTransitionState
 import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionLayout
@@ -62,6 +63,7 @@ import com.gpo.yoin.ui.component.YoinButtonGroup
 import com.gpo.yoin.ui.detail.AlbumDetailActivity
 import com.gpo.yoin.ui.detail.ArtistDetailActivity
 import com.gpo.yoin.ui.detail.PlaylistDetailActivity
+import com.gpo.yoin.ui.detail.launchDetailFromShell
 import com.gpo.yoin.ui.settings.SettingsActivity
 import com.gpo.yoin.ui.home.HomeScreen
 import com.gpo.yoin.ui.home.HomeViewModel
@@ -88,6 +90,9 @@ import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinMotionRole
 import com.gpo.yoin.ui.theme.YoinTheme
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
@@ -198,17 +203,31 @@ fun YoinNavHost(
                             // them so back navigation plays the device-native
                             // cross-Activity predictive back. sharedTransitionKey
                             // is no longer used (no cross-page shared element).
+                            // launchDetailFromShell adds the Button-Group →
+                            // mini-player-dock morph when the shell armed one.
                             onNavigateToSettings = { focusSection ->
                                 context.startActivity(SettingsActivity.intent(context, focusSection))
                             },
                             onNavigateToAlbum = { albumId, _ ->
-                                context.startActivity(AlbumDetailActivity.intent(context, albumId))
+                                launchDetailFromShell(
+                                    context,
+                                    app.container,
+                                    AlbumDetailActivity.intent(context, albumId),
+                                )
                             },
                             onNavigateToArtist = { artistId, _ ->
-                                context.startActivity(ArtistDetailActivity.intent(context, artistId))
+                                launchDetailFromShell(
+                                    context,
+                                    app.container,
+                                    ArtistDetailActivity.intent(context, artistId),
+                                )
                             },
                             onNavigateToPlaylist = { playlistId, _ ->
-                                context.startActivity(PlaylistDetailActivity.intent(context, playlistId))
+                                launchDetailFromShell(
+                                    context,
+                                    app.container,
+                                    PlaylistDetailActivity.intent(context, playlistId),
+                                )
                             },
                             sharedTransitionScope = sharedTransitionScope,
                             shellAnimatedVisibilityScope = shellAnimatedVisibilityScope,
@@ -267,6 +286,7 @@ private fun YoinShell(
     val selectedSection = experienceSession.selectedSection
     val homeSurface = experienceSession.homeSurface
     val showNowPlaying = experienceSession.nowPlayingExpanded
+    val pendingNowPlayingExpand = experienceSession.pendingNowPlayingExpand
     val musicConfigurationRevision by app.container.musicConfigurationRevision.collectAsState()
     val playlistMutationRevision by app.container.playlistMutationRevision.collectAsState()
     val playbackManager = app.container.playbackManager
@@ -344,6 +364,27 @@ private fun YoinShell(
         app.container.playbackManager.connectInBackground()
     }
 
+    // A detail dock tap requests NP through the store (set in MainActivity's
+    // onNewIntent). Fulfil it after a short stagger: the detail window above
+    // is dissolving (np_handoff_exit, 280ms) and an immediate expand would
+    // play its first rise hidden behind the still-opaque page — the user
+    // would only catch the tail and see "no expansion". The stagger lets the
+    // dissolve reveal home + bar first, then the full bar→NP choreography
+    // (bar slides down, stage rises) plays in view, identical to a bar tap.
+    LaunchedEffect(pendingNowPlayingExpand) {
+        if (!pendingNowPlayingExpand) return@LaunchedEffect
+        // Wait for the detail window to actually leave the screen (its
+        // onStop fires after the exit animation — whatever duration the OEM
+        // gave it) instead of guessing with a fixed delay; the timeout
+        // covers cold starts where no detail window exists in-process.
+        val armedTick = experienceSessionStore.detailWindowSettledTick.value
+        withTimeoutOrNull(NP_HANDOFF_EXPAND_TIMEOUT_MS) {
+            experienceSessionStore.detailWindowSettledTick.first { it > armedTick }
+        }
+        delay(NP_HANDOFF_EXPAND_STAGGER_MS)
+        experienceSessionStore.consumeNowPlayingExpandRequest()
+    }
+
     LaunchedEffect(musicConfigurationRevision) {
         if (musicConfigurationRevision == 0L) return@LaunchedEffect
         homeViewModel.refresh()
@@ -374,15 +415,27 @@ private fun YoinShell(
         dismissMemoriesIfActive()
         onNavigateToSettings(focusSection)
     }
+    // Arm the Button-Group → dock morph BEFORE dismissMemoriesIfActive mutates
+    // the surface state: the morph only applies when the bar is genuinely the
+    // thing on screen (feed surface, NP collapsed) and there is a track for
+    // the detail page's dock to show. launchDetailFromShell consumes the flag.
+    val armDockHandoff = {
+        experienceSessionStore.armDockHandoff(
+            eligible = currentTrack != null && !showNowPlaying && !memoriesActive,
+        )
+    }
     val navigateToAlbumFromShell: (String, String?) -> Unit = { albumId, sharedTransitionKey ->
+        armDockHandoff()
         dismissMemoriesIfActive()
         onNavigateToAlbum(albumId, sharedTransitionKey)
     }
     val navigateToArtistFromShell: (String, String?) -> Unit = { artistId, sharedTransitionKey ->
+        armDockHandoff()
         dismissMemoriesIfActive()
         onNavigateToArtist(artistId, sharedTransitionKey)
     }
     val navigateToPlaylistFromShell: (String, String?) -> Unit = { playlistId, sharedTransitionKey ->
+        armDockHandoff()
         dismissMemoriesIfActive()
         onNavigateToPlaylist(playlistId, sharedTransitionKey)
     }
@@ -731,8 +784,16 @@ private fun YoinShell(
         }
 
         // ── Now Playing overlay ──────────────────────────────────────────
+        // Re-seeded per snap epoch: a dock-bloom open bumps the epoch AFTER
+        // setting expanded, so this state is recreated already-visible and
+        // the slide-in never plays — the bloom above is the animation, and
+        // the reveal must land on a settled player (no home cameo).
+        val npVisibleState = remember(experienceSession.nowPlayingSnapEpoch) {
+            MutableTransitionState(showNowPlaying)
+        }
+        npVisibleState.targetState = showNowPlaying
         AnimatedVisibility(
-            visible = showNowPlaying,
+            visibleState = npVisibleState,
             enter = YoinMotion.slideInVertically(role = YoinMotionRole.Expressive) { it } +
                 YoinMotion.fadeIn(role = YoinMotionRole.Standard),
             exit = YoinMotion.slideOutVertically(role = YoinMotionRole.Standard) { it } +
@@ -889,6 +950,11 @@ private fun YoinShell(
         val navBarBottomPx = with(LocalDensity.current) {
             WindowInsets.navigationBars.getBottom(this)
         }
+        // NOTE: a dock hand-off (shell → detail morph) deliberately does NOT
+        // touch the bar. The detail window fades in with a pill at the bar's
+        // exact bounds/color, so the true crossfade bar→pill happens between
+        // the two windows; the real bar stays put beneath and is simply there
+        // again on return (including the predictive-back preview).
         AnimatedVisibility(
             visible = !showNowPlaying,
             enter = YoinMotion.fadeIn(role = YoinMotionRole.Standard) +
@@ -938,6 +1004,11 @@ private fun YoinShell(
             ) {
                 YoinButtonGroup(
                     selectedSection = selectedSection,
+                    // The dock morph's source: where the pill sits right now
+                    // (window coordinates), the color it renders with, and
+                    // where its mini artwork is (the cover's flight origin).
+                    onPillGeometryChanged = experienceSessionStore::noteNavPill,
+                    onPillArtBoundsChanged = experienceSessionStore::noteNavPillArt,
                     currentTrackId = currentTrack?.id?.toString(),
                     currentTrackTitle = currentTrack?.title,
                     currentTrackArtist = currentTrack?.artist,
@@ -1011,6 +1082,16 @@ private fun YoinShell(
  * failure. Returns null when the failure has no user-actionable recovery
  * yet (UX will just show a dismiss affordance instead).
  */
+// Dock-tap → NP stagger: long enough for the dissolving detail window
+// (np_handoff_exit, 280ms) to mostly reveal the shell, short enough that the
+// open still reads as one gesture.
+// Small beat between the detail window leaving the screen and the NP rise,
+// so the reveal reads as two intentional steps rather than one mush.
+private const val NP_HANDOFF_EXPAND_STAGGER_MS = 80L
+
+// Cold start / dead-process fallback: no detail window will ever settle.
+private const val NP_HANDOFF_EXPAND_TIMEOUT_MS = 600L
+
 private fun actionLabelForFailure(failure: SpotifyConnectFailure): String? = when (failure) {
     SpotifyConnectFailure.NoClientId -> "Open Settings"
     SpotifyConnectFailure.SpotifyAppMissing -> null // phase 3 wires Play Store intent

@@ -104,8 +104,10 @@ fun ArtistDetailScreen(
     onShare: () -> Unit = {},
     isPlaying: Boolean = false,
     playbackSignal: Float = 0f,
-    // Slot docked bottom-end on the toolbar row (detail mini-player).
-    bottomEndAccessory: (@Composable () -> Unit)? = null,
+    // Mini-player dock slot, laid out on the toolbar row (DetailToolbarRow).
+    miniPlayer: (@Composable () -> Unit)? = null,
+    // Entrance morph from the shell's Button Group into the dock slot.
+    dockMorph: DetailDockMorphState? = null,
     modifier: Modifier = Modifier,
 ) {
     val content = uiState as? ArtistDetailUiState.Content
@@ -120,7 +122,13 @@ fun ArtistDetailScreen(
             playbackSignal = playbackSignal,
             modifier = modifier,
         ) {
-            Box(modifier = Modifier.fillMaxSize()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    // The entrance pill draws over the whole page, wearing
+                    // the shell Button Group surface color it hands off from.
+                    .dockMorphOverlay(dockMorph),
+            ) {
             when (uiState) {
                 is ArtistDetailUiState.Loading ->
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -141,7 +149,7 @@ fun ArtistDetailScreen(
                         onOpenInSpotify = onOpenInSpotify,
                         onTopTrackClick = onTopTrackClick,
                         onShare = onShare,
-                        bottomEndAccessory = bottomEndAccessory,
+                        miniPlayer = miniPlayer,
                     )
             }
             }
@@ -161,7 +169,7 @@ private fun ArtistDetailContent(
     onOpenInSpotify: () -> Unit,
     onTopTrackClick: (index: Int) -> Unit,
     onShare: () -> Unit,
-    bottomEndAccessory: (@Composable () -> Unit)?,
+    miniPlayer: (@Composable () -> Unit)?,
 ) {
     // Portrait → first album cover fallback (older Subsonic has no artist.jpg).
     val heroUrl = content.heroCoverArtUrl ?: content.albums.firstOrNull()?.coverArtUrl
@@ -249,37 +257,29 @@ private fun ArtistDetailContent(
             )
         }
 
-        ArtistBottomToolbar(
-            playContainer = primaryBlock,
-            playContent = s.onPrimary,
-            toolbarContainer = toolbarTint,
-            onPlay = onPlay,
-            onShuffle = onShuffle,
-            // Saved/liked tracks live in Spotify now — the ▾ menu deep-links out
-            // (Spotify only; no in-app saved-tracks mirror).
-            showOpenInSpotify = MediaId.parseOrNull(content.artistId)?.provider == MediaId.PROVIDER_SPOTIFY,
-            onOpenInSpotify = onOpenInSpotify,
-            onShare = onShare,
+        // Pinned bottom row — toolbar + mini-player dock as one centered
+        // cluster, equal heights by construction.
+        DetailToolbarRow(
+            miniPlayer = miniPlayer,
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .navigationBarsPadding()
                 .padding(bottom = 12.dp),
+            toolbar = {
+                ArtistBottomToolbar(
+                    playContainer = primaryBlock,
+                    playContent = s.onPrimary,
+                    toolbarContainer = toolbarTint,
+                    onPlay = onPlay,
+                    onShuffle = onShuffle,
+                    // Saved/liked tracks live in Spotify now — the ▾ menu deep-links out
+                    // (Spotify only; no in-app saved-tracks mirror).
+                    showOpenInSpotify = MediaId.parseOrNull(content.artistId)?.provider == MediaId.PROVIDER_SPOTIFY,
+                    onOpenInSpotify = onOpenInSpotify,
+                    onShare = onShare,
+                )
+            },
         )
-
-        // Now-playing dock, same row as the toolbar (identical inset chain,
-        // so the two are vertically centered on each other by construction).
-        bottomEndAccessory?.let { accessory ->
-            Box(
-                modifier = Modifier
-                    .align(Alignment.BottomEnd)
-                    .navigationBarsPadding()
-                    // 12dp baseline + 4dp: centers the 64dp dock on the
-                    // 72dp-tall floating toolbar beside it.
-                    .padding(end = 16.dp, bottom = 16.dp),
-            ) {
-                accessory()
-            }
-        }
     }
 }
 

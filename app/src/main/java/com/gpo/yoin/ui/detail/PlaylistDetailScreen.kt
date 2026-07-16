@@ -101,8 +101,10 @@ fun PlaylistDetailScreen(
     animatedVisibilityScope: AnimatedVisibilityScope? = null,
     isPlaying: Boolean = false,
     playbackSignal: Float = 0f,
-    // Slot docked bottom-end on the toolbar row (detail mini-player).
-    bottomEndAccessory: (@Composable () -> Unit)? = null,
+    // Mini-player dock slot, laid out on the toolbar row (DetailToolbarRow).
+    miniPlayer: (@Composable () -> Unit)? = null,
+    // Entrance morph from the shell's Button Group into the dock slot.
+    dockMorph: DetailDockMorphState? = null,
     modifier: Modifier = Modifier,
 ) {
     val haptics = rememberYoinHaptics()
@@ -294,36 +296,38 @@ fun PlaylistDetailScreen(
             }
         }
 
-        // Pinned bottom toolbar — shuffle sits on the outside, Play rides the
-        // cover-seeded primary (same floating bar as the Album / Artist pages).
-        if (content != null && content.songs.isNotEmpty()) {
-            PlaylistBottomToolbar(
-                playContainer = titleColor,
-                playContent = playContent,
-                toolbarContainer = toolbarTint,
-                onPlay = onPlayAllClick,
-                onShuffle = onShufflePlay,
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .navigationBarsPadding()
-                    .padding(bottom = 12.dp),
-            )
-        }
+        // Pinned bottom row — toolbar + mini-player dock as one centered
+        // cluster, equal heights by construction. Shuffle sits on the
+        // outside, Play rides the cover-seeded primary (same floating bar as
+        // the Album / Artist pages). An empty playlist keeps the dock alone.
+        DetailToolbarRow(
+            miniPlayer = miniPlayer,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .navigationBarsPadding()
+                .padding(bottom = 12.dp),
+            toolbar = if (content != null && content.songs.isNotEmpty()) {
+                {
+                    PlaylistBottomToolbar(
+                        playContainer = titleColor,
+                        playContent = playContent,
+                        toolbarContainer = toolbarTint,
+                        onPlay = onPlayAllClick,
+                        onShuffle = onShufflePlay,
+                    )
+                }
+            } else {
+                null
+            },
+        )
 
-        // Now-playing dock, same row as the toolbar (identical inset chain,
-        // so the two are vertically centered on each other by construction).
-        bottomEndAccessory?.let { accessory ->
-            Box(
-                modifier = Modifier
-                    .align(Alignment.BottomEnd)
-                    .navigationBarsPadding()
-                    // 12dp baseline + 4dp: centers the 64dp dock on the
-                    // 72dp-tall floating toolbar beside it.
-                    .padding(end = 16.dp, bottom = 16.dp),
-            ) {
-                accessory()
-            }
-        }
+        // Entrance-morph pill layer, above every sibling (last child draws on
+        // top), wearing the shell Button Group surface color it hands off from.
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .dockMorphOverlay(dockMorph),
+        )
     }
 
     if (showRenameDialog && content != null) {

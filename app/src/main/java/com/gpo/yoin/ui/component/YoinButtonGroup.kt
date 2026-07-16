@@ -63,6 +63,8 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
@@ -104,6 +106,11 @@ fun YoinButtonGroup(
     onNowPlayingClick: () -> Unit,
     onLibraryClick: () -> Unit,
     onLibraryLongClick: () -> Unit = onLibraryClick,
+    // Reports the pill Surface's window bounds + rendered color — the source
+    // geometry for the Button-Group → detail dock morph (see DetailDockMorph).
+    onPillGeometryChanged: (Rect, Color) -> Unit = { _, _ -> },
+    // Reports the mini artwork's window bounds — the morph cover's origin.
+    onPillArtBoundsChanged: (Rect) -> Unit = {},
     sharedTransitionScope: SharedTransitionScope? = null,
     animatedVisibilityScope: AnimatedVisibilityScope? = null,
     modifier: Modifier = Modifier,
@@ -187,7 +194,11 @@ fun YoinButtonGroup(
                 .padding(horizontal = 16.dp, vertical = 12.dp),
         ) {
             Surface(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .onGloballyPositioned {
+                        onPillGeometryChanged(it.boundsInWindow(), surfaceColor)
+                    },
                 shape = MaterialTheme.shapes.extraLarge,
                 color = surfaceColor,
                 tonalElevation = 8.dp,
@@ -352,6 +363,9 @@ fun YoinButtonGroup(
                                         currentTrackTitle = currentTrackTitle,
                                         sharedTransitionScope = sharedTransitionScope,
                                         animatedVisibilityScope = animatedVisibilityScope,
+                                        modifier = Modifier.onGloballyPositioned {
+                                            onPillArtBoundsChanged(it.boundsInWindow())
+                                        },
                                     )
                                     Spacer(modifier = Modifier.width(10.dp))
                                     Column(modifier = Modifier.weight(1f)) {

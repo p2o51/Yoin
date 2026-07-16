@@ -59,7 +59,7 @@ class DetailScreenshotActivity : ComponentActivity() {
                     isPlaying = true,
                     playbackSignal = 0.35f,
                     // Fake docked mini-player so the dock can be QA'd without playback.
-                    bottomEndAccessory = {
+                    miniPlayer = {
                         DetailMiniPlayer(
                             state = DetailMiniPlayerState(
                                 title = "Cherries & Cream",

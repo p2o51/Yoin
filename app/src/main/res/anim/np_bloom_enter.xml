@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Shell re-entering with NP pre-settled: hold opaque; the visible motion
+     is the detail window's cover-bloom dissolving into the player. -->
+<alpha xmlns:android="http://schemas.android.com/apk/res/android"
+    android:fromAlpha="1.0"
+    android:toAlpha="1.0"
+    android:duration="640" />

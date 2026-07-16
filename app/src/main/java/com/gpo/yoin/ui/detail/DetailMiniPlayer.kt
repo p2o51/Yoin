@@ -1,11 +1,19 @@
 package com.gpo.yoin.ui.detail
 
+import android.app.ActivityOptions
 import android.content.Context
 import android.content.Intent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.MutableTransitionState
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.MusicNote
@@ -30,6 +38,8 @@ import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.unit.dp
 import com.gpo.yoin.AppContainer
 import com.gpo.yoin.MainActivity
+import com.gpo.yoin.R
+import com.gpo.yoin.player.PlaybackState
 import com.gpo.yoin.ui.component.ExpressiveMediaArtwork
 import com.gpo.yoin.ui.component.noRippleClickable
 import com.gpo.yoin.ui.component.rememberExpressiveBackdropColors
@@ -44,11 +54,12 @@ import kotlinx.coroutines.flow.map
  * overlay can't reach these standalone Activities, so browsing an album /
  * artist / playlist while music played used to mean flying blind.
  *
- * Shape (user-specified, round 3): ONLY the square cover, the track progress
- * traced as a stroke around its rounded-square perimeter, docked to the
- * RIGHT of the floating share/play toolbar on the same row — not a bar of
- * its own below it. Tap = open the shell with Now Playing expanded; title
- * and transport controls live there, one tap away.
+ * Shape (user-specified): ONLY the square cover, the track progress traced
+ * as a stroke around its rounded-square perimeter. It sits to the right of
+ * the floating share/play toolbar inside ONE centered row (DetailToolbarRow)
+ * and matches the toolbar pill's height exactly. Tap = open the shell with
+ * Now Playing expanded (animated on arrival — see [launchShellFromDetail]);
+ * title and transport controls live there, one tap away.
  */
 data class DetailMiniPlayerState(
     val title: String,
@@ -59,28 +70,39 @@ data class DetailMiniPlayerState(
 
 /**
  * Narrow projection of the playback state for the mini player. Deliberately
- * NOT the raw [com.gpo.yoin.player.PlaybackState]: that carries per-tick
- * position fields, and collecting it directly would recompose the dock every
- * playback tick (the project's NP-dedup invariant). distinctUntilChanged on
- * this tiny snapshot means it recomposes only on track / play changes.
+ * NOT the raw [PlaybackState]: that carries per-tick position fields, and
+ * collecting it directly would recompose the dock every playback tick (the
+ * project's NP-dedup invariant). distinctUntilChanged on this tiny snapshot
+ * means it recomposes only on track / play changes.
+ *
+ * Seeded synchronously from the StateFlow's CURRENT value (same pattern as
+ * the shell's playbackProgress): with `initial = null` the first composition
+ * is guaranteed dock-less, which both replays the pop-in the seeding below is
+ * meant to kill and hands the entrance morph a still-expanding target.
  */
 @Composable
-fun rememberDetailMiniPlayerState(container: AppContainer): State<DetailMiniPlayerState?> =
-    remember(container) {
+fun rememberDetailMiniPlayerState(container: AppContainer): State<DetailMiniPlayerState?> {
+    val seed = remember(container) {
+        container.playbackManager.playbackState.value.toDetailMiniPlayerState(container)
+    }
+    return remember(container) {
         container.playbackManager.playbackState
-            .map { state ->
-                val track = state.currentTrack ?: state.pendingTrack
-                track?.let {
-                    DetailMiniPlayerState(
-                        title = it.title.orEmpty(),
-                        artist = it.artist.orEmpty(),
-                        coverArtUrl = container.repository.resolveCoverUrl(it.coverArt, size = 240),
-                        isPlaying = state.isPlaying,
-                    )
-                }
-            }
+            .map { state -> state.toDetailMiniPlayerState(container) }
             .distinctUntilChanged()
-    }.collectAsState(initial = null)
+    }.collectAsState(initial = seed)
+}
+
+private fun PlaybackState.toDetailMiniPlayerState(
+    container: AppContainer,
+): DetailMiniPlayerState? {
+    val track = currentTrack ?: pendingTrack ?: return null
+    return DetailMiniPlayerState(
+        title = track.title.orEmpty(),
+        artist = track.artist.orEmpty(),
+        coverArtUrl = container.repository.resolveCoverUrl(track.coverArt, size = 240),
+        isPlaying = isPlaying,
+    )
+}
 
 /**
  * Track progress fraction for the cover's perimeter stroke. Quantized so the
@@ -90,21 +112,33 @@ fun rememberDetailMiniPlayerState(container: AppContainer): State<DetailMiniPlay
  * recomposing anything.
  */
 @Composable
-fun rememberDetailMiniPlayerProgress(container: AppContainer): State<Float> =
-    remember(container) {
+fun rememberDetailMiniPlayerProgress(container: AppContainer): State<Float> {
+    // Seeded from the live state: a 0% first frame reads as a ring blip.
+    val seed = remember(container) {
+        container.playbackManager.playbackState.value.toQuantizedProgress()
+    }
+    return remember(container) {
         container.playbackManager.playbackState
-            .map { state ->
-                val duration = state.duration
-                if (duration <= 0L) 0f
-                else ((state.position.toFloat() / duration) * 480f).toInt() / 480f
-            }
+            .map { state -> state.toQuantizedProgress() }
             .distinctUntilChanged()
-    }.collectAsState(initial = 0f)
+    }.collectAsState(initial = seed)
+}
+
+private fun PlaybackState.toQuantizedProgress(): Float =
+    if (duration <= 0L) 0f
+    else ((position.toFloat() / duration) * 480f).toInt() / 480f
 
 /**
- * Return to the shell Activity, optionally with Now Playing expanded. The
- * session store is process-global, so setting the flag BEFORE the intent
- * means the shell resumes already showing NP — no extras round-trip.
+ * Return to the shell Activity, optionally with Now Playing expanded.
+ *
+ * The expand request travels as an Intent extra consumed in the shell's
+ * onNewIntent — NOT by setting the session-store flag up front. Compose's
+ * frame clock is process-wide, so a flag set while the shell is stopped lets
+ * the whole NP enter transition play invisibly in the background and the
+ * shell resumes at the finished state. Deferring to onNewIntent (which fires
+ * just before onStart) means the expansion animates on the shell's first
+ * visible frames — the same bar→NP choreography as tapping the bottom group —
+ * while this detail window dissolves above it (np_handoff_* animations).
  * CLEAR_TOP + SINGLE_TOP folds the detail stack back into the existing
  * shell instance instead of spawning a second one.
  */
@@ -113,47 +147,88 @@ fun launchShellFromDetail(
     container: AppContainer,
     expandNowPlaying: Boolean,
 ) {
-    if (expandNowPlaying) {
-        container.experienceSessionStore.setNowPlayingExpanded(true)
+    val intent = Intent(context, MainActivity::class.java)
+        .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+    if (!expandNowPlaying) {
+        context.startActivity(intent)
+        return
     }
-    context.startActivity(
-        Intent(context, MainActivity::class.java)
-            .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP),
+    intent.putExtra(MainActivity.EXTRA_EXPAND_NOW_PLAYING, true)
+    val options = ActivityOptions.makeCustomAnimation(
+        context,
+        R.anim.np_handoff_enter,
+        R.anim.np_handoff_exit,
     )
+    context.startActivity(intent, options.toBundle())
 }
 
-// Same height as the M3 HorizontalFloatingToolbar it sits beside, so the
-// two read as peers on one row.
-private val DockSize = 64.dp
+// The dock fills the toolbar row's height (the M3 floating toolbar pill,
+// 76dp with the current 60dp play button + 8dp content padding) so the two
+// read as equal-height peers; this is only the floor for toolbar-less pages.
+private val DockMinSize = 64.dp
 private val RingStroke = 3.dp
-private val DockCorner = 18.dp
-private val ArtSize = 50.dp
-private val ArtCorner = 12.dp
+
+// Gap to the toolbar pill, applied inside the show/hide animation so it
+// vanishes (and animates) together with the dock.
+private val DockGap = 12.dp
+
+// Corners scale with the dock so the shape keeps its character at any row
+// height (18dp at the original 64dp spec). Shared with the entrance morph
+// pill, whose target corner must land exactly on the ring's.
+internal const val DetailDockCornerRatio = 18f / 64f
+
+// Artwork rounding as a fraction of the art size; the morph's riding cover
+// must land on exactly this rounding for an invisible hand-off.
+internal const val DetailDockArtCornerRatio = 0.24f
+private const val ArtCornerPercent = 24 // = DetailDockArtCornerRatio × 100
+
+// Inset from dock edge to the artwork: ring stroke + breathing gap. Also the
+// morph's cover-flight destination inset.
+internal val DetailDockArtInset = 7.dp
 
 @Composable
 fun DetailMiniPlayer(
     state: DetailMiniPlayerState?,
     progress: () -> Float,
     onOpenNowPlaying: () -> Unit,
+    dockMorph: DetailDockMorphState? = null,
+    bloom: DockBloomState? = null,
     modifier: Modifier = Modifier,
 ) {
-    // Keep the last non-null state so the exit slide animates with content.
+    // Keep the last non-null state so the exit shrink animates with content.
     var lastState by remember { mutableStateOf(state) }
     if (state != null) lastState = state
+    // Seeded with the state present at first composition (the state flow is
+    // synchronously seeded above, so "music already playing" IS visible on
+    // frame 1): a page opened mid-playback shows the dock immediately — its
+    // entrance is owned by the page transition / dock morph, not by a
+    // detached pop-in (the old slide-up read as an unrelated "cut"
+    // animation). Expand/shrink only animate MID-visit playback starts/stops,
+    // letting the centered toolbar+dock cluster re-center smoothly.
+    val visibleState = remember { MutableTransitionState(initialState = state != null) }
+    visibleState.targetState = state != null
     AnimatedVisibility(
-        visible = state != null,
-        enter = YoinMotion.slideInVertically(role = YoinMotionRole.Expressive) { it } +
+        visibleState = visibleState,
+        enter = YoinMotion.expandHorizontally(role = YoinMotionRole.Expressive) +
             YoinMotion.fadeIn(role = YoinMotionRole.Expressive),
-        exit = YoinMotion.slideOutVertically(role = YoinMotionRole.Expressive) { it } +
+        exit = YoinMotion.shrinkHorizontally(role = YoinMotionRole.Expressive) +
             YoinMotion.fadeOut(role = YoinMotionRole.Expressive),
         modifier = modifier,
     ) {
         lastState?.let { current ->
-            DetailMiniPlayerDock(
-                state = current,
-                progress = progress,
-                onOpenNowPlaying = onOpenNowPlaying,
-            )
+            // The toolbar↔dock gap lives INSIDE the visibility content: a gap
+            // applied by the row (spacedBy / wrapper padding) would survive at
+            // zero dock width and push the toolbar 6dp off-center whenever
+            // nothing is playing.
+            Row {
+                Spacer(modifier = Modifier.width(DockGap))
+                DetailMiniPlayerDock(
+                    state = current,
+                    progress = progress,
+                    onOpenNowPlaying = onOpenNowPlaying,
+                    modifier = Modifier.dockMorphTarget(dockMorph).dockBloomSource(bloom),
+                )
+            }
         }
     }
 }
@@ -187,7 +262,11 @@ private fun DetailMiniPlayerDock(
 
     Box(
         modifier = modifier
-            .size(DockSize)
+            // Match the toolbar pill beside it exactly: the toolbar row sizes
+            // itself (IntrinsicSize.Min) and the dock fills that height.
+            .heightIn(min = DockMinSize)
+            .fillMaxHeight()
+            .aspectRatio(1f)
             .coverProgressRing(
                 progress = progress,
                 trackColor = ringTrackColor,
@@ -202,8 +281,15 @@ private fun DetailMiniPlayerDock(
         ExpressiveMediaArtwork(
             model = state.coverArtUrl,
             contentDescription = state.title,
-            modifier = Modifier.size(ArtSize),
-            shape = RoundedCornerShape(ArtCorner),
+            // matchParentSize, NOT fillMaxSize: the loaded cover's painter
+            // reports the bitmap's intrinsic size, and fillMaxSize lets that
+            // flow through aspectRatio into the toolbar row's
+            // IntrinsicSize.Min — the dock then balloons to the cover's
+            // pixel size (huge on devices whose server returns large art).
+            modifier = Modifier
+                .matchParentSize()
+                .padding(DetailDockArtInset),
+            shape = RoundedCornerShape(percent = ArtCornerPercent),
             fallbackIcon = Icons.Rounded.MusicNote,
             tonalElevation = 0.dp,
             shadowElevation = 0.dp,
@@ -224,7 +310,7 @@ private fun Modifier.coverProgressRing(
 ): Modifier = drawWithCache {
     val strokePx = RingStroke.toPx()
     val inset = strokePx / 2f
-    val radius = (DockCorner.toPx() - inset).coerceAtLeast(1f)
+    val radius = (size.minDimension * DetailDockCornerRatio - inset).coerceAtLeast(1f)
     val w = size.width
     val h = size.height
     val left = inset

@@ -128,8 +128,10 @@ fun AlbumDetailScreen(
     onOpenArtist: (() -> Unit)? = null,
     isPlaying: Boolean = false,
     playbackSignal: Float = 0f,
-    // Slot docked bottom-end on the toolbar row (detail mini-player).
-    bottomEndAccessory: (@Composable () -> Unit)? = null,
+    // Mini-player dock slot, laid out on the toolbar row (DetailToolbarRow).
+    miniPlayer: (@Composable () -> Unit)? = null,
+    // Entrance morph from the shell's Button Group into the dock slot.
+    dockMorph: DetailDockMorphState? = null,
     modifier: Modifier = Modifier,
 ) {
     val content = uiState as? AlbumDetailUiState.Content
@@ -142,7 +144,13 @@ fun AlbumDetailScreen(
             playbackSignal = playbackSignal,
             modifier = modifier,
         ) {
-            Box(modifier = Modifier.fillMaxSize()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    // The entrance pill draws over the whole page, wearing
+                    // the shell Button Group surface color it hands off from.
+                    .dockMorphOverlay(dockMorph),
+            ) {
             when (uiState) {
                 is AlbumDetailUiState.Loading ->
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -169,7 +177,7 @@ fun AlbumDetailScreen(
                         onShufflePlay = onShufflePlay,
                         onShare = onShare,
                         onOpenArtist = onOpenArtist,
-                        bottomEndAccessory = bottomEndAccessory,
+                        miniPlayer = miniPlayer,
                     )
             }
             }
@@ -195,7 +203,7 @@ private fun AlbumDetailContent(
     onShufflePlay: () -> Unit,
     onShare: () -> Unit,
     onOpenArtist: (() -> Unit)?,
-    bottomEndAccessory: (@Composable () -> Unit)?,
+    miniPlayer: (@Composable () -> Unit)?,
 ) {
     val scope = rememberCoroutineScope()
 
@@ -279,35 +287,27 @@ private fun AlbumDetailContent(
             }
         }
 
-        // Pinned bottom toolbar — present on both pages, like the Figma frames.
-        AlbumBottomToolbar(
-            playContainer = primaryBlock,
-            playContent = playContent,
-            toolbarContainer = toolbarTint,
-            onPlay = onPlayAlbum,
-            onShuffle = onShufflePlay,
-            onShare = onShare,
-            onOpenArtist = onOpenArtist,
+        // Pinned bottom row — toolbar + mini-player dock as one centered
+        // cluster, equal heights by construction (present on both pages,
+        // like the Figma frames).
+        DetailToolbarRow(
+            miniPlayer = miniPlayer,
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .navigationBarsPadding()
                 .padding(bottom = 12.dp),
+            toolbar = {
+                AlbumBottomToolbar(
+                    playContainer = primaryBlock,
+                    playContent = playContent,
+                    toolbarContainer = toolbarTint,
+                    onPlay = onPlayAlbum,
+                    onShuffle = onShufflePlay,
+                    onShare = onShare,
+                    onOpenArtist = onOpenArtist,
+                )
+            },
         )
-
-        // Now-playing dock, same row as the toolbar (identical inset chain,
-        // so the two are vertically centered on each other by construction).
-        bottomEndAccessory?.let { accessory ->
-            Box(
-                modifier = Modifier
-                    .align(Alignment.BottomEnd)
-                    .navigationBarsPadding()
-                    // 12dp baseline + 4dp: centers the 64dp dock on the
-                    // 72dp-tall floating toolbar beside it.
-                    .padding(end = 16.dp, bottom = 16.dp),
-            ) {
-                accessory()
-            }
-        }
     }
 
     if (showEditSheet) {

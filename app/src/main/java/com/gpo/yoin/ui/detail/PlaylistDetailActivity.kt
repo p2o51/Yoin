@@ -17,12 +17,14 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.gpo.yoin.YoinActivityRoot
+import kotlinx.coroutines.launch
 import com.gpo.yoin.YoinApplication
 import com.gpo.yoin.enableYoinEdgeToEdge
 import com.gpo.yoin.data.repository.ActivityContext
@@ -43,10 +45,14 @@ class PlaylistDetailActivity : ComponentActivity() {
             finish()
             return
         }
+        // Entrance-only: a recreated Activity (rotation, process restore)
+        // must not replay the Button-Group → dock morph.
+        val dockMorphSource = if (savedInstanceState == null) readDockMorphHandoff(intent) else null
         setContent {
             YoinActivityRoot {
                 val context = LocalContext.current
                 val app = context.applicationContext as YoinApplication
+                val scope = rememberCoroutineScope()
                 val viewModel: PlaylistDetailViewModel = viewModel(
                     factory = PlaylistDetailViewModel.Factory(playlistId, app.container),
                 )
@@ -95,8 +101,13 @@ class PlaylistDetailActivity : ComponentActivity() {
 
                 val miniPlayerState by rememberDetailMiniPlayerState(app.container)
                 val miniPlayerProgress = rememberDetailMiniPlayerProgress(app.container)
+                val dockMorph = rememberDetailDockMorph(
+                    source = dockMorphSource,
+                    coverArtUrl = miniPlayerState?.coverArtUrl,
+                )
+                val dockBloom = rememberDockBloom(miniPlayerState?.coverArtUrl)
 
-                Box(modifier = Modifier.fillMaxSize()) {
+                Box(modifier = Modifier.fillMaxSize().dockBloomOverlay(dockBloom)) {
                     PlaylistDetailScreen(
                         uiState = uiState,
                         onBackClick = { finish() },
@@ -116,13 +127,20 @@ class PlaylistDetailActivity : ComponentActivity() {
                         sharedTransitionKey = null,
                         sharedTransitionScope = null,
                         animatedVisibilityScope = null,
-                        bottomEndAccessory = {
+                        miniPlayer = {
                             DetailMiniPlayer(
                                 state = miniPlayerState,
                                 progress = { miniPlayerProgress.value },
-                                onOpenNowPlaying = { launchShellFromDetail(context, app.container, expandNowPlaying = true) },
+                                onOpenNowPlaying = {
+                                scope.launch {
+                                    dockBloom.bloomIntoNowPlaying(context, app.container)
+                                }
+                            },
+                            bloom = dockBloom,
+                                dockMorph = dockMorph,
                             )
                         },
+                        dockMorph = dockMorph,
                         modifier = Modifier.fillMaxSize(),
                     )
 
@@ -138,6 +156,15 @@ class PlaylistDetailActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    override fun onStop() {
+        super.onStop()
+        // The system defers onStop past the exit animation, so this is the
+        // moment this window is truly off screen — the shell's pending NP
+        // expansion (dock tap) waits for it before playing the bar→NP rise.
+        (application as YoinApplication).container.experienceSessionStore
+            .noteDetailWindowSettled()
     }
 
     companion object {
