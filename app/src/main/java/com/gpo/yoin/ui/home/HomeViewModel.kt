@@ -143,34 +143,37 @@ class HomeViewModel(
                 loadActivityHeroFootnote(activitiesDeferred.await())
             }
 
+            val recentlyAdded = recentlyAddedDeferred.await()
             HomeUiState.Content(
                 activities = activitiesDeferred.await(),
                 activityHeroFootnote = heroFootnoteDeferred.await(),
                 widgetGrid = widgetGridDeferred.await(),
-                recentlyAdded = recentlyAddedDeferred.await(),
+                recentlyAddedTracks = recentlyAdded.tracks,
+                recentlyAddedAlbums = recentlyAdded.albums,
             )
         }
 
     /**
      * Library items added within the last week, newest first. Provider-agnostic:
-     * reads the unified starred/saved library ([YoinRepository.getStarred]) and
-     * keeps tracks whose [Track.addedAt] parses to within the window. Failures
-     * degrade to an empty shelf rather than breaking the whole home load;
-     * cooperative cancellation is rethrown.
+     * reads the unified starred/saved library ([YoinRepository.getStarred]) once
+     * and keeps both tracks and albums whose `addedAt` parses to within the
+     * window (tracks feed the 2×2 grid, albums the scrolling shelf — Figma
+     * 622:777). Failures degrade to an empty shelf rather than breaking the whole
+     * home load; cooperative cancellation is rethrown.
      */
-    private suspend fun loadRecentlyAdded(): List<Track> {
+    private suspend fun loadRecentlyAdded(): RecentlyAdded {
         return try {
             val cutoff = System.currentTimeMillis() - RECENTLY_ADDED_WINDOW_MS
-            repository.getStarred().tracks
-                .mapNotNull { track -> parseAddedAtMillis(track.addedAt)?.let { millis -> millis to track } }
-                .filter { (addedMs, _) -> addedMs >= cutoff }
-                .sortedByDescending { (addedMs, _) -> addedMs }
-                .take(RECENTLY_ADDED_LIMIT)
-                .map { (_, track) -> track }
+            val starred = repository.getStarred()
+            val tracks = starred.tracks
+                .withinRecentlyAddedWindow(cutoff, RECENTLY_ADDED_TRACK_LIMIT, key = { it.id }) { it.addedAt }
+            val albums = starred.albums
+                .withinRecentlyAddedWindow(cutoff, RECENTLY_ADDED_ALBUM_LIMIT, key = { it.id }) { it.addedAt }
+            RecentlyAdded(tracks = tracks, albums = albums)
         } catch (cancellation: CancellationException) {
             throw cancellation
         } catch (_: Exception) {
-            emptyList()
+            RecentlyAdded()
         }
     }
 
@@ -205,12 +208,14 @@ class HomeViewModel(
 
         val (activities, activitiesFromRemote) = activitiesDeferred.await()
         val heroFootnoteDeferred = async { loadActivityHeroFootnote(activities) }
+        val recentlyAdded = recentlyAddedDeferred.await()
         HomeUiState.Content(
             activities = activities,
             activitiesFromRemote = activitiesFromRemote,
             activityHeroFootnote = heroFootnoteDeferred.await(),
             widgetGrid = widgetGridDeferred.await(),
-            recentlyAdded = recentlyAddedDeferred.await(),
+            recentlyAddedTracks = recentlyAdded.tracks,
+            recentlyAddedAlbums = recentlyAdded.albums,
         )
     }
 
@@ -679,8 +684,11 @@ class HomeViewModel(
         private const val GRID_POOLS_TTL_MS = 6L * 60L * 60L * 1000L
 
         // "Recently Added" home shelf: library items added within the last week.
+        // Tracks fill a fixed 2×2 grid (4 cells); albums scroll horizontally, so
+        // they get a deeper cap.
         private const val RECENTLY_ADDED_WINDOW_MS = 7L * 24 * 60 * 60 * 1000
-        private const val RECENTLY_ADDED_LIMIT = 12
+        private const val RECENTLY_ADDED_TRACK_LIMIT = 4
+        private const val RECENTLY_ADDED_ALBUM_LIMIT = 12
 
         // Coalesces activity-event bursts (track skips, detail visits) before
         // rebuilding the live activities feed.
@@ -713,3 +721,28 @@ private fun parseAddedAtMillis(addedAt: String?): Long? {
         }
         .getOrNull()
 }
+
+/** Recently-added library split by kind for the two halves of the shelf. */
+private data class RecentlyAdded(
+    val tracks: List<Track> = emptyList(),
+    val albums: List<Album> = emptyList(),
+)
+
+/**
+ * Keep only items whose [addedAt] parses to at-or-after [cutoffMillis], newest
+ * first, deduped by [key], capped at [limit]. Shared by the recently-added
+ * track and album lists so both apply the same window / ordering. Dedup guards
+ * the album shelf's keyed `LazyRow` against a provider that lists the same id
+ * twice (some Subsonic servers repeat starred entries across folders).
+ */
+private inline fun <T> List<T>.withinRecentlyAddedWindow(
+    cutoffMillis: Long,
+    limit: Int,
+    key: (T) -> Any,
+    addedAt: (T) -> String?,
+): List<T> = mapNotNull { item -> parseAddedAtMillis(addedAt(item))?.let { millis -> millis to item } }
+    .filter { (addedMs, _) -> addedMs >= cutoffMillis }
+    .sortedByDescending { (addedMs, _) -> addedMs }
+    .map { (_, item) -> item }
+    .distinctBy(key)
+    .take(limit)

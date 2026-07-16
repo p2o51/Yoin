@@ -1,6 +1,7 @@
 package com.gpo.yoin.ui.home
 
 import com.gpo.yoin.data.local.ActivityEvent
+import com.gpo.yoin.data.model.Album
 import com.gpo.yoin.data.model.Track
 import com.gpo.yoin.ui.memories.MemoryEntityType
 
@@ -22,9 +23,12 @@ sealed interface HomeUiState {
         // memory-flavoured cards. Empty hides the section.
         val widgetGrid: List<HomeWidgetCard> = emptyList(),
         // Library items added within the last week (Spotify saved / Subsonic
-        // starred), newest first. Empty when nothing was added recently or the
-        // fetch failed — the section then renders nothing.
-        val recentlyAdded: List<Track> = emptyList(),
+        // starred), newest first. The Recently Added section splits these into a
+        // compact 2×2 track grid on the left and a horizontally scrolling album
+        // shelf on the right (Figma 622:777). Either being empty just drops that
+        // half; both empty hides the whole section.
+        val recentlyAddedTracks: List<Track> = emptyList(),
+        val recentlyAddedAlbums: List<Album> = emptyList(),
     ) : HomeUiState
 
     data class Error(val message: String) : HomeUiState

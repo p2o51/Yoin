@@ -12,7 +12,6 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
@@ -65,16 +64,17 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.gpo.yoin.data.local.ActivityEntityType
 import com.gpo.yoin.data.local.ActivityEvent
+import com.gpo.yoin.data.model.Album
 import com.gpo.yoin.data.model.CoverRef
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.Track
 import com.gpo.yoin.ui.component.ExpressiveMediaArtwork
 import com.gpo.yoin.ui.component.ExpressiveSectionPanel
 import com.gpo.yoin.ui.component.MarqueeText
-import com.gpo.yoin.ui.component.horizontalEdgeFadeOnScroll
-import com.gpo.yoin.ui.component.ignoreParentHorizontalPadding
+import com.gpo.yoin.ui.component.ignoreParentTrailingPadding
 import com.gpo.yoin.ui.component.noRippleClickable
 import com.gpo.yoin.ui.component.rememberExpressiveBackdropColors
 import com.gpo.yoin.ui.experience.RevealState
@@ -113,7 +113,8 @@ internal fun HomeEditorialContent(
     activities: List<ActivityEvent>,
     widgetGrid: List<HomeWidgetCard> = emptyList(),
     activityHeroFootnote: String? = null,
-    recentlyAdded: List<Track> = emptyList(),
+    recentlyAddedTracks: List<Track> = emptyList(),
+    recentlyAddedAlbums: List<Album> = emptyList(),
     sections: List<HomeSectionState> = HomeLayout.Default.sections,
     onNavigateToSettings: () -> Unit,
     onNavigateToMemories: () -> Unit,
@@ -320,18 +321,22 @@ internal fun HomeEditorialContent(
 
                 // Only render when there's something added this week — an empty
                 // "recently added" shelf is noise, not information.
-                HomeSection.RecentlyAdded -> if (recentlyAdded.isNotEmpty()) {
-                    item(key = "section-recently-added") {
-                        RecentlyAddedSection(
-                            tracks = recentlyAdded,
-                            onTrackClick = { track -> onEntryClick(HomeEntryTarget.SongTarget(track)) },
-                            buildCoverArtUrl = buildCoverArtUrl,
-                            sharedTransitionScope = sharedTransitionScope,
-                            animatedVisibilityScope = animatedVisibilityScope,
-                            modifier = Modifier.fillMaxWidth(),
-                        )
+                HomeSection.RecentlyAdded ->
+                    if (recentlyAddedTracks.isNotEmpty() || recentlyAddedAlbums.isNotEmpty()) {
+                        item(key = "section-recently-added") {
+                            RecentlyAddedSection(
+                                tracks = recentlyAddedTracks,
+                                albums = recentlyAddedAlbums,
+                                extractBackdropColors = shouldExtractBackdropColors,
+                                onTrackClick = { track -> onEntryClick(HomeEntryTarget.SongTarget(track)) },
+                                onAlbumClick = { album ->
+                                    onEntryClick(HomeEntryTarget.Album(album.id.toString(), null))
+                                },
+                                buildCoverArtUrl = buildCoverArtUrl,
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                        }
                     }
-                }
             }
         }
     }
@@ -778,93 +783,224 @@ private fun widgetShapeKindForActivity(entityType: String): WidgetShapeKind = wh
     else -> WidgetShapeKind.Album
 }
 
-// ── Recently Added (compact horizontal shelf) ──────────────────────────
+// ── Recently Added (tracks grid + album shelf, Figma 622:777) ──────────
+//
+// A split shelf: on the left a compact 2×2 grid of the four most-recently
+// added tracks (small cover + title / artist), on the right a horizontally
+// scrolling row of recently-added albums, each nested on its Bun backdrop
+// shape. Either half collapses when its list is empty, and the lone survivor
+// takes the full width.
 
-@OptIn(ExperimentalSharedTransitionApi::class)
+// Track cover sized so a tight 2×2 (two rows + one 14dp gap) lands near the
+// album card's height (album cover + its two label lines) without a hollow
+// middle. Kept modest so the title/artist column beside it stays wide (the
+// covers and the album shrink together to hold the height match). Still clearly
+// smaller than the album cover, matching the mock ratio.
+private val RecentlyAddedTrackCover = 52.dp
+private val RecentlyAddedAlbumCover = 82.dp
+
 @Composable
 private fun RecentlyAddedSection(
     tracks: List<Track>,
+    albums: List<Album>,
+    extractBackdropColors: Boolean,
     onTrackClick: (Track) -> Unit,
+    onAlbumClick: (Album) -> Unit,
     buildCoverArtUrl: (String) -> String,
-    sharedTransitionScope: SharedTransitionScope? = null,
-    animatedVisibilityScope: AnimatedVisibilityScope? = null,
     modifier: Modifier = Modifier,
 ) {
-    val listState = rememberLazyListState()
     Column(
         modifier = modifier,
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         HomeSectionTitle(text = "Recently Added")
-        // Full-bleed: the shelf escapes the feed's 16dp padding so scrolled
-        // tiles run under the screen edges (with a soft scroll-aware fade)
-        // instead of being chopped at a mid-page line; contentPadding keeps
-        // the resting tiles on the 16dp page margin.
-        LazyRow(
-            state = listState,
-            modifier = Modifier
-                .ignoreParentHorizontalPadding(16.dp)
-                .horizontalEdgeFadeOnScroll(listState),
-            contentPadding = PaddingValues(horizontal = 16.dp),
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
+            // Both halves hang from the top. The track covers are sized so a
+            // tight 2×2 (below) lands at roughly the album card's height — no
+            // stretched-open middle gap, no short block leaving space below.
+            verticalAlignment = Alignment.Top,
         ) {
-            items(
-                items = tracks,
-                key = { track -> "recently-added:${track.id}" },
-            ) { track ->
-                RecentlyAddedTile(
-                    track = track,
-                    onClick = { onTrackClick(track) },
+            if (tracks.isNotEmpty()) {
+                RecentlyAddedTrackGrid(
+                    tracks = tracks,
+                    onTrackClick = onTrackClick,
                     buildCoverArtUrl = buildCoverArtUrl,
-                    sharedTransitionScope = sharedTransitionScope,
-                    animatedVisibilityScope = animatedVisibilityScope,
+                    // Fixed content that must stay legible gets the larger share
+                    // so titles/artists have room; the album shelf scrolls, so
+                    // it can live in the narrower remainder (still shows ~1.5
+                    // covers + the next one bleeding past the edge).
+                    modifier = Modifier.weight(2.6f),
+                )
+            }
+            if (albums.isNotEmpty()) {
+                RecentlyAddedAlbumShelf(
+                    albums = albums,
+                    extractBackdropColors = extractBackdropColors,
+                    onAlbumClick = onAlbumClick,
+                    buildCoverArtUrl = buildCoverArtUrl,
+                    modifier = Modifier.weight(1f),
                 )
             }
         }
     }
 }
 
-@OptIn(ExperimentalSharedTransitionApi::class)
+/** The left half: up to four tracks packed into a 2×2 grid. */
 @Composable
-private fun RecentlyAddedTile(
+private fun RecentlyAddedTrackGrid(
+    tracks: List<Track>,
+    onTrackClick: (Track) -> Unit,
+    buildCoverArtUrl: (String) -> String,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier = modifier,
+        // Tight, even gap between the two rows — the covers (not the gap) carry
+        // the height, so the pair reads as one block instead of two stranded
+        // rows with a hollow middle.
+        verticalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
+        tracks.take(4).chunked(2).forEach { rowTracks ->
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                rowTracks.forEach { track ->
+                    RecentlyAddedTrackTile(
+                        track = track,
+                        onClick = { onTrackClick(track) },
+                        buildCoverArtUrl = buildCoverArtUrl,
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+                // Pad an odd final row so a lone tile keeps its column width
+                // instead of stretching across the whole grid.
+                if (rowTracks.size < 2) {
+                    Spacer(modifier = Modifier.weight(1f))
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun RecentlyAddedTrackTile(
     track: Track,
     onClick: () -> Unit,
     buildCoverArtUrl: (String) -> String,
-    @Suppress("UNUSED_PARAMETER") sharedTransitionScope: SharedTransitionScope? = null,
-    @Suppress("UNUSED_PARAMETER") animatedVisibilityScope: AnimatedVisibilityScope? = null,
     modifier: Modifier = Modifier,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val coverArtUrl = resolveHomeCoverArtUrl(track.coverArt, buildCoverArtUrl)
         ?: track.albumId?.let { buildCoverArtUrl(it.rawId) }
-    // Same spacing rhythm as the widget grid: one gap after the artwork, then
-    // the title + artist flush so they read as a single text cluster.
-    Column(
-        modifier = modifier
-            .width(96.dp)
-            .noRippleClickable(interactionSource = interactionSource, onClick = onClick),
+    Row(
+        modifier = modifier.noRippleClickable(interactionSource = interactionSource, onClick = onClick),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
         ExpressiveMediaArtwork(
             model = coverArtUrl,
             contentDescription = track.title.orEmpty(),
-            modifier = Modifier
-                .fillMaxWidth()
-                .aspectRatio(1f),
+            modifier = Modifier.size(RecentlyAddedTrackCover),
             shape = YoinShapeTokens.Small,
             fallbackIcon = Icons.Filled.LibraryMusic,
             interactionSource = interactionSource,
             tonalElevation = 1.dp,
             shadowElevation = 0.dp,
         )
-        Spacer(modifier = Modifier.height(5.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = track.title.orEmpty(),
+                // 13sp (vs bodyMedium's 14) so short titles like "Describe" fit
+                // the narrow two-column cell instead of truncating.
+                style = MaterialTheme.typography.bodyMedium.copy(
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Medium,
+                ),
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            track.artist?.takeIf { it.isNotBlank() }?.let { artist ->
+                Text(
+                    text = artist,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+    }
+}
+
+/** The right half: a horizontally scrolling shelf of recently-added albums. */
+@Composable
+private fun RecentlyAddedAlbumShelf(
+    albums: List<Album>,
+    extractBackdropColors: Boolean,
+    onAlbumClick: (Album) -> Unit,
+    buildCoverArtUrl: (String) -> String,
+    modifier: Modifier = Modifier,
+) {
+    // Bleed off the right screen edge so scrolled album cards run straight to
+    // the edge instead of stopping at the 16dp page margin; the trailing
+    // contentPadding re-aligns the resting card. No edge-fade mask — the shelf
+    // reads cleaner running flush to the edge on both sides.
+    LazyRow(
+        modifier = modifier.ignoreParentTrailingPadding(16.dp),
+        contentPadding = PaddingValues(end = 16.dp),
+        horizontalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
+        items(
+            items = albums,
+            key = { album -> "recently-added-album:${album.id}" },
+        ) { album ->
+            RecentlyAddedAlbumCard(
+                album = album,
+                extractBackdropColors = extractBackdropColors,
+                onClick = { onAlbumClick(album) },
+                buildCoverArtUrl = buildCoverArtUrl,
+            )
+        }
+    }
+}
+
+@Composable
+private fun RecentlyAddedAlbumCard(
+    album: Album,
+    extractBackdropColors: Boolean,
+    onClick: () -> Unit,
+    buildCoverArtUrl: (String) -> String,
+    modifier: Modifier = Modifier,
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val coverArtUrl = resolveHomeCoverArtUrl(album.coverArt, buildCoverArtUrl)
+    Column(
+        modifier = modifier
+            .width(RecentlyAddedAlbumCover)
+            .noRippleClickable(interactionSource = interactionSource, onClick = onClick),
+    ) {
+        WidgetBackdropArtwork(
+            model = coverArtUrl,
+            kind = WidgetShapeKind.Album,
+            contentDescription = album.name,
+            extractBackdropColors = extractBackdropColors,
+            interactionSource = interactionSource,
+            modifier = Modifier.size(RecentlyAddedAlbumCover),
+        )
+        Spacer(modifier = Modifier.height(6.dp))
         Text(
-            text = track.title.orEmpty(),
-            style = MaterialTheme.typography.bodyMedium,
+            text = album.name,
+            style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Medium),
             color = MaterialTheme.colorScheme.onSurface,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
-        track.artist?.takeIf { it.isNotBlank() }?.let { artist ->
+        album.artist?.takeIf { it.isNotBlank() }?.let { artist ->
             Text(
                 text = artist,
                 style = MaterialTheme.typography.labelSmall,

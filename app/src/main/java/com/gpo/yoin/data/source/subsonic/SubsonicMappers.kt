@@ -63,6 +63,10 @@ internal fun SubsonicAlbum.toAlbum(): Album = Album(
     genre = genre,
     isStarred = !starred.isNullOrEmpty(),
     tracks = song.map { it.toTrack() },
+    // `starred` is the per-user "when I starred this" timestamp (ISO-8601);
+    // carry it as addedAt so starred albums feed the home "Recently Added"
+    // albums shelf, mirroring the track mapper above.
+    addedAt = starred,
 )
 
 internal fun SubsonicArtist.toArtist(): Artist = Artist(

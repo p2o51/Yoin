@@ -110,6 +110,24 @@ internal fun Modifier.ignoreParentHorizontalPadding(horizontal: Dp): Modifier = 
 }
 
 /**
+ * Like [ignoreParentHorizontalPadding] but for the trailing edge only: let a
+ * horizontally scrolling child that shares its row with something on the left
+ * (e.g. the Recently Added album shelf beside the track grid) escape only the
+ * parent's *right* content padding, so scrolled items run under the screen's
+ * right edge while the left edge stays put. Pair with the same value as the
+ * child's own trailing `contentPadding` so resting items align with the margin.
+ */
+internal fun Modifier.ignoreParentTrailingPadding(trailing: Dp): Modifier = layout { measurable, constraints ->
+    val extraPx = trailing.roundToPx()
+    val placeable = measurable.measure(
+        constraints.copy(maxWidth = constraints.maxWidth + extraPx),
+    )
+    layout(constraints.maxWidth, placeable.height) {
+        placeable.place(x = 0, y = 0)
+    }
+}
+
+/**
  * Scroll-aware edge fade for horizontal lists: each edge fades ONLY while
  * more content lies beyond it, so nothing ever ends in a hard cut, and the
  * resting ends of the list stay crisp (a static mask would dim the first and

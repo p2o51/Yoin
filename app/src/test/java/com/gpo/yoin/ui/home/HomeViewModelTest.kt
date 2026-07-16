@@ -138,6 +138,12 @@ class HomeViewModelTest {
                 savedTrack("newest", now.minus(1, ChronoUnit.HOURS).toString()),
                 savedTrack("no-date", ""),
             ),
+            albums = listOf(
+                album("album-old", "Old").copy(addedAt = now.minus(30, ChronoUnit.DAYS).toString()),
+                album("album-recent", "Recent").copy(addedAt = now.minus(4, ChronoUnit.DAYS).toString()),
+                album("album-newest", "Newest").copy(addedAt = now.minus(2, ChronoUnit.HOURS).toString()),
+                album("album-no-date", "No date").copy(addedAt = null),
+            ),
         )
 
         val homeLayoutStore = mockk<HomeLayoutStore>(relaxed = true)
@@ -156,7 +162,12 @@ class HomeViewModelTest {
         // unparseable-date item is dropped, the zone-less one parses as UTC.
         assertEquals(
             listOf("newest", "recent", "zoneless"),
-            content.recentlyAdded.map { it.id.rawId },
+            content.recentlyAddedTracks.map { it.id.rawId },
+        )
+        // Albums apply the same window / ordering, independently of tracks.
+        assertEquals(
+            listOf("album-newest", "album-recent"),
+            content.recentlyAddedAlbums.map { it.id.rawId },
         )
     }
 

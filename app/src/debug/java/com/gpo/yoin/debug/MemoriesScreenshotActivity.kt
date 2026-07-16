@@ -13,6 +13,7 @@ import androidx.compose.ui.Modifier
 import com.gpo.yoin.data.local.ActivityActionType
 import com.gpo.yoin.data.local.ActivityEntityType
 import com.gpo.yoin.data.local.ActivityEvent
+import com.gpo.yoin.data.model.Album
 import com.gpo.yoin.data.model.CoverRef
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.Track
@@ -46,7 +47,8 @@ class MemoriesScreenshotActivity : ComponentActivity() {
                         activities = fakeActivities(),
                         widgetGrid = fakeWidgetGrid(),
                         activityHeroFootnote = "2024 · 12 songs · 44 min",
-                        recentlyAdded = fakeRecentlyAdded(),
+                        recentlyAddedTracks = fakeRecentlyAddedTracks(),
+                        recentlyAddedAlbums = fakeRecentlyAddedAlbums(),
                         onNavigateToSettings = {},
                         onNavigateToMemories = {},
                         onAlbumClick = { _, _ -> },
@@ -90,13 +92,13 @@ class MemoriesScreenshotActivity : ComponentActivity() {
             ),
             ActivityEvent(
                 id = 2,
-                entityType = ActivityEntityType.PLAYLIST.name,
+                // Artist lands in the small bento card — verifies the circular
+                // portrait (not a rounded rect / SoftBoom blob).
+                entityType = ActivityEntityType.ARTIST.name,
                 actionType = ActivityActionType.VISITED.name,
-                entityId = "p1",
-                // Long on purpose: the small bento card must wrap this onto
-                // two lines instead of truncating at one.
-                title = "Clock — late night drives",
-                subtitle = "51",
+                entityId = "ar1",
+                title = "Hannah Jadagu",
+                subtitle = "Artist",
                 coverArtId = swatchCover("pink", 0xFFD4537E.toInt()),
                 timestamp = now - 26L * 60 * 60 * 1000,
             ),
@@ -164,13 +166,34 @@ class MemoriesScreenshotActivity : ComponentActivity() {
         )
     }
 
-    private fun fakeRecentlyAdded(): List<Track> = listOf(
-        fakeTrack("r1", "Perfect", "Hannah Jadagu", swatchCover("green", 0xFF639922.toInt())),
+    // Five supplied, four shown — the grid caps at a 2×2.
+    private fun fakeRecentlyAddedTracks(): List<Track> = listOf(
+        fakeTrack("r1", "Describe", "Hannah Jadagu", swatchCover("green", 0xFF639922.toInt())),
         fakeTrack("r2", "D.I.A.A", "Hannah Jadagu", swatchCover("coral", 0xFFD85A30.toInt())),
-        fakeTrack("r3", "Couldn't Call", "Hannah Jadagu", swatchCover("teal", 0xFF1D9E75.toInt())),
+        fakeTrack("r3", "Couldn't Call It Love", "Hannah Jadagu", swatchCover("teal", 0xFF1D9E75.toInt())),
         fakeTrack("r4", "My Love", "Hannah Jadagu", swatchCover("pink", 0xFFD4537E.toInt())),
-        fakeTrack("r5", "Tell Me", "Hannah Jadagu", swatchCover("blue", 0xFF378ADD.toInt())),
     )
+
+    private fun fakeRecentlyAddedAlbums(): List<Album> = listOf(
+        fakeAlbum("ra1", "AIと刹那のポリティクス", "Rachel Chinouriri", swatchCover("salmon", 0xFFE0705A.toInt())),
+        fakeAlbum("ra2", "Little House", "Rachel Chinouriri", swatchCover("green", 0xFF3DAE77.toInt())),
+        fakeAlbum("ra3", "This Infinite", "Vitesse X", swatchCover("blue", 0xFF378ADD.toInt())),
+        fakeAlbum("ra4", "Freakout/Release", "Hot Chip", swatchCover("violet", 0xFF7F77DD.toInt())),
+        fakeAlbum("ra5", "天国の部屋", "坂口諒之介", swatchCover("navy", 0xFF185FA5.toInt())),
+    )
+
+    private fun fakeAlbum(rawId: String, name: String, artist: String, cover: String): Album =
+        Album(
+            id = MediaId.subsonic(rawId),
+            name = name,
+            artist = artist,
+            artistId = null,
+            coverArt = CoverRef.Url(cover),
+            songCount = 10,
+            durationSec = 2000,
+            year = 2024,
+            genre = null,
+        )
 
     private fun fakeAlbumCard(title: String, artist: String, cover: String): HomeWidgetCard =
         HomeWidgetCard(

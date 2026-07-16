@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.filled.LibraryMusic
@@ -337,6 +338,24 @@ internal fun WidgetBackdropArtwork(
     modifier: Modifier = Modifier,
     interactionSource: MutableInteractionSource? = null,
 ) {
+    // Artists render as a clean full circle — the app-wide portrait convention
+    // (Library grid/list, Artist detail) — NOT the album/song/playlist
+    // shape-peek. A rounded-rect artwork over a SoftBoom blob read as "square"
+    // in the Activities bento; the card's own tinted container already carries
+    // the palette wash, so the bare circle is enough (no backdrop tint needed).
+    if (kind == WidgetShapeKind.Artist) {
+        ExpressiveMediaArtwork(
+            model = model,
+            contentDescription = contentDescription,
+            modifier = modifier,
+            shape = CircleShape,
+            fallbackIcon = widgetFallbackIcon(kind),
+            interactionSource = interactionSource,
+            tonalElevation = 1.dp,
+            shadowElevation = 0.dp,
+        )
+        return
+    }
     val backdropColors = rememberExpressiveBackdropColors(
         model = model,
         fallbackBaseColor = MaterialTheme.colorScheme.secondaryContainer,
@@ -347,7 +366,8 @@ internal fun WidgetBackdropArtwork(
         WidgetShapeKind.Album -> MaterialShapes.Bun.toShape()
         WidgetShapeKind.Song -> MaterialShapes.Circle.toShape()
         WidgetShapeKind.Playlist -> MaterialShapes.Ghostish.toShape()
-        WidgetShapeKind.Artist -> MaterialShapes.SoftBoom.toShape()
+        // Unreached — the artist branch returns above; kept for exhaustiveness.
+        WidgetShapeKind.Artist -> MaterialShapes.Circle.toShape()
     }
     Box(modifier = modifier) {
         Box(
