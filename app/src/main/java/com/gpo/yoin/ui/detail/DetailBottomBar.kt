@@ -1,8 +1,10 @@
 package com.gpo.yoin.ui.detail
 
+import android.app.Activity
 import android.app.ActivityOptions
 import android.content.Context
 import android.content.Intent
+import android.os.Build
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -85,4 +87,22 @@ fun launchDetailFromShell(context: Context, intent: Intent) {
         R.anim.detail_bar_handoff_exit,
     )
     context.startActivity(intent, options.toBundle())
+}
+
+/**
+ * Detail Activities call this in onCreate: the CLOSE transition becomes an
+ * in-place dissolve so the window's bar stays pixel-aligned over the bar
+ * beneath it (shell or another detail page) — the bar reads as one fixed
+ * element while only the page content fades. The shell's split→nav reverse
+ * morph then plays in full view after the window settles. Pre-34 keeps the
+ * system close animation (no per-gesture hook exists there).
+ */
+fun Activity.applyDetailCloseTransition() {
+    if (Build.VERSION.SDK_INT >= 34) {
+        overrideActivityTransition(
+            Activity.OVERRIDE_TRANSITION_CLOSE,
+            R.anim.detail_bar_close_enter,
+            R.anim.detail_bar_close_exit,
+        )
+    }
 }

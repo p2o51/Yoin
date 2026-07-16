@@ -28,6 +28,7 @@ class AlbumDetailActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableYoinEdgeToEdge()
+        applyDetailCloseTransition()
         val albumId = intent.getStringExtra(EXTRA_ALBUM_ID)
         if (albumId.isNullOrBlank()) {
             finish()

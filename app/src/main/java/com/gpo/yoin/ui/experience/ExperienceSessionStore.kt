@@ -38,11 +38,6 @@ data class ExperienceSessionState(
      * predictive-back preview on return — reads as one persistent bar.
      */
     val detailChromeActive: Boolean = false,
-    // A detail bar pill tap asked for Now Playing; the shell expands
-    // AFTER a short stagger (once the detail window's dissolve has revealed
-    // it) so the bar→NP rise plays in full view instead of behind the
-    // still-opaque detail page. Consumed by the shell's stagger effect.
-    val pendingNowPlayingExpand: Boolean = false,
     val memories: MemoriesSessionState = MemoriesSessionState(),
 )
 
@@ -91,32 +86,18 @@ class ExperienceSessionStore {
         }
     }
 
-    /** A detail bar pill tap asked for NP; the shell's stagger effect consumes it. */
-    fun requestNowPlayingExpand() {
-        _state.update { current -> current.copy(pendingNowPlayingExpand = true) }
-    }
-
     /**
      * Ticks when a detail Activity's window has actually LEFT the screen
      * (its onStop — the system holds that until the exit animation ends).
-     * The shell's expand-stagger waits on this instead of guessing the
-     * dissolve duration: OEMs replace or stretch activity animations, and a
-     * fixed delay let the whole NP expansion play behind a still-opaque
-     * detail window on those devices.
+     * The shell's detail-chrome restore (bar reverse morph) waits on this
+     * instead of guessing the dissolve duration: OEMs replace or stretch
+     * activity animations.
      */
     private val _detailWindowSettledTick = MutableStateFlow(0L)
     val detailWindowSettledTick: StateFlow<Long> = _detailWindowSettledTick.asStateFlow()
 
     fun noteDetailWindowSettled() {
         _detailWindowSettledTick.update { it + 1L }
-    }
-
-    /** Fulfil a pending expand request: NP opens, the request clears. */
-    fun consumeNowPlayingExpandRequest() {
-        _state.update { current ->
-            if (!current.pendingNowPlayingExpand) current
-            else current.copy(pendingNowPlayingExpand = false, nowPlayingExpanded = true)
-        }
     }
 
     fun replaceMemoriesDeck(

@@ -37,6 +37,7 @@ class PlaylistDetailActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableYoinEdgeToEdge()
+        applyDetailCloseTransition()
         val playlistId = intent.getStringExtra(EXTRA_PLAYLIST_ID)
         if (playlistId.isNullOrBlank()) {
             finish()

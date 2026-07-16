@@ -44,23 +44,23 @@ class MainActivity : ComponentActivity() {
     }
 
     /**
-     * Expand Now Playing on arrival. The detail dock sends this as an extra
-     * (instead of writing the session-store flag before launching) so the
-     * expansion starts here — around the shell's first visible frames — and
-     * the bar→NP transition actually plays for the user. Compose's frame
-     * clock is process-wide: a flag set while this Activity was stopped would
-     * run the whole enter transition invisibly in the background. Registered
-     * as a REQUEST rather than set directly: the shell fulfils it after a
-     * short stagger, once the detail window's dissolve has revealed the shell
-     * (an immediate expand plays its first rise hidden behind the still-
-     * opaque detail page). One-shot: the extra is removed so a config-change
-     * redelivery can't re-expand.
+     * Expand Now Playing on arrival. The detail bar's pill sends this as an
+     * extra (instead of writing the session-store flag before launching) so
+     * the expansion starts here — around the shell's first visible frames —
+     * and the bar→NP rise actually plays for the user. Compose's frame clock
+     * is process-wide: a flag set while this Activity was stopped would run
+     * the whole enter transition invisibly in the background. Set DIRECTLY
+     * (no settle-stagger): the detail window above is a fast dissolve
+     * (np_handoff_exit), so the rise shows through it progressively and NP
+     * reads as lifting straight out of the detail page — waiting for the
+     * dissolve first played a home-screen cameo. One-shot: the extra is
+     * removed so a config-change redelivery can't re-expand.
      */
     private fun consumeExpandNowPlaying(intent: Intent) {
         if (!intent.getBooleanExtra(EXTRA_EXPAND_NOW_PLAYING, false)) return
         intent.removeExtra(EXTRA_EXPAND_NOW_PLAYING)
         (application as YoinApplication).container.experienceSessionStore
-            .requestNowPlayingExpand()
+            .setNowPlayingExpanded(true)
     }
 
     companion object {

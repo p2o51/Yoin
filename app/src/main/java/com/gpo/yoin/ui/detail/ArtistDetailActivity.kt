@@ -29,6 +29,7 @@ class ArtistDetailActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableYoinEdgeToEdge()
+        applyDetailCloseTransition()
         val artistId = intent.getStringExtra(EXTRA_ARTIST_ID)
         if (artistId.isNullOrBlank()) {
             finish()

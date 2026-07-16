@@ -93,7 +93,6 @@ import com.gpo.yoin.ui.theme.YoinMotionRole
 import com.gpo.yoin.ui.theme.YoinTheme
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.collectLatest
@@ -287,7 +286,6 @@ private fun YoinShell(
     val selectedSection = experienceSession.selectedSection
     val homeSurface = experienceSession.homeSurface
     val showNowPlaying = experienceSession.nowPlayingExpanded
-    val pendingNowPlayingExpand = experienceSession.pendingNowPlayingExpand
     val musicConfigurationRevision by app.container.musicConfigurationRevision.collectAsState()
     val playlistMutationRevision by app.container.playlistMutationRevision.collectAsState()
     val playbackManager = app.container.playbackManager
@@ -363,27 +361,6 @@ private fun YoinShell(
 
     LaunchedEffect(Unit) {
         app.container.playbackManager.connectInBackground()
-    }
-
-    // A detail dock tap requests NP through the store (set in MainActivity's
-    // onNewIntent). Fulfil it after a short stagger: the detail window above
-    // is dissolving (np_handoff_exit, 280ms) and an immediate expand would
-    // play its first rise hidden behind the still-opaque page — the user
-    // would only catch the tail and see "no expansion". The stagger lets the
-    // dissolve reveal home + bar first, then the full bar→NP choreography
-    // (bar slides down, stage rises) plays in view, identical to a bar tap.
-    LaunchedEffect(pendingNowPlayingExpand) {
-        if (!pendingNowPlayingExpand) return@LaunchedEffect
-        // Wait for the detail window to actually leave the screen (its
-        // onStop fires after the exit animation — whatever duration the OEM
-        // gave it) instead of guessing with a fixed delay; the timeout
-        // covers cold starts where no detail window exists in-process.
-        val armedTick = experienceSessionStore.detailWindowSettledTick.value
-        withTimeoutOrNull(NP_HANDOFF_EXPAND_TIMEOUT_MS) {
-            experienceSessionStore.detailWindowSettledTick.first { it > armedTick }
-        }
-        delay(NP_HANDOFF_EXPAND_STAGGER_MS)
-        experienceSessionStore.consumeNowPlayingExpandRequest()
     }
 
     LaunchedEffect(musicConfigurationRevision) {
@@ -1083,16 +1060,6 @@ private fun YoinShell(
  * failure. Returns null when the failure has no user-actionable recovery
  * yet (UX will just show a dismiss affordance instead).
  */
-// Dock-tap → NP stagger: long enough for the dissolving detail window
-// (np_handoff_exit, 280ms) to mostly reveal the shell, short enough that the
-// open still reads as one gesture.
-// Small beat between the detail window leaving the screen and the NP rise,
-// so the reveal reads as two intentional steps rather than one mush.
-private const val NP_HANDOFF_EXPAND_STAGGER_MS = 80L
-
-// Cold start / dead-process fallback: no detail window will ever settle.
-private const val NP_HANDOFF_EXPAND_TIMEOUT_MS = 600L
-
 private fun actionLabelForFailure(failure: SpotifyConnectFailure): String? = when (failure) {
     SpotifyConnectFailure.NoClientId -> "Open Settings"
     SpotifyConnectFailure.SpotifyAppMissing -> null // phase 3 wires Play Store intent
