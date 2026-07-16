@@ -148,7 +148,6 @@ import com.gpo.yoin.ui.theme.ProvideYoinMotionRole
 import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinMotionRole
 import com.gpo.yoin.ui.theme.YoinMotionSpeed
-import com.gpo.yoin.ui.theme.YoinShapeTokens
 import com.gpo.yoin.ui.theme.YoinArtworkShapes
 import com.gpo.yoin.ui.theme.YoinTheme
 import com.gpo.yoin.ui.theme.withTabularFigures
@@ -2999,7 +2998,7 @@ internal fun PlainAlbumCover(
     coverArtUrl: String?,
     interactionSource: MutableInteractionSource?,
     modifier: Modifier = Modifier,
-    shape: androidx.compose.ui.graphics.Shape = YoinShapeTokens.Large,
+    shape: androidx.compose.ui.graphics.Shape,
     border: BorderStroke? = null,
     filterQuality: FilterQuality = FilterQuality.Low,
     requestSizePx: Int? = null,
