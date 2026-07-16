@@ -12,9 +12,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import com.gpo.yoin.R
 import com.gpo.yoin.ui.component.FloatingBarButtonHeight
-import com.gpo.yoin.ui.component.FloatingBarDetailPillFraction
-import com.gpo.yoin.ui.component.FloatingBarDetailPillMinWidth
 import com.gpo.yoin.ui.component.FloatingBarItemGap
+import com.gpo.yoin.ui.component.FloatingBarSplitWidth
 import com.gpo.yoin.ui.component.FloatingBottomBar
 import com.gpo.yoin.ui.component.NowPlayingPill
 import com.gpo.yoin.ui.component.PlaySplitButton
@@ -44,7 +43,7 @@ fun DetailBottomBar(
     modifier: Modifier = Modifier,
     menuItems: @Composable ColumnScope.(dismissMenu: () -> Unit) -> Unit = {},
 ) {
-    FloatingBottomBar(modifier = modifier) { innerWidth ->
+    FloatingBottomBar(modifier = modifier) { _ ->
         PlaySplitButton(
             playContainer = playContainer,
             playContent = playContent,
@@ -52,8 +51,9 @@ fun DetailBottomBar(
             onShuffle = onShuffle,
             buttonHeight = FloatingBarButtonHeight,
             fillPlay = true,
+            compact = true,
             trailingMenuItems = menuItems,
-            modifier = Modifier.weight(1f),
+            modifier = Modifier.width(FloatingBarSplitWidth),
         )
         Spacer(modifier = Modifier.width(FloatingBarItemGap))
         NowPlayingPill(
@@ -66,10 +66,7 @@ fun DetailBottomBar(
             isPlaying = miniPlayer?.isPlaying == true,
             onClick = onOpenNowPlaying,
             modifier = Modifier
-                .width(
-                    (innerWidth * FloatingBarDetailPillFraction)
-                        .coerceAtLeast(FloatingBarDetailPillMinWidth),
-                )
+                .weight(1f)
                 .fillMaxHeight(),
         )
     }

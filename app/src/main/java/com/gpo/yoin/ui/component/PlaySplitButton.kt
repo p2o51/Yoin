@@ -62,6 +62,7 @@ fun PlaySplitButton(
     modifier: Modifier = Modifier,
     buttonHeight: Dp = PlaySplitButtonDefaultHeight,
     fillPlay: Boolean = false,
+    compact: Boolean = false,
     trailingMenuItems: @Composable ColumnScope.(dismissMenu: () -> Unit) -> Unit = {},
 ) {
     var menuOpen by remember { mutableStateOf(false) }
@@ -89,7 +90,7 @@ fun PlaySplitButton(
             } else {
                 Modifier.height(buttonHeight)
             },
-            contentPadding = PaddingValues(horizontal = 26.dp),
+            contentPadding = PaddingValues(horizontal = if (compact) 16.dp else 26.dp),
         ) {
             Icon(
                 imageVector = Icons.Filled.PlayArrow,
@@ -110,7 +111,7 @@ fun PlaySplitButton(
             onCheckedChange = { menuOpen = it },
             colors = buttonColors,
             modifier = Modifier.height(buttonHeight),
-            contentPadding = PaddingValues(horizontal = 20.dp),
+            contentPadding = PaddingValues(horizontal = if (compact) 14.dp else 20.dp),
         ) {
             Icon(
                 imageVector = Icons.Filled.KeyboardArrowDown,

@@ -80,8 +80,10 @@ val FloatingBarButtonHeight = 48.dp
 /** Gap between bar islands (split button / pill / nav buttons). */
 val FloatingBarItemGap = 8.dp
 
-/** Detail chrome: the now-playing pill's share of the inner row width. */
-const val FloatingBarDetailPillFraction = 0.25f
-
-/** Detail chrome: pill floor so cover + a sliver of title always fit. */
-val FloatingBarDetailPillMinWidth = 96.dp
+/**
+ * Detail chrome: the Play split button's fixed width — its natural 60dp-era
+ * width minus ~25% (user call). Fixed rather than intrinsic so both windows'
+ * bars and the shell morph's width lerp agree without measuring; the Play
+ * half stretches inside it, so font scale squeezes padding, not layout.
+ */
+val FloatingBarSplitWidth = 156.dp

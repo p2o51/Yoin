@@ -14,7 +14,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
@@ -197,14 +196,9 @@ fun YoinButtonGroup(
             val pillNavWidth =
                 innerWidth - homeWidth - libraryWidth - FloatingBarItemGap * 2
             val pillDetailWidth =
-                (innerWidth * FloatingBarDetailPillFraction)
-                    .coerceAtLeast(FloatingBarDetailPillMinWidth)
+                innerWidth - FloatingBarSplitWidth - FloatingBarItemGap
             val pillWidth = lerp(pillNavWidth, pillDetailWidth, morph)
-            val leftWidth = lerp(
-                homeWidth,
-                innerWidth - pillWidth - FloatingBarItemGap,
-                morph,
-            )
+            val leftWidth = lerp(homeWidth, FloatingBarSplitWidth, morph)
             // Library slot carries its own leading gap so both collapse to 0.
             val rightWidth = lerp(FloatingBarItemGap + libraryWidth, 0.dp, morph)
             val navAlpha = (1f - morph / 0.6f).coerceIn(0f, 1f)
@@ -250,8 +244,10 @@ fun YoinButtonGroup(
                         onShuffle = {},
                         buttonHeight = FloatingBarButtonHeight,
                         fillPlay = true,
+                        compact = true,
                         modifier = Modifier
-                            .fillMaxWidth()
+                            .align(Alignment.CenterStart)
+                            .width(FloatingBarSplitWidth)
                             .graphicsLayer { alpha = splitAlpha },
                     )
                 }
