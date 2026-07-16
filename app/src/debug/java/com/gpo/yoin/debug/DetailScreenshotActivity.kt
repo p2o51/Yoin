@@ -14,7 +14,6 @@ import com.gpo.yoin.enableYoinEdgeToEdge
 import com.gpo.yoin.ui.detail.AlbumDetailScreen
 import com.gpo.yoin.ui.detail.AlbumDetailUiState
 import com.gpo.yoin.ui.detail.AlbumSong
-import com.gpo.yoin.ui.detail.DetailMiniPlayer
 import com.gpo.yoin.ui.detail.DetailMiniPlayerState
 import com.gpo.yoin.ui.theme.YoinTheme
 
@@ -58,19 +57,14 @@ class DetailScreenshotActivity : ComponentActivity() {
                     onRetry = {},
                     isPlaying = true,
                     playbackSignal = 0.35f,
-                    // Fake docked mini-player so the dock can be QA'd without playback.
-                    miniPlayer = {
-                        DetailMiniPlayer(
-                            state = DetailMiniPlayerState(
-                                title = "Cherries & Cream",
-                                artist = "Hannah Jadagu",
-                                coverArtUrl = null,
-                                isPlaying = true,
-                            ),
-                            progress = { 0.37f },
-                            onOpenNowPlaying = {},
-                        )
-                    },
+                    // Fake pill state so the bottom bar can be QA'd without playback.
+                    miniPlayerState = DetailMiniPlayerState(
+                        title = "Cherries & Cream",
+                        artist = "Hannah Jadagu",
+                        coverArtUrl = null,
+                        isPlaying = true,
+                    ),
+                    playbackProgress = 0.37f,
                 )
                 }
             }

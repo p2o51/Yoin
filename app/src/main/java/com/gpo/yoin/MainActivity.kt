@@ -57,15 +57,6 @@ class MainActivity : ComponentActivity() {
      * redelivery can't re-expand.
      */
     private fun consumeExpandNowPlaying(intent: Intent) {
-        // Dock-bloom path: the detail window is dissolving over us showing a
-        // fullscreen cover, so NP must compose ALREADY settled — set the
-        // state directly and let the stage transition finish while stopped.
-        if (intent.getBooleanExtra(EXTRA_EXPAND_NOW_PLAYING_INSTANT, false)) {
-            intent.removeExtra(EXTRA_EXPAND_NOW_PLAYING_INSTANT)
-            (application as YoinApplication).container.experienceSessionStore
-                .snapNowPlayingExpanded()
-            return
-        }
         if (!intent.getBooleanExtra(EXTRA_EXPAND_NOW_PLAYING, false)) return
         intent.removeExtra(EXTRA_EXPAND_NOW_PLAYING)
         (application as YoinApplication).container.experienceSessionStore
@@ -74,6 +65,5 @@ class MainActivity : ComponentActivity() {
 
     companion object {
         const val EXTRA_EXPAND_NOW_PLAYING = "expandNowPlaying"
-        const val EXTRA_EXPAND_NOW_PLAYING_INSTANT = "expandNowPlayingInstant"
     }
 }

@@ -127,10 +127,9 @@ fun AlbumDetailScreen(
     onOpenArtist: (() -> Unit)? = null,
     isPlaying: Boolean = false,
     playbackSignal: Float = 0f,
-    // Mini-player dock slot, laid out on the toolbar row (DetailToolbarRow).
-    miniPlayer: (@Composable () -> Unit)? = null,
-    // Entrance morph from the shell's Button Group into the dock slot.
-    dockMorph: DetailDockMorphState? = null,
+    onOpenNowPlaying: () -> Unit = {},
+    miniPlayerState: DetailMiniPlayerState? = null,
+    playbackProgress: Float = 0f,
     modifier: Modifier = Modifier,
 ) {
     val content = uiState as? AlbumDetailUiState.Content
@@ -143,13 +142,7 @@ fun AlbumDetailScreen(
             playbackSignal = playbackSignal,
             modifier = modifier,
         ) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    // The entrance pill draws over the whole page, wearing
-                    // the shell Button Group surface color it hands off from.
-                    .dockMorphOverlay(dockMorph),
-            ) {
+            Box(modifier = Modifier.fillMaxSize()) {
             when (uiState) {
                 is AlbumDetailUiState.Loading ->
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -172,13 +165,65 @@ fun AlbumDetailScreen(
                         onRatingCommit = onRatingCommit,
                         onReviewDraftChange = onReviewDraftChange,
                         onSaveReview = onSaveReview,
-                        onPlayAlbum = onPlayAlbum,
-                        onShufflePlay = onShufflePlay,
-                        onShare = onShare,
-                        onOpenArtist = onOpenArtist,
-                        miniPlayer = miniPlayer,
                     )
             }
+
+                // Persistent bottom bar — rendered in ALL states (the bar
+                // never waits for page data; the shell's morph is already
+                // playing when this window fades in). Play/menu act on
+                // Content and no-op during Loading/Error.
+                val barScheme = rememberCoverColorScheme(content?.coverArtUrl)
+                    ?: MaterialTheme.colorScheme
+                val barPlayContainer by animateColorAsState(
+                    barScheme.primary,
+                    YoinMotion.effectsSpring(),
+                    label = "albumBarPlayContainer",
+                )
+                DetailBottomBar(
+                    playContainer = barPlayContainer,
+                    playContent = barScheme.onPrimary,
+                    onPlay = onPlayAlbum,
+                    onShuffle = onShufflePlay,
+                    onOpenNowPlaying = onOpenNowPlaying,
+                    miniPlayer = miniPlayerState,
+                    playbackProgress = playbackProgress,
+                    modifier = Modifier.align(Alignment.BottomCenter),
+                ) { dismissMenu ->
+                    if (onOpenArtist != null) {
+                        YoinDropdownMenuItem(
+                            text = "Go to artist",
+                            onClick = {
+                                dismissMenu()
+                                onOpenArtist()
+                            },
+                            leadingIcon = {
+                                Icon(
+                                    Icons.Filled.Person,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(22.dp),
+                                )
+                            },
+                            textStyle = MaterialTheme.typography.titleMedium,
+                            contentPadding = PaddingValues(horizontal = 20.dp, vertical = 14.dp),
+                        )
+                    }
+                    YoinDropdownMenuItem(
+                        text = "Share",
+                        onClick = {
+                            dismissMenu()
+                            onShare()
+                        },
+                        leadingIcon = {
+                            Icon(
+                                Icons.Rounded.IosShare,
+                                contentDescription = null,
+                                modifier = Modifier.size(22.dp),
+                            )
+                        },
+                        textStyle = MaterialTheme.typography.titleMedium,
+                        contentPadding = PaddingValues(horizontal = 20.dp, vertical = 14.dp),
+                    )
+                }
             }
         }
     }
@@ -198,11 +243,6 @@ private fun AlbumDetailContent(
     onRatingCommit: (Float) -> Unit,
     onReviewDraftChange: (String) -> Unit,
     onSaveReview: () -> Unit,
-    onPlayAlbum: () -> Unit,
-    onShufflePlay: () -> Unit,
-    onShare: () -> Unit,
-    onOpenArtist: (() -> Unit)?,
-    miniPlayer: (@Composable () -> Unit)?,
 ) {
     val scope = rememberCoroutineScope()
 
@@ -218,8 +258,6 @@ private fun AlbumDetailContent(
     val accentText = s.secondary
     val bunContainer = s.primaryContainer
     val bunContent = s.onPrimaryContainer
-    val playContent = s.onPrimary
-    val toolbarTint = rememberDetailToolbarTint(s)
 
     // Pull-up reshape: reuse RevealState. fraction 1 = hero, 0 = track list.
     val revealState = rememberRevealState(initialFraction = 1f)
@@ -285,28 +323,6 @@ private fun AlbumDetailContent(
                 }
             }
         }
-
-        // Pinned bottom row — toolbar + mini-player dock as one centered
-        // cluster, equal heights by construction (present on both pages,
-        // like the Figma frames).
-        DetailToolbarRow(
-            miniPlayer = miniPlayer,
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .navigationBarsPadding()
-                .padding(bottom = 12.dp),
-            toolbar = {
-                AlbumBottomToolbar(
-                    playContainer = primaryBlock,
-                    playContent = playContent,
-                    toolbarContainer = toolbarTint,
-                    onPlay = onPlayAlbum,
-                    onShuffle = onShufflePlay,
-                    onShare = onShare,
-                    onOpenArtist = onOpenArtist,
-                )
-            },
-        )
     }
 
     if (showEditSheet) {
@@ -797,63 +813,6 @@ private fun AlbumSecondaryPage(modifier: Modifier = Modifier) {
                 modifier = Modifier.fillMaxWidth(),
                 textAlign = androidx.compose.ui.text.style.TextAlign.Center,
             )
-        }
-    }
-}
-
-// Pinned bottom toolbar — present on both pages, like the Figma frames.
-@OptIn(ExperimentalMaterial3ExpressiveApi::class)
-@Composable
-private fun AlbumBottomToolbar(
-    playContainer: Color,
-    playContent: Color,
-    toolbarContainer: Color,
-    onPlay: () -> Unit,
-    onShuffle: () -> Unit,
-    onShare: () -> Unit,
-    onOpenArtist: (() -> Unit)?,
-    modifier: Modifier = Modifier,
-) {
-    DetailFloatingToolbar(
-        toolbarContainer = toolbarContainer,
-        modifier = modifier,
-    ) {
-        IconButton(
-            onClick = onShare,
-            modifier = Modifier.size(52.dp),
-        ) {
-            Icon(
-                imageVector = Icons.Rounded.IosShare,
-                contentDescription = "Share",
-                tint = MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier.size(24.dp),
-            )
-        }
-        Spacer(modifier = Modifier.width(8.dp))
-        DetailPlaySplitButton(
-            playContainer = playContainer,
-            playContent = playContent,
-            onPlay = onPlay,
-            onShuffle = onShuffle,
-        ) { dismissMenu ->
-            if (onOpenArtist != null) {
-                YoinDropdownMenuItem(
-                    text = "Go to artist",
-                    onClick = {
-                        dismissMenu()
-                        onOpenArtist()
-                    },
-                    leadingIcon = {
-                        Icon(
-                            Icons.Filled.Person,
-                            contentDescription = null,
-                            modifier = Modifier.size(22.dp),
-                        )
-                    },
-                    textStyle = MaterialTheme.typography.titleMedium,
-                    contentPadding = PaddingValues(horizontal = 20.dp, vertical = 14.dp),
-                )
-            }
         }
     }
 }

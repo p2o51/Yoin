@@ -1,4 +1,4 @@
-package com.gpo.yoin.ui.detail
+package com.gpo.yoin.ui.component
 
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
@@ -25,30 +25,35 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import com.gpo.yoin.ui.component.YoinDropdownMenu
-import com.gpo.yoin.ui.component.YoinDropdownMenuItem
 
-internal val DetailToolbarButtonHeight = 60.dp
+/** Original detail floating-toolbar button height; the bottom bar uses 48dp. */
+val PlaySplitButtonDefaultHeight = 60.dp
 
-private val DetailPlayMenuTextStyle
+private val PlayMenuTextStyle
     @Composable get() = MaterialTheme.typography.titleMedium
 
-private val DetailPlayMenuItemPadding = PaddingValues(horizontal = 20.dp, vertical = 14.dp)
+private val PlayMenuItemPadding = PaddingValues(horizontal = 20.dp, vertical = 14.dp)
 
 /**
- * Shared Play + ▾ split button for detail pages. "Shuffle play" is always present;
- * page-specific items (Go to artist, Open in Spotify, Add to playlist, …) slot
- * in via [trailingMenuItems].
+ * Play + ▾ split button (real M3 SplitButton). "Shuffle play" is always the
+ * first menu item; page-specific items (Go to artist, Open in Spotify,
+ * Share, …) slot in via [trailingMenuItems].
+ *
+ * Lives in ui/component because it now renders in two windows: functionally
+ * on the detail pages' bottom bar, and as the shell bar's morph-in visual
+ * during the shell→detail hand-off (no-op callbacks there).
  */
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
-internal fun DetailPlaySplitButton(
+fun PlaySplitButton(
     playContainer: Color,
     playContent: Color,
     onPlay: () -> Unit,
     onShuffle: () -> Unit,
     modifier: Modifier = Modifier,
+    buttonHeight: Dp = PlaySplitButtonDefaultHeight,
     trailingMenuItems: @Composable ColumnScope.(dismissMenu: () -> Unit) -> Unit = {},
 ) {
     var menuOpen by remember { mutableStateOf(false) }
@@ -63,7 +68,7 @@ internal fun DetailPlaySplitButton(
             SplitButtonDefaults.LeadingButton(
                 onClick = onPlay,
                 colors = buttonColors,
-                modifier = Modifier.height(DetailToolbarButtonHeight),
+                modifier = Modifier.height(buttonHeight),
                 contentPadding = PaddingValues(horizontal = 26.dp),
             ) {
                 Icon(
@@ -80,7 +85,7 @@ internal fun DetailPlaySplitButton(
                 checked = menuOpen,
                 onCheckedChange = { menuOpen = it },
                 colors = buttonColors,
-                modifier = Modifier.height(DetailToolbarButtonHeight),
+                modifier = Modifier.height(buttonHeight),
                 contentPadding = PaddingValues(horizontal = 20.dp),
             ) {
                 Icon(
@@ -108,8 +113,8 @@ internal fun DetailPlaySplitButton(
                                 modifier = Modifier.size(22.dp),
                             )
                         },
-                        textStyle = DetailPlayMenuTextStyle,
-                        contentPadding = DetailPlayMenuItemPadding,
+                        textStyle = PlayMenuTextStyle,
+                        contentPadding = PlayMenuItemPadding,
                     )
                     trailingMenuItems(dismissMenu)
                 }
@@ -117,3 +122,10 @@ internal fun DetailPlaySplitButton(
         },
     )
 }
+
+/** Menu-item text style shared by callers appending page-specific items. */
+val PlaySplitMenuTextStyle
+    @Composable get() = MaterialTheme.typography.titleMedium
+
+/** Menu-item padding shared by callers appending page-specific items. */
+val PlaySplitMenuItemPadding = PaddingValues(horizontal = 20.dp, vertical = 14.dp)

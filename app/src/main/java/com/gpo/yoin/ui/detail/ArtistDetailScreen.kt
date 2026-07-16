@@ -105,10 +105,9 @@ fun ArtistDetailScreen(
     onShare: () -> Unit = {},
     isPlaying: Boolean = false,
     playbackSignal: Float = 0f,
-    // Mini-player dock slot, laid out on the toolbar row (DetailToolbarRow).
-    miniPlayer: (@Composable () -> Unit)? = null,
-    // Entrance morph from the shell's Button Group into the dock slot.
-    dockMorph: DetailDockMorphState? = null,
+    onOpenNowPlaying: () -> Unit = {},
+    miniPlayerState: DetailMiniPlayerState? = null,
+    playbackProgress: Float = 0f,
     modifier: Modifier = Modifier,
 ) {
     val content = uiState as? ArtistDetailUiState.Content
@@ -123,13 +122,7 @@ fun ArtistDetailScreen(
             playbackSignal = playbackSignal,
             modifier = modifier,
         ) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    // The entrance pill draws over the whole page, wearing
-                    // the shell Button Group surface color it hands off from.
-                    .dockMorphOverlay(dockMorph),
-            ) {
+            Box(modifier = Modifier.fillMaxSize()) {
             when (uiState) {
                 is ArtistDetailUiState.Loading ->
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -145,14 +138,66 @@ fun ArtistDetailScreen(
                         onBackClick = onBackClick,
                         onAlbumClick = onAlbumClick,
                         onToggleFollow = onToggleFollow,
-                        onPlay = onPlay,
-                        onShuffle = onShuffle,
-                        onOpenInSpotify = onOpenInSpotify,
                         onTopTrackClick = onTopTrackClick,
-                        onShare = onShare,
-                        miniPlayer = miniPlayer,
                     )
             }
+
+                // Persistent bottom bar — rendered in ALL states; Play/menu
+                // act on Content and no-op during Loading/Error.
+                val barHeroUrl = content?.heroCoverArtUrl
+                    ?: content?.albums?.firstOrNull()?.coverArtUrl
+                val barScheme = rememberCoverColorScheme(barHeroUrl)
+                    ?: MaterialTheme.colorScheme
+                val barPlayContainer by animateColorAsState(
+                    barScheme.primary,
+                    YoinMotion.effectsSpring(),
+                    label = "artistBarPlayContainer",
+                )
+                val showOpenInSpotify = content != null &&
+                    MediaId.parseOrNull(content.artistId)?.provider == MediaId.PROVIDER_SPOTIFY
+                DetailBottomBar(
+                    playContainer = barPlayContainer,
+                    playContent = barScheme.onPrimary,
+                    onPlay = onPlay,
+                    onShuffle = onShuffle,
+                    onOpenNowPlaying = onOpenNowPlaying,
+                    miniPlayer = miniPlayerState,
+                    playbackProgress = playbackProgress,
+                    modifier = Modifier.align(Alignment.BottomCenter),
+                ) { dismissMenu ->
+                    if (showOpenInSpotify) {
+                        // Saved/liked tracks live in Spotify now — the ▾ menu
+                        // deep-links out (Spotify only; no in-app mirror).
+                        YoinDropdownMenuItem(
+                            text = "Open in Spotify",
+                            onClick = {
+                                dismissMenu()
+                                onOpenInSpotify()
+                            },
+                            leadingIcon = {
+                                Icon(Icons.Filled.Launch, contentDescription = null, modifier = Modifier.size(22.dp))
+                            },
+                            textStyle = MaterialTheme.typography.titleMedium,
+                            contentPadding = PaddingValues(horizontal = 20.dp, vertical = 14.dp),
+                        )
+                    }
+                    YoinDropdownMenuItem(
+                        text = "Share",
+                        onClick = {
+                            dismissMenu()
+                            onShare()
+                        },
+                        leadingIcon = {
+                            Icon(
+                                Icons.Rounded.IosShare,
+                                contentDescription = null,
+                                modifier = Modifier.size(22.dp),
+                            )
+                        },
+                        textStyle = MaterialTheme.typography.titleMedium,
+                        contentPadding = PaddingValues(horizontal = 20.dp, vertical = 14.dp),
+                    )
+                }
             }
         }
     }
@@ -165,12 +210,7 @@ private fun ArtistDetailContent(
     onBackClick: () -> Unit,
     onAlbumClick: (albumId: String) -> Unit,
     onToggleFollow: () -> Unit,
-    onPlay: () -> Unit,
-    onShuffle: () -> Unit,
-    onOpenInSpotify: () -> Unit,
     onTopTrackClick: (index: Int) -> Unit,
-    onShare: () -> Unit,
-    miniPlayer: (@Composable () -> Unit)?,
 ) {
     // Portrait → first album cover fallback (older Subsonic has no artist.jpg).
     val heroUrl = content.heroCoverArtUrl ?: content.albums.firstOrNull()?.coverArtUrl
@@ -182,7 +222,6 @@ private fun ArtistDetailContent(
     val secondaryBlock by animateColorAsState(s.secondary, YoinMotion.effectsSpring(), label = "artistSecondaryBlock")
     val titleColor by animateColorAsState(s.primary, YoinMotion.effectsSpring(), label = "artistTitleColor")
     val accentText = s.secondary
-    val toolbarTint = rememberDetailToolbarTint(s)
 
     // M3 medium-flexible top bar: large on arrival, collapses to a small bar as
     // the page scrolls and stays small until scrolled back to the top.
@@ -257,30 +296,6 @@ private fun ArtistDetailContent(
                     .padding(innerPadding),
             )
         }
-
-        // Pinned bottom row — toolbar + mini-player dock as one centered
-        // cluster, equal heights by construction.
-        DetailToolbarRow(
-            miniPlayer = miniPlayer,
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .navigationBarsPadding()
-                .padding(bottom = 12.dp),
-            toolbar = {
-                ArtistBottomToolbar(
-                    playContainer = primaryBlock,
-                    playContent = s.onPrimary,
-                    toolbarContainer = toolbarTint,
-                    onPlay = onPlay,
-                    onShuffle = onShuffle,
-                    // Saved/liked tracks live in Spotify now — the ▾ menu deep-links out
-                    // (Spotify only; no in-app saved-tracks mirror).
-                    showOpenInSpotify = MediaId.parseOrNull(content.artistId)?.provider == MediaId.PROVIDER_SPOTIFY,
-                    onOpenInSpotify = onOpenInSpotify,
-                    onShare = onShare,
-                )
-            },
-        )
     }
 }
 
@@ -610,56 +625,6 @@ private fun ArtistTopTrackRow(
                 style = MaterialTheme.typography.labelLarge.withTabularFigures(),
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-        }
-    }
-}
-
-@OptIn(ExperimentalMaterial3ExpressiveApi::class)
-@Composable
-private fun ArtistBottomToolbar(
-    playContainer: Color,
-    playContent: Color,
-    toolbarContainer: Color,
-    onPlay: () -> Unit,
-    onShuffle: () -> Unit,
-    showOpenInSpotify: Boolean,
-    onOpenInSpotify: () -> Unit,
-    onShare: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    DetailFloatingToolbar(
-        toolbarContainer = toolbarContainer,
-        modifier = modifier,
-    ) {
-        IconButton(onClick = onShare, modifier = Modifier.size(52.dp)) {
-            Icon(
-                imageVector = Icons.Rounded.IosShare,
-                contentDescription = "Share",
-                tint = MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier.size(24.dp),
-            )
-        }
-        Spacer(modifier = Modifier.width(8.dp))
-        DetailPlaySplitButton(
-            playContainer = playContainer,
-            playContent = playContent,
-            onPlay = onPlay,
-            onShuffle = onShuffle,
-        ) { dismissMenu ->
-            if (showOpenInSpotify) {
-                YoinDropdownMenuItem(
-                    text = "Open in Spotify",
-                    onClick = {
-                        dismissMenu()
-                        onOpenInSpotify()
-                    },
-                    leadingIcon = {
-                        Icon(Icons.Filled.Launch, contentDescription = null, modifier = Modifier.size(22.dp))
-                    },
-                    textStyle = MaterialTheme.typography.titleMedium,
-                    contentPadding = PaddingValues(horizontal = 20.dp, vertical = 14.dp),
-                )
-            }
         }
     }
 }

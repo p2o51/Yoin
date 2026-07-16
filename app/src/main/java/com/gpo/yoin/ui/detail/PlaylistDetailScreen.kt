@@ -101,10 +101,9 @@ fun PlaylistDetailScreen(
     animatedVisibilityScope: AnimatedVisibilityScope? = null,
     isPlaying: Boolean = false,
     playbackSignal: Float = 0f,
-    // Mini-player dock slot, laid out on the toolbar row (DetailToolbarRow).
-    miniPlayer: (@Composable () -> Unit)? = null,
-    // Entrance morph from the shell's Button Group into the dock slot.
-    dockMorph: DetailDockMorphState? = null,
+    onOpenNowPlaying: () -> Unit = {},
+    miniPlayerState: DetailMiniPlayerState? = null,
+    playbackProgress: Float = 0f,
     modifier: Modifier = Modifier,
 ) {
     val haptics = rememberYoinHaptics()
@@ -122,11 +121,6 @@ fun PlaylistDetailScreen(
     val headerScheme = coverScheme ?: MaterialTheme.colorScheme
     val titleColor by animateColorAsState(headerScheme.primary, YoinMotion.effectsSpring(), label = "playlistTitleColor")
     val accentText = headerScheme.secondary
-    // Bottom-toolbar palette, identical recipe to the Album / Artist pages: the
-    // Play button rides the cover-seeded primary; the toolbar bar tints halfway
-    // toward the cover's secondary container.
-    val toolbarTint = rememberDetailToolbarTint(headerScheme)
-    val playContent = headerScheme.onPrimary
 
     // Medium-flexible bar: large on arrival, collapses to a small bar on scroll —
     // same height/behaviour as the Artist page's top bar.
@@ -296,37 +290,19 @@ fun PlaylistDetailScreen(
             }
         }
 
-        // Pinned bottom row — toolbar + mini-player dock as one centered
-        // cluster, equal heights by construction. Shuffle sits on the
-        // outside, Play rides the cover-seeded primary (same floating bar as
-        // the Album / Artist pages). An empty playlist keeps the dock alone.
-        DetailToolbarRow(
-            miniPlayer = miniPlayer,
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .navigationBarsPadding()
-                .padding(bottom = 12.dp),
-            toolbar = if (content != null && content.songs.isNotEmpty()) {
-                {
-                    PlaylistBottomToolbar(
-                        playContainer = titleColor,
-                        playContent = playContent,
-                        toolbarContainer = toolbarTint,
-                        onPlay = onPlayAllClick,
-                        onShuffle = onShufflePlay,
-                    )
-                }
-            } else {
-                null
-            },
-        )
-
-        // Entrance-morph pill layer, above every sibling (last child draws on
-        // top), wearing the shell Button Group surface color it hands off from.
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .dockMorphOverlay(dockMorph),
+        // Persistent bottom bar — rendered in ALL states (the bar never
+        // waits for page data; the shell's morph is already playing when
+        // this window fades in). Play rides the cover-seeded primary; on an
+        // empty playlist it simply no-ops.
+        DetailBottomBar(
+            playContainer = titleColor,
+            playContent = headerScheme.onPrimary,
+            onPlay = onPlayAllClick,
+            onShuffle = onShufflePlay,
+            onOpenNowPlaying = onOpenNowPlaying,
+            miniPlayer = miniPlayerState,
+            playbackProgress = playbackProgress,
+            modifier = Modifier.align(Alignment.BottomCenter),
         )
     }
 
@@ -504,59 +480,6 @@ private fun buildPlaylistTrackTitles(
             ) { append(song.title) }
         } else {
             append(song.title)
-        }
-    }
-}
-
-@OptIn(ExperimentalMaterial3ExpressiveApi::class)
-@Composable
-private fun PlaylistBottomToolbar(
-    playContainer: Color,
-    playContent: Color,
-    toolbarContainer: Color,
-    onPlay: () -> Unit,
-    onShuffle: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    val haptics = rememberYoinHaptics()
-    DetailFloatingToolbar(
-        toolbarContainer = toolbarContainer,
-        modifier = modifier,
-    ) {
-        // Shuffle lives on the outside of the bar (not buried in a ▾ menu).
-        IconButton(
-            onClick = {
-                haptics.performClick()
-                onShuffle()
-            },
-            modifier = Modifier.size(52.dp),
-        ) {
-            Icon(
-                imageVector = Icons.Filled.Shuffle,
-                contentDescription = "Shuffle play",
-                tint = MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier.size(24.dp),
-            )
-        }
-        Spacer(modifier = Modifier.width(8.dp))
-        Button(
-            onClick = {
-                haptics.performClick()
-                onPlay()
-            },
-            colors = ButtonDefaults.buttonColors(
-                containerColor = playContainer,
-                contentColor = playContent,
-            ),
-            modifier = Modifier.height(60.dp),
-            contentPadding = PaddingValues(horizontal = 26.dp),
-        ) {
-            Icon(
-                imageVector = Icons.Filled.PlayArrow,
-                contentDescription = null,
-            )
-            Spacer(modifier = Modifier.width(ButtonDefaults.IconSpacing))
-            Text("Play", style = MaterialTheme.typography.titleMedium)
         }
     }
 }

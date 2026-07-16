@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Shell → detail open, outgoing (shell) side: hold fully opaque so the
+     shell bar's nav→split morph stays visible through the incoming window's
+     delayed fade (200ms hold + 180ms fade = 380ms total). -->
+<alpha xmlns:android="http://schemas.android.com/apk/res/android"
+    android:fromAlpha="1.0"
+    android:toAlpha="1.0"
+    android:duration="380" />

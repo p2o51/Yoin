@@ -7,7 +7,6 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Snackbar
 import androidx.compose.material3.SnackbarDuration
@@ -17,14 +16,12 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.gpo.yoin.YoinActivityRoot
-import kotlinx.coroutines.launch
 import com.gpo.yoin.YoinApplication
 import com.gpo.yoin.enableYoinEdgeToEdge
 import com.gpo.yoin.data.repository.ActivityContext
@@ -45,14 +42,10 @@ class PlaylistDetailActivity : ComponentActivity() {
             finish()
             return
         }
-        // Entrance-only: a recreated Activity (rotation, process restore)
-        // must not replay the Button-Group → dock morph.
-        val dockMorphSource = if (savedInstanceState == null) readDockMorphHandoff(intent) else null
         setContent {
             YoinActivityRoot {
                 val context = LocalContext.current
                 val app = context.applicationContext as YoinApplication
-                val scope = rememberCoroutineScope()
                 val viewModel: PlaylistDetailViewModel = viewModel(
                     factory = PlaylistDetailViewModel.Factory(playlistId, app.container),
                 )
@@ -100,14 +93,9 @@ class PlaylistDetailActivity : ComponentActivity() {
                 }
 
                 val miniPlayerState by rememberDetailMiniPlayerState(app.container)
-                val miniPlayerProgress = rememberDetailMiniPlayerProgress(app.container)
-                val dockMorph = rememberDetailDockMorph(
-                    source = dockMorphSource,
-                    coverArtUrl = miniPlayerState?.coverArtUrl,
-                )
-                val dockBloom = rememberDockBloom(miniPlayerState?.coverArtUrl)
+                val miniPlayerProgress by rememberDetailMiniPlayerProgress(app.container)
 
-                Box(modifier = Modifier.fillMaxSize().dockBloomOverlay(dockBloom)) {
+                Box(modifier = Modifier.fillMaxSize()) {
                     PlaylistDetailScreen(
                         uiState = uiState,
                         onBackClick = { finish() },
@@ -127,23 +115,13 @@ class PlaylistDetailActivity : ComponentActivity() {
                         sharedTransitionKey = null,
                         sharedTransitionScope = null,
                         animatedVisibilityScope = null,
-                        miniPlayer = {
-                            DetailMiniPlayer(
-                                state = miniPlayerState,
-                                progress = { miniPlayerProgress.value },
-                                onOpenNowPlaying = {
-                                scope.launch {
-                                    dockBloom.bloomIntoNowPlaying(context, app.container)
-                                }
-                            },
-                            bloom = dockBloom,
-                                dockMorph = dockMorph,
-                            )
+                        onOpenNowPlaying = {
+                            launchShellFromDetail(context, app.container, expandNowPlaying = true)
                         },
-                        dockMorph = dockMorph,
+                        miniPlayerState = miniPlayerState,
+                        playbackProgress = miniPlayerProgress,
                         modifier = Modifier.fillMaxSize(),
                     )
-
 
                     SnackbarHost(
                         hostState = snackbarHostState,

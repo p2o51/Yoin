@@ -4,7 +4,6 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.PredictiveBackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.MutableTransitionState
 import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionLayout
@@ -45,6 +44,9 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.flowWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.navigation3.rememberViewModelStoreNavEntryDecorator
 import androidx.navigation3.runtime.entryProvider
@@ -92,6 +94,7 @@ import com.gpo.yoin.ui.theme.YoinTheme
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -203,29 +206,27 @@ fun YoinNavHost(
                             // them so back navigation plays the device-native
                             // cross-Activity predictive back. sharedTransitionKey
                             // is no longer used (no cross-page shared element).
-                            // launchDetailFromShell adds the Button-Group →
-                            // mini-player-dock morph when the shell armed one.
+                            // launchDetailFromShell delays the incoming
+                            // window's fade so the shell bar's nav→split
+                            // morph plays first (detail_bar_handoff_enter).
                             onNavigateToSettings = { focusSection ->
                                 context.startActivity(SettingsActivity.intent(context, focusSection))
                             },
                             onNavigateToAlbum = { albumId, _ ->
                                 launchDetailFromShell(
                                     context,
-                                    app.container,
                                     AlbumDetailActivity.intent(context, albumId),
                                 )
                             },
                             onNavigateToArtist = { artistId, _ ->
                                 launchDetailFromShell(
                                     context,
-                                    app.container,
                                     ArtistDetailActivity.intent(context, artistId),
                                 )
                             },
                             onNavigateToPlaylist = { playlistId, _ ->
                                 launchDetailFromShell(
                                     context,
-                                    app.container,
                                     PlaylistDetailActivity.intent(context, playlistId),
                                 )
                             },
@@ -415,29 +416,41 @@ private fun YoinShell(
         dismissMemoriesIfActive()
         onNavigateToSettings(focusSection)
     }
-    // Arm the Button-Group → dock morph BEFORE dismissMemoriesIfActive mutates
-    // the surface state: the morph only applies when the bar is genuinely the
-    // thing on screen (feed surface, NP collapsed) and there is a track for
-    // the detail page's dock to show. launchDetailFromShell consumes the flag.
-    val armDockHandoff = {
-        experienceSessionStore.armDockHandoff(
-            eligible = currentTrack != null && !showNowPlaying && !memoriesActive,
-        )
-    }
+    // Flip the bar to detail chrome the moment the tap lands — the nav→split
+    // morph IS the tap feedback; the detail window's delayed fade then lands
+    // on its own identical bar (see detail_bar_handoff_enter.xml). The flag
+    // stays up while the detail stack is on top so the predictive-back
+    // preview reveals a matching bar; the restore effect below flips it back.
+    val armDetailChrome = { experienceSessionStore.setDetailChromeActive(true) }
     val navigateToAlbumFromShell: (String, String?) -> Unit = { albumId, sharedTransitionKey ->
-        armDockHandoff()
+        armDetailChrome()
         dismissMemoriesIfActive()
         onNavigateToAlbum(albumId, sharedTransitionKey)
     }
     val navigateToArtistFromShell: (String, String?) -> Unit = { artistId, sharedTransitionKey ->
-        armDockHandoff()
+        armDetailChrome()
         dismissMemoriesIfActive()
         onNavigateToArtist(artistId, sharedTransitionKey)
     }
     val navigateToPlaylistFromShell: (String, String?) -> Unit = { playlistId, sharedTransitionKey ->
-        armDockHandoff()
+        armDetailChrome()
         dismissMemoriesIfActive()
         onNavigateToPlaylist(playlistId, sharedTransitionKey)
+    }
+
+    // Reverse morph: restore nav chrome only when a detail window has left
+    // the screen WHILE the shell is visible (its onStop tick fires after the
+    // exit animation). Lifecycle-gated with the replayed value dropped:
+    // detail→detail hops tick while the shell is covered and must NOT reset
+    // the chrome (the process-wide frame clock would play the reverse morph
+    // invisibly, breaking the next predictive-back preview), and merely
+    // re-reaching STARTED (a held-then-cancelled back gesture) isn't a leave.
+    val lifecycleOwner = LocalLifecycleOwner.current
+    LaunchedEffect(lifecycleOwner) {
+        experienceSessionStore.detailWindowSettledTick
+            .flowWithLifecycle(lifecycleOwner.lifecycle, Lifecycle.State.STARTED)
+            .drop(1)
+            .collect { experienceSessionStore.setDetailChromeActive(false) }
     }
     val snackbarHostState = remember { SnackbarHostState() }
     LaunchedEffect(Unit) {
@@ -784,16 +797,8 @@ private fun YoinShell(
         }
 
         // ── Now Playing overlay ──────────────────────────────────────────
-        // Re-seeded per snap epoch: a dock-bloom open bumps the epoch AFTER
-        // setting expanded, so this state is recreated already-visible and
-        // the slide-in never plays — the bloom above is the animation, and
-        // the reveal must land on a settled player (no home cameo).
-        val npVisibleState = remember(experienceSession.nowPlayingSnapEpoch) {
-            MutableTransitionState(showNowPlaying)
-        }
-        npVisibleState.targetState = showNowPlaying
         AnimatedVisibility(
-            visibleState = npVisibleState,
+            visible = showNowPlaying,
             enter = YoinMotion.slideInVertically(role = YoinMotionRole.Expressive) { it } +
                 YoinMotion.fadeIn(role = YoinMotionRole.Standard),
             exit = YoinMotion.slideOutVertically(role = YoinMotionRole.Standard) { it } +
@@ -1004,11 +1009,7 @@ private fun YoinShell(
             ) {
                 YoinButtonGroup(
                     selectedSection = selectedSection,
-                    // The dock morph's source: where the pill sits right now
-                    // (window coordinates), the color it renders with, and
-                    // where its mini artwork is (the cover's flight origin).
-                    onPillGeometryChanged = experienceSessionStore::noteNavPill,
-                    onPillArtBoundsChanged = experienceSessionStore::noteNavPillArt,
+                    detailChrome = experienceSession.detailChromeActive,
                     currentTrackId = currentTrack?.id?.toString(),
                     currentTrackTitle = currentTrack?.title,
                     currentTrackArtist = currentTrack?.artist,
