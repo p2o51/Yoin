@@ -5,6 +5,18 @@ import android.app.ActivityOptions
 import android.content.Context
 import android.content.Intent
 import android.os.Build
+import android.window.BackEvent
+import android.window.OnBackAnimationCallback
+import android.window.OnBackInvokedDispatcher
+import androidx.activity.ComponentActivity
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.runtime.MutableState
+import androidx.compose.animation.AnimatedVisibility
+import com.gpo.yoin.ui.theme.YoinMotionRole
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.ui.graphics.graphicsLayer
+import com.gpo.yoin.ui.theme.YoinMotion
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -43,9 +55,32 @@ fun DetailBottomBar(
     miniPlayer: DetailMiniPlayerState?,
     playbackProgress: Float,
     modifier: Modifier = Modifier,
+    nowPlayingOpen: Boolean = false,
     menuItems: @Composable ColumnScope.(dismissMenu: () -> Unit) -> Unit = {},
 ) {
-    FloatingBottomBar(modifier = modifier) { _ ->
+    // Predictive back: the system scales this whole WINDOW during the held
+    // gesture, and a bar riding a shrinking window breaks the fixed-bar
+    // illusion. On gesture start the bar vanishes fast, revealing the
+    // shell's identical, motionless bar beneath the preview.
+    val hiddenDuringBack = LocalDetailBarHiddenDuringBack.current
+    val backAlpha by animateFloatAsState(
+        targetValue = if (hiddenDuringBack.value) 0f else 1f,
+        animationSpec = YoinMotion.fastEffectsSpec(),
+        label = "detailBarBackAlpha",
+    )
+    // Same choreography as the shell bar when NP expands over it: the bar
+    // slides down out of the way while the player rises.
+    AnimatedVisibility(
+        visible = !nowPlayingOpen,
+        enter = YoinMotion.fadeIn(role = YoinMotionRole.Standard) +
+            YoinMotion.slideInVertically(role = YoinMotionRole.Standard) { it },
+        exit = YoinMotion.fadeOut(role = YoinMotionRole.Standard) +
+            YoinMotion.slideOutVertically(role = YoinMotionRole.Standard) { it },
+        modifier = modifier,
+    ) {
+    FloatingBottomBar(
+        modifier = Modifier.graphicsLayer { alpha = backAlpha },
+    ) { _ ->
         PlaySplitButton(
             playContainer = playContainer,
             playContent = playContent,
@@ -71,6 +106,7 @@ fun DetailBottomBar(
                 .weight(1f)
                 .fillMaxHeight(),
         )
+    }
     }
 }
 
@@ -105,4 +141,45 @@ fun Activity.applyDetailCloseTransition() {
             R.anim.detail_bar_close_exit,
         )
     }
+}
+
+/**
+ * Window-level "a predictive back gesture is in flight" flag, provided by the
+ * detail Activities and consumed by [DetailBottomBar].
+ */
+val LocalDetailBarHiddenDuringBack = staticCompositionLocalOf<MutableState<Boolean>> {
+    error("LocalDetailBarHiddenDuringBack not provided")
+}
+
+/**
+ * Observe (never consume) the system back gesture so the bar can duck out of
+ * the window-scaling predictive-back preview. OBSERVER priority (Android 16)
+ * keeps the native cross-activity predictive animation fully system-owned —
+ * a regular callback would replace it. Pre-36 there is no observe-only hook;
+ * those devices keep the bar in the preview.
+ */
+fun ComponentActivity.observeBackGestureForDetailBar(hidden: MutableState<Boolean>) {
+    if (Build.VERSION.SDK_INT < 36) return
+    onBackInvokedDispatcher.registerOnBackInvokedCallback(
+        OnBackInvokedDispatcher.PRIORITY_SYSTEM_NAVIGATION_OBSERVER,
+        object : OnBackAnimationCallback {
+            override fun onBackStarted(backEvent: BackEvent) {
+                hidden.value = true
+            }
+
+            override fun onBackProgressed(backEvent: BackEvent) = Unit
+
+            override fun onBackCancelled() {
+                hidden.value = false
+            }
+
+            override fun onBackInvoked() {
+                // Reset even on commit: an in-app handler (NP collapse)
+                // may have consumed this back and the window stays up. A
+                // window-closing back re-shows the bar under the close
+                // dissolve, pixel-aligned over the shell's identical bar.
+                hidden.value = false
+            }
+        },
+    )
 }

@@ -7,6 +7,7 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -74,7 +75,8 @@ import com.gpo.yoin.data.model.Track
 import com.gpo.yoin.ui.component.ExpressiveMediaArtwork
 import com.gpo.yoin.ui.component.ExpressiveSectionPanel
 import com.gpo.yoin.ui.component.MarqueeText
-import com.gpo.yoin.ui.component.ignoreParentTrailingPadding
+import com.gpo.yoin.ui.component.ignoreParentHorizontalPadding
+import com.gpo.yoin.ui.component.horizontalEdgeFadeOnScroll
 import com.gpo.yoin.ui.component.noRippleClickable
 import com.gpo.yoin.ui.component.rememberExpressiveBackdropColors
 import com.gpo.yoin.ui.experience.RevealState
@@ -816,40 +818,55 @@ private fun RecentlyAddedSection(
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         HomeSectionTitle(text = "Recently Added")
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(14.dp),
-            // Both halves hang from the top. The track covers are sized so a
-            // tight 2×2 (below) lands at roughly the album card's height — no
-            // stretched-open middle gap, no short block leaving space below.
-            verticalAlignment = Alignment.Top,
-        ) {
-            if (tracks.isNotEmpty()) {
-                RecentlyAddedTrackGrid(
-                    tracks = tracks,
-                    onTrackClick = onTrackClick,
-                    buildCoverArtUrl = buildCoverArtUrl,
-                    // Fixed content that must stay legible gets the larger share
-                    // so titles/artists have room; the album shelf scrolls, so
-                    // it can live in the narrower remainder (still shows ~1.5
-                    // covers + the next one bleeding past the edge).
-                    modifier = Modifier.weight(2.6f),
-                )
-            }
-            if (albums.isNotEmpty()) {
-                RecentlyAddedAlbumShelf(
-                    albums = albums,
-                    extractBackdropColors = extractBackdropColors,
-                    onAlbumClick = onAlbumClick,
-                    buildCoverArtUrl = buildCoverArtUrl,
-                    modifier = Modifier.weight(1f),
-                )
+        // ONE shelf: the 2×2 track grid is the shelf's first card and the
+        // albums follow it, all panning together (user call — the albums
+        // scrolling alone under a pinned grid read as two disjoint widgets).
+        // Full-bleed with page-margin content padding + scroll-aware edge
+        // fades, per the no-mid-page-truncation rule.
+        BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+            // The grid keeps its old resting share of the viewport (2.6 of
+            // 3.6 weight units) so the resting frame is unchanged: grid left,
+            // ~1.5 album cards peeking on the right.
+            val trackGridWidth = (maxWidth - 14.dp) * (2.6f / 3.6f)
+            val shelfState = rememberLazyListState()
+            LazyRow(
+                state = shelfState,
+                modifier = Modifier
+                    .ignoreParentHorizontalPadding(16.dp)
+                    .horizontalEdgeFadeOnScroll(shelfState),
+                contentPadding = PaddingValues(horizontal = 16.dp),
+                horizontalArrangement = Arrangement.spacedBy(14.dp),
+                // Both halves hang from the top. The track covers are sized
+                // so a tight 2×2 lands at roughly the album card's height.
+                verticalAlignment = Alignment.Top,
+            ) {
+                if (tracks.isNotEmpty()) {
+                    item(key = "recently-added-tracks") {
+                        RecentlyAddedTrackGrid(
+                            tracks = tracks,
+                            onTrackClick = onTrackClick,
+                            buildCoverArtUrl = buildCoverArtUrl,
+                            modifier = Modifier.width(trackGridWidth),
+                        )
+                    }
+                }
+                items(
+                    items = albums,
+                    key = { album -> "recently-added-album:${album.id}" },
+                ) { album ->
+                    RecentlyAddedAlbumCard(
+                        album = album,
+                        extractBackdropColors = extractBackdropColors,
+                        onClick = { onAlbumClick(album) },
+                        buildCoverArtUrl = buildCoverArtUrl,
+                    )
+                }
             }
         }
     }
 }
 
-/** The left half: up to four tracks packed into a 2×2 grid. */
+/** The shelf's lead card: up to four tracks packed into a 2×2 grid. */
 @Composable
 private fun RecentlyAddedTrackGrid(
     tracks: List<Track>,
@@ -935,38 +952,6 @@ private fun RecentlyAddedTrackTile(
                     overflow = TextOverflow.Ellipsis,
                 )
             }
-        }
-    }
-}
-
-/** The right half: a horizontally scrolling shelf of recently-added albums. */
-@Composable
-private fun RecentlyAddedAlbumShelf(
-    albums: List<Album>,
-    extractBackdropColors: Boolean,
-    onAlbumClick: (Album) -> Unit,
-    buildCoverArtUrl: (String) -> String,
-    modifier: Modifier = Modifier,
-) {
-    // Bleed off the right screen edge so scrolled album cards run straight to
-    // the edge instead of stopping at the 16dp page margin; the trailing
-    // contentPadding re-aligns the resting card. No edge-fade mask — the shelf
-    // reads cleaner running flush to the edge on both sides.
-    LazyRow(
-        modifier = modifier.ignoreParentTrailingPadding(16.dp),
-        contentPadding = PaddingValues(end = 16.dp),
-        horizontalArrangement = Arrangement.spacedBy(14.dp),
-    ) {
-        items(
-            items = albums,
-            key = { album -> "recently-added-album:${album.id}" },
-        ) { album ->
-            RecentlyAddedAlbumCard(
-                album = album,
-                extractBackdropColors = extractBackdropColors,
-                onClick = { onAlbumClick(album) },
-                buildCoverArtUrl = buildCoverArtUrl,
-            )
         }
     }
 }

@@ -7,6 +7,14 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.collectAsState
+import androidx.compose.foundation.layout.Box
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import com.gpo.yoin.ui.nowplaying.NowPlayingAccessories
+import com.gpo.yoin.ui.nowplaying.NowPlayingOverlayHost
+import com.gpo.yoin.ui.nowplaying.NowPlayingViewModel
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -29,12 +37,15 @@ class AlbumDetailActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableYoinEdgeToEdge()
         applyDetailCloseTransition()
+        val barHiddenDuringBack = mutableStateOf(false)
+        observeBackGestureForDetailBar(barHiddenDuringBack)
         val albumId = intent.getStringExtra(EXTRA_ALBUM_ID)
         if (albumId.isNullOrBlank()) {
             finish()
             return
         }
         setContent {
+            CompositionLocalProvider(LocalDetailBarHiddenDuringBack provides barHiddenDuringBack) {
             YoinActivityRoot {
                 val context = LocalContext.current
                 val app = context.applicationContext as YoinApplication
@@ -71,9 +82,17 @@ class AlbumDetailActivity : ComponentActivity() {
                     }
                 }
 
+                // Now Playing is hosted IN THIS window: the pill opens it in
+                // place and back collapses it back onto this page — no shell
+                // relaunch, no home cameo, and the back stack stays truthful.
+                val nowPlayingViewModel: NowPlayingViewModel = viewModel(
+                    factory = NowPlayingViewModel.Factory(app.container),
+                )
+                var nowPlayingOpen by rememberSaveable { mutableStateOf(false) }
                 val miniPlayerState by rememberDetailMiniPlayerState(app.container)
                 val miniPlayerProgress by rememberDetailMiniPlayerProgress(app.container)
 
+                Box(modifier = Modifier.fillMaxSize()) {
                 AlbumDetailScreen(
                     uiState = uiState,
                     onBackClick = { finish() },
@@ -109,13 +128,34 @@ class AlbumDetailActivity : ComponentActivity() {
                     },
                     isPlaying = playbackState.isPlaying,
                     playbackSignal = if (playbackState.isPlaying) playbackSignal else 0f,
-                    onOpenNowPlaying = {
-                        launchShellFromDetail(context, app.container, expandNowPlaying = true)
-                    },
+                    onOpenNowPlaying = { nowPlayingOpen = true },
+                    nowPlayingOpen = nowPlayingOpen,
                     miniPlayerState = miniPlayerState,
                     playbackProgress = miniPlayerProgress,
                     modifier = Modifier.fillMaxSize(),
                 )
+
+                NowPlayingOverlayHost(
+                    viewModel = nowPlayingViewModel,
+                    container = app.container,
+                    expanded = nowPlayingOpen,
+                    onExpandedChange = { nowPlayingOpen = it },
+                    onAlbumClick = { id ->
+                        context.startActivity(AlbumDetailActivity.intent(context, id))
+                    },
+                    onArtistClick = { id ->
+                        context.startActivity(ArtistDetailActivity.intent(context, id))
+                    },
+                    onPlaylistClick = { id ->
+                        context.startActivity(PlaylistDetailActivity.intent(context, id))
+                    },
+                )
+                NowPlayingAccessories(
+                    viewModel = nowPlayingViewModel,
+                    container = app.container,
+                )
+                }
+            }
             }
         }
     }

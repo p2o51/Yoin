@@ -128,6 +128,7 @@ fun AlbumDetailScreen(
     isPlaying: Boolean = false,
     playbackSignal: Float = 0f,
     onOpenNowPlaying: () -> Unit = {},
+    nowPlayingOpen: Boolean = false,
     miniPlayerState: DetailMiniPlayerState? = null,
     playbackProgress: Float = 0f,
     modifier: Modifier = Modifier,
@@ -187,6 +188,7 @@ fun AlbumDetailScreen(
                     onOpenNowPlaying = onOpenNowPlaying,
                     miniPlayer = miniPlayerState,
                     playbackProgress = playbackProgress,
+                    nowPlayingOpen = nowPlayingOpen,
                     modifier = Modifier.align(Alignment.BottomCenter),
                 ) { dismissMenu ->
                     if (onOpenArtist != null) {

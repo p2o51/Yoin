@@ -1,6 +1,5 @@
 package com.gpo.yoin
 
-import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -29,7 +28,6 @@ class MainActivity : ComponentActivity() {
         installSplashScreen()
         super.onCreate(savedInstanceState)
         enableYoinEdgeToEdge()
-        consumeExpandNowPlaying(intent)
         setContent {
             YoinActivityRoot {
                 YoinNavHost()
@@ -37,33 +35,4 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    // CLEAR_TOP|SINGLE_TOP relaunch from a detail Activity's mini-player dock.
-    override fun onNewIntent(intent: Intent) {
-        super.onNewIntent(intent)
-        consumeExpandNowPlaying(intent)
-    }
-
-    /**
-     * Expand Now Playing on arrival. The detail bar's pill sends this as an
-     * extra (instead of writing the session-store flag before launching) so
-     * the expansion starts here — around the shell's first visible frames —
-     * and the bar→NP rise actually plays for the user. Compose's frame clock
-     * is process-wide: a flag set while this Activity was stopped would run
-     * the whole enter transition invisibly in the background. Set DIRECTLY
-     * (no settle-stagger): the detail window above is a fast dissolve
-     * (np_handoff_exit), so the rise shows through it progressively and NP
-     * reads as lifting straight out of the detail page — waiting for the
-     * dissolve first played a home-screen cameo. One-shot: the extra is
-     * removed so a config-change redelivery can't re-expand.
-     */
-    private fun consumeExpandNowPlaying(intent: Intent) {
-        if (!intent.getBooleanExtra(EXTRA_EXPAND_NOW_PLAYING, false)) return
-        intent.removeExtra(EXTRA_EXPAND_NOW_PLAYING)
-        (application as YoinApplication).container.experienceSessionStore
-            .setNowPlayingExpanded(true)
-    }
-
-    companion object {
-        const val EXTRA_EXPAND_NOW_PLAYING = "expandNowPlaying"
-    }
 }

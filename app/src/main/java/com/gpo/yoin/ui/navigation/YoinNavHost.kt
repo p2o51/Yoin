@@ -86,6 +86,8 @@ import com.gpo.yoin.player.PlaybackEvent
 import com.gpo.yoin.player.SpotifyConnectFailure
 import com.gpo.yoin.ui.nowplaying.NowPlayingStageMode
 import com.gpo.yoin.ui.nowplaying.NowPlayingScreen
+import com.gpo.yoin.ui.nowplaying.NowPlayingAccessories
+import com.gpo.yoin.ui.nowplaying.NowPlayingOverlayHost
 import com.gpo.yoin.ui.nowplaying.NowPlayingViewModel
 import com.gpo.yoin.ui.nowplaying.rememberNowPlayingStageProgress
 import com.gpo.yoin.ui.theme.YoinMotion
@@ -113,29 +115,6 @@ fun YoinNavHost(
         val nowPlayingViewModel: NowPlayingViewModel = viewModel(
             factory = NowPlayingViewModel.Factory(app.container),
         )
-        val addToPlaylistSnackbarHostState = remember { SnackbarHostState() }
-
-        LaunchedEffect(nowPlayingViewModel) {
-            nowPlayingViewModel.addToPlaylistMessages.collect { message ->
-                addToPlaylistSnackbarHostState.showSnackbar(
-                    message = message,
-                    duration = SnackbarDuration.Short,
-                )
-            }
-        }
-
-        LaunchedEffect(nowPlayingViewModel) {
-            nowPlayingViewModel.lyricsTranslationSwitchOffers.collect { offer ->
-                val result = addToPlaylistSnackbarHostState.showSnackbar(
-                    message = "${offer.providerName} translation is available",
-                    actionLabel = "Switch",
-                    duration = SnackbarDuration.Long,
-                )
-                if (result == SnackbarResult.ActionPerformed) {
-                    nowPlayingViewModel.applyLyricsTranslationSwitchOffer()
-                }
-            }
-        }
 
         // Only the Shell route lives in this NavDisplay now — detail pages are
         // separate Activities. The stack therefore stays at a single entry, so
@@ -236,31 +215,10 @@ fun YoinNavHost(
                 },
             )
 
-            val addTargets by nowPlayingViewModel.addToPlaylistTarget.collectAsState()
-            if (addTargets != null) {
-                val writablePlaylists by nowPlayingViewModel.writablePlaylists.collectAsState()
-                // Null out the create callback when the active source can't
-                // actually create playlists — the sheet drops the row entirely
-                // rather than showing an action that will fail downstream.
-                val canCreate = Capability.PLAYLISTS_WRITE in
-                    app.container.repository.currentCapabilities()
-                AddToPlaylistSheet(
-                    writablePlaylists = writablePlaylists,
-                    onCreateAndAdd = nowPlayingViewModel::createPlaylistAndAddTargets
-                        .takeIf { canCreate },
-                    onAddToExisting = nowPlayingViewModel::addTargetsToExistingPlaylist,
-                    onDismiss = nowPlayingViewModel::dismissAddToPlaylistSheet,
-                )
-            }
-
-            SnackbarHost(
-                hostState = addToPlaylistSnackbarHostState,
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .padding(bottom = 24.dp, start = 12.dp, end = 12.dp),
-            ) { data ->
-                Snackbar(snackbarData = data)
-            }
+            NowPlayingAccessories(
+                viewModel = nowPlayingViewModel,
+                container = app.container,
+            )
         }
     }
 }
@@ -313,47 +271,12 @@ private fun YoinShell(
     // The full VisualizerData stream stays out of composition entirely — the
     // Now Playing overlay only derives a Boolean spectrum-presence from it.
     val playbackSignal by app.container.audioVisualizerManager.playbackSignal.collectAsState()
-    val castState by app.container.castManager.castState.collectAsState()
-    val nowPlayingUiState by nowPlayingViewModel.uiState.collectAsState()
-    val aboutUiState by nowPlayingViewModel.aboutUiState.collectAsState()
-    val askState by nowPlayingViewModel.askState.collectAsState()
-    val stageMode by nowPlayingViewModel.stageMode.collectAsState()
     val layoutMode = LocalYoinWindowInfo.current.layoutMode
-    val detailPage by nowPlayingViewModel.detailPage.collectAsState()
-    val notesState by nowPlayingViewModel.notesState.collectAsState()
-    val devicesState by nowPlayingViewModel.devicesState.collectAsState()
-    val lyricsSearchState by nowPlayingViewModel.lyricsSearchState.collectAsState()
     val memoriesReveal = rememberRevealState(
         initialFraction = if (homeSurface == HomeSurface.Memories) 0f else 1f,
     )
     val memoriesMounted = homeSurface == HomeSurface.Memories || memoriesReveal.isVisible
     val shellScope = rememberCoroutineScope()
-    var dismissDragPx by remember { mutableStateOf(0f) }
-    var predictiveBackProgress by remember { mutableStateOf(0f) }
-    // Expanded-collapse predictive back drives a uniform SCALE-down preview (below)
-    // instead of scrubbing the layout reshape — a partial reshape freezes a
-    // half-built, truncated stage; a uniform scale of the complete layout cannot.
-    var stageBackProgress by remember { mutableStateOf(0f) }
-    val stageProgress = rememberNowPlayingStageProgress(initialMode = stageMode)
-    val dragResetSpec = YoinMotion.defaultSpatialSpec<Float>(role = YoinMotionRole.Standard)
-    // Fast, near-critical spring owns the whole stage reshape (expand, collapse,
-    // and gesture-release settle). Non-bouncy so the open never overshoots past
-    // 1.0 (which would re-trigger the cover-flight flash); fast so a released
-    // back gesture reads as a continuation rather than a slow snap.
-    val stageAnimationSpec = YoinMotion.stageSettleSpring<Float>()
-    val overlayOffsetPx by animateFloatAsState(
-        targetValue = predictiveBackProgress * 1200f,
-        animationSpec = YoinMotion.defaultSpatialSpec(role = YoinMotionRole.Standard),
-        label = "overlayOffsetPx",
-    )
-    // Expanded-collapse predictive-back PREVIEW scale: 1f → ~0.90f (the platform's
-    // ~90% min back-scale) as the gesture progresses; animated so the release
-    // settles smoothly back to 1f instead of snapping. Inert (1f) when not gesturing.
-    val stageBackScale by animateFloatAsState(
-        targetValue = 1f - 0.10f * stageBackProgress,
-        animationSpec = YoinMotion.defaultSpatialSpec(role = YoinMotionRole.Standard),
-        label = "stageBackScale",
-    )
 
     val coverArtUrl = currentTrack?.coverArt?.let { coverArt ->
         app.container.repository.resolveCoverUrl(coverArt)
@@ -502,111 +425,6 @@ private fun YoinShell(
     LaunchedEffect(selectedSection) {
         if (selectedSection != YoinSection.HOME) {
             memoriesReveal.snapTo(1f)
-        }
-    }
-
-    // isGestureDriving is a KEY, not just an early-return guard: when a gesture
-    // ends (endGesture flips the flag) this effect re-runs and reconciles the
-    // shared progress to the CURRENT stageMode. That re-convergence is what
-    // (a) restores a cancelled back gesture — stageMode is still Expanded, so
-    // detail springs back to 1 (velocity-continuous via the Animatable) without
-    // needing a settle inside the already-cancelled handler coroutine — and
-    // (b) recovers any stageMode change that landed mid-gesture (e.g. a tap to
-    // re-expand during the post-commit settle), which a one-shot guard would
-    // silently drop, wedging stageMode and stageProgress apart.
-    LaunchedEffect(stageMode, stageProgress, stageProgress.isGestureDriving) {
-        if (stageProgress.isGestureDriving) return@LaunchedEffect
-        launch {
-            stageProgress.animateDetailTo(
-                target = if (stageMode == NowPlayingStageMode.Expanded) 1f else 0f,
-                spec = stageAnimationSpec,
-            )
-        }
-        launch {
-            stageProgress.animateImmersiveTo(
-                target = if (stageMode == NowPlayingStageMode.Immersive) 1f else 0f,
-                spec = stageAnimationSpec,
-            )
-        }
-    }
-
-    // Wide has no Expanded substate (the right column is always expanded), so
-    // collapse a stale Expanded to Compact when entering Wide. Writes ONLY
-    // stageMode; the reconcile effect above stays the sole driver of the stage
-    // Animatable (it re-runs on the stageMode change and settles detail → 0).
-    LaunchedEffect(layoutMode, stageMode) {
-        if (layoutMode == LayoutMode.Wide && stageMode == NowPlayingStageMode.Expanded) {
-            nowPlayingViewModel.setStageMode(NowPlayingStageMode.Compact)
-        }
-    }
-
-    val closeNowPlaying = {
-        dismissDragPx = 0f
-        predictiveBackProgress = 0f
-        stageBackProgress = 0f
-        nowPlayingViewModel.setStageMode(NowPlayingStageMode.Compact)
-        experienceSessionStore.setNowPlayingExpanded(false)
-    }
-
-    // Layered back priority: Expanded collapses in place first. Immersive is
-    // a transient cover-focus variant of Compact, so it does not enter the
-    // stage back chain; Back closes Now Playing just like Compact.
-    BackHandler(
-        enabled = showNowPlaying && stageMode == NowPlayingStageMode.Expanded &&
-            layoutMode != LayoutMode.Wide,
-    ) {
-        nowPlayingViewModel.stepBackStage()
-    }
-
-    BackHandler(
-        enabled = showNowPlaying &&
-            (stageMode != NowPlayingStageMode.Expanded || layoutMode == LayoutMode.Wide),
-        onBack = closeNowPlaying,
-    )
-
-    // Predictive-back drive for stage collapse (Expanded → Compact). Uniform
-    // SCALE-DOWN preview, NOT a layout scrub: the finger peeks the WHOLE expanded
-    // stage toward ~90% (the platform's min back-scale) while the layout stays
-    // fully expanded (detail = 1, held there by the gesture-gated reconcile). A
-    // partial layout reshape would freeze a half-built, truncated stage (the
-    // collapsing cover row clips the square art); a uniform scale of the complete
-    // layout cannot truncate. COMMIT runs the real detail 1→0 reshape and the
-    // scale springs back to 1; CANCEL just springs the scale back, detail stays 1.
-    PredictiveBackHandler(
-        enabled = showNowPlaying && stageMode == NowPlayingStageMode.Expanded &&
-            layoutMode != LayoutMode.Wide,
-    ) { progress ->
-        stageProgress.beginGesture()
-        try {
-            progress.collect { event ->
-                val eased = YoinMotion.backGestureEasing.transform(event.progress)
-                // Peek the whole stage; detail is NOT scrubbed (stays 1).
-                stageBackProgress = eased
-            }
-            // COMMIT: run the real reshape (detail 1→0) via the reconcile; the
-            // scale springs back to 1 (below) as the stage un-scales into Compact.
-            nowPlayingViewModel.stepBackStage()
-        } catch (e: CancellationException) {
-            throw e
-        } finally {
-            stageProgress.endGesture()
-            stageBackProgress = 0f
-        }
-    }
-
-    // Predictive-back drive for the compact dismissal animation.
-    PredictiveBackHandler(
-        enabled = showNowPlaying &&
-            (stageMode != NowPlayingStageMode.Expanded || layoutMode == LayoutMode.Wide),
-    ) { progress ->
-        try {
-            progress.collectLatest { event ->
-                predictiveBackProgress = event.progress
-            }
-            dismissDragPx = 0f
-            experienceSessionStore.setNowPlayingExpanded(false)
-        } finally {
-            predictiveBackProgress = 0f
         }
     }
 
@@ -759,168 +577,22 @@ private fun YoinShell(
             }
         }
 
-        // ── Background scrim ─────────────────────────────────────────────
-        val scrimAlpha by animateFloatAsState(
-            targetValue = if (showNowPlaying) 0.5f else 0f,
-            animationSpec = YoinMotion.defaultEffectsSpec(role = YoinMotionRole.Standard),
-            label = "scrimAlpha",
+        // ── Now Playing overlay (scrim + slide-up + back layering) ───────
+        NowPlayingOverlayHost(
+            viewModel = nowPlayingViewModel,
+            container = app.container,
+            expanded = showNowPlaying,
+            onExpandedChange = experienceSessionStore::setNowPlayingExpanded,
+            // Keep Now Playing expanded across the push. NP is a shell-scoped
+            // overlay, so when a detail Activity covers the shell, NP stops
+            // rendering with it; returning restores NP in whatever stage the
+            // user left it (Compact or Expanded Lyrics/About/Note) — the
+            // Apple Music behaviour.
+            onAlbumClick = { albumId -> navigateToAlbumFromShell(albumId, null) },
+            onArtistClick = { artistId -> navigateToArtistFromShell(artistId, null) },
+            onPlaylistClick = { playlistId -> navigateToPlaylistFromShell(playlistId, null) },
+            sharedTransitionScope = sharedTransitionScope,
         )
-        if (scrimAlpha > 0f) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(Color.Black.copy(alpha = scrimAlpha)),
-            )
-        }
-
-        // ── Now Playing overlay ──────────────────────────────────────────
-        AnimatedVisibility(
-            visible = showNowPlaying,
-            enter = YoinMotion.slideInVertically(role = YoinMotionRole.Expressive) { it } +
-                YoinMotion.fadeIn(role = YoinMotionRole.Standard),
-            exit = YoinMotion.slideOutVertically(role = YoinMotionRole.Standard) { it } +
-                YoinMotion.fadeOut(role = YoinMotionRole.Standard),
-            modifier = Modifier.fillMaxSize(),
-        ) {
-            val npAvScope = this
-            // The 4Hz playhead is collected HERE (not in the shell body) and
-            // handed to the screen as reader lambdas, so only the leaves that
-            // invoke them (progress bar, lyrics) recompose per tick.
-            val nowPlayingPositionMs = nowPlayingViewModel.positionMs.collectAsState()
-            val nowPlayingBufferedMs = nowPlayingViewModel.bufferedMs.collectAsState()
-            // The raw FFT stream updates 10–30Hz; NowPlayingScreen only needs
-            // "is a spectrum present", so subscribe to that distinct Boolean
-            // and keep the frames out of composition entirely.
-            val hasAudioSpectrum by remember(app) {
-                app.container.audioVisualizerManager.visualizerData
-                    .map { it.fft.isNotEmpty() }
-                    .distinctUntilChanged()
-            }.collectAsState(
-                initial = app.container.audioVisualizerManager
-                    .visualizerData.value.fft.isNotEmpty(),
-            )
-            val draggableState = rememberDraggableState { delta ->
-                if (delta > 0f || dismissDragPx > 0f) {
-                    dismissDragPx = (dismissDragPx + delta).coerceAtLeast(0f)
-                }
-            }
-
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .draggable(
-                        state = draggableState,
-                        orientation = Orientation.Vertical,
-                        // Drag-to-dismiss is a Compact-only gesture. In
-                        // Expanded/Immersive panes have
-                        // their own vertical scroll / IME interactions;
-                        // letting draggable eat those deltas is what
-                        // causes Lyrics scroll to fight dismiss.
-                        enabled = stageMode != NowPlayingStageMode.Expanded &&
-                            layoutMode != LayoutMode.Wide,
-                        onDragStopped = { velocity ->
-                            if (dismissDragPx > 240f || velocity > 800f) {
-                                dismissDragPx = 0f
-                                predictiveBackProgress = 0f
-                                experienceSessionStore.setNowPlayingExpanded(false)
-                            } else {
-                                animate(
-                                    initialValue = dismissDragPx,
-                                    targetValue = 0f,
-                                    animationSpec = dragResetSpec,
-                                ) { value, _ ->
-                                    dismissDragPx = value
-                                }
-                            }
-                        },
-                    ),
-            ) {
-                NowPlayingScreen(
-                    uiState = nowPlayingUiState,
-                    // Mirrors the dismissFraction pattern below: reader lambdas
-                    // over collected State, invoked only at the consuming leaves.
-                    positionMs = { nowPlayingPositionMs.value },
-                    bufferedMs = { nowPlayingBufferedMs.value },
-                    hasAudioSpectrum = hasAudioSpectrum,
-                    onTogglePlayPause = nowPlayingViewModel::togglePlayPause,
-                    onSkipNext = nowPlayingViewModel::skipNext,
-                    onSkipPrevious = nowPlayingViewModel::skipPrevious,
-                    onSeek = nowPlayingViewModel::seekTo,
-                    onSeekToMs = nowPlayingViewModel::seekToMs,
-                    lyricsSearchState = lyricsSearchState,
-                    onOpenLyricsSearch = nowPlayingViewModel::openLyricsSearch,
-                    onLyricsSearchQueryChange = nowPlayingViewModel::updateLyricsSearchQuery,
-                    onSearchLyrics = nowPlayingViewModel::searchLyrics,
-                    onApplyLyricsSearchResult = nowPlayingViewModel::applyLyricsSearchResult,
-                    onDismissLyricsSearch = nowPlayingViewModel::dismissLyricsSearch,
-                    onTranslateLyrics = nowPlayingViewModel::translateLyrics,
-                    onApplyLyrics = nowPlayingViewModel::applyLyrics,
-                    onRatingChange = nowPlayingViewModel::setRating,
-                    onToggleFavorite = nowPlayingViewModel::toggleFavorite,
-                    onAddCurrentToPlaylist = nowPlayingViewModel::requestAddCurrentToPlaylist,
-                    onSkipToQueueItem = nowPlayingViewModel::skipToQueueItem,
-                    onToggleShuffle = nowPlayingViewModel::toggleShuffle,
-                    // Keep Now Playing expanded across the push. NP is a
-                    // Shell-scoped overlay, so when AlbumDetail becomes the
-                    // active NavDisplay entry, Shell (and NP with it) stops
-                    // rendering automatically — no need to collapse state.
-                    // Popping back to Shell restores NP in whatever stage
-                    // the user left it (Compact or Expanded Lyrics/
-                    // About/Note), which is what Apple Music does.
-                    onAlbumClick = { albumId ->
-                        navigateToAlbumFromShell(albumId, null)
-                    },
-                    onArtistClick = { artistId ->
-                        navigateToArtistFromShell(artistId, null)
-                    },
-                    onPlaylistClick = { playlistId ->
-                        navigateToPlaylistFromShell(playlistId, null)
-                    },
-                    onDismiss = closeNowPlaying,
-                    dismissFraction = {
-                        val dragProgress = (dismissDragPx / 240f).coerceIn(0f, 1f)
-                        maxOf(dragProgress, predictiveBackProgress).coerceIn(0f, 1f)
-                    },
-                    aboutUiState = aboutUiState,
-                    onRetryFetchSongInfo = nowPlayingViewModel::retryFetchSongInfo,
-                    askState = askState,
-                    onAboutOpened = nowPlayingViewModel::onAboutOpened,
-                    onAskQuestion = nowPlayingViewModel::askQuestion,
-                    onAskBarFocused = nowPlayingViewModel::onAskBarFocused,
-                    onAskBarCollapseRequested = nowPlayingViewModel::onAskBarCollapseRequested,
-                    onDismissAskError = nowPlayingViewModel::dismissAskError,
-                    stageMode = stageMode,
-                    stageProgress = stageProgress,
-                    detailPage = detailPage,
-                    onStageModeChange = nowPlayingViewModel::setStageMode,
-                    onStageBack = nowPlayingViewModel::stepBackStage,
-                    onDetailPageChange = nowPlayingViewModel::setDetailPage,
-                    notesState = notesState,
-                    onSaveNote = nowPlayingViewModel::saveCurrentNote,
-                    onDeleteNote = nowPlayingViewModel::deleteNote,
-                    devicesState = devicesState,
-                    onRefreshDevices = nowPlayingViewModel::refreshDevices,
-                    onSelectDevice = nowPlayingViewModel::selectDevice,
-                    castState = castState,
-                    onCastClick = { },
-                    sharedTransitionScope = sharedTransitionScope,
-                    animatedVisibilityScope = npAvScope,
-                    // Collapse PREVIEW recedes the CONTENT (inside NowPlayingScreen,
-                    // over the full-screen aurora) — NOT the whole overlay, which
-                    // would reveal the shell behind and read as the app shrinking.
-                    contentScale = stageBackScale,
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .offset {
-                            IntOffset(
-                                x = 0,
-                                y = (overlayOffsetPx + dismissDragPx).roundToInt(),
-                            )
-                        },
-                )
-
-            }
-        }
 
         // ── Bottom navigation ────────────────────────────────────────────
         // Slide the bottom group fully off-screen, BELOW the nav bar: the group
