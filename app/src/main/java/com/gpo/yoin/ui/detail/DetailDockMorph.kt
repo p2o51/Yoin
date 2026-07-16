@@ -103,9 +103,9 @@ private const val PILL_HOLD_MS = 280L
 // place instead of parking a bar-shaped ghost over the page.
 private const val TARGET_WAIT_TIMEOUT_MS = 900L
 
-// The bar mini artwork's corner (YoinShapeTokens.Small) — the cover's flight
-// starts with this rounding and lands on the dock artwork's 24% rounding.
-private val BarArtCorner = 8.dp
+// The bar mini artwork's corner (YoinArtworkShapes.ThumbAnimated) — the cover's
+// flight starts with this rounding and lands on the dock artwork's 24% rounding.
+private val BarArtCorner = 4.dp
 
 /**
  * Launch a detail Activity from the shell, morphing the Button Group into the

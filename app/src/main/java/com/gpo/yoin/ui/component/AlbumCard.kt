@@ -27,7 +27,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
-import com.gpo.yoin.ui.theme.YoinShapeTokens
+import com.gpo.yoin.ui.theme.YoinArtworkShapes
 import com.gpo.yoin.ui.theme.YoinTheme
 
 @Composable
@@ -85,7 +85,7 @@ fun AlbumCard(
                 modifier = Modifier
                     .fillMaxWidth()
                     .aspectRatio(1f),
-                shape = YoinShapeTokens.Small,
+                shape = YoinArtworkShapes.Cover,
                 fallbackIcon = Icons.Filled.LibraryMusic,
                 interactionSource = interactionSource,
                 fillFraction = 1f,

@@ -2,6 +2,7 @@ package com.gpo.yoin.ui.nowplaying
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import com.gpo.yoin.ui.theme.YoinContainerShapes
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -304,7 +305,7 @@ private fun LyricsSearchResultRow(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
+            .clip(YoinContainerShapes.ListRow)
             .clickable(enabled = enabled, onClick = onClick)
             .padding(horizontal = 8.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,

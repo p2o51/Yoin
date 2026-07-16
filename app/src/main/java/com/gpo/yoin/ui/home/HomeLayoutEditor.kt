@@ -49,7 +49,7 @@ import androidx.compose.ui.zIndex
 import com.gpo.yoin.ui.component.minimumTouchTarget
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
 import com.gpo.yoin.ui.theme.YoinMotion
-import com.gpo.yoin.ui.theme.YoinShapeTokens
+import com.gpo.yoin.ui.theme.YoinContainerShapes
 import kotlinx.coroutines.launch
 
 private val EditorRowHeight = 72.dp
@@ -147,7 +147,7 @@ internal fun HomeLayoutEditor(
                     label = "editorRowScale",
                 )
                 Surface(
-                    shape = YoinShapeTokens.Large,
+                    shape = YoinContainerShapes.Card,
                     color = MaterialTheme.colorScheme.surfaceContainerLow,
                     tonalElevation = if (isActive) 6.dp else 2.dp,
                     shadowElevation = 0.dp,

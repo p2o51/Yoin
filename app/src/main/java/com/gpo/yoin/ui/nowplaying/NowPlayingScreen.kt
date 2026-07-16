@@ -149,6 +149,7 @@ import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinMotionRole
 import com.gpo.yoin.ui.theme.YoinMotionSpeed
 import com.gpo.yoin.ui.theme.YoinShapeTokens
+import com.gpo.yoin.ui.theme.YoinArtworkShapes
 import com.gpo.yoin.ui.theme.YoinTheme
 import com.gpo.yoin.ui.theme.withTabularFigures
 import kotlin.math.roundToInt
@@ -402,7 +403,7 @@ private fun LaunchingContent(
         Box(
             modifier = Modifier
                 .size(240.dp)
-                .clip(RoundedCornerShape(28.dp))
+                .clip(YoinArtworkShapes.Hero)
                 .background(MaterialTheme.colorScheme.surfaceContainerHighest),
             contentAlignment = Alignment.Center,
         ) {
@@ -479,7 +480,7 @@ private fun ConnectErrorContent(
         Box(
             modifier = Modifier
                 .size(200.dp)
-                .clip(RoundedCornerShape(28.dp))
+                .clip(YoinArtworkShapes.Hero)
                 .background(MaterialTheme.colorScheme.surfaceContainerHighest),
             contentAlignment = Alignment.Center,
         ) {
@@ -2485,8 +2486,8 @@ private fun CoverTransitionOverlay(
     endX: Dp,
     endY: Dp,
     endSize: Dp,
-    startCornerRadius: Dp = 16.dp,
-    endCornerRadius: Dp = 8.dp,
+    startCornerRadius: Dp = 8.dp,
+    endCornerRadius: Dp = 4.dp,
     modifier: Modifier = Modifier,
 ) {
     if (
@@ -2989,7 +2990,7 @@ private fun DockedAlbumCover(
         coverArtUrl = coverArtUrl,
         interactionSource = interactionSource,
         modifier = modifier,
-        shape = YoinShapeTokens.Small,
+        shape = YoinArtworkShapes.ThumbAnimated,
     )
 }
 
@@ -3361,7 +3362,7 @@ internal fun AlbumCover(
         model = coverArtUrl,
         contentDescription = "Album cover",
         modifier = finalModifier,
-        shape = YoinShapeTokens.Large,
+        shape = YoinArtworkShapes.HeroAnimated,
         fallbackIcon = Icons.Rounded.PlayArrow,
         tonalElevation = 0.dp,
         shadowElevation = 0.dp,

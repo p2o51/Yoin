@@ -63,6 +63,7 @@ import com.gpo.yoin.R
 import com.gpo.yoin.ui.theme.GoogleSansFlex
 import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinShapeTokens
+import com.gpo.yoin.ui.theme.YoinContainerShapes
 
 // One full cycle of the playing-state wash — intentionally slow so the page
 // feels alive without competing with cover art or scrolling content.
@@ -140,7 +141,7 @@ internal fun ExpressivePageBackground(
 @Composable
 internal fun ExpressiveSectionPanel(
     modifier: Modifier = Modifier,
-    shape: Shape = YoinShapeTokens.ExtraLarge,
+    shape: Shape = YoinContainerShapes.Panel,
     containerColor: androidx.compose.ui.graphics.Color = MaterialTheme.colorScheme.surfaceContainerLow,
     tonalElevation: Dp = 1.dp,
     shadowElevation: Dp = 0.dp,

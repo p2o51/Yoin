@@ -58,6 +58,7 @@ import com.gpo.yoin.data.local.SongNote
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
 import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinShapeTokens
+import com.gpo.yoin.ui.theme.YoinContainerShapes
 import java.util.concurrent.TimeUnit
 import java.text.DateFormat
 import java.util.Date
@@ -162,7 +163,7 @@ fun NoteCard(
                     Modifier
                 },
             ),
-        shape = YoinShapeTokens.Large,
+        shape = YoinContainerShapes.Card,
         color = containerColor,
         tonalElevation = 0.dp,
     ) {
@@ -364,7 +365,7 @@ fun NoteComposer(
     Column(modifier = modifier.fillMaxWidth()) {
         Surface(
             modifier = Modifier.fillMaxWidth(),
-            shape = YoinShapeTokens.Large,
+            shape = YoinContainerShapes.Card,
             color = MaterialTheme.colorScheme.surfaceContainerHigh,
             tonalElevation = 0.dp,
         ) {

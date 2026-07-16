@@ -37,7 +37,7 @@ import androidx.compose.ui.unit.dp
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.YoinDevice
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
-import com.gpo.yoin.ui.theme.YoinShapeTokens
+import com.gpo.yoin.ui.theme.YoinContainerShapes
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -185,7 +185,7 @@ private fun DeviceRow(
             .alpha(if (enabled || device.isActive) 1f else 0.6f),
         color = MaterialTheme.colorScheme.surfaceContainerHigh,
         contentColor = MaterialTheme.colorScheme.onSurface,
-        shape = YoinShapeTokens.ExtraLarge,
+        shape = YoinContainerShapes.ListRow,
         tonalElevation = 0.dp,
         shadowElevation = 0.dp,
     ) {

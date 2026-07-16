@@ -95,6 +95,7 @@ import com.gpo.yoin.ui.theme.ProvideYoinMotionRole
 import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinMotionRole
 import com.gpo.yoin.ui.theme.YoinShapeTokens
+import com.gpo.yoin.ui.theme.YoinContainerShapes
 import com.gpo.yoin.ui.theme.YoinTheme
 import kotlinx.coroutines.launch
 
@@ -512,7 +513,7 @@ private fun ProfileCardTile(
                 scaleX = scale
                 scaleY = scale
             },
-        shape = YoinShapeTokens.Large,
+        shape = YoinContainerShapes.Card,
         color = containerColor,
         contentColor = contentColor,
         onClick = {
@@ -651,7 +652,7 @@ private fun AddProfileCardTile(
         modifier = modifier
             .width(120.dp)
             .alpha(alpha),
-        shape = YoinShapeTokens.Large,
+        shape = YoinContainerShapes.Card,
         color = MaterialTheme.colorScheme.surfaceContainerHigh,
         contentColor = MaterialTheme.colorScheme.onSurface,
         onClick = onClick,

@@ -74,7 +74,7 @@ import com.gpo.yoin.ui.navigation.YoinSection
 import com.gpo.yoin.ui.theme.ProvideYoinMotionRole
 import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinMotionRole
-import com.gpo.yoin.ui.theme.YoinShapeTokens
+import com.gpo.yoin.ui.theme.YoinArtworkShapes
 import kotlinx.coroutines.delay
 import kotlin.math.sin
 
@@ -619,7 +619,7 @@ private fun NowPlayingArtwork(
         model = currentTrackCoverArtUrl,
         contentDescription = currentTrackTitle ?: "Current track",
         modifier = finalModifier,
-        shape = YoinShapeTokens.Small,
+        shape = YoinArtworkShapes.ThumbAnimated,
         fallbackIcon = Icons.Filled.MusicNote,
         tonalElevation = 1.dp,
         shadowElevation = 0.dp,

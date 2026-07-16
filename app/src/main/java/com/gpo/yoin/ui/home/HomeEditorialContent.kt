@@ -81,6 +81,8 @@ import com.gpo.yoin.ui.experience.RevealState
 import com.gpo.yoin.ui.experience.rememberRevealState
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
 import com.gpo.yoin.ui.theme.YoinShapeTokens
+import com.gpo.yoin.ui.theme.YoinArtworkShapes
+import com.gpo.yoin.ui.theme.YoinContainerShapes
 import com.gpo.yoin.ui.theme.withTabularFigures
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
@@ -535,7 +537,7 @@ private fun ActivityHeroCard(
     val colors = rememberActivityCardColors(entry.coverArtUrl, extractBackdropColors)
     Surface(
         modifier = modifier,
-        shape = YoinShapeTokens.Large,
+        shape = YoinContainerShapes.Card,
         color = colors.container,
         tonalElevation = 0.dp,
         shadowElevation = 0.dp,
@@ -605,7 +607,7 @@ private fun ActivitySmallCard(
     val colors = rememberActivityCardColors(entry.coverArtUrl, extractBackdropColors)
     Surface(
         modifier = modifier,
-        shape = YoinShapeTokens.Large,
+        shape = YoinContainerShapes.Card,
         color = colors.container,
         tonalElevation = 0.dp,
         shadowElevation = 0.dp,
@@ -671,7 +673,7 @@ private fun ActivityWideCard(
     val colors = rememberActivityCardColors(entry.coverArtUrl, extractBackdropColors)
     Surface(
         modifier = modifier,
-        shape = YoinShapeTokens.Large,
+        shape = YoinContainerShapes.Card,
         color = colors.container,
         tonalElevation = 0.dp,
         shadowElevation = 0.dp,
@@ -905,7 +907,7 @@ private fun RecentlyAddedTrackTile(
             model = coverArtUrl,
             contentDescription = track.title.orEmpty(),
             modifier = Modifier.size(RecentlyAddedTrackCover),
-            shape = YoinShapeTokens.Small,
+            shape = YoinArtworkShapes.Thumb,
             fallbackIcon = Icons.Filled.LibraryMusic,
             interactionSource = interactionSource,
             tonalElevation = 1.dp,
@@ -1020,7 +1022,6 @@ private fun HomeEmptyCard(
 ) {
     ExpressiveSectionPanel(
         modifier = modifier,
-        shape = YoinShapeTokens.ExtraLarge,
         containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
         tonalElevation = 1.dp,
         shadowElevation = 0.dp,

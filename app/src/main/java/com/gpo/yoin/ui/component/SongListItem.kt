@@ -28,7 +28,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
-import com.gpo.yoin.ui.theme.YoinShapeTokens
+import com.gpo.yoin.ui.theme.YoinArtworkShapes
+import com.gpo.yoin.ui.theme.YoinContainerShapes
 import com.gpo.yoin.ui.theme.YoinTheme
 import com.gpo.yoin.ui.theme.withTabularFigures
 
@@ -65,7 +66,7 @@ fun SongListItem(
                 onClick = onClick,
                 onLongClick = onLongClick,
             ),
-        shape = YoinShapeTokens.ExtraLarge,
+        shape = YoinContainerShapes.ListRow,
         color = Color.Transparent,
         tonalElevation = 0.dp,
         shadowElevation = 0.dp,
@@ -85,7 +86,7 @@ fun SongListItem(
                 // cover with ghost margins (leftovers of the removed backdrop
                 // shape) that never lined up with the 48dp artist avatars.
                 modifier = Modifier.size(48.dp),
-                shape = YoinShapeTokens.Small,
+                shape = YoinArtworkShapes.Thumb,
                 fallbackIcon = Icons.Filled.MusicNote,
                 interactionSource = interactionSource,
                 isPlaybackActive = isNowPlaying,

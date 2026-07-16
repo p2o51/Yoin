@@ -81,7 +81,7 @@ import com.gpo.yoin.ui.component.formatTrackDuration
 import com.gpo.yoin.ui.component.minimumTouchTarget
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
 import com.gpo.yoin.ui.theme.YoinMotion
-import com.gpo.yoin.ui.theme.YoinShapeTokens
+import com.gpo.yoin.ui.theme.YoinContainerShapes
 import com.gpo.yoin.ui.theme.withTabularFigures
 import java.time.Instant
 import java.time.LocalDate
@@ -213,7 +213,7 @@ internal class WavyBandShape(
     private val expand: Float,
     private val amplitude: Dp = 3.5.dp,
     private val waveLength: Dp = 48.dp,
-    private val heroCorner: Dp = 28.dp,
+    private val heroCorner: Dp = 8.dp,
     private val bottomPhase: Float = PI.toFloat(),
 ) : Shape {
     override fun createOutline(
@@ -437,7 +437,7 @@ internal fun AlbumTrackRow(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .clip(YoinShapeTokens.Large)
+            .clip(YoinContainerShapes.ListRow)
             .combinedClickable(
                 onClick = onClick,
                 onLongClick = {

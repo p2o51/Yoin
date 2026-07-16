@@ -95,6 +95,7 @@ import com.gpo.yoin.ui.theme.GoogleSansFlex
 import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinMotionRole
 import com.gpo.yoin.ui.theme.YoinShapeTokens
+import com.gpo.yoin.ui.theme.YoinArtworkShapes
 import com.gpo.yoin.ui.theme.withTabularFigures
 import java.time.Instant
 import java.time.ZoneId
@@ -810,7 +811,7 @@ private fun MemoriesHero(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(172.dp),
-                shape = YoinShapeTokens.ExtraLarge,
+                shape = YoinArtworkShapes.Hero,
                 fallbackIcon = Icons.Filled.LibraryMusic,
                 tonalElevation = 0.dp,
                 shadowElevation = 0.dp,

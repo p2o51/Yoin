@@ -105,7 +105,8 @@ import com.gpo.yoin.ui.experience.rememberYoinHaptics
 import com.gpo.yoin.ui.theme.ProvideYoinMotionRole
 import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinMotionRole
-import com.gpo.yoin.ui.theme.YoinShapeTokens
+import com.gpo.yoin.ui.theme.YoinArtworkShapes
+import com.gpo.yoin.ui.theme.YoinContainerShapes
 import com.gpo.yoin.ui.theme.YoinTheme
 import kotlinx.coroutines.launch
 
@@ -692,7 +693,7 @@ private fun ArtistListItem(
     Surface(
         onClick = onClick,
         modifier = modifier.fillMaxWidth(),
-        shape = YoinShapeTokens.ExtraLarge,
+        shape = YoinContainerShapes.ListRow,
         color = androidx.compose.ui.graphics.Color.Transparent,
         tonalElevation = 0.dp,
         shadowElevation = 0.dp,
@@ -1029,7 +1030,7 @@ private fun PlaylistListItem(
     Surface(
         onClick = onClick,
         modifier = modifier.fillMaxWidth(),
-        shape = YoinShapeTokens.ExtraLarge,
+        shape = YoinContainerShapes.ListRow,
         color = androidx.compose.ui.graphics.Color.Transparent,
         tonalElevation = 0.dp,
         shadowElevation = 0.dp,
@@ -1045,7 +1046,7 @@ private fun PlaylistListItem(
                 contentDescription = playlist.name,
                 variant = ExpressiveBackdropVariant.Ghostish,
                 modifier = Modifier.size(48.dp),
-                shape = YoinShapeTokens.Small,
+                shape = YoinArtworkShapes.Thumb,
                 fallbackIcon = Icons.AutoMirrored.Filled.QueueMusic,
                 // Full-bleed: the sub-1f fractions were placeholders for the
                 // removed animated backdrop shape and just left ghost margins.
@@ -1202,7 +1203,7 @@ private fun AlbumListItem(
     Surface(
         onClick = onClick,
         modifier = modifier.fillMaxWidth(),
-        shape = YoinShapeTokens.ExtraLarge,
+        shape = YoinContainerShapes.ListRow,
         color = androidx.compose.ui.graphics.Color.Transparent,
         tonalElevation = 0.dp,
         shadowElevation = 0.dp,
@@ -1221,7 +1222,7 @@ private fun AlbumListItem(
                 // them in the Favorites mixed list; full-bleed kills the
                 // ghost margin left by the removed backdrop shape.
                 modifier = Modifier.size(48.dp),
-                shape = YoinShapeTokens.Small,
+                shape = YoinArtworkShapes.Thumb,
                 fallbackIcon = Icons.Filled.LibraryMusic,
                 fillFraction = 1f,
                 tonalElevation = 0.dp,
@@ -1513,7 +1514,7 @@ private fun EmptyState(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp),
-            shape = YoinShapeTokens.Large,
+            shape = YoinContainerShapes.Card,
             containerColor = MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.72f),
             tonalElevation = 1.dp,
             shadowElevation = 0.dp,

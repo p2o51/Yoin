@@ -77,7 +77,7 @@ import com.gpo.yoin.ui.navigation.playlistCoverSharedKey
 import com.gpo.yoin.ui.navigation.rememberActiveOnlySharedContentConfig
 import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinMotionRole
-import com.gpo.yoin.ui.theme.YoinShapeTokens
+import com.gpo.yoin.ui.theme.YoinArtworkShapes
 import com.gpo.yoin.ui.theme.YoinTheme
 import com.gpo.yoin.ui.theme.rememberCoverColorScheme
 
@@ -572,7 +572,7 @@ private fun PlaylistHeroArtwork(
     animatedVisibilityScope: AnimatedVisibilityScope?,
     modifier: Modifier = Modifier,
 ) {
-    val shape = YoinShapeTokens.ExtraLarge
+    val shape = YoinArtworkShapes.Hero
     val artworkBoundsSpec = YoinMotion.defaultSpatialSpec<Rect>(
         role = YoinMotionRole.Expressive,
         expressiveScheme = MaterialTheme.motionScheme,

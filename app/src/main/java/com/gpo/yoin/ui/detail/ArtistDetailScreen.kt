@@ -85,7 +85,8 @@ import com.gpo.yoin.ui.experience.rememberYoinHaptics
 import com.gpo.yoin.ui.theme.ProvideYoinMotionRole
 import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinMotionRole
-import com.gpo.yoin.ui.theme.YoinShapeTokens
+import com.gpo.yoin.ui.theme.YoinArtworkShapes
+import com.gpo.yoin.ui.theme.YoinContainerShapes
 import com.gpo.yoin.ui.theme.YoinTheme
 import com.gpo.yoin.ui.theme.rememberCoverColorScheme
 import com.gpo.yoin.ui.theme.withTabularFigures
@@ -441,7 +442,7 @@ private fun ArtistDiscographyCarousel(
         Box(
             modifier = Modifier
                 .height(220.dp)
-                .maskClip(YoinShapeTokens.LargeIncreased)
+                .maskClip(YoinArtworkShapes.HeroAnimated)
                 .clickable { onAlbumClick(album.id) },
         ) {
             ExpressiveMediaArtwork(
@@ -558,7 +559,7 @@ private fun ArtistTopTrackRow(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .clip(YoinShapeTokens.Large)
+            .clip(YoinContainerShapes.ListRow)
             .clickable {
                 haptics.performClick()
                 onClick()
@@ -578,7 +579,7 @@ private fun ArtistTopTrackRow(
             model = track.coverArtUrl,
             contentDescription = null,
             modifier = Modifier.size(46.dp),
-            shape = YoinShapeTokens.Small,
+            shape = YoinArtworkShapes.Thumb,
             fallbackIcon = Icons.Filled.MusicNote,
             border = null,
             shadowElevation = 0.dp,

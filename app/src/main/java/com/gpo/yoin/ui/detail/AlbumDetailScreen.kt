@@ -86,7 +86,6 @@ import com.gpo.yoin.ui.theme.ProvideYoinMotionRole
 import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.rememberCoverColorScheme
 import com.gpo.yoin.ui.theme.YoinMotionRole
-import com.gpo.yoin.ui.theme.YoinShapeTokens
 import com.gpo.yoin.ui.theme.YoinTheme
 
 // At or below this track count the cover docks to a big rounded "capsule"; above
@@ -472,8 +471,8 @@ private fun AlbumOverviewPage(
         val state2CoverWidth = if (isMany) maxW else maxW - 32.dp
         val coverHeight = lerp(heroCoverSide, state2CoverHeight, expand)
         val coverWidth = lerp(heroCoverSide, state2CoverWidth, expand)
-        // Capsule corner (few-tracks only): 28dp hero → ~stadium as it docks.
-        val coverCorner = lerp(28.dp, 100.dp, expand.coerceIn(0f, 1f))
+        // Capsule corner (few-tracks only): 8dp hero → ~stadium as it docks.
+        val coverCorner = lerp(8.dp, 100.dp, expand.coerceIn(0f, 1f))
         // Band behind the cover for the arrow mark; collapses as the cover docks.
         val arrowBand = lerp(56.dp, 0.dp, expand.coerceIn(0f, 1f))
         // Centered in both states — no right-dock.

@@ -44,7 +44,7 @@ import com.gpo.yoin.ui.component.rememberExpressiveBackdropColors
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
 import com.gpo.yoin.ui.memories.MemoryEntityType
 import com.gpo.yoin.ui.theme.GoogleSansFlex
-import com.gpo.yoin.ui.theme.YoinShapeTokens
+import com.gpo.yoin.ui.theme.YoinArtworkShapes
 import com.gpo.yoin.ui.theme.withTabularFigures
 
 // The compact "1×1" cover is 100dp wide in the Figma; the backdrop shape fills
@@ -392,7 +392,7 @@ internal fun WidgetBackdropArtwork(
                 ),
             // Covers stay square-ish rounded rects like the Figma; only the
             // backdrop shape behind them varies by entity type.
-            shape = YoinShapeTokens.Small,
+            shape = YoinArtworkShapes.Thumb,
             fallbackIcon = widgetFallbackIcon(kind),
             tonalElevation = 1.dp,
             shadowElevation = 0.dp,
