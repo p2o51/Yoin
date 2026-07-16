@@ -53,6 +53,7 @@ import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.shape.CornerSize
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Favorite
@@ -148,6 +149,7 @@ import com.gpo.yoin.ui.theme.ProvideYoinMotionRole
 import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinMotionRole
 import com.gpo.yoin.ui.theme.YoinMotionSpeed
+import com.gpo.yoin.ui.theme.ContinuousRoundedCornerShape
 import com.gpo.yoin.ui.theme.YoinArtworkShapes
 import com.gpo.yoin.ui.theme.YoinTheme
 import com.gpo.yoin.ui.theme.withTabularFigures
@@ -402,7 +404,7 @@ private fun LaunchingContent(
         Box(
             modifier = Modifier
                 .size(240.dp)
-                .clip(YoinArtworkShapes.Hero)
+                .clip(YoinArtworkShapes.NowPlayingCover)
                 .background(MaterialTheme.colorScheme.surfaceContainerHighest),
             contentAlignment = Alignment.Center,
         ) {
@@ -479,7 +481,7 @@ private fun ConnectErrorContent(
         Box(
             modifier = Modifier
                 .size(200.dp)
-                .clip(YoinArtworkShapes.Hero)
+                .clip(YoinArtworkShapes.NowPlayingCover)
                 .background(MaterialTheme.colorScheme.surfaceContainerHighest),
             contentAlignment = Alignment.Center,
         ) {
@@ -2485,8 +2487,8 @@ private fun CoverTransitionOverlay(
     endX: Dp,
     endY: Dp,
     endSize: Dp,
-    startCornerRadius: Dp = 8.dp,
-    endCornerRadius: Dp = 4.dp,
+    startCornerRadius: Dp = 16.dp,
+    endCornerRadius: Dp = 8.dp,
     modifier: Modifier = Modifier,
 ) {
     if (
@@ -2529,7 +2531,10 @@ private fun CoverTransitionOverlay(
                 clip = true
                 val visualRadiusPx =
                     startCornerRadius.toPx() + (endCornerRadius.toPx() - startCornerRadius.toPx()) * p
-                shape = RoundedCornerShape(visualRadiusPx / s)
+                // Continuous curvature matching the static covers at both
+                // endpoints — a circular clip here would pop at hand-off.
+                val corner = CornerSize(visualRadiusPx / s)
+                shape = ContinuousRoundedCornerShape(corner, corner, corner, corner)
                 alpha = 1f
             },
     )
@@ -2989,7 +2994,7 @@ private fun DockedAlbumCover(
         coverArtUrl = coverArtUrl,
         interactionSource = interactionSource,
         modifier = modifier,
-        shape = YoinArtworkShapes.ThumbAnimated,
+        shape = YoinArtworkShapes.NowPlayingCoverDocked,
     )
 }
 
@@ -3361,7 +3366,7 @@ internal fun AlbumCover(
         model = coverArtUrl,
         contentDescription = "Album cover",
         modifier = finalModifier,
-        shape = YoinArtworkShapes.HeroAnimated,
+        shape = YoinArtworkShapes.NowPlayingCover,
         fallbackIcon = Icons.Rounded.PlayArrow,
         tonalElevation = 0.dp,
         shadowElevation = 0.dp,

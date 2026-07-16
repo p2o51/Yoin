@@ -53,8 +53,20 @@ object YoinArtworkShapes {
     /** 170–300dp hero covers. */
     val Hero = ContinuousRoundedCornerShape(8.dp)
 
-    /** Hero radius for per-frame-resized clips (carousel masks, NP main cover). */
+    /** Hero radius for per-frame-resized clips (carousel masks). */
     val HeroAnimated = RoundedCornerShape(8.dp)
+
+    /**
+     * Now Playing main cover — deliberately rounder than Hero so it sits in
+     * the same roundness family as the rating capsule beside it. Paired with
+     * [NowPlayingCoverDocked] as the CoverTransitionOverlay's flight
+     * endpoints; the overlay lerps the same continuous curvature per frame,
+     * so all three must stay in lockstep.
+     */
+    val NowPlayingCover = ContinuousRoundedCornerShape(16.dp)
+
+    /** NP docked (lyrics-stage) 44dp cover; the overlay's landing endpoint. */
+    val NowPlayingCoverDocked = ContinuousRoundedCornerShape(8.dp)
 }
 
 /**
