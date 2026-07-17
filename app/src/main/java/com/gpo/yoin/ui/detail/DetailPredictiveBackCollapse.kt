@@ -31,7 +31,8 @@ import kotlinx.coroutines.launch
  * its own detail⇄nav morph off [DetailBackCollapseState.progress].
  *
  * Ported behaviour (frameworks/base WM Shell, DefaultCrossActivityBackAnimation):
- *  - gesture progress through the BACK_GESTURE interpolator, spring-chased
+ *  - gesture progress through the BACK_GESTURE interpolator, tracked 1:1
+ *    with the finger (springs run only on the cancel settle)
  *  - uniform rect-lerped scale toward MAX_SCALE (0.9)
  *  - LEFT-edge swipes anchor the shrunken content's right edge 8dp from the
  *    screen edge; RIGHT-edge swipes stay centered (AOSP asymmetry)
