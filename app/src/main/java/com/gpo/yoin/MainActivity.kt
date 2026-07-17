@@ -34,29 +34,4 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
-
-
-    // Predictive-back preview signal (see the detail Activities' twin): the
-    // shell re-starting from STOPPED while detail chrome is up = a held back
-    // gesture is scaling the detail window above; its bar hides so the
-    // preview carries no bar and the shell's static twin shows through.
-    override fun onRestart() {
-        super.onRestart()
-        val store = (application as YoinApplication).container.experienceSessionStore
-        if (store.state.value.detailChromeActive) {
-            store.setDetailBackPreviewActive(true)
-        }
-    }
-
-    override fun onResume() {
-        super.onResume()
-        (application as YoinApplication).container.experienceSessionStore
-            .setDetailBackPreviewActive(false)
-    }
-
-    override fun onStop() {
-        super.onStop()
-        (application as YoinApplication).container.experienceSessionStore
-            .setDetailBackPreviewActive(false)
-    }
 }

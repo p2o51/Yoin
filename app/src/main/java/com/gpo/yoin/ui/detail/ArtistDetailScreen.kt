@@ -124,6 +124,12 @@ fun ArtistDetailScreen(
             modifier = modifier,
         ) {
             Box(modifier = Modifier.fillMaxSize()) {
+            // In-window predictive back: only this content collapses; the
+            // bottom bar below is a sibling and never transforms.
+            DetailPredictiveBackCollapse(
+                onBack = onBackClick,
+                modifier = Modifier.fillMaxSize(),
+            ) {
             when (uiState) {
                 is ArtistDetailUiState.Loading ->
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -141,6 +147,7 @@ fun ArtistDetailScreen(
                         onToggleFollow = onToggleFollow,
                         onTopTrackClick = onTopTrackClick,
                     )
+            }
             }
 
                 // Persistent bottom bar — rendered in ALL states; Play/menu

@@ -144,6 +144,12 @@ fun AlbumDetailScreen(
             modifier = modifier,
         ) {
             Box(modifier = Modifier.fillMaxSize()) {
+            // In-window predictive back: only this content collapses; the
+            // bottom bar below is a sibling and never transforms.
+            DetailPredictiveBackCollapse(
+                onBack = onBackClick,
+                modifier = Modifier.fillMaxSize(),
+            ) {
             when (uiState) {
                 is AlbumDetailUiState.Loading ->
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -167,6 +173,7 @@ fun AlbumDetailScreen(
                         onReviewDraftChange = onReviewDraftChange,
                         onSaveReview = onSaveReview,
                     )
+            }
             }
 
                 // Persistent bottom bar — rendered in ALL states (the bar

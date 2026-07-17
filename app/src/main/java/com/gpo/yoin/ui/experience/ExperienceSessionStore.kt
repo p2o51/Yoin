@@ -38,14 +38,6 @@ data class ExperienceSessionState(
      * predictive-back preview on return — reads as one persistent bar.
      */
     val detailChromeActive: Boolean = false,
-    /**
-     * True while a predictive-back preview is scaling the top window: set by
-     * the window BENEATH when it re-starts from STOPPED (onRestart — the only
-     * reliable signal; observer-priority back callbacks don't deliver
-     * onBackStarted on real devices). The top (still-RESUMED) window's bar
-     * hides so the preview carries no bar and the static twin shows through.
-     */
-    val detailBackPreviewActive: Boolean = false,
     val memories: MemoriesSessionState = MemoriesSessionState(),
 )
 
@@ -84,14 +76,6 @@ class ExperienceSessionStore {
 
     fun setNowPlayingExpanded(expanded: Boolean) {
         _state.update { current -> current.copy(nowPlayingExpanded = expanded) }
-    }
-
-    /** See [ExperienceSessionState.detailBackPreviewActive]. */
-    fun setDetailBackPreviewActive(active: Boolean) {
-        _state.update { current ->
-            if (current.detailBackPreviewActive == active) current
-            else current.copy(detailBackPreviewActive = active)
-        }
     }
 
     /** Flip the shell bar between nav chrome and detail (Play-split) chrome. */

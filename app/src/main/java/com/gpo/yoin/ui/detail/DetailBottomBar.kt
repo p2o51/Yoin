@@ -5,13 +5,8 @@ import android.app.ActivityOptions
 import android.content.Context
 import android.content.Intent
 import android.os.Build
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.runtime.State
 import androidx.compose.animation.AnimatedVisibility
 import com.gpo.yoin.ui.theme.YoinMotionRole
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.staticCompositionLocalOf
-import androidx.compose.ui.graphics.graphicsLayer
 import com.gpo.yoin.ui.theme.YoinMotion
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Spacer
@@ -54,16 +49,6 @@ fun DetailBottomBar(
     nowPlayingOpen: Boolean = false,
     menuItems: @Composable ColumnScope.(dismissMenu: () -> Unit) -> Unit = {},
 ) {
-    // Predictive back: the system scales this whole WINDOW during the held
-    // gesture, and a bar riding a shrinking window breaks the fixed-bar
-    // illusion. On gesture start the bar vanishes fast, revealing the
-    // shell's identical, motionless bar beneath the preview.
-    val hiddenDuringBack = LocalDetailBarHiddenDuringBack.current
-    val backAlpha by animateFloatAsState(
-        targetValue = if (hiddenDuringBack.value) 0f else 1f,
-        animationSpec = YoinMotion.fastEffectsSpec(),
-        label = "detailBarBackAlpha",
-    )
     // Same choreography as the shell bar when NP expands over it: the bar
     // slides down out of the way while the player rises.
     AnimatedVisibility(
@@ -74,9 +59,7 @@ fun DetailBottomBar(
             YoinMotion.slideOutVertically(role = YoinMotionRole.Standard) { it },
         modifier = modifier,
     ) {
-    FloatingBottomBar(
-        modifier = Modifier.graphicsLayer { alpha = backAlpha },
-    ) { _ ->
+    FloatingBottomBar { _ ->
         PlaySplitButton(
             playContainer = playContainer,
             playContent = playContent,
@@ -137,14 +120,4 @@ fun Activity.applyDetailCloseTransition() {
             R.anim.detail_bar_close_exit,
         )
     }
-}
-
-/**
- * Window-level "a predictive back preview is scaling this window" flag,
- * provided by the detail Activities (derived from the session store's
- * [detailBackPreviewActive] + this window being RESUMED) and consumed by
- * [DetailBottomBar].
- */
-val LocalDetailBarHiddenDuringBack = staticCompositionLocalOf<State<Boolean>> {
-    error("LocalDetailBarHiddenDuringBack not provided")
 }

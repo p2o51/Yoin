@@ -8,15 +8,12 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.derivedStateOf
-import androidx.lifecycle.Lifecycle
 import androidx.compose.foundation.layout.Box
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import com.gpo.yoin.ui.nowplaying.NowPlayingAccessories
 import com.gpo.yoin.ui.nowplaying.NowPlayingOverlayHost
 import com.gpo.yoin.ui.nowplaying.NowPlayingViewModel
-import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -47,19 +44,6 @@ class ArtistDetailActivity : ComponentActivity() {
             return
         }
         setContent {
-            // Hide MY bar only while a back preview is in flight AND this is
-            // the top (still-RESUMED) window — the revealed window beneath
-            // keeps its bar as the static twin.
-            val experienceSession by (application as YoinApplication)
-                .container.experienceSessionStore.state.collectAsState()
-            val lifecycleState by lifecycle.currentStateFlow.collectAsState()
-            val barHiddenDuringBack = remember {
-                derivedStateOf {
-                    experienceSession.detailBackPreviewActive &&
-                        lifecycleState == Lifecycle.State.RESUMED
-                }
-            }
-            CompositionLocalProvider(LocalDetailBarHiddenDuringBack provides barHiddenDuringBack) {
             YoinActivityRoot {
                 val context = LocalContext.current
                 val app = context.applicationContext as YoinApplication
@@ -181,37 +165,16 @@ class ArtistDetailActivity : ComponentActivity() {
                 )
                 }
             }
-            }
         }
-    }
-
-    // Predictive-back preview signal: a STOPPED activity re-starting while
-    // detail chrome is up means the window ABOVE it is being scaled by a held
-    // back gesture (normal foregrounding re-starts then RESUMES before any
-    // frame, so the blip never renders). The top window's bar hides on it.
-    override fun onRestart() {
-        super.onRestart()
-        val store = (application as YoinApplication).container.experienceSessionStore
-        if (store.state.value.detailChromeActive) {
-            store.setDetailBackPreviewActive(true)
-        }
-    }
-
-    override fun onResume() {
-        super.onResume()
-        (application as YoinApplication).container.experienceSessionStore
-            .setDetailBackPreviewActive(false)
     }
 
     override fun onStop() {
         super.onStop()
-        val store = (application as YoinApplication).container.experienceSessionStore
-        // Cancelled preview: this window re-stops without ever resuming.
-        store.setDetailBackPreviewActive(false)
         // The system defers onStop past the exit animation, so this is the
         // moment this window is truly off screen — the shell's chrome restore
         // (bar reverse morph) waits for it.
-        store.noteDetailWindowSettled()
+        (application as YoinApplication).container.experienceSessionStore
+            .noteDetailWindowSettled()
     }
 
     companion object {

@@ -134,6 +134,12 @@ fun PlaylistDetailScreen(
         playbackSignal = playbackSignal,
         modifier = modifier,
     ) {
+        // In-window predictive back: only the page content collapses; the
+        // bottom bar below is a sibling and never transforms.
+        DetailPredictiveBackCollapse(
+            onBack = onBackClick,
+            modifier = Modifier.fillMaxSize(),
+        ) {
         Scaffold(
             modifier = Modifier
                 .fillMaxSize()
@@ -289,6 +295,7 @@ fun PlaylistDetailScreen(
                     )
                 }
             }
+        }
         }
 
         // Persistent bottom bar — rendered in ALL states (the bar never
