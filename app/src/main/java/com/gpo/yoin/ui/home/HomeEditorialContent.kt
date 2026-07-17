@@ -75,6 +75,7 @@ import com.gpo.yoin.data.model.Track
 import com.gpo.yoin.ui.component.ExpressiveMediaArtwork
 import com.gpo.yoin.ui.component.ExpressiveSectionPanel
 import com.gpo.yoin.ui.component.MarqueeText
+import com.gpo.yoin.ui.component.elasticPress
 import com.gpo.yoin.ui.component.ignoreParentHorizontalPadding
 import com.gpo.yoin.ui.component.horizontalEdgeFadeOnScroll
 import com.gpo.yoin.ui.component.noRippleClickable
@@ -82,6 +83,7 @@ import com.gpo.yoin.ui.component.rememberExpressiveBackdropColors
 import com.gpo.yoin.ui.experience.RevealState
 import com.gpo.yoin.ui.experience.rememberRevealState
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
+import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinShapeTokens
 import com.gpo.yoin.ui.theme.YoinArtworkShapes
 import com.gpo.yoin.ui.theme.YoinContainerShapes
@@ -298,13 +300,25 @@ internal fun HomeEditorialContent(
                             heroFootnoteExtra = activityHeroFootnote,
                             extractBackdropColors = shouldExtractBackdropColors,
                             onEntryClick = onEntryClick,
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .animateItem(
+                                    fadeInSpec = YoinMotion.effectsSpring(),
+                                    placementSpec = YoinMotion.spatialSpring(),
+                                    fadeOutSpec = YoinMotion.effectsSpring(),
+                                ),
                         )
                     } else {
                         HomeEmptyCard(
                             title = "No recent activity yet",
                             supporting = "Once you listen or visit albums and artists, this feed will start filling in.",
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .animateItem(
+                                    fadeInSpec = YoinMotion.effectsSpring(),
+                                    placementSpec = YoinMotion.spatialSpring(),
+                                    fadeOutSpec = YoinMotion.effectsSpring(),
+                                ),
                         )
                     }
                 }
@@ -318,7 +332,13 @@ internal fun HomeEditorialContent(
                             cards = widgetGrid,
                             extractBackdropColors = shouldExtractBackdropColors,
                             onCardClick = onWidgetCardClick,
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .animateItem(
+                                    fadeInSpec = YoinMotion.effectsSpring(),
+                                    placementSpec = YoinMotion.spatialSpring(),
+                                    fadeOutSpec = YoinMotion.effectsSpring(),
+                                ),
                         )
                     }
                 }
@@ -337,7 +357,13 @@ internal fun HomeEditorialContent(
                                     onEntryClick(HomeEntryTarget.Album(album.id.toString(), null))
                                 },
                                 buildCoverArtUrl = buildCoverArtUrl,
-                                modifier = Modifier.fillMaxWidth(),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .animateItem(
+                                        fadeInSpec = YoinMotion.effectsSpring(),
+                                        placementSpec = YoinMotion.spatialSpring(),
+                                        fadeOutSpec = YoinMotion.effectsSpring(),
+                                    ),
                             )
                         }
                     }
@@ -538,7 +564,7 @@ private fun ActivityHeroCard(
     val interactionSource = remember { MutableInteractionSource() }
     val colors = rememberActivityCardColors(entry.coverArtUrl, extractBackdropColors)
     Surface(
-        modifier = modifier,
+        modifier = modifier.elasticPress(interactionSource),
         shape = YoinContainerShapes.Card,
         color = colors.container,
         tonalElevation = 0.dp,
@@ -608,7 +634,7 @@ private fun ActivitySmallCard(
     val interactionSource = remember { MutableInteractionSource() }
     val colors = rememberActivityCardColors(entry.coverArtUrl, extractBackdropColors)
     Surface(
-        modifier = modifier,
+        modifier = modifier.elasticPress(interactionSource),
         shape = YoinContainerShapes.Card,
         color = colors.container,
         tonalElevation = 0.dp,
@@ -674,7 +700,7 @@ private fun ActivityWideCard(
     val interactionSource = remember { MutableInteractionSource() }
     val colors = rememberActivityCardColors(entry.coverArtUrl, extractBackdropColors)
     Surface(
-        modifier = modifier,
+        modifier = modifier.elasticPress(interactionSource),
         shape = YoinContainerShapes.Card,
         color = colors.container,
         tonalElevation = 0.dp,
@@ -748,7 +774,7 @@ private fun ActivityStripCard(
     }
     val colors = rememberActivityCardColors(entry.coverArtUrl, extractBackdropColors)
     Surface(
-        modifier = modifier,
+        modifier = modifier.elasticPress(interactionSource),
         shape = YoinShapeTokens.Full,
         color = colors.container,
         tonalElevation = 0.dp,
@@ -916,7 +942,9 @@ private fun RecentlyAddedTrackTile(
     val coverArtUrl = resolveHomeCoverArtUrl(track.coverArt, buildCoverArtUrl)
         ?: track.albumId?.let { buildCoverArtUrl(it.rawId) }
     Row(
-        modifier = modifier.noRippleClickable(interactionSource = interactionSource, onClick = onClick),
+        modifier = modifier
+            .noRippleClickable(interactionSource = interactionSource, onClick = onClick)
+            .elasticPress(interactionSource),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -969,7 +997,8 @@ private fun RecentlyAddedAlbumCard(
     Column(
         modifier = modifier
             .width(RecentlyAddedAlbumCover)
-            .noRippleClickable(interactionSource = interactionSource, onClick = onClick),
+            .noRippleClickable(interactionSource = interactionSource, onClick = onClick)
+            .elasticPress(interactionSource),
     ) {
         WidgetBackdropArtwork(
             model = coverArtUrl,

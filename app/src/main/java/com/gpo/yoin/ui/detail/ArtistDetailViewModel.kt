@@ -7,6 +7,7 @@ import com.gpo.yoin.AppContainer
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.Track
 import com.gpo.yoin.data.repository.YoinRepository
+import com.gpo.yoin.ui.component.toUserMessage
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -73,7 +74,7 @@ class ArtistDetailViewModel(
                 loadSecondaryContent(artist.id)
             } catch (e: Exception) {
                 _uiState.value = ArtistDetailUiState.Error(
-                    e.message ?: "Failed to load artist",
+                    e.toUserMessage("Couldn't load this artist."),
                 )
             }
         }

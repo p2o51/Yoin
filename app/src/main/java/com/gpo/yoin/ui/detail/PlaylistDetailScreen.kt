@@ -45,10 +45,12 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.togetherWith
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -68,13 +70,14 @@ import androidx.compose.ui.text.withLink
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import com.gpo.yoin.ui.component.DetailErrorState
 import com.gpo.yoin.ui.component.ExpressiveMediaArtwork
 import com.gpo.yoin.ui.component.ExpressivePageBackground
-import com.gpo.yoin.ui.component.ExpressiveSectionPanel
 import com.gpo.yoin.ui.component.YoinLoadingIndicator
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
 import com.gpo.yoin.ui.navigation.playlistCoverSharedKey
 import com.gpo.yoin.ui.navigation.rememberActiveOnlySharedContentConfig
+import com.gpo.yoin.ui.theme.ProvideYoinMotionRole
 import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinMotionRole
 import com.gpo.yoin.ui.theme.YoinArtworkShapes
@@ -131,198 +134,195 @@ fun PlaylistDetailScreen(
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
 
     val accentColor = rememberDetailPageAccent(content?.coverArtUrl)
-    // In-window predictive back (AOSP cross-activity math): the whole page
-    // — background included — collapses as one card over the LIVE window
-    // beneath (the Activity turns translucent for the gesture); the bar is a
-    // sibling on top and never transforms.
-    val backCollapse = rememberDetailBackCollapse(onBack = onBackClick)
-    Box(modifier = modifier) {
-        ExpressivePageBackground(
-            accentColor = accentColor,
-            isPlaying = isPlaying,
-            playbackSignal = playbackSignal,
-            modifier = Modifier
-                .fillMaxSize()
-                .detailBackCollapseTransform(backCollapse),
-        ) {
-        Scaffold(
-            modifier = Modifier
-                .fillMaxSize()
-                .nestedScroll(scrollBehavior.nestedScrollConnection),
-            containerColor = Color.Transparent,
-            contentColor = MaterialTheme.colorScheme.onSurface,
-            contentWindowInsets = WindowInsets(0, 0, 0, 0),
-            topBar = {
-                MediumFlexibleTopAppBar(
-                    title = {
-                        Text(
-                            text = content?.playlistName.orEmpty(),
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            color = titleColor,
-                        )
-                    },
-                    subtitle = {
-                        // Mirrors the Album credit ("Artist  ·  Album 2025"), but
-                        // the playlist owner is parenthesised: "(gpo)  ·  Playlist".
-                        Text(
-                            text = buildString {
-                                content?.owner?.takeIf { it.isNotBlank() }?.let { append("($it)  ·  ") }
-                                append("Playlist")
-                            },
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            color = accentText,
-                        )
-                    },
-                    navigationIcon = {
-                        // end padding widens the nav slot so the COLLAPSED
-                        // title clears the button halo; the expanded title is
-                        // placed from the bar edge and stays at 16dp.
-                        DetailBackButton(
-                            onClick = onBackClick,
-                            modifier = Modifier.padding(end = 14.dp),
-                        )
-                    },
-                    // Default 136dp packs the title right under the back
-                    // button; extra height = breathing room between them.
-                    expandedHeight = 156.dp,
-                    actions = {
-                        // Overflow only renders when the current profile can
-                        // actually write this playlist. For Spotify followed-
-                        // but-not-owned playlists, canWrite = false and the
-                        // menu stays hidden entirely rather than showing
-                        // disabled items.
-                        if (content?.canWrite == true) {
-                            Box {
-                                IconButton(
-                                    onClick = {
-                                        haptics.performTick()
-                                        showOverflow = true
-                                    },
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Filled.MoreVert,
-                                        contentDescription = "More actions",
-                                    )
-                                }
-                                YoinDropdownMenu(
-                                    expanded = showOverflow,
-                                    onDismissRequest = { showOverflow = false },
-                                ) {
-                                    YoinDropdownMenuItem(
-                                        text = "Rename",
-                                        leadingIcon = {
-                                            Icon(Icons.Filled.Edit, contentDescription = null)
-                                        },
+    ProvideYoinMotionRole(role = YoinMotionRole.Expressive) {
+        // In-window predictive back (AOSP cross-activity math): the whole page
+        // — background included — collapses as one card over the LIVE window
+        // beneath (the Activity turns translucent for the gesture); the bar is a
+        // sibling on top and never transforms.
+        val backCollapse = rememberDetailBackCollapse(onBack = onBackClick)
+        Box(modifier = modifier) {
+            ExpressivePageBackground(
+                accentColor = accentColor,
+                isPlaying = isPlaying,
+                playbackSignal = playbackSignal,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .detailBackCollapseTransform(backCollapse),
+            ) {
+            Scaffold(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .nestedScroll(scrollBehavior.nestedScrollConnection),
+                containerColor = Color.Transparent,
+                contentColor = MaterialTheme.colorScheme.onSurface,
+                contentWindowInsets = WindowInsets(0, 0, 0, 0),
+                topBar = {
+                    MediumFlexibleTopAppBar(
+                        title = {
+                            Text(
+                                text = content?.playlistName.orEmpty(),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                color = titleColor,
+                            )
+                        },
+                        subtitle = {
+                            // Mirrors the Album credit ("Artist  ·  Album 2025"), but
+                            // the playlist owner is parenthesised: "(gpo)  ·  Playlist".
+                            Text(
+                                text = buildString {
+                                    content?.owner?.takeIf { it.isNotBlank() }?.let { append("($it)  ·  ") }
+                                    append("Playlist")
+                                },
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                color = accentText,
+                            )
+                        },
+                        navigationIcon = {
+                            // end padding widens the nav slot so the COLLAPSED
+                            // title clears the button halo; the expanded title is
+                            // placed from the bar edge and stays at 16dp.
+                            DetailBackButton(
+                                onClick = onBackClick,
+                                modifier = Modifier.padding(end = 14.dp),
+                            )
+                        },
+                        // Default 136dp packs the title right under the back
+                        // button; extra height = breathing room between them.
+                        expandedHeight = 156.dp,
+                        actions = {
+                            // Overflow only renders when the current profile can
+                            // actually write this playlist. For Spotify followed-
+                            // but-not-owned playlists, canWrite = false and the
+                            // menu stays hidden entirely rather than showing
+                            // disabled items.
+                            if (content?.canWrite == true) {
+                                Box {
+                                    IconButton(
                                         onClick = {
-                                            showOverflow = false
-                                            showRenameDialog = true
+                                            haptics.performTick()
+                                            showOverflow = true
                                         },
-                                    )
-                                    YoinDropdownMenuItem(
-                                        text = "Delete",
-                                        leadingIcon = {
-                                            Icon(Icons.Filled.Delete, contentDescription = null)
-                                        },
-                                        onClick = {
-                                            showOverflow = false
-                                            showDeleteConfirm = true
-                                        },
-                                    )
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Filled.MoreVert,
+                                            contentDescription = "More actions",
+                                        )
+                                    }
+                                    YoinDropdownMenu(
+                                        expanded = showOverflow,
+                                        onDismissRequest = { showOverflow = false },
+                                    ) {
+                                        YoinDropdownMenuItem(
+                                            text = "Rename",
+                                            leadingIcon = {
+                                                Icon(Icons.Filled.Edit, contentDescription = null)
+                                            },
+                                            onClick = {
+                                                showOverflow = false
+                                                showRenameDialog = true
+                                            },
+                                        )
+                                        YoinDropdownMenuItem(
+                                            text = "Delete",
+                                            leadingIcon = {
+                                                Icon(Icons.Filled.Delete, contentDescription = null)
+                                            },
+                                            onClick = {
+                                                showOverflow = false
+                                                showDeleteConfirm = true
+                                            },
+                                        )
+                                    }
                                 }
                             }
-                        }
-                    },
-                    // Transparent both ends so the bar blends with the gradient
-                    // page background (no surface band, no collapse colour flash).
-                    colors = TopAppBarDefaults.topAppBarColors(
-                        containerColor = Color.Transparent,
-                        scrolledContainerColor = Color.Transparent,
-                        titleContentColor = titleColor,
-                        navigationIconContentColor = MaterialTheme.colorScheme.onSurface,
-                    ),
-                    scrollBehavior = scrollBehavior,
-                )
-            },
-        ) { innerPadding ->
-            when (uiState) {
-                is PlaylistDetailUiState.Loading -> {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(innerPadding)
-                            .navigationBarsPadding(),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        YoinLoadingIndicator()
-                    }
-                }
-
-                is PlaylistDetailUiState.Error -> {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(innerPadding)
-                            .navigationBarsPadding()
-                            .padding(16.dp),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        ExpressiveSectionPanel(
-                            modifier = Modifier.fillMaxWidth(),
-                        ) {
-                            androidx.compose.foundation.layout.Column(
-                                modifier = Modifier.padding(20.dp),
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.spacedBy(10.dp),
-                            ) {
-                                Text(
-                                    text = uiState.message,
-                                    style = MaterialTheme.typography.bodyLarge,
-                                    color = MaterialTheme.colorScheme.error,
-                                )
-                                TextButton(onClick = onRetry) {
-                                    Text("Retry")
-                                }
-                            }
-                        }
-                    }
-                }
-
-                is PlaylistDetailUiState.Content -> {
-                    PlaylistDetailContent(
-                        content = uiState,
-                        onSongClick = onSongClick,
-                        sharedTransitionKey = sharedTransitionKey,
-                        sharedTransitionScope = sharedTransitionScope,
-                        animatedVisibilityScope = animatedVisibilityScope,
-                        modifier = Modifier.padding(innerPadding),
+                        },
+                        // Transparent both ends so the bar blends with the gradient
+                        // page background (no surface band, no collapse colour flash).
+                        colors = TopAppBarDefaults.topAppBarColors(
+                            containerColor = Color.Transparent,
+                            scrolledContainerColor = Color.Transparent,
+                            titleContentColor = titleColor,
+                            navigationIconContentColor = MaterialTheme.colorScheme.onSurface,
+                        ),
+                        scrollBehavior = scrollBehavior,
                     )
+                },
+            ) { innerPadding ->
+                // Only the body crossfades between states — the top bar and
+                // the bottom bar persist across Loading/Error/Content.
+                AnimatedContent(
+                    targetState = uiState,
+                    transitionSpec = {
+                        YoinMotion.fadeIn(role = YoinMotionRole.Standard) togetherWith
+                            YoinMotion.fadeOut(role = YoinMotionRole.Standard)
+                    },
+                    // Keyed on the state class: Content→Content refreshes
+                    // (rename, remove-track) update in place, no re-fade.
+                    contentKey = { it::class },
+                    label = "playlistDetailState",
+                    modifier = Modifier.fillMaxSize(),
+                ) { state ->
+                    when (state) {
+                        is PlaylistDetailUiState.Loading -> {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .padding(innerPadding)
+                                    .navigationBarsPadding(),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                YoinLoadingIndicator()
+                            }
+                        }
+
+                        is PlaylistDetailUiState.Error -> {
+                            // No onBack: the persistent top bar above already
+                            // carries the back affordance on this page.
+                            DetailErrorState(
+                                message = state.message,
+                                onRetry = onRetry,
+                                modifier = Modifier.padding(innerPadding),
+                            )
+                        }
+
+                        is PlaylistDetailUiState.Content -> {
+                            PlaylistDetailContent(
+                                content = state,
+                                onSongClick = onSongClick,
+                                sharedTransitionKey = sharedTransitionKey,
+                                sharedTransitionScope = sharedTransitionScope,
+                                animatedVisibilityScope = animatedVisibilityScope,
+                                modifier = Modifier.padding(innerPadding),
+                            )
+                        }
+                    }
                 }
             }
-        }
-        }
+            }
 
-        // Persistent bottom bar — rendered in ALL states (the bar never
-        // waits for page data; the shell's morph is already playing when
-        // this window fades in). Play rides the cover-seeded primary; on an
-        // empty playlist it simply no-ops.
-        DetailBottomBar(
-            playContainer = titleColor,
-            playContent = headerScheme.onPrimary,
-            onPlay = onPlayAllClick,
-            onShuffle = onShufflePlay,
-            onOpenNowPlaying = onOpenNowPlaying,
-            miniPlayer = miniPlayerState,
-            playbackProgress = playbackProgress,
-            nowPlayingOpen = nowPlayingOpen,
-            backMorphProgress = if (morphBarOnBack) {
-                { backCollapse.progress }
-            } else {
-                { 0f }
-            },
-            modifier = Modifier.align(Alignment.BottomCenter),
-        )
+            // Persistent bottom bar — rendered in ALL states (the bar never
+            // waits for page data; the shell's morph is already playing when
+            // this window fades in). Play rides the cover-seeded primary; on an
+            // empty playlist it simply no-ops.
+            DetailBottomBar(
+                playContainer = titleColor,
+                playContent = headerScheme.onPrimary,
+                onPlay = onPlayAllClick,
+                onShuffle = onShufflePlay,
+                onOpenNowPlaying = onOpenNowPlaying,
+                miniPlayer = miniPlayerState,
+                playbackProgress = playbackProgress,
+                nowPlayingOpen = nowPlayingOpen,
+                backMorphProgress = if (morphBarOnBack) {
+                    { backCollapse.progress }
+                } else {
+                    { 0f }
+                },
+                modifier = Modifier.align(Alignment.BottomCenter),
+            )
+        }
     }
 
     if (showRenameDialog && content != null) {
@@ -347,11 +347,16 @@ fun PlaylistDetailScreen(
                 Text("\"${content.playlistName}\" will be removed from your library.")
             },
             confirmButton = {
-                TextButton(onClick = {
-                    haptics.performReject()
-                    showDeleteConfirm = false
-                    onDelete()
-                }) { Text("Delete") }
+                TextButton(
+                    onClick = {
+                        haptics.performReject()
+                        showDeleteConfirm = false
+                        onDelete()
+                    },
+                    colors = ButtonDefaults.textButtonColors(
+                        contentColor = MaterialTheme.colorScheme.error,
+                    ),
+                ) { Text("Delete") }
             },
             dismissButton = {
                 TextButton(onClick = { showDeleteConfirm = false }) { Text("Cancel") }
@@ -469,6 +474,18 @@ private fun PlaylistDetailContent(
                         .wrapContentHeight(align = Alignment.Top, unbounded = true),
                 )
             }
+        } else {
+            // Quiet empty state — same voice as the description line above.
+            // The always-armed bottom bar stays; Play just no-ops here.
+            Text(
+                text = "This playlist is empty.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 24.dp),
+            )
         }
     }
 }

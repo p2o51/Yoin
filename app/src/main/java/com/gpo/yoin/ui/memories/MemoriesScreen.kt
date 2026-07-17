@@ -1,6 +1,8 @@
 package com.gpo.yoin.ui.memories
 
-import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -49,7 +51,6 @@ import androidx.compose.material3.toShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -102,6 +103,7 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 import kotlin.math.abs
+import kotlin.math.roundToInt
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.distinctUntilChanged
 
@@ -169,37 +171,50 @@ fun MemoriesScreen(
 
     ProvideYoinMotionRole(role = YoinMotionRole.Expressive) {
         ExpressivePageBackground(modifier = modifier) {
-            when (val state = uiState) {
-                MemoriesUiState.Loading -> {
-                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        YoinLoadingIndicator()
+            AnimatedContent(
+                targetState = uiState,
+                transitionSpec = {
+                    YoinMotion.fadeIn(role = YoinMotionRole.Standard) togetherWith
+                        YoinMotion.fadeOut(role = YoinMotionRole.Standard)
+                },
+                // Keyed on the state CLASS: Content-to-Content data updates
+                // (deck advance, sync flags) must not re-run the fade.
+                contentKey = { it::class },
+                label = "memoriesState",
+                modifier = Modifier.fillMaxSize(),
+            ) { state ->
+                when (state) {
+                    MemoriesUiState.Loading -> {
+                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            YoinLoadingIndicator()
+                        }
                     }
-                }
 
-                MemoriesUiState.Empty -> {
-                    MemoriesEmptyState()
-                }
+                    MemoriesUiState.Empty -> {
+                        MemoriesEmptyState()
+                    }
 
-                is MemoriesUiState.Error -> {
-                    MemoriesErrorState(
-                        message = state.message,
-                        onRetry = viewModel::refresh,
-                    )
-                }
+                    is MemoriesUiState.Error -> {
+                        MemoriesErrorState(
+                            message = state.message,
+                            onRetry = viewModel::refresh,
+                        )
+                    }
 
-                is MemoriesUiState.Content -> {
-                    MemoriesContent(
-                        contentState = state,
-                        sessionState = sessionState,
-                        revealState = revealState,
-                        onDismissed = onDismissed,
-                        onPlayMemoryTrack = onPlayMemoryTrack,
-                        onAdvanceDeck = viewModel::advanceDeck,
-                        onCurrentPageChange = viewModel::setCurrentPage,
-                        onMemoryScrollChange = viewModel::setMemoryScroll,
-                        syncingEntityIds = syncingIds,
-                        onSyncToNeoDb = viewModel::pushToNeoDb,
-                    )
+                    is MemoriesUiState.Content -> {
+                        MemoriesContent(
+                            contentState = state,
+                            sessionState = sessionState,
+                            revealState = revealState,
+                            onDismissed = onDismissed,
+                            onPlayMemoryTrack = onPlayMemoryTrack,
+                            onAdvanceDeck = viewModel::advanceDeck,
+                            onCurrentPageChange = viewModel::setCurrentPage,
+                            onMemoryScrollChange = viewModel::setMemoryScroll,
+                            syncingEntityIds = syncingIds,
+                            onSyncToNeoDb = viewModel::pushToNeoDb,
+                        )
+                    }
                 }
             }
             SnackbarHost(
@@ -286,36 +301,52 @@ private fun MemoriesContent(
     val dismissHintPx = with(density) { BackMotionTokens.MemoriesDismissTrigger.toPx() }
     val adjacentDeckTriggerPx = with(density) { MemoriesAdjacentDeckTrigger.toPx() }
     val deckEnterOffsetPx = with(density) { MemoriesDeckEnterOffset.toPx() }
-    val deckEntranceProgress = remember(contentState.deckRevision) {
-        Animatable(if (contentState.deckRevision <= 1) 1f else 0f)
-    }
     val edgeAdvanceState = rememberEdgeAdvanceState(triggerPx = adjacentDeckTriggerPx)
-    val deckEntranceSpec = YoinMotion.defaultSpatialSpec<Float>(role = YoinMotionRole.Expressive)
 
     LaunchedEffect(contentState.deckRevision) {
         edgeAdvanceState.reset()
-        if (contentState.deckRevision <= 1) return@LaunchedEffect
-        deckEntranceProgress.animateTo(
-            targetValue = 1f,
-            animationSpec = deckEntranceSpec,
-        )
     }
 
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
         val containerHeightPx = with(density) { maxHeight.toPx().coerceAtLeast(1f) }
 
-        key(contentState.deckRevision) {
-            val memories = contentState.memories
+        // Deck switches animate as ONE AnimatedContent transition (slide + fade
+        // in, symmetric slide + fade out) — it is the sole owner of the pane's
+        // offset/alpha. Keyed on the revision so Content-to-Content updates
+        // within a deck (e.g. isLoadingAdjacentDeck) just recompose in place.
+        // targetState is the whole Content so the EXITING pane keeps rendering
+        // its own memories snapshot instead of the new deck's.
+        AnimatedContent(
+            targetState = contentState,
+            contentKey = { it.deckRevision },
+            transitionSpec = {
+                // The new deck enters from the pulled edge; the old one
+                // retreats out the opposite side along the same axis.
+                val enterFrom = when (targetState.deckDirection) {
+                    MemoryDeckDirection.Backward -> -1
+                    MemoryDeckDirection.Forward -> 1
+                }
+                val enter = YoinMotion.slideInHorizontally(role = YoinMotionRole.Expressive) {
+                    enterFrom * deckEnterOffsetPx.roundToInt()
+                } + YoinMotion.fadeIn(role = YoinMotionRole.Expressive)
+                val exit = YoinMotion.slideOutHorizontally(role = YoinMotionRole.Expressive) {
+                    -enterFrom * deckEnterOffsetPx.roundToInt()
+                } + YoinMotion.fadeOut(role = YoinMotionRole.Expressive)
+                enter togetherWith exit
+            },
+            label = "memoriesDeck",
+            modifier = Modifier.fillMaxSize(),
+        ) { deckState ->
+            val memories = deckState.memories
             val pagerState = rememberPagerState(
                 initialPage = sessionState.currentPage.coerceIn(0, memories.lastIndex),
                 pageCount = { memories.size },
             )
             val coroutineScope = rememberCoroutineScope()
-            var isCommittedToDismiss by remember(contentState.deckRevision) { mutableStateOf(false) }
+            var isCommittedToDismiss by remember(deckState.deckRevision) { mutableStateOf(false) }
             var latestContainerHeightPx by remember { mutableFloatStateOf(containerHeightPx) }
             val selectedIndex = pagerState.currentPage.coerceIn(0, memories.lastIndex)
             val selectedMemory = memories[selectedIndex]
-            val deckTransitionDirection = contentState.deckDirection
             val adjacentDeckDirection = edgeAdvanceState.direction?.toMemoryDeckDirection()
 
             // Ambient moving-gradient wash in the CURRENT memory's palette —
@@ -326,15 +357,6 @@ private fun MemoriesContent(
                 model = selectedMemory.coverArtUrl,
                 fallbackBaseColor = MaterialTheme.colorScheme.primaryContainer,
                 fallbackAccentColor = MaterialTheme.colorScheme.tertiaryContainer,
-            )
-            Box(
-                modifier = Modifier
-                    .matchParentSize()
-                    .memoriesAuroraBackground(
-                        baseColor = auroraColors.baseColor,
-                        accentColor = auroraColors.accentColor,
-                        visible = revealState.fraction < 0.999f,
-                    ),
             )
 
             LaunchedEffect(containerHeightPx) {
@@ -352,7 +374,7 @@ private fun MemoriesContent(
             val pagerEdgeConnection = remember(
                 pagerState,
                 memories,
-                contentState.isLoadingAdjacentDeck,
+                deckState.isLoadingAdjacentDeck,
                 onAdvanceDeck,
             ) {
                 object : NestedScrollConnection {
@@ -361,7 +383,7 @@ private fun MemoriesContent(
                         available: Offset,
                         source: NestedScrollSource,
                     ): Offset {
-                        if (source != NestedScrollSource.UserInput || contentState.isLoadingAdjacentDeck) {
+                        if (source != NestedScrollSource.UserInput || deckState.isLoadingAdjacentDeck) {
                             return Offset.Zero
                         }
                         val direction = when {
@@ -394,14 +416,14 @@ private fun MemoriesContent(
             Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .graphicsLayer {
-                        val directionMultiplier = when (deckTransitionDirection) {
-                            MemoryDeckDirection.Backward -> -1f
-                            MemoryDeckDirection.Forward -> 1f
-                        }
-                        translationX = (1f - deckEntranceProgress.value) * directionMultiplier * deckEnterOffsetPx
-                        alpha = 0.8f + deckEntranceProgress.value * 0.2f
-                    }
+                    // The wash lives on the pane itself (AnimatedContent's
+                    // lambda is not a BoxScope) so it rides the deck
+                    // transition together with the content.
+                    .memoriesAuroraBackground(
+                        baseColor = auroraColors.baseColor,
+                        accentColor = auroraColors.accentColor,
+                        visible = revealState.fraction < 0.999f,
+                    )
                     .padding(top = WindowInsets.systemBars.asPaddingValues().calculateTopPadding() + 12.dp),
             ) {
                 MemoriesHeader(
@@ -414,8 +436,6 @@ private fun MemoriesContent(
                         }
                     },
                     selectedMemory = selectedMemory,
-                    deckTransitionProgress = deckEntranceProgress.value,
-                    deckTransitionDirection = deckTransitionDirection,
                     adjacentDeckProgress = edgeAdvanceState.progress,
                     adjacentDeckDirection = adjacentDeckDirection,
                     modifier = Modifier
@@ -438,7 +458,7 @@ private fun MemoriesContent(
                     )
                     val storedScrollPosition = sessionState.perMemoryScrollOffsets[memory.sourceActivityId]
                         ?: MemoryScrollPosition()
-                    val listState = remember(memory.sourceActivityId, contentState.deckRevision) {
+                    val listState = remember(memory.sourceActivityId, deckState.deckRevision) {
                         LazyListState(
                             firstVisibleItemIndex = storedScrollPosition.firstVisibleItemIndex,
                             firstVisibleItemScrollOffset = storedScrollPosition.firstVisibleItemScrollOffset,
@@ -544,6 +564,19 @@ private fun MemoriesContent(
             }
         }
 
+        // Edge-pull deck fetch can take a beat or two — float a small quiet
+        // indicator over the deck so the wait isn't dead air.
+        AnimatedVisibility(
+            visible = contentState.isLoadingAdjacentDeck,
+            enter = YoinMotion.fadeIn(role = YoinMotionRole.Standard),
+            exit = YoinMotion.fadeOut(role = YoinMotionRole.Standard),
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = 72.dp),
+        ) {
+            YoinLoadingIndicator(size = 28.dp)
+        }
+
         // Return-to-home hint arrow
         Icon(
             imageVector = Icons.Filled.KeyboardArrowUp,
@@ -568,8 +601,6 @@ private fun MemoriesHeader(
     selectedIndex: Int,
     currentPageOffsetFraction: Float,
     selectedMemory: MemoryEntry,
-    deckTransitionProgress: Float,
-    deckTransitionDirection: MemoryDeckDirection,
     adjacentDeckProgress: Float,
     adjacentDeckDirection: MemoryDeckDirection?,
     onSelect: (Int) -> Unit,
@@ -616,8 +647,6 @@ private fun MemoriesHeader(
             memories = memories,
             selectedIndex = selectedIndex,
             currentPageOffsetFraction = currentPageOffsetFraction,
-            deckTransitionProgress = deckTransitionProgress,
-            deckTransitionDirection = deckTransitionDirection,
             adjacentDeckProgress = adjacentDeckProgress,
             adjacentDeckDirection = adjacentDeckDirection,
             onSelect = onSelect,
@@ -630,16 +659,17 @@ private fun MemoriesDots(
     memories: List<MemoryEntry>,
     selectedIndex: Int,
     currentPageOffsetFraction: Float,
-    deckTransitionProgress: Float,
-    deckTransitionDirection: MemoryDeckDirection,
     adjacentDeckProgress: Float,
     adjacentDeckDirection: MemoryDeckDirection?,
     onSelect: (Int) -> Unit,
 ) {
     val continuousPosition = selectedIndex + currentPageOffsetFraction
+    // Deck-switch motion is owned by the AnimatedContent pane (the dots ride
+    // it); the indicator only adds the live edge-pull hint, so the deck
+    // transition inputs are pinned to their resting values.
     val indicatorTransitionState: DeckIndicatorTransitionState = rememberDeckIndicatorTransitionState(
-        deckTransitionProgress = deckTransitionProgress,
-        deckTransitionDirection = deckTransitionDirection.toEdgeAdvanceDirection(),
+        deckTransitionProgress = 1f,
+        deckTransitionDirection = EdgeAdvanceDirection.Forward,
         adjacentProgress = adjacentDeckProgress,
         adjacentDirection = adjacentDeckDirection?.toEdgeAdvanceDirection(),
     )

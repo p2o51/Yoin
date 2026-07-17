@@ -613,7 +613,7 @@ class HomeViewModel(
         } ?: return null
         val parts = mutableListOf<String>()
         album.year?.let { parts += it.toString() }
-        album.songCount?.takeIf { count -> count > 0 }?.let { parts += "$it songs" }
+        album.songCount?.takeIf { count -> count > 0 }?.let { parts += if (it == 1) "1 song" else "$it songs" }
         album.durationSec?.takeIf { seconds -> seconds > 60 }?.let { parts += "${it / 60} min" }
         return parts.takeIf { it.isNotEmpty() }?.joinToString(" · ")
     }

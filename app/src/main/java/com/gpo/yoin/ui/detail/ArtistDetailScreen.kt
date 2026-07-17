@@ -1,6 +1,11 @@
 package com.gpo.yoin.ui.detail
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -54,7 +59,6 @@ import androidx.compose.material3.carousel.HorizontalMultiBrowseCarousel
 import androidx.compose.material3.carousel.rememberCarouselState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.toShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -66,6 +70,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.style.TextAlign
@@ -73,6 +78,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.ui.component.AlbumCard
+import com.gpo.yoin.ui.component.DetailErrorState
 import com.gpo.yoin.ui.component.ExpressiveMediaArtwork
 import com.gpo.yoin.ui.component.ExpressivePageBackground
 import com.gpo.yoin.ui.component.YoinDropdownMenu
@@ -135,23 +141,56 @@ fun ArtistDetailScreen(
                     .fillMaxSize()
                     .detailBackCollapseTransform(backCollapse),
             ) {
-            when (uiState) {
-                is ArtistDetailUiState.Loading ->
-                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        YoinLoadingIndicator()
-                    }
+            AnimatedContent(
+                targetState = uiState,
+                transitionSpec = {
+                    YoinMotion.fadeIn(role = YoinMotionRole.Standard) togetherWith
+                        YoinMotion.fadeOut(role = YoinMotionRole.Standard)
+                },
+                // Class-keyed so Content→Content data updates (topTracks
+                // arriving, follow toggles) don't re-trigger the fade.
+                contentKey = { it::class },
+                label = "artistDetailState",
+                modifier = Modifier.fillMaxSize(),
+            ) { state ->
+                when (state) {
+                    is ArtistDetailUiState.Loading ->
+                        Box(
+                            Modifier
+                                .fillMaxSize()
+                                .statusBarsPadding(),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            YoinLoadingIndicator()
+                            // Mirrors the Content top bar's nav slot (4dp bar
+                            // inset, 40dp button centered in the 64dp collapsed
+                            // row) so the crossfade doesn't jump the button.
+                            DetailBackButton(
+                                onClick = onBackClick,
+                                modifier = Modifier
+                                    .align(Alignment.TopStart)
+                                    .padding(start = 4.dp, top = 12.dp),
+                            )
+                        }
 
-                is ArtistDetailUiState.Error ->
-                    ArtistErrorState(uiState.message, onRetry, onBackClick)
+                    is ArtistDetailUiState.Error ->
+                        DetailErrorState(
+                            message = state.message,
+                            onRetry = onRetry,
+                            onBack = onBackClick,
+                            // Same nav-slot offsets as the Loading branch above.
+                            backPadding = PaddingValues(start = 4.dp, top = 12.dp),
+                        )
 
-                is ArtistDetailUiState.Content ->
-                    ArtistDetailContent(
-                        content = uiState,
-                        onBackClick = onBackClick,
-                        onAlbumClick = onAlbumClick,
-                        onToggleFollow = onToggleFollow,
-                        onTopTrackClick = onTopTrackClick,
-                    )
+                    is ArtistDetailUiState.Content ->
+                        ArtistDetailContent(
+                            content = state,
+                            onBackClick = onBackClick,
+                            onAlbumClick = onAlbumClick,
+                            onToggleFollow = onToggleFollow,
+                            onTopTrackClick = onTopTrackClick,
+                        )
+                }
             }
             }
 
@@ -268,7 +307,9 @@ private fun ArtistDetailContent(
                         Text(
                             text = buildString {
                                 append("Artist")
-                                if (content.albums.isNotEmpty()) append("  ·  ${content.albums.size} albums")
+                                content.albums.size.takeIf { it > 0 }?.let {
+                                    append(if (it == 1) "  ·  1 album" else "  ·  $it albums")
+                                }
                             },
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
@@ -417,19 +458,30 @@ private fun ArtistOverviewPage(
             Spacer(modifier = Modifier.height(24.dp))
 
             // Popular — top tracks (Spotify only; hidden if empty). The marquee.
-            if (content.topTracks.isNotEmpty()) {
-                Column(modifier = sidePad) {
-                    AlbumSectionLabel(text = "Popular")
-                    Spacer(modifier = Modifier.height(8.dp))
-                    content.topTracks.forEachIndexed { index, track ->
-                        ArtistTopTrackRow(
-                            rank = index + 1,
-                            track = track,
-                            onClick = { onTopTrackClick(index) },
-                        )
+            // Arrives on a second emission after the hero paints, so the
+            // section grows in and pushes Discography down instead of popping.
+            AnimatedVisibility(
+                visible = content.topTracks.isNotEmpty(),
+                enter = YoinMotion.fadeIn(role = YoinMotionRole.Expressive) +
+                    expandVertically(animationSpec = YoinMotion.spatialSpring()),
+                exit = YoinMotion.fadeOut(role = YoinMotionRole.Expressive) +
+                    shrinkVertically(animationSpec = YoinMotion.spatialSpring()),
+            ) {
+                Column {
+                    Column(modifier = sidePad) {
+                        AlbumSectionLabel(text = "Popular")
+                        Spacer(modifier = Modifier.height(8.dp))
+                        content.topTracks.forEachIndexed { index, track ->
+                            ArtistTopTrackRow(
+                                rank = index + 1,
+                                track = track,
+                                pageArtistName = content.artistName,
+                                onClick = { onTopTrackClick(index) },
+                            )
+                        }
                     }
+                    Spacer(modifier = Modifier.height(22.dp))
                 }
-                Spacer(modifier = Modifier.height(22.dp))
             }
 
             AlbumSectionLabel(text = "Discography", modifier = sidePad)
@@ -474,11 +526,19 @@ private fun ArtistDiscographyCarousel(
             .height(220.dp),
     ) { index ->
         val album = albums[index]
+        // Same press language as AlbumCard: one interaction source shared by
+        // the clickable and the artwork so its built-in elasticPress engages.
+        val interactionSource = remember { MutableInteractionSource() }
         Box(
             modifier = Modifier
                 .height(220.dp)
                 .maskClip(YoinArtworkShapes.HeroAnimated)
-                .clickable { onAlbumClick(album.id) },
+                .clickable(
+                    interactionSource = interactionSource,
+                    indication = null,
+                    role = Role.Button,
+                    onClick = { onAlbumClick(album.id) },
+                ),
         ) {
             ExpressiveMediaArtwork(
                 model = album.coverArtUrl,
@@ -486,6 +546,7 @@ private fun ArtistDiscographyCarousel(
                 modifier = Modifier.fillMaxSize(),
                 shape = RectangleShape,
                 fallbackIcon = Icons.Filled.Album,
+                interactionSource = interactionSource,
                 border = null,
                 shadowElevation = 0.dp,
                 requestSizePx = 480,
@@ -514,7 +575,7 @@ private fun ArtistDiscographyCarousel(
                         album.year?.let { append(it) }
                         album.songCount?.let {
                             if (isNotEmpty()) append("  ·  ")
-                            append("$it songs")
+                            append(if (it == 1) "1 song" else "$it songs")
                         }
                     },
                     style = MaterialTheme.typography.labelSmall,
@@ -587,6 +648,7 @@ private fun ArtistFollowBun(
 private fun ArtistTopTrackRow(
     rank: Int,
     track: ArtistTopTrack,
+    pageArtistName: String,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -631,13 +693,18 @@ private fun ArtistTopTrackRow(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
-            Text(
-                text = track.artist,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
+            // The mapper keeps only the primary artist, so on this page the
+            // subtitle is almost always the page's own name — show it only
+            // for genuine collaborator credits.
+            if (track.artist.isNotBlank() && track.artist != pageArtistName) {
+                Text(
+                    text = track.artist,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
         }
         track.durationSec?.let { secs ->
             Text(
@@ -645,39 +712,6 @@ private fun ArtistTopTrackRow(
                 style = MaterialTheme.typography.labelLarge.withTabularFigures(),
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-        }
-    }
-}
-
-@Composable
-private fun ArtistErrorState(
-    message: String,
-    onRetry: () -> Unit,
-    onBackClick: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    Box(
-        modifier = modifier
-            .fillMaxSize()
-            .statusBarsPadding(),
-    ) {
-        DetailBackButton(
-            onClick = onBackClick,
-            modifier = Modifier.padding(4.dp),
-        )
-        Column(
-            modifier = Modifier
-                .align(Alignment.Center)
-                .padding(24.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            Text(
-                text = message,
-                style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.error,
-            )
-            TextButton(onClick = onRetry) { Text("Retry") }
         }
     }
 }

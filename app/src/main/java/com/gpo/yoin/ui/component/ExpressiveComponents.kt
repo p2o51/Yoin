@@ -10,6 +10,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
@@ -35,7 +36,9 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.lerp
 import kotlin.math.PI
 import kotlin.math.sin
@@ -78,9 +81,16 @@ internal fun ExpressivePageBackground(
     content: @Composable BoxScope.() -> Unit,
 ) {
     val scheme = MaterialTheme.colorScheme
-    val baseTopColor = accentColor?.let { accent ->
-        lerp(scheme.surfaceContainer, accent, 0.18f)
-    } ?: scheme.surfaceContainer
+    // Animated because the upstream 380ms palette tween can't cover the
+    // null→non-null accent gate (DetailPageColors): at the instant the palette
+    // resolves the target steps, and this wash absorbs the residual snap.
+    val baseTopColor by animateColorAsState(
+        targetValue = accentColor?.let { accent ->
+            lerp(scheme.surfaceContainer, accent, 0.18f)
+        } ?: scheme.surfaceContainer,
+        animationSpec = YoinMotion.effectsSpring(),
+        label = "pageBackgroundTop",
+    )
 
     val drift = remember { Animatable(0f) }
     LaunchedEffect(isPlaying) {
@@ -185,6 +195,10 @@ internal fun ExpressiveMediaArtwork(
         modifier
     }
 
+    // A failed load must render the same icon-in-box branch as a null url —
+    // an `error =` painter of the launcher mark reads as fake artwork.
+    var loadFailed by remember(model) { mutableStateOf(false) }
+
     Surface(
         modifier = artworkModifier,
         shape = shape,
@@ -194,7 +208,7 @@ internal fun ExpressiveMediaArtwork(
         border = border,
     ) {
         when {
-            !LocalInspectionMode.current && model != null -> {
+            !LocalInspectionMode.current && model != null && !loadFailed -> {
                 val context = LocalContext.current
                 val request = remember(model, context, requestSizePx) {
                     ImageRequest.Builder(context)
@@ -213,7 +227,7 @@ internal fun ExpressiveMediaArtwork(
                     contentScale = contentScale,
                     filterQuality = filterQuality,
                     modifier = Modifier.fillMaxSize(),
-                    error = painterResource(R.drawable.ic_launcher_foreground),
+                    onError = { loadFailed = true },
                 )
             }
 
@@ -254,10 +268,25 @@ internal fun ExpressiveTextField(
     trailingContent: (@Composable () -> Unit)? = null,
     visualTransformation: VisualTransformation = VisualTransformation.None,
 ) {
+    val fieldInteractionSource = remember { MutableInteractionSource() }
+    val isFocused by fieldInteractionSource.collectIsFocusedAsState()
     val borderColor by animateColorAsState(
-        targetValue = MaterialTheme.colorScheme.outline.copy(alpha = 0.1f),
+        targetValue = if (isFocused) {
+            MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)
+        } else {
+            MaterialTheme.colorScheme.outline.copy(alpha = 0.1f)
+        },
         animationSpec = YoinMotion.effectsSpring(),
         label = "expressiveFieldBorder",
+    )
+    val labelColor by animateColorAsState(
+        targetValue = if (isFocused) {
+            MaterialTheme.colorScheme.primary
+        } else {
+            MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.76f)
+        },
+        animationSpec = YoinMotion.effectsSpring(),
+        label = "expressiveFieldLabel",
     )
 
     Column(
@@ -267,7 +296,7 @@ internal fun ExpressiveTextField(
         Text(
             text = label,
             style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.76f),
+            color = labelColor,
         )
         Surface(
             modifier = Modifier.fillMaxWidth(),
@@ -284,6 +313,7 @@ internal fun ExpressiveTextField(
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp, vertical = 14.dp),
                 singleLine = true,
+                interactionSource = fieldInteractionSource,
                 textStyle = MaterialTheme.typography.bodyLarge.copy(
                     color = MaterialTheme.colorScheme.onSurface,
                     fontFamily = GoogleSansFlex,

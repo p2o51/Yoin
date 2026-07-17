@@ -1,7 +1,9 @@
 package com.gpo.yoin.ui.detail
 
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.draggable
@@ -74,6 +76,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.lerp
+import com.gpo.yoin.ui.component.DetailErrorState
 import com.gpo.yoin.ui.component.ExpressiveMediaArtwork
 import com.gpo.yoin.ui.component.ExpressivePageBackground
 import com.gpo.yoin.ui.component.YoinDropdownMenu
@@ -91,6 +94,11 @@ import com.gpo.yoin.ui.theme.YoinTheme
 // At or below this track count the cover docks to a big rounded "capsule"; above
 // it, to the thin full-bleed wavy band (a long list needs the band's vertical room).
 private const val AlbumManyTracksThreshold = 5
+
+// Page 1 of the pager ("Scores & About", AlbumSecondaryPage) is not built yet —
+// keep the pager single-page and the indicator dots hidden until it ships.
+// Flipping this back to true re-enables the page and the dots together.
+private const val ALBUM_SECONDARY_PAGE_ENABLED = false
 
 // Velocity-or-position settle decision for the hero<->tracklist reshape,
 // mirroring RevealState.chooseTarget but WITHOUT animating (the single
@@ -115,6 +123,7 @@ fun AlbumDetailScreen(
     onToggleStar: (songId: String) -> Unit,
     onRetry: () -> Unit,
     notedSongIds: Set<String> = emptySet(),
+    currentTrackId: String? = null,
     expandedSongId: String? = null,
     expandedNoteBundle: AlbumExpandedNoteBundle? = null,
     onToggleExpandedSong: (songId: String) -> Unit = {},
@@ -155,29 +164,45 @@ fun AlbumDetailScreen(
                     .fillMaxSize()
                     .detailBackCollapseTransform(backCollapse),
             ) {
-            when (uiState) {
-                is AlbumDetailUiState.Loading ->
-                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        YoinLoadingIndicator()
-                    }
+            AnimatedContent(
+                targetState = uiState,
+                transitionSpec = {
+                    YoinMotion.fadeIn(role = YoinMotionRole.Standard) togetherWith
+                        YoinMotion.fadeOut(role = YoinMotionRole.Standard)
+                },
+                // Class-keyed so Content→Content data updates (favorite
+                // toggles, rating merges) don't re-trigger the fade.
+                contentKey = { it::class },
+                label = "albumDetailState",
+                modifier = Modifier.fillMaxSize(),
+            ) { state ->
+                when (state) {
+                    is AlbumDetailUiState.Loading ->
+                        AlbumLoadingState(onBackClick = onBackClick)
 
-                is AlbumDetailUiState.Error ->
-                    AlbumErrorState(message = uiState.message, onRetry = onRetry, onBackClick = onBackClick)
+                    is AlbumDetailUiState.Error ->
+                        DetailErrorState(
+                            message = state.message,
+                            onRetry = onRetry,
+                            onBack = onBackClick,
+                        )
 
-                is AlbumDetailUiState.Content ->
-                    AlbumDetailContent(
-                        content = uiState,
-                        onBackClick = onBackClick,
-                        onSongClick = onSongClick,
-                        onToggleStar = onToggleStar,
-                        notedSongIds = notedSongIds,
-                        expandedSongId = expandedSongId,
-                        expandedNoteBundle = expandedNoteBundle,
-                        onToggleExpandedSong = onToggleExpandedSong,
-                        onRatingCommit = onRatingCommit,
-                        onReviewDraftChange = onReviewDraftChange,
-                        onSaveReview = onSaveReview,
-                    )
+                    is AlbumDetailUiState.Content ->
+                        AlbumDetailContent(
+                            content = state,
+                            onBackClick = onBackClick,
+                            onSongClick = onSongClick,
+                            onToggleStar = onToggleStar,
+                            notedSongIds = notedSongIds,
+                            currentTrackId = currentTrackId,
+                            expandedSongId = expandedSongId,
+                            expandedNoteBundle = expandedNoteBundle,
+                            onToggleExpandedSong = onToggleExpandedSong,
+                            onRatingCommit = onRatingCommit,
+                            onReviewDraftChange = onReviewDraftChange,
+                            onSaveReview = onSaveReview,
+                        )
+                }
             }
             }
 
@@ -257,6 +282,7 @@ private fun AlbumDetailContent(
     onSongClick: (songId: String) -> Unit,
     onToggleStar: (songId: String) -> Unit,
     notedSongIds: Set<String>,
+    currentTrackId: String?,
     expandedSongId: String?,
     expandedNoteBundle: AlbumExpandedNoteBundle?,
     onToggleExpandedSong: (songId: String) -> Unit,
@@ -293,7 +319,9 @@ private fun AlbumDetailContent(
     }
 
     // Horizontal pager: page 0 = this overview, page 1 = scores/About sample.
-    val pagerState = rememberPagerState(pageCount = { 2 })
+    val pagerState = rememberPagerState(
+        pageCount = { if (ALBUM_SECONDARY_PAGE_ENABLED) 2 else 1 },
+    )
 
     // Back always finishes the Activity (native cross-Activity predictive back):
     // the pulled-up track list is NOT a back stop, so one back press leaves the
@@ -331,6 +359,7 @@ private fun AlbumDetailContent(
                         expanded = expanded,
                         onExpandedCommit = { expanded = it },
                         notedSongIds = notedSongIds,
+                        currentTrackId = currentTrackId,
                         expandedSongId = expandedSongId,
                         expandedNoteBundle = expandedNoteBundle,
                         onSongClick = onSongClick,
@@ -395,6 +424,9 @@ private fun AlbumTopHeader(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
+                        // fill = false: the artist name ellipsizes but the
+                        // "· Album · year" metadata never gets pushed off.
+                        modifier = Modifier.weight(1f, fill = false),
                     )
                     Text(
                         text = buildString {
@@ -408,14 +440,16 @@ private fun AlbumTopHeader(
                 }
             }
         }
-        AlbumPageDots(
-            activeFraction = pageFraction,
-            activeColor = accentText,
-            inactiveColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f),
-            modifier = Modifier
-                .padding(top = 6.dp)
-                .align(Alignment.CenterHorizontally),
-        )
+        if (ALBUM_SECONDARY_PAGE_ENABLED) {
+            AlbumPageDots(
+                activeFraction = pageFraction,
+                activeColor = accentText,
+                inactiveColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f),
+                modifier = Modifier
+                    .padding(top = 6.dp)
+                    .align(Alignment.CenterHorizontally),
+            )
+        }
     }
 }
 
@@ -431,6 +465,7 @@ private fun AlbumOverviewPage(
     expanded: Boolean,
     onExpandedCommit: (Boolean) -> Unit,
     notedSongIds: Set<String>,
+    currentTrackId: String?,
     expandedSongId: String?,
     expandedNoteBundle: AlbumExpandedNoteBundle?,
     onSongClick: (songId: String) -> Unit,
@@ -586,6 +621,7 @@ private fun AlbumOverviewPage(
                             content = content,
                             accent = accent,
                             notedSongIds = notedSongIds,
+                            currentTrackId = currentTrackId,
                             expandedSongId = expandedSongId,
                             expandedNoteBundle = expandedNoteBundle,
                             onSongClick = onSongClick,
@@ -703,7 +739,7 @@ private fun AlbumHeroDetails(
                     },
                 )
                 Text(
-                    text = content.userReview.ifBlank { "无" },
+                    text = content.userReview.ifBlank { "—" },
                     style = MaterialTheme.typography.bodyMedium,
                     color = if (content.userReview.isBlank()) {
                         MaterialTheme.colorScheme.onSurfaceVariant
@@ -757,6 +793,7 @@ private fun AlbumTrackList(
     content: AlbumDetailUiState.Content,
     accent: Color,
     notedSongIds: Set<String>,
+    currentTrackId: String?,
     expandedSongId: String?,
     expandedNoteBundle: AlbumExpandedNoteBundle?,
     onSongClick: (songId: String) -> Unit,
@@ -787,6 +824,7 @@ private fun AlbumTrackList(
                     index = index,
                     song = song,
                     hasNote = song.id in notedSongIds,
+                    isNowPlaying = song.id == currentTrackId,
                     accent = accent,
                     onClick = { onSongClick(song.id) },
                     onLongClick = { onToggleExpandedSong(song.id) },
@@ -842,6 +880,12 @@ private fun AlbumSongNotes(
     bundle: AlbumExpandedNoteBundle?,
     modifier: Modifier = Modifier,
 ) {
+    // null = the Room flow hasn't emitted for this song yet — hold a quiet
+    // fixed-height slot instead of flashing the "no notes" story while loading.
+    if (bundle == null) {
+        Spacer(modifier = modifier.height(20.dp))
+        return
+    }
     Column(
         modifier = modifier,
         verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -851,15 +895,14 @@ private fun AlbumSongNotes(
             style = MaterialTheme.typography.labelMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        val primary = bundle?.primaryNotes.orEmpty()
-        if (primary.isEmpty()) {
+        if (bundle.primaryNotes.isEmpty()) {
             Text(
-                text = "没有笔记",
+                text = "No notes yet",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         } else {
-            primary.forEach { note ->
+            bundle.primaryNotes.forEach { note ->
                 Text(
                     text = note.content,
                     style = MaterialTheme.typography.bodyMedium,
@@ -867,7 +910,7 @@ private fun AlbumSongNotes(
                 )
             }
         }
-        bundle?.crossProviderNotes?.forEach { note ->
+        bundle.crossProviderNotes.forEach { note ->
             Text(
                 text = "${note.providerLabel}: ${note.content}",
                 style = MaterialTheme.typography.bodySmall,
@@ -878,34 +921,30 @@ private fun AlbumSongNotes(
 }
 
 @Composable
-private fun AlbumErrorState(
-    message: String,
-    onRetry: () -> Unit,
+private fun AlbumLoadingState(
     onBackClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Box(
-        modifier = modifier
-            .fillMaxSize()
-            .statusBarsPadding(),
-    ) {
-        DetailBackButton(
-            onClick = onBackClick,
-            modifier = Modifier.padding(4.dp),
-        )
-        Column(
+    Box(modifier = modifier.fillMaxSize()) {
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            YoinLoadingIndicator()
+        }
+        // Mirrors AlbumTopHeader's nav slot — same insets AND the invisible
+        // title-cluster line heights that set the row height — so the
+        // Loading → Content crossfade doesn't jump the back button.
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier
-                .align(Alignment.Center)
-                .padding(24.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(10.dp),
+                .fillMaxWidth()
+                .statusBarsPadding()
+                .padding(start = 8.dp, end = 16.dp, top = 4.dp, bottom = 6.dp),
         ) {
-            Text(
-                text = message,
-                style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.error,
-            )
-            androidx.compose.material3.TextButton(onClick = onRetry) { Text("Retry") }
+            DetailBackButton(onClick = onBackClick)
+            Spacer(modifier = Modifier.width(14.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(text = "", style = MaterialTheme.typography.headlineSmall, maxLines = 1)
+                Text(text = "", style = MaterialTheme.typography.bodyMedium, maxLines = 1)
+            }
         }
     }
 }

@@ -23,6 +23,8 @@ import com.gpo.yoin.YoinActivityRoot
 import com.gpo.yoin.YoinApplication
 import com.gpo.yoin.data.repository.ActivityContext
 import com.gpo.yoin.enableYoinEdgeToEdge
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 
 /**
  * Standalone Activity for an album detail page. Rendered as its own Activity
@@ -55,6 +57,19 @@ class AlbumDetailActivity : ComponentActivity() {
                 val expandedNoteBundle by viewModel.expandedNoteBundle.collectAsState()
                 val playbackState by app.container.playbackManager.playbackState.collectAsState()
                 val playbackSignal by app.container.audioVisualizerManager.playbackSignal.collectAsState()
+                // Narrow id-only projection for the track list's now-playing
+                // indicator, deduped so per-tick position/buffer updates never
+                // reach it (same invariant as the DetailMiniPlayer projections).
+                // Seeded from the live value so an already-playing track is
+                // marked on the window's first frame.
+                val currentTrackIdSeed = remember(app) {
+                    app.container.playbackManager.playbackState.value.currentTrack?.id?.toString()
+                }
+                val currentTrackId by remember(app) {
+                    app.container.playbackManager.playbackState
+                        .map { state -> state.currentTrack?.id?.toString() }
+                        .distinctUntilChanged()
+                }.collectAsState(initial = currentTrackIdSeed)
 
                 fun playFrom(startIndex: Int, shuffle: Boolean) {
                     val ordered = viewModel.getAlbumSongs()
@@ -109,6 +124,7 @@ class AlbumDetailActivity : ComponentActivity() {
                     onToggleStar = viewModel::toggleStar,
                     onRetry = viewModel::retry,
                     notedSongIds = notedSongIds,
+                    currentTrackId = currentTrackId,
                     expandedSongId = expandedSongId,
                     expandedNoteBundle = expandedNoteBundle,
                     onToggleExpandedSong = viewModel::toggleExpandedSong,

@@ -2101,7 +2101,7 @@ private fun TabletopPlayingContent(
     var lyricsExpanded by remember(state.songId) { mutableStateOf(false) }
     val lyricsEmphasis by animateFloatAsState(
         targetValue = if (lyricsExpanded) 1f else 0f,
-        animationSpec = YoinMotion.bouncySpatialSpring(),
+        animationSpec = YoinMotion.slowSpatialSpring(),
         label = "tabletopLyricsEmphasis",
     )
 

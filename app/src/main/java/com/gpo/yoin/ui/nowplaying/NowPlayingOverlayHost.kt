@@ -36,8 +36,10 @@ import androidx.compose.ui.unit.dp
 import com.gpo.yoin.AppContainer
 import com.gpo.yoin.data.source.Capability
 import com.gpo.yoin.ui.component.AddToPlaylistSheet
+import com.gpo.yoin.ui.component.DevicesSheet
 import com.gpo.yoin.ui.experience.LayoutMode
 import com.gpo.yoin.ui.experience.LocalYoinWindowInfo
+import com.gpo.yoin.ui.theme.ProvideYoinMotionRole
 import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinMotionRole
 import kotlin.coroutines.cancellation.CancellationException
@@ -261,6 +263,12 @@ fun NowPlayingOverlayHost(
                 dismissDragPx = (dismissDragPx + delta).coerceAtLeast(0f)
             }
         }
+        // Cast lives in the devices sheet (the Chromecast rows carry the cast
+        // status), so the Cast pill opens the same sheet the Devices pill
+        // does. That pill's open flag is private to NowPlayingScreen, so the
+        // host mounts its own instance of the shared sheet over the overlay,
+        // bound to the same devicesState / refresh / select flow.
+        var showCastDevicesSheet by remember { mutableStateOf(false) }
 
         Box(
             modifier = Modifier
@@ -346,7 +354,7 @@ fun NowPlayingOverlayHost(
                 onRefreshDevices = viewModel::refreshDevices,
                 onSelectDevice = viewModel::selectDevice,
                 castState = castState,
-                onCastClick = { },
+                onCastClick = { showCastDevicesSheet = true },
                 sharedTransitionScope = sharedTransitionScope,
                 animatedVisibilityScope = npAvScope,
                 // Collapse PREVIEW recedes the CONTENT (inside NowPlayingScreen,
@@ -362,6 +370,23 @@ fun NowPlayingOverlayHost(
                         )
                     },
             )
+
+            if (showCastDevicesSheet) {
+                // Pixel-twin of NowPlayingScreen's own Devices-pill mount:
+                // same component, same motion role, same callbacks.
+                ProvideYoinMotionRole(role = YoinMotionRole.Standard) {
+                    DevicesSheet(
+                        providerId = devicesState.providerId,
+                        devices = devicesState.devices,
+                        loading = devicesState.loading,
+                        busyDeviceId = devicesState.busyDeviceId,
+                        errorMessage = devicesState.errorMessage,
+                        onRefresh = viewModel::refreshDevices,
+                        onSelect = viewModel::selectDevice,
+                        onDismiss = { showCastDevicesSheet = false },
+                    )
+                }
+            }
         }
     }
 }

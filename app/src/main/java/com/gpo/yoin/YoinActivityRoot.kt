@@ -11,7 +11,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalContext
-import coil3.ImageLoader
+import coil3.SingletonImageLoader
 import coil3.request.ImageRequest
 import coil3.request.SuccessResult
 import coil3.request.allowHardware
@@ -70,7 +70,7 @@ private fun YoinAppEnvironment(content: @Composable () -> Unit) {
 
     if (app != null) {
         val context = LocalContext.current
-        val imageLoader = remember { ImageLoader(context) }
+        val imageLoader = remember(context) { SingletonImageLoader.get(context) }
         val playbackState by app.container.playbackManager.playbackState.collectAsState()
         val coverArt = playbackState.currentTrack?.coverArt
 

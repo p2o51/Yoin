@@ -207,6 +207,8 @@ private fun PlaylistRow(
     row: AddToPlaylistRow,
     onClick: () -> Unit,
 ) {
+    // Failed cover loads fall back to the same icon as a missing url.
+    var coverFailed by remember(row.coverArtUrl) { mutableStateOf(false) }
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -221,12 +223,13 @@ private fun PlaylistRow(
                 .background(MaterialTheme.colorScheme.surfaceVariant),
             contentAlignment = Alignment.Center,
         ) {
-            if (row.coverArtUrl != null) {
+            if (row.coverArtUrl != null && !coverFailed) {
                 AsyncImage(
                     model = row.coverArtUrl,
                     contentDescription = null,
                     contentScale = ContentScale.Crop,
                     modifier = Modifier.size(40.dp),
+                    onError = { coverFailed = true },
                 )
             } else {
                 Icon(

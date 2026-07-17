@@ -99,6 +99,12 @@ fun LyricsDisplay(
     val currentIndex by remember(lyrics) {
         derivedStateOf { findCurrentLyricIndex(lyrics, currentPositionMs()) }
     }
+    // Unsynced lyrics have no timestamps to anchor to (currentIndex stays -1
+    // and the auto-scroll effect never engages) — hand the scroll to the user
+    // instead of freezing the list. The LazyColumn consumes these vertical
+    // drags, which is exactly what keeps them out of the NP host's
+    // drag-to-dismiss draggable.
+    val isUnsynced = remember(lyrics) { lyrics.none { it.startMs != null } }
     val listState = rememberLazyListState()
     // First centring is INSTANT (no animated jump) the moment the list has a real
     // viewport; resets per song so a new track re-anchors immediately.
@@ -160,7 +166,9 @@ fun LyricsDisplay(
         LazyColumn(
             state = listState,
             modifier = Modifier.fillMaxSize(),
-            userScrollEnabled = false,
+            // Synced lyrics are playhead-driven (ONE scroll owner: the anchor
+            // effect above); untimed lyrics scroll by hand.
+            userScrollEnabled = isUnsynced,
             verticalArrangement = Arrangement.spacedBy(2.dp),
             contentPadding = PaddingValues(vertical = 12.dp),
         ) {

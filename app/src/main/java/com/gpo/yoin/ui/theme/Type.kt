@@ -8,9 +8,10 @@ import androidx.compose.ui.unit.sp
 import com.gpo.yoin.R
 
 val GoogleSansFlex = FontFamily(
-    Font(R.font.google_sans_flex_regular, FontWeight.Normal),
-    Font(R.font.google_sans_flex_medium, FontWeight.Medium),
-    Font(R.font.google_sans_flex_bold, FontWeight.Bold),
+    Font(R.font.google_sans_flex_400, FontWeight.Normal),
+    Font(R.font.google_sans_flex_500, FontWeight.Medium),
+    Font(R.font.google_sans_flex_600, FontWeight.SemiBold),
+    Font(R.font.google_sans_flex_700, FontWeight.Bold),
 )
 
 private val defaultTypography = Typography()

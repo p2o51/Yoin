@@ -104,6 +104,7 @@ internal fun SubsonicPlaylist.toPlaylist(): NeutralPlaylist = NeutralPlaylist(
     // no snapshot/etag concurrency token, so snapshotId stays null.
     canWrite = true,
     snapshotId = null,
+    comment = comment,
 )
 
 internal fun SubsonicSearchResult.toSearchResults(): SearchResults = SearchResults(
