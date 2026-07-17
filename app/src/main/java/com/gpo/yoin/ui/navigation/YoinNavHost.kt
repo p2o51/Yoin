@@ -46,7 +46,7 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
-import androidx.lifecycle.flowWithLifecycle
+import androidx.lifecycle.repeatOnLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.navigation3.rememberViewModelStoreNavEntryDecorator
 import androidx.navigation3.runtime.entryProvider
@@ -81,7 +81,7 @@ import com.gpo.yoin.ui.memories.MemoryEntry
 import com.gpo.yoin.ui.memories.MemoriesScreen
 import com.gpo.yoin.ui.memories.MemoriesViewModel
 import com.gpo.yoin.ui.navigation.back.ShellBackOwner
-import com.gpo.yoin.ui.navigation.back.rememberDetailBackBarMorphOverride
+import com.gpo.yoin.ui.navigation.back.rememberShellBarChromeMorph
 import com.gpo.yoin.ui.navigation.back.rememberDetailBackEnteringModifier
 import com.gpo.yoin.ui.navigation.back.resolveShellBackOwner
 import com.gpo.yoin.player.PlaybackEvent
@@ -340,19 +340,22 @@ private fun YoinShell(
         onNavigateToPlaylist(playlistId, sharedTransitionKey)
     }
 
-    // Reverse morph: restore nav chrome only when a detail window has left
-    // the screen WHILE the shell is visible (its onStop tick fires after the
-    // exit animation). Lifecycle-gated with the replayed value dropped:
-    // detail→detail hops tick while the shell is covered and must NOT reset
-    // the chrome (the process-wide frame clock would play the reverse morph
-    // invisibly, breaking the next predictive-back preview), and merely
-    // re-reaching STARTED (a held-then-cancelled back gesture) isn't a leave.
+    // Reverse morph BACKSTOP: restore nav chrome when a detail window leaves
+    // the screen while the shell is visible (its onStop tick fires after the
+    // exit animation) — the primary restores are the detail's own onBackClick
+    // and the commit settle above. The drop(1) sits INSIDE repeatOnLifecycle
+    // so the StateFlow's replayed value is discarded on EVERY resubscription:
+    // a detail back gesture flips the window translucent, which restarts the
+    // shell, and a globally-applied drop(1) let those replays through —
+    // clearing the chrome mid-gesture. Detail→detail hops still tick only
+    // while the shell is covered (collector down), so they can't reset it.
     val lifecycleOwner = LocalLifecycleOwner.current
     LaunchedEffect(lifecycleOwner) {
-        experienceSessionStore.detailWindowSettledTick
-            .flowWithLifecycle(lifecycleOwner.lifecycle, Lifecycle.State.STARTED)
-            .drop(1)
-            .collect { experienceSessionStore.setDetailChromeActive(false) }
+        lifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            experienceSessionStore.detailWindowSettledTick
+                .drop(1)
+                .collect { experienceSessionStore.setDetailChromeActive(false) }
+        }
     }
     val snackbarHostState = remember { SnackbarHostState() }
     LaunchedEffect(Unit) {
@@ -667,12 +670,14 @@ private fun YoinShell(
             ) {
                 YoinButtonGroup(
                     selectedSection = selectedSection,
-                    detailChrome = experienceSession.detailChromeActive,
-                    // Commit of a detail back: start from the frozen scrub
-                    // pose (bridged through the store) instead of full split,
-                    // so the dissolve above crossfades onto a matching bar.
-                    chromeProgressOverride =
-                        rememberDetailBackBarMorphOverride(experienceSessionStore),
+                    // Single settle owner for the bar pose: open/restore
+                    // morphs AND the detail-back commit settle (seeded from
+                    // the frozen scrub pose bridged through the store, so the
+                    // dissolve above crossfades onto a matching bar).
+                    chromeProgress = rememberShellBarChromeMorph(
+                        experienceSessionStore,
+                        experienceSession.detailChromeActive,
+                    ),
                     currentTrackId = currentTrack?.id?.toString(),
                     currentTrackTitle = currentTrack?.title,
                     currentTrackArtist = currentTrack?.artist,

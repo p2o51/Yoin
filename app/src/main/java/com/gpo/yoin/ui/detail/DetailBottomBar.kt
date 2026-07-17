@@ -71,8 +71,7 @@ fun DetailBottomBar(
             connectionErrorMessage = null,
             playbackProgress = playbackProgress,
             isPlaying = miniPlayer?.isPlaying == true,
-            detailChrome = true,
-            chromeProgressOverride = {
+            chromeProgress = {
                 (1f - backMorphProgress()).coerceIn(0f, 1f)
             },
             playSplitActions = BarPlaySplitActions(

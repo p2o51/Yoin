@@ -8,7 +8,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
@@ -103,32 +102,45 @@ fun rememberDetailBackEnteringModifier(store: ExperienceSessionStore): Modifier 
 }
 
 /**
- * The revealed window's BAR pose during a detail back commit: seeded from the
- * frozen scrub progress (1 − gesture progress = chrome morph) so the bar
- * beneath the dissolving window starts EXACTLY where the scrubbed bar above
- * stopped, then settles to nav chrome on the same spring the detail bar uses
- * to finish its own scrub — the crossfade shows one bar, not two poses.
- * Returns null when no commit settle is in flight (normal animated morph).
+ * The shell bar's chrome morph (0 = nav, 1 = detail split) — the ONE owner of
+ * that pose. A lone Animatable plays the open/restore morphs off
+ * [detailChromeActive] AND the detail-back commit settle, so no second driver
+ * exists to hand off to (the previous shape — a temporary override lambda over
+ * YoinButtonGroup's own animateFloatAsState — released back to a stale split
+ * pose after a long-drag commit: the override's settle from ≈nav finished
+ * instantly while the Boolean spring hadn't even been retargeted, and the bar
+ * flashed split before re-morphing. Same lesson as the NP stage settle:
+ * one Animatable, one owner).
+ *
+ * Commit: seed from the frozen scrub pose (1 − gesture progress) bridged
+ * through [ExperienceSessionStore], then settle to nav on the SAME spring the
+ * dissolving detail bar above uses to finish its own scrub — the crossfade
+ * shows one bar riding one trajectory. The normal chrome effect is parked
+ * while a commit settle runs (keyed on the committed Boolean, so the detail's
+ * onBackClick flipping the flag mid-commit can neither re-seed nor rewind);
+ * both paths end at nav, so the hand-back is coincident by construction.
  */
 @Composable
-fun rememberDetailBackBarMorphOverride(store: ExperienceSessionStore): (() -> Float)? {
-    val morph = remember { Animatable(0f) }
-    var active by remember { mutableStateOf(false) }
+fun rememberShellBarChromeMorph(
+    store: ExperienceSessionStore,
+    detailChromeActive: Boolean,
+): () -> Float {
+    val morph = remember { Animatable(if (detailChromeActive) 1f else 0f) }
     val phase by store.detailBackPhase
+    val committed = phase == DetailBackPhase.Committed
     val spec = YoinMotion.defaultSpatialSpec<Float>(role = YoinMotionRole.Standard)
-    LaunchedEffect(phase) {
-        if (phase == DetailBackPhase.Committed) {
+    LaunchedEffect(committed) {
+        if (committed) {
             morph.snapTo((1f - store.detailBackProgress.floatValue).coerceIn(0f, 1f))
-            active = true
             morph.animateTo(0f, spec)
-            active = false
         }
     }
-    return if (active) {
-        { morph.value }
-    } else {
-        null
+    LaunchedEffect(detailChromeActive, committed) {
+        if (!committed) {
+            morph.animateTo(if (detailChromeActive) 1f else 0f, spec)
+        }
     }
+    return remember(morph) { { morph.value } }
 }
 
 /** AOSP R.dimen.cross_activity_back_entering_start_offset. */

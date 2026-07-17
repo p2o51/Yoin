@@ -58,9 +58,12 @@ import kotlinx.coroutines.delay
  * size transforms) whenever the pill's shared elements are active. Plain
  * layouts + animateFloatAsState survive it; keep it that way.
  *
- * Two chrome modes morphed in place by [detailChrome]:
- *  - Nav (shell): [Home] [now-playing pill (fills)] [Library]
- *  - Detail: [Play split (fills)] [now-playing pill (~25%)]
+ * Two chrome modes morphed in place by [chromeProgress]:
+ *  - Nav (0): [Home] [now-playing pill (fills)] [Library]
+ *  - Detail (1): [Play split (fills)] [now-playing pill (~25%)]
+ * The pose is HOSTED — this composable never animates it, it only renders the
+ * value, so exactly one driver exists per window (the shell's
+ * rememberShellBarChromeMorph, or a detail page's predictive-back scrub).
  * The shell flips to Detail the moment a detail launch is tapped, so the
  * morph IS the tap feedback; the detail window then fades in over the settled
  * morph onto its own pixel-identical DetailBottomBar. The split button here
@@ -82,11 +85,10 @@ fun YoinButtonGroup(
     connectionErrorMessage: String?,
     playbackProgress: Float = 0f,
     isPlaying: Boolean = false,
-    detailChrome: Boolean = false,
-    // Gesture-scrubbed chrome progress (1 = detail, 0 = nav). When set it
-    // wins over the animated Boolean, letting a predictive back drive the
-    // split⇄nav morph interactively (cancel rewinds, commit completes).
-    chromeProgressOverride: (() -> Float)? = null,
+    // Chrome pose (0 = nav, 1 = detail), read per frame. Animated OR
+    // gesture-scrubbed by the caller — never in here, so a predictive-back
+    // scrub and the settle springs can share one Animatable per window.
+    chromeProgress: () -> Float = { 0f },
     // Functional Play split for the detail windows; null = the shell's
     // decorative theme-colored stand-in.
     playSplitActions: BarPlaySplitActions? = null,
@@ -193,13 +195,7 @@ fun YoinButtonGroup(
             // The nav⇄detail morph, one progress value driving every slot
             // width. All plain Row/Box + width(dp) — see the class KDoc for
             // why nothing fancier is allowed in here.
-            val animatedMorph by animateFloatAsState(
-                targetValue = if (detailChrome) 1f else 0f,
-                animationSpec = YoinMotion.defaultSpatialSpec(),
-                label = "barChromeMorph",
-            )
-            val morph = (chromeProgressOverride?.invoke() ?: animatedMorph)
-                .coerceIn(0f, 1f)
+            val morph = chromeProgress().coerceIn(0f, 1f)
             val homeWidth = FloatingBarButtonHeight * homeAspect
             val libraryWidth = FloatingBarButtonHeight * libraryAspect
             val pillNavWidth =

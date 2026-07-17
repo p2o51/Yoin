@@ -21,13 +21,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.flowWithLifecycle
+import androidx.lifecycle.repeatOnLifecycle
 import com.gpo.yoin.YoinApplication
 import com.gpo.yoin.enableYoinEdgeToEdge
 import com.gpo.yoin.ui.component.YoinButtonGroup
 import com.gpo.yoin.ui.detail.AlbumDetailActivity
 import com.gpo.yoin.ui.detail.launchDetailFromShell
 import com.gpo.yoin.ui.navigation.YoinSection
+import com.gpo.yoin.ui.navigation.back.rememberShellBarChromeMorph
 import com.gpo.yoin.ui.theme.YoinTheme
 import kotlinx.coroutines.flow.drop
 
@@ -49,11 +50,18 @@ class BarMorphPreviewActivity : ComponentActivity() {
                 var detailChrome by remember { mutableStateOf(false) }
                 val lifecycleOwner = LocalLifecycleOwner.current
                 LaunchedEffect(lifecycleOwner) {
-                    app.container.experienceSessionStore.detailWindowSettledTick
-                        .flowWithLifecycle(lifecycleOwner.lifecycle, Lifecycle.State.STARTED)
-                        .drop(1)
-                        .collect { detailChrome = false }
+                    lifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
+                        app.container.experienceSessionStore.detailWindowSettledTick
+                            .drop(1)
+                            .collect { detailChrome = false }
+                    }
                 }
+                // Mirror the real shell's single-owner bar pose (open morph +
+                // commit settle seeded from the back gesture's frozen scrub).
+                val chromeMorph = rememberShellBarChromeMorph(
+                    app.container.experienceSessionStore,
+                    detailChrome,
+                )
                 SharedTransitionLayout {
                     Surface(
                         modifier = Modifier.fillMaxSize(),
@@ -84,7 +92,7 @@ class BarMorphPreviewActivity : ComponentActivity() {
                             ) {
                                 YoinButtonGroup(
                                     selectedSection = YoinSection.HOME,
-                                    detailChrome = detailChrome,
+                                    chromeProgress = chromeMorph,
                                     currentTrackId = null,
                                     currentTrackTitle = "Cherries & Cream",
                                     currentTrackArtist = "Hannah Jadagu",
