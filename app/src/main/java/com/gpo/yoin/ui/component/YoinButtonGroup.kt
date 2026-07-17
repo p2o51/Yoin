@@ -83,6 +83,13 @@ fun YoinButtonGroup(
     playbackProgress: Float = 0f,
     isPlaying: Boolean = false,
     detailChrome: Boolean = false,
+    // Gesture-scrubbed chrome progress (1 = detail, 0 = nav). When set it
+    // wins over the animated Boolean, letting a predictive back drive the
+    // split⇄nav morph interactively (cancel rewinds, commit completes).
+    chromeProgressOverride: (() -> Float)? = null,
+    // Functional Play split for the detail windows; null = the shell's
+    // decorative theme-colored stand-in.
+    playSplitActions: BarPlaySplitActions? = null,
     onHomeClick: () -> Unit,
     onNowPlayingClick: () -> Unit,
     onLibraryClick: () -> Unit,
@@ -186,11 +193,13 @@ fun YoinButtonGroup(
             // The nav⇄detail morph, one progress value driving every slot
             // width. All plain Row/Box + width(dp) — see the class KDoc for
             // why nothing fancier is allowed in here.
-            val morph by animateFloatAsState(
+            val animatedMorph by animateFloatAsState(
                 targetValue = if (detailChrome) 1f else 0f,
                 animationSpec = YoinMotion.defaultSpatialSpec(),
                 label = "barChromeMorph",
             )
+            val morph = (chromeProgressOverride?.invoke() ?: animatedMorph)
+                .coerceIn(0f, 1f)
             val homeWidth = FloatingBarButtonHeight * homeAspect
             val libraryWidth = FloatingBarButtonHeight * libraryAspect
             val pillNavWidth =
@@ -235,16 +244,19 @@ fun YoinButtonGroup(
                     }
                 }
                 if (morph > 0.01f) {
-                    // Morph visual only: the functional split button lives in
-                    // the detail window fading in above this one.
+                    // Functional on detail pages; decorative in the shell
+                    // (where the real twin lives in the window fading in above).
                     PlaySplitButton(
-                        playContainer = MaterialTheme.colorScheme.primary,
-                        playContent = MaterialTheme.colorScheme.onPrimary,
-                        onPlay = {},
-                        onShuffle = {},
+                        playContainer = playSplitActions?.playContainer
+                            ?: MaterialTheme.colorScheme.primary,
+                        playContent = playSplitActions?.playContent
+                            ?: MaterialTheme.colorScheme.onPrimary,
+                        onPlay = playSplitActions?.onPlay ?: {},
+                        onShuffle = playSplitActions?.onShuffle ?: {},
                         buttonHeight = FloatingBarButtonHeight,
                         fillPlay = true,
                         compact = true,
+                        trailingMenuItems = playSplitActions?.menuItems ?: {},
                         modifier = Modifier
                             .align(Alignment.CenterStart)
                             .width(FloatingBarSplitWidth)
@@ -391,3 +403,12 @@ private const val MIN_ASPECT = 0.7f
 
 private const val LIBRARY_SEARCH_HINT_DELAY_MS = 240L
 private const val LIBRARY_SEARCH_HINT_SETTLE_MS = 120L
+
+/** Functional Play-split wiring for the detail windows' bar. */
+class BarPlaySplitActions(
+    val playContainer: androidx.compose.ui.graphics.Color,
+    val playContent: androidx.compose.ui.graphics.Color,
+    val onPlay: () -> Unit,
+    val onShuffle: () -> Unit,
+    val menuItems: @Composable androidx.compose.foundation.layout.ColumnScope.(dismissMenu: () -> Unit) -> Unit,
+)

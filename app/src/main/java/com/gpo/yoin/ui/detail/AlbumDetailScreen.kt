@@ -129,6 +129,9 @@ fun AlbumDetailScreen(
     playbackSignal: Float = 0f,
     onOpenNowPlaying: () -> Unit = {},
     nowPlayingOpen: Boolean = false,
+    // True when this window sits directly over the shell: predictive back
+    // scrubs the bar toward nav chrome (matching the reveal underneath).
+    morphBarOnBack: Boolean = false,
     miniPlayerState: DetailMiniPlayerState? = null,
     playbackProgress: Float = 0f,
     modifier: Modifier = Modifier,
@@ -144,11 +147,14 @@ fun AlbumDetailScreen(
             modifier = modifier,
         ) {
             Box(modifier = Modifier.fillMaxSize()) {
-            // In-window predictive back: only this content collapses; the
-            // bottom bar below is a sibling and never transforms.
-            DetailPredictiveBackCollapse(
-                onBack = onBackClick,
-                modifier = Modifier.fillMaxSize(),
+            // In-window predictive back (AOSP cross-activity math): only
+            // this content collapses; the bar is a sibling and never
+            // transforms — it scrubs its own morph off the same progress.
+            val backCollapse = rememberDetailBackCollapse(onBack = onBackClick)
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .detailBackCollapseTransform(backCollapse),
             ) {
             when (uiState) {
                 is AlbumDetailUiState.Loading ->
@@ -196,6 +202,11 @@ fun AlbumDetailScreen(
                     miniPlayer = miniPlayerState,
                     playbackProgress = playbackProgress,
                     nowPlayingOpen = nowPlayingOpen,
+                    backMorphProgress = if (morphBarOnBack) {
+                        { backCollapse.progress }
+                    } else {
+                        { 0f }
+                    },
                     modifier = Modifier.align(Alignment.BottomCenter),
                 ) { dismissMenu ->
                     if (onOpenArtist != null) {

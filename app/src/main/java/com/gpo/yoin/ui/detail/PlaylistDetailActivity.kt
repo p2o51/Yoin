@@ -112,7 +112,14 @@ class PlaylistDetailActivity : ComponentActivity() {
                 Box(modifier = Modifier.fillMaxSize()) {
                     PlaylistDetailScreen(
                         uiState = uiState,
-                        onBackClick = { finish() },
+                        onBackClick = {
+                            // Pre-morph the covered shell bar to nav chrome so the reveal
+                            // after the dissolve matches the scrubbed detail bar.
+                            (application as YoinApplication).container.experienceSessionStore
+                                .setDetailChromeActive(false)
+                            finish()
+                        },
+                        morphBarOnBack = intent.getBooleanExtra(DETAIL_EXTRA_FROM_SHELL, false),
                         onPlayAllClick = { playFrom(startIndex = 0, shuffle = false) },
                         onShufflePlay = { playFrom(startIndex = 0, shuffle = true) },
                         onSongClick = { songId ->

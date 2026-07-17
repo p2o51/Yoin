@@ -92,7 +92,14 @@ class AlbumDetailActivity : ComponentActivity() {
                 Box(modifier = Modifier.fillMaxSize()) {
                 AlbumDetailScreen(
                     uiState = uiState,
-                    onBackClick = { finish() },
+                    onBackClick = {
+                        // Pre-morph the covered shell bar to nav chrome so the reveal
+                        // after the dissolve matches the scrubbed detail bar.
+                        (application as YoinApplication).container.experienceSessionStore
+                            .setDetailChromeActive(false)
+                        finish()
+                    },
+                    morphBarOnBack = intent.getBooleanExtra(DETAIL_EXTRA_FROM_SHELL, false),
                     onSongClick = { songId ->
                         val index = viewModel.getAlbumSongs()
                             .indexOfFirst { it.id.toString() == songId }

@@ -9,19 +9,13 @@ import androidx.compose.animation.AnimatedVisibility
 import com.gpo.yoin.ui.theme.YoinMotionRole
 import com.gpo.yoin.ui.theme.YoinMotion
 import androidx.compose.foundation.layout.ColumnScope
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
-import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import com.gpo.yoin.R
-import com.gpo.yoin.ui.component.FloatingBarButtonHeight
-import com.gpo.yoin.ui.component.FloatingBarItemGap
-import com.gpo.yoin.ui.component.FloatingBarSplitWidth
-import com.gpo.yoin.ui.component.FloatingBottomBar
-import com.gpo.yoin.ui.component.NowPlayingPill
-import com.gpo.yoin.ui.component.PlaySplitButton
+import com.gpo.yoin.ui.component.BarPlaySplitActions
+import com.gpo.yoin.ui.component.YoinButtonGroup
+import com.gpo.yoin.ui.navigation.YoinSection
 
 /**
  * The detail pages' bottom bar — the shell Button Group's morph target.
@@ -47,6 +41,11 @@ fun DetailBottomBar(
     playbackProgress: Float,
     modifier: Modifier = Modifier,
     nowPlayingOpen: Boolean = false,
+    // Predictive-back scrub (0 = resting detail chrome, 1 = fully nav): the
+    // gesture drives the split⇄nav morph interactively when this page will
+    // reveal the shell. Pages stacked over another detail keep 0 — the bar
+    // beneath is identical, so the correct read is "the bar doesn't move".
+    backMorphProgress: () -> Float = { 0f },
     menuItems: @Composable ColumnScope.(dismissMenu: () -> Unit) -> Unit = {},
 ) {
     // Same choreography as the shell bar when NP expands over it: the bar
@@ -59,33 +58,34 @@ fun DetailBottomBar(
             YoinMotion.slideOutVertically(role = YoinMotionRole.Standard) { it },
         modifier = modifier,
     ) {
-    FloatingBottomBar { _ ->
-        PlaySplitButton(
-            playContainer = playContainer,
-            playContent = playContent,
-            onPlay = onPlay,
-            onShuffle = onShuffle,
-            buttonHeight = FloatingBarButtonHeight,
-            fillPlay = true,
-            compact = true,
-            trailingMenuItems = menuItems,
-            modifier = Modifier.width(FloatingBarSplitWidth),
-        )
-        Spacer(modifier = Modifier.width(FloatingBarItemGap))
-        NowPlayingPill(
+        // LITERALLY the shell's bar composable — pixel identity between the
+        // two windows by construction, plus the nav side of the morph for
+        // the predictive-back scrub.
+        YoinButtonGroup(
+            selectedSection = YoinSection.HOME,
             currentTrackId = null,
             currentTrackTitle = miniPlayer?.title,
             currentTrackArtist = miniPlayer?.artist,
             currentTrackCoverArtUrl = miniPlayer?.coverArtUrl,
+            isPlaybackReady = true,
             connectionErrorMessage = null,
             playbackProgress = playbackProgress,
             isPlaying = miniPlayer?.isPlaying == true,
-            onClick = onOpenNowPlaying,
-            modifier = Modifier
-                .weight(1f)
-                .fillMaxHeight(),
+            detailChrome = true,
+            chromeProgressOverride = {
+                (1f - backMorphProgress()).coerceIn(0f, 1f)
+            },
+            playSplitActions = BarPlaySplitActions(
+                playContainer = playContainer,
+                playContent = playContent,
+                onPlay = onPlay,
+                onShuffle = onShuffle,
+                menuItems = menuItems,
+            ),
+            onHomeClick = {},
+            onNowPlayingClick = onOpenNowPlaying,
+            onLibraryClick = {},
         )
-    }
     }
 }
 
@@ -96,6 +96,7 @@ fun DetailBottomBar(
  * bar morph (detailChromeActive) before calling this.
  */
 fun launchDetailFromShell(context: Context, intent: Intent) {
+    intent.putExtra(DETAIL_EXTRA_FROM_SHELL, true)
     val options = ActivityOptions.makeCustomAnimation(
         context,
         R.anim.detail_bar_handoff_enter,
@@ -121,3 +122,10 @@ fun Activity.applyDetailCloseTransition() {
         )
     }
 }
+
+/**
+ * Set by [launchDetailFromShell]: this detail window sits directly over the
+ * SHELL, so its predictive-back scrub should morph the bar toward nav
+ * chrome. Detail→detail pushes lack it — the bar beneath is identical.
+ */
+const val DETAIL_EXTRA_FROM_SHELL = "fromShell"

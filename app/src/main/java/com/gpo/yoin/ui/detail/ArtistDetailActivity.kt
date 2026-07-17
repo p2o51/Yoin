@@ -116,7 +116,14 @@ class ArtistDetailActivity : ComponentActivity() {
                 Box(modifier = Modifier.fillMaxSize()) {
                 ArtistDetailScreen(
                     uiState = uiState,
-                    onBackClick = { finish() },
+                    onBackClick = {
+                        // Pre-morph the covered shell bar to nav chrome so the reveal
+                        // after the dissolve matches the scrubbed detail bar.
+                        (application as YoinApplication).container.experienceSessionStore
+                            .setDetailChromeActive(false)
+                        finish()
+                    },
+                    morphBarOnBack = intent.getBooleanExtra(DETAIL_EXTRA_FROM_SHELL, false),
                     onAlbumClick = { albumId ->
                         context.startActivity(AlbumDetailActivity.intent(context, albumId))
                     },
