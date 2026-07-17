@@ -81,6 +81,7 @@ import com.gpo.yoin.ui.memories.MemoryEntry
 import com.gpo.yoin.ui.memories.MemoriesScreen
 import com.gpo.yoin.ui.memories.MemoriesViewModel
 import com.gpo.yoin.ui.navigation.back.ShellBackOwner
+import com.gpo.yoin.ui.navigation.back.rememberDetailBackBarMorphOverride
 import com.gpo.yoin.ui.navigation.back.rememberDetailBackEnteringModifier
 import com.gpo.yoin.ui.navigation.back.resolveShellBackOwner
 import com.gpo.yoin.player.PlaybackEvent
@@ -667,6 +668,11 @@ private fun YoinShell(
                 YoinButtonGroup(
                     selectedSection = selectedSection,
                     detailChrome = experienceSession.detailChromeActive,
+                    // Commit of a detail back: start from the frozen scrub
+                    // pose (bridged through the store) instead of full split,
+                    // so the dissolve above crossfades onto a matching bar.
+                    chromeProgressOverride =
+                        rememberDetailBackBarMorphOverride(experienceSessionStore),
                     currentTrackId = currentTrack?.id?.toString(),
                     currentTrackTitle = currentTrack?.title,
                     currentTrackArtist = currentTrack?.artist,

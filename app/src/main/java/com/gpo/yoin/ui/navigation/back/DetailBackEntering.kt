@@ -8,11 +8,14 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
 import com.gpo.yoin.ui.experience.DetailBackPhase
 import com.gpo.yoin.ui.experience.ExperienceSessionStore
+import com.gpo.yoin.ui.theme.YoinMotion
+import com.gpo.yoin.ui.theme.YoinMotionRole
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
@@ -96,6 +99,35 @@ fun rememberDetailBackEnteringModifier(store: ExperienceSessionStore): Modifier 
                 translationY = maxShift * decelerated * (if (ty < 0f) -1f else 1f) * f
             }
         }
+    }
+}
+
+/**
+ * The revealed window's BAR pose during a detail back commit: seeded from the
+ * frozen scrub progress (1 − gesture progress = chrome morph) so the bar
+ * beneath the dissolving window starts EXACTLY where the scrubbed bar above
+ * stopped, then settles to nav chrome on the same spring the detail bar uses
+ * to finish its own scrub — the crossfade shows one bar, not two poses.
+ * Returns null when no commit settle is in flight (normal animated morph).
+ */
+@Composable
+fun rememberDetailBackBarMorphOverride(store: ExperienceSessionStore): (() -> Float)? {
+    val morph = remember { Animatable(0f) }
+    var active by remember { mutableStateOf(false) }
+    val phase by store.detailBackPhase
+    val spec = YoinMotion.defaultSpatialSpec<Float>(role = YoinMotionRole.Standard)
+    LaunchedEffect(phase) {
+        if (phase == DetailBackPhase.Committed) {
+            morph.snapTo((1f - store.detailBackProgress.floatValue).coerceIn(0f, 1f))
+            active = true
+            morph.animateTo(0f, spec)
+            active = false
+        }
+    }
+    return if (active) {
+        { morph.value }
+    } else {
+        null
     }
 }
 

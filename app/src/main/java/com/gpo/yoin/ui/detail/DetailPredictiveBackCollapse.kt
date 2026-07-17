@@ -81,6 +81,7 @@ fun rememberDetailBackCollapse(onBack: () -> Unit): DetailBackCollapseState {
     val state = remember { DetailBackCollapseState() }
     val scope = rememberCoroutineScope()
     val settleSpec = YoinMotion.predictiveBackSettleSpring<Float>()
+    val commitSpec = YoinMotion.defaultSpatialSpec<Float>(role = YoinMotionRole.Standard)
     val context = LocalContext.current
     val activity = remember(context) { context.findActivity() }
     val store = remember(context) {
@@ -126,6 +127,12 @@ fun rememberDetailBackCollapse(onBack: () -> Unit): DetailBackCollapseState {
             // window beneath runs its own entering settle off the phase flip.
             store.detailBackPhase.value = DetailBackPhase.Committed
             if (sawGesture && state.chased.value > 0.02f) {
+                // Finish the bar's scrub to full nav — the SAME spec the shell
+                // bar uses for its commit settle beneath the dissolve, so the
+                // two bars ride near-identical trajectories and the crossfade
+                // shows no pose jump (a long drag froze the top bar near nav
+                // while the bottom one started from split — the pill flash).
+                scope.launch { state.chased.animateTo(1f, commitSpec) }
                 state.exit.animateTo(1f, tween(durationMillis = 140))
             }
             onBack()
@@ -140,7 +147,13 @@ fun rememberDetailBackCollapse(onBack: () -> Unit): DetailBackCollapseState {
                 state.touchYDelta = 0f
                 store.detailBackTouchYDelta.floatValue = 0f
                 store.detailBackPhase.value = DetailBackPhase.Idle
-                activity?.setTranslucentCompat(false)
+                // Convert on a STATIC frame: flipping the window surface to
+                // opaque right at the settle's last moving frame reads as a
+                // flash at the bar.
+                delay(TRANSLUCENT_RESTORE_DELAY_MS)
+                if (store.detailBackPhase.value == DetailBackPhase.Idle) {
+                    activity?.setTranslucentCompat(false)
+                }
             }
             throw e
         }
@@ -216,3 +229,6 @@ private const val ExitDriftDp = 24f
 // The enter hand-off is 380ms (200 hold + 180 fade); leave slack before the
 // window goes opaque and stops the one beneath.
 private const val OPAQUE_AFTER_ENTER_MS = 900L
+
+// Post-settle pause before the opaque conversion (surface swap on a still frame).
+private const val TRANSLUCENT_RESTORE_DELAY_MS = 250L
