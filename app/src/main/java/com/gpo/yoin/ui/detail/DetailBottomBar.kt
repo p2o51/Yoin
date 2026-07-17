@@ -5,12 +5,8 @@ import android.app.ActivityOptions
 import android.content.Context
 import android.content.Intent
 import android.os.Build
-import android.window.BackEvent
-import android.window.OnBackAnimationCallback
-import android.window.OnBackInvokedDispatcher
-import androidx.activity.ComponentActivity
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.runtime.MutableState
+import androidx.compose.runtime.State
 import androidx.compose.animation.AnimatedVisibility
 import com.gpo.yoin.ui.theme.YoinMotionRole
 import androidx.compose.runtime.getValue
@@ -144,42 +140,11 @@ fun Activity.applyDetailCloseTransition() {
 }
 
 /**
- * Window-level "a predictive back gesture is in flight" flag, provided by the
- * detail Activities and consumed by [DetailBottomBar].
+ * Window-level "a predictive back preview is scaling this window" flag,
+ * provided by the detail Activities (derived from the session store's
+ * [detailBackPreviewActive] + this window being RESUMED) and consumed by
+ * [DetailBottomBar].
  */
-val LocalDetailBarHiddenDuringBack = staticCompositionLocalOf<MutableState<Boolean>> {
+val LocalDetailBarHiddenDuringBack = staticCompositionLocalOf<State<Boolean>> {
     error("LocalDetailBarHiddenDuringBack not provided")
-}
-
-/**
- * Observe (never consume) the system back gesture so the bar can duck out of
- * the window-scaling predictive-back preview. OBSERVER priority (Android 16)
- * keeps the native cross-activity predictive animation fully system-owned —
- * a regular callback would replace it. Pre-36 there is no observe-only hook;
- * those devices keep the bar in the preview.
- */
-fun ComponentActivity.observeBackGestureForDetailBar(hidden: MutableState<Boolean>) {
-    if (Build.VERSION.SDK_INT < 36) return
-    onBackInvokedDispatcher.registerOnBackInvokedCallback(
-        OnBackInvokedDispatcher.PRIORITY_SYSTEM_NAVIGATION_OBSERVER,
-        object : OnBackAnimationCallback {
-            override fun onBackStarted(backEvent: BackEvent) {
-                hidden.value = true
-            }
-
-            override fun onBackProgressed(backEvent: BackEvent) = Unit
-
-            override fun onBackCancelled() {
-                hidden.value = false
-            }
-
-            override fun onBackInvoked() {
-                // Reset even on commit: an in-app handler (NP collapse)
-                // may have consumed this back and the window stays up. A
-                // window-closing back re-shows the bar under the close
-                // dissolve, pixel-aligned over the shell's identical bar.
-                hidden.value = false
-            }
-        },
-    )
 }
