@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -131,7 +132,14 @@ fun NowPlayingPill(
             contentColor = contentColor,
         ),
     ) {
-        Box(modifier = Modifier.fillMaxWidth()) {
+        // Fill the whole button, not just the content: the bar forces a 48dp
+        // height while the content row is ~42dp — a wrap-content Box here lets
+        // the wave wash (matchParentSize below) shrink to the content and leave
+        // a container-colored seam above/below it.
+        Box(
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.CenterStart,
+        ) {
             if (currentTrackTitle != null && clampedProgress > 0f) {
                 Box(
                     modifier = Modifier
