@@ -6,14 +6,13 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
 import com.gpo.yoin.ui.navigation.back.BackMotionTokens
@@ -23,7 +22,7 @@ import kotlin.coroutines.cancellation.CancellationException
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
-import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.launch
 
 /**
  * In-window predictive back for the detail pages, a faithful port of AOSP's
@@ -47,10 +46,11 @@ import kotlinx.coroutines.flow.collectLatest
  */
 @Stable
 class DetailBackCollapseState internal constructor() {
-    /** Raw eased gesture progress — the chase target. */
-    internal var target by mutableFloatStateOf(0f)
-
-    /** Spring-chased progress (0..1): drives the content transform + bar scrub. */
+    /**
+     * Gesture progress (0..1), tracked 1:1 with the finger DURING the
+     * gesture (platform behaviour — no smoothing between finger and pixels);
+     * springs run only on release (cancel settle).
+     */
     internal val chased = Animatable(0f)
 
     /** Current scrub progress for consumers (bar morph). */
@@ -69,16 +69,8 @@ class DetailBackCollapseState internal constructor() {
 @Composable
 fun rememberDetailBackCollapse(onBack: () -> Unit): DetailBackCollapseState {
     val state = remember { DetailBackCollapseState() }
-
-    // Chase the raw progress with a spring: collectLatest retargets the
-    // Animatable per event, so velocity carries through and a cancel settles
-    // back to 0 smoothly on the same spring.
-    val chaseSpec = YoinMotion.defaultSpatialSpec<Float>(role = YoinMotionRole.Standard)
-    LaunchedEffect(state) {
-        snapshotFlow { state.target }.collectLatest { target ->
-            state.chased.animateTo(target, chaseSpec)
-        }
-    }
+    val scope = rememberCoroutineScope()
+    val settleSpec = YoinMotion.predictiveBackSettleSpring<Float>()
 
     PredictiveBackHandler { events ->
         var initialTouchY = Float.NaN
@@ -89,18 +81,27 @@ fun rememberDetailBackCollapse(onBack: () -> Unit): DetailBackCollapseState {
                 if (initialTouchY.isNaN()) initialTouchY = event.touchY
                 state.swipeEdge = event.swipeEdge
                 state.touchYDelta = event.touchY - initialTouchY
-                state.target = YoinMotion.backGestureEasing.transform(event.progress)
+                // Direct 1:1 tracking, like the platform: the eased progress
+                // IS the pose. No smoothing between finger and pixels.
+                state.chased.snapTo(
+                    YoinMotion.backGestureEasing.transform(event.progress),
+                )
             }
             // COMMIT. Button-backs emit no progress events — skip straight to
             // the window dissolve. Gesture commits play the AOSP post-commit
             // content exit (the fade lands within ~90ms) first.
-            if (sawGesture && state.target > 0.02f) {
+            if (sawGesture && state.chased.value > 0.02f) {
                 state.exit.animateTo(1f, tween(durationMillis = 140))
             }
             onBack()
         } catch (e: CancellationException) {
-            state.target = 0f
-            state.touchYDelta = 0f
+            // CANCEL: the handler coroutine is already dying — settle on the
+            // host scope. The Y offset needs no separate settle: its head
+            // room collapses with the progress spring (maxShift ∝ p).
+            scope.launch {
+                state.chased.animateTo(0f, settleSpec)
+                state.touchYDelta = 0f
+            }
             throw e
         }
     }
