@@ -1,5 +1,7 @@
 package com.gpo.yoin.ui.experience
 
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
 import com.gpo.yoin.ui.navigation.YoinSection
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -41,7 +43,19 @@ data class ExperienceSessionState(
     val memories: MemoriesSessionState = MemoriesSessionState(),
 )
 
+/** Phase of a detail page's in-window predictive back gesture. */
+enum class DetailBackPhase { Idle, Gesture, Committed }
+
 class ExperienceSessionStore {
+    // ── Detail predictive-back pose bridge ─────────────────────────────────
+    // Snapshot states, NOT part of [state]: written per gesture FRAME by the
+    // top detail window and read inside graphicsLayer lambdas by the window
+    // beneath (the AOSP "entering target" movement) — layer invalidation
+    // only, zero recomposition at 60Hz.
+    val detailBackPhase = mutableStateOf(DetailBackPhase.Idle)
+    val detailBackProgress = mutableFloatStateOf(0f)
+    val detailBackTouchYDelta = mutableFloatStateOf(0f)
+
     private val _state = MutableStateFlow(ExperienceSessionState())
     val state: StateFlow<ExperienceSessionState> = _state.asStateFlow()
 

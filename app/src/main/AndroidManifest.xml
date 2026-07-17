@@ -40,14 +40,17 @@
         -->
         <activity
             android:name=".ui.detail.AlbumDetailActivity"
+            android:theme="@style/Theme.Yoin.DetailTranslucent"
             android:exported="false"
             android:windowSoftInputMode="adjustResize" />
         <activity
             android:name=".ui.detail.ArtistDetailActivity"
+            android:theme="@style/Theme.Yoin.DetailTranslucent"
             android:exported="false"
             android:windowSoftInputMode="adjustResize" />
         <activity
             android:name=".ui.detail.PlaylistDetailActivity"
+            android:theme="@style/Theme.Yoin.DetailTranslucent"
             android:exported="false"
             android:windowSoftInputMode="adjustResize" />
         <activity

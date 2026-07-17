@@ -131,17 +131,16 @@ fun PlaylistDetailScreen(
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
 
     val accentColor = rememberDetailPageAccent(content?.coverArtUrl)
-    ExpressivePageBackground(
-        accentColor = accentColor,
-        isPlaying = isPlaying,
-        playbackSignal = playbackSignal,
-        modifier = modifier,
-    ) {
-        // In-window predictive back (AOSP cross-activity math): only the
-        // page content collapses; the bar is a sibling and never transforms —
-        // it scrubs its own morph off the same progress.
-        val backCollapse = rememberDetailBackCollapse(onBack = onBackClick)
-        Box(
+    // In-window predictive back (AOSP cross-activity math): the whole page
+    // — background included — collapses as one card over the LIVE window
+    // beneath (the Activity turns translucent for the gesture); the bar is a
+    // sibling on top and never transforms.
+    val backCollapse = rememberDetailBackCollapse(onBack = onBackClick)
+    Box(modifier = modifier) {
+        ExpressivePageBackground(
+            accentColor = accentColor,
+            isPlaying = isPlaying,
+            playbackSignal = playbackSignal,
             modifier = Modifier
                 .fillMaxSize()
                 .detailBackCollapseTransform(backCollapse),

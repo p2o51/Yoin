@@ -1,11 +1,16 @@
 package com.gpo.yoin.ui.detail
 
+import android.app.Activity
+import android.content.Context
+import android.content.ContextWrapper
+import android.os.Build
 import androidx.activity.BackEventCompat
 import androidx.activity.compose.PredictiveBackHandler
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -15,6 +20,9 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalContext
+import com.gpo.yoin.YoinApplication
+import com.gpo.yoin.ui.experience.DetailBackPhase
 import com.gpo.yoin.ui.navigation.back.BackMotionTokens
 import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinMotionRole
@@ -22,6 +30,7 @@ import kotlin.coroutines.cancellation.CancellationException
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /**
@@ -72,13 +81,34 @@ fun rememberDetailBackCollapse(onBack: () -> Unit): DetailBackCollapseState {
     val state = remember { DetailBackCollapseState() }
     val scope = rememberCoroutineScope()
     val settleSpec = YoinMotion.predictiveBackSettleSpring<Float>()
+    val context = LocalContext.current
+    val activity = remember(context) { context.findActivity() }
+    val store = remember(context) {
+        (context.applicationContext as YoinApplication).container.experienceSessionStore
+    }
+
+    // Steady state = OPAQUE: the theme is translucent so the enter hand-off
+    // fades over the LIVE window beneath; once settled, convert to opaque so
+    // that window stops normally. The gesture converts back for its duration.
+    LaunchedEffect(Unit) {
+        delay(OPAQUE_AFTER_ENTER_MS)
+        if (store.detailBackPhase.value == DetailBackPhase.Idle) {
+            activity?.setTranslucentCompat(false)
+        }
+    }
 
     PredictiveBackHandler { events ->
         var initialTouchY = Float.NaN
         var sawGesture = false
         try {
             events.collect { event ->
-                sawGesture = true
+                if (!sawGesture) {
+                    sawGesture = true
+                    // Wake the window beneath: it renders the AOSP entering
+                    // side (already in place, moving with the gesture).
+                    activity?.setTranslucentCompat(true)
+                    store.detailBackPhase.value = DetailBackPhase.Gesture
+                }
                 if (initialTouchY.isNaN()) initialTouchY = event.touchY
                 state.swipeEdge = event.swipeEdge
                 state.touchYDelta = event.touchY - initialTouchY
@@ -87,10 +117,14 @@ fun rememberDetailBackCollapse(onBack: () -> Unit): DetailBackCollapseState {
                 state.chased.snapTo(
                     YoinMotion.backGestureEasing.transform(event.progress),
                 )
+                store.detailBackProgress.floatValue = state.chased.value
+                store.detailBackTouchYDelta.floatValue = state.touchYDelta
             }
             // COMMIT. Button-backs emit no progress events — skip straight to
             // the window dissolve. Gesture commits play the AOSP post-commit
-            // content exit (the fade lands within ~90ms) first.
+            // content exit (the fade lands within ~90ms) first, while the
+            // window beneath runs its own entering settle off the phase flip.
+            store.detailBackPhase.value = DetailBackPhase.Committed
             if (sawGesture && state.chased.value > 0.02f) {
                 state.exit.animateTo(1f, tween(durationMillis = 140))
             }
@@ -100,13 +134,30 @@ fun rememberDetailBackCollapse(onBack: () -> Unit): DetailBackCollapseState {
             // host scope. The Y offset needs no separate settle: its head
             // room collapses with the progress spring (maxShift ∝ p).
             scope.launch {
-                state.chased.animateTo(0f, settleSpec)
+                state.chased.animateTo(0f, settleSpec) {
+                    store.detailBackProgress.floatValue = value
+                }
                 state.touchYDelta = 0f
+                store.detailBackTouchYDelta.floatValue = 0f
+                store.detailBackPhase.value = DetailBackPhase.Idle
+                activity?.setTranslucentCompat(false)
             }
             throw e
         }
     }
     return state
+}
+
+private tailrec fun Context.findActivity(): Activity? = when (this) {
+    is Activity -> this
+    is ContextWrapper -> baseContext.findActivity()
+    else -> null
+}
+
+private fun Activity.setTranslucentCompat(translucent: Boolean) {
+    if (Build.VERSION.SDK_INT >= 30) {
+        runCatching { setTranslucent(translucent) }
+    }
 }
 
 /**
@@ -161,3 +212,7 @@ private const val DisplayBoundsMarginDp = 8f
 
 /** Slight rightward drift during the post-commit fade. */
 private const val ExitDriftDp = 24f
+
+// The enter hand-off is 380ms (200 hold + 180 fade); leave slack before the
+// window goes opaque and stops the one beneath.
+private const val OPAQUE_AFTER_ENTER_MS = 900L

@@ -81,6 +81,7 @@ import com.gpo.yoin.ui.memories.MemoryEntry
 import com.gpo.yoin.ui.memories.MemoriesScreen
 import com.gpo.yoin.ui.memories.MemoriesViewModel
 import com.gpo.yoin.ui.navigation.back.ShellBackOwner
+import com.gpo.yoin.ui.navigation.back.rememberDetailBackEnteringModifier
 import com.gpo.yoin.ui.navigation.back.resolveShellBackOwner
 import com.gpo.yoin.player.PlaybackEvent
 import com.gpo.yoin.player.SpotifyConnectFailure
@@ -435,7 +436,14 @@ private fun YoinShell(
                 YoinMotion.fadeIn(role = YoinMotionRole.Standard) togetherWith
                     YoinMotion.fadeOut(role = YoinMotionRole.Standard)
             },
-            modifier = Modifier.fillMaxSize(),
+            // AOSP "entering target": while a detail page's predictive back
+            // collapses its card above this (now-visible) window, the shell
+            // CONTENT sits 96dp left, scales in sync and follows the finger,
+            // then settles on commit. The bar below stays put — it is the
+            // static twin under the detail window's bar.
+            modifier = Modifier
+                .fillMaxSize()
+                .then(rememberDetailBackEnteringModifier(experienceSessionStore)),
             label = "shellSection",
         ) { section: YoinSection ->
             when (section) {

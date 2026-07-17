@@ -120,18 +120,17 @@ fun ArtistDetailScreen(
     )
 
     ProvideYoinMotionRole(role = YoinMotionRole.Expressive) {
-        ExpressivePageBackground(
-            accentColor = pageAccent,
-            isPlaying = isPlaying,
-            playbackSignal = playbackSignal,
-            modifier = modifier,
-        ) {
-            Box(modifier = Modifier.fillMaxSize()) {
-            // In-window predictive back (AOSP cross-activity math): only
-            // this content collapses; the bar is a sibling and never
-            // transforms — it scrubs its own morph off the same progress.
-            val backCollapse = rememberDetailBackCollapse(onBack = onBackClick)
-            Box(
+        // In-window predictive back (AOSP cross-activity math): the whole
+        // page — background included — collapses as one card over the LIVE
+        // window beneath (the Activity turns translucent for the gesture);
+        // the bar is a sibling on top and never transforms — it scrubs its
+        // own morph off the same progress.
+        val backCollapse = rememberDetailBackCollapse(onBack = onBackClick)
+        Box(modifier = modifier) {
+            ExpressivePageBackground(
+                accentColor = pageAccent,
+                isPlaying = isPlaying,
+                playbackSignal = playbackSignal,
                 modifier = Modifier
                     .fillMaxSize()
                     .detailBackCollapseTransform(backCollapse),
@@ -156,6 +155,7 @@ fun ArtistDetailScreen(
             }
             }
 
+            run {
                 // Persistent bottom bar — rendered in ALL states; Play/menu
                 // act on Content and no-op during Loading/Error.
                 val barHeroUrl = content?.heroCoverArtUrl
