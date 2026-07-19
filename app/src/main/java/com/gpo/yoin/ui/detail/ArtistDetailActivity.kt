@@ -126,6 +126,7 @@ class ArtistDetailActivity : ComponentActivity() {
                     morphBarOnBack = intent.getBooleanExtra(DETAIL_EXTRA_FROM_SHELL, false),
                     navSection = intent.detailOriginSection(),
                     enterBarHandoff = intent.getBooleanExtra(DETAIL_EXTRA_BAR_HANDOFF, false),
+                    barExitsOnBack = intent.getBooleanExtra(DETAIL_EXTRA_FROM_NOW_PLAYING, false),
                     onAlbumClick = { albumId ->
                         context.startActivity(AlbumDetailActivity.intent(context, albumId))
                     },

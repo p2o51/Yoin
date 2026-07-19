@@ -127,6 +127,20 @@ fun rememberDetailBackCollapse(onBack: () -> Unit): DetailBackCollapseState {
             // the window dissolve. Gesture commits play the AOSP post-commit
             // content exit (the fade lands within ~90ms) first, while the
             // window beneath runs its own entering settle off the phase flip.
+            //
+            // The window MUST be translucent — and the conversion must have
+            // had time to LAND — before finish() on every path: an opaque
+            // finish makes the system animate the whole revealed window in
+            // (a horizontal slide our alpha-hold override does not replace
+            // on this translucent-themed activity) — the "content jumps in
+            // from the right" on button-backs, and on gestures whose
+            // setTranslucent call had silently failed (runCatching). The
+            // button-back therefore converts FIRST and rides the 140ms
+            // content exit fade as the conversion window — same choreography
+            // as a gesture commit, minus the scrub.
+            if (!sawGesture) {
+                activity?.setTranslucentCompat(true)
+            }
             store.detailBackPhase.value = DetailBackPhase.Committed
             if (sawGesture && state.chased.value > 0.02f) {
                 // Finish the bar's scrub to full nav — the SAME spec the shell
@@ -136,6 +150,15 @@ fun rememberDetailBackCollapse(onBack: () -> Unit): DetailBackCollapseState {
                 // while the bottom one started from split — the pill flash).
                 scope.launch { state.chased.animateTo(1f, commitSpec) }
                 state.exit.animateTo(1f, tween(durationMillis = 140))
+            } else if (!sawGesture) {
+                // Button-back: play the same commit motion from rest — the
+                // card collapse + bar scrub (morph or slide-down) + content
+                // fade. Besides mirroring the gesture, this buys the stopped
+                // reveal window time to draw its first frame; finishing
+                // instantly showed a floating bar over a black void.
+                scope.launch { state.chased.animateTo(1f, commitSpec) }
+                state.exit.animateTo(1f, tween(durationMillis = 140))
+                delay(BUTTON_BACK_REVEAL_GRACE_MS)
             }
             onBack()
         } catch (e: CancellationException) {
@@ -255,3 +278,8 @@ private const val OPAQUE_AFTER_ENTER_MS = 900L
 
 // Post-settle pause before the opaque conversion (surface swap on a still frame).
 private const val TRANSLUCENT_RESTORE_DELAY_MS = 250L
+
+// Button-back only: extra beat after the commit motion so the just-woken
+// window beneath (stopped while we were opaque) gets a first frame up before
+// finish() — otherwise the dissolve reveals black.
+private const val BUTTON_BACK_REVEAL_GRACE_MS = 90L

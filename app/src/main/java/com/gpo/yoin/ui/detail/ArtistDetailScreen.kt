@@ -122,6 +122,9 @@ fun ArtistDetailScreen(
     // content slide-in to match the transparent hold).
     navSection: YoinSection = YoinSection.HOME,
     enterBarHandoff: Boolean = false,
+    // NP-origin: the back reveal is the expanded player (no bar there) — the
+    // bar rides the gesture down off-screen instead of morphing.
+    barExitsOnBack: Boolean = false,
     miniPlayerState: DetailMiniPlayerState? = null,
     playbackProgress: Float = 0f,
     modifier: Modifier = Modifier,
@@ -235,6 +238,11 @@ fun ArtistDetailScreen(
                         { 0f }
                     },
                     navSection = navSection,
+                    backExitProgress = if (barExitsOnBack) {
+                        { backCollapse.progress }
+                    } else {
+                        { 0f }
+                    },
                     modifier = Modifier.align(Alignment.BottomCenter),
                 ) { dismissMenu ->
                     if (showOpenInSpotify) {

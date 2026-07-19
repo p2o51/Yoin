@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import com.gpo.yoin.R
 import com.gpo.yoin.YoinApplication
 import com.gpo.yoin.ui.component.BarPlaySplitActions
@@ -51,6 +52,11 @@ fun DetailBottomBar(
     // shell's selectedSection at tap time) so a Library-origin back doesn't
     // preview a Home-selected bar.
     navSection: YoinSection = YoinSection.HOME,
+    // Predictive-back EXIT (NP-origin pages): the reveal is the expanded
+    // player, which has no bar — so instead of morphing, the whole bar rides
+    // the gesture DOWN off-screen 1:1 (cancel springs it back, commit
+    // finishes the ride). Mutually exclusive with backMorphProgress.
+    backExitProgress: () -> Float = { 0f },
     menuItems: @Composable ColumnScope.(dismissMenu: () -> Unit) -> Unit = {},
 ) {
     // Same choreography as the shell bar when NP expands over it: the bar
@@ -65,8 +71,13 @@ fun DetailBottomBar(
     ) {
         // LITERALLY the shell's bar composable — pixel identity between the
         // two windows by construction, plus the nav side of the morph for
-        // the predictive-back scrub.
+        // the predictive-back scrub. The graphicsLayer reads the exit scrub
+        // per frame (its own height + spare covers the nav-bar inset the
+        // scaffold carries internally).
         YoinButtonGroup(
+            modifier = Modifier.graphicsLayer {
+                translationY = size.height * 1.15f * backExitProgress().coerceIn(0f, 1f)
+            },
             selectedSection = navSection,
             currentTrackId = null,
             currentTrackTitle = miniPlayer?.title,
@@ -111,6 +122,8 @@ fun launchDetailFromShell(context: Context, intent: Intent) {
     if (!session.nowPlayingExpanded) {
         intent.putExtra(DETAIL_EXTRA_FROM_SHELL, true)
         intent.putExtra(DETAIL_EXTRA_ORIGIN_SECTION, session.selectedSection.name)
+    } else {
+        intent.putExtra(DETAIL_EXTRA_FROM_NOW_PLAYING, true)
     }
     intent.putExtra(DETAIL_EXTRA_BAR_HANDOFF, true)
     val options = ActivityOptions.makeCustomAnimation(
@@ -154,6 +167,13 @@ const val DETAIL_EXTRA_FROM_SHELL = "fromShell"
 
 /** Shell tab at launch time (enum name) — the back scrub's revealed selection. */
 const val DETAIL_EXTRA_ORIGIN_SECTION = "originSection"
+
+/**
+ * Set when the page opened OVER the expanded Now Playing: the back reveal has
+ * no bar, so the page's bar rides the back gesture down off-screen instead of
+ * morphing (and never lingers over the player after the dissolve).
+ */
+const val DETAIL_EXTRA_FROM_NOW_PLAYING = "fromNowPlaying"
 
 /**
  * Set on every launch that uses the bar hand-off window animation (200ms

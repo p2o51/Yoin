@@ -59,7 +59,7 @@ fun rememberDetailBackEnteringModifier(
 
     LaunchedEffect(phase) {
         when (phase) {
-            DetailBackPhase.Gesture -> if (pose.value < 1f) {
+            DetailBackPhase.Gesture -> if (pose.value > 0.001f && pose.value < 1f) {
                 // Normally already 1 (covered rest). A gesture racing the
                 // forward hand-off catches up quickly while still covered.
                 pose.animateTo(
@@ -72,16 +72,22 @@ fun rememberDetailBackEnteringModifier(
             }
             DetailBackPhase.Committed -> {
                 // Freeze the gesture pose, then run the AOSP post-commit settle.
+                // pose == 0 means this back reveals something that ISN'T the
+                // shell content (NP-origin: the reveal is the expanded player)
+                // — skip the snap/settle instead of running a phantom -96dp
+                // ride behind the overlay.
                 seedProgress = store.detailBackProgress.floatValue
                 seedTouchY = store.detailBackTouchYDelta.floatValue
-                pose.snapTo(1f)
-                pose.animateTo(
+                if (pose.value > 0.001f) {
+                    pose.snapTo(1f)
+                    pose.animateTo(
                     targetValue = 0f,
                     animationSpec = tween(
                         durationMillis = POST_COMMIT_DURATION_MS,
                         easing = EmphasizedEasing,
-                    ),
-                )
+                        ),
+                    )
+                }
                 store.detailBackProgress.floatValue = 0f
                 store.detailBackTouchYDelta.floatValue = 0f
                 store.detailBackPhase.value = DetailBackPhase.Idle
