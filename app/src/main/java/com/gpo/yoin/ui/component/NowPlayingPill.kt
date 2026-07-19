@@ -123,23 +123,39 @@ fun NowPlayingPill(
     )
     val clampedProgress = playbackProgress.coerceIn(0f, 1f)
 
-    // Track-change pulse: every hand-off — manual skip, auto-advance, or a
-    // remote device switching songs — bumps the pill content in from below
-    // (snap down + fade, spring back), so the bar acknowledges the change
-    // even when the player is closed. A plain graphicsLayer pulse, NOT
-    // AnimatedContent: this bar lives under the shell's shared-transition
-    // lookahead, which chokes on size-transforming containers (class KDoc of
-    // YoinButtonGroup). First track after idle skips the pulse — the idle→
-    // pill width morph is already the entrance.
-    val trackPulse = remember { Animatable(0f) }
-    val trackPulseSpec = YoinMotion.defaultSpatialSpec<Float>()
-    var lastPulsedTrackId by remember { mutableStateOf(currentTrackId) }
-    LaunchedEffect(currentTrackId) {
-        val previous = lastPulsedTrackId
-        lastPulsedTrackId = currentTrackId
-        if (currentTrackId != null && previous != null && currentTrackId != previous) {
-            trackPulse.snapTo(1f)
-            trackPulse.animateTo(0f, trackPulseSpec)
+    // Track-change PUSH: every hand-off — manual skip, auto-advance, or a
+    // remote device switching songs — pushes the next track's content in
+    // from the RIGHT while the old one slides out left (fast linear exit,
+    // Expressive spring landing). The pill renders [shown], a held copy of
+    // the track props, so the old song stays visible through its exit frame.
+    // Plain graphicsLayer motion, NOT AnimatedContent: this bar lives under
+    // the shell's shared-transition lookahead, which chokes on
+    // size-transforming containers (class KDoc of YoinButtonGroup). The
+    // idle→first-track transition skips the push — the idle→pill width
+    // morph is already the entrance.
+    val push = remember { Animatable(0f) }
+    val pushInSpec = YoinMotion.defaultSpatialSpec<Float>(role = YoinMotionRole.Expressive)
+    var shown by remember {
+        mutableStateOf(
+            PillTrack(currentTrackId, currentTrackTitle, currentTrackArtist, currentTrackCoverArtUrl),
+        )
+    }
+    LaunchedEffect(currentTrackId, currentTrackTitle, currentTrackArtist, currentTrackCoverArtUrl) {
+        val next =
+            PillTrack(currentTrackId, currentTrackTitle, currentTrackArtist, currentTrackCoverArtUrl)
+        val previous = shown
+        if (previous.id != null && next.id != null && previous.id != next.id) {
+            // A restart mid-push (rapid skips) lands the interrupted frame
+            // first so the two pushes never compound.
+            if (push.value != 0f) push.snapTo(0f)
+            push.animateTo(1f, tween(durationMillis = 90, easing = LinearEasing))
+            shown = next
+            push.snapTo(-1f)
+            push.animateTo(0f, pushInSpec)
+        } else {
+            // Same track (metadata/cover refresh) or idle transitions: sync
+            // silently.
+            shown = next
         }
     }
 
@@ -203,26 +219,29 @@ fun NowPlayingPill(
                     .fillMaxWidth()
                     .padding(horizontal = 10.dp, vertical = 4.dp)
                     .graphicsLayer {
-                        val pulse = trackPulse.value
-                        translationY = 9.dp.toPx() * pulse
-                        alpha = 1f - 0.55f * pulse
+                        // push 0→1 carries the OLD track out left; after the
+                        // swap it runs -1→0, the NEW track riding in from
+                        // the right.
+                        val p = push.value
+                        translationX = -PillPushTravel.toPx() * p
+                        alpha = 1f - 0.9f * kotlin.math.abs(p)
                     },
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 NowPlayingPillArtwork(
-                    currentTrackId = currentTrackId,
-                    currentTrackCoverArtUrl = currentTrackCoverArtUrl,
-                    currentTrackTitle = currentTrackTitle,
+                    currentTrackId = shown.id,
+                    currentTrackCoverArtUrl = shown.cover,
+                    currentTrackTitle = shown.title,
                     sharedTransitionScope = sharedTransitionScope,
                     animatedVisibilityScope = animatedVisibilityScope,
                 )
                 Spacer(modifier = Modifier.width(10.dp))
                 Column(modifier = Modifier.weight(1f)) {
-                    val titleText = currentTrackTitle ?: when {
+                    val titleText = shown.title ?: when {
                         connectionErrorMessage != null -> "Playback unavailable"
                         else -> "Nothing playing"
                     }
-                    val artistText = currentTrackArtist ?: when {
+                    val artistText = shown.artist ?: when {
                         connectionErrorMessage != null -> connectionErrorMessage
                         else -> "Tap to open player"
                     }
@@ -230,7 +249,7 @@ fun NowPlayingPill(
                     val titleModifier = if (
                         sharedTransitionScope != null &&
                         animatedVisibilityScope != null &&
-                        currentTrackTitle != null
+                        shown.title != null
                     ) {
                         val sharedContentConfig =
                             rememberActiveOnlySharedContentConfig(
@@ -249,7 +268,7 @@ fun NowPlayingPill(
                     } else {
                         Modifier
                     }
-                    val marqueeTitleModifier = if (currentTrackTitle != null) {
+                    val marqueeTitleModifier = if (shown.title != null) {
                         titleModifier.basicMarquee(
                             iterations = Int.MAX_VALUE,
                             repeatDelayMillis = 2000,
@@ -270,7 +289,7 @@ fun NowPlayingPill(
                     val artistModifier = if (
                         sharedTransitionScope != null &&
                         animatedVisibilityScope != null &&
-                        currentTrackArtist != null
+                        shown.artist != null
                     ) {
                         val sharedContentConfig =
                             rememberActiveOnlySharedContentConfig(
@@ -289,7 +308,7 @@ fun NowPlayingPill(
                     } else {
                         Modifier
                     }
-                    val marqueeArtistModifier = if (currentTrackArtist != null) {
+                    val marqueeArtistModifier = if (shown.artist != null) {
                         artistModifier.basicMarquee(
                             iterations = Int.MAX_VALUE,
                             repeatDelayMillis = 2000,
@@ -358,3 +377,14 @@ private fun NowPlayingPillArtwork(
         shadowElevation = 0.dp,
     )
 }
+
+/** The pill's held copy of the track props — swapped mid-push. */
+private data class PillTrack(
+    val id: String?,
+    val title: String?,
+    val artist: String?,
+    val cover: String?,
+)
+
+/** Horizontal travel of the track-change push. */
+private val PillPushTravel = 30.dp

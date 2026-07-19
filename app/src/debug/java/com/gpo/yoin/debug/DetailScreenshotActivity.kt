@@ -59,6 +59,7 @@ class DetailScreenshotActivity : ComponentActivity() {
                     playbackSignal = 0.35f,
                     // Fake pill state so the bottom bar can be QA'd without playback.
                     miniPlayerState = DetailMiniPlayerState(
+                        trackId = "qa-fake-track",
                         title = "Cherries & Cream",
                         artist = "Hannah Jadagu",
                         coverArtUrl = null,

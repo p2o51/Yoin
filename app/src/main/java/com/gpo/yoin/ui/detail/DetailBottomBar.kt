@@ -79,7 +79,9 @@ fun DetailBottomBar(
                 translationY = size.height * 1.15f * backExitProgress().coerceIn(0f, 1f)
             },
             selectedSection = navSection,
-            currentTrackId = null,
+            // Real id, not null: the pill's track-change push animation keys
+            // on it — with null the detail pages never animated song changes.
+            currentTrackId = miniPlayer?.trackId,
             currentTrackTitle = miniPlayer?.title,
             currentTrackArtist = miniPlayer?.artist,
             currentTrackCoverArtUrl = miniPlayer?.coverArtUrl,

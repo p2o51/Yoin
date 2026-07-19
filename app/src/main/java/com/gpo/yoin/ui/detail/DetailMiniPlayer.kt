@@ -15,6 +15,7 @@ import kotlinx.coroutines.flow.map
  * windows, so the bar mirrors the shell's pill from the same PlaybackManager.
  */
 data class DetailMiniPlayerState(
+    val trackId: String?,
     val title: String,
     val artist: String,
     val coverArtUrl: String?,
@@ -50,6 +51,7 @@ private fun PlaybackState.toDetailMiniPlayerState(
 ): DetailMiniPlayerState? {
     val track = currentTrack ?: pendingTrack ?: return null
     return DetailMiniPlayerState(
+        trackId = track.id.toString(),
         title = track.title.orEmpty(),
         artist = track.artist.orEmpty(),
         coverArtUrl = container.repository.resolveCoverUrl(track.coverArt, size = 240),
