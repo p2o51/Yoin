@@ -247,6 +247,7 @@ fun NowPlayingOverlayHost(
         // invoke them (progress bar, lyrics) recompose per tick.
         val nowPlayingPositionMs = viewModel.positionMs.collectAsState()
         val nowPlayingBufferedMs = viewModel.bufferedMs.collectAsState()
+        val nowPlayingIsPlaying by viewModel.isPlayingLive.collectAsState()
         // The raw FFT stream updates 10–30Hz; NowPlayingScreen only needs
         // "is a spectrum present", so subscribe to that distinct Boolean
         // and keep the frames out of composition entirely.
@@ -301,7 +302,16 @@ fun NowPlayingOverlayHost(
                 ),
         ) {
             NowPlayingScreen(
-                uiState = nowPlayingUiState,
+                // Playing.isPlaying is overridden with the EAGER projection:
+                // uiState's combine can serve a stale cached snapshot after a
+                // cold resubscribe (see isPlayingLive) and the wave bar must
+                // never disagree with the ticking playhead.
+                uiState = when (val s = nowPlayingUiState) {
+                    is NowPlayingUiState.Playing ->
+                        if (s.isPlaying == nowPlayingIsPlaying) s
+                        else s.copy(isPlaying = nowPlayingIsPlaying)
+                    else -> s
+                },
                 // Mirrors the dismissFraction pattern below: reader lambdas
                 // over collected State, invoked only at the consuming leaves.
                 positionMs = { nowPlayingPositionMs.value },

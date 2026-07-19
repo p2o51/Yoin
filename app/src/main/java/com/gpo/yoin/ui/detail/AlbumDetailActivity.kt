@@ -115,6 +115,8 @@ class AlbumDetailActivity : ComponentActivity() {
                         finish()
                     },
                     morphBarOnBack = intent.getBooleanExtra(DETAIL_EXTRA_FROM_SHELL, false),
+                    navSection = intent.detailOriginSection(),
+                    enterBarHandoff = intent.getBooleanExtra(DETAIL_EXTRA_BAR_HANDOFF, false),
                     onSongClick = { songId ->
                         val index = viewModel.getAlbumSongs()
                             .indexOfFirst { it.id.toString() == songId }

@@ -1,6 +1,7 @@
 package com.gpo.yoin
 
 import android.graphics.Color
+import android.os.Build
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
 import androidx.activity.enableEdgeToEdge
@@ -38,6 +39,32 @@ fun ComponentActivity.enableYoinEdgeToEdge() {
         statusBarStyle = SystemBarStyle.auto(Color.TRANSPARENT, Color.TRANSPARENT),
         navigationBarStyle = SystemBarStyle.auto(Color.TRANSPARENT, Color.TRANSPARENT),
     )
+    requestPeakRefreshRate()
+}
+
+/**
+ * Opt the window into the display's fastest refresh mode at the CURRENT
+ * resolution. The app never asked before, and several OEMs (foldables
+ * especially) hold un-opted apps at 60Hz via adaptive-refresh heuristics —
+ * every spring in the app then paces at 60 even though nothing in code caps
+ * it. preferredDisplayModeId (not preferredRefreshRate) because the soft
+ * hint is exactly what those heuristics ignore.
+ */
+private fun ComponentActivity.requestPeakRefreshRate() {
+    val display = if (Build.VERSION.SDK_INT >= 30) display else return
+    val current = display?.mode ?: return
+    val best = display.supportedModes
+        .filter {
+            it.physicalWidth == current.physicalWidth &&
+                it.physicalHeight == current.physicalHeight
+        }
+        .maxByOrNull { it.refreshRate }
+        ?: return
+    if (best.modeId != current.modeId) {
+        window.attributes = window.attributes.apply {
+            preferredDisplayModeId = best.modeId
+        }
+    }
 }
 
 /**

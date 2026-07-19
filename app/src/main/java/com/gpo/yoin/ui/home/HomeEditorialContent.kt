@@ -681,7 +681,12 @@ private fun ActivitySmallCard(
             Spacer(modifier = Modifier.weight(1f))
             Text(
                 text = entry.title,
-                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+                // titleSmall's stock 20sp leading reads as two separate rows
+                // when this wraps; tightened so a 2-line title is one block.
+                style = MaterialTheme.typography.titleSmall.copy(
+                    fontWeight = FontWeight.SemiBold,
+                    lineHeight = 17.sp,
+                ),
                 color = colors.content,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
@@ -847,8 +852,10 @@ private fun RecentlyAddedSection(
         // ONE shelf: the 2×2 track grid is the shelf's first card and the
         // albums follow it, all panning together (user call — the albums
         // scrolling alone under a pinned grid read as two disjoint widgets).
-        // Full-bleed with page-margin content padding + scroll-aware edge
-        // fades, per the no-mid-page-truncation rule.
+        // Full-bleed with page-margin content padding; content clips hard at
+        // the screen edge — no edge-fade scrim here (2026-07-18 ruling: the
+        // translucent mask read as clutter on this shelf; the seamless cut
+        // wins).
         BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
             // The grid keeps its old resting share of the viewport (2.6 of
             // 3.6 weight units) so the resting frame is unchanged: grid left,
@@ -858,8 +865,7 @@ private fun RecentlyAddedSection(
             LazyRow(
                 state = shelfState,
                 modifier = Modifier
-                    .ignoreParentHorizontalPadding(16.dp)
-                    .horizontalEdgeFadeOnScroll(shelfState),
+                    .ignoreParentHorizontalPadding(16.dp),
                 contentPadding = PaddingValues(horizontal = 16.dp),
                 horizontalArrangement = Arrangement.spacedBy(14.dp),
                 // Both halves hang from the top. The track covers are sized

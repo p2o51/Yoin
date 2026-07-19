@@ -11,8 +11,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.runtime.derivedStateOf
 import com.gpo.yoin.ui.experience.DetailBackPhase
 import com.gpo.yoin.ui.experience.ExperienceSessionStore
+import com.gpo.yoin.ui.experience.voteHighFrameRate
 import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinMotionRole
 import kotlin.math.abs
@@ -33,72 +35,124 @@ import kotlin.math.min
  * and read only inside the graphicsLayer lambda — 60Hz gesture frames never
  * recompose the shell.
  *
+ * ONE Animatable ([pose], 0 = identity, 1 = the −96dp entering start) owns
+ * the x-offset for its whole life: the forward hand-off recedes 0→1 (the
+ * AOSP "exit-behind" parallax), the covered rest HOLDS 1 so a back gesture's
+ * very first visible frame is already in pose, and the commit settle rides
+ * 1→0. The previous shape gated a hard −96dp step on the phase flag plus a
+ * LaunchedEffect seed — when the shell had been stopped (opaque detail on
+ * top) the commit's first frames rendered at identity until the effect got
+ * scheduled, then snapped left: the occasional right-to-left jump on return.
+ *
  * Apply to the shell's CONTENT only — its bottom bar must stay put (it is
  * pixel-aligned under the detail window's bar).
  */
 @Composable
-fun rememberDetailBackEnteringModifier(store: ExperienceSessionStore): Modifier {
-    val settle = remember { Animatable(0f) }
+fun rememberDetailBackEnteringModifier(
+    store: ExperienceSessionStore,
+    detailChromeActive: Boolean,
+): Modifier {
+    val pose = remember { Animatable(0f) }
     var seedProgress by remember { mutableFloatStateOf(0f) }
     var seedTouchY by remember { mutableFloatStateOf(0f) }
     val phase by store.detailBackPhase
 
     LaunchedEffect(phase) {
-        if (phase == DetailBackPhase.Committed) {
-            // Freeze the gesture pose, then run the AOSP post-commit settle.
-            seedProgress = store.detailBackProgress.floatValue
-            seedTouchY = store.detailBackTouchYDelta.floatValue
-            settle.snapTo(1f)
-            settle.animateTo(
-                targetValue = 0f,
-                animationSpec = tween(
-                    durationMillis = POST_COMMIT_DURATION_MS,
-                    easing = EmphasizedEasing,
-                ),
-            )
-            store.detailBackProgress.floatValue = 0f
-            store.detailBackTouchYDelta.floatValue = 0f
-            store.detailBackPhase.value = DetailBackPhase.Idle
+        when (phase) {
+            DetailBackPhase.Gesture -> if (pose.value < 1f) {
+                // Normally already 1 (covered rest). A gesture racing the
+                // forward hand-off catches up quickly while still covered.
+                pose.animateTo(
+                    targetValue = 1f,
+                    animationSpec = tween(
+                        durationMillis = POST_COMMIT_DURATION_MS / 3,
+                        easing = EmphasizedEasing,
+                    ),
+                )
+            }
+            DetailBackPhase.Committed -> {
+                // Freeze the gesture pose, then run the AOSP post-commit settle.
+                seedProgress = store.detailBackProgress.floatValue
+                seedTouchY = store.detailBackTouchYDelta.floatValue
+                pose.snapTo(1f)
+                pose.animateTo(
+                    targetValue = 0f,
+                    animationSpec = tween(
+                        durationMillis = POST_COMMIT_DURATION_MS,
+                        easing = EmphasizedEasing,
+                    ),
+                )
+                store.detailBackProgress.floatValue = 0f
+                store.detailBackTouchYDelta.floatValue = 0f
+                store.detailBackPhase.value = DetailBackPhase.Idle
+                // Pre-effect Committed frames read these; keep them clean so
+                // the NEXT commit's first frames sit at scale 1 / −96dp.
+                seedProgress = 0f
+                seedTouchY = 0f
+            }
+            DetailBackPhase.Idle -> Unit
+        }
+    }
+    // Forward hand-off recede / covered rest / plain-close release. Parked
+    // while a back phase runs — the phase key relaunches this and the guard
+    // keeps it out of the settle's way (both end poses coincide anyway).
+    LaunchedEffect(detailChromeActive, phase) {
+        if (phase == DetailBackPhase.Idle) {
+            val target = if (detailChromeActive) 1f else 0f
+            if (pose.value != target || pose.targetValue != target) {
+                pose.animateTo(
+                    targetValue = target,
+                    animationSpec = tween(
+                        durationMillis = POST_COMMIT_DURATION_MS,
+                        easing = EmphasizedEasing,
+                    ),
+                )
+            }
         }
     }
 
-    return remember(store) {
-        Modifier.graphicsLayer {
-            val f: Float
+    // ARR vote: the commit settle / forward recede run with no finger down.
+    val entering by remember { derivedStateOf { pose.value > 0.001f } }
+    return Modifier.voteHighFrameRate(entering).then(
+        remember(store) {
+            Modifier.graphicsLayer {
+                val behind = pose.value
+            if (behind <= 0f) return@graphicsLayer
             val p: Float
             val ty: Float
             when (store.detailBackPhase.value) {
                 DetailBackPhase.Gesture -> {
-                    f = 1f
                     p = store.detailBackProgress.floatValue
                     ty = store.detailBackTouchYDelta.floatValue
                 }
                 DetailBackPhase.Committed -> {
-                    f = settle.value
                     p = seedProgress
                     ty = seedTouchY
                 }
-                DetailBackPhase.Idle -> return@graphicsLayer
+                DetailBackPhase.Idle -> {
+                    p = 0f
+                    ty = 0f
+                }
             }
-            if (f <= 0f) return@graphicsLayer
 
             // Entering rect: fullscreen offset -96dp, scaled centered in sync
             // with the closing card; everything eases out with the settle.
-            val scale = 1f - (1f - BackMotionTokens.PopPageScaleTarget) * p * f
+            val scale = 1f - (1f - BackMotionTokens.PopPageScaleTarget) * p * behind
             scaleX = scale
             scaleY = scale
-            translationX = -ENTERING_START_OFFSET_DP * density * f
+            translationX = -ENTERING_START_OFFSET_DP * density * behind
 
             if (ty != 0f) {
-                val halfH = size.height / 2f
-                val ratio = min(halfH, abs(ty)) / halfH
-                val decelerated = 1f - (1f - ratio) * (1f - ratio)
-                val maxShift =
-                    max(0f, (size.height - size.height * scale) / 2f - DISPLAY_MARGIN_DP * density)
-                translationY = maxShift * decelerated * (if (ty < 0f) -1f else 1f) * f
+                    val halfH = size.height / 2f
+                    val ratio = min(halfH, abs(ty)) / halfH
+                    val decelerated = 1f - (1f - ratio) * (1f - ratio)
+                    val maxShift =
+                        max(0f, (size.height - size.height * scale) / 2f - DISPLAY_MARGIN_DP * density)
+                    translationY = maxShift * decelerated * (if (ty < 0f) -1f else 1f) * behind
+                }
             }
-        }
-    }
+        },
+    )
 }
 
 /**

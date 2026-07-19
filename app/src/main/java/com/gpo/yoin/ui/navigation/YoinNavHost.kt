@@ -323,7 +323,14 @@ private fun YoinShell(
     // on its own identical bar (see detail_bar_handoff_enter.xml). The flag
     // stays up while the detail stack is on top so the predictive-back
     // preview reveals a matching bar; the restore effect below flips it back.
-    val armDetailChrome = { experienceSessionStore.setDetailChromeActive(true) }
+    // With Now Playing expanded the shell bar is hidden and the back reveal
+    // is NP itself — arming chrome would only queue a phantom morph (and a
+    // wrong split→nav scrub on the detail's back), so skip it.
+    val armDetailChrome = {
+        if (!experienceSessionStore.state.value.nowPlayingExpanded) {
+            experienceSessionStore.setDetailChromeActive(true)
+        }
+    }
     val navigateToAlbumFromShell: (String, String?) -> Unit = { albumId, sharedTransitionKey ->
         armDetailChrome()
         dismissMemoriesIfActive()
@@ -447,7 +454,12 @@ private fun YoinShell(
             // static twin under the detail window's bar.
             modifier = Modifier
                 .fillMaxSize()
-                .then(rememberDetailBackEnteringModifier(experienceSessionStore)),
+                .then(
+                    rememberDetailBackEnteringModifier(
+                        experienceSessionStore,
+                        experienceSession.detailChromeActive,
+                    ),
+                ),
             label = "shellSection",
         ) { section: YoinSection ->
             when (section) {
@@ -621,8 +633,13 @@ private fun YoinShell(
         // exact bounds/color, so the true crossfade bar→pill happens between
         // the two windows; the real bar stays put beneath and is simply there
         // again on return (including the predictive-back preview).
+        // Cold-launch entrance: start hidden for one frame so the same
+        // slide+fade that plays after a Now Playing dismiss also greets the
+        // app open — the bar rises in instead of just being there.
+        var barEntered by remember { mutableStateOf(false) }
+        LaunchedEffect(Unit) { barEntered = true }
         AnimatedVisibility(
-            visible = !showNowPlaying,
+            visible = barEntered && !showNowPlaying,
             enter = YoinMotion.fadeIn(role = YoinMotionRole.Standard) +
                 YoinMotion.slideInVertically(role = YoinMotionRole.Standard) { it + navBarBottomPx },
             exit = YoinMotion.fadeOut(role = YoinMotionRole.Standard) +

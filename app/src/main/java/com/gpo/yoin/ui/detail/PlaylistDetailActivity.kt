@@ -120,6 +120,8 @@ class PlaylistDetailActivity : ComponentActivity() {
                             finish()
                         },
                         morphBarOnBack = intent.getBooleanExtra(DETAIL_EXTRA_FROM_SHELL, false),
+                        navSection = intent.detailOriginSection(),
+                        enterBarHandoff = intent.getBooleanExtra(DETAIL_EXTRA_BAR_HANDOFF, false),
                         onPlayAllClick = { playFrom(startIndex = 0, shuffle = false) },
                         onShufflePlay = { playFrom(startIndex = 0, shuffle = true) },
                         onSongClick = { songId ->

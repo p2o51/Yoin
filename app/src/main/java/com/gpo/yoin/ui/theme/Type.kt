@@ -1,7 +1,9 @@
 package com.gpo.yoin.ui.theme
 
 import androidx.compose.material3.Typography
+import androidx.compose.ui.text.ExperimentalTextApi
 import androidx.compose.ui.text.font.Font
+import androidx.compose.ui.text.font.FontVariation
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
@@ -12,6 +14,32 @@ val GoogleSansFlex = FontFamily(
     Font(R.font.google_sans_flex_500, FontWeight.Medium),
     Font(R.font.google_sans_flex_600, FontWeight.SemiBold),
     Font(R.font.google_sans_flex_700, FontWeight.Bold),
+)
+
+/**
+ * Rounded cuts from the FULL Google Sans Flex variable font (ROND 100 +
+ * exact wght instancing) — the softened-terminal voice the four static
+ * files can't produce. Reserved for the lyric current line, where the
+ * rounding reads at display sizes.
+ */
+@OptIn(ExperimentalTextApi::class)
+val GoogleSansFlexRounded = FontFamily(
+    Font(
+        R.font.google_sans_flex_variable,
+        weight = FontWeight.Medium,
+        variationSettings = FontVariation.Settings(
+            FontVariation.weight(FontWeight.Medium.weight),
+            FontVariation.Setting("ROND", 100f),
+        ),
+    ),
+    Font(
+        R.font.google_sans_flex_variable,
+        weight = FontWeight.SemiBold,
+        variationSettings = FontVariation.Settings(
+            FontVariation.weight(FontWeight.SemiBold.weight),
+            FontVariation.Setting("ROND", 100f),
+        ),
+    ),
 )
 
 private val defaultTypography = Typography()

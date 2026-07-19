@@ -13,6 +13,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import com.gpo.yoin.R
+import com.gpo.yoin.YoinApplication
 import com.gpo.yoin.ui.component.BarPlaySplitActions
 import com.gpo.yoin.ui.component.YoinButtonGroup
 import com.gpo.yoin.ui.navigation.YoinSection
@@ -46,6 +47,10 @@ fun DetailBottomBar(
     // reveal the shell. Pages stacked over another detail keep 0 — the bar
     // beneath is identical, so the correct read is "the bar doesn't move".
     backMorphProgress: () -> Float = { 0f },
+    // The shell tab the back scrub reveals — carried from the launch (the
+    // shell's selectedSection at tap time) so a Library-origin back doesn't
+    // preview a Home-selected bar.
+    navSection: YoinSection = YoinSection.HOME,
     menuItems: @Composable ColumnScope.(dismissMenu: () -> Unit) -> Unit = {},
 ) {
     // Same choreography as the shell bar when NP expands over it: the bar
@@ -62,7 +67,7 @@ fun DetailBottomBar(
         // two windows by construction, plus the nav side of the morph for
         // the predictive-back scrub.
         YoinButtonGroup(
-            selectedSection = YoinSection.HOME,
+            selectedSection = navSection,
             currentTrackId = null,
             currentTrackTitle = miniPlayer?.title,
             currentTrackArtist = miniPlayer?.artist,
@@ -93,9 +98,21 @@ fun DetailBottomBar(
  * the incoming window holds transparent while the shell bar morphs, then
  * fades in (see res/anim/detail_bar_handoff_enter.xml). The shell arms its
  * bar morph (detailChromeActive) before calling this.
+ *
+ * Reads the session store at launch time to stamp the intent with the true
+ * origin: with Now Playing expanded the page opens OVER the player, so the
+ * back scrub must NOT morph split→nav (the reveal is NP, which has no bar);
+ * otherwise the current shell tab rides along so the back preview highlights
+ * the section the user actually left.
  */
 fun launchDetailFromShell(context: Context, intent: Intent) {
-    intent.putExtra(DETAIL_EXTRA_FROM_SHELL, true)
+    val session = (context.applicationContext as YoinApplication)
+        .container.experienceSessionStore.state.value
+    if (!session.nowPlayingExpanded) {
+        intent.putExtra(DETAIL_EXTRA_FROM_SHELL, true)
+        intent.putExtra(DETAIL_EXTRA_ORIGIN_SECTION, session.selectedSection.name)
+    }
+    intent.putExtra(DETAIL_EXTRA_BAR_HANDOFF, true)
     val options = ActivityOptions.makeCustomAnimation(
         context,
         R.anim.detail_bar_handoff_enter,
@@ -103,6 +120,12 @@ fun launchDetailFromShell(context: Context, intent: Intent) {
     )
     context.startActivity(intent, options.toBundle())
 }
+
+/** [DETAIL_EXTRA_ORIGIN_SECTION] → [YoinSection], defaulting to HOME. */
+fun Intent.detailOriginSection(): YoinSection =
+    getStringExtra(DETAIL_EXTRA_ORIGIN_SECTION)
+        ?.let { name -> YoinSection.entries.firstOrNull { it.name == name } }
+        ?: YoinSection.HOME
 
 /**
  * Detail Activities call this in onCreate: the CLOSE transition becomes an
@@ -128,3 +151,13 @@ fun Activity.applyDetailCloseTransition() {
  * chrome. Detail→detail pushes lack it — the bar beneath is identical.
  */
 const val DETAIL_EXTRA_FROM_SHELL = "fromShell"
+
+/** Shell tab at launch time (enum name) — the back scrub's revealed selection. */
+const val DETAIL_EXTRA_ORIGIN_SECTION = "originSection"
+
+/**
+ * Set on every launch that uses the bar hand-off window animation (200ms
+ * transparent hold): the page's content slide-in delays to match. Absent on
+ * detail→detail pushes, whose window appears immediately.
+ */
+const val DETAIL_EXTRA_BAR_HANDOFF = "barHandoff"

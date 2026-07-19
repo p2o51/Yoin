@@ -85,6 +85,7 @@ import com.gpo.yoin.ui.component.YoinLoadingIndicator
 import com.gpo.yoin.ui.component.minimumTouchTarget
 import com.gpo.yoin.ui.experience.RevealState
 import com.gpo.yoin.ui.experience.rememberRevealState
+import com.gpo.yoin.ui.navigation.YoinSection
 import com.gpo.yoin.ui.theme.ProvideYoinMotionRole
 import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.rememberCoverColorScheme
@@ -141,6 +142,11 @@ fun AlbumDetailScreen(
     // True when this window sits directly over the shell: predictive back
     // scrubs the bar toward nav chrome (matching the reveal underneath).
     morphBarOnBack: Boolean = false,
+    // Shell tab at launch time (the back scrub's revealed selection) and
+    // whether the launch used the bar hand-off window animation (delays the
+    // content slide-in to match the transparent hold).
+    navSection: YoinSection = YoinSection.HOME,
+    enterBarHandoff: Boolean = false,
     miniPlayerState: DetailMiniPlayerState? = null,
     playbackProgress: Float = 0f,
     modifier: Modifier = Modifier,
@@ -155,14 +161,20 @@ fun AlbumDetailScreen(
         // the bar is a sibling on top and never transforms — it scrubs its
         // own morph off the same progress.
         val backCollapse = rememberDetailBackCollapse(onBack = onBackClick)
-        Box(modifier = modifier) {
+        val enterIntro = rememberDetailEnterIntro(enterBarHandoff)
+        Box(
+            modifier = modifier.then(
+                rememberDetailMotionFrameRateModifier(backCollapse, enterIntro),
+            ),
+        ) {
             ExpressivePageBackground(
                 accentColor = pageAccent,
                 isPlaying = isPlaying,
                 playbackSignal = playbackSignal,
                 modifier = Modifier
                     .fillMaxSize()
-                    .detailBackCollapseTransform(backCollapse),
+                    .detailBackCollapseTransform(backCollapse)
+                    .detailEnterIntroTransform(enterIntro),
             ) {
             AnimatedContent(
                 targetState = uiState,
@@ -232,6 +244,7 @@ fun AlbumDetailScreen(
                     } else {
                         { 0f }
                     },
+                    navSection = navSection,
                     modifier = Modifier.align(Alignment.BottomCenter),
                 ) { dismissMenu ->
                     if (onOpenArtist != null) {

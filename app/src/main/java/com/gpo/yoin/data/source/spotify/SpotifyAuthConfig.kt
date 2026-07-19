@@ -58,6 +58,13 @@ object SpotifyAuthConfig {
         // right "playing from X" context and recommendations work). Without
         // this scope we fall back to App Remote's bare-track-uri path.
         "user-modify-playback-state",
+        // Web API GET /me/player/devices — the Now Playing Devices sheet.
+        // Playback runs through App Remote, but LISTING Connect devices is a
+        // Web API read that 403s without this scope — the sheet sat on
+        // "No Spotify devices found" forever. NOT in REQUIRED_SCOPES (one
+        // sheet, not worth forcing a reconnect); pre-bump profiles surface a
+        // reconnect hint in the sheet instead.
+        "user-read-playback-state",
         // Web API GET /me/player/recently-played — sources the home Activities
         // feed from the user's real Spotify listening (album/artist/song
         // context). Deliberately NOT in REQUIRED_SCOPES: a profile minted

@@ -1,5 +1,6 @@
 package com.gpo.yoin.ui.nowplaying
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
+import com.gpo.yoin.ui.experience.voteHighFrameRate
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.AnimatedVisibilityScope
@@ -24,6 +25,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.foundation.pager.PagerState
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.layout.Arrangement
@@ -632,6 +634,9 @@ private fun PlayingContent(
         },
         label = "nowPlayingPosture",
     ) { layoutMode ->
+    // Posture swaps animate with no finger down — vote High for their
+    // duration or the fold/unfold spring paces at ARR-Normal (60Hz).
+    val posturing = transition.currentState != transition.targetState
     when (layoutMode) {
         LayoutMode.Wide -> WidePlayingContent(
             state = state,
@@ -686,7 +691,7 @@ private fun PlayingContent(
             onCastClick = onCastClick,
             sharedTransitionScope = sharedTransitionScope,
             animatedVisibilityScope = animatedVisibilityScope,
-            modifier = modifier,
+            modifier = modifier.voteHighFrameRate(posturing),
         )
         LayoutMode.Tabletop -> TabletopPlayingContent(
             state = state,
@@ -739,7 +744,7 @@ private fun PlayingContent(
             onCastClick = onCastClick,
             sharedTransitionScope = sharedTransitionScope,
             animatedVisibilityScope = animatedVisibilityScope,
-            modifier = modifier,
+            modifier = modifier.voteHighFrameRate(posturing),
         )
         LayoutMode.Compact -> CompactPlayingContent(
             state = state,
@@ -795,7 +800,7 @@ private fun PlayingContent(
             onCastClick = onCastClick,
             sharedTransitionScope = sharedTransitionScope,
             animatedVisibilityScope = animatedVisibilityScope,
-            modifier = modifier,
+            modifier = modifier.voteHighFrameRate(posturing),
         )
     }
     }
@@ -912,6 +917,11 @@ private fun CompactPlayingContent(
     val detailProgress = resolvedStageProgress.detail
     val immersiveProgress = resolvedStageProgress.immersive
     val compactProgress = resolvedStageProgress.compact
+    // Stage reshapes (Compact ⇄ Expanded) settle after the finger lifts —
+    // vote High while any stage value is moving.
+    val stageMoving by remember(resolvedStageProgress) {
+        derivedStateOf { resolvedStageProgress.isMoving }
+    }
 
     // The Now Playing overlay enters/exits via a shared-element cover morph
     // (mini <-> full) owned by [animatedVisibilityScope]. The
@@ -969,15 +979,23 @@ private fun CompactPlayingContent(
         pageCount = { 3 },
     )
     val pagerScope = rememberCoroutineScope()
+    // ONE driver per direction, no write-back hijack: the old shape synced the
+    // VM off pagerState.currentPage, so a 2-page tab jump (Lyrics→Note) wrote
+    // About back to the VM as the pager swept across it, whose effect then
+    // re-targeted the animation mid-flight — the pager stopped on (or between)
+    // the wrong page. Clicks/external writes animate; the VM syncs only from
+    // SETTLED pages; settled writes re-enter as no-ops (target already met).
     LaunchedEffect(detailPage) {
-        if (pagerState.currentPage != detailPage.ordinal) {
-            pagerState.animateScrollToPage(detailPage.ordinal)
+        if (detailPage.ordinal != pagerState.targetPage) {
+            pagerState.settleToPage(detailPage.ordinal)
         }
     }
-    LaunchedEffect(pagerState.currentPage) {
-        val page = NowPlayingDetailPage.entries[pagerState.currentPage]
-        if (page != detailPage) onDetailPageChange(page)
-        if (page == NowPlayingDetailPage.About) onAboutOpened()
+    LaunchedEffect(pagerState) {
+        snapshotFlow { pagerState.settledPage }.collect { settled ->
+            val page = NowPlayingDetailPage.entries[settled]
+            if (page != detailPage) onDetailPageChange(page)
+            if (page == NowPlayingDetailPage.About) onAboutOpened()
+        }
     }
     // The bottom accessory strip mirrors the detail pager one-way. It must
     // NOT share pagerState: a PagerState supports a single attached pager,
@@ -1002,6 +1020,7 @@ private fun CompactPlayingContent(
     BoxWithConstraints(
         modifier = modifier
             .fillMaxSize()
+            .voteHighFrameRate(stageMoving)
             .padding(WindowInsets.systemBars.asPaddingValues()),
     ) {
         val horizontalPadding = 24.dp
@@ -1104,6 +1123,7 @@ private fun CompactPlayingContent(
                                     coverArtUrl = state.coverArtUrl,
                                     sharedTransitionScope = sharedTransitionScope,
                                     animatedVisibilityScope = animatedVisibilityScope,
+                                    interactionSource = coverClickSource,
                                     modifier = Modifier
                                         .fillMaxHeight()
                                         .graphicsLayer {
@@ -1175,12 +1195,11 @@ private fun CompactPlayingContent(
                     Spacer(modifier = Modifier.height(lerpDp(16.dp, 8.dp, detailProgress)))
 
                     StageTabs(
-                        selected = NowPlayingDetailPage.entries[pagerState.currentPage],
+                        selected = NowPlayingDetailPage.entries[pagerState.targetPage],
                         detailProgress = detailProgress,
                         height = tabHeight,
                         onSelect = { page ->
-                            onDetailPageChange(page)
-                            pagerScope.launch { pagerState.animateScrollToPage(page.ordinal) }
+                            pagerScope.launch { pagerState.settleToPage(page.ordinal) }
                         },
                         modifier = Modifier.padding(horizontal = horizontalPadding),
                     )
@@ -1583,15 +1602,23 @@ private fun WidePlayingContent(
         pageCount = { 3 },
     )
     val pagerScope = rememberCoroutineScope()
+    // ONE driver per direction, no write-back hijack: the old shape synced the
+    // VM off pagerState.currentPage, so a 2-page tab jump (Lyrics→Note) wrote
+    // About back to the VM as the pager swept across it, whose effect then
+    // re-targeted the animation mid-flight — the pager stopped on (or between)
+    // the wrong page. Clicks/external writes animate; the VM syncs only from
+    // SETTLED pages; settled writes re-enter as no-ops (target already met).
     LaunchedEffect(detailPage) {
-        if (pagerState.currentPage != detailPage.ordinal) {
-            pagerState.animateScrollToPage(detailPage.ordinal)
+        if (detailPage.ordinal != pagerState.targetPage) {
+            pagerState.settleToPage(detailPage.ordinal)
         }
     }
-    LaunchedEffect(pagerState.currentPage) {
-        val page = NowPlayingDetailPage.entries[pagerState.currentPage]
-        if (page != detailPage) onDetailPageChange(page)
-        if (page == NowPlayingDetailPage.About) onAboutOpened()
+    LaunchedEffect(pagerState) {
+        snapshotFlow { pagerState.settledPage }.collect { settled ->
+            val page = NowPlayingDetailPage.entries[settled]
+            if (page != detailPage) onDetailPageChange(page)
+            if (page == NowPlayingDetailPage.About) onAboutOpened()
+        }
     }
 
     // Contextual action bar at the right-column bottom (search/translate/recenter
@@ -1717,6 +1744,7 @@ private fun WidePlayingContent(
                                 // its cover is a fixed dp size, so its bounds stay finite.)
                                 sharedTransitionScope = null,
                                 animatedVisibilityScope = null,
+                                interactionSource = coverInteraction,
                                 modifier = Modifier
                                     .size(coverSize)
                                     .noRippleClickable(interactionSource = coverInteraction) {
@@ -1770,30 +1798,54 @@ private fun WidePlayingContent(
                                     Spacer(modifier = Modifier.width(8.dp))
                                 }
                                 Spacer(modifier = Modifier.height(16.dp))
+                                // Same press language as Compact: route stretch
+                                // (grow on press, dip on release), no ripple.
+                                val wideTitleRoute = albumId?.let { id ->
+                                    rememberNowPlayingRouteInteraction(
+                                        onNavigate = { onAlbumClick(id) },
+                                    )
+                                }
                                 Text(
                                     text = state.songTitle,
                                     style = MaterialTheme.typography.headlineSmall,
                                     color = MaterialTheme.colorScheme.onSurface,
                                     maxLines = 2,
                                     overflow = TextOverflow.Ellipsis,
-                                    modifier = if (albumId != null) {
-                                        Modifier.clickable { onAlbumClick(albumId) }
-                                    } else {
+                                    modifier = wideTitleRoute?.let { route ->
                                         Modifier
-                                    },
+                                            .graphicsLayer {
+                                                scaleX = route.scaleX
+                                                transformOrigin = TransformOrigin(0f, 0.5f)
+                                            }
+                                            .noRippleClickable(
+                                                interactionSource = route.interactionSource,
+                                                onClick = route.onClick,
+                                            )
+                                    } ?: Modifier,
                                 )
                                 Spacer(modifier = Modifier.height(4.dp))
+                                val wideArtistRoute = artistId?.let { id ->
+                                    rememberNowPlayingRouteInteraction(
+                                        onNavigate = { onArtistClick(id) },
+                                    )
+                                }
                                 Text(
                                     text = state.artist,
                                     style = MaterialTheme.typography.titleMedium,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis,
-                                    modifier = if (artistId != null) {
-                                        Modifier.clickable { onArtistClick(artistId) }
-                                    } else {
+                                    modifier = wideArtistRoute?.let { route ->
                                         Modifier
-                                    },
+                                            .graphicsLayer {
+                                                scaleX = route.scaleX
+                                                transformOrigin = TransformOrigin(0f, 0.5f)
+                                            }
+                                            .noRippleClickable(
+                                                interactionSource = route.interactionSource,
+                                                onClick = route.onClick,
+                                            )
+                                    } ?: Modifier,
                                 )
                             }
                     Spacer(modifier = Modifier.height(16.dp))
@@ -1845,10 +1897,9 @@ private fun WidePlayingContent(
                     // Small text indicator (collapsed-card feel), not the big button
                     // group. Inset to align with the lyric text below.
                     CompactTextTabs(
-                        selected = NowPlayingDetailPage.entries[pagerState.currentPage],
+                        selected = NowPlayingDetailPage.entries[pagerState.targetPage],
                         onSelect = { page ->
-                            onDetailPageChange(page)
-                            pagerScope.launch { pagerState.animateScrollToPage(page.ordinal) }
+                            pagerScope.launch { pagerState.settleToPage(page.ordinal) }
                         },
                         modifier = Modifier.padding(start = 24.dp),
                     )
@@ -2104,11 +2155,20 @@ private fun TabletopPlayingContent(
         animationSpec = YoinMotion.slowSpatialSpring(),
         label = "tabletopLyricsEmphasis",
     )
+    // The lyric enlarge/shrink runs long after the tap — vote High while the
+    // emphasis spring is between its endpoints.
+    val emphasisMoving by remember {
+        derivedStateOf { lyricsEmphasis > 0.001f && lyricsEmphasis < 0.999f }
+    }
 
     val hinge = LocalYoinWindowInfo.current.hingeBounds
     val density = LocalDensity.current
 
-    BoxWithConstraints(modifier = modifier.fillMaxSize()) {
+    BoxWithConstraints(
+        modifier = modifier
+            .fillMaxSize()
+            .voteHighFrameRate(emphasisMoving),
+    ) {
         val totalHeight = maxHeight
         val paneWidth = maxWidth
         // Split on the physical hinge: the top pane ends at the hinge top, the fold
@@ -2172,34 +2232,59 @@ private fun TabletopPlayingContent(
                             onPlaylistClick = onPlaylistClick,
                         )
                         Spacer(modifier = Modifier.height(8.dp))
+                        // Route stretch, same press language as Compact/Wide.
+                        val tabletopTitleRoute = albumId?.let { id ->
+                            rememberNowPlayingRouteInteraction(
+                                onNavigate = { onAlbumClick(id) },
+                            )
+                        }
                         Text(
                             text = state.songTitle,
                             style = MaterialTheme.typography.headlineSmall.copy(
-                                fontSize = (24f - 7f * lyricsEmphasis).sp,
+                                // Wider travel (24→15 / 16→12 / 0.95→1.70 lyric scale):
+                                // the old 24→17 barely registered on the tabletop pane.
+                                fontSize = (24f - 9f * lyricsEmphasis).sp,
                             ),
                             color = MaterialTheme.colorScheme.onSurface,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
-                            modifier = if (albumId != null) {
-                                Modifier.clickable { onAlbumClick(albumId) }
-                            } else {
+                            modifier = tabletopTitleRoute?.let { route ->
                                 Modifier
-                            },
+                                    .graphicsLayer {
+                                        scaleX = route.scaleX
+                                        transformOrigin = TransformOrigin(0f, 0.5f)
+                                    }
+                                    .noRippleClickable(
+                                        interactionSource = route.interactionSource,
+                                        onClick = route.onClick,
+                                    )
+                            } ?: Modifier,
                         )
                         Spacer(modifier = Modifier.height(2.dp))
+                        val tabletopArtistRoute = artistId?.let { id ->
+                            rememberNowPlayingRouteInteraction(
+                                onNavigate = { onArtistClick(id) },
+                            )
+                        }
                         Text(
                             text = state.artist,
                             style = MaterialTheme.typography.titleMedium.copy(
-                                fontSize = (16f - 3f * lyricsEmphasis).sp,
+                                fontSize = (16f - 4f * lyricsEmphasis).sp,
                             ),
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
-                            modifier = if (artistId != null) {
-                                Modifier.clickable { onArtistClick(artistId) }
-                            } else {
+                            modifier = tabletopArtistRoute?.let { route ->
                                 Modifier
-                            },
+                                    .graphicsLayer {
+                                        scaleX = route.scaleX
+                                        transformOrigin = TransformOrigin(0f, 0.5f)
+                                    }
+                                    .noRippleClickable(
+                                        interactionSource = route.interactionSource,
+                                        onClick = route.onClick,
+                                    )
+                            } ?: Modifier,
                         )
                         Spacer(modifier = Modifier.height(12.dp))
                         // Collapsed: a small 3-line peek. Expanded: a bigger font that
@@ -2224,7 +2309,7 @@ private fun TabletopPlayingContent(
                                 lyrics = state.lyrics,
                                 positionMs = positionMs,
                                 loading = state.lyricsLoading,
-                                fontScale = 0.95f + 0.45f * lyricsEmphasis,
+                                fontScale = 0.95f + 0.75f * lyricsEmphasis,
                                 modifier = Modifier
                                     .height(lyricsHeight)
                                     .fillMaxWidth(),
@@ -2584,22 +2669,29 @@ private fun StageTabs(
             .height(height)
             .clipToBounds(),
     ) {
-        CompactTextTabs(
-            selected = selected,
-            onSelect = onSelect,
-            modifier = Modifier.graphicsLayer {
-                alpha = (1f - detailProgress).coerceIn(0f, 1f)
-                translationY = -6.dp.toPx() * detailProgress
-            },
-        )
-        FullscreenTabGroup(
-            selected = selected,
-            onSelect = onSelect,
-            modifier = Modifier.graphicsLayer {
-                alpha = detailProgress
-                translationY = 8.dp.toPx() * (1f - detailProgress)
-            },
-        )
+        // Conditional composition, not just alpha: an alpha-0 layer still
+        // hit-tests, so the invisible big buttons were swallowing collapsed-tab
+        // clicks (and vice versa).
+        if (detailProgress < 1f) {
+            CompactTextTabs(
+                selected = selected,
+                onSelect = onSelect,
+                modifier = Modifier.graphicsLayer {
+                    alpha = (1f - detailProgress).coerceIn(0f, 1f)
+                    translationY = -6.dp.toPx() * detailProgress
+                },
+            )
+        }
+        if (detailProgress > 0f) {
+            FullscreenTabGroup(
+                selected = selected,
+                onSelect = onSelect,
+                modifier = Modifier.graphicsLayer {
+                    alpha = detailProgress
+                    translationY = 8.dp.toPx() * (1f - detailProgress)
+                },
+            )
+        }
     }
 }
 
@@ -2615,6 +2707,20 @@ private fun CompactTextTabs(
     ) {
         NowPlayingDetailPage.entries.forEach { page ->
             val isSelected = page == selected
+            // Same language as the title/artist rows: a left-anchored
+            // text-width stretch (press dips, selection widens) instead of a
+            // background indicator — no bounded ripple rectangle either.
+            val interaction = remember { MutableInteractionSource() }
+            val pressed by interaction.collectIsPressedAsState()
+            val stretch by animateFloatAsState(
+                targetValue = when {
+                    pressed -> 0.92f
+                    isSelected -> 1.08f
+                    else -> 1f
+                },
+                animationSpec = YoinMotion.defaultSpatialSpec(role = YoinMotionRole.Expressive),
+                label = "tabStretch",
+            )
             Text(
                 text = page.label,
                 style = MaterialTheme.typography.labelLarge.let {
@@ -2622,8 +2728,15 @@ private fun CompactTextTabs(
                 },
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier
-                    .graphicsLayer { alpha = if (isSelected) 1f else 0.5f }
-                    .clickable { onSelect(page) },
+                    .graphicsLayer {
+                        alpha = if (isSelected) 1f else 0.5f
+                        scaleX = stretch
+                        transformOrigin = TransformOrigin(0f, 0.5f)
+                    }
+                    .clickable(
+                        interactionSource = interaction,
+                        indication = null,
+                    ) { onSelect(page) },
             )
         }
     }
@@ -3334,6 +3447,9 @@ internal fun AlbumCover(
     sharedTransitionScope: SharedTransitionScope? = null,
     animatedVisibilityScope: AnimatedVisibilityScope? = null,
     modifier: Modifier = Modifier,
+    // Press dip: the biggest tap target on the screen shouldn't be the only
+    // silent one — forwarded to ExpressiveMediaArtwork's elasticPress.
+    interactionSource: MutableInteractionSource? = null,
 ) {
     val baseModifier = modifier
         .aspectRatio(1f)
@@ -3368,6 +3484,7 @@ internal fun AlbumCover(
         modifier = finalModifier,
         shape = YoinArtworkShapes.NowPlayingCover,
         fallbackIcon = Icons.Rounded.PlayArrow,
+        interactionSource = interactionSource,
         tonalElevation = 0.dp,
         shadowElevation = 0.dp,
         border = null,
@@ -3570,5 +3687,18 @@ private fun BottomPillsPreview() {
             onDevicesClick = {},
             onWriteClick = {},
         )
+    }
+}
+
+/**
+ * Animate to [target] and pin the landing: the stage reshape remeasures the
+ * pager mid-flight, which can strand animateScrollToPage between pages —
+ * finish with an exact snap when that happens.
+ */
+private suspend fun PagerState.settleToPage(target: Int) {
+    if (currentPage == target && currentPageOffsetFraction == 0f) return
+    animateScrollToPage(target)
+    if (currentPage != target || currentPageOffsetFraction != 0f) {
+        scrollToPage(target)
     }
 }

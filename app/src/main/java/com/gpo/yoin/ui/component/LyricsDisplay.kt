@@ -33,6 +33,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.gpo.yoin.ui.nowplaying.LyricLine
+import com.gpo.yoin.ui.theme.GoogleSansFlexRounded
 import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinTheme
 import kotlin.math.abs
@@ -222,8 +223,14 @@ private fun LyricLineItem(
         label = "lyricScale",
     )
 
+    // Active line: SemiBold (down from the old Bold — the preview sizes don't
+    // need that much ink) in the rounded variable cut; color + scale carry
+    // the rest of the emphasis.
     val baseStyle = if (isActive) {
-        MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Bold)
+        MaterialTheme.typography.bodyLarge.copy(
+            fontFamily = GoogleSansFlexRounded,
+            fontWeight = FontWeight.SemiBold,
+        )
     } else {
         MaterialTheme.typography.bodyMedium
     }

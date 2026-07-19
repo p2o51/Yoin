@@ -12,6 +12,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Stable
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
@@ -23,6 +24,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import com.gpo.yoin.YoinApplication
 import com.gpo.yoin.ui.experience.DetailBackPhase
+import com.gpo.yoin.ui.experience.voteHighFrameRate
 import com.gpo.yoin.ui.navigation.back.BackMotionTokens
 import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinMotionRole
@@ -159,6 +161,27 @@ fun rememberDetailBackCollapse(onBack: () -> Unit): DetailBackCollapseState {
         }
     }
     return state
+}
+
+/**
+ * ARR high-refresh vote for the detail window while any of its cross-window
+ * motion is live: the back-collapse scrub, the post-commit exit fade, or the
+ * enter slide-in. Post-release settles have no touch boost, so without the
+ * vote they pace at ARR-Normal (60Hz) on a 120Hz panel.
+ */
+@Composable
+fun rememberDetailMotionFrameRateModifier(
+    back: DetailBackCollapseState,
+    intro: DetailEnterIntroState,
+): Modifier {
+    val active by remember(back, intro) {
+        derivedStateOf {
+            back.chased.value > 0.001f ||
+                back.exit.value > 0.001f ||
+                intro.slide.value > 0.001f
+        }
+    }
+    return Modifier.voteHighFrameRate(active)
 }
 
 private tailrec fun Context.findActivity(): Activity? = when (this) {

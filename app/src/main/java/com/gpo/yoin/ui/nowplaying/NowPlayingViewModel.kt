@@ -9,6 +9,7 @@ import com.gpo.yoin.data.model.Lyrics as SourceLyrics
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.YoinDevice
 import com.gpo.yoin.data.repository.YoinRepository
+import com.gpo.yoin.data.source.spotify.SpotifyAuthException
 import com.gpo.yoin.player.CastManager
 import com.gpo.yoin.player.CastState
 import com.gpo.yoin.player.ConnectionPhase
@@ -345,6 +346,24 @@ class NowPlayingViewModel(
             viewModelScope,
             SharingStarted.Eagerly,
             playbackManager.playbackState.value.bufferedPosition,
+        )
+
+    /**
+     * Live play/pause bit, split out of [uiState] for the same staleness
+     * reason as [positionMs] — plus one more: [uiState] is a multi-source
+     * combine, so after a cold resubscribe it can't emit until EVERY source
+     * (lyrics, rating, favorite) has produced a value, and until then
+     * collectAsState serves the cached close-time snapshot. The wave bar keys
+     * wavy-vs-flat off isPlaying, so a stale `false` here while the eager
+     * position ticked on rendered as "progress moving but the line stays
+     * flat". The overlay host overrides Playing.isPlaying with this value.
+     */
+    val isPlayingLive: StateFlow<Boolean> = playbackManager.playbackState
+        .map { it.isPlaying }
+        .stateIn(
+            viewModelScope,
+            SharingStarted.Eagerly,
+            playbackManager.playbackState.value.isPlaying,
         )
 
     fun togglePlayPause() {
@@ -685,7 +704,14 @@ class NowPlayingViewModel(
                     providerId = providerId,
                     devices = latestDevices.ifEmpty { fallbackDevices(providerId, castState) },
                     loading = false,
-                    errorMessage = error.message ?: "Couldn't load devices.",
+                    // 403 here = token minted before user-read-playback-state
+                    // joined SCOPES (it's not in REQUIRED_SCOPES, so no forced
+                    // reconnect) — say what actually fixes it.
+                    errorMessage = if (error is SpotifyAuthException && error.code == 403) {
+                        "Spotify needs re-connecting to list devices (new permission)."
+                    } else {
+                        error.message ?: "Couldn't load devices."
+                    },
                 )
             }
         }

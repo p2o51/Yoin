@@ -9,6 +9,7 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -30,6 +31,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -192,12 +194,27 @@ fun YoinButtonGroup(
             val homeAspect = (homeSelectionAspect + homePressDelta).coerceAtLeast(MIN_ASPECT)
             val libraryAspect = (librarySelectionAspect + libraryPressDelta).coerceAtLeast(MIN_ASPECT)
 
+            // IDLE pose (nothing playing, no error): the pill cedes the bar
+            // to two labeled halves — [icon Home] [icon Library] — and the
+            // whole thing springs back to the pill layout the moment a track
+            // lands. Same dp-lerp language as the detail morph (the pill's
+            // nav width simply collapses to 0 as the halves grow), so the two
+            // poses compose: idle is applied to the NAV endpoints first, then
+            // the chrome morph lerps toward detail as usual.
+            val idle = currentTrackTitle == null && connectionErrorMessage == null
+            val idleProgress by animateFloatAsState(
+                targetValue = if (idle) 1f else 0f,
+                animationSpec = YoinMotion.defaultSpatialSpec(),
+                label = "barIdleProgress",
+            )
+
             // The nav⇄detail morph, one progress value driving every slot
             // width. All plain Row/Box + width(dp) — see the class KDoc for
             // why nothing fancier is allowed in here.
             val morph = chromeProgress().coerceIn(0f, 1f)
-            val homeWidth = FloatingBarButtonHeight * homeAspect
-            val libraryWidth = FloatingBarButtonHeight * libraryAspect
+            val idleHalf = (innerWidth - FloatingBarItemGap * 2) / 2
+            val homeWidth = lerp(FloatingBarButtonHeight * homeAspect, idleHalf, idleProgress)
+            val libraryWidth = lerp(FloatingBarButtonHeight * libraryAspect, idleHalf, idleProgress)
             val pillNavWidth =
                 innerWidth - homeWidth - libraryWidth - FloatingBarItemGap * 2
             val pillDetailWidth =
@@ -208,6 +225,10 @@ fun YoinButtonGroup(
             val rightWidth = lerp(FloatingBarItemGap + libraryWidth, 0.dp, morph)
             val navAlpha = (1f - morph / 0.6f).coerceIn(0f, 1f)
             val splitAlpha = ((morph - 0.4f) / 0.6f).coerceIn(0f, 1f)
+            // Label reveal rides the tail of the width spring; fade the pill
+            // out fast so the squeeze never shows crushed content.
+            val idleLabelAlpha = ((idleProgress - 0.55f) / 0.45f).coerceIn(0f, 1f)
+            val pillIdleAlpha = (1f - idleProgress / 0.5f).coerceIn(0f, 1f)
 
             // LEFT SLOT — Home fading out beneath the stretching Play split.
             Box(
@@ -233,10 +254,24 @@ fun YoinButtonGroup(
                             contentColor = homeContentColor,
                         ),
                     ) {
-                        Icon(
-                            imageVector = Icons.Filled.Home,
-                            contentDescription = "Home",
-                        )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.Home,
+                                contentDescription = "Home",
+                            )
+                            if (idleLabelAlpha > 0.01f) {
+                                Text(
+                                    text = "Home",
+                                    style = MaterialTheme.typography.labelLarge,
+                                    maxLines = 1,
+                                    softWrap = false,
+                                    modifier = Modifier.graphicsLayer { alpha = idleLabelAlpha },
+                                )
+                            }
+                        }
                     }
                 }
                 if (morph > 0.01f) {
@@ -264,23 +299,31 @@ fun YoinButtonGroup(
             Spacer(modifier = Modifier.width(FloatingBarItemGap))
 
             // CENTER — the now-playing pill, absorbing whatever the sides
-            // release.
-            NowPlayingPill(
-                currentTrackId = currentTrackId,
-                currentTrackTitle = currentTrackTitle,
-                currentTrackArtist = currentTrackArtist,
-                currentTrackCoverArtUrl = currentTrackCoverArtUrl,
-                connectionErrorMessage = connectionErrorMessage,
-                playbackProgress = playbackProgress,
-                isPlaying = isPlaying,
-                onClick = onNowPlayingClick,
-                sharedTransitionScope = sharedTransitionScope,
-                animatedVisibilityScope = animatedVisibilityScope,
-                interactionSource = centerInteraction,
-                modifier = Modifier
-                    .width(pillWidth)
-                    .fillMaxHeight(),
-            )
+            // release. Fully idle (and not in detail chrome) = not composed:
+            // its 0dp slot would still marquee and hit-test, and an idle tap
+            // opening the "Nothing playing" page is exactly what the idle
+            // pose exists to retire.
+            if (idleProgress < 0.995f || morph > 0.005f) {
+                NowPlayingPill(
+                    currentTrackId = currentTrackId,
+                    currentTrackTitle = currentTrackTitle,
+                    currentTrackArtist = currentTrackArtist,
+                    currentTrackCoverArtUrl = currentTrackCoverArtUrl,
+                    connectionErrorMessage = connectionErrorMessage,
+                    playbackProgress = playbackProgress,
+                    isPlaying = isPlaying,
+                    onClick = onNowPlayingClick,
+                    sharedTransitionScope = sharedTransitionScope,
+                    animatedVisibilityScope = animatedVisibilityScope,
+                    interactionSource = centerInteraction,
+                    modifier = Modifier
+                        .width(pillWidth)
+                        .fillMaxHeight()
+                        .graphicsLayer {
+                            alpha = if (morph > 0.005f) 1f else pillIdleAlpha
+                        },
+                )
+            }
 
             // RIGHT SLOT — Library (with its leading gap), collapsing away
             // in detail chrome.
@@ -329,10 +372,24 @@ fun YoinButtonGroup(
                             modifier = Modifier.fillMaxSize(),
                             contentAlignment = Alignment.Center,
                         ) {
-                            Icon(
-                                imageVector = Icons.Filled.LibraryMusic,
-                                contentDescription = "Library",
-                            )
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Filled.LibraryMusic,
+                                    contentDescription = "Library",
+                                )
+                                if (idleLabelAlpha > 0.01f) {
+                                    Text(
+                                        text = "Library",
+                                        style = MaterialTheme.typography.labelLarge,
+                                        maxLines = 1,
+                                        softWrap = false,
+                                        modifier = Modifier.graphicsLayer { alpha = idleLabelAlpha },
+                                    )
+                                }
+                            }
                         }
                     }
                 }

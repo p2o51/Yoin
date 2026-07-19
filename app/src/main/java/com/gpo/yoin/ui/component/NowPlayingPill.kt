@@ -4,6 +4,7 @@ import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -31,11 +32,15 @@ import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Path
@@ -118,6 +123,26 @@ fun NowPlayingPill(
     )
     val clampedProgress = playbackProgress.coerceIn(0f, 1f)
 
+    // Track-change pulse: every hand-off — manual skip, auto-advance, or a
+    // remote device switching songs — bumps the pill content in from below
+    // (snap down + fade, spring back), so the bar acknowledges the change
+    // even when the player is closed. A plain graphicsLayer pulse, NOT
+    // AnimatedContent: this bar lives under the shell's shared-transition
+    // lookahead, which chokes on size-transforming containers (class KDoc of
+    // YoinButtonGroup). First track after idle skips the pulse — the idle→
+    // pill width morph is already the entrance.
+    val trackPulse = remember { Animatable(0f) }
+    val trackPulseSpec = YoinMotion.defaultSpatialSpec<Float>()
+    var lastPulsedTrackId by remember { mutableStateOf(currentTrackId) }
+    LaunchedEffect(currentTrackId) {
+        val previous = lastPulsedTrackId
+        lastPulsedTrackId = currentTrackId
+        if (currentTrackId != null && previous != null && currentTrackId != previous) {
+            trackPulse.snapTo(1f)
+            trackPulse.animateTo(0f, trackPulseSpec)
+        }
+    }
+
     FilledTonalButton(
         onClick = {
             haptics.performContextClick()
@@ -176,7 +201,12 @@ fun NowPlayingPill(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 10.dp, vertical = 4.dp),
+                    .padding(horizontal = 10.dp, vertical = 4.dp)
+                    .graphicsLayer {
+                        val pulse = trackPulse.value
+                        translationY = 9.dp.toPx() * pulse
+                        alpha = 1f - 0.55f * pulse
+                    },
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 NowPlayingPillArtwork(

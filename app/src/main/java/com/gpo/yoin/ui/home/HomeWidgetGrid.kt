@@ -38,6 +38,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.gpo.yoin.ui.component.ExpressiveMediaArtwork
+import com.gpo.yoin.ui.component.rememberPressMorphShape
 import com.gpo.yoin.ui.component.elasticPress
 import com.gpo.yoin.ui.component.noRippleClickable
 import com.gpo.yoin.ui.component.rememberExpressiveBackdropColors
@@ -362,12 +363,19 @@ internal fun WidgetBackdropArtwork(
         fallbackAccentColor = MaterialTheme.colorScheme.tertiaryContainer,
         enabled = extractBackdropColors,
     )
-    val backdropShape: Shape = when (kind) {
-        WidgetShapeKind.Album -> MaterialShapes.Bun.toShape()
-        WidgetShapeKind.Song -> MaterialShapes.Circle.toShape()
-        WidgetShapeKind.Playlist -> MaterialShapes.Ghostish.toShape()
+    val backdropPolygon = when (kind) {
+        WidgetShapeKind.Album -> MaterialShapes.Bun
+        WidgetShapeKind.Song -> MaterialShapes.Circle
+        WidgetShapeKind.Playlist -> MaterialShapes.Ghostish
         // Unreached — the artist branch returns above; kept for exhaustiveness.
-        WidgetShapeKind.Artist -> MaterialShapes.Circle.toShape()
+        WidgetShapeKind.Artist -> MaterialShapes.Circle
+    }
+    // Pressable content tweens its backdrop to the M3 Triangle token while
+    // held (seamless RoundedPolygon morph), springing back on release.
+    val backdropShape: Shape = if (interactionSource != null) {
+        rememberPressMorphShape(backdropPolygon, interactionSource)
+    } else {
+        backdropPolygon.toShape()
     }
     Box(modifier = modifier) {
         Box(

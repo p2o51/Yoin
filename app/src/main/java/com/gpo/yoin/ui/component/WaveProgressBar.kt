@@ -1,5 +1,8 @@
 package com.gpo.yoin.ui.component
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -74,7 +77,32 @@ fun WaveProgressBar(
     }
     var isDragging by remember { mutableStateOf(false) }
     var dragFraction by remember { mutableFloatStateOf(0f) }
+    // True finger position; dragFraction is its magnetized projection.
+    var rawDragFraction by remember { mutableFloatStateOf(0f) }
+    var snappedAnchor by remember { mutableStateOf<Float?>(null) }
     var previewFraction by remember { mutableStateOf<Float?>(null) }
+    // Magnetic note snapping: inside the inner half of the note window the
+    // thumb sticks to the anchor; over the outer half it eases back to the
+    // finger on a t² ramp that reaches the window edge exactly, so capture
+    // and escape are both continuous — a notch, not a wall.
+    val magnetized: (Float) -> Float = { raw ->
+        val nearest = noteAnchorFractions.minByOrNull { kotlin.math.abs(it - raw) }
+        if (nearest == null || noteWindow <= 0f) {
+            raw
+        } else {
+            val d = raw - nearest
+            val ad = kotlin.math.abs(d)
+            val inner = noteWindow * 0.5f
+            when {
+                ad >= noteWindow -> raw
+                ad <= inner -> nearest
+                else -> {
+                    val t = (ad - inner) / (noteWindow - inner)
+                    (nearest + kotlin.math.sign(d) * noteWindow * t * t).coerceIn(0f, 1f)
+                }
+            }
+        }
+    }
     var trackWidthPx by remember { mutableIntStateOf(1) }
     var labelWidthPx by remember { mutableIntStateOf(0) }
 
@@ -84,7 +112,25 @@ fun WaveProgressBar(
         previewFraction != null -> previewFraction!!.coerceIn(0f, 1f)
         else -> settledProgress
     }
-    val indicatorProgress = if (isPlaying) displayProgress else settledProgress
+    // The playhead only updates at 4Hz — glide linearly between ticks so the
+    // wave head moves continuously instead of stepping. Big deltas (seek,
+    // track change) snap: a 300ms backwards sweep would read as a glitch.
+    val glidedProgress = remember { Animatable(settledProgress) }
+    LaunchedEffect(settledProgress) {
+        if (kotlin.math.abs(settledProgress - glidedProgress.value) > 0.06f) {
+            glidedProgress.snapTo(settledProgress)
+        } else {
+            glidedProgress.animateTo(
+                targetValue = settledProgress,
+                animationSpec = tween(durationMillis = 300, easing = LinearEasing),
+            )
+        }
+    }
+    val indicatorProgress = when {
+        !isPlaying -> settledProgress
+        isDragging || previewFraction != null -> displayProgress
+        else -> glidedProgress.value
+    }
     val baseIndicatorStroke = WavyProgressIndicatorDefaults.linearIndicatorStroke
     val indicatorStroke = remember(baseIndicatorStroke) {
         Stroke(
@@ -146,27 +192,42 @@ fun WaveProgressBar(
                 detectHorizontalDragGestures(
                     onDragStart = { offset ->
                         isDragging = true
-                        dragFraction = (offset.x / size.width).coerceIn(0f, 1f)
+                        rawDragFraction = (offset.x / size.width).coerceIn(0f, 1f)
+                        dragFraction = magnetized(rawDragFraction)
                         previewFraction = dragFraction
                     },
                     onDragEnd = {
                         haptics.performTick()
                         onSeek(dragFraction)
                         isDragging = false
+                        snappedAnchor = null
                     },
                     onDragCancel = {
                         isDragging = false
                         previewFraction = null
+                        snappedAnchor = null
                     },
                     onHorizontalDrag = { _, dragAmount ->
-                        val before = dragFraction
-                        dragFraction = (dragFraction + dragAmount / size.width).coerceIn(0f, 1f)
+                        val beforeRaw = rawDragFraction
+                        rawDragFraction =
+                            (rawDragFraction + dragAmount / size.width).coerceIn(0f, 1f)
+                        dragFraction = magnetized(rawDragFraction)
                         previewFraction = dragFraction
-                        // Tick once per anchor the thumb sweeps across, either
-                        // direction — the notches you feel are your notes.
-                        val lo = minOf(before, dragFraction)
-                        val hi = maxOf(before, dragFraction)
-                        if (before != dragFraction &&
+                        // Light tick the moment a note captures the thumb…
+                        val captured = noteAnchorFractions
+                            .minByOrNull { kotlin.math.abs(it - rawDragFraction) }
+                            ?.takeIf {
+                                kotlin.math.abs(it - rawDragFraction) <= noteWindow * 0.5f
+                            }
+                        if (captured != null && captured != snappedAnchor) {
+                            haptics.performLightTick()
+                        }
+                        snappedAnchor = captured
+                        // …and a full tick per anchor the FINGER sweeps across,
+                        // either direction — the notches you feel are your notes.
+                        val lo = minOf(beforeRaw, rawDragFraction)
+                        val hi = maxOf(beforeRaw, rawDragFraction)
+                        if (beforeRaw != rawDragFraction &&
                             noteAnchorFractions.any { it > lo && it <= hi }
                         ) {
                             haptics.performTick()
