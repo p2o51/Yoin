@@ -256,18 +256,24 @@ private fun YoinShell(
     // distinct projections instead; the 4Hz progress for the mini player is
     // derived inside the bottom-nav subtree below, and Now Playing reads the
     // ViewModel's positionMs/bufferedMs flows inside its own overlay subtree.
+    // One snapshot seeds all four projections. Reading `.value` per projection
+    // would take four independent reads that can straddle a state emission, so
+    // the first frame could mix slices from two different PlaybackStates — and
+    // a bare `.value` inside composition is a lint error besides. The seed only
+    // feeds the first composition; every later value arrives through the flow.
+    val playbackSeed = remember(playbackManager) { playbackManager.playbackState.value }
     val currentTrack by remember(playbackManager) {
         playbackManager.playbackState.map { it.currentTrack }.distinctUntilChanged()
-    }.collectAsState(initial = playbackManager.playbackState.value.currentTrack)
+    }.collectAsState(initial = playbackSeed.currentTrack)
     val isPlaying by remember(playbackManager) {
         playbackManager.playbackState.map { it.isPlaying }.distinctUntilChanged()
-    }.collectAsState(initial = playbackManager.playbackState.value.isPlaying)
+    }.collectAsState(initial = playbackSeed.isPlaying)
     val isPlaybackReady by remember(playbackManager) {
         playbackManager.playbackState.map { it.controllerReady }.distinctUntilChanged()
-    }.collectAsState(initial = playbackManager.playbackState.value.controllerReady)
+    }.collectAsState(initial = playbackSeed.controllerReady)
     val playbackConnectionError by remember(playbackManager) {
         playbackManager.playbackState.map { it.connectionErrorMessage }.distinctUntilChanged()
-    }.collectAsState(initial = playbackManager.playbackState.value.connectionErrorMessage)
+    }.collectAsState(initial = playbackSeed.connectionErrorMessage)
     // playbackSignal is a heavily-throttled Float (≤3% change to emit); safe
     // to collect at the shell level without recomposing at ~30Hz.
     // The full VisualizerData stream stays out of composition entirely — the
@@ -663,11 +669,15 @@ private fun YoinShell(
             }.collectAsState(
                 // Seed from the live state, not 0f: this subtree remounts every
                 // time Now Playing closes, and a 0% first frame reads as a blip.
-                initial = playbackManager.playbackState.value.let { state ->
-                    if (state.duration > 0L) {
-                        (state.position.toFloat() / state.duration).coerceIn(0f, 1f)
-                    } else {
-                        0f
+                // Read inside remember so the StateFlow is not touched from
+                // composition; the seed matters only for that first frame.
+                initial = remember(playbackManager) {
+                    playbackManager.playbackState.value.let { state ->
+                        if (state.duration > 0L) {
+                            (state.position.toFloat() / state.duration).coerceIn(0f, 1f)
+                        } else {
+                            0f
+                        }
                     }
                 },
             )

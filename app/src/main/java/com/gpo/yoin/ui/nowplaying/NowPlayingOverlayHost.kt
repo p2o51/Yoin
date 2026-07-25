@@ -256,8 +256,11 @@ fun NowPlayingOverlayHost(
                 .map { it.fft.isNotEmpty() }
                 .distinctUntilChanged()
         }.collectAsState(
-            initial = container.audioVisualizerManager
-                .visualizerData.value.fft.isNotEmpty(),
+            // Read inside remember so the StateFlow is not touched from
+            // composition; this only seeds the first frame.
+            initial = remember(container) {
+                container.audioVisualizerManager.visualizerData.value.fft.isNotEmpty()
+            },
         )
         val draggableState = rememberDraggableState { delta ->
             if (delta > 0f || dismissDragPx > 0f) {
