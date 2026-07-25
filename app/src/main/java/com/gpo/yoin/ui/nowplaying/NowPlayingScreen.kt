@@ -147,6 +147,7 @@ import com.gpo.yoin.ui.experience.LocalMotionProfile
 import com.gpo.yoin.ui.experience.LocalYoinWindowInfo
 import com.gpo.yoin.ui.experience.MotionProfile
 import com.gpo.yoin.ui.experience.ReportMotionPressure
+import com.gpo.yoin.ui.theme.ContinuousRoundedCornerShape
 import com.gpo.yoin.ui.theme.ProvideYoinMotionRole
 import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinMotionRole
@@ -2572,7 +2573,11 @@ private fun CoverTransitionOverlay(
     endX: Dp,
     endY: Dp,
     endSize: Dp,
-    startCornerRadius: Dp = 16.dp,
+    // Start radius tracks the resting hero cover (favourite-button radius, 22dp)
+    // so there is no corner-size pop when the flight proxy takes over on expand;
+    // the proxy itself stays a plain rounded corner (continuous smoothing is
+    // scoped to the static hero). End radius matches the docked cover (Small, 8dp).
+    startCornerRadius: Dp = 22.dp,
     endCornerRadius: Dp = 8.dp,
     modifier: Modifier = Modifier,
 ) {
