@@ -269,8 +269,8 @@ Podcast、Internet Radio、Chat、User Management、Jukebox、Bookmarks、Shares
 ## 待确认事项
 
 - [x]  滑动评分条的 UI 设计稿 — 已确认：垂直粗条，位于封面右侧，显示浮点评分（参见设计稿截图）
-- [ ]  音频可视化的具体视觉效果 — 实现时再探索，先做基础版再迭代
-- [ ]  App 图标设计
+- [ ]  音频可视化的具体视觉效果 — 实现时再探索，先做基础版再迭代（视觉表现仍未定；采样代码写好了但**尚未接通**：`player/AudioVisualizerData.kt` 的 `AudioVisualizerManager` 只在 `AppContainer` 里 lazy 构造，全仓没有任何一处调用它的 `start(audioSessionId)`，`PlaybackService.audioSessionId` 这条流也没人喂给它，所以 UI 侧 collect 的 `playbackSignal` / `visualizerData` 目前恒为 0 / Empty）
+- [x]  App 图标设计 — 已完成：三箭头全出血几何，自适应图标 `app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml`（含 `ic_launcher_round.xml`），三层素材在 `res/drawable/ic_launcher_{background,foreground,monochrome}.xml`，monochrome 供主题图标使用
 
 ![image.png](attachment:37c0d660-23b7-4c25-9fb4-e77630964bcd:image.png)
 

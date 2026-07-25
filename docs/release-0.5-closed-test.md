@@ -92,7 +92,7 @@ Data likely collected or transmitted:
 
 - Account/authentication data: Subsonic credentials, Spotify OAuth tokens, Spotify Client ID, NeoDB OAuth token, Gemini API key. Credentials are stored locally in app-private or no-backup storage; they are transmitted only to the corresponding user-configured service.
 - App activity and preferences: active profile, playback history, ratings, album reviews, notes, Memory cache, lyrics cache, Gemini About/Ask rows. These are stored in the local Room database. Some database rows can be included in Android cloud/device backup because `yoin-database` is included by `data_extraction_rules.xml`.
-- Audio data: the app requests `RECORD_AUDIO` for Android's playback visualizer path. The intent is to analyze the active playback session for local visual effects, not to record microphone audio.
+- Audio data: **none is currently collected.** `RECORD_AUDIO` is declared in the manifest for Android's playback-visualizer path, but as of 2026-07-25 that path is dead code: nothing calls `AudioVisualizerManager.start(audioSessionId)`, the permission is never requested at runtime, and `visualizerData` / `playbackSignal` stay at `Empty` / `0f` for the whole app lifetime. Do not declare audio collection in Data Safety while this remains true — see the upload blocker below.
 - Network content: metadata, artwork, lyrics, streams, search requests, and playback commands are exchanged with the user's selected music provider or integrations.
 
 Third-party/user-configured destinations:
@@ -133,4 +133,10 @@ Full description:
 - Prepare a tester email list or Google Group.
 - Prepare Play review access instructions and, ideally, a demo Subsonic/Navidrome account.
 - Decide whether global cleartext traffic should remain for 0.5 or be narrowed after the first closed test.
-- Re-check `RECORD_AUDIO` disclosure and runtime behavior on a fresh install.
+- **Decide `RECORD_AUDIO` before the first upload.** It is declared in the manifest but entirely
+  unused: `AudioVisualizerManager` is constructed lazily in `AppContainer` and its `start()` is
+  never called from anywhere, so the visualizer never runs and the permission is never requested.
+  Shipping a dangerous permission a reviewer can see but never exercise invites review friction and
+  forces an audio-collection answer in Data Safety that is not true today. Either wire the
+  visualizer to `PlaybackService.audioSessionId` before 0.5, or drop the `<uses-permission>` line
+  and add it back with the feature. This also settles `docs/design.md` 待确认事项 line 272.

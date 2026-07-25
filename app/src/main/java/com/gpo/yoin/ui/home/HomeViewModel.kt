@@ -97,7 +97,7 @@ class HomeViewModel(
                 providerId == MediaId.PROVIDER_SPOTIFY &&
                 !profileId.isNullOrBlank()
             ) {
-                loadCachedSpotifyHomeContent(profileId)
+                loadCachedSpotifyHomeContent()
             } else {
                 null
             }
@@ -109,7 +109,7 @@ class HomeViewModel(
             try {
                 val freshContent = when {
                     providerId == MediaId.PROVIDER_SPOTIFY && !profileId.isNullOrBlank() ->
-                        loadSpotifyHomeContent(profileId)
+                        loadSpotifyHomeContent()
 
                     else -> loadHomeContent()
                 }
@@ -177,9 +177,16 @@ class HomeViewModel(
         }
     }
 
-    private suspend fun loadCachedSpotifyHomeContent(
-        @Suppress("UNUSED_PARAMETER") profileId: String,
-    ): HomeUiState.Content? = coroutineScope {
+    /**
+     * Profile scoping is the repository's job here and in the fresh twin
+     * [loadSpotifyHomeContent]: every read and write reached from either
+     * resolves the active profile itself, so there is no profile id to thread
+     * through. Grid pools, activities, notes, ratings and play history key off
+     * profileId+provider from the same `activeProfileId` StateFlow this
+     * ViewModel watches; the Spotify library reads key off the active source's
+     * own profile id, which is that same profile's.
+     */
+    private suspend fun loadCachedSpotifyHomeContent(): HomeUiState.Content? = coroutineScope {
         val activitiesDeferred = async {
             repository.getRecentActivities(limit = 20).first()
         }
@@ -199,9 +206,7 @@ class HomeViewModel(
         }
     }
 
-    private suspend fun loadSpotifyHomeContent(
-        @Suppress("UNUSED_PARAMETER") profileId: String,
-    ): HomeUiState.Content = coroutineScope {
+    private suspend fun loadSpotifyHomeContent(): HomeUiState.Content = coroutineScope {
         val activitiesDeferred = async { resolveSpotifyActivities() }
         val widgetGridDeferred = async { resolveWidgetGrid(localOnly = false) }
         val recentlyAddedDeferred = async { loadRecentlyAdded() }

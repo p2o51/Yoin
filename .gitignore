@@ -31,6 +31,8 @@ local.properties
 .screenshot-*.png
 # Local skills lockfile
 /skills-lock.json
+# Interview-prep ebook built from this project (own toolchain, not app source)
+/ebook/
 # Agent / tooling working dirs
 .claude/
 .commandcode/

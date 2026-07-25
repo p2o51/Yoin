@@ -149,11 +149,10 @@ import com.gpo.yoin.ui.experience.MotionProfile
 import com.gpo.yoin.ui.experience.ReportMotionPressure
 import com.gpo.yoin.ui.theme.ContinuousRoundedCornerShape
 import com.gpo.yoin.ui.theme.ProvideYoinMotionRole
+import com.gpo.yoin.ui.theme.YoinArtworkShapes
 import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinMotionRole
 import com.gpo.yoin.ui.theme.YoinMotionSpeed
-import com.gpo.yoin.ui.theme.ContinuousRoundedCornerShape
-import com.gpo.yoin.ui.theme.YoinArtworkShapes
 import com.gpo.yoin.ui.theme.YoinTheme
 import com.gpo.yoin.ui.theme.withTabularFigures
 import kotlin.math.roundToInt
