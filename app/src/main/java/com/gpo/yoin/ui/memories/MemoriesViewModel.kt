@@ -8,7 +8,6 @@ import com.gpo.yoin.AppContainer
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.repository.YoinRepository
 import com.gpo.yoin.ui.experience.ExperienceSessionStore
-import com.gpo.yoin.ui.experience.MemoryScrollPosition
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -219,14 +218,6 @@ class MemoriesViewModel(
         val currentPage = sessionState.value.currentPage
         if (currentPage == page) return
         sessionStore.setMemoriesCurrentPage(page)
-    }
-
-    fun setMemoryScroll(
-        activityId: Long,
-        position: MemoryScrollPosition,
-    ) {
-        if (sessionState.value.perMemoryScrollOffsets[activityId] == position) return
-        sessionStore.setMemoryScrollPosition(activityId, position)
     }
 
     /**

@@ -87,6 +87,7 @@ class AppContainer(private val context: Context) {
                 MIGRATION_24_25,
                 MIGRATION_25_26,
                 MIGRATION_26_27,
+                MIGRATION_27_28,
             )
             // v11 冻结了 0.3 schema；0.5 上架前的备份降级保险（用户拿着 v11
             // 备份在旧版设备恢复）走这条：数据丢但应用不崩。没数据丢失比
@@ -439,6 +440,16 @@ class AppContainer(private val context: Context) {
         // rotates on a TTL instead of re-rolling every cold start.
         // song_notes 加歌内时间戳：笔记锚定到歌曲时间线（时间线排序 +
         // 随播放高亮当前条）。旧行保持 NULL = 未锚定。
+        // v27 → v28: Memory 卡的 AI 拟题（memoryTitle）缓存进 memory_copy_cache
+        // 同表两列 —— title 与 copy 同 key 同 TTL，失效跟随各自的 promptHash。
+        // 旧行 NULL = 还没拟过题，读到 NULL 走 deterministic fallback。
+        val MIGRATION_27_28 = object : Migration(27, 28) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE memory_copy_cache ADD COLUMN title TEXT")
+                db.execSQL("ALTER TABLE memory_copy_cache ADD COLUMN titlePromptHash TEXT")
+            }
+        }
+
         val MIGRATION_26_27 = object : Migration(26, 27) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE song_notes ADD COLUMN positionMs INTEGER")

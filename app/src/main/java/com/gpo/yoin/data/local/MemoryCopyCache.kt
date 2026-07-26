@@ -27,6 +27,14 @@ data class MemoryCopyCache(
     val copy: String,
     val promptHash: String,
     val generatedAt: Long = System.currentTimeMillis(),
+    /**
+     * AI 拟题（Memory 卡印章右列标题 + 首页 Jump Back In memory 槽位共用）。
+     * 与 [copy] 同 key 同 TTL；[titlePromptHash] 含占用者（乐评/最新笔记）
+     * 原文的 hash，占用者一变即失效重生成。NULL = 未拟过，走 deterministic
+     * fallback。
+     */
+    val title: String? = null,
+    val titlePromptHash: String? = null,
 ) {
     companion object {
         const val ENTITY_ALBUM = "album"

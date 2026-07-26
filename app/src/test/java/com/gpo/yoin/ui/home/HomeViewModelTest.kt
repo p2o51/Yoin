@@ -230,6 +230,8 @@ class HomeViewModelTest {
                 neoDbReviewUuid = null,
             ),
         )
+        // 首页 memory 槽位渲染缓存的 AI 拟题（v2.2 印章卡决定）——不再是乐评全文。
+        coEvery { repository.getCachedAlbumMemoryTitle(any()) } returns "Still my favourite"
         // One recent note on track t9 → the noted-track 1×2 card.
         coEvery { repository.getRecentSongNotes(any()) } returns listOf(
             SongNote(
@@ -285,7 +287,7 @@ class HomeViewModelTest {
         assertEquals(2, expanded.size)
         assertTrue(
             expanded.any { card ->
-                card.target is HomeWidgetTarget.MemoryFocus && card.comment == "still my favourite"
+                card.target is HomeWidgetTarget.MemoryFocus && card.comment == "Still my favourite"
             },
         )
         assertTrue(

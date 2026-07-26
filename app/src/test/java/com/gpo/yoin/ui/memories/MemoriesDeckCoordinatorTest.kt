@@ -101,7 +101,7 @@ class MemoriesDeckCoordinatorTest {
 
         assertEquals("7.3", memory.scoreText)
         assertEquals(MemoryScoreKind.AVERAGE_TRACK_RATING, memory.scoreKind)
-        assertEquals("Avg track rating", memory.scoreSupportingText)
+        assertEquals("Track average", memory.scoreSupportingText)
         assertTrue(memory.narrativeCopy?.isNotBlank() == true)
     }
 

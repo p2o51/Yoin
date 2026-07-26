@@ -78,6 +78,7 @@ class YoinDatabaseMigrationTest {
                 AppContainer.MIGRATION_24_25,
                 AppContainer.MIGRATION_25_26,
                 AppContainer.MIGRATION_26_27,
+                AppContainer.MIGRATION_27_28,
             )
             .allowMainThreadQueries()
             .build()
@@ -174,6 +175,7 @@ class YoinDatabaseMigrationTest {
                 AppContainer.MIGRATION_24_25,
                 AppContainer.MIGRATION_25_26,
                 AppContainer.MIGRATION_26_27,
+                AppContainer.MIGRATION_27_28,
             )
             .allowMainThreadQueries()
             .build()
@@ -253,6 +255,7 @@ class YoinDatabaseMigrationTest {
                 AppContainer.MIGRATION_24_25,
                 AppContainer.MIGRATION_25_26,
                 AppContainer.MIGRATION_26_27,
+                AppContainer.MIGRATION_27_28,
             )
             .allowMainThreadQueries()
             .build()
@@ -317,6 +320,7 @@ class YoinDatabaseMigrationTest {
                 AppContainer.MIGRATION_24_25,
                 AppContainer.MIGRATION_25_26,
                 AppContainer.MIGRATION_26_27,
+                AppContainer.MIGRATION_27_28,
             )
             .allowMainThreadQueries()
             .build()
@@ -405,6 +409,7 @@ class YoinDatabaseMigrationTest {
                 AppContainer.MIGRATION_24_25,
                 AppContainer.MIGRATION_25_26,
                 AppContainer.MIGRATION_26_27,
+                AppContainer.MIGRATION_27_28,
             )
             .allowMainThreadQueries()
             .build()
@@ -499,6 +504,7 @@ class YoinDatabaseMigrationTest {
                 AppContainer.MIGRATION_24_25,
                 AppContainer.MIGRATION_25_26,
                 AppContainer.MIGRATION_26_27,
+                AppContainer.MIGRATION_27_28,
             )
             .allowMainThreadQueries()
             .build()
@@ -570,6 +576,7 @@ class YoinDatabaseMigrationTest {
                 AppContainer.MIGRATION_24_25,
                 AppContainer.MIGRATION_25_26,
                 AppContainer.MIGRATION_26_27,
+                AppContainer.MIGRATION_27_28,
             )
             .allowMainThreadQueries()
             .build()
@@ -636,6 +643,7 @@ class YoinDatabaseMigrationTest {
                 AppContainer.MIGRATION_24_25,
                 AppContainer.MIGRATION_25_26,
                 AppContainer.MIGRATION_26_27,
+                AppContainer.MIGRATION_27_28,
             )
             .allowMainThreadQueries()
             .build()
@@ -702,6 +710,7 @@ class YoinDatabaseMigrationTest {
                 AppContainer.MIGRATION_24_25,
                 AppContainer.MIGRATION_25_26,
                 AppContainer.MIGRATION_26_27,
+                AppContainer.MIGRATION_27_28,
             )
             .allowMainThreadQueries()
             .build()
@@ -793,6 +802,7 @@ class YoinDatabaseMigrationTest {
                 AppContainer.MIGRATION_24_25,
                 AppContainer.MIGRATION_25_26,
                 AppContainer.MIGRATION_26_27,
+                AppContainer.MIGRATION_27_28,
             )
             .allowMainThreadQueries()
             .build()
@@ -903,6 +913,7 @@ class YoinDatabaseMigrationTest {
                 AppContainer.MIGRATION_24_25,
                 AppContainer.MIGRATION_25_26,
                 AppContainer.MIGRATION_26_27,
+                AppContainer.MIGRATION_27_28,
             )
             .allowMainThreadQueries()
             .build()
@@ -968,6 +979,7 @@ class YoinDatabaseMigrationTest {
                 AppContainer.MIGRATION_24_25,
                 AppContainer.MIGRATION_25_26,
                 AppContainer.MIGRATION_26_27,
+                AppContainer.MIGRATION_27_28,
             )
             .allowMainThreadQueries()
             .build()
@@ -1039,6 +1051,7 @@ class YoinDatabaseMigrationTest {
                 AppContainer.MIGRATION_24_25,
                 AppContainer.MIGRATION_25_26,
                 AppContainer.MIGRATION_26_27,
+                AppContainer.MIGRATION_27_28,
             )
             .allowMainThreadQueries()
             .build()
@@ -1096,6 +1109,68 @@ class YoinDatabaseMigrationTest {
                 .get("sub-profile-b", MediaId.PROVIDER_SUBSONIC, MemoryCopyCache.ENTITY_ALBUM, "album-1")
                 ?.copy,
         )
+
+        migrated.close()
+    }
+
+    @Test
+    fun should_add_memory_title_columns_when_migrating_27_to_28() = runTest {
+        val helper = FrameworkSQLiteOpenHelperFactory().create(
+            SupportSQLiteOpenHelper.Configuration.builder(context)
+                .name(dbName)
+                .callback(
+                    object : SupportSQLiteOpenHelper.Callback(24) {
+                        override fun onCreate(db: SupportSQLiteDatabase) {
+                            createVersion24Schema(db)
+                        }
+
+                        override fun onUpgrade(
+                            db: SupportSQLiteDatabase,
+                            oldVersion: Int,
+                            newVersion: Int,
+                        ) = Unit
+                    },
+                )
+                .build(),
+        )
+        helper.writableDatabase.close()
+        helper.close()
+
+        val migrated = Room.databaseBuilder(context, YoinDatabase::class.java, dbName)
+            .addMigrations(
+                AppContainer.MIGRATION_24_25,
+                AppContainer.MIGRATION_25_26,
+                AppContainer.MIGRATION_26_27,
+                AppContainer.MIGRATION_27_28,
+            )
+            .allowMainThreadQueries()
+            .build()
+
+        val sqlDb = migrated.openHelper.writableDatabase
+        // 旧形态的行（没有 title 列的 INSERT）在 v28 下读出 NULL 拟题 ——
+        // 这就是升级用户第一次打开时的行形态，读 NULL 走 deterministic fallback。
+        sqlDb.execSQL(
+            """
+            INSERT INTO `memory_copy_cache`
+                (`profileId`, `provider`, `entityType`, `entityId`, `copy`, `promptHash`, `generatedAt`)
+            VALUES ('sub-profile-a', 'subsonic', 'album', 'album-1', 'a copy', 'hash-1', 1000)
+            """.trimIndent(),
+        )
+        val legacyShaped = migrated.memoryCopyCacheDao()
+            .get("sub-profile-a", MediaId.PROVIDER_SUBSONIC, MemoryCopyCache.ENTITY_ALBUM, "album-1")
+        assertEquals("a copy", legacyShaped?.copy)
+        assertEquals(null, legacyShaped?.title)
+        assertEquals(null, legacyShaped?.titlePromptHash)
+
+        // 拟题与文案同行共存，各自的 hash 独立更新。
+        migrated.memoryCopyCacheDao().upsert(
+            legacyShaped!!.copy(title = "Three summers", titlePromptHash = "title-hash-1"),
+        )
+        val withTitle = migrated.memoryCopyCacheDao()
+            .get("sub-profile-a", MediaId.PROVIDER_SUBSONIC, MemoryCopyCache.ENTITY_ALBUM, "album-1")
+        assertEquals("a copy", withTitle?.copy)
+        assertEquals("Three summers", withTitle?.title)
+        assertEquals("title-hash-1", withTitle?.titlePromptHash)
 
         migrated.close()
     }

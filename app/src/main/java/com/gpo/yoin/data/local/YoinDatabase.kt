@@ -32,7 +32,7 @@ import androidx.room.RoomDatabase
         HomeLayoutPreference::class,
         HomeGridPoolCache::class,
     ],
-    version = 27,
+    version = 28,
     exportSchema = true,
 )
 abstract class YoinDatabase : RoomDatabase() {

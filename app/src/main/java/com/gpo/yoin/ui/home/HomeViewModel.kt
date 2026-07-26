@@ -7,6 +7,7 @@ import com.gpo.yoin.AppContainer
 import com.gpo.yoin.data.home.HomeLayoutStore
 import com.gpo.yoin.data.local.ActivityEntityType
 import com.gpo.yoin.data.local.ActivityEvent
+import com.gpo.yoin.data.memory.deterministicMemoryTitle
 import com.gpo.yoin.data.model.Album
 import com.gpo.yoin.data.model.CoverRef
 import com.gpo.yoin.data.model.MediaId
@@ -460,18 +461,22 @@ class HomeViewModel(
             ?: return null
         val rawAlbumId = rawEntityId(candidate.albumId)
         val albumId = MediaId(candidate.provider, rawAlbumId)
-        val review = if (candidate.hasAlbumReview) {
-            guardedOrNull {
-                repository.observeAlbumRating(albumId).first()?.review?.takeIf { it.isNotBlank() }
-            }
-        } else {
-            null
-        }
+        val hasReview = candidate.hasAlbumReview
+        // 首页从此渲染 AI 拟题而不是乐评全文（v2.2 印章卡决定）：只读缓存
+        // （Memories 卡打开时才触发生成），miss 走 deterministic 模板 ——
+        // 拟题槽永不为空，也永不在首页引爆一次 Gemini 请求。
+        val memoryTitle = guardedOrNull { repository.getCachedAlbumMemoryTitle(albumId) }
+            ?: deterministicMemoryTitle(
+                ratedTrackCount = candidate.ratedTrackCount,
+                totalTrackCount = candidate.totalTracks,
+                noteCount = candidate.noteCount,
+                hasAlbumReview = hasReview,
+            )
         val rating = candidate.albumRating ?: candidate.averageSongRating
         // A reviewed memory dates itself off its last touch (the Figma "record"
         // card); an auto-averaged one shows what the score rests on.
         val basis = when {
-            review != null -> (candidate.lastPlayedAt ?: candidate.firstPlayedAt)?.let(::formatMemoryDate)
+            hasReview -> (candidate.lastPlayedAt ?: candidate.firstPlayedAt)?.let(::formatMemoryDate)
             candidate.ratedTrackCount > 0 && candidate.totalTracks > 0 ->
                 "Based on ${candidate.ratedTrackCount}/${candidate.totalTracks} tracks"
             else -> null
@@ -486,7 +491,7 @@ class HomeViewModel(
             coverArtUrl = candidate.coverArtUrl,
             ratingText = formatMemoryScore(rating),
             ratingBasis = basis,
-            comment = review,
+            comment = memoryTitle,
             expanded = true,
             target = HomeWidgetTarget.MemoryFocus(candidate.sessionId),
         )

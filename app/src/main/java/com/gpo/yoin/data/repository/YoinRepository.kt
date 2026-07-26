@@ -1417,11 +1417,15 @@ class YoinRepository(
                 totalSongCount = totalSongCount,
             )
             memoryCopyCacheDao.upsert(
-                MemoryCopyCache(
+                // 保住同行的拟题列：copy 和 title 各有各的 hash 失效节奏。
+                (cached ?: MemoryCopyCache(
                     profileId = profileId,
                     provider = album.id.provider,
                     entityType = MemoryCopyCache.ENTITY_ALBUM,
                     entityId = album.id.rawId,
+                    copy = "",
+                    promptHash = "",
+                )).copy(
                     copy = generated,
                     promptHash = hash,
                     generatedAt = clock(),
@@ -1429,6 +1433,98 @@ class YoinRepository(
             )
             generated
         }.getOrElse { cached?.copy }
+    }
+
+    /**
+     * Memory 卡的 AI 拟题。命中缓存（titlePromptHash 未变）直接返回；有
+     * BYOK 且占用者文本在场时调用 Gemini 并落库。返回 null = 没有可用拟题
+     * （无缓存且无 key / 无占用者文本）—— 调用方走 deterministic fallback。
+     *
+     * 这是 design.md「不上传 note/review 原文」的唯一豁免（拟题豁免，
+     * 2026-07-26）：占用者原文进 prompt，仅此用途。
+     */
+    suspend fun getOrGenerateAlbumMemoryTitle(
+        album: Album,
+        writingKind: String?,
+        writingText: String?,
+    ): String? {
+        val profileId = activeProfileId.value ?: return null
+        val cached = memoryCopyCacheDao.get(
+            profileId = profileId,
+            provider = album.id.provider,
+            entityType = MemoryCopyCache.ENTITY_ALBUM,
+            entityId = album.id.rawId,
+        )
+        if (writingText.isNullOrBlank()) return cached?.title
+
+        val signal = buildString {
+            append(album.id.toString()).append('|')
+            append(album.name).append('|')
+            append(writingKind.orEmpty()).append('|')
+            append(writingText)
+        }
+        val hash = signal.hashCode().toString()
+        if (cached?.title != null && cached.titlePromptHash == hash) return cached.title
+
+        val apiKey = geminiConfigDao.getConfig().first()?.apiKey
+        if (apiKey.isNullOrBlank()) return cached?.title
+
+        return runCatching {
+            val generated = geminiService.generateAlbumMemoryTitle(
+                apiKey = apiKey,
+                albumName = album.name,
+                artist = album.artist,
+                year = album.year,
+                writingKind = writingKind ?: "note",
+                writingText = writingText,
+            )
+            memoryCopyCacheDao.upsert(
+                (cached ?: MemoryCopyCache(
+                    profileId = profileId,
+                    provider = album.id.provider,
+                    entityType = MemoryCopyCache.ENTITY_ALBUM,
+                    entityId = album.id.rawId,
+                    copy = "",
+                    promptHash = "",
+                    generatedAt = clock(),
+                )).copy(
+                    title = generated,
+                    titlePromptHash = hash,
+                ),
+            )
+            generated
+        }.getOrElse { cached?.title }
+    }
+
+    /** 只读缓存拟题（首页 Jump Back In 用）—— 不触发生成，miss 返回 null。 */
+    suspend fun getCachedAlbumMemoryTitle(albumId: MediaId): String? {
+        val profileId = activeProfileId.value ?: return null
+        return memoryCopyCacheDao.get(
+            profileId = profileId,
+            provider = albumId.provider,
+            entityType = MemoryCopyCache.ENTITY_ALBUM,
+            entityId = albumId.rawId,
+        )?.title
+    }
+
+    // ── Memory writings（Memories 卡 resolve 的一次性快照读取） ────────────
+
+    suspend fun getAlbumRatingRow(albumId: MediaId): AlbumRating? {
+        val profileId = activeProfileId.value ?: return null
+        return albumRatingDao.get(albumId.rawId, albumId.provider, profileId)
+    }
+
+    suspend fun getAlbumNotesOnce(albumId: MediaId): List<AlbumNote> {
+        val profileId = activeProfileId.value ?: return emptyList()
+        return albumNoteDao.getForAlbum(albumId.rawId, albumId.provider, profileId)
+    }
+
+    suspend fun getSongNotesOnce(trackIds: List<MediaId>): List<SongNote> {
+        val profileId = activeProfileId.value ?: return emptyList()
+        val provider = trackIds.firstOrNull()?.provider ?: return emptyList()
+        val rawIds = trackIds.filter { id -> id.provider == provider }.map(MediaId::rawId)
+        if (rawIds.isEmpty()) return emptyList()
+        return songNoteDao.getForTracks(rawIds, provider, profileId)
     }
 
     // ── Devices ───────────────────────────────────────────────────────

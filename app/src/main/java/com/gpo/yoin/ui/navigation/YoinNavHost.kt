@@ -528,6 +528,13 @@ private fun YoinShell(
                                     viewModel = memoriesViewModel,
                                     revealState = memoriesReveal,
                                     onDismissed = closeMemories,
+                                    // 印章卡唯一的导航出口：走 shell 的标准
+                                    // detail 前进推入（含 bar morph 交接）。
+                                    // 不 dismiss —— Memories 留在原地，back
+                                    // 从专辑页回来时它还在。
+                                    onOpenAlbum = { memory ->
+                                        onNavigateToAlbum(memory.entityId, null)
+                                    },
                                     onNavigateToNeoDbSettings = {
                                         navigateToSettingsFromShell("neodb")
                                     },

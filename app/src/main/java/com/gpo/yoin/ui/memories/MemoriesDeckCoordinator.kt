@@ -3,6 +3,7 @@ package com.gpo.yoin.ui.memories
 import com.gpo.yoin.data.local.ActivityEvent
 import com.gpo.yoin.data.local.LocalRating
 import com.gpo.yoin.data.memory.AlbumMemoryCandidate
+import com.gpo.yoin.data.memory.deterministicMemoryTitle
 import com.gpo.yoin.data.model.CoverRef
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.Track
@@ -287,6 +288,48 @@ class MemoriesDeckCoordinator(
             MemoryScoreKind.AVERAGE_TRACK_RATING -> averageRating
             MemoryScoreKind.NONE -> null
         }
+
+        // 用户的字：乐评行 + album/song 笔记，deck 每卡一次快照读取。
+        val ratingRow = runCatching { repository.getAlbumRatingRow(albumId) }.getOrNull()
+        val review = ratingRow?.review?.takeIf(String::isNotBlank)?.let { text ->
+            MemoryWriting(
+                kind = MemoryWriting.Kind.REVIEW,
+                text = text,
+                writtenAt = ratingRow.updatedAt,
+            )
+        }
+        val writings = runCatching { loadAlbumWritings(albumId, songs) }.getOrDefault(emptyList())
+
+        val neoDbState = when {
+            candidate.neoDbSynced -> MemoryNeoDbState.SYNCED
+            review != null && candidate.albumRating != null -> MemoryNeoDbState.READY
+            candidate.albumRating != null -> MemoryNeoDbState.NEEDS_REVIEW
+            review != null -> MemoryNeoDbState.NEEDS_RATING
+            else -> MemoryNeoDbState.UNAVAILABLE
+        }
+
+        // 正文槽阶梯①②的占用者决定拟题输入（design.md 拟题豁免）；
+        // 拟题槽永不为空 —— AI 不可用时落 deterministic 模板。
+        val titleOccupant = review ?: writings.firstOrNull()
+        val memoryTitle = album?.let { resolved ->
+            runCatching {
+                repository.getOrGenerateAlbumMemoryTitle(
+                    album = resolved,
+                    writingKind = when (titleOccupant?.kind) {
+                        MemoryWriting.Kind.REVIEW -> "album review"
+                        MemoryWriting.Kind.ALBUM_NOTE, MemoryWriting.Kind.SONG_NOTE -> "note"
+                        null -> null
+                    },
+                    writingText = titleOccupant?.text,
+                )
+            }.getOrNull()
+        } ?: deterministicMemoryTitle(
+            ratedTrackCount = candidate.ratedTrackCount,
+            totalTrackCount = candidate.totalTracks,
+            noteCount = candidate.noteCount,
+            hasAlbumReview = candidate.hasAlbumReview,
+        )
+
         // 「余音 Gemini 文案」：没专辑元数据（冷加载失败）时跳过，避免给
         // Gemini 送空名字；有 API key 时命中缓存或后台生成。失败静默降级。
         val narrative = album?.let { resolved ->
@@ -308,19 +351,12 @@ class MemoriesDeckCoordinator(
             entityId = rawAlbumId,
             entityProvider = candidate.provider,
             title = album?.name ?: candidate.albumName,
-            supportingText = buildString {
-                val year = album?.year ?: candidate.year
-                if (year != null) {
-                    append(year)
-                    append("  ·  ")
-                }
-                append("Album")
-                val artistName = album?.artist ?: candidate.artistName
-                if (!artistName.isNullOrBlank()) {
-                    append(" by ")
-                    append(artistName)
-                }
-            },
+            // 印章卡标题区第二行：「艺人 · 年份」。Memories 是这个字段唯一的
+            // 消费方，格式跟着卡走。
+            supportingText = listOfNotNull(
+                (album?.artist ?: candidate.artistName)?.takeIf(String::isNotBlank),
+                (album?.year ?: candidate.year)?.toString(),
+            ).joinToString(" · ").ifBlank { "Album" },
             metaText = null,
             coverArtUrl = album?.coverArt?.let { repository.resolveCoverUrl(it, size = 480) }
                 ?: candidate.coverArtUrl
@@ -344,6 +380,10 @@ class MemoriesDeckCoordinator(
             firstPlayedAt = candidate.firstPlayedAt,
             lastPlayedAt = candidate.lastPlayedAt,
             neoDbSynced = candidate.neoDbSynced,
+            neoDbState = neoDbState,
+            memoryTitle = memoryTitle,
+            review = review,
+            writings = writings,
             reasonChips = reasonChips,
             narrativeCopy = narrative ?: buildAlbumFallbackCopy(candidate, reasonChips),
             playbackSongs = songs,
@@ -408,6 +448,36 @@ class MemoriesDeckCoordinator(
                 ).withIndexFallback(index)
             },
         )
+    }
+
+    /**
+     * album/song 笔记合并成 newest-first 的一条流。UI 只画前几条，但这里
+     * 不截断 —— 「全部 N 条笔记」sheet 要列全量，截断是渲染侧的事。
+     */
+    private suspend fun loadAlbumWritings(
+        albumId: MediaId,
+        songs: List<Track>,
+    ): List<MemoryWriting> {
+        val albumNotes = repository.getAlbumNotesOnce(albumId).map { note ->
+            MemoryWriting(
+                kind = MemoryWriting.Kind.ALBUM_NOTE,
+                text = note.content,
+                writtenAt = note.updatedAt,
+            )
+        }
+        val titlesByRawId = songs.associate { song -> song.id.rawId to song.title }
+        val songNotes = repository.getSongNotesOnce(songs.map(Track::id)).map { note ->
+            MemoryWriting(
+                kind = MemoryWriting.Kind.SONG_NOTE,
+                text = note.content,
+                writtenAt = note.updatedAt,
+                trackTitle = titlesByRawId[note.trackId] ?: note.title,
+                positionMs = note.positionMs,
+            )
+        }
+        return (albumNotes + songNotes)
+            .filter { writing -> writing.text.isNotBlank() }
+            .sortedByDescending(MemoryWriting::writtenAt)
     }
 
     private fun sourceRelativeCoverArtUrl(rawId: String): String? =

@@ -129,6 +129,8 @@ Memory 的核心单位是 album。候选由当前 active profile/provider 下的
 
 Memory 卡片必须解释「为什么这张专辑成为 memory」：至少表达 album review、rated-track coverage、note count、AskAI references、recent revisit、NeoDB ready/synced 等本地信号。评分显示遵循 Notion 产品规则：用户有 album rating 时优先显示 album rating；否则显示 average track rating。Gemini emotional copy 是可选增强；未配置 BYOK 或生成失败时使用本地 deterministic fallback copy，不扩大 Gemini scope，也不上传 note/review 原文。
 
+**拟题豁免（2026-07-26 决定）**：Memory 卡的 AI 拟题（`memoryTitle`，同时复用为首页 Jump Back In memory 槽位的标题）是上一条「不上传原文」的唯一例外——拟题 prompt 允许携带正文槽占用者（album review 或最新一条 note）的原文，并拼上专辑背景（专辑名/艺人/年份 + 本地已缓存的 Gemini About 行，不产生额外请求）。豁免仅此一处用途；`narrativeCopy` 的输入契约不变。未配置 BYOK 或生成失败时，拟题回退本地 deterministic 模板（覆盖率/笔记数），拟题槽永不为空。
+
 NeoDB 同步以 album 为边界。第一阶段只有同时具备 album rating 和非空 album review 的 Memory 才能推送到 NeoDB；单曲碎片笔记只作为本地 Memory/Review 草稿素材，不直接推 NeoDB。
 
 ### 🎵 Now Playing（全屏展开态）
