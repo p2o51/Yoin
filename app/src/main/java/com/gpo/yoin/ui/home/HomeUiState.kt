@@ -65,8 +65,11 @@ data class HomeWidgetCard(
     // What the score rests on: a date ("Jun 26") for a reviewed/noted card, or
     // "Based on 4/5 tracks" for an auto-averaged one. Null hides the line.
     val ratingBasis: String? = null,
-    // Review / note copy, rendered in the serif voice. Expanded cards only.
+    // Review / note copy. Expanded cards only.
     val comment: String? = null,
+    // True = comment 是标题性文字（memory 卡的 AI 拟题 → 宋体加大）；
+    // false = 用户正文（noted-track 的笔记原文 → 系统黑体）。字体规范 2026-07-26。
+    val commentIsHeadline: Boolean = false,
     // True renders the wide "1×2" card (2 grid cells), false the "1×1" cover.
     val expanded: Boolean = false,
     val target: HomeWidgetTarget,

@@ -492,6 +492,7 @@ class HomeViewModel(
             ratingText = formatMemoryScore(rating),
             ratingBasis = basis,
             comment = memoryTitle,
+            commentIsHeadline = true,
             expanded = true,
             target = HomeWidgetTarget.MemoryFocus(candidate.sessionId),
         )

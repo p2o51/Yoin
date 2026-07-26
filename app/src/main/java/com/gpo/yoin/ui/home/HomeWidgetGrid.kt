@@ -46,6 +46,7 @@ import com.gpo.yoin.ui.experience.rememberYoinHaptics
 import com.gpo.yoin.ui.memories.MemoryEntityType
 import com.gpo.yoin.ui.theme.GoogleSansFlex
 import com.gpo.yoin.ui.theme.YoinArtworkShapes
+import com.gpo.yoin.ui.theme.YoinSerifTitle
 import com.gpo.yoin.ui.theme.withTabularFigures
 
 // The compact "1×1" cover is 100dp wide in the Figma; the backdrop shape fills
@@ -252,9 +253,20 @@ private fun WidgetCard12(
                 }
             }
             card.comment?.let { comment ->
+                // 字体规范 2026-07-26：拟题是标题 → 宋体加大；笔记原文是
+                // 用户正文 → 系统黑体。
                 Text(
                     text = comment,
-                    style = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Serif),
+                    style = if (card.commentIsHeadline) {
+                        MaterialTheme.typography.titleMedium.copy(
+                            fontWeight = FontWeight.SemiBold,
+                            fontFamily = YoinSerifTitle,
+                            fontSize = 17.sp,
+                            lineHeight = 24.sp,
+                        )
+                    } else {
+                        MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Default)
+                    },
                     color = MaterialTheme.colorScheme.onSurface,
                     maxLines = 3,
                     overflow = TextOverflow.Ellipsis,
@@ -304,9 +316,15 @@ private fun WidgetCoverBlock(
             modifier = Modifier.size(WidgetCoverSize),
         )
         Spacer(modifier = Modifier.height(5.dp))
+        // 歌曲/专辑名是标题 → 宋体加大（字体规范 2026-07-26）。
         Text(
             text = card.title,
-            style = MaterialTheme.typography.titleSmall,
+            style = MaterialTheme.typography.titleMedium.copy(
+                fontWeight = FontWeight.SemiBold,
+                fontFamily = YoinSerifTitle,
+                fontSize = 16.sp,
+                lineHeight = 22.sp,
+            ),
             color = MaterialTheme.colorScheme.onSurface,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,

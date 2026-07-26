@@ -42,6 +42,18 @@ val GoogleSansFlexRounded = FontFamily(
     ),
 )
 
+/**
+ * 记忆表面（Memories 卡 + 首页 Jump Back In）的字体法则（owner 定稿 2026-07-26）：
+ *
+ *  - **宋体 = 标题**：专辑名、歌曲名、AI 拟题走衬线。Pixel 上 [FontFamily.Serif]
+ *    解析到 Noto Serif / Noto Serif CJK（思源宋体同源字形）；部分 OEM ROM 裁掉
+ *    CJK 衬线包时中文会静默落回黑体 —— 层级仍由字号/字重兜底，不视为损坏。
+ *  - **黑体 = 用户正文**：乐评、笔记的主体用系统默认字面（FontFamily.Default）。
+ *  - **GSF = 机器与数据**：Yoin 文案（带署名）、数字、标签、按钮维持
+ *    [GoogleSansFlex] —— 品牌字体即机器身份。
+ */
+val YoinSerifTitle = FontFamily.Serif
+
 private val defaultTypography = Typography()
 
 /**

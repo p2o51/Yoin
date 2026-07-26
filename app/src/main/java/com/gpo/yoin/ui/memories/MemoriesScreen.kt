@@ -111,6 +111,7 @@ import com.gpo.yoin.ui.theme.GoogleSansFlex
 import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinMotionRole
 import com.gpo.yoin.ui.theme.YoinArtworkShapes
+import com.gpo.yoin.ui.theme.YoinSerifTitle
 import com.gpo.yoin.ui.theme.withTabularFigures
 import java.time.Instant
 import java.time.ZoneId
@@ -718,6 +719,7 @@ private fun MemorySealCard(
                     text = memory.title,
                     style = MaterialTheme.typography.headlineLarge.copy(
                         fontWeight = FontWeight.SemiBold,
+                        fontFamily = YoinSerifTitle,
                     ),
                     color = MaterialTheme.colorScheme.onSurface,
                     maxLines = 2,
@@ -762,12 +764,15 @@ private fun MemorySealCard(
                 verticalArrangement = Arrangement.Center,
             ) {
                 // 右列只放拟题（方案 B）：正文升级为下方的全宽区块。
-                // 不渲染来源 eyebrow（owner 裁决 2026-07-26）。
+                // 拟题是标题 → 宋体（字体规范 2026-07-26）；不渲染来源 eyebrow。
                 memory.memoryTitle?.let { title ->
                     Text(
                         text = title,
                         style = MaterialTheme.typography.titleMedium.copy(
                             fontWeight = FontWeight.SemiBold,
+                            fontFamily = YoinSerifTitle,
+                            fontSize = 18.sp,
+                            lineHeight = 26.sp,
                         ),
                         color = MaterialTheme.colorScheme.onSurface,
                         maxLines = 3,
@@ -783,6 +788,7 @@ private fun MemorySealCard(
         //    点击开 sheet 读全文；笔记不再占卡面（收进底部按钮）。 ──
         val reviewText = memory.review?.text
         if (reviewText != null) {
+            // 正文主体 = 系统默认黑体（字体规范 2026-07-26）——衬线让位给标题。
             Text(
                 text = reviewText,
                 modifier = Modifier
@@ -792,9 +798,9 @@ private fun MemorySealCard(
                         showFullReview = true
                     },
                 style = MaterialTheme.typography.bodyLarge.copy(
-                    fontFamily = FontFamily.Serif,
-                    fontSize = 16.sp,
-                    lineHeight = 26.sp,
+                    fontFamily = FontFamily.Default,
+                    fontSize = 15.sp,
+                    lineHeight = 25.sp,
                 ),
                 color = MaterialTheme.colorScheme.onSurface,
                 maxLines = 8,
@@ -963,6 +969,7 @@ private fun MemorySealCard(
                                 text = title,
                                 style = MaterialTheme.typography.titleLarge.copy(
                                     fontWeight = FontWeight.SemiBold,
+                                    fontFamily = YoinSerifTitle,
                                 ),
                                 color = MaterialTheme.colorScheme.onSurface,
                             )
@@ -971,9 +978,9 @@ private fun MemorySealCard(
                         Text(
                             text = review.text,
                             style = MaterialTheme.typography.bodyLarge.copy(
-                                fontFamily = FontFamily.Serif,
-                                fontSize = 16.sp,
-                                lineHeight = 28.sp,
+                                fontFamily = FontFamily.Default,
+                                fontSize = 15.sp,
+                                lineHeight = 26.sp,
                             ),
                             color = MaterialTheme.colorScheme.onSurface,
                         )
@@ -1121,11 +1128,15 @@ private fun MemoryNoteCard(
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
+                // 歌名是标题 → 宋体加大（字体规范 2026-07-26）。
                 Text(
                     text = writing.noteHeadline(),
                     modifier = Modifier.weight(1f),
-                    style = MaterialTheme.typography.labelMedium.copy(
+                    style = MaterialTheme.typography.titleMedium.copy(
                         fontWeight = FontWeight.SemiBold,
+                        fontFamily = YoinSerifTitle,
+                        fontSize = 16.sp,
+                        lineHeight = 22.sp,
                     ).withTabularFigures(),
                     color = MaterialTheme.colorScheme.onSurface,
                     maxLines = 1,
@@ -1137,13 +1148,14 @@ private fun MemoryNoteCard(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
+            // 笔记主体 = 黑体（用户正文不再用衬线）。
             Text(
                 text = writing.text,
                 modifier = Modifier.padding(top = 4.dp),
-                style = MaterialTheme.typography.bodyLarge.copy(
-                    fontFamily = FontFamily.Serif,
-                    fontSize = 16.sp,
-                    lineHeight = 26.sp,
+                style = MaterialTheme.typography.bodyMedium.copy(
+                    fontFamily = FontFamily.Default,
+                    fontSize = 14.sp,
+                    lineHeight = 22.sp,
                 ),
                 color = MaterialTheme.colorScheme.onSurface,
                 maxLines = if (clampBody) 2 else Int.MAX_VALUE,
