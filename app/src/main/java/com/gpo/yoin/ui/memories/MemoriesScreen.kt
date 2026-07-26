@@ -767,11 +767,11 @@ private fun MemorySealCard(
                 memory.memoryTitle?.let { title ->
                     Text(
                         text = title,
-                        style = MaterialTheme.typography.titleMedium.copy(
+                        style = MaterialTheme.typography.titleLarge.copy(
                             fontWeight = FontWeight.SemiBold,
                             fontFamily = YoinSerifTitle,
-                            fontSize = 18.sp,
-                            lineHeight = 26.sp,
+                            fontSize = 22.sp,
+                            lineHeight = 30.sp,
                         ),
                         color = MaterialTheme.colorScheme.onSurface,
                         maxLines = 3,
