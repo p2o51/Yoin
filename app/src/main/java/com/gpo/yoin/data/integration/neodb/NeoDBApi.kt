@@ -150,39 +150,18 @@ internal class NeoDBApi(
         itemUuid: String,
         body: ShelfMarkRequest,
     ) = withContext(Dispatchers.IO) {
-        val endpoint = buildUrl(instance, "/api/me/shelf/item/$itemUuid")
-        val directRequest = Request.Builder()
-            .url(endpoint)
+        // OpenAPI（MarkInSchema）确认 body 就是扁平对象，必填 shelf_type +
+        // visibility。验证错误里的 "body.mark.xxx" 前缀是 django-ninja 对
+        // 名为 mark 的 body 参数的定位路径 —— 之前据此推断「服务端要
+        // {mark:{...}} 信封」并做二次重试是误读，信封形态从来不是合法
+        // 请求体，那条重试只会把一个缺字段错误放大成两个。
+        val request = Request.Builder()
+            .url(buildUrl(instance, "/api/me/shelf/item/$itemUuid"))
             .header("Authorization", "Bearer $token")
             .header("Accept", JSON_MEDIA_TYPE_VALUE)
             .post(json.encodeToString(body).toRequestBody(JSON_MEDIA_TYPE))
             .build()
-        try {
-            executeVoid(directRequest, logOnFailure = false)
-        } catch (error: NeoDBException) {
-            val shouldRetryWrappedMark = error.code == 422 &&
-                error.message.orEmpty().contains("body.mark.", ignoreCase = true)
-            if (!shouldRetryWrappedMark) {
-                logRequestFailure(directRequest, error, error.rawBody)
-                throw error
-            }
-
-            Log.w(
-                TAG,
-                "postShelfMark: direct body rejected by ${instance.trimEnd('/')} " +
-                    "— retrying wrapped mark payload",
-            )
-            val wrappedRequest = Request.Builder()
-                .url(endpoint)
-                .header("Authorization", "Bearer $token")
-                .header("Accept", JSON_MEDIA_TYPE_VALUE)
-                .post(
-                    json.encodeToString(ShelfMarkEnvelope(mark = body))
-                        .toRequestBody(JSON_MEDIA_TYPE),
-                )
-                .build()
-            executeVoid(wrappedRequest)
-        }
+        executeVoid(request)
     }
 
     /**
@@ -193,49 +172,19 @@ internal class NeoDBApi(
      * 用于 pullAlbum 的冷启动：本地没 review uuid 但远端可能已经有
      * review 的场景。通过 `item_uuid` 过滤，不需要分页扫全库。
      */
-    suspend fun listMyReviewsForItem(
+    /**
+     * 取当前用户在某个 item 下的 Review。现行 API 是 item 中心：
+     * `GET /api/me/review/item/{item_uuid}`，每用户每 item 至多 1 条，
+     * 404 = 没写过。旧的 `GET /api/me/review/?item_uuid=` 列表反查与按
+     * review uuid 直读两条路径都已从 OpenAPI 消失。
+     */
+    suspend fun getMyReviewForItem(
         instance: String,
         token: String,
         itemUuid: String,
-    ): List<ReviewResponse> = withContext(Dispatchers.IO) {
-        val request = Request.Builder()
-            .url(buildUrl(instance, "/api/me/review/?item_uuid=${encode(itemUuid)}"))
-            .header("Authorization", "Bearer $token")
-            .header("Accept", JSON_MEDIA_TYPE_VALUE)
-            .get()
-            .build()
-
-        val response = client.newCall(request).execute()
-        response.use { res ->
-            if (res.code == 404) return@withContext emptyList()
-            val body = res.body?.string().orEmpty()
-            if (!res.isSuccessful) {
-                val error = res.toNeoDBException(body)
-                logRequestFailure(request, error, body)
-                throw error
-            }
-            if (body.isBlank()) return@withContext emptyList()
-            // 服务端可能返回 paged {data:[...]} 或 bare [...]，都兼容。
-            runCatching {
-                json.decodeFromString<ReviewListResponse>(body).data
-            }.getOrElse {
-                runCatching {
-                    json.decodeFromString<List<ReviewResponse>>(body)
-                }.getOrElse { emptyList() }
-            }.filter { review ->
-                // 客户端再过一层 item_uuid 匹配，防止实例无视 query 参数。
-                review.item?.uuid == itemUuid || review.item == null
-            }
-        }
-    }
-
-    suspend fun getReview(
-        instance: String,
-        token: String,
-        reviewUuid: String,
     ): ReviewResponse? = withContext(Dispatchers.IO) {
         val request = Request.Builder()
-            .url(buildUrl(instance, "/api/me/review/$reviewUuid"))
+            .url(buildUrl(instance, "/api/me/review/item/$itemUuid"))
             .header("Authorization", "Bearer $token")
             .header("Accept", JSON_MEDIA_TYPE_VALUE)
             .get()
@@ -255,16 +204,18 @@ internal class NeoDBApi(
     }
 
     /**
-     * 新建长评。NeoDB 每用户每 item 只允许 1 条 Review —— 已存在时应走
-     * [updateReview] 覆写，否则会 400。调用方保证入参时机。
+     * 写长评 —— `POST /api/me/review/item/{item_uuid}` 是 upsert 语义
+     * （新建与覆写同一条路），没有单独的 create/update 端点；旧的
+     * `POST /api/me/review/` 现在只答 405。
      */
-    suspend fun createReview(
+    suspend fun postReview(
         instance: String,
         token: String,
+        itemUuid: String,
         body: ReviewRequest,
     ): ReviewResponse = withContext(Dispatchers.IO) {
         val request = Request.Builder()
-            .url(buildUrl(instance, "/api/me/review/"))
+            .url(buildUrl(instance, "/api/me/review/item/$itemUuid"))
             .header("Authorization", "Bearer $token")
             .header("Accept", JSON_MEDIA_TYPE_VALUE)
             .post(json.encodeToString(body).toRequestBody(JSON_MEDIA_TYPE))
@@ -272,28 +223,14 @@ internal class NeoDBApi(
         executeJson(request)
     }
 
-    suspend fun updateReview(
-        instance: String,
-        token: String,
-        reviewUuid: String,
-        body: ReviewRequest,
-    ): ReviewResponse = withContext(Dispatchers.IO) {
-        val request = Request.Builder()
-            .url(buildUrl(instance, "/api/me/review/$reviewUuid"))
-            .header("Authorization", "Bearer $token")
-            .header("Accept", JSON_MEDIA_TYPE_VALUE)
-            .put(json.encodeToString(body).toRequestBody(JSON_MEDIA_TYPE))
-            .build()
-        executeJson(request)
-    }
-
+    /** 删长评 —— 同样按 item uuid 走：`DELETE /api/me/review/item/{item_uuid}`。 */
     suspend fun deleteReview(
         instance: String,
         token: String,
-        reviewUuid: String,
+        itemUuid: String,
     ) = withContext(Dispatchers.IO) {
         val request = Request.Builder()
-            .url(buildUrl(instance, "/api/me/review/$reviewUuid"))
+            .url(buildUrl(instance, "/api/me/review/item/$itemUuid"))
             .header("Authorization", "Bearer $token")
             .delete()
             .build()

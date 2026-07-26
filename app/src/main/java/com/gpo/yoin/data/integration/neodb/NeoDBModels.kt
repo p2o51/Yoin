@@ -37,17 +37,17 @@ internal data class ShelfItem(
 @Serializable
 internal data class ShelfMarkRequest(
     @SerialName("shelf_type") val shelfType: String,
-    val visibility: Int = 0,
+    // 服务端 MarkInSchema 把 shelf_type 和 visibility 列为必填。visibility
+    // 不能带默认值：neoDbJson 是 encodeDefaults=false，字段值等于默认值时
+    // 会整个从 JSON 里消失 —— 曾把 visibility=0 丢掉，422 报
+    // "body.mark.visibility: Field required"（body.mark. 是 django-ninja
+    // 的参数名定位，不是要包一层 mark 信封）。
+    val visibility: Int,
     @SerialName("rating_grade") val ratingGrade: Int? = null,
     @SerialName("comment_text") val commentText: String? = null,
     @SerialName("tags") val tags: List<String> = emptyList(),
     @SerialName("post_to_fediverse") val postToFediverse: Boolean = false,
     @SerialName("created_time") val createdTime: String? = null,
-)
-
-@Serializable
-internal data class ShelfMarkEnvelope(
-    val mark: ShelfMarkRequest,
 )
 
 @Serializable
@@ -59,10 +59,15 @@ internal data class ReviewResponse(
     @SerialName("item") val item: ShelfItem.Item? = null,
 )
 
+/**
+ * `POST /api/me/review/item/{item_uuid}` 的 body（ReviewInSchema）。item uuid
+ * 在路径里，不再进 body。
+ */
 @Serializable
 internal data class ReviewRequest(
-    @SerialName("item_uuid") val itemUuid: String,
-    val visibility: Int = 0,
+    // ReviewInSchema 同样必填 visibility —— 同 ShelfMarkRequest，不带默认值
+    // 以免 encodeDefaults=false 把 0 丢出 JSON。
+    val visibility: Int,
     val title: String,
     val body: String,
     @SerialName("post_to_fediverse") val postToFediverse: Boolean = false,
@@ -71,15 +76,6 @@ internal data class ReviewRequest(
 @Serializable
 internal data class AlbumSearchResponse(
     val data: List<ShelfItem.Item> = emptyList(),
-)
-
-/**
- * 分页响应 —— NeoDB 的 `/api/me/review/` 返回结构。只需要 data 里的
- * [ReviewResponse]，其它分页元数据暂不用。
- */
-@Serializable
-internal data class ReviewListResponse(
-    val data: List<ReviewResponse> = emptyList(),
 )
 
 @Serializable

@@ -235,10 +235,13 @@ class AlbumMemoryCandidateBuilder(
     }
 }
 
+// 不再要求 neoDbReviewUuid：现行 NeoDB API 是 item 中心，POST review 的
+// 响应只是一个 Result 消息壳（ReviewSchema 里连 uuid 属性都没有），本地
+// 永远拿不到 uuid —— 拿它当 SYNCED 门槛会让状态永远停在 READY。
+// 「推过且不脏」就是同步完成的全部证据。
 private fun AlbumRating?.isSyncedToNeoDb(): Boolean =
     this != null &&
         rating > 0f &&
         !review.isNullOrBlank() &&
         !ratingNeedsSync &&
-        !reviewNeedsSync &&
-        !neoDbReviewUuid.isNullOrBlank()
+        !reviewNeedsSync

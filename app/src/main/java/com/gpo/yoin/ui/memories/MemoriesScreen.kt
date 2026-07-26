@@ -584,14 +584,6 @@ private fun MemoriesHeader(
                 ),
                 color = MaterialTheme.colorScheme.onSurface,
             )
-            Text(
-                text = "Album memories",
-                style = MaterialTheme.typography.labelLarge.copy(
-                    fontWeight = FontWeight.Medium,
-                    fontFamily = GoogleSansFlex,
-                ),
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
         }
 
         MemoriesDots(
@@ -772,19 +764,11 @@ private fun MemorySealCard(
                     .height(MemorySealSize),
                 verticalArrangement = Arrangement.Center,
             ) {
-                Text(
-                    text = when {
-                        occupant?.kind == MemoryWriting.Kind.REVIEW -> "Your review · AI title"
-                        occupant != null -> "Your note · AI title"
-                        else -> "Written by Yoin"
-                    },
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                // 不再渲染来源 eyebrow（owner 裁决 2026-07-26）：serif = 用户的字、
+                // 默认字面 = 机器的字，字体本身就是署名（rule 3 的另一条腿）。
                 memory.memoryTitle?.let { title ->
                     Text(
                         text = title,
-                        modifier = Modifier.padding(top = 4.dp),
                         style = MaterialTheme.typography.titleMedium.copy(
                             fontWeight = FontWeight.SemiBold,
                         ),
