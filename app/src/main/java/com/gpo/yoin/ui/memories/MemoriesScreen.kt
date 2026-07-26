@@ -80,6 +80,7 @@ import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -696,12 +697,8 @@ private fun MemorySealCard(
             isDark = darkTheme,
         )
     }
-    // 正文槽阶梯：乐评 ▸ 最新一条笔记 ▸ Yoin 文案。占用者是用户的字（serif），
-    // 阶梯③是机器的字（默认字面 + 署名）——两种声音永不混淆（rule 3）。
-    val occupant = memory.review ?: memory.writings.firstOrNull()
-    val noteCards = (if (memory.review != null) memory.writings else memory.writings.drop(1))
-        .take(2)
     var showAllNotes by remember(memory.stableId) { mutableStateOf(false) }
+    var showFullReview by remember(memory.stableId) { mutableStateOf(false) }
     val navBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
 
     Column(
@@ -764,8 +761,8 @@ private fun MemorySealCard(
                     .height(MemorySealSize),
                 verticalArrangement = Arrangement.Center,
             ) {
-                // 不再渲染来源 eyebrow（owner 裁决 2026-07-26）：serif = 用户的字、
-                // 默认字面 = 机器的字，字体本身就是署名（rule 3 的另一条腿）。
+                // 右列只放拟题（方案 B）：正文升级为下方的全宽区块。
+                // 不渲染来源 eyebrow（owner 裁决 2026-07-26）。
                 memory.memoryTitle?.let { title ->
                     Text(
                         text = title,
@@ -773,22 +770,6 @@ private fun MemorySealCard(
                             fontWeight = FontWeight.SemiBold,
                         ),
                         color = MaterialTheme.colorScheme.onSurface,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-                val bodyText = occupant?.text
-                    ?: memory.narrativeCopy?.takeIf(String::isNotBlank)
-                bodyText?.let { text ->
-                    Text(
-                        text = text,
-                        modifier = Modifier.padding(top = 8.dp),
-                        style = MaterialTheme.typography.bodyMedium.copy(
-                            fontFamily = if (occupant != null) FontFamily.Serif else null,
-                            fontSize = 13.sp,
-                            lineHeight = 20.sp,
-                        ),
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 3,
                         overflow = TextOverflow.Ellipsis,
                     )
@@ -798,24 +779,61 @@ private fun MemorySealCard(
 
         Spacer(modifier = Modifier.height(24.dp))
 
-        // ── 笔记卡（≤2，三层：歌名头行 > serif 正文 > 日期）；无笔记 = 无区块 ──
-        noteCards.forEachIndexed { index, writing ->
-            if (index > 0) Spacer(modifier = Modifier.height(8.dp))
-            MemoryNoteCard(
-                writing = writing,
-                containerColor = memoryColorScheme.surfaceContainerHigh,
+        // ── 全宽乐评区（方案 B）：长评终于有配得上它的面积。硬截断，
+        //    点击开 sheet 读全文；笔记不再占卡面（收进底部按钮）。 ──
+        val reviewText = memory.review?.text
+        if (reviewText != null) {
+            Text(
+                text = reviewText,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable {
+                        haptics.performClick()
+                        showFullReview = true
+                    },
+                style = MaterialTheme.typography.bodyLarge.copy(
+                    fontFamily = FontFamily.Serif,
+                    fontSize = 16.sp,
+                    lineHeight = 26.sp,
+                ),
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 8,
+                overflow = TextOverflow.Ellipsis,
             )
-        }
-        if (memory.writings.size > noteCards.size + (if (memory.review == null) 1 else 0)) {
+        } else {
+            // 无长评：先呈现 Yoin 的话（必须标记——它不是你写的字），
+            // 再用一行斜体小字 + 按钮引导写评价（owner 裁决 2026-07-26）。
+            memory.narrativeCopy?.takeIf(String::isNotBlank)?.let { copy ->
+                Text(
+                    text = "Written by Yoin",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Text(
+                    text = copy,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 4.dp),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 3,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Spacer(modifier = Modifier.height(16.dp))
+            }
+            Text(
+                text = "How did this album land for you?",
+                style = MaterialTheme.typography.bodySmall.copy(
+                    fontStyle = FontStyle.Italic,
+                ),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
             TextButton(
-                onClick = {
-                    haptics.performClick()
-                    showAllNotes = true
-                },
+                onClick = onOpenAlbum,
                 contentPadding = PaddingValues(horizontal = 4.dp),
             ) {
                 Text(
-                    text = "All ${memory.writings.size} notes",
+                    text = "Write a review",
                     style = MaterialTheme.typography.labelLarge,
                     color = memoryColorScheme.primary,
                 )
@@ -858,23 +876,44 @@ private fun MemorySealCard(
 
         Spacer(modifier = Modifier.height(12.dp))
 
-        // ── 前往专辑：本卡唯一的导航出口；被截断内容的去处 ──
-        Button(
-            onClick = onOpenAlbum,
-            modifier = Modifier
-                .align(Alignment.CenterHorizontally)
-                .height(48.dp),
-            colors = ButtonDefaults.buttonColors(
-                containerColor = memoryColorScheme.primary,
-                contentColor = memoryColorScheme.onPrimary,
-            ),
+        // ── 底部按钮排：笔记入口（带条数）在左，前往专辑在右。
+        //    笔记卡从卡面退场后，这颗按钮就是它们唯一的家。 ──
+        Row(
+            modifier = Modifier.align(Alignment.CenterHorizontally),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(
-                text = "Go to album",
-                style = MaterialTheme.typography.labelLarge,
-            )
-            Spacer(modifier = Modifier.width(8.dp))
-            Text(text = "→", style = MaterialTheme.typography.labelLarge)
+            if (memory.writings.isNotEmpty()) {
+                TextButton(
+                    onClick = {
+                        haptics.performClick()
+                        showAllNotes = true
+                    },
+                    modifier = Modifier.height(48.dp),
+                ) {
+                    Text(
+                        text = "${memory.writings.size} " +
+                            if (memory.writings.size == 1) "note" else "notes",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = memoryColorScheme.primary,
+                    )
+                }
+            }
+            Button(
+                onClick = onOpenAlbum,
+                modifier = Modifier.height(48.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = memoryColorScheme.primary,
+                    contentColor = memoryColorScheme.onPrimary,
+                ),
+            ) {
+                Text(
+                    text = "Go to album",
+                    style = MaterialTheme.typography.labelLarge,
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(text = "→", style = MaterialTheme.typography.labelLarge)
+            }
         }
 
         Spacer(modifier = Modifier.height(navBottom + 44.dp))
@@ -901,6 +940,44 @@ private fun MemorySealCard(
                         containerColor = memoryColorScheme.surfaceContainerHigh,
                         clampBody = false,
                     )
+                }
+            }
+        }
+    }
+
+    if (showFullReview) {
+        memory.review?.let { review ->
+            ModalBottomSheet(
+                onDismissRequest = { showFullReview = false },
+            ) {
+                LazyColumn(
+                    contentPadding = PaddingValues(
+                        start = 20.dp,
+                        end = 20.dp,
+                        bottom = navBottom + 24.dp,
+                    ),
+                ) {
+                    item {
+                        memory.memoryTitle?.let { title ->
+                            Text(
+                                text = title,
+                                style = MaterialTheme.typography.titleLarge.copy(
+                                    fontWeight = FontWeight.SemiBold,
+                                ),
+                                color = MaterialTheme.colorScheme.onSurface,
+                            )
+                            Spacer(modifier = Modifier.height(12.dp))
+                        }
+                        Text(
+                            text = review.text,
+                            style = MaterialTheme.typography.bodyLarge.copy(
+                                fontFamily = FontFamily.Serif,
+                                fontSize = 16.sp,
+                                lineHeight = 28.sp,
+                            ),
+                            color = MaterialTheme.colorScheme.onSurface,
+                        )
+                    }
                 }
             }
         }
