@@ -719,7 +719,6 @@ private fun MemorySealCard(
                     text = memory.title,
                     style = MaterialTheme.typography.headlineLarge.copy(
                         fontWeight = FontWeight.SemiBold,
-                        fontFamily = YoinSerifTitle,
                     ),
                     color = MaterialTheme.colorScheme.onSurface,
                     maxLines = 2,
@@ -1128,13 +1127,12 @@ private fun MemoryNoteCard(
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                // 歌名是标题 → 宋体加大（字体规范 2026-07-26）。
+                // 歌名加大一档（用户裁决）；字体维持 GSF —— 宋体只属于 AI 拟题。
                 Text(
                     text = writing.noteHeadline(),
                     modifier = Modifier.weight(1f),
                     style = MaterialTheme.typography.titleMedium.copy(
                         fontWeight = FontWeight.SemiBold,
-                        fontFamily = YoinSerifTitle,
                         fontSize = 16.sp,
                         lineHeight = 22.sp,
                     ).withTabularFigures(),

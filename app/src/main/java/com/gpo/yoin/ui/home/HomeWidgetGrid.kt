@@ -316,12 +316,11 @@ private fun WidgetCoverBlock(
             modifier = Modifier.size(WidgetCoverSize),
         )
         Spacer(modifier = Modifier.height(5.dp))
-        // 歌曲/专辑名是标题 → 宋体加大（字体规范 2026-07-26）。
+        // 歌曲/专辑名加大一档（用户裁决）；字体维持 GSF —— 宋体只属于 AI 拟题。
         Text(
             text = card.title,
             style = MaterialTheme.typography.titleMedium.copy(
                 fontWeight = FontWeight.SemiBold,
-                fontFamily = YoinSerifTitle,
                 fontSize = 16.sp,
                 lineHeight = 22.sp,
             ),

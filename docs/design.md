@@ -129,12 +129,13 @@ Memory 的核心单位是 album。候选由当前 active profile/provider 下的
 
 Memory 卡片必须解释「为什么这张专辑成为 memory」：至少表达 album review、rated-track coverage、note count、AskAI references、recent revisit、NeoDB ready/synced 等本地信号。评分显示遵循 Notion 产品规则：用户有 album rating 时优先显示 album rating；否则显示 average track rating。Gemini emotional copy 是可选增强；未配置 BYOK 或生成失败时使用本地 deterministic fallback copy，不扩大 Gemini scope，也不上传 note/review 原文。
 
-**记忆表面字体规范（2026-07-26 定稿，适用 Memories 卡 + 首页 Jump Back In）**：
+**记忆表面字体规范（2026-07-26 定稿，同日收窄；适用 Memories 卡 + 首页 Jump Back In）**：
 
-- **宋体 = 标题**：专辑名、歌曲名、AI 拟题一律衬线（`FontFamily.Serif`，Pixel 上即 Noto Serif CJK / 思源宋体同源字形），SemiBold，字号上调一档（歌名 16sp、拟题 17–18sp）。token：`YoinSerifTitle`（Type.kt）。
-- **黑体 = 用户正文**：乐评正文、笔记正文用系统默认字面（`FontFamily.Default`）——衬线让位给标题，正文回归易读。
-- **GSF = 机器与数据**：Yoin 代笔文案（必须带「Written by Yoin」署名）、评分数字、标签、按钮、证据句维持 Google Sans Flex——品牌字体即机器身份。
-- 两个表面共用同一套法则，`HomeWidgetCard.commentIsHeadline` 区分拟题（标题性）与笔记原文（正文性）。
+- **宋体只属于 AI 拟题（memoryTitle）**：那一枚生成的标题（JBI memory 卡与 Memories 卡印章旁两处），衬线（`FontFamily.Serif`，Pixel 上即 Noto Serif CJK / 思源宋体同源字形），SemiBold 17–18sp。token：`YoinSerifTitle`（Type.kt）。
+- **其它标题维持 GSF，只加大字号**：专辑名照旧；歌名（笔记卡头行、JBI 卡片标题）升到 16sp SemiBold。
+- **黑体 = 用户正文**：乐评正文、笔记正文用系统默认字面（`FontFamily.Default`）。
+- **GSF = 其余一切**：Yoin 代笔文案（必须带「Written by Yoin」署名）、评分数字、标签、按钮、证据句。
+- `HomeWidgetCard.commentIsHeadline` 区分拟题（宋体标题）与笔记原文（黑体正文）。
 
 **拟题豁免（2026-07-26 决定）**：Memory 卡的 AI 拟题（`memoryTitle`，同时复用为首页 Jump Back In memory 槽位的标题）是上一条「不上传原文」的唯一例外——拟题 prompt 允许携带正文槽占用者（album review 或最新一条 note）的原文，并拼上专辑背景（专辑名/艺人/年份 + 本地已缓存的 Gemini About 行，不产生额外请求）。豁免仅此一处用途；`narrativeCopy` 的输入契约不变。未配置 BYOK 或生成失败时，拟题回退本地 deterministic 模板（覆盖率/笔记数），拟题槽永不为空。
 
