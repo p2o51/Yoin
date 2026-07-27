@@ -21,9 +21,10 @@ enum class LayoutMode {
     Compact,
 
     /**
-     * 600–840dp：大手机横屏、小平板、分屏半窗。官方 canonical 口径下这一档
-     * 只做密度/留白调整（限宽、多一列网格），**不分栏** —— 布局结构跟
-     * [Compact] 走，所有 `!= Wide` 的门（拖拽 dismiss、overlay chrome）继续成立。
+     * 600–840dp：大手机横屏、小平板、分屏半窗。页面层面这一档只做密度/留白
+     * 调整（限宽、多一列网格），shell↔detail 也不分栏；但 Now Playing 从这一
+     * 档起就是双栏（[isDualPaneNowPlaying]，scheme §5 option A，2026-07-27）——
+     * NP 侧原先的 `== Wide` / `!= Wide` 门已全部改写为按该谓词走。
      */
     Medium,
 
@@ -33,6 +34,19 @@ enum class LayoutMode {
     /** Horizontal-hinge half-fold (kickstand) — top/bottom split on the hinge. */
     Tabletop,
 }
+
+/**
+ * Now Playing renders the two-column player from Medium up (scheme §5 option A,
+ * 2026-07-27): [LayoutMode] is pane-relative inside embedded splits, which made
+ * a true [LayoutMode.Wide] reading rare — a shell/detail pane of a tablet
+ * window usually reads Medium — so the dual-pane NP experience keys off this
+ * predicate, never `== Wide`. Deliberately NOT `!= Compact`: [LayoutMode.Tabletop]
+ * keeps its own top/bottom hinge layout, and every NP gate must leave Tabletop
+ * exactly where it sat when the gates were written against `!= Wide` (Tabletop
+ * passed those, and stays passing this one's negation).
+ */
+val LayoutMode.isDualPaneNowPlaying: Boolean
+    get() = this == LayoutMode.Medium || this == LayoutMode.Wide
 
 /**
  * Window configuration snapshot. Recomposes on fold / rotate / split-screen

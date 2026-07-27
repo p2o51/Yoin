@@ -37,8 +37,8 @@ import com.gpo.yoin.AppContainer
 import com.gpo.yoin.data.source.Capability
 import com.gpo.yoin.ui.component.AddToPlaylistSheet
 import com.gpo.yoin.ui.component.DevicesSheet
-import com.gpo.yoin.ui.experience.LayoutMode
 import com.gpo.yoin.ui.experience.LocalYoinWindowInfo
+import com.gpo.yoin.ui.experience.isDualPaneNowPlaying
 import com.gpo.yoin.ui.theme.ProvideYoinMotionRole
 import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinMotionRole
@@ -138,12 +138,14 @@ fun NowPlayingOverlayHost(
         }
     }
 
-    // Wide has no Expanded substate (the right column is always expanded), so
-    // collapse a stale Expanded to Compact when entering Wide. Writes ONLY
-    // stageMode; the reconcile effect above stays the sole driver of the stage
-    // Animatable (it re-runs on the stageMode change and settles detail → 0).
+    // Dual-pane NP has no Expanded substate (the right column is always
+    // expanded), so collapse a stale Expanded to Compact when entering a
+    // dual-pane mode. Semantic flip 2026-07-27: was `== Wide`, now Medium+
+    // (isDualPaneNowPlaying) since Medium renders the same two-column body.
+    // Writes ONLY stageMode; the reconcile effect above stays the sole driver
+    // of the stage Animatable (it re-runs on the change and settles detail → 0).
     LaunchedEffect(layoutMode, stageMode) {
-        if (layoutMode == LayoutMode.Wide && stageMode == NowPlayingStageMode.Expanded) {
+        if (layoutMode.isDualPaneNowPlaying && stageMode == NowPlayingStageMode.Expanded) {
             viewModel.setStageMode(NowPlayingStageMode.Compact)
         }
     }
@@ -159,16 +161,20 @@ fun NowPlayingOverlayHost(
     // Layered back priority: Expanded collapses in place first. Immersive is
     // a transient cover-focus variant of Compact, so it does not enter the
     // stage back chain; Back closes Now Playing just like Compact.
+    // Semantic flip 2026-07-27: the stage-collapse back layer exists only where
+    // the Expanded substate exists — the single-column player. Was `!= Wide`;
+    // now !isDualPaneNowPlaying so Medium (two-column, no Expanded) skips it
+    // too. Tabletop sits exactly where it did under `!= Wide`.
     BackHandler(
         enabled = expanded && stageMode == NowPlayingStageMode.Expanded &&
-            layoutMode != LayoutMode.Wide,
+            !layoutMode.isDualPaneNowPlaying,
     ) {
         viewModel.stepBackStage()
     }
 
     BackHandler(
         enabled = expanded &&
-            (stageMode != NowPlayingStageMode.Expanded || layoutMode == LayoutMode.Wide),
+            (stageMode != NowPlayingStageMode.Expanded || layoutMode.isDualPaneNowPlaying),
         onBack = closeNowPlaying,
     )
 
@@ -181,8 +187,10 @@ fun NowPlayingOverlayHost(
     // layout cannot truncate. COMMIT runs the real detail 1→0 reshape and the
     // scale springs back to 1; CANCEL just springs the scale back, detail stays 1.
     PredictiveBackHandler(
+        // Same semantic flip as the BackHandler pair above: the stage-collapse
+        // gesture only exists where the Expanded substate does (single-column).
         enabled = expanded && stageMode == NowPlayingStageMode.Expanded &&
-            layoutMode != LayoutMode.Wide,
+            !layoutMode.isDualPaneNowPlaying,
     ) { progress ->
         stageProgress.beginGesture()
         try {
@@ -205,7 +213,7 @@ fun NowPlayingOverlayHost(
     // Predictive-back drive for the compact dismissal animation.
     PredictiveBackHandler(
         enabled = expanded &&
-            (stageMode != NowPlayingStageMode.Expanded || layoutMode == LayoutMode.Wide),
+            (stageMode != NowPlayingStageMode.Expanded || layoutMode.isDualPaneNowPlaying),
     ) { progress ->
         try {
             progress.collectLatest { event ->
@@ -280,13 +288,19 @@ fun NowPlayingOverlayHost(
                 .draggable(
                     state = draggableState,
                     orientation = Orientation.Vertical,
-                    // Drag-to-dismiss is a Compact-only gesture. In
+                    // Drag-to-dismiss is a single-column affordance. In
                     // Expanded/Immersive panes have
                     // their own vertical scroll / IME interactions;
                     // letting draggable eat those deltas is what
                     // causes Lyrics scroll to fight dismiss.
+                    // Semantic flip 2026-07-27: was `!= Wide`; dual-pane
+                    // NP (now Medium too) has no bar beneath and closes
+                    // via explicit affordances (WideTopBar back + system
+                    // back), so the drag is gated off there. Tabletop
+                    // keeps its pre-flip behavior (was on the `!= Wide`
+                    // side, stays on the !isDualPaneNowPlaying side).
                     enabled = stageMode != NowPlayingStageMode.Expanded &&
-                        layoutMode != LayoutMode.Wide,
+                        !layoutMode.isDualPaneNowPlaying,
                     onDragStopped = { velocity ->
                         if (dismissDragPx > 240f || velocity > 800f) {
                             dismissDragPx = 0f

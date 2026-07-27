@@ -83,10 +83,14 @@ import com.gpo.yoin.ui.component.YoinDropdownMenu
 import com.gpo.yoin.ui.component.YoinDropdownMenuItem
 import com.gpo.yoin.ui.component.YoinLoadingIndicator
 import com.gpo.yoin.ui.component.minimumTouchTarget
+import com.gpo.yoin.ui.component.yoinPageContentWidth
+import com.gpo.yoin.ui.experience.LayoutMode
+import com.gpo.yoin.ui.experience.LocalYoinWindowInfo
 import com.gpo.yoin.ui.experience.RevealState
 import com.gpo.yoin.ui.experience.rememberRevealState
 import com.gpo.yoin.ui.navigation.YoinSection
 import com.gpo.yoin.ui.theme.ProvideYoinMotionRole
+import com.gpo.yoin.ui.theme.YoinArtworkShapes
 import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.rememberCoverColorScheme
 import com.gpo.yoin.ui.theme.YoinMotionRole
@@ -326,17 +330,28 @@ private fun AlbumDetailContent(
     val bunContainer = s.primaryContainer
     val bunContent = s.onPrimaryContainer
 
+    // >=Medium windows (Tabletop stays on the Compact path) fork the overview
+    // to a plain scrolling layout: the two Compact states are mutually
+    // exclusive alpha layers, so this is a layout fork, not a pinned reveal.
+    val layoutMode = LocalYoinWindowInfo.current.layoutMode
+    val useMediumOverview =
+        layoutMode != LayoutMode.Compact && layoutMode != LayoutMode.Tabletop
+
     // Pull-up reshape: reuse RevealState. fraction 1 = hero, 0 = track list.
-    val revealState = rememberRevealState(initialFraction = 1f)
+    // Compact-only — the >=Medium overview composes none of the reveal machine,
+    // so the state (and its settle effect) does not exist there at all.
+    val revealState = if (useMediumOverview) null else rememberRevealState(initialFraction = 1f)
     var expanded by rememberSaveable(content.albumId) { mutableStateOf(false) }
-    // SINGLE settle owner (cf. the NowPlaying "ONE settle driver" rule):
-    // `expanded` is the durable source of truth; this one effect drives the
-    // reveal fraction to match it — and re-asserts after a cancelled gesture or
-    // a process-death/config-change restore, so the two can never wedge apart.
-    // Gestures only commit the bool. launchAnimateTo is settleJob-tracked, so a
-    // fresh drag (dragBy) cancels it — there is no concurrent-animator race.
-    LaunchedEffect(expanded) {
-        revealState.launchAnimateTo(scope, if (expanded) 0f else 1f)
+    if (revealState != null) {
+        // SINGLE settle owner (cf. the NowPlaying "ONE settle driver" rule):
+        // `expanded` is the durable source of truth; this one effect drives the
+        // reveal fraction to match it — and re-asserts after a cancelled gesture or
+        // a process-death/config-change restore, so the two can never wedge apart.
+        // Gestures only commit the bool. launchAnimateTo is settleJob-tracked, so a
+        // fresh drag (dragBy) cancels it — there is no concurrent-animator race.
+        LaunchedEffect(expanded) {
+            revealState.launchAnimateTo(scope, if (expanded) 0f else 1f)
+        }
     }
 
     // Horizontal pager: page 0 = this overview, page 1 = scores/About sample.
@@ -369,25 +384,47 @@ private fun AlbumDetailContent(
                     .weight(1f),
             ) { page ->
                 when (page) {
-                    0 -> AlbumOverviewPage(
-                        content = content,
-                        primaryBlock = primaryBlock,
-                        secondaryBlock = secondaryBlock,
-                        accent = primaryBlock,
-                        bunContainer = bunContainer,
-                        bunContent = bunContent,
-                        revealState = revealState,
-                        expanded = expanded,
-                        onExpandedCommit = { expanded = it },
-                        notedSongIds = notedSongIds,
-                        currentTrackId = currentTrackId,
-                        expandedSongId = expandedSongId,
-                        expandedNoteBundle = expandedNoteBundle,
-                        onSongClick = onSongClick,
-                        onToggleStar = onToggleStar,
-                        onToggleExpandedSong = onToggleExpandedSong,
-                        onEditComment = { showEditSheet = true },
-                    )
+                    0 -> {
+                        // Fork at the overview call site: reveal == null means
+                        // the >=Medium layout; Compact is the untouched call.
+                        val reveal = revealState
+                        if (reveal == null) {
+                            AlbumMediumOverview(
+                                content = content,
+                                accent = primaryBlock,
+                                bunContainer = bunContainer,
+                                bunContent = bunContent,
+                                notedSongIds = notedSongIds,
+                                currentTrackId = currentTrackId,
+                                expandedSongId = expandedSongId,
+                                expandedNoteBundle = expandedNoteBundle,
+                                onSongClick = onSongClick,
+                                onToggleStar = onToggleStar,
+                                onToggleExpandedSong = onToggleExpandedSong,
+                                onEditComment = { showEditSheet = true },
+                            )
+                        } else {
+                            AlbumOverviewPage(
+                                content = content,
+                                primaryBlock = primaryBlock,
+                                secondaryBlock = secondaryBlock,
+                                accent = primaryBlock,
+                                bunContainer = bunContainer,
+                                bunContent = bunContent,
+                                revealState = reveal,
+                                expanded = expanded,
+                                onExpandedCommit = { expanded = it },
+                                notedSongIds = notedSongIds,
+                                currentTrackId = currentTrackId,
+                                expandedSongId = expandedSongId,
+                                expandedNoteBundle = expandedNoteBundle,
+                                onSongClick = onSongClick,
+                                onToggleStar = onToggleStar,
+                                onToggleExpandedSong = onToggleExpandedSong,
+                                onEditComment = { showEditSheet = true },
+                            )
+                        }
+                    }
 
                     else -> AlbumSecondaryPage()
                 }
@@ -694,84 +731,20 @@ private fun AlbumHeroDetails(
     onSongClick: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val score = content.albumScore()
-    val mono = FontFamily.Monospace
     Column(
         modifier = modifier.padding(top = 8.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         // Last Play + Avg + Comment — a cover-width block; mono labels & values.
-        Column(
+        AlbumHeroMetaBlocks(
+            content = content,
+            bunContainer = bunContainer,
+            bunContent = bunContent,
+            interactive = interactive,
+            onEditComment = onEditComment,
+            onTapBun = onTapBun,
             modifier = Modifier.width(contentWidth),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-            ) {
-                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    AlbumSectionLabel(text = "Last Play")
-                    val labels = content.lastPlayedAt?.let { albumLastPlayLabels(it) }
-                    Text(
-                        text = labels?.first ?: "—",
-                        style = MaterialTheme.typography.bodyLarge.copy(fontFamily = mono),
-                        color = MaterialTheme.colorScheme.onSurface,
-                    )
-                    Text(
-                        text = labels?.second ?: "Never",
-                        style = MaterialTheme.typography.bodyMedium.copy(fontFamily = mono),
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    AlbumSectionLabel(
-                        text = if (score.kind == AlbumScoreKind.UserRating) "Rating" else "Avg.",
-                    )
-                    AlbumScoreBun(
-                        score = score,
-                        ratedCount = content.ratedTrackCount,
-                        total = content.trackTotal,
-                        containerColor = bunContainer,
-                        contentColor = bunContent,
-                        enabled = interactive,
-                        onClick = onTapBun,
-                    )
-                }
-            }
-
-            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                AlbumSectionLabel(
-                    text = "Comment",
-                    trailing = {
-                        IconButton(
-                            onClick = onEditComment,
-                            enabled = interactive,
-                            modifier = Modifier
-                                .size(28.dp)
-                                .minimumTouchTarget(),
-                        ) {
-                            Icon(
-                                imageVector = Icons.Filled.Edit,
-                                contentDescription = "Edit comment",
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.size(16.dp),
-                            )
-                        }
-                    },
-                )
-                Text(
-                    text = content.userReview.ifBlank { "—" },
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = if (content.userReview.isBlank()) {
-                        MaterialTheme.colorScheme.onSurfaceVariant
-                    } else {
-                        MaterialTheme.colorScheme.onSurface
-                    },
-                    maxLines = 3,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-        }
+        )
 
         Spacer(modifier = Modifier.height(28.dp))
 
@@ -809,6 +782,95 @@ private fun AlbumHeroDetails(
     }
 }
 
+// Last Play + Avg/Rating Bun + Comment — the hero's metadata sub-blocks,
+// extracted verbatim so the >=Medium overview reuses the exact same composables
+// beside the cover. Width/placement belongs to the caller (modifier); the
+// internals are shared and never re-styled per branch.
+@Composable
+private fun AlbumHeroMetaBlocks(
+    content: AlbumDetailUiState.Content,
+    bunContainer: Color,
+    bunContent: Color,
+    interactive: Boolean,
+    onEditComment: () -> Unit,
+    onTapBun: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val score = content.albumScore()
+    val mono = FontFamily.Monospace
+    Column(
+        modifier = modifier,
+        verticalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                AlbumSectionLabel(text = "Last Play")
+                val labels = content.lastPlayedAt?.let { albumLastPlayLabels(it) }
+                Text(
+                    text = labels?.first ?: "—",
+                    style = MaterialTheme.typography.bodyLarge.copy(fontFamily = mono),
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+                Text(
+                    text = labels?.second ?: "Never",
+                    style = MaterialTheme.typography.bodyMedium.copy(fontFamily = mono),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                AlbumSectionLabel(
+                    text = if (score.kind == AlbumScoreKind.UserRating) "Rating" else "Avg.",
+                )
+                AlbumScoreBun(
+                    score = score,
+                    ratedCount = content.ratedTrackCount,
+                    total = content.trackTotal,
+                    containerColor = bunContainer,
+                    contentColor = bunContent,
+                    enabled = interactive,
+                    onClick = onTapBun,
+                )
+            }
+        }
+
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            AlbumSectionLabel(
+                text = "Comment",
+                trailing = {
+                    IconButton(
+                        onClick = onEditComment,
+                        enabled = interactive,
+                        modifier = Modifier
+                            .size(28.dp)
+                            .minimumTouchTarget(),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.Edit,
+                            contentDescription = "Edit comment",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(16.dp),
+                        )
+                    }
+                },
+            )
+            Text(
+                text = content.userReview.ifBlank { "—" },
+                style = MaterialTheme.typography.bodyMedium,
+                color = if (content.userReview.isBlank()) {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                } else {
+                    MaterialTheme.colorScheme.onSurface
+                },
+                maxLines = 3,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
+}
+
 @Composable
 private fun AlbumTrackList(
     content: AlbumDetailUiState.Content,
@@ -822,6 +884,9 @@ private fun AlbumTrackList(
     onToggleExpandedSong: (songId: String) -> Unit,
     listState: androidx.compose.foundation.lazy.LazyListState,
     modifier: Modifier = Modifier,
+    // >=Medium overview only: a leading item (the hero row) that scrolls away
+    // with the list. Compact never passes one — its list stays byte-identical.
+    header: (@Composable () -> Unit)? = null,
 ) {
     val navBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
     LazyColumn(
@@ -829,6 +894,9 @@ private fun AlbumTrackList(
         modifier = modifier,
         contentPadding = PaddingValues(top = 4.dp, bottom = 112.dp + navBottom),
     ) {
+        if (header != null) {
+            item(key = "album-medium-hero") { header() }
+        }
         // Track count + runtime sits just below the wavy band, above row 1.
         if (content.songs.isNotEmpty()) {
             item {
@@ -859,6 +927,103 @@ private fun AlbumTrackList(
                 }
             }
         }
+    }
+}
+
+// >=Medium hero cover: a fixed side instead of Compact's window-fraction lerp —
+// there is no reshape to travel, so the cover holds one calm size.
+private val AlbumMediumHeroCoverSide = 240.dp
+
+// The >=Medium / Wide overview (Tabletop stays on the Compact path): hero row
+// on top — cover left, the hero's metadata blocks right — and the same track
+// list Compact uses permanently below, all in ONE plain vertically scrolling
+// surface (the hero is a leading list item, so it scrolls away with the page).
+// Deliberately absent: RevealState, the pull-up draggable, WavyBandShape and
+// the hero<->list crossfade — none of that machinery is composed here. The
+// predictive-back collapse and the persistent bottom bar wrap the whole page
+// upstream and are untouched by this fork.
+@Composable
+private fun AlbumMediumOverview(
+    content: AlbumDetailUiState.Content,
+    accent: Color,
+    bunContainer: Color,
+    bunContent: Color,
+    notedSongIds: Set<String>,
+    currentTrackId: String?,
+    expandedSongId: String?,
+    expandedNoteBundle: AlbumExpandedNoteBundle?,
+    onSongClick: (songId: String) -> Unit,
+    onToggleStar: (songId: String) -> Unit,
+    onToggleExpandedSong: (songId: String) -> Unit,
+    onEditComment: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val listState = rememberLazyListState()
+    AlbumTrackList(
+        content = content,
+        accent = accent,
+        notedSongIds = notedSongIds,
+        currentTrackId = currentTrackId,
+        expandedSongId = expandedSongId,
+        expandedNoteBundle = expandedNoteBundle,
+        onSongClick = onSongClick,
+        onToggleStar = onToggleStar,
+        onToggleExpandedSong = onToggleExpandedSong,
+        listState = listState,
+        // Content container carries the width cap (backgrounds stay full-bleed
+        // upstream); the 16dp inset mirrors the Compact list's content Box.
+        modifier = modifier
+            .fillMaxSize()
+            .yoinPageContentWidth()
+            .padding(horizontal = 16.dp),
+        header = {
+            AlbumMediumHeroRow(
+                content = content,
+                bunContainer = bunContainer,
+                bunContent = bunContent,
+                onEditComment = onEditComment,
+            )
+        },
+    )
+}
+
+@Composable
+private fun AlbumMediumHeroRow(
+    content: AlbumDetailUiState.Content,
+    bunContainer: Color,
+    bunContent: Color,
+    onEditComment: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(top = 8.dp, bottom = 24.dp),
+        horizontalArrangement = Arrangement.spacedBy(24.dp),
+    ) {
+        // Same artwork composable as Compact's hero — bare, no border.
+        ExpressiveMediaArtwork(
+            model = content.coverArtUrl,
+            contentDescription = content.albumName,
+            modifier = Modifier.size(AlbumMediumHeroCoverSide),
+            shape = YoinArtworkShapes.Hero,
+            fallbackIcon = Icons.Filled.LibraryMusic,
+            border = null,
+            shadowElevation = 0.dp,
+            tonalElevation = 3.dp,
+            requestSizePx = 640,
+        )
+        // The hero's own sub-blocks, reused unchanged; always interactive here
+        // (there is no fading twin layer whose buttons could steal taps).
+        AlbumHeroMetaBlocks(
+            content = content,
+            bunContainer = bunContainer,
+            bunContent = bunContent,
+            interactive = true,
+            onEditComment = onEditComment,
+            onTapBun = onEditComment,
+            modifier = Modifier.weight(1f),
+        )
     }
 }
 

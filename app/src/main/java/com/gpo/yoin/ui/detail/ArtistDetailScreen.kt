@@ -14,6 +14,8 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -81,12 +83,15 @@ import com.gpo.yoin.ui.component.AlbumCard
 import com.gpo.yoin.ui.component.DetailErrorState
 import com.gpo.yoin.ui.component.ExpressiveMediaArtwork
 import com.gpo.yoin.ui.component.ExpressivePageBackground
+import com.gpo.yoin.ui.component.PlaySplitButton
 import com.gpo.yoin.ui.component.YoinDropdownMenu
 import com.gpo.yoin.ui.component.YoinDropdownMenuItem
 import com.gpo.yoin.ui.component.YoinLoadingIndicator
 import com.gpo.yoin.ui.component.elasticPress
 import com.gpo.yoin.ui.component.formatTrackDuration
 import com.gpo.yoin.ui.component.minimumTouchTarget
+import com.gpo.yoin.ui.experience.LayoutMode
+import com.gpo.yoin.ui.experience.LocalYoinWindowInfo
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
 import com.gpo.yoin.ui.navigation.YoinSection
 import com.gpo.yoin.ui.theme.ProvideYoinMotionRole
@@ -203,6 +208,8 @@ fun ArtistDetailScreen(
                             onBackClick = onBackClick,
                             onAlbumClick = onAlbumClick,
                             onToggleFollow = onToggleFollow,
+                            onPlay = onPlay,
+                            onShuffle = onShuffle,
                             onTopTrackClick = onTopTrackClick,
                         )
                 }
@@ -290,6 +297,8 @@ private fun ArtistDetailContent(
     onBackClick: () -> Unit,
     onAlbumClick: (albumId: String) -> Unit,
     onToggleFollow: () -> Unit,
+    onPlay: () -> Unit,
+    onShuffle: () -> Unit,
     onTopTrackClick: (index: Int) -> Unit,
 ) {
     // Portrait → first album cover fallback (older Subsonic has no artist.jpg).
@@ -372,6 +381,8 @@ private fun ArtistDetailContent(
                 accentOn = s.onPrimary,
                 onAlbumClick = onAlbumClick,
                 onToggleFollow = onToggleFollow,
+                onPlay = onPlay,
+                onShuffle = onShuffle,
                 onTopTrackClick = onTopTrackClick,
                 modifier = Modifier
                     .fillMaxSize()
@@ -391,11 +402,17 @@ private fun ArtistOverviewPage(
     accentOn: Color,
     onAlbumClick: (String) -> Unit,
     onToggleFollow: () -> Unit,
+    onPlay: () -> Unit,
+    onShuffle: () -> Unit,
     onTopTrackClick: (index: Int) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     BoxWithConstraints(modifier = modifier.fillMaxSize()) {
         val maxW = maxWidth
+        // PANE-relative (an embedded activity sees its own container), so a
+        // shell↔detail split on an 840dp window still renders the Compact
+        // hero/carousel in its ~460dp pane — exactly as intended.
+        val layoutMode = LocalYoinWindowInfo.current.layoutMode
         // Smaller portrait so the Albums / Follow stats can flank it and use the
         // space that's otherwise empty beside a circle.
         val portraitSize = minOf(maxW * 0.44f, 188.dp)
@@ -413,6 +430,23 @@ private fun ArtistOverviewPage(
             val (followIdle, followActive) = artistFollowLabels(content.artistId)
             val followLabel = if (content.isStarred) followActive else followIdle
 
+            if (layoutMode != LayoutMode.Compact) {
+                // >= Medium hero — the centred circle can't carry a wide pane
+                // alone: portrait (200dp) left; name, meta, Follow ★ and Play
+                // in a right column. Same arrow background, same blocks.
+                ArtistWideHero(
+                    content = content,
+                    heroUrl = heroUrl,
+                    primaryBlock = primaryBlock,
+                    secondaryBlock = secondaryBlock,
+                    accent = accent,
+                    accentOn = accentOn,
+                    followLabel = followLabel,
+                    onToggleFollow = onToggleFollow,
+                    onPlay = onPlay,
+                    onShuffle = onShuffle,
+                )
+            } else {
             // Hero — Albums (left) · portrait (center) · Follow (right).
             Box(
                 modifier = Modifier
@@ -475,6 +509,7 @@ private fun ArtistOverviewPage(
                 }
             }
             }
+            }
 
             Spacer(modifier = Modifier.height(24.dp))
 
@@ -515,6 +550,14 @@ private fun ArtistOverviewPage(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(horizontal = 20.dp),
                 )
+            } else if (layoutMode != LayoutMode.Compact) {
+                // >= Medium: the one-row carousel wastes a tall pane — the same
+                // albums flow as rows of the shared AlbumCard instead.
+                ArtistDiscographyGrid(
+                    albums = content.albums,
+                    onAlbumClick = onAlbumClick,
+                    modifier = sidePad,
+                )
             } else {
                 // Official M3 carousel, edge-to-edge: items scroll freely off both
                 // screen edges, no white side gutters.
@@ -523,6 +566,143 @@ private fun ArtistOverviewPage(
                     onAlbumClick = onAlbumClick,
                 )
             }
+        }
+    }
+}
+
+/**
+ * Hero at >= Medium: the Compact triptych (stat · circle · star) leaves a wide
+ * pane mostly empty, so the portrait moves left and an identity column — name,
+ * meta line, Follow ★ Bun and the Play split — fills the freed width. Same
+ * arrow background and the same building blocks as Compact, only rearranged.
+ */
+@Composable
+private fun ArtistWideHero(
+    content: ArtistDetailUiState.Content,
+    heroUrl: String?,
+    primaryBlock: Color,
+    secondaryBlock: Color,
+    accent: Color,
+    accentOn: Color,
+    followLabel: String,
+    onToggleFollow: () -> Unit,
+    onPlay: () -> Unit,
+    onShuffle: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val portraitSize = 200.dp
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp),
+    ) {
+        AlbumArrowBackground(
+            primaryBlock = primaryBlock,
+            secondaryBlock = secondaryBlock,
+            lineColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.22f),
+            markHeight = portraitSize + 48.dp,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(portraitSize + 64.dp)
+                .align(Alignment.TopCenter),
+        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(28.dp),
+        ) {
+            ExpressiveMediaArtwork(
+                model = heroUrl,
+                contentDescription = content.artistName,
+                modifier = Modifier.size(portraitSize),
+                shape = CircleShape,
+                fallbackIcon = Icons.Filled.Person,
+                border = null,
+                shadowElevation = 0.dp,
+                tonalElevation = 3.dp,
+                requestSizePx = 600,
+            )
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                Text(
+                    text = content.artistName,
+                    style = MaterialTheme.typography.headlineMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                // Same meta voice as the top-bar subtitle, in the page's mono.
+                // albums.size, NOT the provider albumCount (Spotify inflates it).
+                Text(
+                    text = buildString {
+                        append("Artist")
+                        content.albums.size.takeIf { it > 0 }?.let {
+                            append(if (it == 1) "  ·  1 album" else "  ·  $it albums")
+                        }
+                    },
+                    style = MaterialTheme.typography.titleSmall
+                        .copy(fontFamily = FontFamily.Monospace),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Spacer(modifier = Modifier.height(10.dp))
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(14.dp),
+                ) {
+                    ArtistFollowBun(
+                        following = content.isStarred,
+                        label = followLabel,
+                        accent = accent,
+                        accentOn = accentOn,
+                        onToggle = onToggleFollow,
+                    )
+                    PlaySplitButton(
+                        playContainer = accent,
+                        playContent = accentOn,
+                        onPlay = onPlay,
+                        onShuffle = onShuffle,
+                    )
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Discography at >= Medium: rows of the shared [AlbumCard] (its default 156dp
+ * fixed width — 3-up at typical split-pane widths, 4-up from ~692dp of pane
+ * width with these 12dp gutters). A plain [FlowRow] inside the page's single
+ * verticalScroll Column — NOT a LazyVerticalGrid, which would need its own
+ * bounded height inside this already-scrollable parent.
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun ArtistDiscographyGrid(
+    albums: List<ArtistAlbum>,
+    onAlbumClick: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    // 12dp gutters / 16dp row gap — the Library albums grid rhythm.
+    FlowRow(
+        modifier = modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
+    ) {
+        albums.forEach { album ->
+            AlbumCard(
+                coverArtUrl = album.coverArtUrl,
+                title = album.name,
+                subtitle = album.songCount?.let { if (it == 1) "1 song" else "$it songs" },
+                metaLabel = album.year?.toString(),
+                onClick = { onAlbumClick(album.id) },
+                // Palette extraction across a whole grid drops frames — same
+                // @palette-perf story as the Library albums grid.
+                extractBackdropColors = false,
+            )
         }
     }
 }

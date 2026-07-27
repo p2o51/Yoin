@@ -638,7 +638,10 @@ private fun PlayingContent(
     // duration or the fold/unfold spring paces at ARR-Normal (60Hz).
     val posturing = transition.currentState != transition.targetState
     when (layoutMode) {
-        LayoutMode.Wide -> WidePlayingContent(
+        // Dual-pane from Medium up (isDualPaneNowPlaying, scheme §5 option A):
+        // pane-relative LayoutMode made a true Wide reading rare, so the
+        // two-column player keys off Medium+. Tabletop keeps its hinge layout.
+        LayoutMode.Wide, LayoutMode.Medium -> WidePlayingContent(
             state = state,
             positionMs = positionMs,
             bufferedMs = bufferedMs,
@@ -746,9 +749,7 @@ private fun PlayingContent(
             animatedVisibilityScope = animatedVisibilityScope,
             modifier = modifier.voteHighFrameRate(posturing),
         )
-        // Medium（600–840）跟 Compact 走同一套单栏渲染 —— 分栏只属于 Wide
-        // （>= 840，2026-07-26 阈值审计）。限宽由页面级基线负责。
-        LayoutMode.Compact, LayoutMode.Medium -> CompactPlayingContent(
+        LayoutMode.Compact -> CompactPlayingContent(
             state = state,
             positionMs = positionMs,
             bufferedMs = bufferedMs,
@@ -810,8 +811,8 @@ private fun PlayingContent(
 
 /**
  * The single-column player — phones, outer foldable screens, narrow split-screen.
- * This is the original [PlayingContent] body, unchanged; [PlayingContent] now
- * dispatches here for every [LayoutMode] until Wide / Tabletop land.
+ * This is the original [PlayingContent] body, unchanged; since the Medium flip
+ * (isDualPaneNowPlaying) it renders ONLY for [LayoutMode.Compact].
  */
 @Composable
 private fun CompactPlayingContent(
@@ -1519,14 +1520,15 @@ private fun CompactPlayingContent(
 }
 
 /**
- * Two-column player for wide windows (foldable inner screen / tablet). LEFT is
- * passive (square cover + horizontal rating with the favorite pinned at the row
- * end + title/artist); RIGHT is the always-expanded detail (tabs + Lyrics/About/
- * Note pager + transport + pills). The right column is inherently "expanded", so
- * there is no Compact↔Expanded reshape, no CoverTransitionOverlay, and no
- * drag-to-dismiss (gated off in YoinNavHost). The cover keeps the shared-element
- * key so the mini-player → cover morph still lands. State here is LOCAL: Compact
- * and Wide are mutually exclusive in the dispatcher, so each owns its copies.
+ * Two-column player for Medium+ windows (isDualPaneNowPlaying: foldable inner
+ * screen / tablet / a >=600dp embedded pane). LEFT is passive (square cover +
+ * horizontal rating with the favorite pinned at the row end + title/artist);
+ * RIGHT is the always-expanded detail (tabs + Lyrics/About/Note pager +
+ * transport + pills). The right column is inherently "expanded", so there is no
+ * Compact↔Expanded reshape, no CoverTransitionOverlay, and no drag-to-dismiss
+ * (gated off in NowPlayingOverlayHost). State here is LOCAL: the single- and
+ * two-column bodies are mutually exclusive in the dispatcher, so each owns its
+ * copies.
  */
 @Composable
 private fun WidePlayingContent(

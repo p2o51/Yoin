@@ -157,38 +157,70 @@ tailrec fun Context.findActivityOrNull(): Activity? = when (this) {
     else -> null
 }
 
+/**
+ * How a detail Activity leaves the shell（方案 §2③ 的三值启动签名）。
+ *
+ * INVARIANT：跨窗口 bar 编舞（[FullChoreography]）只存在于一种构型 ——
+ * shell 是 Compact、底部 bar 在屏上、且即将被 detail 窗口完全覆盖。其余
+ * 一切构型（分栏、Medium+ 全窗 rail、Tabletop）都必须选一个没有 bar
+ * 交接的模式；shell 侧 armDetailChrome 的门控与这里的选择一一对应。
+ */
+enum class DetailLaunchMode {
+    /**
+     * Compact shell、底部 bar 即将被完全覆盖：完整交接 —— fromShell /
+     * fromNowPlaying + barHandoff extras + detail_bar_handoff_enter 的
+     * 延迟窗口淡入（shell bar 的 nav→split morph 先演）。
+     */
+    FullChoreography,
+
+    /**
+     * Medium+ 全窗 shell（左侧 rail，屏上没有底部 bar）：只带
+     * originSection、普通 startActivity、无自定义动画。不带 fromShell /
+     * barHandoff —— detail 的返回 scrub 不许朝一根不存在的 bar 做 morph
+     * （fromShell 缺位已保证这点，backMorphProgress 恒 0）。
+     */
+    PlainPush,
+
+    /**
+     * Activity Embedding 会把这个 detail 放进右侧分栏（任务窗 >= 840dp，
+     * 规则见 main_split_config.xml）：shell 一直可见、它的 bar 不 morph，
+     * 同样是 originSection-only 的普通启动，进场交给系统的分栏默认。
+     */
+    Embedded,
+}
+
 fun launchDetailFromShell(
     context: Context,
     intent: Intent,
-    /**
-     * true = Activity Embedding 会把这个 detail 放进右侧分栏（窗口 >= 840dp，
-     * 规则见 main_split_config.xml）。此时跨窗口 bar 编舞整个不适用：shell
-     * 一直可见、它的 bar 不 morph（arm 点已按 LayoutMode.Wide 门控），detail
-     * 窗口也不该拿 fromShell/barHandoff 去演一场对着空气的交接 —— 直接普通
-     * 启动，进场动画交给系统的分栏默认。
-     */
-    embedding: Boolean = false,
+    mode: DetailLaunchMode = DetailLaunchMode.FullChoreography,
 ) {
     val session = (context.applicationContext as YoinApplication)
         .container.experienceSessionStore.state.value
-    if (embedding) {
-        intent.putExtra(DETAIL_EXTRA_ORIGIN_SECTION, session.selectedSection.name)
-        context.startActivity(intent)
-        return
+    when (mode) {
+        // 两个无编舞模式的机械动作相同（originSection-only、普通启动）；
+        // 枚举仍分开 —— 语义不同（分栏接住 vs Medium+ 全窗推入），留给
+        // 调用侧与日后分叉。
+        DetailLaunchMode.Embedded, DetailLaunchMode.PlainPush -> {
+            intent.putExtra(DETAIL_EXTRA_ORIGIN_SECTION, session.selectedSection.name)
+            context.startActivity(intent)
+        }
+
+        DetailLaunchMode.FullChoreography -> {
+            if (!session.nowPlayingExpanded) {
+                intent.putExtra(DETAIL_EXTRA_FROM_SHELL, true)
+                intent.putExtra(DETAIL_EXTRA_ORIGIN_SECTION, session.selectedSection.name)
+            } else {
+                intent.putExtra(DETAIL_EXTRA_FROM_NOW_PLAYING, true)
+            }
+            intent.putExtra(DETAIL_EXTRA_BAR_HANDOFF, true)
+            val options = ActivityOptions.makeCustomAnimation(
+                context,
+                R.anim.detail_bar_handoff_enter,
+                R.anim.detail_bar_handoff_exit,
+            )
+            context.startActivity(intent, options.toBundle())
+        }
     }
-    if (!session.nowPlayingExpanded) {
-        intent.putExtra(DETAIL_EXTRA_FROM_SHELL, true)
-        intent.putExtra(DETAIL_EXTRA_ORIGIN_SECTION, session.selectedSection.name)
-    } else {
-        intent.putExtra(DETAIL_EXTRA_FROM_NOW_PLAYING, true)
-    }
-    intent.putExtra(DETAIL_EXTRA_BAR_HANDOFF, true)
-    val options = ActivityOptions.makeCustomAnimation(
-        context,
-        R.anim.detail_bar_handoff_enter,
-        R.anim.detail_bar_handoff_exit,
-    )
-    context.startActivity(intent, options.toBundle())
 }
 
 /** [DETAIL_EXTRA_ORIGIN_SECTION] → [YoinSection], defaulting to HOME. */
