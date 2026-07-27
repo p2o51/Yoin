@@ -163,6 +163,7 @@ dependencies {
     implementation(libs.material3.expressive)
     // Window size class + fold posture (currentWindowAdaptiveInfo)
     implementation(libs.material3.adaptive)
+    implementation(libs.androidx.window)
 
     // Navigation 3
     implementation(libs.androidx.navigation3.runtime)

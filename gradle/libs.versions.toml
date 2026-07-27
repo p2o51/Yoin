@@ -12,6 +12,9 @@ material3Expressive = "1.5.0-alpha16"
 # 1.2.0 is the newest line that still compiles against compileSdk 36; 1.3.x
 # requires compileSdk 37 (not installed; preview).
 material3Adaptive = "1.2.0"
+# Activity Embedding（shell↔detail 大屏分栏）。adaptive 只传递 window-core；
+# SplitPairRule/RuleController 在 androidx.window:window 里，需要显式依赖。
+window = "1.5.1"
 # 1.1.2: fixes the OverlayScene LocalNavAnimatedContentScope crash (1.1.1)
 # and inert predictive back in Studio previews (NavigationEvent 1.1.1).
 nav3Core = "1.1.2"
@@ -67,6 +70,7 @@ compose-runtime = { group = "androidx.compose.runtime", name = "runtime" }
 material3 = { group = "androidx.compose.material3", name = "material3" }
 material3-expressive = { group = "androidx.compose.material3", name = "material3", version.ref = "material3Expressive" }
 material3-adaptive = { group = "androidx.compose.material3.adaptive", name = "adaptive", version.ref = "material3Adaptive" }
+androidx-window = { group = "androidx.window", name = "window", version.ref = "window" }
 material-icons-extended = { group = "androidx.compose.material", name = "material-icons-extended" }
 
 # Navigation 3

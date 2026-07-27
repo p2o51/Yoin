@@ -58,6 +58,12 @@
             android:exported="false"
             android:windowSoftInputMode="adjustResize" />
 
+        <!-- Activity Embedding 开关：声明本应用的分栏由自己负责（规则见
+             res/xml/main_split_config.xml，YoinApplication 里注册）。 -->
+        <property
+            android:name="android.window.PROPERTY_ACTIVITY_EMBEDDING_SPLITS_ENABLED"
+            android:value="true" />
+
         <meta-data
             android:name="com.google.android.gms.cast.framework.OPTIONS_PROVIDER_CLASS_NAME"
             android:value="com.gpo.yoin.player.CastOptionsProvider" />

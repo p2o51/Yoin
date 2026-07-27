@@ -4,6 +4,7 @@ import android.app.Activity
 import android.app.Application
 import android.os.Bundle
 import androidx.annotation.VisibleForTesting
+import androidx.window.embedding.RuleController
 import coil3.ImageLoader
 import coil3.PlatformContext
 import coil3.SingletonImageLoader
@@ -28,6 +29,18 @@ class YoinApplication : Application(), SingletonImageLoader.Factory {
         super.onCreate()
         container = containerOverrideForTests ?: AppContainer(this)
         registerHostLifecycle()
+        registerActivityEmbeddingRules()
+    }
+
+    /**
+     * Activity Embedding：>= 840dp 的窗口里 shell 与 detail 页左右分栏
+     * （res/xml/main_split_config.xml）。detail 页本来就是独立 Activity
+     * （native 跨 Activity back 的那次架构决定），这里只是声明规则 ——
+     * 窄窗上规则不激活，推入/返回行为与手机完全一致。
+     */
+    private fun registerActivityEmbeddingRules() {
+        RuleController.getInstance(this)
+            .setRules(RuleController.parseRules(this, R.xml.main_split_config))
     }
 
     /**

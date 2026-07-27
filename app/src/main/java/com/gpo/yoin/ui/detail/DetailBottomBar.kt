@@ -118,9 +118,25 @@ fun DetailBottomBar(
  * otherwise the current shell tab rides along so the back preview highlights
  * the section the user actually left.
  */
-fun launchDetailFromShell(context: Context, intent: Intent) {
+fun launchDetailFromShell(
+    context: Context,
+    intent: Intent,
+    /**
+     * true = Activity Embedding 会把这个 detail 放进右侧分栏（窗口 >= 840dp，
+     * 规则见 main_split_config.xml）。此时跨窗口 bar 编舞整个不适用：shell
+     * 一直可见、它的 bar 不 morph（arm 点已按 LayoutMode.Wide 门控），detail
+     * 窗口也不该拿 fromShell/barHandoff 去演一场对着空气的交接 —— 直接普通
+     * 启动，进场动画交给系统的分栏默认。
+     */
+    embedding: Boolean = false,
+) {
     val session = (context.applicationContext as YoinApplication)
         .container.experienceSessionStore.state.value
+    if (embedding) {
+        intent.putExtra(DETAIL_EXTRA_ORIGIN_SECTION, session.selectedSection.name)
+        context.startActivity(intent)
+        return
+    }
     if (!session.nowPlayingExpanded) {
         intent.putExtra(DETAIL_EXTRA_FROM_SHELL, true)
         intent.putExtra(DETAIL_EXTRA_ORIGIN_SECTION, session.selectedSection.name)

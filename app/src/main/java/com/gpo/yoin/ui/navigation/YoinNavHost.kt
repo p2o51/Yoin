@@ -114,6 +114,9 @@ fun YoinNavHost(
         val sharedTransitionScope = this
         val context = LocalContext.current
         val app = context.applicationContext as YoinApplication
+        // Wide（>= 840dp）时 detail 走 Activity Embedding 右栏，跨窗口 bar
+        // 编舞不适用 —— 与 main_split_config.xml 的 splitMinWidthDp 同一条线。
+        val hostLayoutMode = LocalYoinWindowInfo.current.layoutMode
         val nowPlayingViewModel: NowPlayingViewModel = viewModel(
             factory = NowPlayingViewModel.Factory(app.container),
         )
@@ -196,18 +199,21 @@ fun YoinNavHost(
                                 launchDetailFromShell(
                                     context,
                                     AlbumDetailActivity.intent(context, albumId),
+                                    embedding = hostLayoutMode == LayoutMode.Wide,
                                 )
                             },
                             onNavigateToArtist = { artistId, _ ->
                                 launchDetailFromShell(
                                     context,
                                     ArtistDetailActivity.intent(context, artistId),
+                                    embedding = hostLayoutMode == LayoutMode.Wide,
                                 )
                             },
                             onNavigateToPlaylist = { playlistId, _ ->
                                 launchDetailFromShell(
                                     context,
                                     PlaylistDetailActivity.intent(context, playlistId),
+                                    embedding = hostLayoutMode == LayoutMode.Wide,
                                 )
                             },
                             sharedTransitionScope = sharedTransitionScope,
@@ -332,8 +338,13 @@ private fun YoinShell(
     // With Now Playing expanded the shell bar is hidden and the back reveal
     // is NP itself — arming chrome would only queue a phantom morph (and a
     // wrong split→nav scrub on the detail's back), so skip it.
+    // Embedding（Wide）下 shell 永远不会被 detail 覆盖：onStop 的恢复 tick
+    // 不会来，morph 一旦 arm 就会卡死在 detail 态 —— 分栏时 bar 保持 nav，
+    // detail 右栏用它自己的像素孪生 bar。
     val armDetailChrome = {
-        if (!experienceSessionStore.state.value.nowPlayingExpanded) {
+        if (!experienceSessionStore.state.value.nowPlayingExpanded &&
+            layoutMode != LayoutMode.Wide
+        ) {
             experienceSessionStore.setDetailChromeActive(true)
         }
     }

@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Activity Embedding：大屏上 shell（MainActivity）与 detail 页左右分栏。
+
+  - 只在窗口宽度 >= 840dp（LayoutMode.Wide 同一条线）激活：600-840 的
+    Medium 档保持整窗推入，与 WindowAdaptiveRuntime 的阈值审计一致。
+  - shell 0.45 / detail 0.55。
+  - finishPrimaryWithSecondary=never：detail 关掉，shell 留在原地；
+    finishSecondaryWithPrimary=always：shell 结束时连带 detail。
+  - 只声明 shell→detail 三对。分栏激活期间从 detail 再推 detail 时，
+    配对判定看的是 primary 容器顶部的 Activity（仍是 MainActivity），
+    所以 detail→detail 自然堆叠在右栏，不需要额外的 filter。
+  - Settings 不参与分栏（保持整窗，全局表单页语义）。
+-->
+<resources xmlns:window="http://schemas.android.com/apk/res-auto">
+    <SplitPairRule
+        window:splitRatio="0.45"
+        window:splitMinWidthDp="840"
+        window:finishPrimaryWithSecondary="never"
+        window:finishSecondaryWithPrimary="always">
+        <SplitPairFilter
+            window:primaryActivityName="com.gpo.yoin.MainActivity"
+            window:secondaryActivityName="com.gpo.yoin.ui.detail.AlbumDetailActivity" />
+        <SplitPairFilter
+            window:primaryActivityName="com.gpo.yoin.MainActivity"
+            window:secondaryActivityName="com.gpo.yoin.ui.detail.ArtistDetailActivity" />
+        <SplitPairFilter
+            window:primaryActivityName="com.gpo.yoin.MainActivity"
+            window:secondaryActivityName="com.gpo.yoin.ui.detail.PlaylistDetailActivity" />
+    </SplitPairRule>
+</resources>

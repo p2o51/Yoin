@@ -1,7 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <application>
+        <!-- debug 专属：把 detail 页放开成 exported，让 adb 能直接把它们
+             推进任务栈 —— Activity Embedding 分栏的大屏 QA 通道（模拟器
+             无账号数据时唯一能触发 shell↔detail 配对的方式）。release
+             manifest 里它们保持 exported=false。 -->
+        <activity
+            android:name="com.gpo.yoin.ui.detail.AlbumDetailActivity"
+            android:exported="true"
+            tools:node="merge"
+            tools:replace="android:exported" />
         <activity
             android:name=".debug.DetailScreenshotActivity"
             android:exported="true"

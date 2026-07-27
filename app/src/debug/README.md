@@ -26,6 +26,21 @@ Example:
 adb shell am start -n com.gpo.yoin/com.gpo.yoin.debug.LibraryScreenshotActivity --es tab Albums
 ```
 
+## Activity Embedding QA 通道
+
+Debug manifest 把 `AlbumDetailActivity` 放开成 exported（release 保持
+false），让 adb 能在无账号数据的模拟器上直接触发 shell↔detail 的分栏配对
+（规则见 `res/xml/main_split_config.xml`，≥840dp 激活）：
+
+```bash
+adb shell wm size 1280x800 && adb shell wm density 160
+adb shell am start -n com.gpo.yoin/.MainActivity
+adb shell am start -n com.gpo.yoin/.ui.detail.AlbumDetailActivity --es albumId any-id
+```
+
+fake id 会让 detail 显示加载失败态——分栏几何与两侧 bar 行为照常可验。
+验完 `adb shell wm size reset && adb shell wm density reset`。
+
 ## Token bridge
 
 `SpotifyTokenExportProvider` exposes the current Spotify access token to local tooling
