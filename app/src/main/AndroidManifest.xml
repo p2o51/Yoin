@@ -57,6 +57,11 @@
             android:name=".ui.settings.SettingsActivity"
             android:exported="false"
             android:windowSoftInputMode="adjustResize" />
+        <!-- Activity Embedding 右栏占位面（SplitPlaceholderRule 自动启动，
+             只在 >= 840dp 分栏激活时出现）。 -->
+        <activity
+            android:name=".ui.detail.DetailPlaceholderActivity"
+            android:exported="false" />
 
         <!-- Activity Embedding 开关：声明本应用的分栏由自己负责（规则见
              res/xml/main_split_config.xml，YoinApplication 里注册）。 -->

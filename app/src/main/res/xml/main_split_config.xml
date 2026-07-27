@@ -13,6 +13,18 @@
   - Settings 不参与分栏（保持整窗，全局表单页语义）。
 -->
 <resources xmlns:window="http://schemas.android.com/apk/res-auto">
+    <!-- 右栏占位面：shell 一进分栏就有内容站位。detail 在同一容器里叠在它
+         上面 —— 半透明预测性返回塌缩透出的是它（不再是黑幕）；最后一张
+         detail 关掉后右栏落回占位，分栏不解散、shell 不跳宽。
+         stickyPlaceholder=false：窗口收窄到规则线以下时占位自动退场。 -->
+    <SplitPlaceholderRule
+        window:placeholderActivityName="com.gpo.yoin.ui.detail.DetailPlaceholderActivity"
+        window:splitRatio="0.45"
+        window:splitMinWidthDp="840"
+        window:stickyPlaceholder="false">
+        <ActivityFilter window:activityName="com.gpo.yoin.MainActivity" />
+    </SplitPlaceholderRule>
+
     <SplitPairRule
         window:splitRatio="0.45"
         window:splitMinWidthDp="840"
