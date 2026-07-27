@@ -80,6 +80,7 @@ import com.gpo.yoin.ui.component.ignoreParentHorizontalPadding
 import com.gpo.yoin.ui.component.horizontalEdgeFadeOnScroll
 import com.gpo.yoin.ui.component.noRippleClickable
 import com.gpo.yoin.ui.component.rememberExpressiveBackdropColors
+import com.gpo.yoin.ui.component.yoinPageContentWidth
 import com.gpo.yoin.ui.experience.RevealState
 import com.gpo.yoin.ui.experience.rememberRevealState
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
@@ -244,6 +245,9 @@ internal fun HomeEditorialContent(
         state = listState,
         modifier = modifier
             .fillMaxSize()
+            // 大屏限宽:夹的是内容列本身;高度不受影响,所以下面
+            // onSizeChanged 喂给 reveal settle 的 containerHeightPx 语义不变。
+            .yoinPageContentWidth()
             .onSizeChanged { containerHeightPx = it.height.toFloat().coerceAtLeast(1f) }
             .nestedScroll(pullToMemoriesConnection)
             // Long-press → layout editor. Cards only consume taps

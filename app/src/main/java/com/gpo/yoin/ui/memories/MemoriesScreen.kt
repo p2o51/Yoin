@@ -91,8 +91,10 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.gpo.yoin.ui.component.ExpressiveMediaArtwork
 import com.gpo.yoin.ui.component.ExpressivePageBackground
 import com.gpo.yoin.ui.component.YoinLoadingIndicator
+import com.gpo.yoin.ui.component.YoinPageWidths
 import com.gpo.yoin.ui.component.formatTrackDuration
 import com.gpo.yoin.ui.component.rememberExpressiveBackdropColors
+import com.gpo.yoin.ui.component.yoinPageContentWidth
 import com.gpo.yoin.ui.experience.DeckIndicatorTransitionState
 import com.gpo.yoin.ui.experience.EdgeAdvanceDirection
 import com.gpo.yoin.ui.experience.LocalMotionProfile
@@ -248,6 +250,7 @@ private fun MemoriesEmptyState(
         modifier = Modifier
             .fillMaxSize()
             .padding(WindowInsets.systemBars.asPaddingValues())
+            .yoinPageContentWidth(YoinPageWidths.Card)
             .padding(horizontal = 24.dp),
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -276,6 +279,7 @@ private fun MemoriesErrorState(
         modifier = Modifier
             .fillMaxSize()
             .padding(WindowInsets.systemBars.asPaddingValues())
+            .yoinPageContentWidth(YoinPageWidths.Card)
             .padding(horizontal = 24.dp),
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -703,7 +707,12 @@ private fun MemorySealCard(
     val navBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
 
     Column(
-        modifier = modifier.padding(start = 20.dp, end = 20.dp, top = 20.dp),
+        // 限宽链在来件 modifier 之后:wrapContentWidth 上报的尺寸仍被上游
+        // fillMaxSize 的固定约束钳成全宽,所以 dismiss draggable 的命中区
+        // 保持整面板宽度——侧边空档起手的下拉照样能关掉页面。
+        modifier = modifier
+            .yoinPageContentWidth(YoinPageWidths.Card)
+            .padding(start = 20.dp, end = 20.dp, top = 20.dp),
     ) {
         // ── 标题区：专辑名 + 艺人·年份，72dp 裸封面（点按即播） ──
         Row(
@@ -929,6 +938,7 @@ private fun MemorySealCard(
             onDismissRequest = { showAllNotes = false },
         ) {
             LazyColumn(
+                modifier = Modifier.yoinPageContentWidth(YoinPageWidths.Prose),
                 contentPadding = PaddingValues(
                     start = 20.dp,
                     end = 20.dp,
@@ -956,6 +966,7 @@ private fun MemorySealCard(
                 onDismissRequest = { showFullReview = false },
             ) {
                 LazyColumn(
+                    modifier = Modifier.yoinPageContentWidth(YoinPageWidths.Prose),
                     contentPadding = PaddingValues(
                         start = 20.dp,
                         end = 20.dp,

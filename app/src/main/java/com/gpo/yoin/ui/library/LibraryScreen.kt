@@ -106,6 +106,7 @@ import com.gpo.yoin.ui.component.noRippleClickable
 import com.gpo.yoin.ui.component.formatTotalDuration
 import com.gpo.yoin.ui.component.minimumTouchTarget
 import com.gpo.yoin.ui.component.rememberExpressiveEntranceProgress
+import com.gpo.yoin.ui.component.yoinPageContentWidth
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
 import com.gpo.yoin.ui.theme.ProvideYoinMotionRole
 import com.gpo.yoin.ui.theme.YoinMotion
@@ -420,7 +421,13 @@ private fun LibraryContentBody(
         )
     }
 
-    Column(modifier = Modifier.fillMaxSize()) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            // 大屏限宽:夹的是内容列(搜索 pill、chips、各 tab 网格/列表共享
+            // 一个边缘);ExpressivePageBackground 留在上层全出血。
+            .yoinPageContentWidth(),
+    ) {
         AppBarWithSearch(
             state = searchBarState,
             inputField = inputField,
@@ -541,7 +548,9 @@ private fun LibraryContentBody(
             LibrarySearchScopeChips(
                 selectedScope = state.searchScope,
                 onScopeSelected = onSearchScopeSelected,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                modifier = Modifier
+                    .yoinPageContentWidth()
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
             )
         }
         SearchResultsContent(
@@ -559,9 +568,11 @@ private fun LibraryContentBody(
             onSongClick = onSongClick,
             onAddSongToPlaylist = onAddSongToPlaylist,
             coverArtUrlBuilder = coverArtUrlBuilder,
+            // 全屏搜索面是独立 surface,不在上面的限宽列里 —— 结果列表
+            // 单独夹宽(helper 自带 fillMaxWidth)。
             modifier = Modifier
-                .fillMaxWidth()
-                .weight(1f),
+                .weight(1f)
+                .yoinPageContentWidth(),
         )
     }
 }

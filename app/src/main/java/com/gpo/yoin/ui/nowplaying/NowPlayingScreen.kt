@@ -746,7 +746,9 @@ private fun PlayingContent(
             animatedVisibilityScope = animatedVisibilityScope,
             modifier = modifier.voteHighFrameRate(posturing),
         )
-        LayoutMode.Compact -> CompactPlayingContent(
+        // Medium（600–840）跟 Compact 走同一套单栏渲染 —— 分栏只属于 Wide
+        // （>= 840，2026-07-26 阈值审计）。限宽由页面级基线负责。
+        LayoutMode.Compact, LayoutMode.Medium -> CompactPlayingContent(
             state = state,
             positionMs = positionMs,
             bufferedMs = bufferedMs,

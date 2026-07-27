@@ -98,7 +98,9 @@ import com.gpo.yoin.ui.component.ExpressiveTextField
 import com.gpo.yoin.ui.component.YoinDropdownMenu
 import com.gpo.yoin.ui.component.YoinDropdownMenuItem
 import com.gpo.yoin.ui.component.YoinLoadingIndicator
+import com.gpo.yoin.ui.component.YoinPageWidths
 import com.gpo.yoin.ui.component.minimumTouchTarget
+import com.gpo.yoin.ui.component.yoinPageContentWidth
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
 import com.gpo.yoin.ui.theme.ProvideYoinMotionRole
 import com.gpo.yoin.ui.theme.YoinMotion
@@ -267,6 +269,9 @@ fun SettingsContent(
                     Column(
                         modifier = Modifier
                             .fillMaxSize()
+                            // Reading/form surface: cap + center on Medium+
+                            // windows; no-op on phones.
+                            .yoinPageContentWidth(YoinPageWidths.Prose)
                             // Lift the scroll container above the IME so a
                             // low-on-page field (tokens / API keys) isn't covered
                             // by the keyboard (Scaffold contentWindowInsets is 0).
