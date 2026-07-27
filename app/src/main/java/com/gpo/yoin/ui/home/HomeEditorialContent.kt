@@ -318,7 +318,7 @@ internal fun HomeEditorialContent(
                             hero = heroEntry,
                             supporting = bentoEntries
                                 .filterNot { it === heroEntry }
-                                .take(if (dense) 6 else 3),
+                                .take(if (dense) 5 else 3),
                             dense = dense,
                             heroFootnoteExtra = activityHeroFootnote,
                             extractBackdropColors = shouldExtractBackdropColors,
@@ -459,16 +459,17 @@ private fun HomeContentHeader(
 // container is tonally derived from its own cover art, echoing the mockup's
 // per-card colour washes.
 
-/** Medium+ 密度上限：hero + 两支撑行（4 卡）+ 双 strip = 7。 */
-private const val ActivityBentoDenseMaxItems = 7
+/** Medium+ 密度上限：hero 1:1 行（2）+ 支撑行（2）+ 双 strip（2）= 6。 */
+private const val ActivityBentoDenseMaxItems = 6
 
 @Composable
 private fun ActivityBento(
     // The hero slot only carries an album / playlist (or nothing); the
     // supporting cards take the rest in recency order.
     // Compact ([dense] = false): [0] small square, [1] wide, [2] strip.
-    // Medium+ ([dense] = true): [0] small, [1] wide | [2] wide, [3] small
-    // (镜像第二行) | [4][5] 并排双 strip —— 同一套卡，只是铺得更满。
+    // Medium+ ([dense] = true，owner 裁决 2026-07-27)：hero 不再独占整行 ——
+    // [hero ½ | [0] wide ½] 1:1 对半，支撑收回一行 [1] small + [2] wide，
+    // [3][4] 并排双 strip。section 变矮，信息量 6 条。
     hero: HomeMomentEntry?,
     supporting: List<HomeMomentEntry>,
     heroFootnoteExtra: String?,
@@ -485,27 +486,62 @@ private fun ActivityBento(
             text = "Activities",
             modifier = Modifier.padding(bottom = 6.dp),
         )
-        hero?.let { entry ->
-            ActivityHeroCard(
-                entry = entry,
-                footnoteExtra = heroFootnoteExtra,
-                extractBackdropColors = extractBackdropColors,
-                onClick = { onEntryClick(entry.target) },
-                modifier = Modifier.fillMaxWidth(),
-            )
+        // Fixed row heights, scaled with the user's font size: IntrinsicSize
+        // would crash here — MarqueeTitle's BoxWithConstraints is a
+        // SubcomposeLayout, which cannot answer intrinsic measurements.
+        val fontScale = LocalDensity.current.fontScale.coerceAtLeast(1f)
+        if (dense) {
+            // hero 行 1:1：124dp = hero 卡自身高（96dp 封面 + 14dp 内边距 ×2）。
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(124.dp * fontScale),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                hero?.let { entry ->
+                    ActivityHeroCard(
+                        entry = entry,
+                        footnoteExtra = heroFootnoteExtra,
+                        extractBackdropColors = extractBackdropColors,
+                        onClick = { onEntryClick(entry.target) },
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxHeight(),
+                    )
+                }
+                supporting.getOrNull(0)?.let { wide ->
+                    ActivityWideCard(
+                        entry = wide,
+                        extractBackdropColors = extractBackdropColors,
+                        onClick = { onEntryClick(wide.target) },
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxHeight(),
+                    )
+                } ?: Spacer(modifier = Modifier.weight(1f))
+            }
+        } else {
+            hero?.let { entry ->
+                ActivityHeroCard(
+                    entry = entry,
+                    footnoteExtra = heroFootnoteExtra,
+                    extractBackdropColors = extractBackdropColors,
+                    onClick = { onEntryClick(entry.target) },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
         }
-        if (supporting.isNotEmpty()) {
-            // Fixed row height (Figma: 97pt), scaled with the user's font size:
-            // IntrinsicSize would crash here — MarqueeTitle's BoxWithConstraints
-            // is a SubcomposeLayout, which cannot answer intrinsic measurements.
-            val fontScale = LocalDensity.current.fontScale.coerceAtLeast(1f)
+        // 支撑行：Compact 用 [0][1]，dense 下 [0] 已被 hero 行吃掉，用 [1][2]。
+        val rowSmall = if (dense) supporting.getOrNull(1) else supporting.getOrNull(0)
+        val rowWide = if (dense) supporting.getOrNull(2) else supporting.getOrNull(1)
+        if (rowSmall != null || rowWide != null) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(118.dp * fontScale),
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                supporting.getOrNull(0)?.let { small ->
+                rowSmall?.let { small ->
                     ActivitySmallCard(
                         entry = small,
                         extractBackdropColors = extractBackdropColors,
@@ -515,7 +551,7 @@ private fun ActivityBento(
                             .fillMaxHeight(),
                     )
                 }
-                supporting.getOrNull(1)?.let { wide ->
+                rowWide?.let { wide ->
                     ActivityWideCard(
                         entry = wide,
                         extractBackdropColors = extractBackdropColors,
@@ -530,39 +566,9 @@ private fun ActivityBento(
                     Spacer(modifier = Modifier.weight(2f))
                 }
             }
-            if (dense && supporting.size > 2) {
-                // 第二支撑行，构图镜像（宽卡在左）——避免两行读成复制粘贴。
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(118.dp * fontScale),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                ) {
-                    supporting.getOrNull(2)?.let { wide ->
-                        ActivityWideCard(
-                            entry = wide,
-                            extractBackdropColors = extractBackdropColors,
-                            onClick = { onEntryClick(wide.target) },
-                            modifier = Modifier
-                                .weight(2f)
-                                .fillMaxHeight(),
-                        )
-                    }
-                    supporting.getOrNull(3)?.let { small ->
-                        ActivitySmallCard(
-                            entry = small,
-                            extractBackdropColors = extractBackdropColors,
-                            onClick = { onEntryClick(small.target) },
-                            modifier = Modifier
-                                .weight(1f)
-                                .fillMaxHeight(),
-                        )
-                    } ?: Spacer(modifier = Modifier.weight(1f))
-                }
-            }
         }
         if (dense) {
-            val strips = listOfNotNull(supporting.getOrNull(4), supporting.getOrNull(5))
+            val strips = listOfNotNull(supporting.getOrNull(3), supporting.getOrNull(4))
             if (strips.isNotEmpty()) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
