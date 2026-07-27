@@ -65,6 +65,8 @@ import com.gpo.yoin.ui.component.YoinButtonGroup
 import com.gpo.yoin.ui.detail.AlbumDetailActivity
 import com.gpo.yoin.ui.detail.ArtistDetailActivity
 import com.gpo.yoin.ui.detail.PlaylistDetailActivity
+import com.gpo.yoin.ui.detail.findActivityOrNull
+import com.gpo.yoin.ui.detail.isDetailSplitEligible
 import com.gpo.yoin.ui.detail.launchDetailFromShell
 import com.gpo.yoin.ui.settings.SettingsActivity
 import com.gpo.yoin.ui.home.HomeScreen
@@ -114,9 +116,11 @@ fun YoinNavHost(
         val sharedTransitionScope = this
         val context = LocalContext.current
         val app = context.applicationContext as YoinApplication
-        // Wide（>= 840dp）时 detail 走 Activity Embedding 右栏，跨窗口 bar
-        // 编舞不适用 —— 与 main_split_config.xml 的 splitMinWidthDp 同一条线。
-        val hostLayoutMode = LocalYoinWindowInfo.current.layoutMode
+        // P0 修正案：embedding 判定不能读 LocalYoinWindowInfo —— 分栏激活后
+        // Activity 读到的是自己的窗格宽（576dp 级，判成 Compact），会把编舞
+        // 错误地放行。isDetailSplitEligible 走「已嵌入 || 任务窗 >= 840」。
+        val hostActivity = remember(context) { context.findActivityOrNull() }
+        val detailSplitEligible = { hostActivity?.let(::isDetailSplitEligible) == true }
         val nowPlayingViewModel: NowPlayingViewModel = viewModel(
             factory = NowPlayingViewModel.Factory(app.container),
         )
@@ -199,21 +203,21 @@ fun YoinNavHost(
                                 launchDetailFromShell(
                                     context,
                                     AlbumDetailActivity.intent(context, albumId),
-                                    embedding = hostLayoutMode == LayoutMode.Wide,
+                                    embedding = detailSplitEligible(),
                                 )
                             },
                             onNavigateToArtist = { artistId, _ ->
                                 launchDetailFromShell(
                                     context,
                                     ArtistDetailActivity.intent(context, artistId),
-                                    embedding = hostLayoutMode == LayoutMode.Wide,
+                                    embedding = detailSplitEligible(),
                                 )
                             },
                             onNavigateToPlaylist = { playlistId, _ ->
                                 launchDetailFromShell(
                                     context,
                                     PlaylistDetailActivity.intent(context, playlistId),
-                                    embedding = hostLayoutMode == LayoutMode.Wide,
+                                    embedding = detailSplitEligible(),
                                 )
                             },
                             sharedTransitionScope = sharedTransitionScope,
@@ -338,13 +342,15 @@ private fun YoinShell(
     // With Now Playing expanded the shell bar is hidden and the back reveal
     // is NP itself — arming chrome would only queue a phantom morph (and a
     // wrong split→nav scrub on the detail's back), so skip it.
-    // Embedding（Wide）下 shell 永远不会被 detail 覆盖：onStop 的恢复 tick
-    // 不会来，morph 一旦 arm 就会卡死在 detail 态 —— 分栏时 bar 保持 nav，
-    // detail 右栏用它自己的像素孪生 bar。
+    // 分栏接住 detail 时 shell 永远不会被覆盖：onStop 的恢复 tick 不会来，
+    // morph 一旦 arm 就卡死（首点卡死、后续点击伪 morph 抖动）。判定必须用
+    // isDetailSplitEligible —— 分栏激活后本 Activity 的 LayoutMode 读到的是
+    // 窗格宽（Compact），拿它做门会把编舞错误放行（P0 修正案 2026-07-27）。
+    val shellContext = LocalContext.current
+    val shellHostActivity = remember(shellContext) { shellContext.findActivityOrNull() }
     val armDetailChrome = {
-        if (!experienceSessionStore.state.value.nowPlayingExpanded &&
-            layoutMode != LayoutMode.Wide
-        ) {
+        val splitTakesIt = shellHostActivity?.let(::isDetailSplitEligible) == true
+        if (!experienceSessionStore.state.value.nowPlayingExpanded && !splitTakesIt) {
             experienceSessionStore.setDetailChromeActive(true)
         }
     }

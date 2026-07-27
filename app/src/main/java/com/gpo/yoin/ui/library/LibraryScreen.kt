@@ -107,6 +107,8 @@ import com.gpo.yoin.ui.component.formatTotalDuration
 import com.gpo.yoin.ui.component.minimumTouchTarget
 import com.gpo.yoin.ui.component.rememberExpressiveEntranceProgress
 import com.gpo.yoin.ui.component.yoinPageContentWidth
+import com.gpo.yoin.ui.experience.LayoutMode
+import com.gpo.yoin.ui.experience.LocalYoinWindowInfo
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
 import com.gpo.yoin.ui.theme.ProvideYoinMotionRole
 import com.gpo.yoin.ui.theme.YoinMotion
@@ -123,6 +125,32 @@ private const val MaxAnimatedLibraryItems = 10
 private fun floatingBottomGroupContentPadding(): Dp =
     FloatingBottomGroupContentPaddingBase +
         WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+
+// Albums/Artists grid columns (大屏适配基线).
+//
+// GridCells.Adaptive resolves count = floor((available + gutter) / (minSize + gutter)),
+// where available = grid width − 32dp side padding and gutter = 12dp. Keeping
+// today's Fixed(3) column count across the 389–411dp phone content widths
+// (available 357–379) bounds minSize to (85.75, 111]; stepping to exactly
+// +1 column (4) at the 600dp Medium entry (available 568, since
+// yoinPageContentWidth is a no-op there) bounds it to (104, 133].
+// Intersection: (104, 111] → 108dp. At the 720dp Feed width cap
+// (available 688) the same value naturally reaches floor(700/120) = 5.
+private val LibraryGridAdaptiveMinSize = 108.dp
+
+// Gated on != Compact rather than pure Adaptive because Compact also spans
+// sub-389dp windows (360dp handsets, display-size scaling, split-screen
+// narrow) where Adaptive(108) would resolve to 2 columns — the Fixed(3)
+// branch keeps every Compact window byte-identical to before this sweep.
+// Within 389–411dp both branches produce identical cells anyway (Adaptive
+// resolves count = 3, then runs the same cross-axis size split as Fixed).
+@Composable
+private fun libraryGridCells(): GridCells =
+    if (LocalYoinWindowInfo.current.layoutMode != LayoutMode.Compact) {
+        GridCells.Adaptive(minSize = LibraryGridAdaptiveMinSize)
+    } else {
+        GridCells.Fixed(3)
+    }
 
 @Composable
 private fun rememberLibraryItemEntrance(
@@ -646,9 +674,10 @@ private fun ArtistsTabContent(
         EmptyState(message = "No artists found", modifier = modifier)
         return
     }
-    // 3-column portrait grid — one artist per row wasted most of the width.
+    // 3-column portrait grid on phones (one artist per row wasted most of
+    // the width); adaptive at Medium+ — see libraryGridCells.
     LazyVerticalGrid(
-        columns = GridCells.Fixed(3),
+        columns = libraryGridCells(),
         state = gridState,
         modifier = modifier.fillMaxSize(),
         contentPadding = PaddingValues(
@@ -831,7 +860,7 @@ private fun AlbumsTabContent(
         return
     }
     LazyVerticalGrid(
-        columns = GridCells.Fixed(3),
+        columns = libraryGridCells(),
         state = gridState,
         modifier = modifier.fillMaxSize(),
         // 16dp page margins to match the home feed; 12dp gutters, and a

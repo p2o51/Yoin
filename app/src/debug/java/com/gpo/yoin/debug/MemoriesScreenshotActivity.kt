@@ -22,6 +22,9 @@ import com.gpo.yoin.ui.home.HomeEditorialContent
 import com.gpo.yoin.ui.home.HomeWidgetCard
 import com.gpo.yoin.ui.home.HomeWidgetTarget
 import com.gpo.yoin.ui.memories.MemoryEntityType
+import androidx.compose.runtime.CompositionLocalProvider
+import com.gpo.yoin.ui.experience.LocalYoinWindowInfo
+import com.gpo.yoin.ui.experience.rememberYoinWindowInfo
 import com.gpo.yoin.ui.theme.YoinTheme
 import java.io.File
 
@@ -38,6 +41,9 @@ class MemoriesScreenshotActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableYoinEdgeToEdge()
         setContent {
+            // 对齐生产环境：QA 台也提供窗口信息，Medium/Wide 分支才可验。
+            val windowInfo = rememberYoinWindowInfo()
+            CompositionLocalProvider(LocalYoinWindowInfo provides windowInfo) {
             YoinTheme {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
@@ -61,6 +67,7 @@ class MemoriesScreenshotActivity : ComponentActivity() {
                         modifier = Modifier.fillMaxSize(),
                     )
                 }
+            }
             }
         }
     }

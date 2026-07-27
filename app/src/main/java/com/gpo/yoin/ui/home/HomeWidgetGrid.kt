@@ -42,6 +42,8 @@ import com.gpo.yoin.ui.component.rememberPressMorphShape
 import com.gpo.yoin.ui.component.elasticPress
 import com.gpo.yoin.ui.component.noRippleClickable
 import com.gpo.yoin.ui.component.rememberExpressiveBackdropColors
+import com.gpo.yoin.ui.experience.LayoutMode
+import com.gpo.yoin.ui.experience.LocalYoinWindowInfo
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
 import com.gpo.yoin.ui.memories.MemoryEntityType
 import com.gpo.yoin.ui.theme.GoogleSansFlex
@@ -54,7 +56,12 @@ import com.gpo.yoin.ui.theme.withTabularFigures
 // out around it. The wide "1×2" card reuses that same 100dp cover on the left.
 private val WidgetCoverSize = 100.dp
 private const val WidgetArtworkFraction = 0.72f
+
+// Masonry column counts: a Compact pane keeps the Figma 3-column grid; from
+// Medium up the SAME 12-cell budget (GRID_TOTAL_CELLS) re-packs into 4 columns
+// — 12 % 4 == 0, so every wide-card count still fills its rows exactly.
 private const val WidgetGridColumns = 3
+private const val WidgetGridColumnsExpanded = 4
 
 /**
  * Which backdrop shape sits behind a cover — the "题材" mapping recovered from
@@ -93,10 +100,11 @@ internal fun HomeSectionTitle(
 
 /**
  * The home widget grid (Figma node 405:361, "Memories" visual language): a
- * masonry over a 3-column grid where a wide "1×2" card spans two columns and
- * shares its row with a compact "1×1" cover; unpaired covers fill rows of
- * three. Cards are plain taps — album/playlist push their detail, songs play,
- * memory cards push into the Memories deck. No predictive-back choreography.
+ * masonry over a 3-column grid (4 columns in Medium+ panes) where a wide "1×2"
+ * card spans two columns and shares its row with compact "1×1" covers;
+ * unpaired covers fill full rows. Cards are plain taps — album/playlist push
+ * their detail, songs play, memory cards push into the Memories deck. No
+ * predictive-back choreography.
  */
 @Composable
 internal fun HomeWidgetGridSection(
@@ -107,7 +115,16 @@ internal fun HomeWidgetGridSection(
     modifier: Modifier = Modifier,
 ) {
     if (cards.isEmpty()) return
-    val rows = remember(cards) { packWidgetRows(cards) }
+    // Pane-relative columns: inside an embedded split each Activity sees its
+    // own pane width, so a phone-sized pane stays on the 3-column grid
+    // byte-for-byte while Medium+ re-packs the same cards into 4 columns.
+    val layoutMode = LocalYoinWindowInfo.current.layoutMode
+    val columns = if (layoutMode != LayoutMode.Compact) {
+        WidgetGridColumnsExpanded
+    } else {
+        WidgetGridColumns
+    }
+    val rows = remember(cards, columns) { packWidgetRows(cards, columns) }
 
     Column(
         modifier = modifier,
@@ -144,7 +161,7 @@ internal fun HomeWidgetGridSection(
                 }
                 // Pad short rows so cards keep their column width instead of
                 // stretching across the leftover space.
-                repeat(WidgetGridColumns - units) {
+                repeat(columns - units) {
                     Spacer(modifier = Modifier.weight(1f))
                 }
             }
@@ -153,14 +170,20 @@ internal fun HomeWidgetGridSection(
 }
 
 /**
- * Pack the grid into rows of [WidgetGridColumns] units — a 1×2 is two units,
- * a 1×1 is one. Each 1×2 is paired with the next 1×1 (alternating sides so the
- * wide card doesn't always hug the same edge, mirroring the Figma masonry);
- * leftover 1×1 covers fill full rows of three. Order otherwise follows the
- * incoming ranking, so the strongest cards still lead.
+ * Pack the grid into rows of [columns] units — a 1×2 is two units, a 1×1 is
+ * one. Each 1×2 shares its row with the next `columns - 2` 1×1 covers taken in
+ * list order (alternating which side the wide card hugs so it doesn't always
+ * cling to the same edge, mirroring the Figma masonry); leftover 1×1 covers
+ * fill full rows. Order otherwise follows the incoming ranking, so the
+ * strongest cards still lead.
+ *
+ * GOLDEN INVARIANT: at [WidgetGridColumns] (3) this reproduces the shipped
+ * phone packing exactly — one compact per wide row, same alternation — pinned
+ * by `HomeWidgetGridPackTest`. Do not drift the 3-column output.
  */
-private fun packWidgetRows(
+internal fun packWidgetRows(
     cards: List<HomeWidgetCard>,
+    columns: Int,
 ): List<List<HomeWidgetCard>> {
     val wide = cards.filter { it.expanded }.toMutableList()
     val compact = cards.filterNot { it.expanded }.toMutableList()
@@ -168,15 +191,18 @@ private fun packWidgetRows(
     var pairIndex = 0
     while (wide.isNotEmpty()) {
         val big = wide.removeAt(0)
-        val small = if (compact.isNotEmpty()) compact.removeAt(0) else null
+        val fill = mutableListOf<HomeWidgetCard>()
+        while (fill.size < columns - 2 && compact.isNotEmpty()) {
+            fill += compact.removeAt(0)
+        }
         rows += when {
-            small == null -> listOf(big)
-            pairIndex % 2 == 0 -> listOf(big, small)
-            else -> listOf(small, big)
+            fill.isEmpty() -> listOf(big)
+            pairIndex % 2 == 0 -> listOf(big) + fill
+            else -> fill + big
         }
         pairIndex++
     }
-    compact.chunked(WidgetGridColumns).forEach { chunk -> rows += chunk }
+    compact.chunked(columns).forEach { chunk -> rows += chunk }
     return rows
 }
 

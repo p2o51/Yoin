@@ -17,6 +17,9 @@ import com.gpo.yoin.enableYoinEdgeToEdge
 import com.gpo.yoin.ui.library.LibraryContent
 import com.gpo.yoin.ui.library.LibraryTab
 import com.gpo.yoin.ui.library.LibraryUiState
+import androidx.compose.runtime.CompositionLocalProvider
+import com.gpo.yoin.ui.experience.LocalYoinWindowInfo
+import com.gpo.yoin.ui.experience.rememberYoinWindowInfo
 import com.gpo.yoin.ui.theme.YoinTheme
 import java.io.File
 
@@ -33,6 +36,9 @@ class LibraryScreenshotActivity : ComponentActivity() {
             ?.let { raw -> LibraryTab.entries.firstOrNull { it.name == raw } }
             ?: LibraryTab.Albums
         setContent {
+            // 对齐生产环境：QA 台也提供窗口信息，Medium/Wide 分支才可验。
+            val windowInfo = rememberYoinWindowInfo()
+            CompositionLocalProvider(LocalYoinWindowInfo provides windowInfo) {
             YoinTheme {
                 LibraryContent(
                     uiState = fakeState(tab),
@@ -47,6 +53,7 @@ class LibraryScreenshotActivity : ComponentActivity() {
                     onRetry = {},
                     coverArtUrlBuilder = null,
                 )
+            }
             }
         }
     }

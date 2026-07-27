@@ -3,8 +3,12 @@ package com.gpo.yoin.ui.detail
 import android.app.Activity
 import android.app.ActivityOptions
 import android.content.Context
+import android.content.ContextWrapper
 import android.content.Intent
 import android.os.Build
+import androidx.window.embedding.ActivityEmbeddingController
+import androidx.window.embedding.SplitController
+import androidx.window.layout.WindowMetricsCalculator
 import androidx.compose.animation.AnimatedVisibility
 import com.gpo.yoin.ui.theme.YoinMotionRole
 import com.gpo.yoin.ui.theme.YoinMotion
@@ -118,6 +122,41 @@ fun DetailBottomBar(
  * otherwise the current shell tab rides along so the back preview highlights
  * the section the user actually left.
  */
+/**
+ * 这次 detail 启动会不会被 Activity Embedding 的分栏接住（P0 修正案，
+ * 2026-07-27 方案 §1）。判定基准与 main_split_config.xml 的
+ * splitMinWidthDp=840 同源：
+ *
+ *  - shell 已在分栏里（placeholder 让 >= 840 窗一进就分栏，此时 Activity
+ *    自己的窗格宽是 576dp 这类手机值，LayoutMode 读数不可用）→
+ *    [ActivityEmbeddingController.isActivityEmbedded]，同步 Boolean。
+ *  - 尚未嵌入时当前窗 = 任务窗，>= 840dp 且设备的 WM Extensions 可用
+ *    （[SplitController.splitSupportStatus]）→ 分栏会接住。
+ *    不能用 computeMaximumWindowMetrics：那是显示器上限，OS 分屏半窗里
+ *    任务 < 840 而屏 >= 840，会误杀整窗推入的编舞。
+ */
+fun isDetailSplitEligible(activity: Activity): Boolean {
+    val appContext = activity.applicationContext
+    if (ActivityEmbeddingController.getInstance(appContext).isActivityEmbedded(activity)) {
+        return true
+    }
+    val splitAvailable = SplitController.getInstance(appContext).splitSupportStatus ==
+        SplitController.SplitSupportStatus.SPLIT_AVAILABLE
+    if (!splitAvailable) return false
+    val bounds = WindowMetricsCalculator.getOrCreate()
+        .computeCurrentWindowMetrics(activity)
+        .bounds
+    val widthDp = bounds.width() / activity.resources.displayMetrics.density
+    return widthDp >= 840f
+}
+
+/** Compose 的 LocalContext 到宿主 Activity 的解包（ContextWrapper 链）。 */
+tailrec fun Context.findActivityOrNull(): Activity? = when (this) {
+    is Activity -> this
+    is ContextWrapper -> baseContext.findActivityOrNull()
+    else -> null
+}
+
 fun launchDetailFromShell(
     context: Context,
     intent: Intent,

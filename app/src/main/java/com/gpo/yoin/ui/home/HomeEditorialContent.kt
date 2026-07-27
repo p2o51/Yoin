@@ -81,9 +81,12 @@ import com.gpo.yoin.ui.component.horizontalEdgeFadeOnScroll
 import com.gpo.yoin.ui.component.noRippleClickable
 import com.gpo.yoin.ui.component.rememberExpressiveBackdropColors
 import com.gpo.yoin.ui.component.yoinPageContentWidth
+import com.gpo.yoin.ui.experience.LayoutMode
+import com.gpo.yoin.ui.experience.LocalYoinWindowInfo
 import com.gpo.yoin.ui.experience.RevealState
 import com.gpo.yoin.ui.experience.rememberRevealState
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
+import com.gpo.yoin.ui.theme.ContinuousRoundedCornerShape
 import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinShapeTokens
 import com.gpo.yoin.ui.theme.YoinArtworkShapes
@@ -290,28 +293,54 @@ internal fun HomeEditorialContent(
             when (sectionState.section) {
                 HomeSection.Activities -> item(key = "section-activities") {
                     if (activityEntries.isNotEmpty()) {
-                        // Hero slot = first album/playlist; artists fill the
-                        // smaller cards in recency order.
-                        val heroEntry = activityEntries.firstOrNull { entry ->
-                            entry.entityType == ActivityEntityType.ALBUM.name ||
-                                entry.entityType == ActivityEntityType.PLAYLIST.name
+                        if (LocalYoinWindowInfo.current.layoutMode != LayoutMode.Compact) {
+                            // ≥ Medium panes trade the phone bento for the
+                            // Spotify-style shortcut grid (owner-approved,
+                            // 2026-07-27). Same entry pipeline, longer prefix:
+                            // the grid seats up to 8 where the bento shows 4.
+                            val tileEntries = remember(activities, buildCoverArtUrl) {
+                                buildActivityEntries(
+                                    activities = activities,
+                                    buildCoverArtUrl = buildCoverArtUrl,
+                                    limit = ActivitiesTileGridMaxItems,
+                                )
+                            }
+                            ActivitiesTileGrid(
+                                entries = tileEntries,
+                                extractBackdropColors = shouldExtractBackdropColors,
+                                onEntryClick = onEntryClick,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .animateItem(
+                                        fadeInSpec = YoinMotion.effectsSpring(),
+                                        placementSpec = YoinMotion.spatialSpring(),
+                                        fadeOutSpec = YoinMotion.effectsSpring(),
+                                    ),
+                            )
+                        } else {
+                            // Hero slot = first album/playlist; artists fill the
+                            // smaller cards in recency order.
+                            val heroEntry = activityEntries.firstOrNull { entry ->
+                                entry.entityType == ActivityEntityType.ALBUM.name ||
+                                    entry.entityType == ActivityEntityType.PLAYLIST.name
+                            }
+                            ActivityBento(
+                                hero = heroEntry,
+                                supporting = activityEntries
+                                    .filterNot { it === heroEntry }
+                                    .take(3),
+                                heroFootnoteExtra = activityHeroFootnote,
+                                extractBackdropColors = shouldExtractBackdropColors,
+                                onEntryClick = onEntryClick,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .animateItem(
+                                        fadeInSpec = YoinMotion.effectsSpring(),
+                                        placementSpec = YoinMotion.spatialSpring(),
+                                        fadeOutSpec = YoinMotion.effectsSpring(),
+                                    ),
+                            )
                         }
-                        ActivityBento(
-                            hero = heroEntry,
-                            supporting = activityEntries
-                                .filterNot { it === heroEntry }
-                                .take(3),
-                            heroFootnoteExtra = activityHeroFootnote,
-                            extractBackdropColors = shouldExtractBackdropColors,
-                            onEntryClick = onEntryClick,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .animateItem(
-                                    fadeInSpec = YoinMotion.effectsSpring(),
-                                    placementSpec = YoinMotion.spatialSpring(),
-                                    fadeOutSpec = YoinMotion.effectsSpring(),
-                                ),
-                        )
                     } else {
                         HomeEmptyCard(
                             title = "No recent activity yet",
@@ -822,6 +851,119 @@ private fun widgetShapeKindForActivity(entityType: String): WidgetShapeKind = wh
     else -> WidgetShapeKind.Album
 }
 
+// ── Activities shortcut grid (≥ Medium panes) ──────────────────────────
+//
+// The large-window take on the section: instead of the bento's decreasing
+// prominence, a Spotify-style 2-column grid of equal shortcut tiles — up to
+// 2×4, fewer rows when fewer activities. Each tile keeps the bento cards'
+// language (per-cover tinted container, entity-shape backdrop artwork) shrunk
+// to a 64dp bar. Compact panes never see this — the bento above is untouched.
+
+private const val ActivitiesTileGridColumns = 2
+private const val ActivitiesTileGridMaxItems = 8
+private val ActivityShortcutTileHeight = 64.dp
+private val ActivityShortcutTileArtwork = 56.dp
+
+@Composable
+private fun ActivitiesTileGrid(
+    entries: List<HomeMomentEntry>,
+    extractBackdropColors: Boolean,
+    onEntryClick: (HomeEntryTarget) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier = modifier,
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        HomeSectionTitle(
+            text = "Activities",
+            modifier = Modifier.padding(bottom = 6.dp),
+        )
+        val rows = entries.take(ActivitiesTileGridMaxItems).chunked(ActivitiesTileGridColumns)
+        rows.forEach { rowEntries ->
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                rowEntries.forEach { entry ->
+                    ActivityShortcutTile(
+                        entry = entry,
+                        extractBackdropColors = extractBackdropColors,
+                        onClick = { onEntryClick(entry.target) },
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+                // Pad an odd final row so a lone tile keeps its column width
+                // instead of stretching across the whole grid.
+                if (rowEntries.size < ActivitiesTileGridColumns) {
+                    Spacer(modifier = Modifier.weight(1f))
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ActivityShortcutTile(
+    entry: HomeMomentEntry,
+    extractBackdropColors: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val colors = rememberActivityCardColors(entry.coverArtUrl, extractBackdropColors)
+    // Fixed 64dp bar per the approved spec, scaled with the user's font size
+    // (same accommodation the bento's supporting row makes) so the two text
+    // lines never clip at accessibility sizes.
+    val fontScale = LocalDensity.current.fontScale.coerceAtLeast(1f)
+    Surface(
+        modifier = modifier.elasticPress(interactionSource),
+        shape = ContinuousRoundedCornerShape(14.dp),
+        color = colors.container,
+        tonalElevation = 0.dp,
+        shadowElevation = 0.dp,
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(ActivityShortcutTileHeight * fontScale)
+                .noRippleClickable(interactionSource = interactionSource, onClick = onClick)
+                // The thumb sits near-flush (4dp) like Spotify's shortcut
+                // tiles; the text keeps a fuller 12dp end inset.
+                .padding(start = 4.dp, end = 12.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            WidgetBackdropArtwork(
+                model = entry.coverArtUrl,
+                kind = widgetShapeKindForActivity(entry.entityType),
+                contentDescription = entry.title,
+                extractBackdropColors = extractBackdropColors,
+                interactionSource = interactionSource,
+                modifier = Modifier.size(ActivityShortcutTileArtwork),
+            )
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = entry.title,
+                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+                    color = colors.content,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                // Same metadata the small bento card shows (type + recency),
+                // joined with the hero/wide cards' dot format.
+                Text(
+                    text = "${entry.typeLabel} · ${entry.timeAgo}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = colors.contentMuted,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+    }
+}
+
 // ── Recently Added (tracks grid + album shelf, Figma 622:777) ──────────
 //
 // A split shelf: on the left a compact 2×2 grid of the four most-recently
@@ -1123,7 +1265,11 @@ private fun homeActivityDedupKey(activity: ActivityEvent): String {
 private fun buildActivityEntries(
     activities: List<ActivityEvent>,
     buildCoverArtUrl: (String) -> String,
-): List<HomeMomentEntry> = selectHomeActivities(activities).take(6).map { activity ->
+    // 6 = the bento's historical cap (hero + 3 supporting from the top 6);
+    // the ≥ Medium shortcut grid asks for its own 8. The default keeps the
+    // Compact pipeline byte-identical.
+    limit: Int = 6,
+): List<HomeMomentEntry> = selectHomeActivities(activities).take(limit).map { activity ->
     val stableId = "activity:${activity.id}:${activity.entityType}:${activity.entityId}:${activity.actionType}"
     val rawEntityId = activityEntityRawId(activity.entityId)
     val entityMediaId = "${activity.provider}:$rawEntityId"
