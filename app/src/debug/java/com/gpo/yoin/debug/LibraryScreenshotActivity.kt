@@ -93,6 +93,21 @@ class LibraryScreenshotActivity : ComponentActivity() {
             "Little House" to "Rachel Chinouriri",
             "AIと刹那のポリティクス" to "Mom",
             "Endless Summer" to "The Jungle Giants",
+            // Wide 桌面网格(1280 一类窗 7 列)要铺满 3 行,补到 21 张;
+            // 前 9 张保持原样,songs 的 albumNames[i % size] 映射不受影响
+            // (i 最大 5,增列表长度不改前段取值)。
+            "Salt & Citrus" to "Mira Fontaine",
+            "夜光虫" to "青い雨",
+            "Weekday Ghost" to "Palm Reader Club",
+            "微熱都市" to "林曖曖",
+            "Held Open" to "Marigold Tapes",
+            "うたかたの夏" to "水星クラブ",
+            "Bright Bikes" to "The Umbrella Steps",
+            "半透明" to "konoha",
+            "Fig Season" to "Josie Halpert",
+            "Sea of Rooms" to "Cloud Bench",
+            "灰と雪" to "月かげ",
+            "Field Notes" to "Prairie FM",
         )
         val albums = albumNames.mapIndexed { i, (name, artist) ->
             Album(

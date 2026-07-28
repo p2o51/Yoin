@@ -63,6 +63,7 @@ import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -243,13 +244,20 @@ internal fun HomeEditorialContent(
     val shouldExtractBackdropColors = allowBackdropPalette && !listState.isScrollInProgress
 
     val navBarBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+    // Wide 全窗桌面态（owner A-prime 裁决 2026-07-28）：feed 不再夹 720dp
+    // Feed 档，铺满画布 + 32dp 侧 gutter。Compact/Medium/Tabletop 走原路
+    // （限宽 + 16dp 页边），逐字节不变。出血 shelf 的页边与 contentPadding
+    // 同源，静止边继续贴住页边（no-midpage-truncation 纪律不破）。
+    val isDesktopWide = LocalYoinWindowInfo.current.layoutMode == LayoutMode.Wide
+    val pageHorizontalPadding = if (isDesktopWide) 32.dp else 16.dp
     LazyColumn(
         state = listState,
         modifier = modifier
             .fillMaxSize()
             // 大屏限宽:夹的是内容列本身;高度不受影响,所以下面
             // onSizeChanged 喂给 reveal settle 的 containerHeightPx 语义不变。
-            .yoinPageContentWidth()
+            // Wide 桌面态例外:不夹,直接满宽(then(Modifier) 即无操作)。
+            .then(if (isDesktopWide) Modifier else Modifier.yoinPageContentWidth())
             .onSizeChanged { containerHeightPx = it.height.toFloat().coerceAtLeast(1f) }
             .nestedScroll(pullToMemoriesConnection)
             // Long-press → layout editor. Cards only consume taps
@@ -264,8 +272,8 @@ internal fun HomeEditorialContent(
                 )
             },
         contentPadding = PaddingValues(
-            start = 16.dp,
-            end = 16.dp,
+            start = pageHorizontalPadding,
+            end = pageHorizontalPadding,
             top = 4.dp,
             bottom = 108.dp + navBarBottom,
         ),
@@ -292,21 +300,32 @@ internal fun HomeEditorialContent(
             when (sectionState.section) {
                 HomeSection.Activities -> item(key = "section-activities") {
                     if (activityEntries.isNotEmpty()) {
-                        // Medium+ 密度：不换语言，还是这套 bento 词汇——只是
-                        // 铺两倍信息（hero + 镜像双支撑行 + 并排双 strip，至多
-                        // 7 条）。Spotify 参照只取「多列多条目」的思路，层级
-                        // 递减的构图是 Yoin 自己的（owner 修正 2026-07-27）。
-                        val dense = LocalYoinWindowInfo.current.layoutMode != LayoutMode.Compact
-                        val bentoEntries = if (dense) {
-                            remember(activities, buildCoverArtUrl) {
+                        // 渲染三档（owner A-prime 2026-07-28）：Compact = 手机
+                        // 原样；Medium 与 Tabletop 沿用旧 `!= Compact` 密档
+                        // （6 条，构图不动）；Wide 全窗桌面 = 10 条三行
+                        // tapestry。层级递减的构图仍是 Yoin 自己的，Spotify
+                        // 参照只取「多列多条目」的思路（owner 修正 2026-07-27）。
+                        val tier = when (LocalYoinWindowInfo.current.layoutMode) {
+                            LayoutMode.Compact -> ActivityBentoTier.Phone
+                            LayoutMode.Wide -> ActivityBentoTier.Desktop
+                            else -> ActivityBentoTier.Dense
+                        }
+                        val bentoEntries = when (tier) {
+                            ActivityBentoTier.Phone -> activityEntries
+                            ActivityBentoTier.Dense -> remember(activities, buildCoverArtUrl) {
                                 buildActivityEntries(
                                     activities = activities,
                                     buildCoverArtUrl = buildCoverArtUrl,
                                     limit = ActivityBentoDenseMaxItems,
                                 )
                             }
-                        } else {
-                            activityEntries
+                            ActivityBentoTier.Desktop -> remember(activities, buildCoverArtUrl) {
+                                buildActivityEntries(
+                                    activities = activities,
+                                    buildCoverArtUrl = buildCoverArtUrl,
+                                    limit = ActivityBentoDesktopMaxItems,
+                                )
+                            }
                         }
                         // Hero slot = first album/playlist; artists fill the
                         // smaller cards in recency order.
@@ -318,8 +337,8 @@ internal fun HomeEditorialContent(
                             hero = heroEntry,
                             supporting = bentoEntries
                                 .filterNot { it === heroEntry }
-                                .take(if (dense) 5 else 3),
-                            dense = dense,
+                                .take(tier.supportingSlots),
+                            tier = tier,
                             heroFootnoteExtra = activityHeroFootnote,
                             extractBackdropColors = shouldExtractBackdropColors,
                             onEntryClick = onEntryClick,
@@ -380,6 +399,7 @@ internal fun HomeEditorialContent(
                                     onEntryClick(HomeEntryTarget.Album(album.id.toString(), null))
                                 },
                                 buildCoverArtUrl = buildCoverArtUrl,
+                                pageHorizontalPadding = pageHorizontalPadding,
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .animateItem(
@@ -459,24 +479,46 @@ private fun HomeContentHeader(
 // container is tonally derived from its own cover art, echoing the mockup's
 // per-card colour washes.
 
-/** Medium+ 密度上限：hero 1:1 行（2）+ 支撑行（2）+ 双 strip（2）= 6。 */
+/**
+ * Activities bento 渲染三档。[supportingSlots] = hero 之外的支撑卡位数。
+ * Tabletop 归入 [Dense] —— 沿用旧 `!= Compact` 档，观感逐字节不变
+ * （owner A-prime 2026-07-28）。
+ */
+private enum class ActivityBentoTier(val supportingSlots: Int) {
+    /** Compact：手机构图（hero 整行 + small/wide 行 + 单 strip）。 */
+    Phone(3),
+
+    /** Medium（含 Tabletop）：hero 1:1 行 + 支撑行 + 双 strip。 */
+    Dense(5),
+
+    /** Wide 全窗桌面：3:2:1 行 + 1:2:1:2 行 + 三 strip。 */
+    Desktop(9),
+}
+
+/** Medium（含 Tabletop）密度上限：hero 1:1 行（2）+ 支撑行（2）+ 双 strip（2）= 6。 */
 private const val ActivityBentoDenseMaxItems = 6
+
+/** Wide 桌面上限：3:2:1 行（3）+ 1:2:1:2 行（4）+ 三 strip（3）= 10。 */
+private const val ActivityBentoDesktopMaxItems = 10
 
 @Composable
 private fun ActivityBento(
     // The hero slot only carries an album / playlist (or nothing); the
     // supporting cards take the rest in recency order.
-    // Compact ([dense] = false): [0] small square, [1] wide, [2] strip.
-    // Medium+ ([dense] = true，owner 裁决 2026-07-27)：hero 不再独占整行 ——
+    // Phone: [0] small square, [1] wide, [2] strip.
+    // Dense (owner 裁决 2026-07-27)：hero 不再独占整行 ——
     // [hero ½ | [0] wide ½] 1:1 对半，支撑收回一行 [1] small + [2] wide，
     // [3][4] 并排双 strip。section 变矮，信息量 6 条。
+    // Desktop (owner A-prime 2026-07-28)：1:1 拉成 3:2:1 锥形 ——
+    // [hero 3 | [0] wide 2 | [1] small 1]，第二行 [2] small + [3] wide +
+    // [4] small + [5] wide 交错，[6][7][8] 三 strip。信息量 10 条。
     hero: HomeMomentEntry?,
     supporting: List<HomeMomentEntry>,
     heroFootnoteExtra: String?,
     extractBackdropColors: Boolean,
     onEntryClick: (HomeEntryTarget) -> Unit,
     modifier: Modifier = Modifier,
-    dense: Boolean = false,
+    tier: ActivityBentoTier = ActivityBentoTier.Phone,
 ) {
     Column(
         modifier = modifier,
@@ -490,111 +532,255 @@ private fun ActivityBento(
         // would crash here — MarqueeTitle's BoxWithConstraints is a
         // SubcomposeLayout, which cannot answer intrinsic measurements.
         val fontScale = LocalDensity.current.fontScale.coerceAtLeast(1f)
-        if (dense) {
-            // hero 行 1:1：124dp = hero 卡自身高（96dp 封面 + 14dp 内边距 ×2）。
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(124.dp * fontScale),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
+        if (tier == ActivityBentoTier.Desktop) {
+            ActivityBentoDesktopRows(
+                hero = hero,
+                supporting = supporting,
+                heroFootnoteExtra = heroFootnoteExtra,
+                extractBackdropColors = extractBackdropColors,
+                onEntryClick = onEntryClick,
+                fontScale = fontScale,
+            )
+        } else {
+            // Phone / Dense：原有两档，除缩进外逐字节保留。
+            val dense = tier == ActivityBentoTier.Dense
+            if (dense) {
+                // hero 行 1:1：124dp = hero 卡自身高（96dp 封面 + 14dp 内边距 ×2）。
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(124.dp * fontScale),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    hero?.let { entry ->
+                        ActivityHeroCard(
+                            entry = entry,
+                            footnoteExtra = heroFootnoteExtra,
+                            extractBackdropColors = extractBackdropColors,
+                            onClick = { onEntryClick(entry.target) },
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxHeight(),
+                        )
+                    }
+                    supporting.getOrNull(0)?.let { wide ->
+                        ActivityWideCard(
+                            entry = wide,
+                            extractBackdropColors = extractBackdropColors,
+                            onClick = { onEntryClick(wide.target) },
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxHeight(),
+                        )
+                    } ?: Spacer(modifier = Modifier.weight(1f))
+                }
+            } else {
                 hero?.let { entry ->
                     ActivityHeroCard(
                         entry = entry,
                         footnoteExtra = heroFootnoteExtra,
                         extractBackdropColors = extractBackdropColors,
                         onClick = { onEntryClick(entry.target) },
-                        modifier = Modifier
-                            .weight(1f)
-                            .fillMaxHeight(),
+                        modifier = Modifier.fillMaxWidth(),
                     )
                 }
-                supporting.getOrNull(0)?.let { wide ->
-                    ActivityWideCard(
-                        entry = wide,
-                        extractBackdropColors = extractBackdropColors,
-                        onClick = { onEntryClick(wide.target) },
-                        modifier = Modifier
-                            .weight(1f)
-                            .fillMaxHeight(),
-                    )
-                } ?: Spacer(modifier = Modifier.weight(1f))
             }
-        } else {
-            hero?.let { entry ->
-                ActivityHeroCard(
-                    entry = entry,
-                    footnoteExtra = heroFootnoteExtra,
-                    extractBackdropColors = extractBackdropColors,
-                    onClick = { onEntryClick(entry.target) },
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            }
-        }
-        // 支撑行：Compact 用 [0][1]，dense 下 [0] 已被 hero 行吃掉，用 [1][2]。
-        val rowSmall = if (dense) supporting.getOrNull(1) else supporting.getOrNull(0)
-        val rowWide = if (dense) supporting.getOrNull(2) else supporting.getOrNull(1)
-        if (rowSmall != null || rowWide != null) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(118.dp * fontScale),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                rowSmall?.let { small ->
-                    ActivitySmallCard(
-                        entry = small,
-                        extractBackdropColors = extractBackdropColors,
-                        onClick = { onEntryClick(small.target) },
-                        modifier = Modifier
-                            .weight(1f)
-                            .fillMaxHeight(),
-                    )
-                }
-                rowWide?.let { wide ->
-                    ActivityWideCard(
-                        entry = wide,
-                        extractBackdropColors = extractBackdropColors,
-                        onClick = { onEntryClick(wide.target) },
-                        modifier = Modifier
-                            .weight(2f)
-                            .fillMaxHeight(),
-                    )
-                } ?: run {
-                    // Keep the lone small card at column width instead of
-                    // letting its weight stretch it across the whole row.
-                    Spacer(modifier = Modifier.weight(2f))
-                }
-            }
-        }
-        if (dense) {
-            val strips = listOfNotNull(supporting.getOrNull(3), supporting.getOrNull(4))
-            if (strips.isNotEmpty()) {
+            // 支撑行：Compact 用 [0][1]，dense 下 [0] 已被 hero 行吃掉，用 [1][2]。
+            val rowSmall = if (dense) supporting.getOrNull(1) else supporting.getOrNull(0)
+            val rowWide = if (dense) supporting.getOrNull(2) else supporting.getOrNull(1)
+            if (rowSmall != null || rowWide != null) {
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(118.dp * fontScale),
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
-                    strips.forEach { strip ->
-                        ActivityStripCard(
-                            entry = strip,
+                    rowSmall?.let { small ->
+                        ActivitySmallCard(
+                            entry = small,
                             extractBackdropColors = extractBackdropColors,
-                            onClick = { onEntryClick(strip.target) },
-                            modifier = Modifier.weight(1f),
+                            onClick = { onEntryClick(small.target) },
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxHeight(),
                         )
                     }
-                    if (strips.size == 1) {
-                        Spacer(modifier = Modifier.weight(1f))
+                    rowWide?.let { wide ->
+                        ActivityWideCard(
+                            entry = wide,
+                            extractBackdropColors = extractBackdropColors,
+                            onClick = { onEntryClick(wide.target) },
+                            modifier = Modifier
+                                .weight(2f)
+                                .fillMaxHeight(),
+                        )
+                    } ?: run {
+                        // Keep the lone small card at column width instead of
+                        // letting its weight stretch it across the whole row.
+                        Spacer(modifier = Modifier.weight(2f))
                     }
                 }
             }
-        } else {
-            supporting.getOrNull(2)?.let { strip ->
+            if (dense) {
+                val strips = listOfNotNull(supporting.getOrNull(3), supporting.getOrNull(4))
+                if (strips.isNotEmpty()) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        strips.forEach { strip ->
+                            ActivityStripCard(
+                                entry = strip,
+                                extractBackdropColors = extractBackdropColors,
+                                onClick = { onEntryClick(strip.target) },
+                                modifier = Modifier.weight(1f),
+                            )
+                        }
+                        if (strips.size == 1) {
+                            Spacer(modifier = Modifier.weight(1f))
+                        }
+                    }
+                }
+            } else {
+                supporting.getOrNull(2)?.let { strip ->
+                    ActivityStripCard(
+                        entry = strip,
+                        extractBackdropColors = extractBackdropColors,
+                        onClick = { onEntryClick(strip.target) },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Wide 桌面 tapestry 的三行卡阵。节标题由 [ActivityBento] 供给；这里发出的
+ * 多个同级 Row 直接落进外层 Column，行距吃它的 spacedBy(10dp)。构图沿
+ * hero-never-owns-a-row 裁决从 Medium 的 1:1 拉成锥形（mock 行高 128/118）：
+ *   行 1 @128dp：[hero 3 | [0] wide 2 | [1] small 1]
+ *   行 2 @118dp：[2] small 1 + [3] wide 2 + [4] small 1 + [5] wide 2 交错
+ *   行 3：[6][7][8] 三条等宽 strip
+ * 条目不足时从底部逐行退化（supporting 是前缀列表：先空 strip，再空行 2），
+ * 缺位的槽照 dense 的做法补同权重 Spacer，在场的卡不越位拉伸。
+ */
+@Composable
+private fun ActivityBentoDesktopRows(
+    hero: HomeMomentEntry?,
+    supporting: List<HomeMomentEntry>,
+    heroFootnoteExtra: String?,
+    extractBackdropColors: Boolean,
+    onEntryClick: (HomeEntryTarget) -> Unit,
+    fontScale: Float,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(128.dp * fontScale),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        hero?.let { entry ->
+            ActivityHeroCard(
+                entry = entry,
+                footnoteExtra = heroFootnoteExtra,
+                extractBackdropColors = extractBackdropColors,
+                onClick = { onEntryClick(entry.target) },
+                modifier = Modifier
+                    .weight(3f)
+                    .fillMaxHeight(),
+            )
+        }
+        supporting.getOrNull(0)?.let { wide ->
+            ActivityWideCard(
+                entry = wide,
+                extractBackdropColors = extractBackdropColors,
+                onClick = { onEntryClick(wide.target) },
+                modifier = Modifier
+                    .weight(2f)
+                    .fillMaxHeight(),
+            )
+        } ?: Spacer(modifier = Modifier.weight(2f))
+        supporting.getOrNull(1)?.let { small ->
+            ActivitySmallCard(
+                entry = small,
+                extractBackdropColors = extractBackdropColors,
+                onClick = { onEntryClick(small.target) },
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxHeight(),
+            )
+        } ?: Spacer(modifier = Modifier.weight(1f))
+    }
+    if (supporting.size > 2) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(118.dp * fontScale),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            supporting.getOrNull(2)?.let { small ->
+                ActivitySmallCard(
+                    entry = small,
+                    extractBackdropColors = extractBackdropColors,
+                    onClick = { onEntryClick(small.target) },
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxHeight(),
+                )
+            } ?: Spacer(modifier = Modifier.weight(1f))
+            supporting.getOrNull(3)?.let { wide ->
+                ActivityWideCard(
+                    entry = wide,
+                    extractBackdropColors = extractBackdropColors,
+                    onClick = { onEntryClick(wide.target) },
+                    modifier = Modifier
+                        .weight(2f)
+                        .fillMaxHeight(),
+                )
+            } ?: Spacer(modifier = Modifier.weight(2f))
+            supporting.getOrNull(4)?.let { small ->
+                ActivitySmallCard(
+                    entry = small,
+                    extractBackdropColors = extractBackdropColors,
+                    onClick = { onEntryClick(small.target) },
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxHeight(),
+                )
+            } ?: Spacer(modifier = Modifier.weight(1f))
+            supporting.getOrNull(5)?.let { wide ->
+                ActivityWideCard(
+                    entry = wide,
+                    extractBackdropColors = extractBackdropColors,
+                    onClick = { onEntryClick(wide.target) },
+                    modifier = Modifier
+                        .weight(2f)
+                        .fillMaxHeight(),
+                )
+            } ?: Spacer(modifier = Modifier.weight(2f))
+        }
+    }
+    val strips = listOfNotNull(
+        supporting.getOrNull(6),
+        supporting.getOrNull(7),
+        supporting.getOrNull(8),
+    )
+    if (strips.isNotEmpty()) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            strips.forEach { strip ->
                 ActivityStripCard(
                     entry = strip,
                     extractBackdropColors = extractBackdropColors,
                     onClick = { onEntryClick(strip.target) },
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier.weight(1f),
                 )
+            }
+            repeat(3 - strips.size) {
+                Spacer(modifier = Modifier.weight(1f))
             }
         }
     }
@@ -929,6 +1115,9 @@ private fun RecentlyAddedSection(
     onTrackClick: (Track) -> Unit,
     onAlbumClick: (Album) -> Unit,
     buildCoverArtUrl: (String) -> String,
+    // 页边距由 feed 统一供给（Compact/Medium/Tabletop 16dp、Wide 桌面
+    // 32dp）——出血宽度与 contentPadding 必须同源，否则静止边对不齐页边。
+    pageHorizontalPadding: Dp = 16.dp,
     modifier: Modifier = Modifier,
 ) {
     Column(
@@ -952,8 +1141,8 @@ private fun RecentlyAddedSection(
             LazyRow(
                 state = shelfState,
                 modifier = Modifier
-                    .ignoreParentHorizontalPadding(16.dp),
-                contentPadding = PaddingValues(horizontal = 16.dp),
+                    .ignoreParentHorizontalPadding(pageHorizontalPadding),
+                contentPadding = PaddingValues(horizontal = pageHorizontalPadding),
                 horizontalArrangement = Arrangement.spacedBy(14.dp),
                 // Both halves hang from the top. The track covers are sized
                 // so a tight 2×2 lands at roughly the album card's height.
@@ -1207,8 +1396,9 @@ private fun buildActivityEntries(
     activities: List<ActivityEvent>,
     buildCoverArtUrl: (String) -> String,
     // 6 = the bento's historical cap (hero + 3 supporting from the top 6);
-    // the ≥ Medium shortcut grid asks for its own 8. The default keeps the
-    // Compact pipeline byte-identical.
+    // the dense bento (Medium/Tabletop) asks for [ActivityBentoDenseMaxItems]
+    // and the Wide desktop tapestry for [ActivityBentoDesktopMaxItems]. The
+    // default keeps the Compact pipeline byte-identical.
     limit: Int = 6,
 ): List<HomeMomentEntry> = selectHomeActivities(activities).take(limit).map { activity ->
     val stableId = "activity:${activity.id}:${activity.entityType}:${activity.entityId}:${activity.actionType}"

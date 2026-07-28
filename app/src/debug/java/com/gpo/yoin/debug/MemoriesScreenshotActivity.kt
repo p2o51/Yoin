@@ -174,6 +174,39 @@ class MemoriesScreenshotActivity : ComponentActivity() {
                 albumId = "a5",
                 timestamp = now - 48L * 60 * 60 * 1000,
             ),
+            // 9-11 号：喂满 Wide 桌面 tapestry（hero + 3:2:1 行 + 1:2:1:2 行
+            // + 三 strip = 10 条），1280dp QA 不缺粮。
+            ActivityEvent(
+                id = 9,
+                entityType = ActivityEntityType.ALBUM.name,
+                actionType = ActivityActionType.PLAYED.name,
+                entityId = "a6",
+                title = "Little House",
+                subtitle = "Rachel Chinouriri",
+                coverArtId = swatchCover("green", 0xFF639922.toInt()),
+                albumId = "a6",
+                timestamp = now - 4L * 24 * 60 * 60 * 1000,
+            ),
+            ActivityEvent(
+                id = 10,
+                entityType = ActivityEntityType.ARTIST.name,
+                actionType = ActivityActionType.VISITED.name,
+                entityId = "ar3",
+                title = "Rachel Chinouriri",
+                subtitle = "Artist",
+                coverArtId = swatchCover("navy", 0xFF185FA5.toInt()),
+                timestamp = now - 5L * 24 * 60 * 60 * 1000,
+            ),
+            ActivityEvent(
+                id = 11,
+                entityType = ActivityEntityType.PLAYLIST.name,
+                actionType = ActivityActionType.PLAYED.name,
+                entityId = "p2",
+                title = "Endless Natsu",
+                subtitle = "Playlist",
+                coverArtId = swatchCover("teal", 0xFF1D9E75.toInt()),
+                timestamp = now - 6L * 24 * 60 * 60 * 1000,
+            ),
         )
     }
 

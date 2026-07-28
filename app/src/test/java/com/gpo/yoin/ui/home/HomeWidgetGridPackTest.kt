@@ -11,8 +11,9 @@ import org.junit.Test
  * The 3-column cases are GOLDEN: they pin the shipped phone packing exactly
  * (one compact per wide row, wide side alternating by pair index) — Compact
  * rendering must stay byte-identical, so these expectations must never change.
- * The 4-column cases cover the Medium+ re-pack of the same 12-cell budget,
- * where a wide row carries the 1×2 plus TWO 1×1s.
+ * The 4-column cases cover the Medium (and Tabletop) re-pack of the same
+ * 12-cell budget, where a wide row carries the 1×2 plus TWO 1×1s; the
+ * 6-column cases cover the full-window Wide canvas, where it carries FOUR.
  */
 class HomeWidgetGridPackTest {
 
@@ -138,11 +139,69 @@ class HomeWidgetGridPackTest {
         assertEquals(listOf(listOf(w1, c1)), rows)
     }
 
+    // ---- 6-column (full-window Wide canvas) ----
+
     @Test
-    fun bothColumnCounts_neverOverflowARow_andNeverDropCards() {
+    fun sixCol_twoWidesEightCompacts_fillTwoFullRows() {
+        val w1 = wide("w1")
+        val w2 = wide("w2")
+        val c = (1..8).map { compact("c$it") }
+        val cards = listOf(w1, w2) + c
+        val rows = packWidgetRows(cards, columns = 6)
+        assertEquals(
+            listOf(
+                listOf(w1, c[0], c[1], c[2], c[3]),
+                listOf(c[4], c[5], c[6], c[7], w2),
+            ),
+            rows,
+        )
+        // The full 12-cell budget divides evenly (12 % 6 == 0): every row is
+        // exactly 6 units, no card lost or duplicated.
+        rows.forEach { row -> assertEquals(6, units(row)) }
+        assertEquals(cards.size, rows.flatten().size)
+        assertEquals(cards.toSet(), rows.flatten().toSet())
+    }
+
+    @Test
+    fun sixCol_zeroWides_chunksIntoRowsOfSix() {
+        val c = (1..12).map { compact("c$it") }
+        val rows = packWidgetRows(c, columns = 6)
+        assertEquals(
+            listOf(
+                listOf(c[0], c[1], c[2], c[3], c[4], c[5]),
+                listOf(c[6], c[7], c[8], c[9], c[10], c[11]),
+            ),
+            rows,
+        )
+    }
+
+    @Test
+    fun sixCol_leftoverCompactsShortOfFullRow_stillEmitted() {
+        val w1 = wide("w1")
+        val c = (1..5).map { compact("c$it") }
+        val rows = packWidgetRows(listOf(w1) + c, columns = 6)
+        assertEquals(
+            listOf(
+                listOf(w1, c[0], c[1], c[2], c[3]),
+                listOf(c[4]),
+            ),
+            rows,
+        )
+    }
+
+    @Test
+    fun sixCol_wideWithSingleCompact_partiallyFilledRow() {
+        val w1 = wide("w1")
+        val c1 = compact("c1")
+        val rows = packWidgetRows(listOf(w1, c1), columns = 6)
+        assertEquals(listOf(listOf(w1, c1)), rows)
+    }
+
+    @Test
+    fun allColumnCounts_neverOverflowARow_andNeverDropCards() {
         val cards = listOf(wide("w1"), wide("w2"), wide("w3")) +
             (1..6).map { compact("c$it") }
-        listOf(3, 4).forEach { columns ->
+        listOf(3, 4, 6).forEach { columns ->
             val rows = packWidgetRows(cards, columns = columns)
             rows.forEach { row ->
                 assertTrue(

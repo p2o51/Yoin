@@ -15,10 +15,12 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
@@ -52,7 +54,9 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.SearchBar
 import androidx.compose.material3.SearchBarDefaults
+import androidx.compose.material3.SearchBarState
 import androidx.compose.material3.SearchBarValue
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -138,18 +142,45 @@ private fun floatingBottomGroupContentPadding(): Dp =
 // (available 688) the same value naturally reaches floor(700/120) = 5.
 private val LibraryGridAdaptiveMinSize = 108.dp
 
-// Gated on != Compact rather than pure Adaptive because Compact also spans
-// sub-389dp windows (360dp handsets, display-size scaling, split-screen
-// narrow) where Adaptive(108) would resolve to 2 columns — the Fixed(3)
-// branch keeps every Compact window byte-identical to before this sweep.
-// Within 389–411dp both branches produce identical cells anyway (Adaptive
-// resolves count = 3, then runs the same cross-axis size split as Fixed).
+// Wide desktop-tier cell (2026-07-28 A-prime ruling: full-window Wide fills
+// the canvas instead of clamping to 720dp). Grid width = window − 80dp rail
+// − 2×16dp page gutter, available = that − 2×16dp contentPadding = W − 144;
+// gutter stays 12dp, so count = floor((W − 144 + 12) / (minSize + 12)).
+// Keeping Adaptive(108) on the unclamped canvas shreds into tiny covers —
+// floor(1148/120) = 9 columns on a 1280 window, 10 on 1440 — while 150dp
+// lands the 1280 class exactly on the mockup's 7 columns of ~152dp.
+// Column counts at 150dp: 840 → 4 (cells ~165dp), 1280 → 7 (~152dp),
+// 1440 → 8 (~151dp), 1920 → 11 (~150dp).
+private val LibraryGridWideMinSize = 150.dp
+
+// Compact keeps Fixed(3) because it also spans sub-389dp windows (360dp
+// handsets, display-size scaling, split-screen narrow) where Adaptive(108)
+// would resolve to 2 columns — the Fixed(3) branch keeps every Compact
+// window byte-identical to before this sweep. Within 389–411dp both
+// branches produce identical cells anyway (Adaptive resolves count = 3,
+// then runs the same cross-axis size split as Fixed). Tabletop rides the
+// Medium cell: the previous gate was `!= Compact`, so the kickstand posture
+// has always drawn Adaptive(108) and must keep doing so — only full-window
+// Wide forks to the larger desktop cell.
 @Composable
 private fun libraryGridCells(): GridCells =
-    if (LocalYoinWindowInfo.current.layoutMode != LayoutMode.Compact) {
-        GridCells.Adaptive(minSize = LibraryGridAdaptiveMinSize)
+    when (LocalYoinWindowInfo.current.layoutMode) {
+        LayoutMode.Compact -> GridCells.Fixed(3)
+        LayoutMode.Medium, LayoutMode.Tabletop -> GridCells.Adaptive(minSize = LibraryGridAdaptiveMinSize)
+        LayoutMode.Wide -> GridCells.Adaptive(minSize = LibraryGridWideMinSize)
+    }
+
+// 三档宽度策略(2026-07-28 A-prime 裁定):Compact/Medium/Tabletop 走原
+// yoinPageContentWidth 限宽链,逐字节不变;full-window Wide 桌面档不再夹
+// 720dp —— 内容铺满画布,外加 16dp 把子项自带的 16dp 页边抬成 32dp 桌面
+// gutter。分栏窗格里 LayoutMode 是 pane-relative(读到 Compact/Medium),
+// 永远走不进 Wide 分支 —— 这个 fork 只在无分栏的全窗 Wide(无 WM
+// Extensions 的平板、桌面窗口、debug 台)生效。
+private fun Modifier.libraryPageWidth(isDesktopWide: Boolean): Modifier =
+    if (isDesktopWide) {
+        padding(horizontal = 16.dp)
     } else {
-        GridCells.Fixed(3)
+        yoinPageContentWidth()
     }
 
 @Composable
@@ -361,6 +392,10 @@ private fun LibraryContentBody(
     val haptics = rememberYoinHaptics()
     val scope = rememberCoroutineScope()
 
+    // Wide 桌面档(A-prime):LayoutMode 是 pane-relative,分栏窗格读不到
+    // Wide;这里为 true 就意味着整窗归本页,走桌面渲染档。
+    val isDesktopWide = LocalYoinWindowInfo.current.layoutMode == LayoutMode.Wide
+
     // One remembered scroll state per tab, hoisted above the tab
     // AnimatedContent: exited tab content is disposed, so a lazy state
     // created inside a tab body would reset and returning to that tab
@@ -453,41 +488,56 @@ private fun LibraryContentBody(
         modifier = Modifier
             .fillMaxSize()
             // 大屏限宽:夹的是内容列(搜索 pill、chips、各 tab 网格/列表共享
-            // 一个边缘);ExpressivePageBackground 留在上层全出血。
-            .yoinPageContentWidth(),
+            // 一个边缘);ExpressivePageBackground 留在上层全出血。Wide 桌面
+            // 档不夹、铺满 —— 见 libraryPageWidth。
+            .libraryPageWidth(isDesktopWide),
     ) {
-        AppBarWithSearch(
-            state = searchBarState,
-            inputField = inputField,
-            // Transparent app-bar band (drops the tonal/shadow elevation seam)
-            // over the ExpressivePageBackground gradient. The pill itself is a
-            // step BRIGHTER than the page's top stop: surfaceContainer matched
-            // the gradient exactly and the pill dissolved into the background
-            // (design review: 对比度太低) — surfaceContainerHighest stays in the
-            // surface family but reads as a control.
-            colors = SearchBarDefaults.appBarWithSearchColors(
-                appBarContainerColor = Color.Transparent,
-                scrolledAppBarContainerColor = Color.Transparent,
-                searchBarColors = SearchBarDefaults.colors(
-                    containerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+        if (isDesktopWide) {
+            // 桌面头排:标题、搜索 pill、tab chips、settings 一行左对齐排开。
+            // pill 绑的还是同一个 searchBarState —— 点击照旧 morph 进下面的
+            // ExpandedFullScreenSearchBar,预测性返回不变。
+            LibraryWideHeaderRow(
+                searchBarState = searchBarState,
+                inputField = inputField,
+                tabs = state.availableTabs,
+                selectedTab = state.selectedTab,
+                onTabSelected = onTabSelected,
+                onNavigateToSettings = onNavigateToSettings,
+            )
+        } else {
+            AppBarWithSearch(
+                state = searchBarState,
+                inputField = inputField,
+                // Transparent app-bar band (drops the tonal/shadow elevation seam)
+                // over the ExpressivePageBackground gradient. The pill itself is a
+                // step BRIGHTER than the page's top stop: surfaceContainer matched
+                // the gradient exactly and the pill dissolved into the background
+                // (design review: 对比度太低) — surfaceContainerHighest stays in the
+                // surface family but reads as a control.
+                colors = SearchBarDefaults.appBarWithSearchColors(
+                    appBarContainerColor = Color.Transparent,
+                    scrolledAppBarContainerColor = Color.Transparent,
+                    searchBarColors = SearchBarDefaults.colors(
+                        containerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+                    ),
+                    scrolledSearchBarContainerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
                 ),
-                scrolledSearchBarContainerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
-            ),
-            actions = {
-                IconButton(
-                    onClick = {
-                        haptics.performContextClick()
-                        onNavigateToSettings()
-                    },
-                    modifier = Modifier.minimumTouchTarget(),
-                ) {
-                    Icon(
-                        imageVector = Icons.Filled.Settings,
-                        contentDescription = "Settings",
-                    )
-                }
-            },
-        )
+                actions = {
+                    IconButton(
+                        onClick = {
+                            haptics.performContextClick()
+                            onNavigateToSettings()
+                        },
+                        modifier = Modifier.minimumTouchTarget(),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.Settings,
+                            contentDescription = "Settings",
+                        )
+                    }
+                },
+            )
+        }
 
         // Browse (collapsed): filter chips + the per-tab grid/list. No column
         // padding here — every child carries its own 16dp so the chips, the
@@ -500,11 +550,14 @@ private fun LibraryContentBody(
                 .fillMaxWidth(),
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
-            LibraryFilterChips(
-                tabs = state.availableTabs,
-                selectedTab = state.selectedTab,
-                onTabSelected = onTabSelected,
-            )
+            // Wide 桌面档 chips 已并进头排,这里不再重复渲染一份。
+            if (!isDesktopWide) {
+                LibraryFilterChips(
+                    tabs = state.availableTabs,
+                    selectedTab = state.selectedTab,
+                    onTabSelected = onTabSelected,
+                )
+            }
             Box(modifier = Modifier.weight(1f)) {
                 AnimatedContent(
                     targetState = state.selectedTab,
@@ -577,7 +630,7 @@ private fun LibraryContentBody(
                 selectedScope = state.searchScope,
                 onScopeSelected = onSearchScopeSelected,
                 modifier = Modifier
-                    .yoinPageContentWidth()
+                    .libraryPageWidth(isDesktopWide)
                     .padding(horizontal = 16.dp, vertical = 8.dp),
             )
         }
@@ -597,10 +650,11 @@ private fun LibraryContentBody(
             onAddSongToPlaylist = onAddSongToPlaylist,
             coverArtUrlBuilder = coverArtUrlBuilder,
             // 全屏搜索面是独立 surface,不在上面的限宽列里 —— 结果列表
-            // 单独夹宽(helper 自带 fillMaxWidth)。
+            // 单独走同一套宽度策略(Wide 铺满、其余夹宽,helper 自带
+            // fillMaxWidth)。
             modifier = Modifier
                 .weight(1f)
-                .yoinPageContentWidth(),
+                .libraryPageWidth(isDesktopWide),
         )
     }
 }
@@ -644,6 +698,73 @@ private fun LibrarySearchScopeChips(
         onSelectedChange = onScopeSelected,
         modifier = modifier.fillMaxWidth(),
     )
+}
+
+// Wide 桌面头排的搜索 pill 宽度上限(mockup 360px 直译;M3 搜索栏本身的
+// min width 也是 360dp,两者相等 → pill 恒为 360dp)。
+private val LibraryWideSearchBarMaxWidth = 360.dp
+
+// Wide 桌面档专属头排:[Library 标题][搜索 pill][tab chips][settings] 一行
+// 左对齐。全部由既有件重排组成 —— pill 是同一个 searchBarState/inputField
+// 的 M3 collapsed SearchBar(全屏搜索面照旧从它 morph 展开),chips 直接
+// 复用 LibraryFilterChips(weight 占满中段,内建横向滚动 + 边缘渐隐在
+// 840dp 一类窄 Wide 窗继续成立),齿轮与 AppBarWithSearch actions 里同款。
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun LibraryWideHeaderRow(
+    searchBarState: SearchBarState,
+    inputField: @Composable () -> Unit,
+    tabs: List<LibraryTab>,
+    selectedTab: LibraryTab,
+    onTabSelected: (LibraryTab) -> Unit,
+    onNavigateToSettings: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val haptics = rememberYoinHaptics()
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .statusBarsPadding()
+            // 外层 libraryPageWidth 已有 16dp,这里再补 16dp → 32dp 桌面
+            // gutter,与下方网格 contentPadding 的合计边距对齐一条线。
+            .padding(start = 16.dp, top = 16.dp, end = 16.dp, bottom = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(16.dp),
+    ) {
+        Text(
+            text = "Library",
+            style = MaterialTheme.typography.headlineMedium,
+            color = MaterialTheme.colorScheme.onSurface,
+        )
+        SearchBar(
+            state = searchBarState,
+            inputField = inputField,
+            // 同 AppBarWithSearch 分支:pill 比页面渐变的顶端亮一档,才能
+            // 读成控件(设计评审裁定,见上)。
+            colors = SearchBarDefaults.colors(
+                containerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+            ),
+            modifier = Modifier.widthIn(max = LibraryWideSearchBarMaxWidth),
+        )
+        LibraryFilterChips(
+            tabs = tabs,
+            selectedTab = selectedTab,
+            onTabSelected = onTabSelected,
+            modifier = Modifier.weight(1f),
+        )
+        IconButton(
+            onClick = {
+                haptics.performContextClick()
+                onNavigateToSettings()
+            },
+            modifier = Modifier.minimumTouchTarget(),
+        ) {
+            Icon(
+                imageVector = Icons.Filled.Settings,
+                contentDescription = "Settings",
+            )
+        }
+    }
 }
 
 private fun LibrarySearchScope.placeholder(): String = when (this) {

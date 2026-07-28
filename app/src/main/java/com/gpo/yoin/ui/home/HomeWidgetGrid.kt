@@ -57,11 +57,14 @@ import com.gpo.yoin.ui.theme.withTabularFigures
 private val WidgetCoverSize = 100.dp
 private const val WidgetArtworkFraction = 0.72f
 
-// Masonry column counts: a Compact pane keeps the Figma 3-column grid; from
-// Medium up the SAME 12-cell budget (GRID_TOTAL_CELLS) re-packs into 4 columns
-// — 12 % 4 == 0, so every wide-card count still fills its rows exactly.
+// Masonry column counts: a Compact pane keeps the Figma 3-column grid; Medium
+// (and Tabletop, staying in its old `!= Compact` bucket) re-packs the SAME
+// 12-cell budget (GRID_TOTAL_CELLS) into 4 columns, and a full-window Wide
+// canvas into 6 — 12 % 4 == 0 and 12 % 6 == 0, so every wide-card count still
+// fills its rows exactly.
 private const val WidgetGridColumns = 3
 private const val WidgetGridColumnsExpanded = 4
+private const val WidgetGridColumnsDesktop = 6
 
 /**
  * Which backdrop shape sits behind a cover — the "题材" mapping recovered from
@@ -100,7 +103,8 @@ internal fun HomeSectionTitle(
 
 /**
  * The home widget grid (Figma node 405:361, "Memories" visual language): a
- * masonry over a 3-column grid (4 columns in Medium+ panes) where a wide "1×2"
+ * masonry over a 3-column grid (4 columns in Medium/Tabletop panes, 6 on a
+ * full-window Wide canvas) where a wide "1×2"
  * card spans two columns and shares its row with compact "1×1" covers;
  * unpaired covers fill full rows. Cards are plain taps — album/playlist push
  * their detail, songs play, memory cards push into the Memories deck. No
@@ -117,12 +121,14 @@ internal fun HomeWidgetGridSection(
     if (cards.isEmpty()) return
     // Pane-relative columns: inside an embedded split each Activity sees its
     // own pane width, so a phone-sized pane stays on the 3-column grid
-    // byte-for-byte while Medium+ re-packs the same cards into 4 columns.
+    // byte-for-byte; a Medium pane (and Tabletop — its old `!= Compact`
+    // bucket, preserved verbatim) re-packs the same cards into 4 columns, and
+    // a full-window Wide canvas spreads them across 6.
     val layoutMode = LocalYoinWindowInfo.current.layoutMode
-    val columns = if (layoutMode != LayoutMode.Compact) {
-        WidgetGridColumnsExpanded
-    } else {
-        WidgetGridColumns
+    val columns = when (layoutMode) {
+        LayoutMode.Compact -> WidgetGridColumns
+        LayoutMode.Wide -> WidgetGridColumnsDesktop
+        else -> WidgetGridColumnsExpanded
     }
     val rows = remember(cards, columns) { packWidgetRows(cards, columns) }
 
