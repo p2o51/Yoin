@@ -6,12 +6,12 @@ ksp = "2.3.6"
 
 # Compose
 composeBom = "2026.03.01"
-material3Expressive = "1.5.0-alpha16"
+material3Expressive = "1.5.0-alpha26"
 # Window size class + fold posture (currentWindowAdaptiveInfo). NOT in the
 # Compose BOM — versioned independently. Pulls androidx.window transitively.
 # 1.2.0 is the newest line that still compiles against compileSdk 36; 1.3.x
 # requires compileSdk 37 (not installed; preview).
-material3Adaptive = "1.2.0"
+material3Adaptive = "1.3.0"
 # Activity Embedding（shell↔detail 大屏分栏）。adaptive 只传递 window-core；
 # SplitPairRule/RuleController 在 androidx.window:window 里，需要显式依赖。
 window = "1.5.1"
