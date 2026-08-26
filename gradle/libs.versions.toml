@@ -5,7 +5,7 @@ kotlin = "2.3.20"
 ksp = "2.3.6"
 
 # Compose
-composeBom = "2026.03.01"
+composeBom = "2026.08.00"
 material3Expressive = "1.5.0-alpha16"
 # Window size class + fold posture (currentWindowAdaptiveInfo). NOT in the
 # Compose BOM — versioned independently. Pulls androidx.window transitively.
@@ -19,11 +19,11 @@ window = "1.5.1"
 # and inert predictive back in Studio previews (NavigationEvent 1.1.1).
 nav3Core = "1.1.2"
 lifecycleViewmodelNav3 = "2.10.0"
-activityCompose = "1.10.1"
+activityCompose = "1.13.0"
 lifecycleCompose = "2.9.0"
 
 # Media
-media3 = "1.10.0"
+media3 = "1.11.0"
 castFramework = "22.0.0"
 
 # Networking
@@ -116,9 +116,9 @@ palette = { group = "androidx.palette", name = "palette-ktx", version.ref = "pal
 graphics-shapes = { group = "androidx.graphics", name = "graphics-shapes", version.ref = "graphicsShapes" }
 
 # Core AndroidX
-core-ktx = { group = "androidx.core", name = "core-ktx", version = "1.15.0" }
-androidx-core-splashscreen = { group = "androidx.core", name = "core-splashscreen", version = "1.0.1" }
-androidx-browser = { group = "androidx.browser", name = "browser", version = "1.8.0" }
+core-ktx = { group = "androidx.core", name = "core-ktx", version = "1.19.0" }
+androidx-core-splashscreen = { group = "androidx.core", name = "core-splashscreen", version = "1.2.0" }
+androidx-browser = { group = "androidx.browser", name = "browser", version = "1.10.0" }
 
 # Testing
 junit = { group = "junit", name = "junit", version.ref = "junit" }
