@@ -64,8 +64,14 @@ class LyricsProviderRegistry(
         }.awaitAll()
     }
 
+    fun canFetch(providerName: String, songId: String): Boolean {
+        val provider = providers.firstOrNull { it.name == providerName } ?: return false
+        return provider.canFetch(songId)
+    }
+
     suspend fun fetchSelectedLyric(providerName: String, songId: String): Hit? {
         val provider = providers.firstOrNull { it.name == providerName } ?: return null
+        if (!provider.canFetch(songId)) return null
         val lrc = provider.fetchNormalizedLyric(songId) ?: return null
         return Hit(lrc = lrc, providerName = provider.name, providerSongId = songId)
     }
@@ -75,6 +81,7 @@ class LyricsProviderRegistry(
         songId: String,
     ): TranslationHit? {
         val provider = providers.firstOrNull { it.name == providerName } ?: return null
+        if (!provider.canFetch(songId)) return null
         val payload = provider.fetchNormalizedLyricWithTranslation(songId) ?: return null
         return TranslationHit(
             lrc = payload.lyric,

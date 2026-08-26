@@ -1888,7 +1888,10 @@ class YoinRepository(
         sourceLinesForFallbackCache: List<String>,
         persistLyrics: Boolean,
     ): ProviderTranslation? {
-        val hit = if (providerSongId != null) {
+        val hit = if (
+            providerSongId != null &&
+            lyricsProviderRegistry.canFetch(providerName, providerSongId)
+        ) {
             lyricsProviderRegistry.fetchSelectedLyricWithTranslation(providerName, providerSongId)
         } else {
             lyricsProviderRegistry.searchAndFetchLyricWithTranslation(providerName, title, artist)

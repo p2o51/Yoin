@@ -21,27 +21,30 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 
 /**
- * QQ 音乐歌词源。Port 自 `spotoolfy_flutter/lib/services/lyrics/qq_provider_mobile.dart`。
- * 两次公网请求：
- * 1. 搜索：POST `u.y.qq.com/cgi-bin/musicu.fcg` 拿到 `songmid`
- * 2. 取词：POST `u.y.qq.com/cgi-bin/musicu.fcg` 调
- *    `music.musichallSong.PlayLyricInfo.GetPlayLyricInfo`。`trans=1` 才返回翻译。
+ * QQ 音乐歌词源。2026-07 按接口现状重写（QQ 把桌面端接口全部加了登录墙）：
  *
- * 旧 `fcg_query_lyric_new.fcg` 仍作为原文兜底；它的 `trans` 字段在 2026 实测中基本为空。
+ * - 已死（需登录）：桌面搜索 `DoSearchForQQMusicDesktop`（`code: 2001`）、
+ *   旧取词 `fcg_query_lyric_new.fcg`（`retcode: 1101`）、
+ *   `GetPlayLyricInfo` 传 `songMID`（`code: 24001`）。
+ * - 免登录可用：
+ *   1. 搜索：GET `c.y.qq.com/soso/fcgi-bin/client_search_cp`（老客户端搜索，返回数字 songid）
+ *   2. 取词：POST `u.y.qq.com/cgi-bin/musicu.fcg` 调
+ *      `music.musichallSong.PlayLyricInfo.GetPlayLyricInfo`，传**数字** `songID` +
+ *      `crypt=0`，`lyric`/`trans` 是 base64 明文 LRC。
+ *
+ * 注意：逐字 QRC 内容（`qrc=1` 或 QRC-only 歌曲）服务端会强发 hex 密文，用的是
+ * 未公开的新加密算法（LX Music 靠预编译二进制解），这里识别后直接放弃。
  */
 class QQLyricsProvider(
     private val client: OkHttpClient = defaultClient(),
     private val json: Json = Json { ignoreUnknownKeys = true; isLenient = true },
     private val searchUrl: String = DEFAULT_SEARCH_URL,
-    private val playLyricInfoUrl: String = DEFAULT_SEARCH_URL,
-    private val primaryLyricUrl: String = DEFAULT_PRIMARY_LYRIC_URL,
-    private val backupLyricUrl: String = DEFAULT_BACKUP_LYRIC_URL,
+    private val playLyricInfoUrl: String = DEFAULT_PLAY_LYRIC_INFO_URL,
 ) : LyricProvider() {
 
-    @Volatile
-    private var useBackupDomain: Boolean = false
-
     override val name: String = "qq"
+
+    override fun canFetch(songId: String): Boolean = songId.toLongOrNull() != null
 
     override suspend fun search(title: String, artist: String): SongMatch? =
         searchMultiple(title, artist, limit = 1).firstOrNull()
@@ -51,31 +54,19 @@ class QQLyricsProvider(
         artist: String,
         limit: Int,
     ): List<SongMatch> = withContext(Dispatchers.IO) {
-        val keyword = "$title $artist"
-        val payload = buildJsonObject {
-            putJsonObject("comm") {
-                put("ct", "19")
-                put("cv", "1859")
-                put("uin", "0")
-            }
-            putJsonObject("req") {
-                put("method", "DoSearchForQQMusicDesktop")
-                put("module", "music.search.SearchCgiService")
-                putJsonObject("param") {
-                    put("grp", 1)
-                    put("num_per_page", limit)
-                    put("page_num", 1)
-                    put("query", keyword)
-                    put("search_type", 0)
-                }
-            }
-        }
-        val body = payload.toString().toRequestBody(JSON_MEDIA_TYPE)
+        val url = searchUrl.toHttpUrl().newBuilder()
+            .addQueryParameter("w", "$title $artist")
+            .addQueryParameter("format", "json")
+            .addQueryParameter("n", limit.toString())
+            .addQueryParameter("t", "0")
+            .addQueryParameter("cr", "1")
+            .addQueryParameter("new_json", "1")
+            .build()
 
         val request = Request.Builder()
-            .url(searchUrl)
-            .post(body)
-            .headers(SEARCH_HEADERS)
+            .url(url)
+            .get()
+            .headers(BASE_HEADERS)
             .build()
 
         runCatching {
@@ -86,23 +77,23 @@ class QQLyricsProvider(
                 }
                 val raw = response.body?.string().orEmpty()
                 val root = json.parseToJsonElement(raw).jsonObject
-                val songList = root["req"]?.jsonObject
-                    ?.get("data")?.jsonObject
-                    ?.get("body")?.jsonObject
+                val songList = root["data"]?.jsonObject
                     ?.get("song")?.jsonObject
                     ?.get("list")?.jsonArray
                     ?: return@use emptyList()
 
                 songList.mapNotNull { el ->
                     val obj = el.jsonObject
-                    val mid = obj["mid"]?.jsonPrimitive?.contentOrNull ?: return@mapNotNull null
+                    val songId = obj["id"]?.jsonPrimitive?.contentOrNull
+                        ?.takeIf { it.toLongOrNull() != null }
+                        ?: return@mapNotNull null
                     val songTitle = (obj["title"]?.jsonPrimitive?.contentOrNull
                         ?: obj["name"]?.jsonPrimitive?.contentOrNull)
                         .normalizeField(title)
                     val primaryArtist = obj["singer"]?.jsonArray?.firstOrNull()
                         ?.jsonObject?.get("name")?.jsonPrimitive?.contentOrNull
                     SongMatch(
-                        songId = mid,
+                        songId = songId,
                         title = songTitle,
                         artist = primaryArtist.normalizeField(artist),
                     )
@@ -115,36 +106,45 @@ class QQLyricsProvider(
     }
 
     override suspend fun fetchLyric(songId: String): String? =
-        fetchLyricWithTranslation(songId)?.lyric ?: fetchLegacyLyric(songId)
+        fetchLyricWithTranslation(songId)?.lyric
 
     override suspend fun fetchLyricWithTranslation(songId: String): LyricPayload? = withContext(Dispatchers.IO) {
+        val numericSongId = songId.toLongOrNull()
+        if (numericSongId == null) {
+            Log.w(TAG, "QQ lyric needs numeric songID, got: $songId")
+            return@withContext null
+        }
         val payload = buildJsonObject {
             putJsonObject("comm") {
-                put("cv", 4_747_474)
-                put("ct", 24)
-                put("format", "json")
-                put("inCharset", "utf-8")
-                put("outCharset", "utf-8")
-                put("notice", 0)
-                put("platform", "yqq.json")
-                put("needNewCode", 1)
-                put("uin", 0)
-                put("g_tk_new_20200303", 5381)
-                put("g_tk", 5381)
+                put("ct", "19")
+                put("cv", "1859")
+                put("uin", "0")
             }
             putJsonObject("req_1") {
                 put("module", "music.musichallSong.PlayLyricInfo")
                 put("method", "GetPlayLyricInfo")
                 putJsonObject("param") {
-                    put("songMID", songId)
+                    put("format", "json")
+                    put("crypt", 0)
+                    put("ct", 19)
+                    put("cv", 1873)
+                    put("interval", 0)
+                    put("lrc_t", 0)
+                    put("qrc", 0)
+                    put("qrc_t", 0)
+                    put("roma", 0)
+                    put("roma_t", 0)
+                    put("songID", numericSongId)
                     put("trans", 1)
+                    put("trans_t", 0)
+                    put("type", -1)
                 }
             }
         }
         val request = Request.Builder()
             .url(playLyricInfoUrl)
             .post(payload.toString().toRequestBody(JSON_MEDIA_TYPE))
-            .headers(SEARCH_HEADERS)
+            .headers(PLAY_LYRIC_HEADERS)
             .build()
 
         runCatching {
@@ -155,9 +155,13 @@ class QQLyricsProvider(
                 }
                 val raw = response.body?.string().orEmpty()
                 val root = json.parseToJsonElement(raw).jsonObject
-                val data = root["req_1"]?.jsonObject
-                    ?.get("data")?.jsonObject
-                    ?: return@use null
+                val req1 = root["req_1"]?.jsonObject ?: return@use null
+                val code = req1["code"]?.jsonPrimitive?.contentOrNull?.toIntOrNull()
+                if (code != null && code != 0) {
+                    Log.w(TAG, "QQ play lyric info code=$code")
+                    return@use null
+                }
+                val data = req1["data"]?.jsonObject ?: return@use null
                 val lyric = decodeMaybeBase64(data["lyric"]?.jsonPrimitive?.contentOrNull)
                     ?: return@use null
                 val translatedLyric = decodeMaybeBase64(data["trans"]?.jsonPrimitive?.contentOrNull)
@@ -172,52 +176,28 @@ class QQLyricsProvider(
         }
     }
 
-    private suspend fun fetchLegacyLyric(songId: String): String? = withContext(Dispatchers.IO) {
-        val base = if (useBackupDomain) backupLyricUrl else primaryLyricUrl
-        val url = base.toHttpUrl().newBuilder()
-            .addQueryParameter("songmid", songId)
-            .addQueryParameter("format", "json")
-            .addQueryParameter("nobase64", "1")
-            .build()
-
-        val request = Request.Builder()
-            .url(url)
-            .get()
-            .headers(BASE_HEADERS)
-            .build()
-
-        runCatching {
-            client.awaitResponse(request).use { response ->
-                if (response.code == 403 || response.code == 429) {
-                    Log.w(TAG, "QQ lyric blocked (${response.code}), flipping to backup domain")
-                    useBackupDomain = !useBackupDomain
-                    return@use null
-                }
-                if (!response.isSuccessful) {
-                    Log.w(TAG, "QQ lyric failed: ${response.code}")
-                    return@use null
-                }
-                val raw = response.body?.string().orEmpty()
-                val obj = json.parseToJsonElement(raw).jsonObject
-                QQEncoding.normalizeNullable(obj["lyric"]?.jsonPrimitive?.contentOrNull)
-            }
-        }.getOrElse { e ->
-            Log.w(TAG, "QQ lyric parse error: ${e.message}")
-            null
-        }
-    }
-
     private fun decodeMaybeBase64(raw: String?): String? {
         val normalized = QQEncoding.normalizeNullable(raw) ?: return null
         val trimmed = normalized.trim()
         if (trimmed.isEmpty()) return null
         if (trimmed.startsWith("[")) return trimmed
+        // QRC-only 歌曲会被强发 hex 密文（新算法，解不了），识别后放弃。
+        // 真实密文很长；下限避免把极短、碰巧全 hex 的合法 base64 误杀。
+        if (trimmed.length >= MIN_QRC_HEX_LENGTH &&
+            trimmed.length % 2 == 0 &&
+            trimmed.all { it.isHexDigit }
+        ) {
+            return null
+        }
         return runCatching {
             String(Base64.getDecoder().decode(trimmed), Charsets.UTF_8)
         }.getOrNull()
             ?.let(QQEncoding::normalizeNullable)
             ?.takeIf { it.isNotBlank() }
     }
+
+    private val Char.isHexDigit: Boolean
+        get() = this in '0'..'9' || this in 'a'..'f' || this in 'A'..'F'
 
     private fun String?.normalizeField(fallback: String): String {
         val trimmed = (this ?: fallback).trim()
@@ -227,11 +207,10 @@ class QQLyricsProvider(
 
     companion object {
         private const val TAG = "QQLyricsProvider"
-        private const val DEFAULT_SEARCH_URL = "https://u.y.qq.com/cgi-bin/musicu.fcg"
-        private const val DEFAULT_PRIMARY_LYRIC_URL =
-            "https://c.y.qq.com/lyric/fcgi-bin/fcg_query_lyric_new.fcg"
-        private const val DEFAULT_BACKUP_LYRIC_URL =
-            "https://u6.y.qq.com/lyric/fcgi-bin/fcg_query_lyric_new.fcg"
+        private const val DEFAULT_SEARCH_URL =
+            "https://c.y.qq.com/soso/fcgi-bin/client_search_cp"
+        private const val DEFAULT_PLAY_LYRIC_INFO_URL =
+            "https://u.y.qq.com/cgi-bin/musicu.fcg"
 
         private val JSON_MEDIA_TYPE = "application/json;charset=utf-8".toMediaType()
 
@@ -244,7 +223,9 @@ class QQLyricsProvider(
             )
             .build()
 
-        private val SEARCH_HEADERS: Headers = BASE_HEADERS.newBuilder()
+        private const val MIN_QRC_HEX_LENGTH = 16
+
+        private val PLAY_LYRIC_HEADERS: Headers = BASE_HEADERS.newBuilder()
             .add("content-type", "application/json;charset=utf-8")
             .build()
 

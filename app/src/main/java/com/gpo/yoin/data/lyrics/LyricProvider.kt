@@ -23,6 +23,9 @@ abstract class LyricProvider {
         limit: Int = 3,
     ): List<SongMatch> = search(title, artist)?.let(::listOf).orEmpty().take(limit)
 
+    /** 这个平台 id 能不能直接拿去取词。过期缓存里的旧 QQ mid 应返回 false。 */
+    open fun canFetch(songId: String): Boolean = true
+
     /** 按平台内 id 拉 LRC 原文；拿不到返回 null。 */
     abstract suspend fun fetchLyric(songId: String): String?
 

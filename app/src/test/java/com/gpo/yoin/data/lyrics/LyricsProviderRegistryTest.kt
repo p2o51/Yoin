@@ -74,13 +74,32 @@ class LyricsProviderRegistryTest {
 
         assertNull(registry.fetchSelectedLyric(providerName = "missing", songId = "song-1"))
     }
+
+    @Test
+    fun should_skip_fetch_when_provider_cannot_use_cached_id() = runTest {
+        val registry = LyricsProviderRegistry(
+            providers = listOf(
+                FakeProvider(
+                    name = "qq-like",
+                    lyrics = mapOf("abc123" to "[00:01.00]stale mid"),
+                    fetchableIds = { songId -> songId.toLongOrNull() != null },
+                ),
+            ),
+        )
+
+        assertEquals(false, registry.canFetch("qq-like", "abc123"))
+        assertNull(registry.fetchSelectedLyric(providerName = "qq-like", songId = "abc123"))
+    }
 }
 
 private class FakeProvider(
     override val name: String,
     private val matches: List<SongMatch> = emptyList(),
     private val lyrics: Map<String, String> = emptyMap(),
+    private val fetchableIds: (String) -> Boolean = { true },
 ) : LyricProvider() {
+
+    override fun canFetch(songId: String): Boolean = fetchableIds(songId)
 
     override suspend fun search(title: String, artist: String): SongMatch? = matches.firstOrNull()
 
