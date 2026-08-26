@@ -8,7 +8,15 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.collectAsState
+import androidx.compose.foundation.layout.Box
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import com.gpo.yoin.ui.nowplaying.NowPlayingAccessories
+import com.gpo.yoin.ui.nowplaying.NowPlayingOverlayHost
+import com.gpo.yoin.ui.nowplaying.NowPlayingViewModel
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -29,6 +37,7 @@ class ArtistDetailActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableYoinEdgeToEdge()
+        applyDetailCloseTransition()
         val artistId = intent.getStringExtra(EXTRA_ARTIST_ID)
         if (artistId.isNullOrBlank()) {
             finish()
@@ -94,9 +103,30 @@ class ArtistDetailActivity : ComponentActivity() {
                     }
                 }
 
+                // Now Playing is hosted IN THIS window: the pill opens it in
+                // place and back collapses it back onto this page — no shell
+                // relaunch, no home cameo, and the back stack stays truthful.
+                val nowPlayingViewModel: NowPlayingViewModel = viewModel(
+                    factory = NowPlayingViewModel.Factory(app.container),
+                )
+                var nowPlayingOpen by rememberSaveable { mutableStateOf(false) }
+                val miniPlayerState by rememberDetailMiniPlayerState(app.container)
+                val miniPlayerProgress by rememberDetailMiniPlayerProgress(app.container)
+
+                Box(modifier = Modifier.fillMaxSize()) {
                 ArtistDetailScreen(
                     uiState = uiState,
-                    onBackClick = { finish() },
+                    onBackClick = {
+                        // Pre-morph the covered shell bar to nav chrome so the reveal
+                        // after the dissolve matches the scrubbed detail bar.
+                        (application as YoinApplication).container.experienceSessionStore
+                            .setDetailChromeActive(false)
+                        finish()
+                    },
+                    morphBarOnBack = intent.getBooleanExtra(DETAIL_EXTRA_FROM_SHELL, false),
+                    navSection = intent.detailOriginSection(),
+                    enterBarHandoff = intent.getBooleanExtra(DETAIL_EXTRA_BAR_HANDOFF, false),
+                    barExitsOnBack = intent.getBooleanExtra(DETAIL_EXTRA_FROM_NOW_PLAYING, false),
                     onAlbumClick = { albumId ->
                         context.startActivity(AlbumDetailActivity.intent(context, albumId))
                     },
@@ -117,10 +147,44 @@ class ArtistDetailActivity : ComponentActivity() {
                     },
                     isPlaying = playbackState.isPlaying,
                     playbackSignal = if (playbackState.isPlaying) playbackSignal else 0f,
+                    onOpenNowPlaying = { nowPlayingOpen = true },
+                    nowPlayingOpen = nowPlayingOpen,
+                    miniPlayerState = miniPlayerState,
+                    playbackProgress = miniPlayerProgress,
                     modifier = Modifier.fillMaxSize(),
                 )
+
+                NowPlayingOverlayHost(
+                    viewModel = nowPlayingViewModel,
+                    container = app.container,
+                    expanded = nowPlayingOpen,
+                    onExpandedChange = { nowPlayingOpen = it },
+                    onAlbumClick = { id ->
+                        context.startActivity(AlbumDetailActivity.intent(context, id))
+                    },
+                    onArtistClick = { id ->
+                        context.startActivity(ArtistDetailActivity.intent(context, id))
+                    },
+                    onPlaylistClick = { id ->
+                        context.startActivity(PlaylistDetailActivity.intent(context, id))
+                    },
+                )
+                NowPlayingAccessories(
+                    viewModel = nowPlayingViewModel,
+                    container = app.container,
+                )
+                }
             }
         }
+    }
+
+    override fun onStop() {
+        super.onStop()
+        // The system defers onStop past the exit animation, so this is the
+        // moment this window is truly off screen — the shell's chrome restore
+        // (bar reverse morph) waits for it.
+        (application as YoinApplication).container.experienceSessionStore
+            .noteDetailWindowSettled()
     }
 
     companion object {

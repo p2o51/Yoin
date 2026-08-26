@@ -35,15 +35,20 @@ sealed interface NowPlayingUiState {
         val message: String,
     ) : NowPlayingUiState
 
+    /**
+     * NOTE: deliberately does NOT carry the playhead position or buffered
+     * position — those tick 4×/s and would defeat data-class equality
+     * dedup, recomposing the whole Now Playing tree per tick. Consumers
+     * read [com.gpo.yoin.ui.nowplaying.NowPlayingViewModel.positionMs] /
+     * [com.gpo.yoin.ui.nowplaying.NowPlayingViewModel.bufferedMs] instead.
+     */
     data class Playing(
         val songTitle: String,
         val artist: String,
         val albumName: String,
         val coverArtUrl: String?,
         val isPlaying: Boolean,
-        val positionMs: Long,
         val durationMs: Long,
-        val bufferedMs: Long,
         val songId: String,
         val rating: Float,
         val isStarred: Boolean,

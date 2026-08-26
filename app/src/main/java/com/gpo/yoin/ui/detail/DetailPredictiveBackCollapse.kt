@@ -1,0 +1,285 @@
+package com.gpo.yoin.ui.detail
+
+import android.app.Activity
+import android.content.Context
+import android.content.ContextWrapper
+import android.os.Build
+import androidx.activity.BackEventCompat
+import androidx.activity.compose.PredictiveBackHandler
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.Stable
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalContext
+import com.gpo.yoin.YoinApplication
+import com.gpo.yoin.ui.experience.DetailBackPhase
+import com.gpo.yoin.ui.experience.voteHighFrameRate
+import com.gpo.yoin.ui.navigation.back.BackMotionTokens
+import com.gpo.yoin.ui.theme.YoinMotion
+import com.gpo.yoin.ui.theme.YoinMotionRole
+import kotlin.coroutines.cancellation.CancellationException
+import kotlin.math.abs
+import kotlin.math.max
+import kotlin.math.min
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+
+/**
+ * In-window predictive back for the detail pages, a faithful port of AOSP's
+ * `CrossActivityBackAnimation` pre-commit math applied to the page CONTENT
+ * only — the bottom bar is a sibling and never transforms; instead it scrubs
+ * its own detail⇄nav morph off [DetailBackCollapseState.progress].
+ *
+ * Ported behaviour (frameworks/base WM Shell, DefaultCrossActivityBackAnimation):
+ *  - gesture progress through the BACK_GESTURE interpolator, tracked 1:1
+ *    with the finger (springs run only on the cancel settle)
+ *  - uniform rect-lerped scale toward MAX_SCALE (0.9)
+ *  - LEFT-edge swipes anchor the shrunken content's right edge 8dp from the
+ *    screen edge; RIGHT-edge swipes stay centered (AOSP asymmetry)
+ *  - vertical follow: deceleration-interpolated touch-Y delta, capped at half
+ *    a screen of travel, scaled to the slack before the 8dp display margin
+ *  - post-commit: fast alpha-out (AOSP fades in the first fifth of its 450ms
+ *    post-commit) with a slight continued drift, then the activity finishes
+ *    into its in-place window dissolve.
+ *
+ * The whole gesture is CONSUMED, so the system's window-level animation —
+ * which would scale the bar too — never engages. Activities stay Activities.
+ */
+@Stable
+class DetailBackCollapseState internal constructor() {
+    /**
+     * Gesture progress (0..1), tracked 1:1 with the finger DURING the
+     * gesture (platform behaviour — no smoothing between finger and pixels);
+     * springs run only on release (cancel settle).
+     */
+    internal val chased = Animatable(0f)
+
+    /** Current scrub progress for consumers (bar morph). */
+    val progress: Float
+        get() = chased.value
+
+    /** Raw finger Y delta from gesture start, px. Applied un-sprung, like AOSP. */
+    internal var touchYDelta by mutableFloatStateOf(0f)
+
+    internal var swipeEdge by mutableIntStateOf(BackEventCompat.EDGE_LEFT)
+
+    /** Post-commit exit fraction (0..1): fast fade + slight drift. */
+    internal val exit = Animatable(0f)
+}
+
+@Composable
+fun rememberDetailBackCollapse(onBack: () -> Unit): DetailBackCollapseState {
+    val state = remember { DetailBackCollapseState() }
+    val scope = rememberCoroutineScope()
+    val settleSpec = YoinMotion.predictiveBackSettleSpring<Float>()
+    val commitSpec = YoinMotion.defaultSpatialSpec<Float>(role = YoinMotionRole.Standard)
+    val context = LocalContext.current
+    val activity = remember(context) { context.findActivity() }
+    val store = remember(context) {
+        (context.applicationContext as YoinApplication).container.experienceSessionStore
+    }
+
+    // Steady state = OPAQUE: the theme is translucent so the enter hand-off
+    // fades over the LIVE window beneath; once settled, convert to opaque so
+    // that window stops normally. The gesture converts back for its duration.
+    LaunchedEffect(Unit) {
+        delay(OPAQUE_AFTER_ENTER_MS)
+        if (store.detailBackPhase.value == DetailBackPhase.Idle) {
+            activity?.setTranslucentCompat(false)
+        }
+    }
+
+    PredictiveBackHandler { events ->
+        var initialTouchY = Float.NaN
+        var sawGesture = false
+        try {
+            events.collect { event ->
+                if (!sawGesture) {
+                    sawGesture = true
+                    // Wake the window beneath: it renders the AOSP entering
+                    // side (already in place, moving with the gesture).
+                    activity?.setTranslucentCompat(true)
+                    store.detailBackPhase.value = DetailBackPhase.Gesture
+                }
+                if (initialTouchY.isNaN()) initialTouchY = event.touchY
+                state.swipeEdge = event.swipeEdge
+                state.touchYDelta = event.touchY - initialTouchY
+                // Direct 1:1 tracking, like the platform: the eased progress
+                // IS the pose. No smoothing between finger and pixels.
+                state.chased.snapTo(
+                    YoinMotion.backGestureEasing.transform(event.progress),
+                )
+                store.detailBackProgress.floatValue = state.chased.value
+                store.detailBackTouchYDelta.floatValue = state.touchYDelta
+            }
+            // COMMIT. Button-backs emit no progress events — skip straight to
+            // the window dissolve. Gesture commits play the AOSP post-commit
+            // content exit (the fade lands within ~90ms) first, while the
+            // window beneath runs its own entering settle off the phase flip.
+            //
+            // The window MUST be translucent — and the conversion must have
+            // had time to LAND — before finish() on every path: an opaque
+            // finish makes the system animate the whole revealed window in
+            // (a horizontal slide our alpha-hold override does not replace
+            // on this translucent-themed activity) — the "content jumps in
+            // from the right" on button-backs, and on gestures whose
+            // setTranslucent call had silently failed (runCatching). The
+            // button-back therefore converts FIRST and rides the 140ms
+            // content exit fade as the conversion window — same choreography
+            // as a gesture commit, minus the scrub.
+            if (!sawGesture) {
+                activity?.setTranslucentCompat(true)
+            }
+            store.detailBackPhase.value = DetailBackPhase.Committed
+            if (sawGesture && state.chased.value > 0.02f) {
+                // Finish the bar's scrub to full nav — the SAME spec the shell
+                // bar uses for its commit settle beneath the dissolve, so the
+                // two bars ride near-identical trajectories and the crossfade
+                // shows no pose jump (a long drag froze the top bar near nav
+                // while the bottom one started from split — the pill flash).
+                scope.launch { state.chased.animateTo(1f, commitSpec) }
+                state.exit.animateTo(1f, tween(durationMillis = 140))
+            } else if (!sawGesture) {
+                // Button-back: play the same commit motion from rest — the
+                // card collapse + bar scrub (morph or slide-down) + content
+                // fade. Besides mirroring the gesture, this buys the stopped
+                // reveal window time to draw its first frame; finishing
+                // instantly showed a floating bar over a black void.
+                scope.launch { state.chased.animateTo(1f, commitSpec) }
+                state.exit.animateTo(1f, tween(durationMillis = 140))
+                delay(BUTTON_BACK_REVEAL_GRACE_MS)
+            }
+            onBack()
+        } catch (e: CancellationException) {
+            // CANCEL: the handler coroutine is already dying — settle on the
+            // host scope. The Y offset needs no separate settle: its head
+            // room collapses with the progress spring (maxShift ∝ p).
+            scope.launch {
+                state.chased.animateTo(0f, settleSpec) {
+                    store.detailBackProgress.floatValue = value
+                }
+                state.touchYDelta = 0f
+                store.detailBackTouchYDelta.floatValue = 0f
+                store.detailBackPhase.value = DetailBackPhase.Idle
+                // Convert on a STATIC frame: flipping the window surface to
+                // opaque right at the settle's last moving frame reads as a
+                // flash at the bar.
+                delay(TRANSLUCENT_RESTORE_DELAY_MS)
+                if (store.detailBackPhase.value == DetailBackPhase.Idle) {
+                    activity?.setTranslucentCompat(false)
+                }
+            }
+            throw e
+        }
+    }
+    return state
+}
+
+/**
+ * ARR high-refresh vote for the detail window while any of its cross-window
+ * motion is live: the back-collapse scrub, the post-commit exit fade, or the
+ * enter slide-in. Post-release settles have no touch boost, so without the
+ * vote they pace at ARR-Normal (60Hz) on a 120Hz panel.
+ */
+@Composable
+fun rememberDetailMotionFrameRateModifier(
+    back: DetailBackCollapseState,
+    intro: DetailEnterIntroState,
+): Modifier {
+    val active by remember(back, intro) {
+        derivedStateOf {
+            back.chased.value > 0.001f ||
+                back.exit.value > 0.001f ||
+                intro.slide.value > 0.001f
+        }
+    }
+    return Modifier.voteHighFrameRate(active)
+}
+
+private tailrec fun Context.findActivity(): Activity? = when (this) {
+    is Activity -> this
+    is ContextWrapper -> baseContext.findActivity()
+    else -> null
+}
+
+private fun Activity.setTranslucentCompat(translucent: Boolean) {
+    if (Build.VERSION.SDK_INT >= 30) {
+        runCatching { setTranslucent(translucent) }
+    }
+}
+
+/**
+ * The AOSP-mapped content transform. Apply to the page content container —
+ * and ONLY the content; the bottom bar must stay outside. All values are read
+ * in the layer block, so gesture frames never recompose the page.
+ */
+fun Modifier.detailBackCollapseTransform(state: DetailBackCollapseState): Modifier =
+    graphicsLayer {
+        val p = state.chased.value
+        val exit = state.exit.value
+        if (p <= 0f && exit <= 0f) {
+            return@graphicsLayer
+        }
+
+        val scale = 1f - (1f - BackMotionTokens.PopPageScaleTarget) * p
+        scaleX = scale
+        scaleY = scale
+
+        val marginPx = DisplayBoundsMarginDp * density
+        // Horizontal: LEFT-edge swipes anchor the scaled content's right edge
+        // 8dp from the screen edge; RIGHT-edge swipes stay centered.
+        val dxTarget = if (state.swipeEdge == BackEventCompat.EDGE_LEFT) {
+            size.width * (1f - BackMotionTokens.PopPageScaleTarget) / 2f - marginPx
+        } else {
+            0f
+        }
+        // Post-commit keeps drifting while the alpha snuffs out.
+        translationX = dxTarget * p + exit * ExitDriftDp * density
+
+        // Vertical follow (AOSP getYOffset): decelerated ratio of the raw
+        // finger travel, capped at half a screen, scaled to the slack the
+        // shrunken content has before hitting the 8dp margin.
+        val rawDy = state.touchYDelta
+        if (rawDy != 0f) {
+            val halfH = size.height / 2f
+            val ratio = min(halfH, abs(rawDy)) / halfH
+            val decelerated = 1f - (1f - ratio) * (1f - ratio)
+            val maxShift = max(0f, (size.height - size.height * scale) / 2f - marginPx)
+            translationY = maxShift * decelerated * (if (rawDy < 0f) -1f else 1f)
+        }
+
+        // AOSP post-commit: alpha = max(1 − 5·t, 0) — gone in the first fifth.
+        alpha = max(1f - exit * 5f, 0f)
+
+        shape = RoundedCornerShape(BackMotionTokens.PopPageCornerRadius * p)
+        clip = p > 0f
+    }
+
+/** AOSP `displayBoundsMargin` (8dp) — content never passes this margin. */
+private const val DisplayBoundsMarginDp = 8f
+
+/** Slight rightward drift during the post-commit fade. */
+private const val ExitDriftDp = 24f
+
+// The enter hand-off is 380ms (200 hold + 180 fade); leave slack before the
+// window goes opaque and stops the one beneath.
+private const val OPAQUE_AFTER_ENTER_MS = 900L
+
+// Post-settle pause before the opaque conversion (surface swap on a still frame).
+private const val TRANSLUCENT_RESTORE_DELAY_MS = 250L
+
+// Button-back only: extra beat after the commit motion so the just-woken
+// window beneath (stopped while we were opaque) gets a first frame up before
+// finish() — otherwise the dissolve reveals black.
+private const val BUTTON_BACK_REVEAL_GRACE_MS = 90L

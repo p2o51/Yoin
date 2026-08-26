@@ -9,6 +9,7 @@ import com.gpo.yoin.data.model.CoverRef
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.Track
 import com.gpo.yoin.data.repository.YoinRepository
+import com.gpo.yoin.ui.component.toUserMessage
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -157,7 +158,7 @@ class AlbumDetailViewModel(
                 }
             } catch (e: Exception) {
                 _uiState.value = AlbumDetailUiState.Error(
-                    e.message ?: "Failed to load album",
+                    e.toUserMessage("Couldn't load this album."),
                 )
             }
         }

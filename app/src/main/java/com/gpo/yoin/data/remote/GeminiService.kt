@@ -217,6 +217,63 @@ class GeminiService(
     }
 
     /**
+     * Memory 卡的 AI 拟题 —— 给用户写下的字（乐评或笔记）起一个 ≤14 字的标题。
+     * 同一枚标题复用到首页 Jump Back In 的 memory 槽位。
+     *
+     * 这是「不上传 note/review 原文」教条的唯一豁免（design.md 拟题豁免，
+     * 2026-07-26）：prompt 携带占用者原文 + 专辑背景元数据，让模型结合它
+     * 自身对这张专辑的了解拟题。仅此用途 —— [generateAlbumMemoryCopy]
+     * 的输入契约不变。
+     */
+    suspend fun generateAlbumMemoryTitle(
+        apiKey: String,
+        albumName: String,
+        artist: String?,
+        year: Int?,
+        writingKind: String,
+        writingText: String,
+    ): String = withContext(Dispatchers.IO) {
+        val prompt = buildMemoryTitlePrompt(
+            albumName = albumName,
+            artist = artist,
+            year = year,
+            writingKind = writingKind,
+            writingText = writingText,
+        )
+        val requestBody = GeminiRequest(
+            contents = listOf(GeminiContent(parts = listOf(GeminiPart(text = prompt)))),
+            // 拟题不走 search tool：专辑背景用模型自身知识即可，标题要快。
+            tools = null,
+            generationConfig = GeminiGenerationConfig(temperature = 0.2f),
+        )
+
+        val bodyJson = json.encodeToString(requestBody)
+        val request = Request.Builder()
+            .url("$BASE_URL$MODEL:generateContent?key=$apiKey")
+            .post(bodyJson.toRequestBody(JSON_MEDIA_TYPE))
+            .build()
+
+        val response = client.newCall(request).execute()
+        val responseBody = response.body?.string()
+            ?: throw GeminiException("Empty response from Gemini API")
+
+        if (!response.isSuccessful) {
+            throw GeminiException(
+                "Gemini API error (${response.code}): ${extractErrorMessage(responseBody)}",
+            )
+        }
+
+        val geminiResponse = json.decodeFromString<GeminiResponse>(responseBody)
+        geminiResponse.candidates
+            ?.firstOrNull()?.content?.parts?.firstOrNull()?.text
+            ?.trim()
+            ?.removeSurrounding("\"")
+            ?.replace("\n", " ")
+            ?.takeIf { it.isNotEmpty() }
+            ?: throw GeminiException("No content in Gemini response")
+    }
+
+    /**
      * Translate lyric lines for inline display. This intentionally avoids
      * search grounding: the model should preserve line count and phrasing,
      * not fetch facts about the song.
@@ -288,6 +345,34 @@ Write ONE line in Simplified Chinese, 30 to 60 characters, no quotes, no
 emoji, no hashtags, no english, no line break. Evoke the emotional echo of
 this album — not a factual summary. Avoid clichés like "经典" or "神专".
 Output only the line itself.
+        """.trimIndent()
+    }
+
+    private fun buildMemoryTitlePrompt(
+        albumName: String,
+        artist: String?,
+        year: Int?,
+        writingKind: String,
+        writingText: String,
+    ): String {
+        val artistLine = artist?.takeIf(String::isNotBlank) ?: "Unknown artist"
+        val yearLine = year?.toString() ?: "Unknown year"
+        return """
+You are titling a private music-journal entry. The user wrote the following
+$writingKind about an album; give it a short title.
+
+Album: $albumName
+Artist: $artistLine
+Year: $yearLine
+
+Their $writingKind:
+$writingText
+
+Write ONE title that captures the heart of what they wrote, drawing on what
+you know about this album's sound and background where it sharpens the title.
+Same language as their text. At most 14 CJK characters or 34 latin characters.
+No quotes, no emoji, no trailing period, no line break.
+Output only the title itself.
         """.trimIndent()
     }
 

@@ -229,9 +229,9 @@ fun Modifier.navTransitionSurface(maxRadius: Dp = 28.dp): Modifier {
 
 ### Phase 4（可选）— 收尾统一
 
-- `BackMotionTokens.NowPlayingCornerRadius = 28.dp` 已声明未用：给 NP overlay 的 dismiss/predictive back 加同款圆角 clip，让“所有会被手势送走的表面”说同一种语言；
-- 删除 Motion.kt 中确认无引用的遗留转场 vals（`navEnterForward/navExitForward/navEnterBack/navExitBack/navEnterOverlay/navExitOverlay/albumDetailSharedEnter/PopExit`）；
-- `motion-audit-matrix.md` 若仍在维护，补登本次变更。
+- ~~`BackMotionTokens.NowPlayingCornerRadius = 28.dp` 已声明未用~~ **作废**：该 token 已随 d7186402 的 NP reshape 一并删除，全仓零引用；现存的是 `PopPageCornerRadius`，正被 `DetailPredictiveBackCollapse` 使用。“同一种语言”的前提也不再成立——detail 页缩到 0.9 且内缩 8dp、真正脱离屏幕边缘，所以必须收圆角；而 NP 的 compact dismiss 是 scale 1 的纯下移，Expanded collapse 只缩内容不缩 overlay（`contentScale`，见 `NowPlayingOverlayHost` 的 “NOT the whole overlay” 注释），满幅贴边的表面收圆角只有顶部两角可见。真想要这个观感，得先改 NP 的退场几何，而不是复活一个 token；
+- ~~删除 Motion.kt 中确认无引用的遗留转场 vals（`navEnterForward/navExitForward/navEnterBack/navExitBack/navEnterOverlay/navExitOverlay/albumDetailSharedEnter/PopExit`）~~ **已完成**：2026-07-25 复核，八个名字在 `app/src` 全树零命中——连声明本身都已不在；
+- ~~`motion-audit-matrix.md` 若仍在维护，补登本次变更~~ **已完成**：2026-07-25 补登了预测性返回（detail 页内自绘的 collapse、shell 的 entering 侧）与底栏 morph 相关条目。
 
 ---
 
@@ -246,6 +246,8 @@ fun Modifier.navTransitionSurface(maxRadius: Dp = 28.dp): Modifier {
 | accessory pager 镜像的滚动同步丢帧 | `snapshotFlow` 在 frame 边界发射；若可感知则退回方案 B（AnimatedContent） |
 
 ## 6. 验证清单
+
+> **2026-07-25 状态**：以下全部是真机手动回归项，至今无人跑过，故一律保持未勾选。预测性返回改成 Activity 内自绘、底栏改成跨窗口 morph 之后，这一轮要重新完整跑一遍才算数。
 
 - [ ] Compact / Expanded 下横滑切换 Lyrics↔About↔Note；Immersive 禁滑；accessory 条联动
 - [ ] 动画时长 10×：lyrics 展开/收起边缘无锯齿、无双影

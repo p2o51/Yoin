@@ -126,6 +126,52 @@ internal fun SpotifyPlaylistObject.toPlaylist(
     tracks = tracks,
     canWrite = canWrite,
     snapshotId = snapshotId,
+    // Spotify sends "" (not null) for playlists without a description, and
+    // editorial playlists carry an HTML fragment rather than plain text.
+    comment = description?.let(::spotifyDescriptionToPlainText),
+)
+
+/**
+ * Editorial playlist descriptions arrive as an HTML fragment: entity-encoded
+ * (`&amp;`, `&#x27;`) and sometimes wrapping playlist links in
+ * `<a href="spotify:playlist:…">` anchors. The UI renders plain text, so
+ * strip tags, decode entities, and collapse whitespace. Returns `null` when
+ * nothing displayable remains (Spotify sends `""`, not `null`, for none).
+ */
+internal fun spotifyDescriptionToPlainText(description: String): String? =
+    description
+        // Break-like tags separate words; inline anchors must not leave a gap
+        // ("…<a>Top Hits</a>." → "…Top Hits.", not "…Top Hits .").
+        .replace(HTML_BREAK_TAG_REGEX, " ")
+        .replace(HTML_TAG_REGEX, "")
+        .replace(HTML_ENTITY_REGEX) { match ->
+            val body = match.groupValues[1]
+            when {
+                body.startsWith("#x", ignoreCase = true) -> body.drop(2).decodeCodePoint(radix = 16)
+                body.startsWith("#") -> body.drop(1).decodeCodePoint(radix = 10)
+                else -> HTML_NAMED_ENTITIES[body]
+            } ?: match.value
+        }
+        .replace(WHITESPACE_RUN_REGEX, " ")
+        .trim()
+        .takeIf { it.isNotEmpty() }
+
+private fun String.decodeCodePoint(radix: Int): String? =
+    toIntOrNull(radix)
+        ?.takeIf(Character::isValidCodePoint)
+        ?.let { codePoint -> String(Character.toChars(codePoint)) }
+
+private val HTML_BREAK_TAG_REGEX = Regex("</?(?:br|p|div|li)\\b[^>]*>", RegexOption.IGNORE_CASE)
+private val HTML_TAG_REGEX = Regex("<[^>]*>")
+private val HTML_ENTITY_REGEX = Regex("&(#[xX]?[0-9a-fA-F]+|[a-zA-Z]+);")
+private val WHITESPACE_RUN_REGEX = Regex("\\s+")
+private val HTML_NAMED_ENTITIES = mapOf(
+    "amp" to "&",
+    "lt" to "<",
+    "gt" to ">",
+    "quot" to "\"",
+    "apos" to "'",
+    "nbsp" to " ",
 )
 
 internal fun List<SpotifyPlaylistItemObject>.toTracksWithPlaylistOffsets(

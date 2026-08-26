@@ -9,6 +9,7 @@ import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.PlaylistItemRef
 import com.gpo.yoin.data.model.Track
 import com.gpo.yoin.data.repository.YoinRepository
+import com.gpo.yoin.ui.component.toUserMessage
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -48,6 +49,11 @@ class PlaylistDetailViewModel(
     // Spotify snapshot for concurrency on subsequent mutations. Refreshed on
     // every [loadPlaylist]; ignored by Subsonic (always null there).
     private var snapshotId: String? = null
+    // The playlist's OWN cover ref (Spotify mosaic/custom art, Subsonic
+    // playlist cover). Drives both the hero cover and the playback
+    // ActivityContext — recording the first track's art in either place is
+    // the bug where a playlist shows up wearing a song's cover.
+    private var playlistCoverArt: CoverRef? = null
 
     val notedSongIds: StateFlow<Set<String>> = playlistTrackIds
         .flatMapLatest(repository::observeTracksWithNotes)
@@ -59,6 +65,14 @@ class PlaylistDetailViewModel(
     }
 
     fun getPlaylistSongs(): List<Track> = playlistSongs
+
+    /**
+     * Storage key of the playlist's own cover art (URL for Spotify, raw id for
+     * Subsonic), for the playback [com.gpo.yoin.data.repository.ActivityContext].
+     * Null when the playlist has no art of its own — callers fall back to a
+     * track cover.
+     */
+    fun getPlaylistCoverArtKey(): String? = CoverRef.toStorageKey(playlistCoverArt)
 
     fun retry() {
         _uiState.value = PlaylistDetailUiState.Loading
@@ -128,17 +142,21 @@ class PlaylistDetailViewModel(
                 playlistSongs = playlist.tracks
                 playlistTrackIds.value = playlistSongs.map(Track::id)
                 snapshotId = playlist.snapshotId
+                playlistCoverArt = playlist.coverArt
                 val heroSong = playlist.tracks.firstOrNull()
                 val heroCoverRef = heroSong?.coverArt ?: heroSong?.albumId?.let { CoverRef.SourceRelative(it.rawId) }
                 _uiState.value = PlaylistDetailUiState.Content(
                     playlistId = playlist.id.toString(),
                     playlistName = playlist.name,
                     owner = playlist.owner.orEmpty(),
-                    comment = null,
+                    comment = playlist.comment,
                     isPublic = null,
                     songCount = playlist.songCount,
                     totalDuration = playlist.durationSec,
-                    coverArtUrl = heroCoverRef?.let { repository.resolveCoverUrl(it) },
+                    // Hero shows the playlist's OWN cover (mosaic/custom art);
+                    // a first-track ref is only the no-art fallback. The page
+                    // palette follows whichever cover wins.
+                    coverArtUrl = (playlist.coverArt ?: heroCoverRef)?.let { repository.resolveCoverUrl(it) },
                     canWrite = playlist.canWrite,
                     songs = playlist.tracks.mapIndexed { index, song ->
                         PlaylistSong(
@@ -157,7 +175,7 @@ class PlaylistDetailViewModel(
                 )
             } catch (e: Exception) {
                 _uiState.value = PlaylistDetailUiState.Error(
-                    e.message ?: "Failed to load playlist",
+                    e.toUserMessage("Couldn't load this playlist."),
                 )
             }
         }

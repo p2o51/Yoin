@@ -8,17 +8,17 @@ import com.gpo.yoin.data.local.AlbumRating
 import com.gpo.yoin.data.local.AlbumRatingDao
 import com.gpo.yoin.data.local.LocalRating
 import com.gpo.yoin.data.local.LocalRatingDao
+import com.gpo.yoin.data.local.AskRowCount
 import com.gpo.yoin.data.local.PlayHistoryDao
+import com.gpo.yoin.data.local.SongAboutEntry
 import com.gpo.yoin.data.local.SongAboutEntryDao
 import com.gpo.yoin.data.local.SongNoteDao
 import com.gpo.yoin.data.model.Album
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.Track
 import com.gpo.yoin.data.source.MusicLibrary
-import com.gpo.yoin.data.source.MusicSource
 import io.mockk.coEvery
 import io.mockk.coVerify
-import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
@@ -26,7 +26,6 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AlbumMemoryCandidateBuilderTest {
-    private val source = mockk<MusicSource>()
     private val library = mockk<MusicLibrary>()
     private val playHistoryDao = mockk<PlayHistoryDao>()
     private val activityEventDao = mockk<ActivityEventDao>()
@@ -104,7 +103,13 @@ class AlbumMemoryCandidateBuilderTest {
         coEvery {
             localRatingDao.getRatings(any(), MediaId.PROVIDER_SUBSONIC, "profile-a")
         } returns emptyList()
-        coEvery { songAboutEntryDao.countAskRows(any(), any(), any()) } returns 1
+        coEvery { songAboutEntryDao.countAskRowsByAlbum(any()) } returns (1..10).map { index ->
+            AskRowCount(
+                titleKey = SongAboutEntry.normalize("Track $index"),
+                artistKey = SongAboutEntry.normalize("Artist One"),
+                askCount = 1,
+            )
+        }
 
         val candidate = builder().build(limit = 6).single()
 
@@ -167,7 +172,13 @@ class AlbumMemoryCandidateBuilderTest {
         coEvery {
             localRatingDao.getRatings(any(), MediaId.PROVIDER_SUBSONIC, "profile-a")
         } returns emptyList()
-        coEvery { songAboutEntryDao.countAskRows(any(), any(), any()) } returns 1
+        coEvery { songAboutEntryDao.countAskRowsByAlbum(any()) } returns (1..10).map { index ->
+            AskRowCount(
+                titleKey = SongAboutEntry.normalize("Track $index"),
+                artistKey = SongAboutEntry.normalize("Artist One"),
+                askCount = 1,
+            )
+        }
 
         val candidates = builder().build(limit = 6)
 
@@ -178,7 +189,7 @@ class AlbumMemoryCandidateBuilderTest {
         AlbumMemoryCandidateBuilder(
             profileId = "profile-a",
             provider = MediaId.PROVIDER_SUBSONIC,
-            source = source,
+            getAlbum = { id -> library.getAlbum(id) },
             playHistoryDao = playHistoryDao,
             activityEventDao = activityEventDao,
             localRatingDao = localRatingDao,
@@ -194,7 +205,6 @@ class AlbumMemoryCandidateBuilderTest {
         albumRatings: List<AlbumRating> = emptyList(),
         noteCounts: List<AlbumNoteCount> = emptyList(),
     ) {
-        every { source.library() } returns library
         coEvery { library.getAlbum(MediaId.subsonic("album-1")) } returns album
         coEvery {
             playHistoryDao.getAlbumAggregates("profile-a", MediaId.PROVIDER_SUBSONIC, any())
@@ -225,7 +235,7 @@ class AlbumMemoryCandidateBuilderTest {
         coEvery {
             songNoteDao.getForTracks(any(), MediaId.PROVIDER_SUBSONIC, "profile-a")
         } returns emptyList()
-        coEvery { songAboutEntryDao.countAskRows(any(), any(), any()) } returns 0
+        coEvery { songAboutEntryDao.countAskRowsByAlbum(any()) } returns emptyList()
     }
 
     private fun album(trackCount: Int): Album =

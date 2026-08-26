@@ -21,8 +21,6 @@ import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -50,7 +48,7 @@ import androidx.compose.ui.unit.dp
 import com.gpo.yoin.data.local.SongAboutEntry
 import com.gpo.yoin.ui.component.markdownBoldAnnotatedString
 import com.gpo.yoin.ui.component.YoinLoadingIndicator
-import com.gpo.yoin.ui.component.edgeFade
+import com.gpo.yoin.ui.component.verticalEdgeFadeOnScroll
 import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinMotionRole
 
@@ -73,7 +71,7 @@ fun AboutFullscreenPane(
                 YoinMotion.fadeOut(role = YoinMotionRole.Standard)
         },
         contentKey = { it::class },
-        modifier = modifier.edgeFade(bottom = 64.dp),
+        modifier = modifier,
         label = "aboutContent",
     ) { state ->
         when (state) {
@@ -138,10 +136,15 @@ private fun ReadyContent(
     bottomPadding: androidx.compose.ui.unit.Dp,
     modifier: Modifier = Modifier,
 ) {
+    // Scroll-aware fade on the content itself (not the AnimatedContent
+    // wrapper): releases at the end of the scroll so the last entry reads
+    // crisp above the Ask Gemini bar.
+    val scrollState = rememberScrollState()
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .verticalScroll(rememberScrollState()),
+            .verticalEdgeFadeOnScroll(scrollState, bottom = 64.dp)
+            .verticalScroll(scrollState),
     ) {
         val byKey = entries.filter { it.kind == SongAboutEntry.KIND_CANONICAL }
             .associateBy { it.entryKey }

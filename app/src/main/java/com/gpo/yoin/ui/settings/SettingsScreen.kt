@@ -1,7 +1,9 @@
 package com.gpo.yoin.ui.settings
 
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -16,9 +18,11 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -36,6 +40,8 @@ import androidx.compose.material.icons.filled.Error
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Headphones
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -73,25 +79,34 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import com.gpo.yoin.BuildConfig
 import com.gpo.yoin.data.integration.neodb.NeoDBOAuthContract
 import com.gpo.yoin.data.local.GeminiConfig
 import com.gpo.yoin.data.profile.ProfileManager
 import com.gpo.yoin.data.profile.ProviderKind
 import com.gpo.yoin.data.source.spotify.SpotifyOAuthContract
 import com.gpo.yoin.ui.component.ExpressiveHeaderBlock
+import com.gpo.yoin.ui.component.horizontalEdgeFadeOnScroll
+import com.gpo.yoin.ui.component.ignoreParentHorizontalPadding
 import com.gpo.yoin.ui.component.ExpressivePageBackground
 import com.gpo.yoin.ui.component.ExpressiveSectionPanel
 import com.gpo.yoin.ui.component.ExpressiveTextField
 import com.gpo.yoin.ui.component.YoinDropdownMenu
 import com.gpo.yoin.ui.component.YoinDropdownMenuItem
 import com.gpo.yoin.ui.component.YoinLoadingIndicator
+import com.gpo.yoin.ui.component.YoinPageWidths
+import com.gpo.yoin.ui.component.minimumTouchTarget
+import com.gpo.yoin.ui.component.yoinPageContentWidth
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
 import com.gpo.yoin.ui.theme.ProvideYoinMotionRole
 import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinMotionRole
 import com.gpo.yoin.ui.theme.YoinShapeTokens
+import com.gpo.yoin.ui.theme.YoinContainerShapes
 import com.gpo.yoin.ui.theme.YoinTheme
 import kotlinx.coroutines.launch
 
@@ -254,6 +269,9 @@ fun SettingsContent(
                     Column(
                         modifier = Modifier
                             .fillMaxSize()
+                            // Reading/form surface: cap + center on Medium+
+                            // windows; no-op on phones.
+                            .yoinPageContentWidth(YoinPageWidths.Prose)
                             // Lift the scroll container above the IME so a
                             // low-on-page field (tokens / API keys) isn't covered
                             // by the keyboard (Scaffold contentWindowInsets is 0).
@@ -268,58 +286,76 @@ fun SettingsContent(
                             ),
                         verticalArrangement = Arrangement.spacedBy(16.dp),
                     ) {
-                        when (uiState) {
-                            is SettingsUiState.Loading -> {
-                                YoinLoadingIndicator(
-                                    modifier = Modifier.align(Alignment.CenterHorizontally),
-                                )
-                            }
+                        AnimatedContent(
+                            targetState = uiState,
+                            transitionSpec = {
+                                YoinMotion.fadeIn(role = YoinMotionRole.Standard) togetherWith
+                                    YoinMotion.fadeOut(role = YoinMotionRole.Standard)
+                            },
+                            // Keyed on the state class so Content→Content data
+                            // refreshes don't re-run the fade.
+                            contentKey = { it::class },
+                            label = "settingsState",
+                            modifier = Modifier.fillMaxWidth(),
+                        ) { state ->
+                            when (state) {
+                                is SettingsUiState.Loading -> {
+                                    Box(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        contentAlignment = Alignment.Center,
+                                    ) {
+                                        YoinLoadingIndicator()
+                                    }
+                                }
 
-                            is SettingsUiState.Content -> {
-                                ProfileSwitcherSection(
-                                    profileCards = uiState.profileCards,
-                                    canAddProfile = uiState.canAddProfile,
-                                    maxProfiles = uiState.maxProfiles,
-                                    onSwitchToProfile = onSwitchToProfile,
-                                    onEditProfile = onEditProfile,
-                                    onRequestDeleteProfile = onRequestDeleteProfile,
-                                    onReconnectProfile = onReconnectProfile,
-                                    onShowProviderPicker = onShowProviderPicker,
-                                )
-                                GeminiSection(
-                                    initialApiKey = uiState.geminiApiKey,
-                                    initialTargetLanguage = uiState.geminiTargetLanguage,
-                                    onSaveApiKey = onSaveGeminiApiKey,
-                                    onSaveTargetLanguage = onSaveGeminiTargetLanguage,
-                                )
-                                SpotifySection(
-                                    initialClientId = uiState.spotifyClientId,
-                                    usesFallback = uiState.spotifyClientIdUsesFallback,
-                                    onSaveClientId = onSaveSpotifyClientId,
-                                    clientIdFocusRequester = spotifyClientIdFocusRequester,
-                                    modifier = Modifier.onGloballyPositioned { coords ->
-                                        spotifySectionTopPx = coords.positionInParent().y
-                                            .toInt()
-                                            .coerceAtLeast(0)
-                                    },
-                                )
-                                NeoDbSection(
-                                    initialInstance = uiState.neoDbInstance,
-                                    initialAccessToken = uiState.neoDbAccessToken,
-                                    onOpenSignIn = onOpenNeoDbSignIn,
-                                    onSaveConfig = onSaveNeoDbConfig,
-                                    onClearToken = onClearNeoDbToken,
-                                    modifier = Modifier.onGloballyPositioned { coords ->
-                                        neoDbSectionTopPx = coords.positionInParent().y
-                                            .toInt()
-                                            .coerceAtLeast(0)
-                                    },
-                                )
-                                CacheSection(
-                                    cacheSizeBytes = uiState.cacheSizeBytes,
-                                    onClearCache = onClearCache,
-                                )
-                                AboutSection()
+                                is SettingsUiState.Content -> Column(
+                                    verticalArrangement = Arrangement.spacedBy(16.dp),
+                                ) {
+                                    ProfileSwitcherSection(
+                                        profileCards = state.profileCards,
+                                        canAddProfile = state.canAddProfile,
+                                        maxProfiles = state.maxProfiles,
+                                        onSwitchToProfile = onSwitchToProfile,
+                                        onEditProfile = onEditProfile,
+                                        onRequestDeleteProfile = onRequestDeleteProfile,
+                                        onReconnectProfile = onReconnectProfile,
+                                        onShowProviderPicker = onShowProviderPicker,
+                                    )
+                                    GeminiSection(
+                                        initialApiKey = state.geminiApiKey,
+                                        initialTargetLanguage = state.geminiTargetLanguage,
+                                        onSaveApiKey = onSaveGeminiApiKey,
+                                        onSaveTargetLanguage = onSaveGeminiTargetLanguage,
+                                    )
+                                    SpotifySection(
+                                        initialClientId = state.spotifyClientId,
+                                        usesFallback = state.spotifyClientIdUsesFallback,
+                                        onSaveClientId = onSaveSpotifyClientId,
+                                        clientIdFocusRequester = spotifyClientIdFocusRequester,
+                                        modifier = Modifier.onGloballyPositioned { coords ->
+                                            spotifySectionTopPx = coords.positionInParent().y
+                                                .toInt()
+                                                .coerceAtLeast(0)
+                                        },
+                                    )
+                                    NeoDbSection(
+                                        initialInstance = state.neoDbInstance,
+                                        initialAccessToken = state.neoDbAccessToken,
+                                        onOpenSignIn = onOpenNeoDbSignIn,
+                                        onSaveConfig = onSaveNeoDbConfig,
+                                        onClearToken = onClearNeoDbToken,
+                                        modifier = Modifier.onGloballyPositioned { coords ->
+                                            neoDbSectionTopPx = coords.positionInParent().y
+                                                .toInt()
+                                                .coerceAtLeast(0)
+                                        },
+                                    )
+                                    CacheSection(
+                                        cacheSizeBytes = state.cacheSizeBytes,
+                                        onClearCache = onClearCache,
+                                    )
+                                    AboutSection()
+                                }
                             }
                         }
                     }
@@ -388,7 +424,7 @@ private fun ProfileSwitcherSection(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 18.dp, vertical = 18.dp),
+                .padding(horizontal = 16.dp, vertical = 18.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Row(
@@ -412,10 +448,18 @@ private fun ProfileSwitcherSection(
                 )
             }
 
+            val profileRowState = rememberLazyListState()
             LazyRow(
-                contentPadding = PaddingValues(vertical = 4.dp),
+                state = profileRowState,
+                // Full-bleed past the page's 18dp padding — scrolled cards run
+                // under the screen edges with a soft fade instead of being
+                // chopped at the padding line.
+                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .ignoreParentHorizontalPadding(16.dp)
+                    .horizontalEdgeFadeOnScroll(profileRowState),
             ) {
                 items(
                     items = profileCards,
@@ -489,7 +533,7 @@ private fun ProfileCardTile(
     }
     val scale by animateFloatAsState(
         targetValue = if (card.isActive) 1.04f else 1f,
-        animationSpec = YoinMotion.effectsSpring(),
+        animationSpec = YoinMotion.spatialSpring(),
         label = "cardScale",
     )
     var menuOpen by remember { mutableStateOf(false) }
@@ -501,7 +545,7 @@ private fun ProfileCardTile(
                 scaleX = scale
                 scaleY = scale
             },
-        shape = YoinShapeTokens.Large,
+        shape = YoinContainerShapes.Card,
         color = containerColor,
         contentColor = contentColor,
         onClick = {
@@ -514,7 +558,10 @@ private fun ProfileCardTile(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(14.dp),
+                // Reduced top padding offsets the ⋮ button's full-size touch
+                // target (48dp row vs the old 32dp) so the provider icon keeps
+                // the same visual inset from the card's top edge.
+                .padding(start = 14.dp, top = 6.dp, end = 14.dp, bottom = 14.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Row(
@@ -534,7 +581,7 @@ private fun ProfileCardTile(
                             haptics.performTick()
                             menuOpen = true
                         },
-                        modifier = Modifier.size(32.dp),
+                        modifier = Modifier.minimumTouchTarget(),
                     ) {
                         Icon(
                             imageVector = Icons.Filled.MoreVert,
@@ -583,12 +630,14 @@ private fun ProfileCardTile(
                     style = MaterialTheme.typography.titleMedium,
                     color = contentColor,
                     maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
                 Text(
                     text = card.subtitle ?: card.provider.displayLabel,
                     style = MaterialTheme.typography.bodySmall,
                     color = contentColor.copy(alpha = 0.72f),
                     maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
             }
 
@@ -640,7 +689,7 @@ private fun AddProfileCardTile(
         modifier = modifier
             .width(120.dp)
             .alpha(alpha),
-        shape = YoinShapeTokens.Large,
+        shape = YoinContainerShapes.Card,
         color = MaterialTheme.colorScheme.surfaceContainerHigh,
         contentColor = MaterialTheme.colorScheme.onSurface,
         onClick = onClick,
@@ -875,12 +924,11 @@ private fun SubsonicProfileForm(
             placeholder = "music-admin",
             modifier = Modifier.fillMaxWidth(),
         )
-        ExpressiveTextField(
+        SecretTextField(
             value = password,
             onValueChange = { password = it },
             label = "Password",
             placeholder = "App password",
-            visualTransformation = PasswordVisualTransformation(),
             modifier = Modifier.fillMaxWidth(),
         )
 
@@ -1210,12 +1258,11 @@ private fun GeminiSection(
                     }
                 }
             }
-            ExpressiveTextField(
+            SecretTextField(
                 value = apiKey,
                 onValueChange = { apiKey = it },
                 label = "Gemini API Key",
                 placeholder = "AIza…",
-                visualTransformation = PasswordVisualTransformation(),
                 modifier = Modifier.fillMaxWidth(),
             )
             Button(
@@ -1288,12 +1335,11 @@ private fun NeoDbSection(
             ) {
                 Text(if (isLoggedIn) "Re-auth with NeoDB web sign-in" else "Sign in with NeoDB web")
             }
-            ExpressiveTextField(
+            SecretTextField(
                 value = accessToken,
                 onValueChange = { accessToken = it },
                 label = "Access Token",
                 placeholder = "Paste token here",
-                visualTransformation = PasswordVisualTransformation(),
                 modifier = Modifier.fillMaxWidth(),
             )
             Button(
@@ -1436,17 +1482,69 @@ private fun AboutSection(modifier: Modifier = Modifier) {
         ) {
             ExpressiveHeaderBlock(title = "About")
             Text(
-                text = "Built for testing navigation, playback, and Subsonic integration.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Text(
-                text = "Version 0.1.0",
+                text = "Version ${BuildConfig.VERSION_NAME}",
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
     }
+}
+
+// ── Secret field (masked input + visibility toggle) ─────────────────
+
+@Composable
+private fun SecretTextField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    label: String,
+    placeholder: String,
+    modifier: Modifier = Modifier,
+) {
+    val haptics = rememberYoinHaptics()
+    var visible by remember { mutableStateOf(false) }
+    ExpressiveTextField(
+        value = value,
+        onValueChange = onValueChange,
+        label = label,
+        placeholder = placeholder,
+        visualTransformation = if (visible) {
+            VisualTransformation.None
+        } else {
+            PasswordVisualTransformation()
+        },
+        trailingContent = {
+            // The trailing slot sits inline with the ~24dp text row, so a
+            // plain 44dp minimumTouchTarget would stretch the whole field.
+            // Pin the slot to icon size and let the 44dp touch floor
+            // (minimumTouchTarget's default — sizeIn can't break the pinned
+            // constraints, requiredSize can) overflow into the field's 14dp
+            // padding; hit testing extends past the unclipped parent bounds.
+            Box(
+                modifier = Modifier.size(24.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                IconButton(
+                    onClick = {
+                        haptics.performTick()
+                        visible = !visible
+                    },
+                    modifier = Modifier.requiredSize(44.dp),
+                ) {
+                    Icon(
+                        imageVector = if (visible) {
+                            Icons.Filled.VisibilityOff
+                        } else {
+                            Icons.Filled.Visibility
+                        },
+                        contentDescription = if (visible) "Hide $label" else "Show $label",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(18.dp),
+                    )
+                }
+            }
+        },
+        modifier = modifier,
+    )
 }
 
 private fun formatBytes(bytes: Long): String = when {

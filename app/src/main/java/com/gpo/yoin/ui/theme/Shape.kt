@@ -29,3 +29,61 @@ object YoinShapeTokens {
     val ExtraExtraLarge = RoundedCornerShape(48.dp)
     val Full = RoundedCornerShape(50)
 }
+
+/**
+ * Semantic shapes for content imagery. Content stays close to square
+ * (Spotify-style restraint) while interactive controls keep their pills; the
+ * static variants use continuous (iOS-style) corner curvature.
+ *
+ * The *Animated twins carry the same radii as plain circular corners for
+ * elements whose clip is resized or interpolated per frame (shared-element
+ * flights, carousel masks, reshape morphs) — those must stay on the cheap
+ * Outline.Rounded path, and morph overlays lerp raw circular radii anyway.
+ */
+object YoinArtworkShapes {
+    /** 34–60dp list/queue/sheet thumbnails. */
+    val Thumb = ContinuousRoundedCornerShape(4.dp)
+
+    /** Thumb radius for morph/shared-element endpoints (bar mini art, NP docked cover). */
+    val ThumbAnimated = RoundedCornerShape(4.dp)
+
+    /** ~100–200dp shelf/grid covers. */
+    val Cover = ContinuousRoundedCornerShape(4.dp)
+
+    /** 170–300dp hero covers. */
+    val Hero = ContinuousRoundedCornerShape(8.dp)
+
+    /** Hero radius for per-frame-resized clips (carousel masks). */
+    val HeroAnimated = RoundedCornerShape(8.dp)
+
+    /**
+     * Now Playing main cover — deliberately rounder than Hero so it sits in
+     * the same roundness family as the rating capsule beside it. Paired with
+     * [NowPlayingCoverDocked] as the CoverTransitionOverlay's flight
+     * endpoints; the overlay lerps the same continuous curvature per frame,
+     * so all three must stay in lockstep.
+     */
+    val NowPlayingCover = ContinuousRoundedCornerShape(16.dp)
+
+    /** NP docked (lyrics-stage) 44dp cover; the overlay's landing endpoint. */
+    val NowPlayingCoverDocked = ContinuousRoundedCornerShape(8.dp)
+}
+
+/**
+ * Semantic shapes for containers, decoupled from the raw MD3 size ramp so
+ * containers and content can move independently.
+ */
+object YoinContainerShapes {
+    /** Filled cards (bento tiles, profile tiles, note cards). */
+    val Card = ContinuousRoundedCornerShape(16.dp)
+
+    /** Large section panels (empty states, section wrappers). */
+    val Panel = ContinuousRoundedCornerShape(20.dp)
+
+    /**
+     * Press/ripple bounds of full-width list rows. Circular on purpose: it is
+     * mostly invisible (transparent rows) and rows are the most numerous
+     * clipped elements on screen.
+     */
+    val ListRow = RoundedCornerShape(12.dp)
+}

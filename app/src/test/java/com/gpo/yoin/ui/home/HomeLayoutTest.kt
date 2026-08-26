@@ -17,37 +17,36 @@ class HomeLayoutTest {
     @Test
     fun reconcile_keeps_saved_order_and_flags() {
         val prefs = listOf(
+            HomeSectionPref(id = "recently_added", enabled = false),
             HomeSectionPref(id = "jump_back_in", enabled = true),
             HomeSectionPref(id = "activities", enabled = false),
-            HomeSectionPref(id = "memory_teaser", enabled = true),
-            HomeSectionPref(id = "recently_added", enabled = false),
         )
         val layout = HomeLayout.reconcile(prefs)
         assertEquals(
             listOf(
+                HomeSection.RecentlyAdded,
                 HomeSection.JumpBackIn,
                 HomeSection.Activities,
-                HomeSection.MemoryTeaser,
-                HomeSection.RecentlyAdded,
             ),
             layout.sections.map { it.section },
         )
-        assertEquals(listOf(true, false, true, false), layout.sections.map { it.enabled })
+        assertEquals(listOf(false, true, false), layout.sections.map { it.enabled })
     }
 
     @Test
     fun reconcile_drops_removed_ids_and_appends_new_sections_at_defaults() {
-        // A layout saved before RecentlyAdded shipped, containing a section id
-        // that no longer exists in the catalog.
+        // A layout saved before the catalog slimmed down: the retired
+        // memory_teaser / memories ids must drop out, and sections the saved
+        // layout never knew about append at their catalog defaults.
         val prefs = listOf(
-            HomeSectionPref(id = "ghost_section", enabled = true),
+            HomeSectionPref(id = "memory_teaser", enabled = true),
             HomeSectionPref(id = "jump_back_in", enabled = false),
+            HomeSectionPref(id = "memories", enabled = true),
         )
         val layout = HomeLayout.reconcile(prefs)
         assertEquals(
             listOf(
                 HomeSection.JumpBackIn,
-                HomeSection.MemoryTeaser,
                 HomeSection.Activities,
                 HomeSection.RecentlyAdded,
             ),
@@ -71,12 +70,13 @@ class HomeLayoutTest {
 
     @Test
     fun toPrefs_round_trips_through_reconcile() {
+        // Every catalog section must be present, or reconcile would append the
+        // missing one and the round-trip wouldn't be an identity.
         val layout = HomeLayout(
             listOf(
                 HomeSectionState(HomeSection.RecentlyAdded, enabled = false),
                 HomeSectionState(HomeSection.JumpBackIn, enabled = true),
                 HomeSectionState(HomeSection.Activities, enabled = true),
-                HomeSectionState(HomeSection.MemoryTeaser, enabled = false),
             ),
         )
         assertEquals(layout, HomeLayout.reconcile(layout.toPrefs()))
@@ -89,7 +89,6 @@ class HomeLayoutTest {
                 HomeSectionState(HomeSection.JumpBackIn, enabled = true),
                 HomeSectionState(HomeSection.Activities, enabled = false),
                 HomeSectionState(HomeSection.RecentlyAdded, enabled = true),
-                HomeSectionState(HomeSection.MemoryTeaser, enabled = false),
             ),
         )
         assertEquals(

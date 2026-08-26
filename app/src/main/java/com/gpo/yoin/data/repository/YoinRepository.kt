@@ -2,6 +2,7 @@ package com.gpo.yoin.data.repository
 
 import java.util.Collections
 import java.util.LinkedHashMap
+import java.util.concurrent.ConcurrentHashMap
 import androidx.room.withTransaction
 import com.gpo.yoin.data.local.ActivityActionType
 import com.gpo.yoin.data.local.ActivityEntityType
@@ -25,6 +26,11 @@ import com.gpo.yoin.data.local.MemoryCopyCacheDao
 import com.gpo.yoin.data.local.PlayHistory
 import com.gpo.yoin.data.local.SongAboutEntry
 import com.gpo.yoin.data.local.SongAboutEntryDao
+import com.gpo.yoin.data.local.HomeGridPoolCache
+import com.gpo.yoin.data.local.toAlbum
+import com.gpo.yoin.data.local.toGridPoolRow
+import com.gpo.yoin.data.local.toPlaylist
+import com.gpo.yoin.data.local.toTrack
 import com.gpo.yoin.data.local.SongNote
 import com.gpo.yoin.data.local.SongNoteDao
 import com.gpo.yoin.data.local.SongNoteKey
@@ -60,13 +66,16 @@ import com.gpo.yoin.data.source.spotify.toSpotifyLibraryTrackCache
 import com.gpo.yoin.data.source.spotify.toTrack
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
@@ -150,6 +159,34 @@ class YoinRepository(
                     size > maxSize
             },
         )
+
+        /**
+         * In-flight loads keyed by [memKey], so concurrent readers of one
+         * entity coalesce onto a single fetch — see [loadCachedDetail]. Held
+         * per cache instance so the three detail types stay fully typed and a
+         * shared raw `provider:rawId` can never collide across them.
+         */
+        val inFlight = ConcurrentHashMap<String, Deferred<V?>>()
+
+        /**
+         * Bumped by [invalidate]. A shared load snapshots the generation before
+         * it starts and skips its cache write-back when the counter has moved,
+         * so a fetch that took off before an edit can't re-persist stale data.
+         */
+        private val generations = ConcurrentHashMap<String, Long>()
+
+        fun generationOf(key: String): Long = generations[key] ?: 0L
+
+        /**
+         * Drop the entry AND detach any in-flight load: a post-edit re-read
+         * must start a fresh fetch instead of coalescing onto a pre-edit one,
+         * and the detached flight must not write its result back.
+         */
+        fun invalidate(key: String) {
+            generations.merge(key, 1L) { old, inc -> old + inc }
+            inFlight.remove(key)
+            lru.remove(key)
+        }
 
         fun getFresh(key: String): V? {
             val entry = lru[key] ?: return null
@@ -435,7 +472,10 @@ class YoinRepository(
             val albums = spotifyCoordinator().readAlbums(profileId)
             val sorted = when (type) {
                 "alphabeticalByName" -> albums.sortedBy { it.name.lowercase() }
-                "recent" -> albums.sortedByDescending { it.addedAt.orEmpty() }
+                // Subsonic semantics: "newest" = recently ADDED, "recent" =
+                // recently played. Spotify's library only has addedAt, so both
+                // map to it — callers use "newest" for 最近添加 across providers.
+                "newest", "recent" -> albums.sortedByDescending { it.addedAt.orEmpty() }
                 "random" -> albums.shuffled()
                 else -> albums
             }
@@ -607,6 +647,65 @@ class YoinRepository(
         }
     }
 
+    // ── Home grid pool cache ──────────────────────────────────────────
+
+    data class HomeGridPoolSnapshot(
+        val albums: List<Album>,
+        val tracks: List<Track>,
+        val playlists: List<Playlist>,
+        val cachedAt: Long,
+    )
+
+    /**
+     * The persisted Jump Back In candidate pools for the active
+     * profile+provider, in their stored (pre-shuffled) order. Null when
+     * nothing is cached, or when [maxAgeMs] is given and the pools are older —
+     * pass null to accept any age (the instant pre-paint path).
+     */
+    suspend fun getCachedHomeGridPools(maxAgeMs: Long?): HomeGridPoolSnapshot? {
+        val provider = activeSource.value?.id ?: return null
+        val profileId = activeProfileId.value ?: return null
+        val rows = database.homeGridPoolDao().getForProfile(profileId, provider)
+        if (rows.isEmpty()) return null
+        val cachedAt = rows.minOf(HomeGridPoolCache::cachedAt)
+        if (maxAgeMs != null && cachedAt < System.currentTimeMillis() - maxAgeMs) return null
+        return HomeGridPoolSnapshot(
+            albums = rows.filter { it.itemType == HomeGridPoolCache.TYPE_ALBUM }
+                .map(HomeGridPoolCache::toAlbum),
+            tracks = rows.filter { it.itemType == HomeGridPoolCache.TYPE_TRACK }
+                .map(HomeGridPoolCache::toTrack),
+            playlists = rows.filter { it.itemType == HomeGridPoolCache.TYPE_PLAYLIST }
+                .map(HomeGridPoolCache::toPlaylist),
+            cachedAt = cachedAt,
+        )
+    }
+
+    /** Replace the active profile+provider's pools atomically, in list order. */
+    suspend fun replaceHomeGridPools(
+        albums: List<Album>,
+        tracks: List<Track>,
+        playlists: List<Playlist>,
+    ) {
+        val provider = activeSource.value?.id ?: return
+        val profileId = activeProfileId.value ?: return
+        val cachedAt = clock()
+        val rows = buildList {
+            albums.filter { it.id.provider == provider }.mapIndexedTo(this) { index, album ->
+                album.toGridPoolRow(profileId, index, cachedAt)
+            }
+            tracks.filter { it.id.provider == provider }.mapIndexedTo(this) { index, track ->
+                track.toGridPoolRow(profileId, index, cachedAt)
+            }
+            playlists.filter { it.id.provider == provider }.mapIndexedTo(this) { index, playlist ->
+                playlist.toGridPoolRow(profileId, index, cachedAt)
+            }
+        }
+        database.withTransaction {
+            database.homeGridPoolDao().deleteForProfile(profileId, provider)
+            database.homeGridPoolDao().insertAll(rows)
+        }
+    }
+
     // ── Playlists ──────────────────────────────────────────────────────
 
     suspend fun getPlaylists(): List<Playlist> {
@@ -673,7 +772,8 @@ class YoinRepository(
      * Layered read: in-memory fresh → disk-fresh (skip network) → network (write
      * both layers) → on error, any disk / in-memory copy (offline resilience).
      * Disk is profile-scoped + size-bounded ([DetailCacheStore]); mem is the hot
-     * front keyed by [memKey] so accounts never cross.
+     * front keyed by [memKey] so accounts never cross. Concurrent loads of one
+     * key are coalesced onto a single shared fetch (single-flight).
      *
      * `diskFreshMs == 0` (playlists) means "always revalidate online": neither
      * the mem nor the disk fresh fast-path is trusted, so external edits aren't
@@ -691,29 +791,78 @@ class YoinRepository(
     ): V? {
         val profileId = activeProfileId.value
         val key = memKey(baseKey, profileId)
-        val trustCache = diskFreshMs > 0L
-        if (trustCache) {
+        if (diskFreshMs > 0L) {
             mem.getFresh(key)?.let { return it }
         }
-        val disk = profileId?.let { runCatching { diskRead(it) }.getOrNull() }
-        if (trustCache && disk != null && clock() - disk.cachedAt <= diskFreshMs) {
-            mem.put(key, disk.value)
-            if (clock() - disk.cachedAt > detailRevalidateAfterMs) {
-                revalidateDetail(mem, key, profileId, diskWrite, fetch)
+        // Single-flight: racing loads of one key (a prefetch burst + a user tap
+        // + a queue build) share one Deferred instead of each paying the fetch
+        // and disk write. It runs on [repositoryScope] so a cancelled waiter
+        // (e.g. an abandoned prefetch) can't abort the load for the rest, and a
+        // failure propagates to every waiter. The entry is removed as the load
+        // completes, so a failure never poisons its key.
+        val shared = mem.inFlight.computeIfAbsent(key) {
+            repositoryScope.async {
+                loadDetailFromDiskOrNetwork(mem, key, profileId, diskFreshMs, diskRead, diskWrite, fetch)
+            }.also { deferred ->
+                // invokeOnCompletion, not try/finally: it fires even when the
+                // scope is cancelled before the body runs, and the two-arg
+                // remove can't evict a newer flight for the same key.
+                deferred.invokeOnCompletion { mem.inFlight.remove(key, deferred) }
             }
-            return disk.value
+        }
+        return shared.await()
+    }
+
+    /**
+     * The shared (single-flight) part of [loadCachedDetail]: disk-fresh →
+     * network → on error, any disk / in-memory copy. The raw disk row is read
+     * up front only when its freshness can be trusted (album/artist);
+     * playlists (`diskFreshMs == 0`) go straight to the network and consult
+     * disk purely as an offline fallback. The JSON decode is deferred to
+     * [Cached.value], so a row that is never served is never decoded.
+     */
+    private suspend fun <V : Any> loadDetailFromDiskOrNetwork(
+        mem: DetailMemoryCache<V>,
+        key: String,
+        profileId: String?,
+        diskFreshMs: Long,
+        diskRead: suspend (profileId: String) -> Cached<V>?,
+        diskWrite: suspend (profileId: String, value: V) -> Unit,
+        fetch: suspend () -> V?,
+    ): V? {
+        suspend fun diskRow(): Cached<V>? =
+            profileId?.let { runCatching { diskRead(it) }.getOrNull() }
+
+        // Snapshot the invalidation generation: an edit that lands while this
+        // load is in flight bumps it, and every write-back below must then be
+        // skipped or it would resurrect pre-edit data (7d fresh on disk).
+        val generation = mem.generationOf(key)
+        fun canWriteBack(): Boolean =
+            activeProfileId.value == profileId && mem.generationOf(key) == generation
+
+        val disk = if (diskFreshMs > 0L) diskRow() else null
+        if (disk != null && clock() - disk.cachedAt <= diskFreshMs) {
+            disk.value()?.let { value ->
+                if (canWriteBack()) mem.put(key, value)
+                if (clock() - disk.cachedAt > detailRevalidateAfterMs) {
+                    revalidateDetail(mem, key, profileId, diskWrite, fetch)
+                }
+                return value
+            }
         }
         return try {
             fetch()?.also { value ->
-                // TOCTOU: only persist if still on the profile we resolved under —
-                // a mid-flight account switch must not poison the other account.
-                if (activeProfileId.value == profileId) {
+                // TOCTOU: only persist if still on the profile we resolved under
+                // and the key wasn't invalidated mid-flight — a stale write-back
+                // must not poison another account or overwrite a fresher edit.
+                if (canWriteBack()) {
                     mem.put(key, value)
                     if (profileId != null) runCatching { diskWrite(profileId, value) }
                 }
             }
         } catch (e: Exception) {
-            disk?.value?.also { mem.put(key, it) } ?: mem.getStale(key) ?: throw e
+            (disk ?: diskRow())?.value()?.also { if (canWriteBack()) mem.put(key, it) }
+                ?: mem.getStale(key) ?: throw e
         }
     }
 
@@ -725,9 +874,10 @@ class YoinRepository(
         diskWrite: suspend (profileId: String, value: V) -> Unit,
         fetch: suspend () -> V?,
     ) {
+        val generation = mem.generationOf(key)
         repositoryScope.launch {
             runCatching { fetch() }.getOrNull()?.let { value ->
-                if (activeProfileId.value == profileId) {
+                if (activeProfileId.value == profileId && mem.generationOf(key) == generation) {
                     mem.put(key, value)
                     if (profileId != null) runCatching { diskWrite(profileId, value) }
                 }
@@ -738,21 +888,21 @@ class YoinRepository(
     /** Drop the cached album detail (mem + disk) so its next read re-derives. */
     private fun invalidateAlbumDetail(id: MediaId) {
         val profileId = activeProfileId.value
-        albumDetailCache.remove(memKey(id.toString(), profileId))
+        albumDetailCache.invalidate(memKey(id.toString(), profileId))
         profileId?.let { p -> repositoryScope.launch { detailCacheStore?.removeAlbum(p, id.toString()) } }
     }
 
     /** Drop the cached artist detail (mem + disk) — e.g. after a follow toggle. */
     private fun invalidateArtistDetail(id: MediaId) {
         val profileId = activeProfileId.value
-        artistDetailCache.remove(memKey(id.toString(), profileId))
+        artistDetailCache.invalidate(memKey(id.toString(), profileId))
         profileId?.let { p -> repositoryScope.launch { detailCacheStore?.removeArtist(p, id.toString()) } }
     }
 
     /** Drop the cached playlist detail (mem + disk) after a playlist edit. */
     private suspend fun invalidatePlaylistDetail(id: MediaId) {
         val profileId = activeProfileId.value
-        playlistDetailCache.remove(memKey(id.toString(), profileId))
+        playlistDetailCache.invalidate(memKey(id.toString(), profileId))
         profileId?.let { detailCacheStore?.removePlaylist(it, id.toString()) }
     }
 
@@ -820,7 +970,7 @@ class YoinRepository(
             snapshotId = snapshotId,
         ).onSuccess {
             markSpotifyLibraryStaleIfNeeded()
-            playlistDetailCache.remove(playlistId.toString())
+            invalidatePlaylistDetail(playlistId)
         }
 
     // ── Rating (local-first, best-effort server sync) ──────────────────
@@ -977,7 +1127,7 @@ class YoinRepository(
     }
 
     /** User tapped Save —— 为当前曲目追加一条新的笔记。content 空串会被忽略。 */
-    suspend fun addNote(track: Track, content: String): SongNote? {
+    suspend fun addNote(track: Track, content: String, positionMs: Long? = null): SongNote? {
         val profileId = activeProfileId.value ?: return null
         val trimmed = content.trim()
         if (trimmed.isEmpty()) return null
@@ -992,6 +1142,7 @@ class YoinRepository(
             updatedAt = now,
             title = track.title.orEmpty(),
             artist = track.artist.orEmpty(),
+            positionMs = positionMs,
         )
         songNoteDao.insert(note)
         return note
@@ -1165,7 +1316,10 @@ class YoinRepository(
         return AlbumMemoryCandidateBuilder(
             profileId = profileId,
             provider = source.id,
-            source = source,
+            // Cached path (mem LRU + disk + single-flight) — the builder must
+            // never hit source.library().getAlbum directly, or a 48-album scan
+            // becomes a raw network fan-out.
+            getAlbum = ::getAlbum,
             playHistoryDao = database.playHistoryDao(),
             activityEventDao = database.activityEventDao(),
             localRatingDao = database.localRatingDao(),
@@ -1180,14 +1334,49 @@ class YoinRepository(
     suspend fun getTopAlbumMemoryCandidate(): AlbumMemoryCandidate? =
         getAlbumMemoryCandidates(limit = 1).firstOrNull()
 
+    /**
+     * The active profile's most recently touched song notes on the current
+     * provider, newest first. Feeds the home widget grid's noted-track card.
+     */
+    suspend fun getRecentSongNotes(limit: Int = 8): List<SongNote> {
+        val provider = activeSource.value?.id ?: return emptyList()
+        val profileId = activeProfileId.value ?: return emptyList()
+        return songNoteDao.getRecent(provider = provider, profileId = profileId, limit = limit)
+    }
+
+    /**
+     * Re-emits whenever the active profile's memory signals change — a song
+     * note, a track rating, or an album rating/review write on the current
+     * provider. The home widget grid listens to this to keep its two
+     * memory-flavoured cards live: those writes create no activity event, so
+     * observing the tables directly is the only reliable trigger.
+     */
+    fun observeMemorySignalStamp(): Flow<Long> =
+        combine(activeProfileId, activeSource) { profileId, source ->
+            profileId to source?.id
+        }
+            .flatMapLatest { (profileId, provider) ->
+                if (profileId.isNullOrBlank() || provider == null) {
+                    flowOf(0L)
+                } else {
+                    combine(
+                        songNoteDao.observeChangeStamp(provider, profileId),
+                        database.localRatingDao().observeChangeStamp(provider, profileId),
+                        albumRatingDao.observeChangeStamp(provider, profileId),
+                    ) { notes, ratings, albums -> notes + ratings + albums }
+                }
+            }
+            .distinctUntilChanged()
+
     // ── Memory copy cache (Gemini 感性文案) ─────────────────────────────
 
     /**
      * 读/生成 Memory 专辑卡片的 Gemini 短评。命中缓存直接返回；否则
-     * 后台调用 Gemini 并落库。Key 为 (albumId, provider, signal hash)；
-     * signal 变了会重算（如均分或覆盖数变化）。
+     * 后台调用 Gemini 并落库。Key 为 (profileId, albumId, provider,
+     * signal hash)；signal 变了会重算（如均分或覆盖数变化）。
      *
-     * 返回 null 表示无 API key / 没开 BYOK —— 调用方应默默降级，不弹错。
+     * 返回 null 表示无 API key / 没开 BYOK / 没有活跃 profile ——
+     * 调用方应默默降级，不弹错。
      */
     suspend fun getOrGenerateAlbumMemoryCopy(
         album: Album,
@@ -1195,6 +1384,7 @@ class YoinRepository(
         ratedSongCount: Int,
         totalSongCount: Int,
     ): String? {
+        val profileId = activeProfileId.value ?: return null
         val signal = buildString {
             append(album.id.toString()).append('|')
             append(album.name).append('|')
@@ -1206,6 +1396,7 @@ class YoinRepository(
         val hash = signal.hashCode().toString()
 
         val cached = memoryCopyCacheDao.get(
+            profileId = profileId,
             provider = album.id.provider,
             entityType = MemoryCopyCache.ENTITY_ALBUM,
             entityId = album.id.rawId,
@@ -1226,10 +1417,15 @@ class YoinRepository(
                 totalSongCount = totalSongCount,
             )
             memoryCopyCacheDao.upsert(
-                MemoryCopyCache(
+                // 保住同行的拟题列：copy 和 title 各有各的 hash 失效节奏。
+                (cached ?: MemoryCopyCache(
+                    profileId = profileId,
                     provider = album.id.provider,
                     entityType = MemoryCopyCache.ENTITY_ALBUM,
                     entityId = album.id.rawId,
+                    copy = "",
+                    promptHash = "",
+                )).copy(
                     copy = generated,
                     promptHash = hash,
                     generatedAt = clock(),
@@ -1237,6 +1433,98 @@ class YoinRepository(
             )
             generated
         }.getOrElse { cached?.copy }
+    }
+
+    /**
+     * Memory 卡的 AI 拟题。命中缓存（titlePromptHash 未变）直接返回；有
+     * BYOK 且占用者文本在场时调用 Gemini 并落库。返回 null = 没有可用拟题
+     * （无缓存且无 key / 无占用者文本）—— 调用方走 deterministic fallback。
+     *
+     * 这是 design.md「不上传 note/review 原文」的唯一豁免（拟题豁免，
+     * 2026-07-26）：占用者原文进 prompt，仅此用途。
+     */
+    suspend fun getOrGenerateAlbumMemoryTitle(
+        album: Album,
+        writingKind: String?,
+        writingText: String?,
+    ): String? {
+        val profileId = activeProfileId.value ?: return null
+        val cached = memoryCopyCacheDao.get(
+            profileId = profileId,
+            provider = album.id.provider,
+            entityType = MemoryCopyCache.ENTITY_ALBUM,
+            entityId = album.id.rawId,
+        )
+        if (writingText.isNullOrBlank()) return cached?.title
+
+        val signal = buildString {
+            append(album.id.toString()).append('|')
+            append(album.name).append('|')
+            append(writingKind.orEmpty()).append('|')
+            append(writingText)
+        }
+        val hash = signal.hashCode().toString()
+        if (cached?.title != null && cached.titlePromptHash == hash) return cached.title
+
+        val apiKey = geminiConfigDao.getConfig().first()?.apiKey
+        if (apiKey.isNullOrBlank()) return cached?.title
+
+        return runCatching {
+            val generated = geminiService.generateAlbumMemoryTitle(
+                apiKey = apiKey,
+                albumName = album.name,
+                artist = album.artist,
+                year = album.year,
+                writingKind = writingKind ?: "note",
+                writingText = writingText,
+            )
+            memoryCopyCacheDao.upsert(
+                (cached ?: MemoryCopyCache(
+                    profileId = profileId,
+                    provider = album.id.provider,
+                    entityType = MemoryCopyCache.ENTITY_ALBUM,
+                    entityId = album.id.rawId,
+                    copy = "",
+                    promptHash = "",
+                    generatedAt = clock(),
+                )).copy(
+                    title = generated,
+                    titlePromptHash = hash,
+                ),
+            )
+            generated
+        }.getOrElse { cached?.title }
+    }
+
+    /** 只读缓存拟题（首页 Jump Back In 用）—— 不触发生成，miss 返回 null。 */
+    suspend fun getCachedAlbumMemoryTitle(albumId: MediaId): String? {
+        val profileId = activeProfileId.value ?: return null
+        return memoryCopyCacheDao.get(
+            profileId = profileId,
+            provider = albumId.provider,
+            entityType = MemoryCopyCache.ENTITY_ALBUM,
+            entityId = albumId.rawId,
+        )?.title
+    }
+
+    // ── Memory writings（Memories 卡 resolve 的一次性快照读取） ────────────
+
+    suspend fun getAlbumRatingRow(albumId: MediaId): AlbumRating? {
+        val profileId = activeProfileId.value ?: return null
+        return albumRatingDao.get(albumId.rawId, albumId.provider, profileId)
+    }
+
+    suspend fun getAlbumNotesOnce(albumId: MediaId): List<AlbumNote> {
+        val profileId = activeProfileId.value ?: return emptyList()
+        return albumNoteDao.getForAlbum(albumId.rawId, albumId.provider, profileId)
+    }
+
+    suspend fun getSongNotesOnce(trackIds: List<MediaId>): List<SongNote> {
+        val profileId = activeProfileId.value ?: return emptyList()
+        val provider = trackIds.firstOrNull()?.provider ?: return emptyList()
+        val rawIds = trackIds.filter { id -> id.provider == provider }.map(MediaId::rawId)
+        if (rawIds.isEmpty()) return emptyList()
+        return songNoteDao.getForTracks(rawIds, provider, profileId)
     }
 
     // ── Devices ───────────────────────────────────────────────────────
@@ -1600,7 +1888,10 @@ class YoinRepository(
         sourceLinesForFallbackCache: List<String>,
         persistLyrics: Boolean,
     ): ProviderTranslation? {
-        val hit = if (providerSongId != null) {
+        val hit = if (
+            providerSongId != null &&
+            lyricsProviderRegistry.canFetch(providerName, providerSongId)
+        ) {
             lyricsProviderRegistry.fetchSelectedLyricWithTranslation(providerName, providerSongId)
         } else {
             lyricsProviderRegistry.searchAndFetchLyricWithTranslation(providerName, title, artist)

@@ -42,6 +42,16 @@ interface AlbumRatingDao {
     )
     suspend fun getAllForProfile(provider: String, profileId: String): List<AlbumRating>
 
+    /**
+     * Change stamp: re-emits whenever the profile's album ratings / reviews
+     * change. COUNT catches deletes, MAX(updatedAt) catches inserts/edits.
+     */
+    @Query(
+        "SELECT COUNT(*) + IFNULL(MAX(updatedAt), 0) FROM album_ratings " +
+            "WHERE profileId = :profileId AND provider = :provider",
+    )
+    fun observeChangeStamp(provider: String, profileId: String): Flow<Long>
+
     @Upsert
     suspend fun upsert(rating: AlbumRating)
 

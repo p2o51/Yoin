@@ -48,7 +48,7 @@ import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
-import com.gpo.yoin.ui.theme.YoinShapeTokens
+import com.gpo.yoin.ui.theme.YoinArtworkShapes
 import com.gpo.yoin.ui.theme.YoinTheme
 
 /**
@@ -183,7 +183,7 @@ private fun CreateNewRow(onClick: () -> Unit) {
         Box(
             modifier = Modifier
                 .size(40.dp)
-                .clip(YoinShapeTokens.Small)
+                .clip(YoinArtworkShapes.Thumb)
                 .background(MaterialTheme.colorScheme.primaryContainer),
             contentAlignment = Alignment.Center,
         ) {
@@ -207,6 +207,8 @@ private fun PlaylistRow(
     row: AddToPlaylistRow,
     onClick: () -> Unit,
 ) {
+    // Failed cover loads fall back to the same icon as a missing url.
+    var coverFailed by remember(row.coverArtUrl) { mutableStateOf(false) }
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -217,16 +219,17 @@ private fun PlaylistRow(
         Box(
             modifier = Modifier
                 .size(40.dp)
-                .clip(YoinShapeTokens.Small)
+                .clip(YoinArtworkShapes.Thumb)
                 .background(MaterialTheme.colorScheme.surfaceVariant),
             contentAlignment = Alignment.Center,
         ) {
-            if (row.coverArtUrl != null) {
+            if (row.coverArtUrl != null && !coverFailed) {
                 AsyncImage(
                     model = row.coverArtUrl,
                     contentDescription = null,
                     contentScale = ContentScale.Crop,
                     modifier = Modifier.size(40.dp),
+                    onError = { coverFailed = true },
                 )
             } else {
                 Icon(

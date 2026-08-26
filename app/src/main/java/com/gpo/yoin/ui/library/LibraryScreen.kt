@@ -2,8 +2,10 @@ package com.gpo.yoin.ui.library
 
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -13,15 +15,22 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.itemsIndexed
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.input.rememberTextFieldState
@@ -35,6 +44,7 @@ import androidx.compose.material.icons.filled.LibraryMusic
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AppBarWithSearch
 import androidx.compose.material3.ExpandedFullScreenSearchBar
@@ -44,7 +54,9 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.SearchBar
 import androidx.compose.material3.SearchBarDefaults
+import androidx.compose.material3.SearchBarState
 import androidx.compose.material3.SearchBarValue
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -68,9 +80,11 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import com.gpo.yoin.data.model.Album
 import com.gpo.yoin.data.model.Artist
@@ -90,14 +104,21 @@ import com.gpo.yoin.ui.component.ExpressiveSectionPanel
 import com.gpo.yoin.ui.component.ExpressiveSegmentedTabs
 import com.gpo.yoin.ui.component.SongListItem
 import com.gpo.yoin.ui.component.YoinLoadingIndicator
+import com.gpo.yoin.ui.component.elasticPress
 import com.gpo.yoin.ui.component.expressiveEntrance
+import com.gpo.yoin.ui.component.noRippleClickable
+import com.gpo.yoin.ui.component.formatTotalDuration
 import com.gpo.yoin.ui.component.minimumTouchTarget
 import com.gpo.yoin.ui.component.rememberExpressiveEntranceProgress
+import com.gpo.yoin.ui.component.yoinPageContentWidth
+import com.gpo.yoin.ui.experience.LayoutMode
+import com.gpo.yoin.ui.experience.LocalYoinWindowInfo
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
 import com.gpo.yoin.ui.theme.ProvideYoinMotionRole
 import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinMotionRole
-import com.gpo.yoin.ui.theme.YoinShapeTokens
+import com.gpo.yoin.ui.theme.YoinArtworkShapes
+import com.gpo.yoin.ui.theme.YoinContainerShapes
 import com.gpo.yoin.ui.theme.YoinTheme
 import kotlinx.coroutines.launch
 
@@ -108,6 +129,59 @@ private const val MaxAnimatedLibraryItems = 10
 private fun floatingBottomGroupContentPadding(): Dp =
     FloatingBottomGroupContentPaddingBase +
         WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+
+// Albums/Artists grid columns (大屏适配基线).
+//
+// GridCells.Adaptive resolves count = floor((available + gutter) / (minSize + gutter)),
+// where available = grid width − 32dp side padding and gutter = 12dp. Keeping
+// today's Fixed(3) column count across the 389–411dp phone content widths
+// (available 357–379) bounds minSize to (85.75, 111]; stepping to exactly
+// +1 column (4) at the 600dp Medium entry (available 568, since
+// yoinPageContentWidth is a no-op there) bounds it to (104, 133].
+// Intersection: (104, 111] → 108dp. At the 720dp Feed width cap
+// (available 688) the same value naturally reaches floor(700/120) = 5.
+private val LibraryGridAdaptiveMinSize = 108.dp
+
+// Wide desktop-tier cell (2026-07-28 A-prime ruling: full-window Wide fills
+// the canvas instead of clamping to 720dp). Grid width = window − 80dp rail
+// − 2×16dp page gutter, available = that − 2×16dp contentPadding = W − 144;
+// gutter stays 12dp, so count = floor((W − 144 + 12) / (minSize + 12)).
+// Keeping Adaptive(108) on the unclamped canvas shreds into tiny covers —
+// floor(1148/120) = 9 columns on a 1280 window, 10 on 1440 — while 150dp
+// lands the 1280 class exactly on the mockup's 7 columns of ~152dp.
+// Column counts at 150dp: 840 → 4 (cells ~165dp), 1280 → 7 (~152dp),
+// 1440 → 8 (~151dp), 1920 → 11 (~150dp).
+private val LibraryGridWideMinSize = 150.dp
+
+// Compact keeps Fixed(3) because it also spans sub-389dp windows (360dp
+// handsets, display-size scaling, split-screen narrow) where Adaptive(108)
+// would resolve to 2 columns — the Fixed(3) branch keeps every Compact
+// window byte-identical to before this sweep. Within 389–411dp both
+// branches produce identical cells anyway (Adaptive resolves count = 3,
+// then runs the same cross-axis size split as Fixed). Tabletop rides the
+// Medium cell: the previous gate was `!= Compact`, so the kickstand posture
+// has always drawn Adaptive(108) and must keep doing so — only full-window
+// Wide forks to the larger desktop cell.
+@Composable
+private fun libraryGridCells(): GridCells =
+    when (LocalYoinWindowInfo.current.layoutMode) {
+        LayoutMode.Compact -> GridCells.Fixed(3)
+        LayoutMode.Medium, LayoutMode.Tabletop -> GridCells.Adaptive(minSize = LibraryGridAdaptiveMinSize)
+        LayoutMode.Wide -> GridCells.Adaptive(minSize = LibraryGridWideMinSize)
+    }
+
+// 三档宽度策略(2026-07-28 A-prime 裁定):Compact/Medium/Tabletop 走原
+// yoinPageContentWidth 限宽链,逐字节不变;full-window Wide 桌面档不再夹
+// 720dp —— 内容铺满画布,外加 16dp 把子项自带的 16dp 页边抬成 32dp 桌面
+// gutter。分栏窗格里 LayoutMode 是 pane-relative(读到 Compact/Medium),
+// 永远走不进 Wide 分支 —— 这个 fork 只在无分栏的全窗 Wide(无 WM
+// Extensions 的平板、桌面窗口、debug 台)生效。
+private fun Modifier.libraryPageWidth(isDesktopWide: Boolean): Modifier =
+    if (isDesktopWide) {
+        padding(horizontal = 16.dp)
+    } else {
+        yoinPageContentWidth()
+    }
 
 @Composable
 private fun rememberLibraryItemEntrance(
@@ -155,6 +229,8 @@ fun LibraryScreen(
         onSearchScopeSelected = viewModel::selectSearchScope,
         onSearchQueryChanged = viewModel::search,
         onClearSearch = viewModel::clearSearch,
+        onRetrySearch = viewModel::retrySearch,
+        onReshuffleSongs = viewModel::reshuffleSongs,
         onNavigateToSettings = onNavigateToSettings,
         onArtistClick = onArtistClick,
         onAlbumClick = onAlbumClick,
@@ -180,6 +256,8 @@ fun LibraryContent(
     onSearchScopeSelected: (LibrarySearchScope) -> Unit = {},
     onSearchQueryChanged: (String) -> Unit,
     onClearSearch: () -> Unit,
+    onRetrySearch: () -> Unit = {},
+    onReshuffleSongs: () -> Unit = {},
     onNavigateToSettings: () -> Unit,
     onArtistClick: (String) -> Unit,
     onAlbumClick: (String) -> Unit,
@@ -197,75 +275,90 @@ fun LibraryContent(
     ProvideYoinMotionRole(role = YoinMotionRole.Standard) {
         val haptics = rememberYoinHaptics()
         ExpressivePageBackground(modifier = modifier) {
-            when (uiState) {
-                is LibraryUiState.Loading -> {
-                    Box(
-                        modifier = Modifier.fillMaxSize(),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        YoinLoadingIndicator()
-                    }
-                }
-
-                is LibraryUiState.Error -> {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(horizontal = 24.dp),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Column(
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.spacedBy(8.dp),
+            // contentKey = state class: only Loading/Error/Content changes
+            // cross-fade — Content-to-Content data updates recompose in place.
+            AnimatedContent(
+                targetState = uiState,
+                transitionSpec = {
+                    YoinMotion.fadeIn(role = YoinMotionRole.Standard) togetherWith
+                        YoinMotion.fadeOut(role = YoinMotionRole.Standard)
+                },
+                contentKey = { it::class },
+                label = "libraryState",
+                modifier = Modifier.fillMaxSize(),
+            ) { state ->
+                when (state) {
+                    is LibraryUiState.Loading -> {
+                        Box(
+                            modifier = Modifier.fillMaxSize(),
+                            contentAlignment = Alignment.Center,
                         ) {
-                            Text(
-                                text = uiState.message,
-                                color = MaterialTheme.colorScheme.error,
-                                style = MaterialTheme.typography.bodyLarge,
-                            )
-                            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                                TextButton(
-                                    onClick = {
-                                        haptics.performReject()
-                                        onRetry()
-                                    },
-                                ) {
-                                    Text("Retry")
-                                }
-                                TextButton(
-                                    onClick = {
-                                        haptics.performContextClick()
-                                        onNavigateToSettings()
-                                    },
-                                ) {
-                                    Text("Settings")
+                            YoinLoadingIndicator()
+                        }
+                    }
+
+                    is LibraryUiState.Error -> {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(horizontal = 24.dp),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                Text(
+                                    text = state.message,
+                                    color = MaterialTheme.colorScheme.error,
+                                    style = MaterialTheme.typography.bodyLarge,
+                                )
+                                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                    TextButton(
+                                        onClick = {
+                                            haptics.performReject()
+                                            onRetry()
+                                        },
+                                    ) {
+                                        Text("Retry")
+                                    }
+                                    TextButton(
+                                        onClick = {
+                                            haptics.performContextClick()
+                                            onNavigateToSettings()
+                                        },
+                                    ) {
+                                        Text("Settings")
+                                    }
                                 }
                             }
                         }
                     }
-                }
 
-                is LibraryUiState.Content -> {
-                    LibraryContentBody(
-                        state = uiState,
-                        activeSongId = activeSongId,
-                        isPlaying = isPlaying,
-                        playbackSignal = playbackSignal,
-                        notedSongIds = notedSongIds,
-                        onTabSelected = onTabSelected,
-                        onSearchScopeSelected = onSearchScopeSelected,
-                        onSearchQueryChanged = onSearchQueryChanged,
-                        onClearSearch = onClearSearch,
-                        onNavigateToSettings = onNavigateToSettings,
-                        onArtistClick = onArtistClick,
-                        onAlbumClick = onAlbumClick,
-                        onPlaylistClick = onPlaylistClick,
-                        onSongClick = onSongClick,
-                        onFavoriteSongClick = onFavoriteSongClick,
-                        onAddSongToPlaylist = onAddSongToPlaylist,
-                        onCreatePlaylist = onCreatePlaylist,
-                        coverArtUrlBuilder = coverArtUrlBuilder,
-                    )
+                    is LibraryUiState.Content -> {
+                        LibraryContentBody(
+                            state = state,
+                            activeSongId = activeSongId,
+                            isPlaying = isPlaying,
+                            playbackSignal = playbackSignal,
+                            notedSongIds = notedSongIds,
+                            onTabSelected = onTabSelected,
+                            onSearchScopeSelected = onSearchScopeSelected,
+                            onSearchQueryChanged = onSearchQueryChanged,
+                            onClearSearch = onClearSearch,
+                            onRetrySearch = onRetrySearch,
+                            onReshuffleSongs = onReshuffleSongs,
+                            onNavigateToSettings = onNavigateToSettings,
+                            onArtistClick = onArtistClick,
+                            onAlbumClick = onAlbumClick,
+                            onPlaylistClick = onPlaylistClick,
+                            onSongClick = onSongClick,
+                            onFavoriteSongClick = onFavoriteSongClick,
+                            onAddSongToPlaylist = onAddSongToPlaylist,
+                            onCreatePlaylist = onCreatePlaylist,
+                            coverArtUrlBuilder = coverArtUrlBuilder,
+                        )
+                    }
                 }
             }
         }
@@ -284,6 +377,8 @@ private fun LibraryContentBody(
     onSearchScopeSelected: (LibrarySearchScope) -> Unit,
     onSearchQueryChanged: (String) -> Unit,
     onClearSearch: () -> Unit,
+    onRetrySearch: () -> Unit,
+    onReshuffleSongs: () -> Unit,
     onNavigateToSettings: () -> Unit,
     onArtistClick: (String) -> Unit,
     onAlbumClick: (String) -> Unit,
@@ -296,6 +391,20 @@ private fun LibraryContentBody(
 ) {
     val haptics = rememberYoinHaptics()
     val scope = rememberCoroutineScope()
+
+    // Wide 桌面档(A-prime):LayoutMode 是 pane-relative,分栏窗格读不到
+    // Wide;这里为 true 就意味着整窗归本页,走桌面渲染档。
+    val isDesktopWide = LocalYoinWindowInfo.current.layoutMode == LayoutMode.Wide
+
+    // One remembered scroll state per tab, hoisted above the tab
+    // AnimatedContent: exited tab content is disposed, so a lazy state
+    // created inside a tab body would reset and returning to that tab
+    // would land back at the top instead of where the user left off.
+    val artistsGridState = rememberLazyGridState()
+    val albumsGridState = rememberLazyGridState()
+    val songsListState = rememberLazyListState()
+    val playlistsListState = rememberLazyListState()
+    val favoritesListState = rememberLazyListState()
 
     // M3 Expressive Search. The collapsed bar lives in the page header; tapping
     // it morphs the input into a full-screen results surface (the official
@@ -375,53 +484,80 @@ private fun LibraryContentBody(
         )
     }
 
-    Column(modifier = Modifier.fillMaxSize()) {
-        AppBarWithSearch(
-            state = searchBarState,
-            inputField = inputField,
-            // Blend the collapsed bar into the page: a transparent app-bar band
-            // (also drops the tonal/shadow elevation seam) over the
-            // ExpressivePageBackground gradient, and a pill tinted to the page's
-            // top stop (surfaceContainer) so it reads as part of the surface
-            // rather than a raised, different-coloured chip. The expanded
-            // full-screen search surface keeps its own opaque default colors.
-            colors = SearchBarDefaults.appBarWithSearchColors(
-                appBarContainerColor = Color.Transparent,
-                scrolledAppBarContainerColor = Color.Transparent,
-                searchBarColors = SearchBarDefaults.colors(
-                    containerColor = MaterialTheme.colorScheme.surfaceContainer,
-                ),
-                scrolledSearchBarContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-            ),
-            actions = {
-                IconButton(
-                    onClick = {
-                        haptics.performContextClick()
-                        onNavigateToSettings()
-                    },
-                    modifier = Modifier.minimumTouchTarget(),
-                ) {
-                    Icon(
-                        imageVector = Icons.Filled.Settings,
-                        contentDescription = "Settings",
-                    )
-                }
-            },
-        )
-
-        // Browse (collapsed): filter chips + the per-tab grid/list, unchanged.
-        Column(
-            modifier = Modifier
-                .weight(1f)
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
-        ) {
-            LibraryFilterChips(
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            // 大屏限宽:夹的是内容列(搜索 pill、chips、各 tab 网格/列表共享
+            // 一个边缘);ExpressivePageBackground 留在上层全出血。Wide 桌面
+            // 档不夹、铺满 —— 见 libraryPageWidth。
+            .libraryPageWidth(isDesktopWide),
+    ) {
+        if (isDesktopWide) {
+            // 桌面头排:标题、搜索 pill、tab chips、settings 一行左对齐排开。
+            // pill 绑的还是同一个 searchBarState —— 点击照旧 morph 进下面的
+            // ExpandedFullScreenSearchBar,预测性返回不变。
+            LibraryWideHeaderRow(
+                searchBarState = searchBarState,
+                inputField = inputField,
                 tabs = state.availableTabs,
                 selectedTab = state.selectedTab,
                 onTabSelected = onTabSelected,
+                onNavigateToSettings = onNavigateToSettings,
             )
+        } else {
+            AppBarWithSearch(
+                state = searchBarState,
+                inputField = inputField,
+                // Transparent app-bar band (drops the tonal/shadow elevation seam)
+                // over the ExpressivePageBackground gradient. The pill itself is a
+                // step BRIGHTER than the page's top stop: surfaceContainer matched
+                // the gradient exactly and the pill dissolved into the background
+                // (design review: 对比度太低) — surfaceContainerHighest stays in the
+                // surface family but reads as a control.
+                colors = SearchBarDefaults.appBarWithSearchColors(
+                    appBarContainerColor = Color.Transparent,
+                    scrolledAppBarContainerColor = Color.Transparent,
+                    searchBarColors = SearchBarDefaults.colors(
+                        containerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+                    ),
+                    scrolledSearchBarContainerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+                ),
+                actions = {
+                    IconButton(
+                        onClick = {
+                            haptics.performContextClick()
+                            onNavigateToSettings()
+                        },
+                        modifier = Modifier.minimumTouchTarget(),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.Settings,
+                            contentDescription = "Settings",
+                        )
+                    }
+                },
+            )
+        }
+
+        // Browse (collapsed): filter chips + the per-tab grid/list. No column
+        // padding here — every child carries its own 16dp so the chips, the
+        // grid covers, the list rows and the search pill all share ONE left
+        // edge (the old outer 16dp stacked with the children's 16dp into a
+        // misaligned 32dp).
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            // Wide 桌面档 chips 已并进头排,这里不再重复渲染一份。
+            if (!isDesktopWide) {
+                LibraryFilterChips(
+                    tabs = state.availableTabs,
+                    selectedTab = state.selectedTab,
+                    onTabSelected = onTabSelected,
+                )
+            }
             Box(modifier = Modifier.weight(1f)) {
                 AnimatedContent(
                     targetState = state.selectedTab,
@@ -435,32 +571,38 @@ private fun LibraryContentBody(
                     when (tab) {
                         LibraryTab.Artists -> ArtistsTabContent(
                             artists = state.artists,
+                            gridState = artistsGridState,
                             onArtistClick = onArtistClick,
                             coverArtUrlBuilder = coverArtUrlBuilder,
                         )
                         LibraryTab.Albums -> AlbumsTabContent(
                             albums = state.albums,
+                            gridState = albumsGridState,
                             onAlbumClick = onAlbumClick,
                             coverArtUrlBuilder = coverArtUrlBuilder,
                         )
                         LibraryTab.Songs -> SongsTabContent(
                             songs = state.songs,
+                            listState = songsListState,
                             activeSongId = activeSongId,
                             isPlaying = isPlaying,
                             playbackSignal = playbackSignal,
                             notedSongIds = notedSongIds,
                             onSongClick = onSongClick,
                             onAddSongToPlaylist = onAddSongToPlaylist,
+                            onReshuffle = onReshuffleSongs,
                             coverArtUrlBuilder = coverArtUrlBuilder,
                         )
                         LibraryTab.Playlists -> PlaylistsTabContent(
                             playlists = state.playlists,
+                            listState = playlistsListState,
                             onPlaylistClick = onPlaylistClick,
                             onCreatePlaylist = onCreatePlaylist.takeIf { state.canCreatePlaylists },
                             coverArtUrlBuilder = coverArtUrlBuilder,
                         )
                         LibraryTab.Favorites -> FavoritesTabContent(
                             favorites = state.favorites,
+                            listState = favoritesListState,
                             activeSongId = activeSongId,
                             isPlaying = isPlaying,
                             playbackSignal = playbackSignal,
@@ -487,12 +629,16 @@ private fun LibraryContentBody(
             LibrarySearchScopeChips(
                 selectedScope = state.searchScope,
                 onScopeSelected = onSearchScopeSelected,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                modifier = Modifier
+                    .libraryPageWidth(isDesktopWide)
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
             )
         }
         SearchResultsContent(
             searchResults = state.searchResults,
             isSearching = state.isSearching,
+            searchError = state.searchError,
+            onRetrySearch = onRetrySearch,
             activeSongId = activeSongId,
             isPlaying = isPlaying,
             playbackSignal = playbackSignal,
@@ -503,9 +649,12 @@ private fun LibraryContentBody(
             onSongClick = onSongClick,
             onAddSongToPlaylist = onAddSongToPlaylist,
             coverArtUrlBuilder = coverArtUrlBuilder,
+            // 全屏搜索面是独立 surface,不在上面的限宽列里 —— 结果列表
+            // 单独走同一套宽度策略(Wide 铺满、其余夹宽,helper 自带
+            // fillMaxWidth)。
             modifier = Modifier
-                .fillMaxWidth()
-                .weight(1f),
+                .weight(1f)
+                .libraryPageWidth(isDesktopWide),
         )
     }
 }
@@ -520,12 +669,16 @@ private fun LibraryFilterChips(
     // Render only tabs the active source supports (e.g. drop Playlists on a
     // provider without PLAYLISTS_READ). Callers pass
     // `LibraryUiState.Content.availableTabs`.
+    // Full-width row; contentPadding keeps the resting chips on the 16dp
+    // page margin while scrolled chips run under the screen edges with the
+    // scroll-aware fade.
     ExpressiveSegmentedTabs(
         items = tabs,
         selectedItem = selectedTab,
         label = { it.name },
         onSelectedChange = onTabSelected,
         modifier = modifier.fillMaxWidth(),
+        contentPadding = PaddingValues(horizontal = 16.dp),
     )
 }
 
@@ -547,6 +700,73 @@ private fun LibrarySearchScopeChips(
     )
 }
 
+// Wide 桌面头排的搜索 pill 宽度上限(mockup 360px 直译;M3 搜索栏本身的
+// min width 也是 360dp,两者相等 → pill 恒为 360dp)。
+private val LibraryWideSearchBarMaxWidth = 360.dp
+
+// Wide 桌面档专属头排:[Library 标题][搜索 pill][tab chips][settings] 一行
+// 左对齐。全部由既有件重排组成 —— pill 是同一个 searchBarState/inputField
+// 的 M3 collapsed SearchBar(全屏搜索面照旧从它 morph 展开),chips 直接
+// 复用 LibraryFilterChips(weight 占满中段,内建横向滚动 + 边缘渐隐在
+// 840dp 一类窄 Wide 窗继续成立),齿轮与 AppBarWithSearch actions 里同款。
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun LibraryWideHeaderRow(
+    searchBarState: SearchBarState,
+    inputField: @Composable () -> Unit,
+    tabs: List<LibraryTab>,
+    selectedTab: LibraryTab,
+    onTabSelected: (LibraryTab) -> Unit,
+    onNavigateToSettings: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val haptics = rememberYoinHaptics()
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .statusBarsPadding()
+            // 外层 libraryPageWidth 已有 16dp,这里再补 16dp → 32dp 桌面
+            // gutter,与下方网格 contentPadding 的合计边距对齐一条线。
+            .padding(start = 16.dp, top = 16.dp, end = 16.dp, bottom = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(16.dp),
+    ) {
+        Text(
+            text = "Library",
+            style = MaterialTheme.typography.headlineMedium,
+            color = MaterialTheme.colorScheme.onSurface,
+        )
+        SearchBar(
+            state = searchBarState,
+            inputField = inputField,
+            // 同 AppBarWithSearch 分支:pill 比页面渐变的顶端亮一档,才能
+            // 读成控件(设计评审裁定,见上)。
+            colors = SearchBarDefaults.colors(
+                containerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+            ),
+            modifier = Modifier.widthIn(max = LibraryWideSearchBarMaxWidth),
+        )
+        LibraryFilterChips(
+            tabs = tabs,
+            selectedTab = selectedTab,
+            onTabSelected = onTabSelected,
+            modifier = Modifier.weight(1f),
+        )
+        IconButton(
+            onClick = {
+                haptics.performContextClick()
+                onNavigateToSettings()
+            },
+            modifier = Modifier.minimumTouchTarget(),
+        ) {
+            Icon(
+                imageVector = Icons.Filled.Settings,
+                contentDescription = "Settings",
+            )
+        }
+    }
+}
+
 private fun LibrarySearchScope.placeholder(): String = when (this) {
     LibrarySearchScope.SpotifyGlobal -> "Search Spotify"
     LibrarySearchScope.CurrentLibrary -> "Search library"
@@ -561,23 +781,34 @@ private fun LibrarySearchScope.chipLabel(): String = when (this) {
 
 @Composable
 private fun ArtistsTabContent(
-    artists: List<Artist>,
+    artists: List<Artist>?,
+    gridState: LazyGridState,
     onArtistClick: (String) -> Unit,
     coverArtUrlBuilder: ((String) -> String)?,
     modifier: Modifier = Modifier,
 ) {
+    if (artists == null) {
+        TabLoadingState(modifier = modifier)
+        return
+    }
     if (artists.isEmpty()) {
         EmptyState(message = "No artists found", modifier = modifier)
         return
     }
-    LazyColumn(
+    // 3-column portrait grid on phones (one artist per row wasted most of
+    // the width); adaptive at Medium+ — see libraryGridCells.
+    LazyVerticalGrid(
+        columns = libraryGridCells(),
+        state = gridState,
         modifier = modifier.fillMaxSize(),
         contentPadding = PaddingValues(
-            start = 4.dp,
-            top = 8.dp,
-            end = 4.dp,
+            start = 16.dp,
+            top = 12.dp,
+            end = 16.dp,
             bottom = floatingBottomGroupContentPadding(),
         ),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         itemsIndexed(artists, key = { _, artist -> artist.id.toString() }) { index, artist ->
             val entranceProgress = rememberLibraryItemEntrance(
@@ -585,11 +816,85 @@ private fun ArtistsTabContent(
                 index = index,
                 delayStepMillis = 24L,
             )
-            ArtistListItem(
+            ArtistGridItem(
                 artist = artist,
                 coverArtUrl = libraryCoverArtUrl(artist.coverArt, coverArtUrlBuilder),
                 onClick = { onArtistClick(artist.id.toString()) },
-                modifier = Modifier.expressiveEntrance(entranceProgress),
+                modifier = Modifier
+                    .animateItem(
+                        fadeInSpec = YoinMotion.effectsSpring(),
+                        placementSpec = YoinMotion.spatialSpring(),
+                        fadeOutSpec = YoinMotion.effectsSpring(),
+                    )
+                    .expressiveEntrance(
+                        progress = entranceProgress,
+                        initialOffsetY = 22.dp,
+                        initialScale = 0.92f,
+                    ),
+            )
+        }
+    }
+}
+
+@Composable
+private fun ArtistGridItem(
+    artist: Artist,
+    coverArtUrl: String?,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    Column(
+        modifier = modifier.noRippleClickable(interactionSource = interactionSource, onClick = onClick),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth()
+                .aspectRatio(1f)
+                .elasticPress(interactionSource),
+            shape = CircleShape,
+            color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.84f),
+        ) {
+            if (coverArtUrl != null) {
+                AsyncImage(
+                    model = coverArtUrl,
+                    contentDescription = artist.name,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            } else {
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Person,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                        modifier = Modifier.size(28.dp),
+                    )
+                }
+            }
+        }
+        Spacer(modifier = Modifier.height(5.dp))
+        Text(
+            text = artist.name,
+            style = MaterialTheme.typography.titleSmall,
+            color = MaterialTheme.colorScheme.onSurface,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.fillMaxWidth(),
+        )
+        artist.albumCount?.let { count ->
+            Text(
+                text = if (count == 1) "1 album" else "$count albums",
+                style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth(),
             )
         }
     }
@@ -605,7 +910,7 @@ private fun ArtistListItem(
     Surface(
         onClick = onClick,
         modifier = modifier.fillMaxWidth(),
-        shape = YoinShapeTokens.ExtraLarge,
+        shape = YoinContainerShapes.ListRow,
         color = androidx.compose.ui.graphics.Color.Transparent,
         tonalElevation = 0.dp,
         shadowElevation = 0.dp,
@@ -653,7 +958,7 @@ private fun ArtistListItem(
             )
             artist.albumCount?.let { count ->
                 Spacer(modifier = Modifier.width(8.dp))
-                ExpressiveMetaPill(text = "$count albums")
+                ExpressiveMetaPill(text = if (count == 1) "1 album" else "$count albums")
             }
         }
     }
@@ -661,26 +966,34 @@ private fun ArtistListItem(
 
 @Composable
 private fun AlbumsTabContent(
-    albums: List<Album>,
+    albums: List<Album>?,
+    gridState: LazyGridState,
     onAlbumClick: (String) -> Unit,
     coverArtUrlBuilder: ((String) -> String)?,
     modifier: Modifier = Modifier,
 ) {
+    if (albums == null) {
+        TabLoadingState(modifier = modifier)
+        return
+    }
     if (albums.isEmpty()) {
         EmptyState(message = "No albums found", modifier = modifier)
         return
     }
     LazyVerticalGrid(
-        columns = GridCells.Fixed(3),
+        columns = libraryGridCells(),
+        state = gridState,
         modifier = modifier.fillMaxSize(),
+        // 16dp page margins to match the home feed; 12dp gutters, and a
+        // tighter row gap now that the cards no longer reserve dead space.
         contentPadding = PaddingValues(
-            start = 4.dp,
+            start = 16.dp,
             top = 12.dp,
-            end = 4.dp,
+            end = 16.dp,
             bottom = floatingBottomGroupContentPadding(),
         ),
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
-        verticalArrangement = Arrangement.spacedBy(18.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         itemsIndexed(albums, key = { _, album -> album.id.toString() }) { index, album ->
             val entranceProgress = rememberLibraryItemEntrance(
@@ -695,11 +1008,17 @@ private fun AlbumsTabContent(
                     libraryCoverArtUrl(album.coverArt, coverArtUrlBuilder)
                         ?: album.id.takeIf { it.provider == MediaId.PROVIDER_SUBSONIC }
                             ?.rawId?.let { coverArtUrlBuilder?.invoke(it) },
-                modifier = Modifier.expressiveEntrance(
-                    progress = entranceProgress,
-                    initialOffsetY = 22.dp,
-                    initialScale = 0.92f,
-                ),
+                modifier = Modifier
+                    .animateItem(
+                        fadeInSpec = YoinMotion.effectsSpring(),
+                        placementSpec = YoinMotion.spatialSpring(),
+                        fadeOutSpec = YoinMotion.effectsSpring(),
+                    )
+                    .expressiveEntrance(
+                        progress = entranceProgress,
+                        initialOffsetY = 22.dp,
+                        initialScale = 0.92f,
+                    ),
             )
         }
     }
@@ -732,48 +1051,112 @@ private fun AlbumGridItem(
 
 @Composable
 private fun SongsTabContent(
-    songs: List<Track>,
+    songs: List<Track>?,
+    listState: LazyListState,
     activeSongId: String? = null,
     isPlaying: Boolean = false,
     playbackSignal: Float = 0f,
     notedSongIds: Set<String>,
     onSongClick: (Track) -> Unit,
     onAddSongToPlaylist: (Track) -> Unit,
+    onReshuffle: () -> Unit,
     coverArtUrlBuilder: ((String) -> String)?,
     modifier: Modifier = Modifier,
 ) {
-    if (songs.isEmpty()) {
-        EmptyState(message = "No songs found", modifier = modifier)
+    if (songs == null) {
+        TabLoadingState(modifier = modifier)
         return
     }
-    LazyColumn(
-        modifier = modifier.fillMaxSize(),
-        contentPadding = PaddingValues(
-            start = 4.dp,
-            top = 8.dp,
-            end = 4.dp,
-            bottom = floatingBottomGroupContentPadding(),
-        ),
+    val scope = rememberCoroutineScope()
+    Column(modifier = modifier.fillMaxSize()) {
+        // The tab is a random 50-song sample, not the whole library — say so,
+        // and offer a reshuffle (the only way to redraw; favorite toggles
+        // deliberately never reshuffle the visible list).
+        RandomMixHeader(
+            onReshuffle = {
+                onReshuffle()
+                // A fresh sample shares nothing with the old one; restoring
+                // the retained mid-list offset into it would be meaningless.
+                scope.launch { listState.scrollToItem(0) }
+            },
+        )
+        if (songs.isEmpty()) {
+            EmptyState(message = "No songs found", modifier = Modifier.weight(1f))
+        } else {
+            LazyColumn(
+                state = listState,
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth(),
+                contentPadding = PaddingValues(
+                    start = 0.dp,
+                    top = 8.dp,
+                    end = 0.dp,
+                    bottom = floatingBottomGroupContentPadding(),
+                ),
+            ) {
+                itemsIndexed(songs, key = { _, song -> song.id.toString() }) { index, song ->
+                    val entranceProgress = rememberLibraryItemEntrance(
+                        key = song.id,
+                        index = index,
+                        delayStepMillis = 20L,
+                    )
+                    SongListItem(
+                        title = song.title.orEmpty(),
+                        artist = song.artist.orEmpty(),
+                        album = song.album.orEmpty(),
+                        durationSeconds = song.durationSec,
+                        coverArtUrl = libraryCoverArtUrl(song.coverArt, coverArtUrlBuilder),
+                        onClick = { onSongClick(song) },
+                        onLongClick = { onAddSongToPlaylist(song) },
+                        isNowPlaying = isPlaying && song.id.toString() == activeSongId,
+                        playbackSignal = playbackSignal,
+                        extractBackdropColors = false,
+                        hasNote = song.id.toString() in notedSongIds,
+                        modifier = Modifier
+                            .animateItem(
+                                fadeInSpec = YoinMotion.effectsSpring(),
+                                placementSpec = YoinMotion.spatialSpring(),
+                                fadeOutSpec = YoinMotion.effectsSpring(),
+                            )
+                            .expressiveEntrance(entranceProgress),
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun RandomMixHeader(
+    onReshuffle: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val haptics = rememberYoinHaptics()
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(start = 16.dp, end = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        itemsIndexed(songs, key = { _, song -> song.id.toString() }) { index, song ->
-            val entranceProgress = rememberLibraryItemEntrance(
-                key = song.id,
-                index = index,
-                delayStepMillis = 20L,
-            )
-            SongListItem(
-                title = song.title.orEmpty(),
-                artist = song.artist.orEmpty(),
-                album = song.album.orEmpty(),
-                durationSeconds = song.durationSec,
-                coverArtUrl = libraryCoverArtUrl(song.coverArt, coverArtUrlBuilder),
-                onClick = { onSongClick(song) },
-                onLongClick = { onAddSongToPlaylist(song) },
-                isNowPlaying = isPlaying && song.id.toString() == activeSongId,
-                playbackSignal = playbackSignal,
-                extractBackdropColors = false,
-                hasNote = song.id.toString() in notedSongIds,
-                modifier = Modifier.expressiveEntrance(entranceProgress),
+        Text(
+            text = "Random mix",
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.weight(1f),
+        )
+        IconButton(
+            onClick = {
+                haptics.performTick()
+                onReshuffle()
+            },
+            modifier = Modifier.minimumTouchTarget(),
+        ) {
+            Icon(
+                imageVector = Icons.Filled.Shuffle,
+                contentDescription = "Reshuffle",
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(20.dp),
             )
         }
     }
@@ -781,13 +1164,18 @@ private fun SongsTabContent(
 
 @Composable
 private fun PlaylistsTabContent(
-    playlists: List<Playlist>,
+    playlists: List<Playlist>?,
+    listState: LazyListState,
     onPlaylistClick: (String) -> Unit,
     /** `null` hides the "+" FAB (provider without PLAYLISTS_WRITE). */
     onCreatePlaylist: ((name: String) -> Unit)?,
     coverArtUrlBuilder: ((String) -> String)?,
     modifier: Modifier = Modifier,
 ) {
+    if (playlists == null) {
+        TabLoadingState(modifier = modifier)
+        return
+    }
     var showCreateDialog by remember { mutableStateOf(false) }
     val haptics = rememberYoinHaptics()
     val canCreate = onCreatePlaylist != null
@@ -830,11 +1218,12 @@ private fun PlaylistsTabContent(
             )
         } else {
             LazyColumn(
+                state = listState,
                 modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(
-                    start = 4.dp,
+                    start = 0.dp,
                     top = 8.dp,
-                    end = 4.dp,
+                    end = 0.dp,
                     bottom = floatingBottomGroupContentPadding(),
                 ),
             ) {
@@ -848,7 +1237,13 @@ private fun PlaylistsTabContent(
                         playlist = playlist,
                         onClick = { onPlaylistClick(playlist.id.toString()) },
                         coverArtUrl = playlistBackdropArtUrl(playlist, coverArtUrlBuilder),
-                        modifier = Modifier.expressiveEntrance(entranceProgress),
+                        modifier = Modifier
+                            .animateItem(
+                                fadeInSpec = YoinMotion.effectsSpring(),
+                                placementSpec = YoinMotion.spatialSpring(),
+                                fadeOutSpec = YoinMotion.effectsSpring(),
+                            )
+                            .expressiveEntrance(entranceProgress),
                     )
                 }
             }
@@ -940,7 +1335,7 @@ private fun PlaylistListItem(
     Surface(
         onClick = onClick,
         modifier = modifier.fillMaxWidth(),
-        shape = YoinShapeTokens.ExtraLarge,
+        shape = YoinContainerShapes.ListRow,
         color = androidx.compose.ui.graphics.Color.Transparent,
         tonalElevation = 0.dp,
         shadowElevation = 0.dp,
@@ -956,11 +1351,11 @@ private fun PlaylistListItem(
                 contentDescription = playlist.name,
                 variant = ExpressiveBackdropVariant.Ghostish,
                 modifier = Modifier.size(48.dp),
-                shape = YoinShapeTokens.Small,
+                shape = YoinArtworkShapes.Thumb,
                 fallbackIcon = Icons.AutoMirrored.Filled.QueueMusic,
-                fillFraction = 0.8f,
-                backdropScale = 0.8f,
-                artworkShiftFraction = 0.06f,
+                // Full-bleed: the sub-1f fractions were placeholders for the
+                // removed animated backdrop shape and just left ghost margins.
+                fillFraction = 1f,
                 tonalElevation = 0.dp,
                 extractBackdropColors = false,
             )
@@ -990,6 +1385,7 @@ private fun PlaylistListItem(
 @Composable
 private fun FavoritesTabContent(
     favorites: Starred?,
+    listState: LazyListState,
     activeSongId: String? = null,
     isPlaying: Boolean = false,
     playbackSignal: Float = 0f,
@@ -1003,7 +1399,7 @@ private fun FavoritesTabContent(
     modifier: Modifier = Modifier,
 ) {
     if (favorites == null) {
-        EmptyState(message = "Loading favorites…", modifier = modifier)
+        TabLoadingState(modifier = modifier)
         return
     }
     val hasContent = favorites.artists.isNotEmpty() ||
@@ -1016,11 +1412,12 @@ private fun FavoritesTabContent(
     }
 
     LazyColumn(
+        state = listState,
         modifier = modifier.fillMaxSize(),
         contentPadding = PaddingValues(
-            start = 4.dp,
+            start = 0.dp,
             top = 8.dp,
-            end = 4.dp,
+            end = 0.dp,
             bottom = floatingBottomGroupContentPadding(),
         ),
     ) {
@@ -1041,7 +1438,13 @@ private fun FavoritesTabContent(
                     artist = artist,
                     coverArtUrl = libraryCoverArtUrl(artist.coverArt, coverArtUrlBuilder),
                     onClick = { onArtistClick(artist.id.toString()) },
-                    modifier = Modifier.expressiveEntrance(entranceProgress),
+                    modifier = Modifier
+                        .animateItem(
+                            fadeInSpec = YoinMotion.effectsSpring(),
+                            placementSpec = YoinMotion.spatialSpring(),
+                            fadeOutSpec = YoinMotion.effectsSpring(),
+                        )
+                        .expressiveEntrance(entranceProgress),
                 )
             }
         }
@@ -1065,7 +1468,13 @@ private fun FavoritesTabContent(
                         libraryCoverArtUrl(album.coverArt, coverArtUrlBuilder)
                             ?: album.id.takeIf { it.provider == MediaId.PROVIDER_SUBSONIC }
                                 ?.rawId?.let { coverArtUrlBuilder?.invoke(it) },
-                    modifier = Modifier.expressiveEntrance(entranceProgress),
+                    modifier = Modifier
+                        .animateItem(
+                            fadeInSpec = YoinMotion.effectsSpring(),
+                            placementSpec = YoinMotion.spatialSpring(),
+                            fadeOutSpec = YoinMotion.effectsSpring(),
+                        )
+                        .expressiveEntrance(entranceProgress),
                 )
             }
         }
@@ -1096,7 +1505,13 @@ private fun FavoritesTabContent(
                     playbackSignal = playbackSignal,
                     extractBackdropColors = false,
                     hasNote = song.id.toString() in notedSongIds,
-                    modifier = Modifier.expressiveEntrance(entranceProgress),
+                    modifier = Modifier
+                        .animateItem(
+                            fadeInSpec = YoinMotion.effectsSpring(),
+                            placementSpec = YoinMotion.spatialSpring(),
+                            fadeOutSpec = YoinMotion.effectsSpring(),
+                        )
+                        .expressiveEntrance(entranceProgress),
                 )
             }
         }
@@ -1113,7 +1528,7 @@ private fun AlbumListItem(
     Surface(
         onClick = onClick,
         modifier = modifier.fillMaxWidth(),
-        shape = YoinShapeTokens.ExtraLarge,
+        shape = YoinContainerShapes.ListRow,
         color = androidx.compose.ui.graphics.Color.Transparent,
         tonalElevation = 0.dp,
         shadowElevation = 0.dp,
@@ -1128,12 +1543,13 @@ private fun AlbumListItem(
                 model = coverArtUrl,
                 contentDescription = album.name,
                 variant = ExpressiveBackdropVariant.Bun,
-                modifier = Modifier.size(52.dp),
-                shape = YoinShapeTokens.Small,
+                // 48dp aligns these covers with the artist avatars beside
+                // them in the Favorites mixed list; full-bleed kills the
+                // ghost margin left by the removed backdrop shape.
+                modifier = Modifier.size(48.dp),
+                shape = YoinArtworkShapes.Thumb,
                 fallbackIcon = Icons.Filled.LibraryMusic,
-                fillFraction = 0.8f,
-                backdropScale = 0.8f,
-                artworkShiftFraction = 0.06f,
+                fillFraction = 1f,
                 tonalElevation = 0.dp,
                 extractBackdropColors = false,
             )
@@ -1163,24 +1579,17 @@ private fun AlbumListItem(
 private fun buildPlaylistMeta(playlist: Playlist): String {
     val parts = mutableListOf<String>()
     playlist.owner?.takeIf { it.isNotBlank() }?.let(parts::add)
-    playlist.songCount?.let { parts.add("$it tracks") }
-    playlist.durationSec?.takeIf { it > 0 }?.let { parts.add(formatPlaylistDuration(it)) }
+    playlist.songCount?.let { parts.add(if (it == 1) "1 track" else "$it tracks") }
+    playlist.durationSec?.takeIf { it > 0 }?.let { parts.add(formatTotalDuration(it)) }
     return parts.joinToString(" · ").ifBlank { "Playlist" }
-}
-
-private fun formatPlaylistDuration(seconds: Int): String {
-    val hours = seconds / 3600
-    val minutes = (seconds % 3600) / 60
-    return when {
-        hours > 0 -> "${hours}h ${minutes}m"
-        else -> "${minutes}m"
-    }
 }
 
 @Composable
 private fun SearchResultsContent(
     searchResults: SearchResults?,
     isSearching: Boolean,
+    searchError: String? = null,
+    onRetrySearch: () -> Unit = {},
     activeSongId: String? = null,
     isPlaying: Boolean = false,
     playbackSignal: Float = 0f,
@@ -1193,12 +1602,45 @@ private fun SearchResultsContent(
     coverArtUrlBuilder: ((String) -> String)?,
     modifier: Modifier = Modifier,
 ) {
+    val haptics = rememberYoinHaptics()
     if (isSearching) {
         Box(
             modifier = modifier.fillMaxSize(),
             contentAlignment = Alignment.Center,
         ) {
             YoinLoadingIndicator()
+        }
+        return
+    }
+
+    // A failed search is not "No results found" — surface the failure with a
+    // way back in (same message/Retry language as the page-level Error state).
+    if (searchError != null) {
+        Box(
+            modifier = modifier
+                .fillMaxSize()
+                .padding(horizontal = 24.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Text(
+                    text = searchError,
+                    color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.bodyLarge,
+                    textAlign = TextAlign.Center,
+                )
+                TextButton(
+                    onClick = {
+                        haptics.performReject()
+                        onRetrySearch()
+                    },
+                ) {
+                    Text("Retry")
+                }
+            }
         }
         return
     }
@@ -1218,9 +1660,9 @@ private fun SearchResultsContent(
     LazyColumn(
         modifier = modifier.fillMaxSize(),
         contentPadding = PaddingValues(
-            start = 4.dp,
+            start = 0.dp,
             top = 8.dp,
-            end = 4.dp,
+            end = 0.dp,
             bottom = floatingBottomGroupContentPadding(),
         ),
     ) {
@@ -1242,7 +1684,13 @@ private fun SearchResultsContent(
                     artist = artist,
                     coverArtUrl = libraryCoverArtUrl(artist.coverArt, coverArtUrlBuilder),
                     onClick = { onArtistClick(artist.id.toString()) },
-                    modifier = Modifier.expressiveEntrance(entranceProgress),
+                    modifier = Modifier
+                        .animateItem(
+                            fadeInSpec = YoinMotion.effectsSpring(),
+                            placementSpec = YoinMotion.spatialSpring(),
+                            fadeOutSpec = YoinMotion.effectsSpring(),
+                        )
+                        .expressiveEntrance(entranceProgress),
                 )
             }
         }
@@ -1250,25 +1698,37 @@ private fun SearchResultsContent(
             item {
                 SectionHeader(title = "Albums")
             }
-            itemsIndexed(
-                items = searchResults.albums,
-                key = { _, album -> "search-album-${album.id}" },
-            ) { index, album ->
-                val entranceProgress = rememberLibraryItemEntrance(
-                    key = "search-album-${album.id}",
-                    index = index,
-                    delayStepMillis = 24L,
-                    enabled = false,
-                )
-                AlbumListItem(
-                    album = album,
-                    onClick = { onAlbumClick(album.id.toString()) },
-                    coverArtUrl =
-                        libraryCoverArtUrl(album.coverArt, coverArtUrlBuilder)
-                            ?: album.id.takeIf { it.provider == MediaId.PROVIDER_SUBSONIC }
-                                ?.rawId?.let { coverArtUrlBuilder?.invoke(it) },
-                    modifier = Modifier.expressiveEntrance(entranceProgress),
-                )
+            // 3-up grid rows — full-width rows wasted the width on covers.
+            items(
+                items = searchResults.albums.chunked(3),
+                key = { row -> row.joinToString("|") { "search-album-${it.id}" } },
+            ) { row ->
+                Row(
+                    modifier = Modifier
+                        .animateItem(
+                            fadeInSpec = YoinMotion.effectsSpring(),
+                            placementSpec = YoinMotion.spatialSpring(),
+                            fadeOutSpec = YoinMotion.effectsSpring(),
+                        )
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    row.forEach { album ->
+                        AlbumGridItem(
+                            album = album,
+                            onClick = { onAlbumClick(album.id.toString()) },
+                            coverArtUrl =
+                                libraryCoverArtUrl(album.coverArt, coverArtUrlBuilder)
+                                    ?: album.id.takeIf { it.provider == MediaId.PROVIDER_SUBSONIC }
+                                        ?.rawId?.let { coverArtUrlBuilder?.invoke(it) },
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
+                    repeat(3 - row.size) {
+                        Spacer(modifier = Modifier.weight(1f))
+                    }
+                }
             }
         }
         if (searchResults.playlists.isNotEmpty()) {
@@ -1289,7 +1749,13 @@ private fun SearchResultsContent(
                     playlist = playlist,
                     onClick = { onPlaylistClick(playlist.id.toString()) },
                     coverArtUrl = playlistBackdropArtUrl(playlist, coverArtUrlBuilder),
-                    modifier = Modifier.expressiveEntrance(entranceProgress),
+                    modifier = Modifier
+                        .animateItem(
+                            fadeInSpec = YoinMotion.effectsSpring(),
+                            placementSpec = YoinMotion.spatialSpring(),
+                            fadeOutSpec = YoinMotion.effectsSpring(),
+                        )
+                        .expressiveEntrance(entranceProgress),
                 )
             }
         }
@@ -1319,7 +1785,13 @@ private fun SearchResultsContent(
                     playbackSignal = playbackSignal,
                     extractBackdropColors = false,
                     hasNote = song.id.toString() in notedSongIds,
-                    modifier = Modifier.expressiveEntrance(entranceProgress),
+                    modifier = Modifier
+                        .animateItem(
+                            fadeInSpec = YoinMotion.effectsSpring(),
+                            placementSpec = YoinMotion.spatialSpring(),
+                            fadeOutSpec = YoinMotion.effectsSpring(),
+                        )
+                        .expressiveEntrance(entranceProgress),
                 )
             }
         }
@@ -1406,8 +1878,24 @@ private fun SectionHeader(
         text = title,
         style = MaterialTheme.typography.labelLarge,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
-        modifier = modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+        // Top-heavy: the header belongs to the group BELOW it, so it pulls
+        // away from the previous list and sits close to its own.
+        modifier = modifier.padding(start = 16.dp, end = 16.dp, top = 18.dp, bottom = 6.dp),
     )
+}
+
+/**
+ * A tab whose payload hasn't arrived yet (`null` in [LibraryUiState.Content]).
+ * Distinct from [EmptyState]: loading must never read as "No X found".
+ */
+@Composable
+private fun TabLoadingState(modifier: Modifier = Modifier) {
+    Box(
+        modifier = modifier.fillMaxSize(),
+        contentAlignment = Alignment.Center,
+    ) {
+        YoinLoadingIndicator()
+    }
 }
 
 @Composable
@@ -1423,7 +1911,7 @@ private fun EmptyState(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp),
-            shape = YoinShapeTokens.Large,
+            shape = YoinContainerShapes.Card,
             containerColor = MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.72f),
             tonalElevation = 1.dp,
             shadowElevation = 0.dp,

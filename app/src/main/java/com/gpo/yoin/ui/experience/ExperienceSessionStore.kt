@@ -1,5 +1,7 @@
 package com.gpo.yoin.ui.experience
 
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
 import com.gpo.yoin.ui.navigation.YoinSection
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -31,10 +33,29 @@ data class ExperienceSessionState(
     val selectedSection: YoinSection = YoinSection.HOME,
     val homeSurface: HomeSurface = HomeSurface.Feed,
     val nowPlayingExpanded: Boolean = false,
+    /**
+     * True from the moment a detail launch is tapped until the last detail
+     * window has left the screen: the shell bar wears its DETAIL chrome
+     * (Play split + short pill) so the cross-window hand-off — and the
+     * predictive-back preview on return — reads as one persistent bar.
+     */
+    val detailChromeActive: Boolean = false,
     val memories: MemoriesSessionState = MemoriesSessionState(),
 )
 
+/** Phase of a detail page's in-window predictive back gesture. */
+enum class DetailBackPhase { Idle, Gesture, Committed }
+
 class ExperienceSessionStore {
+    // ── Detail predictive-back pose bridge ─────────────────────────────────
+    // Snapshot states, NOT part of [state]: written per gesture FRAME by the
+    // top detail window and read inside graphicsLayer lambdas by the window
+    // beneath (the AOSP "entering target" movement) — layer invalidation
+    // only, zero recomposition at 60Hz.
+    val detailBackPhase = mutableStateOf(DetailBackPhase.Idle)
+    val detailBackProgress = mutableFloatStateOf(0f)
+    val detailBackTouchYDelta = mutableFloatStateOf(0f)
+
     private val _state = MutableStateFlow(ExperienceSessionState())
     val state: StateFlow<ExperienceSessionState> = _state.asStateFlow()
 
@@ -69,6 +90,28 @@ class ExperienceSessionStore {
 
     fun setNowPlayingExpanded(expanded: Boolean) {
         _state.update { current -> current.copy(nowPlayingExpanded = expanded) }
+    }
+
+    /** Flip the shell bar between nav chrome and detail (Play-split) chrome. */
+    fun setDetailChromeActive(active: Boolean) {
+        _state.update { current ->
+            if (current.detailChromeActive == active) current
+            else current.copy(detailChromeActive = active)
+        }
+    }
+
+    /**
+     * Ticks when a detail Activity's window has actually LEFT the screen
+     * (its onStop — the system holds that until the exit animation ends).
+     * The shell's detail-chrome restore (bar reverse morph) waits on this
+     * instead of guessing the dissolve duration: OEMs replace or stretch
+     * activity animations.
+     */
+    private val _detailWindowSettledTick = MutableStateFlow(0L)
+    val detailWindowSettledTick: StateFlow<Long> = _detailWindowSettledTick.asStateFlow()
+
+    fun noteDetailWindowSettled() {
+        _detailWindowSettledTick.update { it + 1L }
     }
 
     fun replaceMemoriesDeck(

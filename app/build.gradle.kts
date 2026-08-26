@@ -31,7 +31,10 @@ val hasReleaseKeystore = listOf(
 ).all { releaseKeystoreProperty(it) != null }
 
 val releaseTaskRequested = gradle.startParameter.taskNames.any { taskName ->
-    taskName.contains("Release", ignoreCase = true)
+    taskName.contains("Release", ignoreCase = true) &&
+        // releaseDebugSigned deliberately signs with the debug key — it must
+        // not trip the upload-keystore guard below.
+        !taskName.contains("ReleaseDebugSigned", ignoreCase = true)
 }
 
 if (releaseTaskRequested && !hasReleaseKeystore) {
@@ -80,6 +83,15 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+        }
+        // The real release build (R8 + resource shrink) signed with the DEBUG
+        // key: installable anywhere without the upload keystore, and never
+        // confusable with a Play upload. Built automatically per commit by the
+        // post-commit hook (scripts/build-debug-signed-release.sh).
+        create("releaseDebugSigned") {
+            initWith(getByName("release"))
+            signingConfig = signingConfigs.getByName("debug")
+            matchingFallbacks += "release"
         }
     }
 
@@ -151,6 +163,7 @@ dependencies {
     implementation(libs.material3.expressive)
     // Window size class + fold posture (currentWindowAdaptiveInfo)
     implementation(libs.material3.adaptive)
+    implementation(libs.androidx.window)
 
     // Navigation 3
     implementation(libs.androidx.navigation3.runtime)

@@ -1,6 +1,8 @@
 package com.gpo.yoin.ui.component
 
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.background
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -21,23 +23,22 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Send
 import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material3.BottomSheetDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -47,30 +48,123 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.gpo.yoin.data.local.SongNote
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
+import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinShapeTokens
+import com.gpo.yoin.ui.theme.YoinContainerShapes
 import java.util.concurrent.TimeUnit
 import java.text.DateFormat
 import java.util.Date
 
 /**
+ * How a track's notes are ordered in the Note panes.
+ * - [Timeline]: by the song-position anchor ([SongNote.positionMs]),
+ *   un-anchored notes last — for call-guide / listen-along reading.
+ * - [Created]: by when the user wrote them (oldest first) — a journal.
+ */
+enum class NoteSortMode { Timeline, Created }
+
+fun sortNotes(notes: List<SongNote>, mode: NoteSortMode): List<SongNote> = when (mode) {
+    NoteSortMode.Timeline -> notes.sortedWith(
+        compareBy<SongNote, Long?>(nullsLast()) { it.positionMs }.thenBy { it.createdAt },
+    )
+    NoteSortMode.Created -> notes.sortedBy { it.createdAt }
+}
+
+/**
+ * The note the playhead is currently "inside": the latest anchored note whose
+ * position is at or before [positionMs] — same rule as the lyrics current
+ * line. Returns null when nothing is anchored yet or the playhead sits before
+ * the first anchor. Order of [notes] doesn't matter.
+ */
+fun currentAnchoredNoteId(notes: List<SongNote>, positionMs: Long): String? {
+    var best: SongNote? = null
+    for (note in notes) {
+        val anchor = note.positionMs ?: continue
+        if (anchor <= positionMs && (best?.positionMs ?: -1L) <= anchor) best = note
+    }
+    return best?.id
+}
+
+fun formatNotePosition(ms: Long): String {
+    val totalSeconds = TimeUnit.MILLISECONDS.toSeconds(ms.coerceAtLeast(0L))
+    val minutes = totalSeconds / 60
+    val seconds = totalSeconds % 60
+    return "%d:%02d".format(minutes, seconds)
+}
+
+/**
  * Individual note row. Shared between the compact preview pane and the
  * fullscreen editable pane.
+ *
+ * [isActive] mirrors the lyrics current-line treatment: the accent rail and
+ * the position stamp light up and the card washes toward the primary
+ * container while the playhead is inside this note's stretch of the song.
+ * [onClick] (when the note is anchored) seeks to the note's moment.
  */
 @Composable
 fun NoteCard(
     note: SongNote,
-    onDelete: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
+    isActive: Boolean = false,
+    onDelete: (() -> Unit)? = null,
+    onClick: (() -> Unit)? = null,
 ) {
     val haptics = rememberYoinHaptics()
+    val railColor by animateColorAsState(
+        targetValue = if (isActive) {
+            MaterialTheme.colorScheme.primary
+        } else {
+            MaterialTheme.colorScheme.primary.copy(alpha = 0.4f)
+        },
+        animationSpec = YoinMotion.effectsSpring(),
+        label = "noteRail",
+    )
+    val containerColor by animateColorAsState(
+        targetValue = if (isActive) {
+            lerp(
+                MaterialTheme.colorScheme.surfaceContainerHighest,
+                MaterialTheme.colorScheme.primaryContainer,
+                0.45f,
+            )
+        } else {
+            MaterialTheme.colorScheme.surfaceContainerHighest
+        },
+        animationSpec = YoinMotion.effectsSpring(),
+        label = "noteContainer",
+    )
+    val metaColor by animateColorAsState(
+        targetValue = if (isActive) {
+            MaterialTheme.colorScheme.primary
+        } else {
+            MaterialTheme.colorScheme.onSurfaceVariant
+        },
+        animationSpec = YoinMotion.effectsSpring(),
+        label = "noteMeta",
+    )
+    val clickInteraction = remember { MutableInteractionSource() }
     Surface(
-        modifier = modifier.fillMaxWidth(),
-        shape = YoinShapeTokens.Large,
-        color = MaterialTheme.colorScheme.surfaceContainerHighest,
+        modifier = modifier
+            .fillMaxWidth()
+            .then(
+                if (onClick != null) {
+                    Modifier.noRippleClickable(interactionSource = clickInteraction) {
+                        haptics.performTick()
+                        onClick()
+                    }
+                } else {
+                    Modifier
+                },
+            ),
+        shape = YoinContainerShapes.Card,
+        color = containerColor,
         tonalElevation = 0.dp,
     ) {
         Row(
@@ -92,20 +186,41 @@ fun NoteCard(
                     .width(3.dp)
                     .fillMaxHeight()
                     .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.7f)),
+                    .background(railColor),
             )
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = note.content,
                     style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = if (isActive) FontWeight.SemiBold else FontWeight.Normal,
                     color = MaterialTheme.colorScheme.onSurface,
                 )
                 Spacer(modifier = Modifier.size(6.dp))
-                Text(
-                    text = formatRelativeTime(note.createdAt),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    note.positionMs?.let { anchor ->
+                        Icon(
+                            imageVector = Icons.Rounded.MusicNote,
+                            contentDescription = null,
+                            tint = metaColor,
+                            modifier = Modifier.size(12.dp),
+                        )
+                        Text(
+                            text = formatNotePosition(anchor),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = metaColor,
+                        )
+                        Text(
+                            text = "  ·  ",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    Text(
+                        text = formatRelativeTime(note.createdAt),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
             if (onDelete != null) {
                 IconButton(
@@ -128,75 +243,290 @@ fun NoteCard(
 }
 
 /**
- * Inline "write a new note" composer. Triggers [onSave] with the trimmed
- * text then clears itself. When [autoFocus] is true the text field grabs
- * focus on first composition — used when the user enters via the Write
- * pill so the keyboard pops up immediately.
+ * The Timeline ⇄ Created order switch, shared by the compact and fullscreen
+ * Note panes: a micro segmented pill in the product's capsule language.
+ */
+@Composable
+fun NoteSortToggle(
+    mode: NoteSortMode,
+    onModeChange: (NoteSortMode) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val haptics = rememberYoinHaptics()
+    Surface(
+        modifier = modifier,
+        shape = YoinShapeTokens.Full,
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        tonalElevation = 0.dp,
+    ) {
+        Row(modifier = Modifier.padding(3.dp)) {
+            NoteSortOption(
+                label = "时间线",
+                selected = mode == NoteSortMode.Timeline,
+                onClick = {
+                    if (mode != NoteSortMode.Timeline) {
+                        haptics.performTick()
+                        onModeChange(NoteSortMode.Timeline)
+                    }
+                },
+            )
+            NoteSortOption(
+                label = "先后",
+                selected = mode == NoteSortMode.Created,
+                onClick = {
+                    if (mode != NoteSortMode.Created) {
+                        haptics.performTick()
+                        onModeChange(NoteSortMode.Created)
+                    }
+                },
+            )
+        }
+    }
+}
+
+@Composable
+private fun NoteSortOption(
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    val container by animateColorAsState(
+        targetValue = if (selected) {
+            MaterialTheme.colorScheme.primary
+        } else {
+            MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0f)
+        },
+        animationSpec = YoinMotion.effectsSpring(),
+        label = "noteSortOption",
+    )
+    val content by animateColorAsState(
+        targetValue = if (selected) {
+            MaterialTheme.colorScheme.onPrimary
+        } else {
+            MaterialTheme.colorScheme.onSurfaceVariant
+        },
+        animationSpec = YoinMotion.effectsSpring(),
+        label = "noteSortOptionText",
+    )
+    val interaction = remember { MutableInteractionSource() }
+    Box(
+        modifier = Modifier
+            .clip(YoinShapeTokens.Full)
+            .background(container)
+            .noRippleClickable(interactionSource = interaction, onClick = onClick)
+            .padding(horizontal = 10.dp, vertical = 4.dp),
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelSmall,
+            color = content,
+        )
+    }
+}
+
+/**
+ * Inline "write a new note" composer, in the product's note language: a
+ * filled Large-radius writing surface carrying the same journal accent rail
+ * as [NoteCard] (it brightens with focus), a song-moment anchor chip, and a
+ * capsule save pill. No outlined borders — those read as stock forms.
+ *
+ * The anchor is captured from [positionMs] the moment the field gains focus
+ * with an empty draft (= the moment the user decides to write). Tapping the
+ * chip toggles: anchored → un-anchored → re-captured at the current playhead.
  */
 @Composable
 fun NoteComposer(
-    onSave: (String) -> Unit,
+    onSave: (String, Long?) -> Unit,
+    positionMs: () -> Long,
     modifier: Modifier = Modifier,
     autoFocus: Boolean = false,
 ) {
     var draft by remember { mutableStateOf("") }
+    // Every note gets a song-moment anchor — recording the moment IS the
+    // default. Seeded at composition, re-synced the instant writing begins,
+    // and tappable to re-align to "now" after a long stretch of typing.
+    var anchorMs by remember { mutableStateOf(positionMs()) }
+    var focused by remember { mutableStateOf(false) }
     val focusRequester = remember { FocusRequester() }
     val haptics = rememberYoinHaptics()
 
     if (autoFocus) {
-        androidx.compose.runtime.LaunchedEffect(Unit) {
+        LaunchedEffect(Unit) {
             focusRequester.requestFocus()
         }
     }
 
+    val railColor by animateColorAsState(
+        targetValue = MaterialTheme.colorScheme.primary.copy(alpha = if (focused) 1f else 0.4f),
+        animationSpec = YoinMotion.effectsSpring(),
+        label = "composerRail",
+    )
+
     Column(modifier = modifier.fillMaxWidth()) {
-        OutlinedTextField(
-            value = draft,
-            onValueChange = { draft = it },
-            modifier = Modifier
-                .fillMaxWidth()
-                .heightIn(min = 120.dp)
-                .focusRequester(focusRequester),
-            placeholder = { Text("这首歌让你想到什么？") },
-            shape = YoinShapeTokens.Large,
-            colors = OutlinedTextFieldDefaults.colors(
-                focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-                unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-                focusedBorderColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f),
-                unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f),
-            ),
-            minLines = 4,
-            maxLines = 10,
-        )
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            shape = YoinContainerShapes.Card,
+            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+            tonalElevation = 0.dp,
+        ) {
+            Row(
+                modifier = Modifier
+                    .height(IntrinsicSize.Min)
+                    .padding(start = 14.dp, end = 16.dp, top = 14.dp, bottom = 14.dp),
+                verticalAlignment = Alignment.Top,
+            ) {
+                Box(
+                    modifier = Modifier
+                        .padding(top = 2.dp, bottom = 2.dp, end = 14.dp)
+                        .width(3.dp)
+                        .fillMaxHeight()
+                        .clip(CircleShape)
+                        .background(railColor),
+                )
+                Box(modifier = Modifier.weight(1f)) {
+                    if (draft.isEmpty()) {
+                        Text(
+                            text = "这首歌让你想到什么？",
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                        )
+                    }
+                    BasicTextField(
+                        value = draft,
+                        onValueChange = { draft = it },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 88.dp)
+                            .focusRequester(focusRequester)
+                            .onFocusChanged { state ->
+                                focused = state.isFocused
+                                // The moment writing begins is the moment the
+                                // note means — snapshot the playhead then.
+                                if (state.isFocused && draft.isEmpty()) {
+                                    anchorMs = positionMs()
+                                }
+                            },
+                        textStyle = MaterialTheme.typography.bodyLarge.copy(
+                            color = MaterialTheme.colorScheme.onSurface,
+                        ),
+                        cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                        maxLines = 10,
+                    )
+                }
+            }
+        }
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(top = 12.dp),
-            horizontalArrangement = Arrangement.End,
+                .padding(top = 10.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            FilledIconButton(
+            NoteAnchorChip(
+                anchorMs = anchorMs,
+                onRealign = {
+                    haptics.performTick()
+                    anchorMs = positionMs()
+                },
+            )
+            NoteSavePill(
+                enabled = draft.isNotBlank(),
                 onClick = {
                     val trimmed = draft.trim()
                     if (trimmed.isNotEmpty()) {
                         haptics.performConfirm()
-                        onSave(trimmed)
+                        onSave(trimmed, anchorMs)
                         draft = ""
+                        anchorMs = positionMs()
                     }
                 },
-                enabled = draft.isNotBlank(),
-                shape = YoinShapeTokens.Large,
-                colors = IconButtonDefaults.filledIconButtonColors(
-                    containerColor = MaterialTheme.colorScheme.primary,
-                    contentColor = MaterialTheme.colorScheme.onPrimary,
-                ),
-            ) {
-                Icon(
-                    imageVector = Icons.AutoMirrored.Rounded.Send,
-                    contentDescription = "Save note",
-                    modifier = Modifier.size(20.dp),
-                )
-            }
+            )
+        }
+    }
+}
+
+/**
+ * The song-moment this note will anchor to — captured when writing begins.
+ * Tap to re-align to the current playhead (after a long stretch of typing).
+ */
+@Composable
+private fun NoteAnchorChip(
+    anchorMs: Long,
+    onRealign: () -> Unit,
+) {
+    val interaction = remember { MutableInteractionSource() }
+    Surface(
+        modifier = Modifier.noRippleClickable(interactionSource = interaction, onClick = onRealign),
+        shape = YoinShapeTokens.Full,
+        color = MaterialTheme.colorScheme.secondaryContainer,
+        tonalElevation = 0.dp,
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(5.dp),
+        ) {
+            Icon(
+                imageVector = Icons.Rounded.MusicNote,
+                contentDescription = "对齐到当前时刻",
+                tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                modifier = Modifier.size(14.dp),
+            )
+            Text(
+                text = formatNotePosition(anchorMs),
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSecondaryContainer,
+            )
+        }
+    }
+}
+
+@Composable
+private fun NoteSavePill(
+    enabled: Boolean,
+    onClick: () -> Unit,
+) {
+    val container by animateColorAsState(
+        targetValue = if (enabled) {
+            MaterialTheme.colorScheme.primary
+        } else {
+            MaterialTheme.colorScheme.surfaceContainerHigh
+        },
+        animationSpec = YoinMotion.effectsSpring(),
+        label = "savePill",
+    )
+    val content = if (enabled) {
+        MaterialTheme.colorScheme.onPrimary
+    } else {
+        MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+    }
+    val interaction = remember { MutableInteractionSource() }
+    Surface(
+        modifier = Modifier.noRippleClickable(
+            interactionSource = interaction,
+            enabled = enabled,
+            onClick = onClick,
+        ),
+        shape = YoinShapeTokens.Full,
+        color = container,
+        tonalElevation = 0.dp,
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Icon(
+                imageVector = Icons.AutoMirrored.Rounded.Send,
+                contentDescription = null,
+                tint = content,
+                modifier = Modifier.size(16.dp),
+            )
+            Text(
+                text = "记下",
+                style = MaterialTheme.typography.labelMedium,
+                color = content,
+            )
         }
     }
 }
@@ -221,16 +551,17 @@ private fun formatRelativeTime(epochMs: Long): String {
  * Now Playing. Mirrors the Devices / Queue sheet pattern so the bottom row
  * of pills behaves consistently — tap to open a sheet, save or dismiss.
  *
- * The text field auto-focuses on open so the keyboard is up right away.
- * Saving clears the draft and closes the sheet via [onDismiss]; the caller
- * owns the actual persistence through [onSave].
+ * The text field auto-focuses on open so the keyboard is up right away —
+ * which also snapshots the playhead as the note's song-moment anchor.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun WriteNoteSheet(
-    onSave: (String) -> Unit,
+    onSave: (String, Long?) -> Unit,
+    positionMs: () -> Long,
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
+    trackTitle: String? = null,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     ModalBottomSheet(
@@ -257,21 +588,25 @@ fun WriteNoteSheet(
                 ),
         ) {
             Text(
-                text = "Write",
+                text = "记笔记",
                 style = MaterialTheme.typography.titleMedium,
                 color = MaterialTheme.colorScheme.onSurface,
             )
             Text(
-                text = "Jot a note for this song.",
+                text = trackTitle?.takeIf { it.isNotBlank() }?.let { "写给《$it》的此刻" }
+                    ?: "写下这首歌让你想到的",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
-            Spacer(modifier = Modifier.size(12.dp))
+            Spacer(modifier = Modifier.size(14.dp))
             NoteComposer(
-                onSave = { text ->
-                    onSave(text)
+                onSave = { text, anchor ->
+                    onSave(text, anchor)
                     onDismiss()
                 },
+                positionMs = positionMs,
                 autoFocus = true,
             )
         }

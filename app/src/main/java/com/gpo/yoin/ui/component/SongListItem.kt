@@ -28,7 +28,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
-import com.gpo.yoin.ui.theme.YoinShapeTokens
+import com.gpo.yoin.ui.theme.YoinArtworkShapes
+import com.gpo.yoin.ui.theme.YoinContainerShapes
 import com.gpo.yoin.ui.theme.YoinTheme
 import com.gpo.yoin.ui.theme.withTabularFigures
 
@@ -65,7 +66,7 @@ fun SongListItem(
                 onClick = onClick,
                 onLongClick = onLongClick,
             ),
-        shape = YoinShapeTokens.ExtraLarge,
+        shape = YoinContainerShapes.ListRow,
         color = Color.Transparent,
         tonalElevation = 0.dp,
         shadowElevation = 0.dp,
@@ -81,22 +82,23 @@ fun SongListItem(
                 model = coverArtUrl,
                 contentDescription = title,
                 variant = ExpressiveBackdropVariant.Circle,
-                modifier = Modifier.size(54.dp),
-                shape = YoinShapeTokens.Small,
+                // 48dp full-bleed: the old 54dp slot at 0.78 fill drew a ~42dp
+                // cover with ghost margins (leftovers of the removed backdrop
+                // shape) that never lined up with the 48dp artist avatars.
+                modifier = Modifier.size(48.dp),
+                shape = YoinArtworkShapes.Thumb,
                 fallbackIcon = Icons.Filled.MusicNote,
                 interactionSource = interactionSource,
                 isPlaybackActive = isNowPlaying,
                 playbackSignal = playbackSignal,
-                fillFraction = 0.78f,
-                backdropScale = 0.78f,
-                artworkShiftFraction = 0.06f,
+                fillFraction = 1f,
                 tonalElevation = 0.dp,
                 extractBackdropColors = extractBackdropColors,
             )
 
+            // Title + subtitle flush — the line-height leading separates them.
             Column(
                 modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(3.dp),
             ) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
@@ -137,7 +139,7 @@ fun SongListItem(
             if (durationSeconds != null) {
                 Spacer(modifier = Modifier.width(6.dp))
                 Text(
-                    text = formatDuration(durationSeconds),
+                    text = formatTrackDuration(durationSeconds),
                     style = MaterialTheme.typography.labelLarge.withTabularFigures(),
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -149,12 +151,6 @@ fun SongListItem(
             }
         }
     }
-}
-
-private fun formatDuration(seconds: Int): String {
-    val mins = seconds / 60
-    val secs = seconds % 60
-    return "%d:%02d".format(mins, secs)
 }
 
 @Preview(showBackground = true, backgroundColor = 0xFF1C1B1F)

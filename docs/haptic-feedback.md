@@ -1,5 +1,12 @@
 # Yoin 震动反馈 (Haptic Feedback) 设计提案
 
+> **状态：已实现**（2026-07-25 复核）。§3 的「统一震动接口」已落地为
+> `app/src/main/java/com/gpo/yoin/ui/experience/Haptics.kt`——`YoinHaptics` 把
+> `HapticFeedbackConstants` 语义化成 `performClick/performTick/performConfirm/performReject/`
+> `performLongPress/performContextClick/performLightTick`（低 API 各有降级路径），
+> 由 `rememberYoinHaptics()` 取用；当前 23 个 UI 文件（不含 `Haptics.kt` 本身）、80 处调用点。
+> 本文保留为场景映射与设计意图的原始依据，不再是待办。
+
 震动反馈能够显著提升应用的操作质感，帮助用户在不完全依赖视觉的情况下确认操作结果。基于 Yoin 当前的 UI 架构（包含正在播放页、首页、详情页、资料库等），本提案建议结合 Android 提供的 `HapticFeedbackConstants` 为不同的交互场景赋予层次分明的震动体验。
 
 ## 1. 核心设计原则

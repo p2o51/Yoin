@@ -24,6 +24,20 @@
     </style>
 
     <!--
+      Detail Activities: translucent-capable so the in-window predictive back
+      can reveal the LIVE window beneath while the page collapses as a card
+      (AOSP entering-target replication). The Activity converts itself to
+      OPAQUE (Activity#setTranslucent(false)) once the enter hand-off settles,
+      so the window beneath still stops in steady state; the gesture converts
+      it back for its duration.
+    -->
+    <style name="Theme.Yoin.DetailTranslucent" parent="Theme.Yoin">
+        <item name="android:windowIsTranslucent">true</item>
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:colorBackgroundCacheHint">@null</item>
+    </style>
+
+    <!--
       Launcher Activity theme = the cold-start SplashScreen (androidx
       core-splashscreen). The three-arrow bloom plays as the animated icon while
       the app loads (Gmail-style), then postSplashScreenTheme swaps to Theme.Yoin

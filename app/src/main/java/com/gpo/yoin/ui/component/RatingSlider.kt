@@ -26,8 +26,13 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.semantics.ProgressBarRangeInfo
+import androidx.compose.ui.semantics.progressBarRangeInfo
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import com.gpo.yoin.ui.experience.rememberYoinHaptics
 import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinShapeTokens
 import com.gpo.yoin.ui.theme.YoinTheme
@@ -53,6 +58,7 @@ fun RatingSlider(
     orientation: Orientation = Orientation.Vertical,
 ) {
     val isVertical = orientation == Orientation.Vertical
+    val haptics = rememberYoinHaptics()
     val animatedFraction by animateFloatAsState(
         targetValue = (rating / 10f).coerceIn(0f, 1f),
         animationSpec = YoinMotion.spatialSpring(),
@@ -73,6 +79,15 @@ fun RatingSlider(
             .onSizeChanged {
                 trackDimensionPx = (if (isVertical) it.height else it.width).coerceAtLeast(1)
             }
+            .semantics {
+                progressBarRangeInfo = ProgressBarRangeInfo(
+                    current = rating.coerceIn(0f, 10f),
+                    range = 0f..10f,
+                    // 0.1-step control: 99 discrete values between the endpoints.
+                    steps = 99,
+                )
+                stateDescription = "Rated ${formatRatingLabel(rating)} out of 10"
+            }
             // One gesture handler for both tap and drag. We set the rating on the
             // initial DOWN (so a plain tap always registers) and CONSUME the down
             // plus every move — the Now Playing host wraps this whole screen in a
@@ -84,8 +99,16 @@ fun RatingSlider(
                 awaitEachGesture {
                     val down = awaitFirstDown(requireUnconsumed = false)
                     down.consume()
+                    // The DOWN sets the baseline silently; each 0.1 step the
+                    // drag crosses afterwards ticks.
+                    var lastSnapped = Float.NaN
                     fun applyAt(rawPos: Float) {
-                        onRatingChange(snap(ratingFractionFrom(rawPos, trackDimensionPx, orientation)))
+                        val snapped = snap(ratingFractionFrom(rawPos, trackDimensionPx, orientation))
+                        if (!lastSnapped.isNaN() && snapped != lastSnapped) {
+                            haptics.performTick()
+                        }
+                        lastSnapped = snapped
+                        onRatingChange(snapped)
                     }
                     applyAt(if (isVertical) down.position.y else down.position.x)
                     while (true) {

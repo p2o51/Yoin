@@ -1,14 +1,23 @@
 package com.gpo.yoin.ui.memories
 
-import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.foundation.gestures.draggable
+import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -19,37 +28,39 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.LibraryMusic
+import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.ColorScheme
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
-import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialShapes
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.toShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -59,6 +70,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.graphicsLayer
@@ -67,6 +79,8 @@ import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -77,36 +91,40 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.gpo.yoin.ui.component.ExpressiveMediaArtwork
 import com.gpo.yoin.ui.component.ExpressivePageBackground
 import com.gpo.yoin.ui.component.YoinLoadingIndicator
+import com.gpo.yoin.ui.component.YoinPageWidths
+import com.gpo.yoin.ui.component.formatTrackDuration
 import com.gpo.yoin.ui.component.rememberExpressiveBackdropColors
+import com.gpo.yoin.ui.component.yoinPageContentWidth
 import com.gpo.yoin.ui.experience.DeckIndicatorTransitionState
 import com.gpo.yoin.ui.experience.EdgeAdvanceDirection
-import com.gpo.yoin.ui.experience.MemoryScrollPosition
+import com.gpo.yoin.ui.experience.LocalMotionProfile
 import com.gpo.yoin.ui.experience.MemoriesSessionState
+import com.gpo.yoin.ui.experience.MotionProfile
 import com.gpo.yoin.ui.experience.ReportMotionPressure
 import com.gpo.yoin.ui.experience.RevealState
 import com.gpo.yoin.ui.experience.rememberDeckIndicatorTransitionState
 import com.gpo.yoin.ui.experience.rememberEdgeAdvanceState
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
 import com.gpo.yoin.ui.navigation.back.BackMotionTokens
+import com.gpo.yoin.ui.theme.ContinuousRoundedCornerShape
 import com.gpo.yoin.ui.theme.ExpressiveColorSchemeFactory
 import com.gpo.yoin.ui.theme.ProvideYoinMotionRole
 import com.gpo.yoin.ui.theme.GoogleSansFlex
 import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinMotionRole
-import com.gpo.yoin.ui.theme.YoinShapeTokens
+import com.gpo.yoin.ui.theme.YoinArtworkShapes
+import com.gpo.yoin.ui.theme.YoinSerifTitle
 import com.gpo.yoin.ui.theme.withTabularFigures
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 import kotlin.math.abs
+import kotlin.math.roundToInt
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.flow.distinctUntilChanged
 
 private val MemoriesAdjacentDeckTrigger = 72.dp
 private val MemoriesDeckEnterOffset = 44.dp
-private val MemoriesScoreShapeWidth = 148.dp
-private val MemoriesScoreShapeHeight = 118.dp
 
 @Composable
 fun MemoriesScreen(
@@ -114,6 +132,7 @@ fun MemoriesScreen(
     revealState: RevealState,
     onDismissed: () -> Unit,
     onPlayMemoryTrack: (MemoryEntry, Int) -> Unit,
+    onOpenAlbum: (MemoryEntry) -> Unit,
     onNavigateToNeoDbSettings: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
@@ -167,37 +186,50 @@ fun MemoriesScreen(
 
     ProvideYoinMotionRole(role = YoinMotionRole.Expressive) {
         ExpressivePageBackground(modifier = modifier) {
-            when (val state = uiState) {
-                MemoriesUiState.Loading -> {
-                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        YoinLoadingIndicator()
+            AnimatedContent(
+                targetState = uiState,
+                transitionSpec = {
+                    YoinMotion.fadeIn(role = YoinMotionRole.Standard) togetherWith
+                        YoinMotion.fadeOut(role = YoinMotionRole.Standard)
+                },
+                // Keyed on the state CLASS: Content-to-Content data updates
+                // (deck advance, sync flags) must not re-run the fade.
+                contentKey = { it::class },
+                label = "memoriesState",
+                modifier = Modifier.fillMaxSize(),
+            ) { state ->
+                when (state) {
+                    MemoriesUiState.Loading -> {
+                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            YoinLoadingIndicator()
+                        }
                     }
-                }
 
-                MemoriesUiState.Empty -> {
-                    MemoriesEmptyState()
-                }
+                    MemoriesUiState.Empty -> {
+                        MemoriesEmptyState()
+                    }
 
-                is MemoriesUiState.Error -> {
-                    MemoriesErrorState(
-                        message = state.message,
-                        onRetry = viewModel::refresh,
-                    )
-                }
+                    is MemoriesUiState.Error -> {
+                        MemoriesErrorState(
+                            message = state.message,
+                            onRetry = viewModel::refresh,
+                        )
+                    }
 
-                is MemoriesUiState.Content -> {
-                    MemoriesContent(
-                        contentState = state,
-                        sessionState = sessionState,
-                        revealState = revealState,
-                        onDismissed = onDismissed,
-                        onPlayMemoryTrack = onPlayMemoryTrack,
-                        onAdvanceDeck = viewModel::advanceDeck,
-                        onCurrentPageChange = viewModel::setCurrentPage,
-                        onMemoryScrollChange = viewModel::setMemoryScroll,
-                        syncingEntityIds = syncingIds,
-                        onSyncToNeoDb = viewModel::pushToNeoDb,
-                    )
+                    is MemoriesUiState.Content -> {
+                        MemoriesContent(
+                            contentState = state,
+                            sessionState = sessionState,
+                            revealState = revealState,
+                            onDismissed = onDismissed,
+                            onPlayMemoryTrack = onPlayMemoryTrack,
+                            onOpenAlbum = onOpenAlbum,
+                            onAdvanceDeck = viewModel::advanceDeck,
+                            onCurrentPageChange = viewModel::setCurrentPage,
+                            syncingEntityIds = syncingIds,
+                            onSyncToNeoDb = viewModel::pushToNeoDb,
+                        )
+                    }
                 }
             }
             SnackbarHost(
@@ -218,6 +250,7 @@ private fun MemoriesEmptyState(
         modifier = Modifier
             .fillMaxSize()
             .padding(WindowInsets.systemBars.asPaddingValues())
+            .yoinPageContentWidth(YoinPageWidths.Card)
             .padding(horizontal = 24.dp),
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -246,6 +279,7 @@ private fun MemoriesErrorState(
         modifier = Modifier
             .fillMaxSize()
             .padding(WindowInsets.systemBars.asPaddingValues())
+            .yoinPageContentWidth(YoinPageWidths.Card)
             .padding(horizontal = 24.dp),
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -273,9 +307,9 @@ private fun MemoriesContent(
     revealState: RevealState,
     onDismissed: () -> Unit,
     onPlayMemoryTrack: (MemoryEntry, Int) -> Unit,
+    onOpenAlbum: (MemoryEntry) -> Unit,
     onAdvanceDeck: (MemoryDeckDirection) -> Unit,
     onCurrentPageChange: (Int) -> Unit,
-    onMemoryScrollChange: (Long, MemoryScrollPosition) -> Unit,
     syncingEntityIds: Set<String> = emptySet(),
     onSyncToNeoDb: (MemoryEntry) -> Unit = {},
 ) {
@@ -284,37 +318,63 @@ private fun MemoriesContent(
     val dismissHintPx = with(density) { BackMotionTokens.MemoriesDismissTrigger.toPx() }
     val adjacentDeckTriggerPx = with(density) { MemoriesAdjacentDeckTrigger.toPx() }
     val deckEnterOffsetPx = with(density) { MemoriesDeckEnterOffset.toPx() }
-    val deckEntranceProgress = remember(contentState.deckRevision) {
-        Animatable(if (contentState.deckRevision <= 1) 1f else 0f)
-    }
     val edgeAdvanceState = rememberEdgeAdvanceState(triggerPx = adjacentDeckTriggerPx)
-    val deckEntranceSpec = YoinMotion.defaultSpatialSpec<Float>(role = YoinMotionRole.Expressive)
 
     LaunchedEffect(contentState.deckRevision) {
         edgeAdvanceState.reset()
-        if (contentState.deckRevision <= 1) return@LaunchedEffect
-        deckEntranceProgress.animateTo(
-            targetValue = 1f,
-            animationSpec = deckEntranceSpec,
-        )
     }
 
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
         val containerHeightPx = with(density) { maxHeight.toPx().coerceAtLeast(1f) }
 
-        key(contentState.deckRevision) {
-            val memories = contentState.memories
+        // Deck switches animate as ONE AnimatedContent transition (slide + fade
+        // in, symmetric slide + fade out) — it is the sole owner of the pane's
+        // offset/alpha. Keyed on the revision so Content-to-Content updates
+        // within a deck (e.g. isLoadingAdjacentDeck) just recompose in place.
+        // targetState is the whole Content so the EXITING pane keeps rendering
+        // its own memories snapshot instead of the new deck's.
+        AnimatedContent(
+            targetState = contentState,
+            contentKey = { it.deckRevision },
+            transitionSpec = {
+                // The new deck enters from the pulled edge; the old one
+                // retreats out the opposite side along the same axis.
+                val enterFrom = when (targetState.deckDirection) {
+                    MemoryDeckDirection.Backward -> -1
+                    MemoryDeckDirection.Forward -> 1
+                }
+                val enter = YoinMotion.slideInHorizontally(role = YoinMotionRole.Expressive) {
+                    enterFrom * deckEnterOffsetPx.roundToInt()
+                } + YoinMotion.fadeIn(role = YoinMotionRole.Expressive)
+                val exit = YoinMotion.slideOutHorizontally(role = YoinMotionRole.Expressive) {
+                    -enterFrom * deckEnterOffsetPx.roundToInt()
+                } + YoinMotion.fadeOut(role = YoinMotionRole.Expressive)
+                enter togetherWith exit
+            },
+            label = "memoriesDeck",
+            modifier = Modifier.fillMaxSize(),
+        ) { deckState ->
+            val memories = deckState.memories
             val pagerState = rememberPagerState(
                 initialPage = sessionState.currentPage.coerceIn(0, memories.lastIndex),
                 pageCount = { memories.size },
             )
             val coroutineScope = rememberCoroutineScope()
-            var isCommittedToDismiss by remember(contentState.deckRevision) { mutableStateOf(false) }
+            var isCommittedToDismiss by remember(deckState.deckRevision) { mutableStateOf(false) }
             var latestContainerHeightPx by remember { mutableFloatStateOf(containerHeightPx) }
             val selectedIndex = pagerState.currentPage.coerceIn(0, memories.lastIndex)
             val selectedMemory = memories[selectedIndex]
-            val deckTransitionDirection = contentState.deckDirection
             val adjacentDeckDirection = edgeAdvanceState.direction?.toMemoryDeckDirection()
+
+            // Ambient moving-gradient wash in the CURRENT memory's palette —
+            // swiping re-tints the whole atmosphere (the palette's own 380ms
+            // hand-off animates the transition). Loops run only while the
+            // deck is actually on screen.
+            val auroraColors = rememberExpressiveBackdropColors(
+                model = selectedMemory.coverArtUrl,
+                fallbackBaseColor = MaterialTheme.colorScheme.primaryContainer,
+                fallbackAccentColor = MaterialTheme.colorScheme.tertiaryContainer,
+            )
 
             LaunchedEffect(containerHeightPx) {
                 latestContainerHeightPx = containerHeightPx
@@ -331,7 +391,7 @@ private fun MemoriesContent(
             val pagerEdgeConnection = remember(
                 pagerState,
                 memories,
-                contentState.isLoadingAdjacentDeck,
+                deckState.isLoadingAdjacentDeck,
                 onAdvanceDeck,
             ) {
                 object : NestedScrollConnection {
@@ -340,7 +400,7 @@ private fun MemoriesContent(
                         available: Offset,
                         source: NestedScrollSource,
                     ): Offset {
-                        if (source != NestedScrollSource.UserInput || contentState.isLoadingAdjacentDeck) {
+                        if (source != NestedScrollSource.UserInput || deckState.isLoadingAdjacentDeck) {
                             return Offset.Zero
                         }
                         val direction = when {
@@ -373,14 +433,14 @@ private fun MemoriesContent(
             Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .graphicsLayer {
-                        val directionMultiplier = when (deckTransitionDirection) {
-                            MemoryDeckDirection.Backward -> -1f
-                            MemoryDeckDirection.Forward -> 1f
-                        }
-                        translationX = (1f - deckEntranceProgress.value) * directionMultiplier * deckEnterOffsetPx
-                        alpha = 0.8f + deckEntranceProgress.value * 0.2f
-                    }
+                    // The wash lives on the pane itself (AnimatedContent's
+                    // lambda is not a BoxScope) so it rides the deck
+                    // transition together with the content.
+                    .memoriesAuroraBackground(
+                        baseColor = auroraColors.baseColor,
+                        accentColor = auroraColors.accentColor,
+                        visible = revealState.fraction < 0.999f,
+                    )
                     .padding(top = WindowInsets.systemBars.asPaddingValues().calculateTopPadding() + 12.dp),
             ) {
                 MemoriesHeader(
@@ -393,8 +453,6 @@ private fun MemoriesContent(
                         }
                     },
                     selectedMemory = selectedMemory,
-                    deckTransitionProgress = deckEntranceProgress.value,
-                    deckTransitionDirection = deckTransitionDirection,
                     adjacentDeckProgress = edgeAdvanceState.progress,
                     adjacentDeckDirection = adjacentDeckDirection,
                     modifier = Modifier
@@ -415,112 +473,65 @@ private fun MemoriesContent(
                         fallbackBaseColor = MaterialTheme.colorScheme.outlineVariant,
                         fallbackAccentColor = MaterialTheme.colorScheme.primary,
                     )
-                    val storedScrollPosition = sessionState.perMemoryScrollOffsets[memory.sourceActivityId]
-                        ?: MemoryScrollPosition()
-                    val listState = remember(memory.sourceActivityId, contentState.deckRevision) {
-                        LazyListState(
-                            firstVisibleItemIndex = storedScrollPosition.firstVisibleItemIndex,
-                            firstVisibleItemScrollOffset = storedScrollPosition.firstVisibleItemScrollOffset,
-                        )
-                    }
-                    LaunchedEffect(listState, memory.sourceActivityId) {
-                        snapshotFlow {
-                            MemoryScrollPosition(
-                                firstVisibleItemIndex = listState.firstVisibleItemIndex,
-                                firstVisibleItemScrollOffset = listState.firstVisibleItemScrollOffset,
-                            )
-                        }
-                            .distinctUntilChanged()
-                            .collect { position ->
-                                onMemoryScrollChange(memory.sourceActivityId, position)
-                            }
-                    }
-                    val dismissConnection = remember(listState, revealState) {
-                        object : NestedScrollConnection {
-                            override fun onPreScroll(
-                                available: Offset,
-                                source: NestedScrollSource,
-                            ): Offset {
-                                if (source != NestedScrollSource.UserInput) {
-                                    return Offset.Zero
-                                }
-                                if (isCommittedToDismiss) {
-                                    // Settle is in flight — own the rest of
-                                    // this touch sequence so a continued drag
-                                    // doesn't fight the close animation.
-                                    return Offset(0f, available.y)
-                                }
-                                val pullingUpAtTop = available.y < 0f && listState.isAtTop()
-                                val pullingDownWhileEngaged = available.y > 0f && revealState.fraction > 0f
-                                if (pullingUpAtTop || pullingDownWhileEngaged) {
-                                    revealState.dragBy(available.y, latestContainerHeightPx)
-                                    return Offset(0f, available.y)
-                                }
-                                return Offset.Zero
-                            }
-
-                            override suspend fun onPreFling(available: Velocity): Velocity {
-                                if (revealState.fraction <= 0f) return Velocity.Zero
-                                isCommittedToDismiss = true
-                                try {
-                                    val target = revealState.settle(
-                                        velocityPxPerSec = available.y,
-                                        containerPx = latestContainerHeightPx,
-                                    )
-                                    if (target >= 1f) {
-                                        haptics.performConfirm()
-                                        onDismissed()
-                                    }
-                                } finally {
-                                    isCommittedToDismiss = false
-                                }
-                                return available
-                            }
+                    // 单视口固定栈：卡内没有任何竖向滚动，竖向手势整段归
+                    // dismiss。draggable 与 pager 的横向手势各占一轴。
+                    val dismissDragState = rememberDraggableState { delta ->
+                        if (!isCommittedToDismiss) {
+                            revealState.dragBy(delta, latestContainerHeightPx)
                         }
                     }
-                    val navBottom = WindowInsets.navigationBars.asPaddingValues()
-                        .calculateBottomPadding()
-                    LazyColumn(
-                        state = listState,
+                    MemorySealCard(
+                        memory = memory,
+                        seedColor = pageColors.baseColor,
+                        isSyncingToNeoDb = "${memory.entityProvider}:${memory.entityId}" in syncingEntityIds,
+                        onSyncToNeoDb = { onSyncToNeoDb(memory) },
+                        onPlayCover = {
+                            haptics.performClick()
+                            onPlayMemoryTrack(memory, 0)
+                        },
+                        onOpenAlbum = {
+                            haptics.performClick()
+                            onOpenAlbum(memory)
+                        },
                         modifier = Modifier
                             .fillMaxSize()
-                            .nestedScroll(dismissConnection),
-                        contentPadding = PaddingValues(
-                            top = 20.dp,
-                            start = 20.dp,
-                            end = 20.dp,
-                            bottom = 132.dp + navBottom,
-                        ),
-                        verticalArrangement = Arrangement.spacedBy(20.dp),
-                    ) {
-                        item {
-                            MemoriesHero(
-                                memory = memory,
-                                seedColor = pageColors.baseColor,
-                                isSyncingToNeoDb = "${memory.entityProvider}:${memory.entityId}" in syncingEntityIds,
-                                onSyncToNeoDb = { onSyncToNeoDb(memory) },
-                            )
-                        }
-
-                        if (memory.tracks.isNotEmpty()) {
-                            itemsIndexed(
-                                items = memory.tracks,
-                                key = { _, track -> track.stableId },
-                            ) { index, track ->
-                                MemoryTrackRow(
-                                    index = index + 1,
-                                    track = track,
-                                    accentColor = pageColors.baseColor,
-                                    onClick = {
-                                        haptics.performClick()
-                                        onPlayMemoryTrack(memory, index)
-                                    },
-                                )
-                            }
-                        }
-                    }
+                            .draggable(
+                                state = dismissDragState,
+                                orientation = Orientation.Vertical,
+                                onDragStopped = { velocity ->
+                                    if (revealState.fraction > 0f) {
+                                        isCommittedToDismiss = true
+                                        try {
+                                            val target = revealState.settle(
+                                                velocityPxPerSec = velocity,
+                                                containerPx = latestContainerHeightPx,
+                                            )
+                                            if (target >= 1f) {
+                                                haptics.performConfirm()
+                                                onDismissed()
+                                            }
+                                        } finally {
+                                            isCommittedToDismiss = false
+                                        }
+                                    }
+                                },
+                            ),
+                    )
                 }
             }
+        }
+
+        // Edge-pull deck fetch can take a beat or two — float a small quiet
+        // indicator over the deck so the wait isn't dead air.
+        AnimatedVisibility(
+            visible = contentState.isLoadingAdjacentDeck,
+            enter = YoinMotion.fadeIn(role = YoinMotionRole.Standard),
+            exit = YoinMotion.fadeOut(role = YoinMotionRole.Standard),
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = 72.dp),
+        ) {
+            YoinLoadingIndicator(size = 28.dp)
         }
 
         // Return-to-home hint arrow
@@ -547,8 +558,6 @@ private fun MemoriesHeader(
     selectedIndex: Int,
     currentPageOffsetFraction: Float,
     selectedMemory: MemoryEntry,
-    deckTransitionProgress: Float,
-    deckTransitionDirection: MemoryDeckDirection,
     adjacentDeckProgress: Float,
     adjacentDeckDirection: MemoryDeckDirection?,
     onSelect: (Int) -> Unit,
@@ -581,22 +590,12 @@ private fun MemoriesHeader(
                 ),
                 color = MaterialTheme.colorScheme.onSurface,
             )
-            Text(
-                text = "Album memories",
-                style = MaterialTheme.typography.labelLarge.copy(
-                    fontWeight = FontWeight.Medium,
-                    fontFamily = GoogleSansFlex,
-                ),
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
         }
 
         MemoriesDots(
             memories = memories,
             selectedIndex = selectedIndex,
             currentPageOffsetFraction = currentPageOffsetFraction,
-            deckTransitionProgress = deckTransitionProgress,
-            deckTransitionDirection = deckTransitionDirection,
             adjacentDeckProgress = adjacentDeckProgress,
             adjacentDeckDirection = adjacentDeckDirection,
             onSelect = onSelect,
@@ -609,16 +608,17 @@ private fun MemoriesDots(
     memories: List<MemoryEntry>,
     selectedIndex: Int,
     currentPageOffsetFraction: Float,
-    deckTransitionProgress: Float,
-    deckTransitionDirection: MemoryDeckDirection,
     adjacentDeckProgress: Float,
     adjacentDeckDirection: MemoryDeckDirection?,
     onSelect: (Int) -> Unit,
 ) {
     val continuousPosition = selectedIndex + currentPageOffsetFraction
+    // Deck-switch motion is owned by the AnimatedContent pane (the dots ride
+    // it); the indicator only adds the live edge-pull hint, so the deck
+    // transition inputs are pinned to their resting values.
     val indicatorTransitionState: DeckIndicatorTransitionState = rememberDeckIndicatorTransitionState(
-        deckTransitionProgress = deckTransitionProgress,
-        deckTransitionDirection = deckTransitionDirection.toEdgeAdvanceDirection(),
+        deckTransitionProgress = 1f,
+        deckTransitionDirection = EdgeAdvanceDirection.Forward,
         adjacentProgress = adjacentDeckProgress,
         adjacentDirection = adjacentDeckDirection?.toEdgeAdvanceDirection(),
     )
@@ -677,13 +677,22 @@ private fun MemoriesDots(
     }
 }
 
-@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+/**
+ * 单视口印章卡 —— 每张 Memory 一屏放完，卡内永不竖向滚动：
+ * 标题区 → 印章行（评分三态 + AI 拟题/正文）→ 笔记卡 ≤2 → 弹性呼吸 →
+ * footnotes（证据句 + NeoDB 五态，锚底）→ 前往专辑（唯一导航出口）。
+ * 装不下的内容硬截断，去处都是底部那颗按钮；超量笔记走 sheet（卡外展开）。
+ */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun MemoriesHero(
+private fun MemorySealCard(
     memory: MemoryEntry,
     seedColor: Color,
-    isSyncingToNeoDb: Boolean = false,
-    onSyncToNeoDb: () -> Unit = {},
+    isSyncingToNeoDb: Boolean,
+    onSyncToNeoDb: () -> Unit,
+    onPlayCover: () -> Unit,
+    onOpenAlbum: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     val haptics = rememberYoinHaptics()
     val darkTheme = isSystemInDarkTheme()
@@ -693,265 +702,525 @@ private fun MemoriesHero(
             isDark = darkTheme,
         )
     }
-    val scoreContainerColor = memoryColorScheme.secondaryContainer
-    val scoreContentColor = memoryColorScheme.onSecondaryContainer
-    val syncButtonColors = ButtonDefaults.filledTonalButtonColors(
-        containerColor = memoryColorScheme.primaryContainer,
-        contentColor = memoryColorScheme.onPrimaryContainer,
-        disabledContainerColor = memoryColorScheme.surfaceContainerHigh,
-        disabledContentColor = memoryColorScheme.onSurfaceVariant,
-    )
+    var showAllNotes by remember(memory.stableId) { mutableStateOf(false) }
+    var showFullReview by remember(memory.stableId) { mutableStateOf(false) }
+    val navBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+
     Column(
-        modifier = Modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
+        // 限宽链在来件 modifier 之后:wrapContentWidth 上报的尺寸仍被上游
+        // fillMaxSize 的固定约束钳成全宽,所以 dismiss draggable 的命中区
+        // 保持整面板宽度——侧边空档起手的下拉照样能关掉页面。
+        modifier = modifier
+            .yoinPageContentWidth(YoinPageWidths.Card)
+            .padding(start = 20.dp, end = 20.dp, top = 20.dp),
     ) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(16.dp),
-        verticalAlignment = Alignment.Top,
-    ) {
-        Column(
-            modifier = Modifier.weight(1f),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+        // ── 标题区：专辑名 + 艺人·年份，72dp 裸封面（点按即播） ──
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(16.dp),
+            verticalAlignment = Alignment.Top,
         ) {
-            Text(
-                text = memory.title,
-                style = MaterialTheme.typography.headlineMedium,
-                color = MaterialTheme.colorScheme.onSurface,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Text(
-                text = memory.supportingText,
-                style = MaterialTheme.typography.titleSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            memory.metaText?.let { meta ->
-                Text(
-                    text = meta,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.secondary,
-                )
-            }
-            memory.lastPlayedAt?.let { lastPlayedAt ->
-                Text(
-                    text = "Last listened ${lastPlayedAt.toRelativeMemoryTime()}",
-                    style = MaterialTheme.typography.labelLarge.withTabularFigures(),
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
             Column(
-                modifier = Modifier.padding(top = 2.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
-                Surface(
-                    modifier = Modifier.size(
-                        width = MemoriesScoreShapeWidth,
-                        height = MemoriesScoreShapeHeight,
+                Text(
+                    text = memory.title,
+                    style = MaterialTheme.typography.headlineLarge.copy(
+                        fontWeight = FontWeight.SemiBold,
                     ),
-                    shape = MaterialShapes.Bun.toShape(),
-                    color = scoreContainerColor,
-                    tonalElevation = 0.dp,
-                    shadowElevation = 0.dp,
-                ) {
-                    Box(
-                        modifier = Modifier.fillMaxSize(),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Text(
-                            text = memory.scoreText,
-                            style = MaterialTheme.typography.headlineMedium.withTabularFigures(),
-                            color = scoreContentColor,
-                            textAlign = TextAlign.Center,
-                            maxLines = 1,
-                        )
-                    }
-                }
-                memory.scoreSupportingText?.let { supporting ->
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    text = memory.supportingText,
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            ExpressiveMediaArtwork(
+                model = memory.coverArtUrl,
+                contentDescription = memory.title,
+                modifier = Modifier
+                    .size(72.dp)
+                    .clickable(onClick = onPlayCover),
+                shape = YoinArtworkShapes.Cover,
+                fallbackIcon = Icons.Filled.LibraryMusic,
+                tonalElevation = 0.dp,
+                shadowElevation = 0.dp,
+            )
+        }
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        // ── 印章行：148dp 曲奇印章 × AI 拟题 + 正文 ──
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(20.dp),
+        ) {
+            MemorySeal(
+                memory = memory,
+                scheme = memoryColorScheme,
+            )
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .height(MemorySealSize),
+                verticalArrangement = Arrangement.Center,
+            ) {
+                // 右列只放拟题（方案 B）：正文升级为下方的全宽区块。
+                // 拟题是标题 → 宋体（字体规范 2026-07-26）；不渲染来源 eyebrow。
+                memory.memoryTitle?.let { title ->
                     Text(
-                        text = supporting,
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        textAlign = TextAlign.Center,
+                        text = title,
+                        style = MaterialTheme.typography.titleLarge.copy(
+                            fontWeight = FontWeight.SemiBold,
+                            fontFamily = YoinSerifTitle,
+                            fontSize = 22.sp,
+                            lineHeight = 30.sp,
+                        ),
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 3,
+                        overflow = TextOverflow.Ellipsis,
                     )
                 }
             }
         }
 
-        Column(
-            modifier = Modifier.weight(0.9f),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            ExpressiveMediaArtwork(
-                model = memory.coverArtUrl,
-                contentDescription = memory.title,
+        Spacer(modifier = Modifier.height(24.dp))
+
+        // ── 全宽乐评区（方案 B）：长评终于有配得上它的面积。硬截断，
+        //    点击开 sheet 读全文；笔记不再占卡面（收进底部按钮）。 ──
+        val reviewText = memory.review?.text
+        if (reviewText != null) {
+            // 正文主体 = 系统默认黑体（字体规范 2026-07-26）——衬线让位给标题。
+            Text(
+                text = reviewText,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(172.dp),
-                shape = YoinShapeTokens.ExtraLarge,
-                fallbackIcon = Icons.Filled.LibraryMusic,
-                tonalElevation = 0.dp,
-                shadowElevation = 0.dp,
-            )
-            memory.footerText?.let { footer ->
-                Text(
-                    text = footer,
-                    style = MaterialTheme.typography.labelLarge.withTabularFigures(),
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    textAlign = TextAlign.Center,
-                )
-            }
-        }
-    }
-        MemoryReasonChips(
-            chips = memory.reasonChips,
-            containerColor = memoryColorScheme.surfaceContainerHigh,
-            contentColor = memoryColorScheme.onSurfaceVariant,
-        )
-        // 「余音 Gemini 文案」或本地 fallback 文案独占一行，贴合卡片宽度。
-        // fallback 只基于本地结构化信号，不调用 AI，也不上传 note/review 原文。
-        memory.narrativeCopy?.takeIf(String::isNotBlank)?.let { narrative ->
-            Text(
-                text = narrative,
-                modifier = Modifier.fillMaxWidth(),
-                style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.84f),
-            )
-        }
-        // 同步到 NeoDB 按钮 —— 只在专辑卡显示（单曲 / 歌单不推）。未登录时
-        // ViewModel 会发 one-shot event 引导去 Settings；不在按钮上做二次
-        // 判断，保持按钮态单一。
-        if (memory.entityType == MemoryEntityType.ALBUM) {
-            FilledTonalButton(
-                onClick = {
-                    haptics.performConfirm()
-                    onSyncToNeoDb()
-                },
-                enabled = !isSyncingToNeoDb,
-                colors = syncButtonColors,
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Icon(
-                    imageVector = Icons.Filled.CloudUpload,
-                    contentDescription = null,
-                    modifier = Modifier.size(18.dp),
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = if (isSyncingToNeoDb) {
-                        "Syncing to NeoDB…"
-                    } else {
-                        "Sync rating & review to NeoDB"
+                    .clickable {
+                        haptics.performClick()
+                        showFullReview = true
                     },
-                )
-            }
-        }
-    }
-}
-
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-private fun MemoryReasonChips(
-    chips: List<String>,
-    containerColor: Color,
-    contentColor: Color,
-) {
-    if (chips.isEmpty()) return
-    FlowRow(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        chips.forEach { chip ->
-            Surface(
-                shape = YoinShapeTokens.Full,
-                color = containerColor,
-                tonalElevation = 0.dp,
-                shadowElevation = 0.dp,
-            ) {
+                style = MaterialTheme.typography.bodyLarge.copy(
+                    fontFamily = FontFamily.Default,
+                    fontSize = 15.sp,
+                    lineHeight = 25.sp,
+                ),
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 8,
+                overflow = TextOverflow.Ellipsis,
+            )
+        } else {
+            // 无长评：先呈现 Yoin 的话（必须标记——它不是你写的字），
+            // 再用一行斜体小字 + 按钮引导写评价（owner 裁决 2026-07-26）。
+            memory.narrativeCopy?.takeIf(String::isNotBlank)?.let { copy ->
                 Text(
-                    text = chip,
-                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                    style = MaterialTheme.typography.labelMedium.withTabularFigures(),
-                    color = contentColor,
-                    maxLines = 1,
+                    text = "Written by Yoin",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Text(
+                    text = copy,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 4.dp),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 3,
                     overflow = TextOverflow.Ellipsis,
                 )
+                Spacer(modifier = Modifier.height(16.dp))
+            }
+            Text(
+                text = "How did this album land for you?",
+                style = MaterialTheme.typography.bodySmall.copy(
+                    fontStyle = FontStyle.Italic,
+                ),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            TextButton(
+                onClick = onOpenAlbum,
+                contentPadding = PaddingValues(horizontal = 4.dp),
+            ) {
+                Text(
+                    text = "Write a review",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = memoryColorScheme.primary,
+                )
+            }
+        }
+
+        // ── 弹性呼吸：notes 与锚底 footnotes 之间 ──
+        Spacer(modifier = Modifier.weight(1f))
+
+        // ── footnotes：证据句 + NeoDB 五态（锚底，四卡同位） ──
+        Text(
+            text = memory.evidenceLine(),
+            style = MaterialTheme.typography.bodySmall.withTabularFigures(),
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+        )
+        if (memory.entityType == MemoryEntityType.ALBUM) {
+            when (memory.neoDbState) {
+                MemoryNeoDbState.SYNCED -> MemoryFootnote("Synced to NeoDB")
+                MemoryNeoDbState.NEEDS_REVIEW -> MemoryFootnote("Write a review to push to NeoDB")
+                MemoryNeoDbState.NEEDS_RATING -> MemoryFootnote("Add a rating to push to NeoDB")
+                MemoryNeoDbState.READY -> TextButton(
+                    onClick = {
+                        haptics.performConfirm()
+                        onSyncToNeoDb()
+                    },
+                    enabled = !isSyncingToNeoDb,
+                    contentPadding = PaddingValues(horizontal = 4.dp),
+                ) {
+                    Text(
+                        text = if (isSyncingToNeoDb) "Syncing to NeoDB…" else "Push to NeoDB",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = memoryColorScheme.primary,
+                    )
+                }
+                MemoryNeoDbState.UNAVAILABLE -> Unit
+            }
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        // ── 底部按钮排：笔记入口（带条数）在左，前往专辑在右。
+        //    笔记卡从卡面退场后，这颗按钮就是它们唯一的家。 ──
+        Row(
+            modifier = Modifier.align(Alignment.CenterHorizontally),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            if (memory.writings.isNotEmpty()) {
+                TextButton(
+                    onClick = {
+                        haptics.performClick()
+                        showAllNotes = true
+                    },
+                    modifier = Modifier.height(48.dp),
+                ) {
+                    Text(
+                        text = "${memory.writings.size} " +
+                            if (memory.writings.size == 1) "note" else "notes",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = memoryColorScheme.primary,
+                    )
+                }
+            }
+            Button(
+                onClick = onOpenAlbum,
+                modifier = Modifier.height(48.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = memoryColorScheme.primary,
+                    contentColor = memoryColorScheme.onPrimary,
+                ),
+            ) {
+                Text(
+                    text = "Go to album",
+                    style = MaterialTheme.typography.labelLarge,
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(text = "→", style = MaterialTheme.typography.labelLarge)
+            }
+        }
+
+        Spacer(modifier = Modifier.height(navBottom + 44.dp))
+    }
+
+    if (showAllNotes) {
+        ModalBottomSheet(
+            onDismissRequest = { showAllNotes = false },
+        ) {
+            LazyColumn(
+                modifier = Modifier.yoinPageContentWidth(YoinPageWidths.Prose),
+                contentPadding = PaddingValues(
+                    start = 20.dp,
+                    end = 20.dp,
+                    bottom = navBottom + 24.dp,
+                ),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                itemsIndexed(
+                    items = memory.writings,
+                    key = { index, writing -> "${writing.writtenAt}:$index" },
+                ) { _, writing ->
+                    MemoryNoteCard(
+                        writing = writing,
+                        containerColor = memoryColorScheme.surfaceContainerHigh,
+                        clampBody = false,
+                    )
+                }
+            }
+        }
+    }
+
+    if (showFullReview) {
+        memory.review?.let { review ->
+            ModalBottomSheet(
+                onDismissRequest = { showFullReview = false },
+            ) {
+                LazyColumn(
+                    modifier = Modifier.yoinPageContentWidth(YoinPageWidths.Prose),
+                    contentPadding = PaddingValues(
+                        start = 20.dp,
+                        end = 20.dp,
+                        bottom = navBottom + 24.dp,
+                    ),
+                ) {
+                    item {
+                        memory.memoryTitle?.let { title ->
+                            Text(
+                                text = title,
+                                style = MaterialTheme.typography.titleLarge.copy(
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontFamily = YoinSerifTitle,
+                                ),
+                                color = MaterialTheme.colorScheme.onSurface,
+                            )
+                            Spacer(modifier = Modifier.height(12.dp))
+                        }
+                        Text(
+                            text = review.text,
+                            style = MaterialTheme.typography.bodyLarge.copy(
+                                fontFamily = FontFamily.Default,
+                                fontSize = 15.sp,
+                                lineHeight = 26.sp,
+                            ),
+                            color = MaterialTheme.colorScheme.onSurface,
+                        )
+                    }
+                }
             }
         }
     }
 }
 
+private val MemorySealSize = 148.dp
+
+/**
+ * 评分印章：三态同几何（rule 2 零跳变）。
+ * 实心 = 用户亲手落的专辑评分（knockout 数字）；描边 = 逐曲均分（机器算的，
+ * 印没盖下去）；灰描边 = 未评分（空印模）。覆盖率是数字底下的一行小字 ——
+ * 它是证据不是主角。形状 60s/圈慢转（AdaptiveReduced 静止），与 aurora
+ * 同属 ambient loop，不违反入场动画墓碑。
+ */
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
-private fun MemoryTrackRow(
-    index: Int,
-    track: MemoryTrack,
-    accentColor: Color,
-    onClick: () -> Unit,
+private fun MemorySeal(
+    memory: MemoryEntry,
+    scheme: ColorScheme,
+) {
+    val sealShape = MaterialShapes.Cookie12Sided.toShape()
+    val reduceMotion = LocalMotionProfile.current == MotionProfile.AdaptiveReduced
+    val rotation = if (reduceMotion) {
+        0f
+    } else {
+        val transition = rememberInfiniteTransition(label = "sealSpin")
+        val animated by transition.animateFloat(
+            initialValue = 0f,
+            targetValue = 360f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(durationMillis = 60_000, easing = LinearEasing),
+            ),
+            label = "sealRotation",
+        )
+        animated
+    }
+
+    Box(
+        modifier = Modifier.size(MemorySealSize),
+        contentAlignment = Alignment.Center,
+    ) {
+        // aurora halo 的近似：印章中心的一圈同调色光晕。
+        Box(
+            modifier = Modifier
+                .requiredSize(MemorySealSize * 1.7f)
+                .background(
+                    brush = Brush.radialGradient(
+                        colors = listOf(
+                            scheme.primary.copy(alpha = 0.28f),
+                            Color.Transparent,
+                        ),
+                    ),
+                ),
+        )
+        // 形状层单独转；数字不转。
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .graphicsLayer { rotationZ = rotation }
+                .then(
+                    when (memory.scoreKind) {
+                        MemoryScoreKind.ALBUM_RATING ->
+                            Modifier.background(color = scheme.primary, shape = sealShape)
+                        MemoryScoreKind.AVERAGE_TRACK_RATING ->
+                            Modifier.border(width = 2.dp, color = scheme.primary, shape = sealShape)
+                        MemoryScoreKind.NONE ->
+                            Modifier.border(
+                                width = 2.dp,
+                                color = MaterialTheme.colorScheme.outlineVariant,
+                                shape = sealShape,
+                            )
+                    },
+                ),
+        )
+        val onSeal = when (memory.scoreKind) {
+            MemoryScoreKind.ALBUM_RATING -> scheme.onPrimary
+            MemoryScoreKind.AVERAGE_TRACK_RATING -> MaterialTheme.colorScheme.onSurface
+            MemoryScoreKind.NONE -> MaterialTheme.colorScheme.onSurfaceVariant
+        }
+        val onSealMuted = when (memory.scoreKind) {
+            MemoryScoreKind.ALBUM_RATING -> scheme.onPrimary.copy(alpha = 0.85f)
+            else -> MaterialTheme.colorScheme.onSurfaceVariant
+        }
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            if (memory.scoreKind == MemoryScoreKind.NONE) {
+                Text(
+                    text = "No rating yet",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = onSeal,
+                )
+            } else {
+                Text(
+                    text = memory.scoreText,
+                    style = MaterialTheme.typography.displayLarge.copy(
+                        fontSize = 44.sp,
+                        lineHeight = 48.sp,
+                        fontWeight = FontWeight.SemiBold,
+                    ).withTabularFigures(),
+                    color = onSeal,
+                )
+                Text(
+                    text = memory.scoreKind.label,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = onSealMuted,
+                )
+            }
+            if (memory.totalTrackCount > 0) {
+                Text(
+                    text = "${memory.ratedTrackCount} / ${memory.totalTrackCount} rated",
+                    modifier = Modifier.padding(top = 2.dp),
+                    style = MaterialTheme.typography.labelSmall
+                        .copy(fontSize = 10.sp, lineHeight = 14.sp)
+                        .withTabularFigures(),
+                    color = onSealMuted.copy(alpha = 0.8f),
+                )
+            }
+        }
+    }
+}
+
+/** 笔记卡三层：歌名头行（W600）> serif 正文 > 日期右上。 */
+@Composable
+private fun MemoryNoteCard(
+    writing: MemoryWriting,
+    containerColor: Color,
+    clampBody: Boolean = true,
 ) {
     Surface(
-        onClick = onClick,
         modifier = Modifier.fillMaxWidth(),
-        color = Color.Transparent,
+        shape = ContinuousRoundedCornerShape(14.dp),
+        color = containerColor,
         tonalElevation = 0.dp,
         shadowElevation = 0.dp,
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(vertical = 4.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                text = index.toString(),
-                style = MaterialTheme.typography.labelLarge.withTabularFigures(),
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(20.dp),
-                textAlign = TextAlign.Center,
-            )
-            Column(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(2.dp),
+        Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
+                // 歌名加大一档（用户裁决）；字体维持 GSF —— 宋体只属于 AI 拟题。
                 Text(
-                    text = track.title,
-                    style = MaterialTheme.typography.titleMedium,
+                    text = writing.noteHeadline(),
+                    modifier = Modifier.weight(1f),
+                    style = MaterialTheme.typography.titleMedium.copy(
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 16.sp,
+                        lineHeight = 22.sp,
+                    ).withTabularFigures(),
                     color = MaterialTheme.colorScheme.onSurface,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
                 Text(
-                    text = track.artist,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-            track.durationSeconds?.let { duration ->
-                Text(
-                    text = duration.toCompactDuration(),
-                    style = MaterialTheme.typography.labelLarge.withTabularFigures(),
+                    text = writing.writtenAt.toMemoryDayDate(),
+                    style = MaterialTheme.typography.labelSmall.withTabularFigures(),
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
+            // 笔记主体 = 黑体（用户正文不再用衬线）。
             Text(
-                text = track.rating?.formatMemoryTrackRating() ?: "--",
-                style = MaterialTheme.typography.labelLarge.withTabularFigures(),
-                color = if ((track.rating ?: 0f) > 0f) {
-                    accentColor
-                } else {
-                    MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.56f)
-                },
-                modifier = Modifier.width(36.dp),
-                textAlign = TextAlign.End,
+                text = writing.text,
+                modifier = Modifier.padding(top = 4.dp),
+                style = MaterialTheme.typography.bodyMedium.copy(
+                    fontFamily = FontFamily.Default,
+                    fontSize = 14.sp,
+                    lineHeight = 22.sp,
+                ),
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = if (clampBody) 2 else Int.MAX_VALUE,
+                overflow = TextOverflow.Ellipsis,
             )
         }
     }
 }
+
+@Composable
+private fun MemoryFootnote(text: String) {
+    Text(
+        text = text,
+        modifier = Modifier.padding(top = 8.dp),
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+}
+
+private fun MemoryWriting.noteHeadline(): String = when (kind) {
+    MemoryWriting.Kind.SONG_NOTE -> buildString {
+        append("《")
+        append(trackTitle ?: "Song")
+        append("》")
+        positionMs?.let { position ->
+            append(" · ")
+            append(formatTrackDuration((position / 1000L).toInt()))
+        }
+    }
+    MemoryWriting.Kind.ALBUM_NOTE -> "Album note"
+    MemoryWriting.Kind.REVIEW -> "Your review"
+}
+
+/** 证据句：任一段缺席连分隔点一起消失；全数字 tabular。 */
+private fun MemoryEntry.evidenceLine(): String {
+    val parts = mutableListOf<String>()
+    if (totalTrackCount > 0 && ratedTrackCount > 0) {
+        parts += "Rated $ratedTrackCount / $totalTrackCount"
+    }
+    if (noteCount > 0) {
+        parts += "$noteCount " + if (noteCount == 1) "note" else "notes"
+    }
+    lastPlayedAt?.let { parts += "heard ${it.toRelativeMemoryTime()}" }
+    firstPlayedAt?.let { parts += "first played ${it.toMemoryMonthYear()}" }
+    return parts.joinToString(" · ")
+}
+
+private fun Long.toMemoryMonthYear(): String =
+    Instant.ofEpochMilli(this)
+        .atZone(ZoneId.systemDefault())
+        .format(DateTimeFormatter.ofPattern("MMM yyyy", Locale.getDefault()))
+
+private fun Long.toMemoryDayDate(): String =
+    Instant.ofEpochMilli(this)
+        .atZone(ZoneId.systemDefault())
+        .format(DateTimeFormatter.ofPattern("yyyy.M.d", Locale.getDefault()))
 
 private fun Long.toShortMemoryDate(): String =
     Instant.ofEpochMilli(this)
@@ -971,18 +1240,6 @@ private fun Long.toRelativeMemoryTime(): String {
         else -> "${days / 7}w ago"
     }
 }
-
-private fun Int.toCompactDuration(): String {
-    val minutes = this / 60
-    val seconds = this % 60
-    return "%d:%02d".format(minutes, seconds)
-}
-
-private fun Float.formatMemoryTrackRating(): String =
-    String.format(Locale.US, "%.1f", this)
-
-private fun LazyListState.isAtTop(): Boolean =
-    firstVisibleItemIndex == 0 && firstVisibleItemScrollOffset == 0
 
 private fun EdgeAdvanceDirection.toMemoryDeckDirection(): MemoryDeckDirection = when (this) {
     EdgeAdvanceDirection.Backward -> MemoryDeckDirection.Backward

@@ -208,16 +208,13 @@ object YoinMotion {
     )
 
     @Composable
-    fun <T> expressiveSpatialSpring(): FiniteAnimationSpec<T> = slowSpatialSpec()
-
-    @Composable
     fun <T> spatialSpring(): FiniteAnimationSpec<T> = defaultSpatialSpec()
 
     @Composable
     fun <T> effectsSpring(): FiniteAnimationSpec<T> = defaultEffectsSpec()
 
     @Composable
-    fun <T> bouncySpatialSpring(): FiniteAnimationSpec<T> = slowSpatialSpec()
+    fun <T> slowSpatialSpring(): FiniteAnimationSpec<T> = slowSpatialSpec()
 
     @Composable
     fun <T> stiffSpatialSpring(): FiniteAnimationSpec<T> = fastSpatialSpec()

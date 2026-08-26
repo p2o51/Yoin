@@ -25,6 +25,7 @@ import com.spotify.protocol.client.Subscription
 import com.spotify.protocol.types.Empty
 import com.spotify.protocol.types.PlayerContext
 import com.spotify.protocol.types.PlayerState
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -105,6 +106,7 @@ internal class SpotifyAppRemotePlayer(
     private var playerStateSubscription: Subscription<PlayerState>? = null
     private var playerContextSubscription: Subscription<PlayerContext>? = null
     private var connectJob: Job? = null
+    private var replaceableOperationJob: Job? = null
     private var wantsConnection: Boolean = false
     private var mirroredQueue: List<Track> = emptyList()
     private var lastSnapshot: SpotifyRemoteSnapshot = SpotifyRemoteSnapshot()
@@ -185,6 +187,13 @@ internal class SpotifyAppRemotePlayer(
         coldStartAuthRetryAvailable = true
         clientIdBootstrapRetryAvailable = true
         transportRetryAvailable = true
+        // Cancel any in-flight handshake so a late onConnected can't
+        // resurrect playback in the background (assign a remote, flush
+        // queued play ops, then defeat the next onHostStart's
+        // isConnected check). Unlike disconnect(), keep pendingOperations:
+        // queued user intents should run on the next foreground connect.
+        connectJob?.cancel()
+        connectJob = null
         disconnectRemote(preserveSnapshot = true)
     }
 
@@ -195,6 +204,8 @@ internal class SpotifyAppRemotePlayer(
         mirroredQueue = emptyList()
         connectJob?.cancel()
         connectJob = null
+        replaceableOperationJob?.cancel()
+        replaceableOperationJob = null
         disconnectRemote(preserveSnapshot = !resetState)
         if (resetState) {
             publish(SpotifyRemoteSnapshot())
@@ -246,6 +257,9 @@ internal class SpotifyAppRemotePlayer(
             if (startContextPlayback != null) {
                 val contextSucceeded = runCatching { startContextPlayback() }
                     .onFailure { e ->
+                        // A replaced batch must not fall through to the App
+                        // Remote path and send stale play/queue commands.
+                        if (e is CancellationException) throw e
                         emitContextPlaybackActionIfNeeded(e)
                         Log.w(
                             tag,
@@ -355,10 +369,17 @@ internal class SpotifyAppRemotePlayer(
         wantsConnection = true
         if (replacePending) {
             pendingOperations.clear()
+            // Clearing only drops ops that haven't started yet; a
+            // still-running replaceable batch (playQueue's per-track
+            // queue() fallback loop) must be cancelled too, or it keeps
+            // appending the old queue's tracks after the user has
+            // already started something else.
+            replaceableOperationJob?.cancel()
+            replaceableOperationJob = null
         }
         val connected = remote
         if (connected != null && connected.isConnected) {
-            scope.launch {
+            launchOperation(replaceable = replacePending) {
                 runCatching { operation(connected) }
                     .onFailure(::handleRemoteError)
             }
@@ -366,6 +387,26 @@ internal class SpotifyAppRemotePlayer(
         }
         pendingOperations += operation
         connectIfPossible()
+    }
+
+    /**
+     * Runs a remote operation on [scope]. Replaceable launches (a play
+     * request, or the flushed pending queue that may contain one) keep
+     * their Job in [replaceableOperationJob] so the next
+     * `replacePending = true` enqueue can cancel them mid-flight. One-shot
+     * ops (pause / seek / …) stay untracked so they never displace a
+     * running play loop from the field.
+     */
+    private fun launchOperation(replaceable: Boolean, block: suspend () -> Unit) {
+        if (replaceable) {
+            // A batch stuck on a dead remote (disconnect can strand in-flight
+            // CallResults) must not leak when the next batch takes the field.
+            replaceableOperationJob?.cancel()
+        }
+        val job = scope.launch { block() }
+        if (replaceable) {
+            replaceableOperationJob = job
+        }
     }
 
     private fun connectIfPossible() {
@@ -477,7 +518,13 @@ internal class SpotifyAppRemotePlayer(
             object : Connector.ConnectionListener {
                 override fun onConnected(spotifyAppRemote: SpotifyAppRemote) {
                     if (completed.compareAndSet(false, true)) {
-                        continuation.resume(spotifyAppRemote)
+                        // If the continuation was cancelled (host stop / disconnect
+                        // raced the handshake), a plain resume would silently drop
+                        // a live remote and leak its IPC connection — disconnect it.
+                        continuation.resume(spotifyAppRemote) { _ ->
+                            Log.d(tag, "connect: cancelled before delivery, disconnecting remote")
+                            SpotifyAppRemote.disconnect(spotifyAppRemote)
+                        }
                     } else {
                         Log.d(tag, "connect: ignoring duplicate onConnected callback")
                     }
@@ -498,7 +545,7 @@ internal class SpotifyAppRemotePlayer(
         val operations = pendingOperations.toList()
         pendingOperations.clear()
         Log.d(tag, "flushPendingOperations: count=${operations.size}")
-        scope.launch {
+        launchOperation(replaceable = true) {
             for (operation in operations) {
                 runCatching { operation(connected) }
                     .onFailure { error ->
@@ -657,6 +704,11 @@ internal class SpotifyAppRemotePlayer(
     }
 
     private fun handleRemoteError(error: Throwable) {
+        // Cancellation (a replaced play loop, a connect cancelled by host
+        // stop) is not a remote failure — rethrow so the coroutine just
+        // dies instead of consuming retry budgets, disconnecting a live
+        // replacement remote, or publishing an Error banner.
+        if (error is CancellationException) throw error
         Log.w(tag, "handleRemoteError: ${error::class.java.simpleName}", error)
 
         // Cold-start `UserNotAuthorizedException` quirk: the SDK's first

@@ -45,10 +45,12 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.togetherWith
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -68,16 +70,18 @@ import androidx.compose.ui.text.withLink
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import com.gpo.yoin.ui.component.DetailErrorState
 import com.gpo.yoin.ui.component.ExpressiveMediaArtwork
 import com.gpo.yoin.ui.component.ExpressivePageBackground
-import com.gpo.yoin.ui.component.ExpressiveSectionPanel
 import com.gpo.yoin.ui.component.YoinLoadingIndicator
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
 import com.gpo.yoin.ui.navigation.playlistCoverSharedKey
 import com.gpo.yoin.ui.navigation.rememberActiveOnlySharedContentConfig
+import com.gpo.yoin.ui.navigation.YoinSection
+import com.gpo.yoin.ui.theme.ProvideYoinMotionRole
 import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinMotionRole
-import com.gpo.yoin.ui.theme.YoinShapeTokens
+import com.gpo.yoin.ui.theme.YoinArtworkShapes
 import com.gpo.yoin.ui.theme.YoinTheme
 import com.gpo.yoin.ui.theme.rememberCoverColorScheme
 
@@ -101,6 +105,21 @@ fun PlaylistDetailScreen(
     animatedVisibilityScope: AnimatedVisibilityScope? = null,
     isPlaying: Boolean = false,
     playbackSignal: Float = 0f,
+    onOpenNowPlaying: () -> Unit = {},
+    nowPlayingOpen: Boolean = false,
+    // True when this window sits directly over the shell: predictive back
+    // scrubs the bar toward nav chrome (matching the reveal underneath).
+    morphBarOnBack: Boolean = false,
+    // Shell tab at launch time (the back scrub's revealed selection) and
+    // whether the launch used the bar hand-off window animation (delays the
+    // content slide-in to match the transparent hold).
+    navSection: YoinSection = YoinSection.HOME,
+    enterBarHandoff: Boolean = false,
+    // NP-origin: the back reveal is the expanded player (no bar there) — the
+    // bar rides the gesture down off-screen instead of morphing.
+    barExitsOnBack: Boolean = false,
+    miniPlayerState: DetailMiniPlayerState? = null,
+    playbackProgress: Float = 0f,
     modifier: Modifier = Modifier,
 ) {
     val haptics = rememberYoinHaptics()
@@ -118,184 +137,211 @@ fun PlaylistDetailScreen(
     val headerScheme = coverScheme ?: MaterialTheme.colorScheme
     val titleColor by animateColorAsState(headerScheme.primary, YoinMotion.effectsSpring(), label = "playlistTitleColor")
     val accentText = headerScheme.secondary
-    // Bottom-toolbar palette, identical recipe to the Album / Artist pages: the
-    // Play button rides the cover-seeded primary; the toolbar bar tints halfway
-    // toward the cover's secondary container.
-    val toolbarTint = rememberDetailToolbarTint(headerScheme)
-    val playContent = headerScheme.onPrimary
 
     // Medium-flexible bar: large on arrival, collapses to a small bar on scroll —
     // same height/behaviour as the Artist page's top bar.
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
 
     val accentColor = rememberDetailPageAccent(content?.coverArtUrl)
-    ExpressivePageBackground(
-        accentColor = accentColor,
-        isPlaying = isPlaying,
-        playbackSignal = playbackSignal,
-        modifier = modifier,
-    ) {
-        Scaffold(
-            modifier = Modifier
-                .fillMaxSize()
-                .nestedScroll(scrollBehavior.nestedScrollConnection),
-            containerColor = Color.Transparent,
-            contentColor = MaterialTheme.colorScheme.onSurface,
-            contentWindowInsets = WindowInsets(0, 0, 0, 0),
-            topBar = {
-                MediumFlexibleTopAppBar(
-                    title = {
-                        Text(
-                            text = content?.playlistName.orEmpty(),
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            color = titleColor,
-                        )
-                    },
-                    subtitle = {
-                        // Mirrors the Album credit ("Artist  ·  Album 2025"), but
-                        // the playlist owner is parenthesised: "(gpo)  ·  Playlist".
-                        Text(
-                            text = buildString {
-                                content?.owner?.takeIf { it.isNotBlank() }?.let { append("($it)  ·  ") }
-                                append("Playlist")
-                            },
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            color = accentText,
-                        )
-                    },
-                    navigationIcon = {
-                        DetailBackButton(onClick = onBackClick)
-                    },
-                    actions = {
-                        // Overflow only renders when the current profile can
-                        // actually write this playlist. For Spotify followed-
-                        // but-not-owned playlists, canWrite = false and the
-                        // menu stays hidden entirely rather than showing
-                        // disabled items.
-                        if (content?.canWrite == true) {
-                            Box {
-                                IconButton(
-                                    onClick = {
-                                        haptics.performTick()
-                                        showOverflow = true
-                                    },
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Filled.MoreVert,
-                                        contentDescription = "More actions",
-                                    )
-                                }
-                                YoinDropdownMenu(
-                                    expanded = showOverflow,
-                                    onDismissRequest = { showOverflow = false },
-                                ) {
-                                    YoinDropdownMenuItem(
-                                        text = "Rename",
-                                        leadingIcon = {
-                                            Icon(Icons.Filled.Edit, contentDescription = null)
-                                        },
+    ProvideYoinMotionRole(role = YoinMotionRole.Expressive) {
+        // In-window predictive back (AOSP cross-activity math): the whole page
+        // — background included — collapses as one card over the LIVE window
+        // beneath (the Activity turns translucent for the gesture); the bar is a
+        // sibling on top and never transforms.
+        val backCollapse = rememberDetailBackCollapse(onBack = onBackClick)
+        val enterIntro = rememberDetailEnterIntro(enterBarHandoff)
+        Box(
+            modifier = modifier.then(
+                rememberDetailMotionFrameRateModifier(backCollapse, enterIntro),
+            ),
+        ) {
+            ExpressivePageBackground(
+                accentColor = accentColor,
+                isPlaying = isPlaying,
+                playbackSignal = playbackSignal,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .detailBackCollapseTransform(backCollapse)
+                    .detailEnterIntroTransform(enterIntro),
+            ) {
+            Scaffold(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .nestedScroll(scrollBehavior.nestedScrollConnection),
+                containerColor = Color.Transparent,
+                contentColor = MaterialTheme.colorScheme.onSurface,
+                contentWindowInsets = WindowInsets(0, 0, 0, 0),
+                topBar = {
+                    MediumFlexibleTopAppBar(
+                        title = {
+                            Text(
+                                text = content?.playlistName.orEmpty(),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                color = titleColor,
+                            )
+                        },
+                        subtitle = {
+                            // Mirrors the Album credit ("Artist  ·  Album 2025"), but
+                            // the playlist owner is parenthesised: "(gpo)  ·  Playlist".
+                            Text(
+                                text = buildString {
+                                    content?.owner?.takeIf { it.isNotBlank() }?.let { append("($it)  ·  ") }
+                                    append("Playlist")
+                                },
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                color = accentText,
+                            )
+                        },
+                        navigationIcon = {
+                            // end padding widens the nav slot so the COLLAPSED
+                            // title clears the button halo; the expanded title is
+                            // placed from the bar edge and stays at 16dp.
+                            DetailBackButton(
+                                onClick = onBackClick,
+                                modifier = Modifier.padding(end = 14.dp),
+                            )
+                        },
+                        // Default 136dp packs the title right under the back
+                        // button; extra height = breathing room between them.
+                        expandedHeight = 156.dp,
+                        actions = {
+                            // Overflow only renders when the current profile can
+                            // actually write this playlist. For Spotify followed-
+                            // but-not-owned playlists, canWrite = false and the
+                            // menu stays hidden entirely rather than showing
+                            // disabled items.
+                            if (content?.canWrite == true) {
+                                Box {
+                                    IconButton(
                                         onClick = {
-                                            showOverflow = false
-                                            showRenameDialog = true
+                                            haptics.performTick()
+                                            showOverflow = true
                                         },
-                                    )
-                                    YoinDropdownMenuItem(
-                                        text = "Delete",
-                                        leadingIcon = {
-                                            Icon(Icons.Filled.Delete, contentDescription = null)
-                                        },
-                                        onClick = {
-                                            showOverflow = false
-                                            showDeleteConfirm = true
-                                        },
-                                    )
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Filled.MoreVert,
+                                            contentDescription = "More actions",
+                                        )
+                                    }
+                                    YoinDropdownMenu(
+                                        expanded = showOverflow,
+                                        onDismissRequest = { showOverflow = false },
+                                    ) {
+                                        YoinDropdownMenuItem(
+                                            text = "Rename",
+                                            leadingIcon = {
+                                                Icon(Icons.Filled.Edit, contentDescription = null)
+                                            },
+                                            onClick = {
+                                                showOverflow = false
+                                                showRenameDialog = true
+                                            },
+                                        )
+                                        YoinDropdownMenuItem(
+                                            text = "Delete",
+                                            leadingIcon = {
+                                                Icon(Icons.Filled.Delete, contentDescription = null)
+                                            },
+                                            onClick = {
+                                                showOverflow = false
+                                                showDeleteConfirm = true
+                                            },
+                                        )
+                                    }
                                 }
                             }
-                        }
-                    },
-                    // Transparent both ends so the bar blends with the gradient
-                    // page background (no surface band, no collapse colour flash).
-                    colors = TopAppBarDefaults.topAppBarColors(
-                        containerColor = Color.Transparent,
-                        scrolledContainerColor = Color.Transparent,
-                        titleContentColor = titleColor,
-                        navigationIconContentColor = MaterialTheme.colorScheme.onSurface,
-                    ),
-                    scrollBehavior = scrollBehavior,
-                )
-            },
-        ) { innerPadding ->
-            when (uiState) {
-                is PlaylistDetailUiState.Loading -> {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(innerPadding)
-                            .navigationBarsPadding(),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        YoinLoadingIndicator()
-                    }
-                }
-
-                is PlaylistDetailUiState.Error -> {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(innerPadding)
-                            .navigationBarsPadding()
-                            .padding(16.dp),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        ExpressiveSectionPanel(
-                            modifier = Modifier.fillMaxWidth(),
-                        ) {
-                            androidx.compose.foundation.layout.Column(
-                                modifier = Modifier.padding(20.dp),
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.spacedBy(10.dp),
-                            ) {
-                                Text(
-                                    text = uiState.message,
-                                    style = MaterialTheme.typography.bodyLarge,
-                                    color = MaterialTheme.colorScheme.error,
-                                )
-                                TextButton(onClick = onRetry) {
-                                    Text("Retry")
-                                }
-                            }
-                        }
-                    }
-                }
-
-                is PlaylistDetailUiState.Content -> {
-                    PlaylistDetailContent(
-                        content = uiState,
-                        onSongClick = onSongClick,
-                        sharedTransitionKey = sharedTransitionKey,
-                        sharedTransitionScope = sharedTransitionScope,
-                        animatedVisibilityScope = animatedVisibilityScope,
-                        modifier = Modifier.padding(innerPadding),
+                        },
+                        // Transparent both ends so the bar blends with the gradient
+                        // page background (no surface band, no collapse colour flash).
+                        colors = TopAppBarDefaults.topAppBarColors(
+                            containerColor = Color.Transparent,
+                            scrolledContainerColor = Color.Transparent,
+                            titleContentColor = titleColor,
+                            navigationIconContentColor = MaterialTheme.colorScheme.onSurface,
+                        ),
+                        scrollBehavior = scrollBehavior,
                     )
+                },
+            ) { innerPadding ->
+                // Only the body crossfades between states — the top bar and
+                // the bottom bar persist across Loading/Error/Content.
+                AnimatedContent(
+                    targetState = uiState,
+                    transitionSpec = {
+                        YoinMotion.fadeIn(role = YoinMotionRole.Standard) togetherWith
+                            YoinMotion.fadeOut(role = YoinMotionRole.Standard)
+                    },
+                    // Keyed on the state class: Content→Content refreshes
+                    // (rename, remove-track) update in place, no re-fade.
+                    contentKey = { it::class },
+                    label = "playlistDetailState",
+                    modifier = Modifier.fillMaxSize(),
+                ) { state ->
+                    when (state) {
+                        is PlaylistDetailUiState.Loading -> {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .padding(innerPadding)
+                                    .navigationBarsPadding(),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                YoinLoadingIndicator()
+                            }
+                        }
+
+                        is PlaylistDetailUiState.Error -> {
+                            // No onBack: the persistent top bar above already
+                            // carries the back affordance on this page.
+                            DetailErrorState(
+                                message = state.message,
+                                onRetry = onRetry,
+                                modifier = Modifier.padding(innerPadding),
+                            )
+                        }
+
+                        is PlaylistDetailUiState.Content -> {
+                            PlaylistDetailContent(
+                                content = state,
+                                onSongClick = onSongClick,
+                                sharedTransitionKey = sharedTransitionKey,
+                                sharedTransitionScope = sharedTransitionScope,
+                                animatedVisibilityScope = animatedVisibilityScope,
+                                modifier = Modifier.padding(innerPadding),
+                            )
+                        }
+                    }
                 }
             }
-        }
+            }
 
-        // Pinned bottom toolbar — shuffle sits on the outside, Play rides the
-        // cover-seeded primary (same floating bar as the Album / Artist pages).
-        if (content != null && content.songs.isNotEmpty()) {
-            PlaylistBottomToolbar(
+            // Persistent bottom bar — rendered in ALL states (the bar never
+            // waits for page data; the shell's morph is already playing when
+            // this window fades in). Play rides the cover-seeded primary; on an
+            // empty playlist it simply no-ops.
+            DetailBottomBar(
                 playContainer = titleColor,
-                playContent = playContent,
-                toolbarContainer = toolbarTint,
+                playContent = headerScheme.onPrimary,
                 onPlay = onPlayAllClick,
                 onShuffle = onShufflePlay,
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .navigationBarsPadding()
-                    .padding(bottom = 12.dp),
+                onOpenNowPlaying = onOpenNowPlaying,
+                miniPlayer = miniPlayerState,
+                playbackProgress = playbackProgress,
+                nowPlayingOpen = nowPlayingOpen,
+                backMorphProgress = if (morphBarOnBack) {
+                    { backCollapse.progress }
+                } else {
+                    { 0f }
+                },
+                navSection = navSection,
+                backExitProgress = if (barExitsOnBack) {
+                    { backCollapse.progress }
+                } else {
+                    { 0f }
+                },
+                modifier = Modifier.align(Alignment.BottomCenter),
             )
         }
     }
@@ -322,11 +368,16 @@ fun PlaylistDetailScreen(
                 Text("\"${content.playlistName}\" will be removed from your library.")
             },
             confirmButton = {
-                TextButton(onClick = {
-                    haptics.performReject()
-                    showDeleteConfirm = false
-                    onDelete()
-                }) { Text("Delete") }
+                TextButton(
+                    onClick = {
+                        haptics.performReject()
+                        showDeleteConfirm = false
+                        onDelete()
+                    },
+                    colors = ButtonDefaults.textButtonColors(
+                        contentColor = MaterialTheme.colorScheme.error,
+                    ),
+                ) { Text("Delete") }
             },
             dismissButton = {
                 TextButton(onClick = { showDeleteConfirm = false }) { Text("Cancel") }
@@ -444,6 +495,18 @@ private fun PlaylistDetailContent(
                         .wrapContentHeight(align = Alignment.Top, unbounded = true),
                 )
             }
+        } else {
+            // Quiet empty state — same voice as the description line above.
+            // The always-armed bottom bar stays; Play just no-ops here.
+            Text(
+                text = "This playlist is empty.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 24.dp),
+            )
         }
     }
 }
@@ -478,59 +541,6 @@ private fun buildPlaylistTrackTitles(
     }
 }
 
-@OptIn(ExperimentalMaterial3ExpressiveApi::class)
-@Composable
-private fun PlaylistBottomToolbar(
-    playContainer: Color,
-    playContent: Color,
-    toolbarContainer: Color,
-    onPlay: () -> Unit,
-    onShuffle: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    val haptics = rememberYoinHaptics()
-    DetailFloatingToolbar(
-        toolbarContainer = toolbarContainer,
-        modifier = modifier,
-    ) {
-        // Shuffle lives on the outside of the bar (not buried in a ▾ menu).
-        IconButton(
-            onClick = {
-                haptics.performClick()
-                onShuffle()
-            },
-            modifier = Modifier.size(52.dp),
-        ) {
-            Icon(
-                imageVector = Icons.Filled.Shuffle,
-                contentDescription = "Shuffle play",
-                tint = MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier.size(24.dp),
-            )
-        }
-        Spacer(modifier = Modifier.width(8.dp))
-        Button(
-            onClick = {
-                haptics.performClick()
-                onPlay()
-            },
-            colors = ButtonDefaults.buttonColors(
-                containerColor = playContainer,
-                contentColor = playContent,
-            ),
-            modifier = Modifier.height(60.dp),
-            contentPadding = PaddingValues(horizontal = 26.dp),
-        ) {
-            Icon(
-                imageVector = Icons.Filled.PlayArrow,
-                contentDescription = null,
-            )
-            Spacer(modifier = Modifier.width(ButtonDefaults.IconSpacing))
-            Text("Play", style = MaterialTheme.typography.titleMedium)
-        }
-    }
-}
-
 @OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
 private fun PlaylistHeroArtwork(
@@ -542,7 +552,7 @@ private fun PlaylistHeroArtwork(
     animatedVisibilityScope: AnimatedVisibilityScope?,
     modifier: Modifier = Modifier,
 ) {
-    val shape = YoinShapeTokens.ExtraLarge
+    val shape = YoinArtworkShapes.Hero
     val artworkBoundsSpec = YoinMotion.defaultSpatialSpec<Rect>(
         role = YoinMotionRole.Expressive,
         expressiveScheme = MaterialTheme.motionScheme,

@@ -1,0 +1,326 @@
+package com.gpo.yoin.debug
+
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.net.Uri
+import android.os.Bundle
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.setContent
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.ui.Modifier
+import com.gpo.yoin.data.local.ActivityActionType
+import com.gpo.yoin.data.local.ActivityEntityType
+import com.gpo.yoin.data.local.ActivityEvent
+import com.gpo.yoin.data.model.Album
+import com.gpo.yoin.data.model.CoverRef
+import com.gpo.yoin.data.model.MediaId
+import com.gpo.yoin.data.model.Track
+import com.gpo.yoin.enableYoinEdgeToEdge
+import com.gpo.yoin.ui.home.HomeEditorialContent
+import com.gpo.yoin.ui.home.HomeWidgetCard
+import com.gpo.yoin.ui.home.HomeWidgetTarget
+import com.gpo.yoin.ui.memories.MemoryEntityType
+import androidx.compose.runtime.CompositionLocalProvider
+import com.gpo.yoin.ui.experience.LocalYoinWindowInfo
+import com.gpo.yoin.ui.experience.rememberYoinWindowInfo
+import com.gpo.yoin.ui.theme.YoinTheme
+import java.io.File
+
+/**
+ * Debug-only launcher for visual QA of the whole redesigned home feed —
+ * Activities bento, the Jump Back In widget grid, and the compact Recently
+ * Added shelf — with fixed fake data. Not exported in release. Stand-in covers
+ * are solid-colour bitmaps written to cacheDir on first launch so the backdrop
+ * palette tints each shape (and card) the way real album art would. Launch:
+ *   adb shell am start -n com.gpo.yoin/com.gpo.yoin.debug.MemoriesScreenshotActivity
+ */
+class MemoriesScreenshotActivity : ComponentActivity() {
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        enableYoinEdgeToEdge()
+        setContent {
+            // 对齐生产环境：QA 台也提供窗口信息，Medium/Wide 分支才可验。
+            val windowInfo = rememberYoinWindowInfo()
+            CompositionLocalProvider(LocalYoinWindowInfo provides windowInfo) {
+            YoinTheme {
+                Surface(
+                    modifier = Modifier.fillMaxSize(),
+                    color = MaterialTheme.colorScheme.background,
+                ) {
+                    HomeEditorialContent(
+                        activities = fakeActivities(),
+                        widgetGrid = fakeWidgetGrid(),
+                        activityHeroFootnote = "2024 · 12 songs · 44 min",
+                        recentlyAddedTracks = fakeRecentlyAddedTracks(),
+                        recentlyAddedAlbums = fakeRecentlyAddedAlbums(),
+                        onNavigateToSettings = {},
+                        onNavigateToMemories = {},
+                        onAlbumClick = { _, _ -> },
+                        onArtistClick = {},
+                        onPlaylistClick = {},
+                        onSongClick = {},
+                        // Storage keys in the fakes are file:// URIs; identity
+                        // pass-through lets Coil load them directly.
+                        buildCoverArtUrl = { it },
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                }
+            }
+            }
+        }
+    }
+
+    private fun swatchCover(name: String, color: Int): String {
+        val file = File(cacheDir, "mem_$name.png")
+        if (!file.exists()) {
+            val bitmap = Bitmap.createBitmap(240, 240, Bitmap.Config.ARGB_8888)
+            Canvas(bitmap).drawColor(color)
+            file.outputStream().use { out -> bitmap.compress(Bitmap.CompressFormat.PNG, 100, out) }
+            bitmap.recycle()
+        }
+        return Uri.fromFile(file).toString()
+    }
+
+    private fun fakeActivities(): List<ActivityEvent> {
+        val now = System.currentTimeMillis()
+        return listOf(
+            ActivityEvent(
+                id = 1,
+                entityType = ActivityEntityType.ALBUM.name,
+                actionType = ActivityActionType.PLAYED.name,
+                entityId = "a1",
+                title = "This Infinite",
+                subtitle = "Vitesse X",
+                coverArtId = swatchCover("mint", 0xFF3DAE77.toInt()),
+                albumId = "a1",
+                timestamp = now - 5L * 60 * 60 * 1000,
+            ),
+            ActivityEvent(
+                id = 2,
+                // Artist lands in the small bento card — verifies the circular
+                // portrait (not a rounded rect / SoftBoom blob).
+                entityType = ActivityEntityType.ARTIST.name,
+                actionType = ActivityActionType.VISITED.name,
+                entityId = "ar1",
+                title = "Hannah Jadagu",
+                subtitle = "Artist",
+                coverArtId = swatchCover("pink", 0xFFD4537E.toInt()),
+                timestamp = now - 26L * 60 * 60 * 1000,
+            ),
+            ActivityEvent(
+                id = 3,
+                entityType = ActivityEntityType.ALBUM.name,
+                actionType = ActivityActionType.PLAYED.name,
+                entityId = "a2",
+                title = "Para que salgamos bien en la foto",
+                subtitle = "Rakky Ripper",
+                coverArtId = swatchCover("blue", 0xFF378ADD.toInt()),
+                albumId = "a2",
+                timestamp = now - 60L * 60 * 1000,
+            ),
+            ActivityEvent(
+                id = 4,
+                entityType = ActivityEntityType.ALBUM.name,
+                actionType = ActivityActionType.PLAYED.name,
+                entityId = "a3",
+                title = "天国の部屋",
+                subtitle = "坂口諒之介",
+                coverArtId = swatchCover("salmon", 0xFFE0705A.toInt()),
+                albumId = "a3",
+                timestamp = now - 25L * 60 * 60 * 1000,
+            ),
+            // 5-8 号：喂满 Medium 密度 bento（hero + 双支撑行 + 双 strip = 7 条）。
+            ActivityEvent(
+                id = 5,
+                entityType = ActivityEntityType.ALBUM.name,
+                actionType = ActivityActionType.PLAYED.name,
+                entityId = "a4",
+                title = "Freakout/Release",
+                subtitle = "Hot Chip",
+                coverArtId = swatchCover("magenta", 0xFFC2447F.toInt()),
+                albumId = "a4",
+                timestamp = now - 30L * 60 * 60 * 1000,
+            ),
+            ActivityEvent(
+                id = 6,
+                entityType = ActivityEntityType.ARTIST.name,
+                actionType = ActivityActionType.VISITED.name,
+                entityId = "ar2",
+                title = "hemlocke springs",
+                subtitle = "Artist",
+                coverArtId = swatchCover("violet", 0xFF7A67D8.toInt()),
+                timestamp = now - 32L * 60 * 60 * 1000,
+            ),
+            ActivityEvent(
+                id = 7,
+                entityType = ActivityEntityType.PLAYLIST.name,
+                actionType = ActivityActionType.PLAYED.name,
+                entityId = "p1",
+                title = "monday afternoon",
+                subtitle = "Playlist",
+                coverArtId = swatchCover("amber", 0xFFD89A2E.toInt()),
+                timestamp = now - 40L * 60 * 60 * 1000,
+            ),
+            ActivityEvent(
+                id = 8,
+                entityType = ActivityEntityType.ALBUM.name,
+                actionType = ActivityActionType.PLAYED.name,
+                entityId = "a5",
+                title = "sense (is)",
+                subtitle = "hemlocke springs",
+                coverArtId = swatchCover("teal2", 0xFF1D9E9E.toInt()),
+                albumId = "a5",
+                timestamp = now - 48L * 60 * 60 * 1000,
+            ),
+            // 9-11 号：喂满 Wide 桌面 tapestry（hero + 3:2:1 行 + 1:2:1:2 行
+            // + 三 strip = 10 条），1280dp QA 不缺粮。
+            ActivityEvent(
+                id = 9,
+                entityType = ActivityEntityType.ALBUM.name,
+                actionType = ActivityActionType.PLAYED.name,
+                entityId = "a6",
+                title = "Little House",
+                subtitle = "Rachel Chinouriri",
+                coverArtId = swatchCover("green", 0xFF639922.toInt()),
+                albumId = "a6",
+                timestamp = now - 4L * 24 * 60 * 60 * 1000,
+            ),
+            ActivityEvent(
+                id = 10,
+                entityType = ActivityEntityType.ARTIST.name,
+                actionType = ActivityActionType.VISITED.name,
+                entityId = "ar3",
+                title = "Rachel Chinouriri",
+                subtitle = "Artist",
+                coverArtId = swatchCover("navy", 0xFF185FA5.toInt()),
+                timestamp = now - 5L * 24 * 60 * 60 * 1000,
+            ),
+            ActivityEvent(
+                id = 11,
+                entityType = ActivityEntityType.PLAYLIST.name,
+                actionType = ActivityActionType.PLAYED.name,
+                entityId = "p2",
+                title = "Endless Natsu",
+                subtitle = "Playlist",
+                coverArtId = swatchCover("teal", 0xFF1D9E75.toInt()),
+                timestamp = now - 6L * 24 * 60 * 60 * 1000,
+            ),
+        )
+    }
+
+    private fun fakeWidgetGrid(): List<HomeWidgetCard> {
+        // The design composition: 2+2+3+3+2 = 12 cells.
+        val notedSong = fakeTrack("t-note", "跳不完的舞", "秦凡淇", swatchCover("olive", 0xFF7C9A1E.toInt()))
+        return listOf(
+            HomeWidgetCard(
+                stableId = "grid-memory:demo",
+                entityType = MemoryEntityType.ALBUM,
+                title = "Describe",
+                subtitle = "Album · Hannah Jadagu",
+                coverArtUrl = swatchCover("green", 0xFF639922.toInt()),
+                ratingText = "8.4",
+                ratingBasis = "Jun 26",
+                comment = "Still opens the same door, six months on.",
+                expanded = true,
+                target = HomeWidgetTarget.MemoryFocus(1L),
+            ),
+            HomeWidgetCard(
+                stableId = "grid-note:demo",
+                entityType = MemoryEntityType.SONG,
+                title = notedSong.title.orEmpty(),
+                subtitle = "Single · ${notedSong.artist}",
+                coverArtUrl = swatchCover("olive", 0xFF7C9A1E.toInt()),
+                ratingText = "9.5",
+                ratingBasis = "Jun 26",
+                comment = "在她的身体里，跳舞也可以变成带着哲思的苦行。",
+                expanded = true,
+                target = HomeWidgetTarget.PlaySong(notedSong),
+            ),
+            fakeAlbumCard("Little House", "Rachel C.", swatchCover("pink", 0xFFD4537E.toInt())),
+            fakeSongCard("Gimme Time", "Hannah Jadagu", swatchCover("coral", 0xFFD85A30.toInt())),
+            fakePlaylistCard("Endless Natsu", "51", swatchCover("teal", 0xFF1D9E75.toInt())),
+            fakeAlbumCard("AIと刹那", "Mom", swatchCover("blue", 0xFF378ADD.toInt())),
+            fakeSongCard("sense (is)", "hemlocke springs", swatchCover("violet", 0xFF7F77DD.toInt())),
+            fakePlaylistCard("My Angelist #101", "HESSBEN", swatchCover("mint", 0xFF3DAE77.toInt())),
+            fakeAlbumCard("Freakout/Release", "Hot Chip", swatchCover("salmon", 0xFFE0705A.toInt())),
+            fakePlaylistCard("305tilidie", "Camila Cabello", swatchCover("navy", 0xFF185FA5.toInt())),
+        )
+    }
+
+    // Five supplied, four shown — the grid caps at a 2×2.
+    private fun fakeRecentlyAddedTracks(): List<Track> = listOf(
+        fakeTrack("r1", "Describe", "Hannah Jadagu", swatchCover("green", 0xFF639922.toInt())),
+        fakeTrack("r2", "D.I.A.A", "Hannah Jadagu", swatchCover("coral", 0xFFD85A30.toInt())),
+        fakeTrack("r3", "Couldn't Call It Love", "Hannah Jadagu", swatchCover("teal", 0xFF1D9E75.toInt())),
+        fakeTrack("r4", "My Love", "Hannah Jadagu", swatchCover("pink", 0xFFD4537E.toInt())),
+    )
+
+    private fun fakeRecentlyAddedAlbums(): List<Album> = listOf(
+        fakeAlbum("ra1", "AIと刹那のポリティクス", "Rachel Chinouriri", swatchCover("salmon", 0xFFE0705A.toInt())),
+        fakeAlbum("ra2", "Little House", "Rachel Chinouriri", swatchCover("green", 0xFF3DAE77.toInt())),
+        fakeAlbum("ra3", "This Infinite", "Vitesse X", swatchCover("blue", 0xFF378ADD.toInt())),
+        fakeAlbum("ra4", "Freakout/Release", "Hot Chip", swatchCover("violet", 0xFF7F77DD.toInt())),
+        fakeAlbum("ra5", "天国の部屋", "坂口諒之介", swatchCover("navy", 0xFF185FA5.toInt())),
+    )
+
+    private fun fakeAlbum(rawId: String, name: String, artist: String, cover: String): Album =
+        Album(
+            id = MediaId.subsonic(rawId),
+            name = name,
+            artist = artist,
+            artistId = null,
+            coverArt = CoverRef.Url(cover),
+            songCount = 10,
+            durationSec = 2000,
+            year = 2024,
+            genre = null,
+        )
+
+    private fun fakeAlbumCard(title: String, artist: String, cover: String): HomeWidgetCard =
+        HomeWidgetCard(
+            stableId = "grid-album:$title",
+            entityType = MemoryEntityType.ALBUM,
+            title = title,
+            subtitle = "Album · $artist",
+            coverArtUrl = cover,
+            target = HomeWidgetTarget.AlbumDetail("subsonic:$title"),
+        )
+
+    private fun fakeSongCard(title: String, artist: String, cover: String): HomeWidgetCard =
+        HomeWidgetCard(
+            stableId = "grid-song:$title",
+            entityType = MemoryEntityType.SONG,
+            title = title,
+            subtitle = "Single · $artist",
+            coverArtUrl = cover,
+            target = HomeWidgetTarget.PlaySong(fakeTrack("s-$title", title, artist, cover)),
+        )
+
+    private fun fakePlaylistCard(title: String, owner: String, cover: String): HomeWidgetCard =
+        HomeWidgetCard(
+            stableId = "grid-playlist:$title",
+            entityType = MemoryEntityType.PLAYLIST,
+            title = title,
+            subtitle = "Playlist · $owner",
+            coverArtUrl = cover,
+            target = HomeWidgetTarget.PlaylistDetail("subsonic:$title"),
+        )
+
+    private fun fakeTrack(rawId: String, title: String, artist: String, cover: String): Track =
+        Track(
+            id = MediaId.subsonic(rawId),
+            title = title,
+            artist = artist,
+            artistId = null,
+            album = null,
+            albumId = null,
+            coverArt = CoverRef.Url(cover),
+            durationSec = 200,
+            trackNumber = null,
+            year = null,
+            genre = null,
+            userRating = null,
+        )
+}

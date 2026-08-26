@@ -64,6 +64,20 @@ interface SongAboutEntryDao {
         albumKey: String,
     ): Int
 
+    /**
+     * Ask-row counts for a whole album in one query, grouped per song key —
+     * batch companion to [countAskRows] so per-album consumers don't issue one
+     * COUNT per track.
+     */
+    @Query(
+        """
+        SELECT titleKey, artistKey, COUNT(*) AS askCount FROM song_about_entries
+        WHERE albumKey = :albumKey AND kind = 'ask'
+        GROUP BY titleKey, artistKey
+        """,
+    )
+    suspend fun countAskRowsByAlbum(albumKey: String): List<AskRowCount>
+
     @Upsert
     suspend fun upsert(row: SongAboutEntry)
 
@@ -73,3 +87,9 @@ interface SongAboutEntryDao {
     @Query("DELETE FROM song_about_entries")
     suspend fun deleteAll()
 }
+
+data class AskRowCount(
+    val titleKey: String,
+    val artistKey: String,
+    val askCount: Int,
+)

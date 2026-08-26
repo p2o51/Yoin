@@ -4,46 +4,29 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionScope
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
-import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.background
-import androidx.compose.foundation.basicMarquee
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.interaction.collectIsPressedAsState
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.LibraryMusic
-import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.FilledIconButton
-import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
@@ -57,35 +40,39 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawWithContent
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.geometry.Rect
-import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.lerp
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
-import com.gpo.yoin.ui.navigation.rememberActiveOnlySharedContentConfig
-import com.gpo.yoin.ui.navigation.nowPlayingCoverSharedKey
 import com.gpo.yoin.ui.navigation.YoinSection
 import com.gpo.yoin.ui.theme.ProvideYoinMotionRole
 import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinMotionRole
-import com.gpo.yoin.ui.theme.YoinShapeTokens
 import kotlinx.coroutines.delay
-import kotlin.math.sin
 
 /**
- * Floating navigation/playback group. Visually a Material 3 Expressive connected
- * button group, but laid out with a plain `Row` (see the comment at the Row for
- * why `ButtonGroup` had to go). The selection pill and the press-to-expand /
- * neighbour-compress reaction — the expressive `animateWidth` feel — are
- * hand-rolled here on top of layout weight + aspect ratio, which stays
- * crash-safe under the foldable shared-transition lookahead.
+ * Floating navigation/playback group. Visually a Material 3 Expressive
+ * connected button group, hand-rolled on plain Row/Box with dp-interpolated
+ * slot widths: the bar lives inside the shell's SharedTransitionLayout, whose
+ * lookahead pass hangs/crashes exotic multi-child measure policies (M3
+ * ButtonGroup's neighbour compression, SplitButtonLayout, AnimatedContent
+ * size transforms) whenever the pill's shared elements are active. Plain
+ * layouts + animateFloatAsState survive it; keep it that way.
+ *
+ * Two chrome modes morphed in place by [chromeProgress]:
+ *  - Nav (0): [Home] [now-playing pill (fills)] [Library]
+ *  - Detail (1): [Play split (fills)] [now-playing pill (~25%)]
+ * The pose is HOSTED — this composable never animates it, it only renders the
+ * value, so exactly one driver exists per window (the shell's
+ * rememberShellBarChromeMorph, or a detail page's predictive-back scrub).
+ * The shell flips to Detail the moment a detail launch is tapped, so the
+ * morph IS the tap feedback; the detail window then fades in over the settled
+ * morph onto its own pixel-identical DetailBottomBar. The split button here
+ * is purely the morph visual — the functional twin lives in the detail
+ * window already fading in above.
  */
 @OptIn(
-    ExperimentalFoundationApi::class,
     ExperimentalMaterial3ExpressiveApi::class,
     ExperimentalSharedTransitionApi::class,
 )
@@ -100,6 +87,13 @@ fun YoinButtonGroup(
     connectionErrorMessage: String?,
     playbackProgress: Float = 0f,
     isPlaying: Boolean = false,
+    // Chrome pose (0 = nav, 1 = detail), read per frame. Animated OR
+    // gesture-scrubbed by the caller — never in here, so a predictive-back
+    // scrub and the settle springs can share one Animatable per window.
+    chromeProgress: () -> Float = { 0f },
+    // Functional Play split for the detail windows; null = the shell's
+    // decorative theme-colored stand-in.
+    playSplitActions: BarPlaySplitActions? = null,
     onHomeClick: () -> Unit,
     onNowPlayingClick: () -> Unit,
     onLibraryClick: () -> Unit,
@@ -110,16 +104,6 @@ fun YoinButtonGroup(
 ) {
     ProvideYoinMotionRole(role = YoinMotionRole.Standard) {
         val haptics = rememberYoinHaptics()
-        val surfaceColor by animateColorAsState(
-            targetValue = MaterialTheme.colorScheme.surfaceContainerHigh,
-            animationSpec = YoinMotion.defaultEffectsSpec(),
-            label = "buttonGroupSurfaceColor",
-        )
-        val progressFillColor by animateColorAsState(
-            targetValue = MaterialTheme.colorScheme.primary.copy(alpha = 0.25f),
-            animationSpec = YoinMotion.defaultEffectsSpec(),
-            label = "buttonGroupProgressFill",
-        )
         val homeContainerColor by animateColorAsState(
             targetValue = if (selectedSection == YoinSection.HOME) {
                 MaterialTheme.colorScheme.primaryContainer
@@ -137,24 +121,6 @@ fun YoinButtonGroup(
             },
             animationSpec = YoinMotion.defaultEffectsSpec(),
             label = "buttonGroupHomeContent",
-        )
-        val centerContainerColor by animateColorAsState(
-            targetValue = if (currentTrackTitle != null) {
-                MaterialTheme.colorScheme.primaryContainer
-            } else {
-                MaterialTheme.colorScheme.surfaceContainerHighest
-            },
-            animationSpec = YoinMotion.defaultEffectsSpec(),
-            label = "buttonGroupCenterContainer",
-        )
-        val centerContentColor by animateColorAsState(
-            targetValue = if (currentTrackTitle != null) {
-                MaterialTheme.colorScheme.onPrimaryContainer
-            } else {
-                MaterialTheme.colorScheme.onSurfaceVariant
-            },
-            animationSpec = YoinMotion.defaultEffectsSpec(),
-            label = "buttonGroupCenterContent",
         )
         val libraryContainerColor by animateColorAsState(
             targetValue = if (selectedSection == YoinSection.LIBRARY) {
@@ -174,334 +140,260 @@ fun YoinButtonGroup(
             animationSpec = YoinMotion.defaultEffectsSpec(),
             label = "buttonGroupLibraryContent",
         )
-        val sharedBoundsSpec = YoinMotion.defaultSpatialSpec<Rect>(
-            role = YoinMotionRole.Standard,
-            expressiveScheme = MaterialTheme.motionScheme,
-        )
         var showLibrarySearchHint by remember { mutableStateOf(false) }
 
-        Box(
-            modifier = modifier
-                .fillMaxWidth()
-                .navigationBarsPadding()
-                .padding(horizontal = 16.dp, vertical = 12.dp),
-        ) {
-            Surface(
-                modifier = Modifier.fillMaxWidth(),
-                shape = MaterialTheme.shapes.extraLarge,
-                color = surfaceColor,
-                tonalElevation = 8.dp,
-                shadowElevation = 12.dp,
-            ) {
-                // Interaction sources are hoisted so the press of any one button
-                // can drive the widths of the others (neighbour compression).
-                val homeInteraction = rememberButtonGroupInteractionSource()
-                val centerInteraction = rememberButtonGroupInteractionSource()
-                val libraryInteraction = rememberButtonGroupInteractionSource()
-                val homePressed by homeInteraction.collectIsPressedAsState()
-                val centerPressed by centerInteraction.collectIsPressedAsState()
-                val libraryPressed by libraryInteraction.collectIsPressedAsState()
-
-                // Selection affordance: the active tab settles into a wider pill.
-                // Soft spatial spring — this is a state change, not a touch echo.
-                val homeSelectionAspect by animateFloatAsState(
-                    targetValue = if (selectedSection == YoinSection.HOME) SELECTED_ASPECT else BASE_ASPECT,
-                    animationSpec = YoinMotion.defaultSpatialSpec(),
-                    label = "homeSelectionAspect",
-                )
-                val librarySelectionAspect by animateFloatAsState(
-                    targetValue = if (selectedSection == YoinSection.LIBRARY) SELECTED_ASPECT else BASE_ASPECT,
-                    animationSpec = YoinMotion.defaultSpatialSpec(),
-                    label = "librarySelectionAspect",
-                )
-                // Press affordance: the pressed icon button widens and the centre
-                // (the weighted filler) absorbs it — the M3 expressive
-                // `animateWidth` bulge — while pressing the centre nudges both
-                // icon buttons narrower so it grows in turn. Quick spring so it
-                // reads as a direct touch echo. Driven through aspect/weight, so
-                // it can never produce the negative child width that crashed the
-                // real ButtonGroup under the foldable lookahead.
-                val homePressDelta by animateFloatAsState(
-                    targetValue = (if (homePressed) PRESS_EXPAND else 0f) -
-                        (if (centerPressed) NEIGHBOUR_SQUEEZE else 0f),
-                    animationSpec = YoinMotion.fastSpatialSpec(),
-                    label = "homePressDelta",
-                )
-                val libraryPressDelta by animateFloatAsState(
-                    targetValue = (if (libraryPressed) PRESS_EXPAND else 0f) -
-                        (if (centerPressed) NEIGHBOUR_SQUEEZE else 0f),
-                    animationSpec = YoinMotion.fastSpatialSpec(),
-                    label = "libraryPressDelta",
-                )
-                val homeAspect = (homeSelectionAspect + homePressDelta).coerceAtLeast(MIN_ASPECT)
-                val libraryAspect = (librarySelectionAspect + libraryPressDelta).coerceAtLeast(MIN_ASPECT)
-                val waveTransition = rememberInfiniteTransition(label = "wave")
-                val wavePhase by waveTransition.animateFloat(
-                    initialValue = 0f,
-                    targetValue = 2f * Math.PI.toFloat(),
-                    animationSpec = infiniteRepeatable(
-                        animation = tween(durationMillis = 3000, easing = LinearEasing),
-                        repeatMode = RepeatMode.Restart,
-                    ),
-                    label = "wavePhase",
-                )
-                val waveAmplitude by animateFloatAsState(
-                    targetValue = if (isPlaying) 1f else 0f,
-                    animationSpec = YoinMotion.defaultSpatialSpec(),
-                    label = "waveAmplitude",
-                )
-
-                // Plain Row instead of the M3 ButtonGroup. ButtonGroupMeasurePolicy
-                // does an asymmetric neighbour-compression (widths[i-1]/[i+1] -=
-                // growth) that, under the Pixel Fold's shared-transition LOOKAHEAD
-                // (degenerate maxWidth + the weighted centre item), drives a child
-                // width NEGATIVE and throws in Constraints.copy. A Row never does
-                // that. (animateWidth was a ButtonGroupScope extension; dropped.)
-                Row(
+        FloatingBottomBar(
+            modifier = modifier,
+            overlay = {
+                LibrarySearchShortcutHint(
+                    visible = showLibrarySearchHint,
                     modifier = Modifier
-                        .fillMaxWidth()
-                        .height(68.dp)
-                        .padding(horizontal = 10.dp, vertical = 10.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    run {
-                        FilledIconButton(
-                            onClick = {
-                                haptics.performClick()
-                                onHomeClick()
-                            },
-                            modifier = Modifier
-                                .fillMaxHeight()
-                                .aspectRatio(homeAspect),
-                            interactionSource = homeInteraction,
-                            colors = IconButtonDefaults.filledIconButtonColors(
-                                containerColor = homeContainerColor,
-                                contentColor = homeContentColor,
-                            ),
+                        .align(Alignment.TopEnd)
+                        .padding(end = 26.dp)
+                        .offset(y = (-46).dp),
+                )
+            },
+        ) { innerWidth ->
+            // Interaction sources are hoisted so the press of any one button
+            // can drive the widths of the others (neighbour compression).
+            val homeInteraction = rememberButtonGroupInteractionSource()
+            val centerInteraction = rememberButtonGroupInteractionSource()
+            val libraryInteraction = rememberButtonGroupInteractionSource()
+            val homePressed by homeInteraction.collectIsPressedAsState()
+            val centerPressed by centerInteraction.collectIsPressedAsState()
+            val libraryPressed by libraryInteraction.collectIsPressedAsState()
+
+            // Selection affordance: the active tab settles into a wider pill.
+            // Soft spatial spring — this is a state change, not a touch echo.
+            val homeSelectionAspect by animateFloatAsState(
+                targetValue = if (selectedSection == YoinSection.HOME) SELECTED_ASPECT else BASE_ASPECT,
+                animationSpec = YoinMotion.defaultSpatialSpec(),
+                label = "homeSelectionAspect",
+            )
+            val librarySelectionAspect by animateFloatAsState(
+                targetValue = if (selectedSection == YoinSection.LIBRARY) SELECTED_ASPECT else BASE_ASPECT,
+                animationSpec = YoinMotion.defaultSpatialSpec(),
+                label = "librarySelectionAspect",
+            )
+            // Press affordance: the pressed icon button widens and the pill
+            // absorbs it — the M3 expressive `animateWidth` bulge — while
+            // pressing the pill nudges both icon buttons narrower so it grows
+            // in turn. Quick spring so it reads as a direct touch echo.
+            val homePressDelta by animateFloatAsState(
+                targetValue = (if (homePressed) PRESS_EXPAND else 0f) -
+                    (if (centerPressed) NEIGHBOUR_SQUEEZE else 0f),
+                animationSpec = YoinMotion.fastSpatialSpec(),
+                label = "homePressDelta",
+            )
+            val libraryPressDelta by animateFloatAsState(
+                targetValue = (if (libraryPressed) PRESS_EXPAND else 0f) -
+                    (if (centerPressed) NEIGHBOUR_SQUEEZE else 0f),
+                animationSpec = YoinMotion.fastSpatialSpec(),
+                label = "libraryPressDelta",
+            )
+            val homeAspect = (homeSelectionAspect + homePressDelta).coerceAtLeast(MIN_ASPECT)
+            val libraryAspect = (librarySelectionAspect + libraryPressDelta).coerceAtLeast(MIN_ASPECT)
+
+            // IDLE pose (nothing playing, no error): the pill cedes the bar
+            // to two labeled halves — [icon Home] [icon Library] — and the
+            // whole thing springs back to the pill layout the moment a track
+            // lands. Same dp-lerp language as the detail morph (the pill's
+            // nav width simply collapses to 0 as the halves grow), so the two
+            // poses compose: idle is applied to the NAV endpoints first, then
+            // the chrome morph lerps toward detail as usual.
+            val idle = currentTrackTitle == null && connectionErrorMessage == null
+            val idleProgress by animateFloatAsState(
+                targetValue = if (idle) 1f else 0f,
+                animationSpec = YoinMotion.defaultSpatialSpec(),
+                label = "barIdleProgress",
+            )
+
+            // The nav⇄detail morph, one progress value driving every slot
+            // width. All plain Row/Box + width(dp) — see the class KDoc for
+            // why nothing fancier is allowed in here.
+            val morph = chromeProgress().coerceIn(0f, 1f)
+            val idleHalf = (innerWidth - FloatingBarItemGap * 2) / 2
+            val homeWidth = lerp(FloatingBarButtonHeight * homeAspect, idleHalf, idleProgress)
+            val libraryWidth = lerp(FloatingBarButtonHeight * libraryAspect, idleHalf, idleProgress)
+            val pillNavWidth =
+                innerWidth - homeWidth - libraryWidth - FloatingBarItemGap * 2
+            val pillDetailWidth =
+                innerWidth - FloatingBarSplitWidth - FloatingBarItemGap
+            val pillWidth = lerp(pillNavWidth, pillDetailWidth, morph)
+            val leftWidth = lerp(homeWidth, FloatingBarSplitWidth, morph)
+            // Library slot carries its own leading gap so both collapse to 0.
+            val rightWidth = lerp(FloatingBarItemGap + libraryWidth, 0.dp, morph)
+            val navAlpha = (1f - morph / 0.6f).coerceIn(0f, 1f)
+            val splitAlpha = ((morph - 0.4f) / 0.6f).coerceIn(0f, 1f)
+            // Label reveal rides the tail of the width spring; fade the pill
+            // out fast so the squeeze never shows crushed content.
+            val idleLabelAlpha = ((idleProgress - 0.55f) / 0.45f).coerceIn(0f, 1f)
+            val pillIdleAlpha = (1f - idleProgress / 0.5f).coerceIn(0f, 1f)
+
+            // LEFT SLOT — Home fading out beneath the stretching Play split.
+            Box(
+                modifier = Modifier
+                    .width(leftWidth)
+                    .height(FloatingBarButtonHeight)
+                    .clipToBounds(),
+            ) {
+                if (morph < 0.99f) {
+                    FilledIconButton(
+                        onClick = {
+                            haptics.performClick()
+                            onHomeClick()
+                        },
+                        modifier = Modifier
+                            .align(Alignment.CenterStart)
+                            .width(homeWidth)
+                            .fillMaxHeight()
+                            .graphicsLayer { alpha = navAlpha },
+                        interactionSource = homeInteraction,
+                        colors = IconButtonDefaults.filledIconButtonColors(
+                            containerColor = homeContainerColor,
+                            contentColor = homeContentColor,
+                        ),
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
                             Icon(
                                 imageVector = Icons.Filled.Home,
                                 contentDescription = "Home",
                             )
-                        }
-                    }
-
-                    run {
-                        val clampedProgress = playbackProgress.coerceIn(0f, 1f)
-
-                        FilledTonalButton(
-                            onClick = {
-                                haptics.performContextClick()
-                                onNowPlayingClick()
-                            },
-                            modifier = Modifier
-                                .weight(1.65f)
-                                .fillMaxHeight(),
-                            interactionSource = centerInteraction,
-                            shape = MaterialTheme.shapes.extraLarge,
-                            contentPadding = PaddingValues(0.dp),
-                            colors = ButtonDefaults.filledTonalButtonColors(
-                                containerColor = centerContainerColor,
-                                contentColor = centerContentColor,
-                            ),
-                        ) {
-                            Box(modifier = Modifier.fillMaxWidth()) {
-                                if (currentTrackTitle != null && clampedProgress > 0f) {
-                                    Box(
-                                        modifier = Modifier
-                                            .matchParentSize()
-                                            .clip(MaterialTheme.shapes.extraLarge)
-                                            .drawWithContent {
-                                                drawContent()
-                                                val width = size.width
-                                                val height = size.height
-                                                val progressX = width * clampedProgress
-                                                val amplitude = 4.dp.toPx() * waveAmplitude
-                                                val waveSteps = 20
-
-                                                val path = Path().apply {
-                                                    moveTo(0f, 0f)
-                                                    lineTo(progressX, 0f)
-                                                    for (index in 0..waveSteps) {
-                                                        val fraction = index.toFloat() / waveSteps
-                                                        val y = fraction * height
-                                                        val dx = sin(
-                                                            wavePhase +
-                                                                fraction * 2f * Math.PI.toFloat(),
-                                                        ) * amplitude
-                                                        lineTo(progressX + dx, y)
-                                                    }
-                                                    lineTo(0f, height)
-                                                    close()
-                                                }
-                                                drawPath(path, progressFillColor)
-                                            },
-                                    )
-                                }
-
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(horizontal = 10.dp, vertical = 4.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                ) {
-                                    NowPlayingArtwork(
-                                        currentTrackId = currentTrackId,
-                                        currentTrackCoverArtUrl = currentTrackCoverArtUrl,
-                                        currentTrackTitle = currentTrackTitle,
-                                        sharedTransitionScope = sharedTransitionScope,
-                                        animatedVisibilityScope = animatedVisibilityScope,
-                                    )
-                                    Spacer(modifier = Modifier.width(10.dp))
-                                    Column(modifier = Modifier.weight(1f)) {
-                                        val titleText = currentTrackTitle ?: when {
-                                            connectionErrorMessage != null -> "Playback unavailable"
-                                            else -> "Nothing playing"
-                                        }
-                                        val artistText = currentTrackArtist ?: when {
-                                            connectionErrorMessage != null -> connectionErrorMessage
-                                            else -> "Tap to open player"
-                                        }
-
-                                        val titleModifier = if (
-                                            sharedTransitionScope != null &&
-                                            animatedVisibilityScope != null &&
-                                            currentTrackTitle != null
-                                        ) {
-                                            val sharedContentConfig =
-                                                rememberActiveOnlySharedContentConfig(
-                                                    animatedVisibilityScope = animatedVisibilityScope,
-                                                )
-                                            with(sharedTransitionScope) {
-                                                Modifier.sharedBounds(
-                                                    sharedContentState = rememberSharedContentState(
-                                                        key = "np_title",
-                                                        config = sharedContentConfig,
-                                                    ),
-                                                    animatedVisibilityScope = animatedVisibilityScope,
-                                                    boundsTransform = { _, _ -> sharedBoundsSpec },
-                                                )
-                                            }
-                                        } else {
-                                            Modifier
-                                        }
-                                        val marqueeTitleModifier = if (currentTrackTitle != null) {
-                                            titleModifier.basicMarquee(
-                                                iterations = Int.MAX_VALUE,
-                                                repeatDelayMillis = 2000,
-                                                initialDelayMillis = 1500,
-                                            )
-                                        } else {
-                                            titleModifier
-                                        }
-                                        Text(
-                                            text = titleText,
-                                            style = MaterialTheme.typography.labelLarge,
-                                            color = centerContentColor,
-                                            maxLines = 1,
-                                            softWrap = false,
-                                            modifier = marqueeTitleModifier,
-                                        )
-
-                                        val artistModifier = if (
-                                            sharedTransitionScope != null &&
-                                            animatedVisibilityScope != null &&
-                                            currentTrackArtist != null
-                                        ) {
-                                            val sharedContentConfig =
-                                                rememberActiveOnlySharedContentConfig(
-                                                    animatedVisibilityScope = animatedVisibilityScope,
-                                                )
-                                            with(sharedTransitionScope) {
-                                                Modifier.sharedBounds(
-                                                    sharedContentState = rememberSharedContentState(
-                                                        key = "np_artist",
-                                                        config = sharedContentConfig,
-                                                    ),
-                                                    animatedVisibilityScope = animatedVisibilityScope,
-                                                    boundsTransform = { _, _ -> sharedBoundsSpec },
-                                                )
-                                            }
-                                        } else {
-                                            Modifier
-                                        }
-                                        val marqueeArtistModifier = if (currentTrackArtist != null) {
-                                            artistModifier.basicMarquee(
-                                                iterations = Int.MAX_VALUE,
-                                                repeatDelayMillis = 2000,
-                                                initialDelayMillis = 2500,
-                                            )
-                                        } else {
-                                            artistModifier
-                                        }
-                                        Text(
-                                            text = artistText,
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = centerContentColor.copy(alpha = 0.72f),
-                                            maxLines = 1,
-                                            softWrap = false,
-                                            modifier = marqueeArtistModifier,
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    run {
-                        LaunchedEffect(libraryPressed) {
-                            if (libraryPressed) {
-                                delay(LIBRARY_SEARCH_HINT_DELAY_MS)
-                                showLibrarySearchHint = true
-                            } else {
-                                delay(LIBRARY_SEARCH_HINT_SETTLE_MS)
-                                showLibrarySearchHint = false
-                            }
-                        }
-                        Surface(
-                            modifier = Modifier
-                                .fillMaxHeight()
-                                .aspectRatio(libraryAspect)
-                                .combinedClickable(
-                                    interactionSource = libraryInteraction,
-                                    indication = null,
-                                    onClick = {
-                                        haptics.performClick()
-                                        onLibraryClick()
-                                    },
-                                    onLongClick = {
-                                        showLibrarySearchHint = true
-                                        haptics.performContextClick()
-                                        onLibraryLongClick()
-                                    },
-                                ),
-                            shape = MaterialTheme.shapes.extraLarge,
-                            color = libraryContainerColor,
-                            contentColor = libraryContentColor,
-                            tonalElevation = 0.dp,
-                            shadowElevation = 0.dp,
-                        ) {
-                            Box(
-                                modifier = Modifier.fillMaxSize(),
-                                contentAlignment = Alignment.Center,
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Filled.LibraryMusic,
-                                    contentDescription = "Library",
+                            if (idleLabelAlpha > 0.01f) {
+                                Text(
+                                    text = "Home",
+                                    style = MaterialTheme.typography.labelLarge,
+                                    maxLines = 1,
+                                    softWrap = false,
+                                    modifier = Modifier.graphicsLayer { alpha = idleLabelAlpha },
                                 )
                             }
                         }
                     }
                 }
+                if (morph > 0.01f) {
+                    // Functional on detail pages; decorative in the shell
+                    // (where the real twin lives in the window fading in above).
+                    PlaySplitButton(
+                        playContainer = playSplitActions?.playContainer
+                            ?: MaterialTheme.colorScheme.primary,
+                        playContent = playSplitActions?.playContent
+                            ?: MaterialTheme.colorScheme.onPrimary,
+                        onPlay = playSplitActions?.onPlay ?: {},
+                        onShuffle = playSplitActions?.onShuffle ?: {},
+                        buttonHeight = FloatingBarButtonHeight,
+                        fillPlay = true,
+                        compact = true,
+                        trailingMenuItems = playSplitActions?.menuItems ?: {},
+                        modifier = Modifier
+                            .align(Alignment.CenterStart)
+                            .width(FloatingBarSplitWidth)
+                            .graphicsLayer { alpha = splitAlpha },
+                    )
+                }
             }
-            LibrarySearchShortcutHint(
-                visible = showLibrarySearchHint,
+
+            Spacer(modifier = Modifier.width(FloatingBarItemGap))
+
+            // CENTER — the now-playing pill, absorbing whatever the sides
+            // release. Fully idle (and not in detail chrome) = not composed:
+            // its 0dp slot would still marquee and hit-test, and an idle tap
+            // opening the "Nothing playing" page is exactly what the idle
+            // pose exists to retire.
+            if (idleProgress < 0.995f || morph > 0.005f) {
+                NowPlayingPill(
+                    currentTrackId = currentTrackId,
+                    currentTrackTitle = currentTrackTitle,
+                    currentTrackArtist = currentTrackArtist,
+                    currentTrackCoverArtUrl = currentTrackCoverArtUrl,
+                    connectionErrorMessage = connectionErrorMessage,
+                    playbackProgress = playbackProgress,
+                    isPlaying = isPlaying,
+                    onClick = onNowPlayingClick,
+                    sharedTransitionScope = sharedTransitionScope,
+                    animatedVisibilityScope = animatedVisibilityScope,
+                    interactionSource = centerInteraction,
+                    modifier = Modifier
+                        .width(pillWidth)
+                        .fillMaxHeight()
+                        .graphicsLayer {
+                            alpha = if (morph > 0.005f) 1f else pillIdleAlpha
+                        },
+                )
+            }
+
+            // RIGHT SLOT — Library (with its leading gap), collapsing away
+            // in detail chrome.
+            Box(
                 modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .padding(end = 26.dp)
-                    .offset(y = (-46).dp),
-            )
+                    .width(rightWidth)
+                    .height(FloatingBarButtonHeight)
+                    .clipToBounds(),
+            ) {
+                if (morph < 0.99f) {
+                    LaunchedEffect(libraryPressed) {
+                        if (libraryPressed) {
+                            delay(LIBRARY_SEARCH_HINT_DELAY_MS)
+                            showLibrarySearchHint = true
+                        } else {
+                            delay(LIBRARY_SEARCH_HINT_SETTLE_MS)
+                            showLibrarySearchHint = false
+                        }
+                    }
+                    Surface(
+                        modifier = Modifier
+                            .align(Alignment.CenterEnd)
+                            .width(libraryWidth)
+                            .fillMaxHeight()
+                            .graphicsLayer { alpha = navAlpha }
+                            .combinedClickable(
+                                interactionSource = libraryInteraction,
+                                indication = null,
+                                onClick = {
+                                    haptics.performClick()
+                                    onLibraryClick()
+                                },
+                                onLongClick = {
+                                    showLibrarySearchHint = true
+                                    haptics.performContextClick()
+                                    onLibraryLongClick()
+                                },
+                            ),
+                        shape = MaterialTheme.shapes.extraLarge,
+                        color = libraryContainerColor,
+                        contentColor = libraryContentColor,
+                        tonalElevation = 0.dp,
+                        shadowElevation = 0.dp,
+                    ) {
+                        Box(
+                            modifier = Modifier.fillMaxSize(),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Filled.LibraryMusic,
+                                    contentDescription = "Library",
+                                )
+                                if (idleLabelAlpha > 0.01f) {
+                                    Text(
+                                        text = "Library",
+                                        style = MaterialTheme.typography.labelLarge,
+                                        maxLines = 1,
+                                        softWrap = false,
+                                        modifier = Modifier.graphicsLayer { alpha = idleLabelAlpha },
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 }
@@ -565,49 +457,11 @@ private const val MIN_ASPECT = 0.7f
 private const val LIBRARY_SEARCH_HINT_DELAY_MS = 240L
 private const val LIBRARY_SEARCH_HINT_SETTLE_MS = 120L
 
-@OptIn(ExperimentalSharedTransitionApi::class)
-@Composable
-private fun NowPlayingArtwork(
-    currentTrackId: String?,
-    currentTrackCoverArtUrl: String?,
-    currentTrackTitle: String?,
-    sharedTransitionScope: SharedTransitionScope? = null,
-    animatedVisibilityScope: AnimatedVisibilityScope? = null,
-    modifier: Modifier = Modifier,
-) {
-    val baseModifier = modifier.size(34.dp)
-    val sharedBoundsSpec = YoinMotion.defaultSpatialSpec<Rect>(
-        role = YoinMotionRole.Standard,
-        expressiveScheme = MaterialTheme.motionScheme,
-    )
-    val finalModifier = if (
-        sharedTransitionScope != null &&
-        animatedVisibilityScope != null &&
-        currentTrackCoverArtUrl != null
-    ) {
-        val sharedContentConfig =
-            rememberActiveOnlySharedContentConfig(animatedVisibilityScope = animatedVisibilityScope)
-        with(sharedTransitionScope) {
-            baseModifier.sharedBounds(
-                sharedContentState = rememberSharedContentState(
-                    key = nowPlayingCoverSharedKey(currentTrackId),
-                    config = sharedContentConfig,
-                ),
-                animatedVisibilityScope = animatedVisibilityScope,
-                boundsTransform = { _, _ -> sharedBoundsSpec },
-            )
-        }
-    } else {
-        baseModifier
-    }
-
-    ExpressiveMediaArtwork(
-        model = currentTrackCoverArtUrl,
-        contentDescription = currentTrackTitle ?: "Current track",
-        modifier = finalModifier,
-        shape = YoinShapeTokens.Small,
-        fallbackIcon = Icons.Filled.MusicNote,
-        tonalElevation = 1.dp,
-        shadowElevation = 0.dp,
-    )
-}
+/** Functional Play-split wiring for the detail windows' bar. */
+class BarPlaySplitActions(
+    val playContainer: androidx.compose.ui.graphics.Color,
+    val playContent: androidx.compose.ui.graphics.Color,
+    val onPlay: () -> Unit,
+    val onShuffle: () -> Unit,
+    val menuItems: @Composable androidx.compose.foundation.layout.ColumnScope.(dismissMenu: () -> Unit) -> Unit,
+)

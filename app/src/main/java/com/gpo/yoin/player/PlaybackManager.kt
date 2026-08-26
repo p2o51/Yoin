@@ -4,6 +4,7 @@ import android.content.ComponentName
 import android.content.Context
 import android.net.Uri
 import android.os.Bundle
+import android.util.Log
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
@@ -20,6 +21,7 @@ import com.gpo.yoin.data.source.spotify.SpotifyMusicSource
 import com.google.common.util.concurrent.FutureCallback
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.MoreExecutors
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -34,7 +36,6 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
-import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
 class PlaybackManager(
@@ -52,6 +53,11 @@ class PlaybackManager(
     private var controller: MediaController? = null
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private var positionUpdateJob: Job? = null
+    // True while any Yoin Activity is started (driven by YoinApplication's
+    // host lifecycle). Gates the 250ms position ticker: nothing consumes
+    // interpolated positions in the background — the media notification is
+    // driven by Media3 itself, not this StateFlow.
+    private var hostStarted = false
     private var connectJob: Job? = null
     private val pendingCommands = mutableListOf<(MediaController) -> Unit>()
     private var lastRecordedTrackId: MediaId? = null
@@ -146,6 +152,10 @@ class PlaybackManager(
                 syncState()
                 startPositionUpdates()
                 flushPendingCommands(built)
+            } catch (cancellation: CancellationException) {
+                // Cancellation (profile switch / Spotify handoff) is not a
+                // connection failure — don't flash an Error phase.
+                throw cancellation
             } catch (error: Throwable) {
                 _playbackState.value = _playbackState.value.copy(
                     connectionPhase = ConnectionPhase.Error,
@@ -158,6 +168,13 @@ class PlaybackManager(
     }
 
     fun onHostStart(hostContext: Context) {
+        hostStarted = true
+        // Resume the position ticker if playback kept going while we were
+        // backgrounded; the first tick re-anchors from the authoritative
+        // source (controller position / Spotify wall-clock anchor).
+        if (_playbackState.value.isPlaying) {
+            startPositionUpdates()
+        }
         spotifyRemotePlayer.onHostStart(hostContext)
         // Host just came up — if Spotify is already active, the init-time
         // collector may have fired before hostContext was set, so re-issue
@@ -168,6 +185,11 @@ class PlaybackManager(
     }
 
     fun onHostStop() {
+        // Kill the ticker BEFORE forwarding: the Spotify teardown below
+        // republishes a preserved snapshot (often isPlaying=true) that would
+        // otherwise restart the loop and keep 4Hz wakeups alive forever.
+        hostStarted = false
+        stopPositionUpdates()
         spotifyRemotePlayer.onHostStop()
     }
 
@@ -202,43 +224,49 @@ class PlaybackManager(
             .mapNotNull { track -> track.durationSec?.let { track.id to it } }
             .toMap()
         scope.launch {
-            when (source.playback().handleFor(tracks[startIndex])) {
-                is PlaybackHandle.DirectStream -> {
-                    pendingSpotifyHandoff = false
-                    preserveLocalUiDuringSpotifyHandoff = false
-                    activeBackend = ActiveBackend.LOCAL
-                    spotifyRemotePlayer.disconnect(resetState = false)
-                    val items = tracks.map { buildMediaItem(it, source) }
-                    executeOrQueue { player ->
-                        player.setMediaItems(items, startIndex, 0L)
-                        player.prepare()
-                        player.play()
+            // Guarded: handleFor / buildMediaItem are provider calls that can
+            // throw, and the scope has no CoroutineExceptionHandler.
+            runCatching {
+                when (source.playback().handleFor(tracks[startIndex])) {
+                    is PlaybackHandle.DirectStream -> {
+                        pendingSpotifyHandoff = false
+                        preserveLocalUiDuringSpotifyHandoff = false
+                        activeBackend = ActiveBackend.LOCAL
+                        spotifyRemotePlayer.disconnect(resetState = false)
+                        val items = tracks.map { buildMediaItem(it, source) }
+                        executeOrQueue { player ->
+                            player.setMediaItems(items, startIndex, 0L)
+                            player.prepare()
+                            player.play()
+                        }
                     }
-                }
 
-                is PlaybackHandle.ExternalController -> {
-                    pendingSpotifyHandoff = true
-                    preserveLocalUiDuringSpotifyHandoff =
-                        activeBackend == ActiveBackend.LOCAL &&
-                            controller != null &&
-                            _playbackState.value.currentTrack != null
-                    if (!preserveLocalUiDuringSpotifyHandoff) {
-                        activeBackend = ActiveBackend.SPOTIFY_REMOTE
+                    is PlaybackHandle.ExternalController -> {
+                        pendingSpotifyHandoff = true
+                        preserveLocalUiDuringSpotifyHandoff =
+                            activeBackend == ActiveBackend.LOCAL &&
+                                controller != null &&
+                                _playbackState.value.currentTrack != null
+                        if (!preserveLocalUiDuringSpotifyHandoff) {
+                            activeBackend = ActiveBackend.SPOTIFY_REMOTE
+                        }
+                        // If the user tapped inside an album / playlist / artist,
+                        // route through Spotify's Web API so the context sticks
+                        // ("playing from X" in Spotify's own UI + proper
+                        // recommendation signal). Bare-track entry points (queue,
+                        // search result, memories single track) keep the
+                        // non-context App Remote path — playQueue falls back
+                        // transparently on Web API failure too.
+                        val startContextPlayback = buildSpotifyContextPlaybackFn(
+                            source = source,
+                            activityContext = activityContext,
+                            startIndex = startIndex,
+                        )
+                        spotifyRemotePlayer.playQueue(tracks, startIndex, startContextPlayback)
                     }
-                    // If the user tapped inside an album / playlist / artist,
-                    // route through Spotify's Web API so the context sticks
-                    // ("playing from X" in Spotify's own UI + proper
-                    // recommendation signal). Bare-track entry points (queue,
-                    // search result, memories single track) keep the
-                    // non-context App Remote path — playQueue falls back
-                    // transparently on Web API failure too.
-                    val startContextPlayback = buildSpotifyContextPlaybackFn(
-                        source = source,
-                        activityContext = activityContext,
-                        startIndex = startIndex,
-                    )
-                    spotifyRemotePlayer.playQueue(tracks, startIndex, startContextPlayback)
                 }
+            }.onFailure { error ->
+                Log.w(TAG, "play failed for ${tracks[startIndex].id}", error)
             }
         }
     }
@@ -314,19 +342,24 @@ class PlaybackManager(
 
     fun addToQueue(track: Track, source: MusicSource) {
         scope.launch {
-            when (source.playback().handleFor(track)) {
-                is PlaybackHandle.DirectStream -> {
-                    pendingSpotifyHandoff = false
-                    preserveLocalUiDuringSpotifyHandoff = false
-                    val item = buildMediaItem(track, source)
-                    executeOrQueue { player -> player.addMediaItem(item) }
-                }
+            // Guarded for the same reason as [play] above.
+            runCatching {
+                when (source.playback().handleFor(track)) {
+                    is PlaybackHandle.DirectStream -> {
+                        pendingSpotifyHandoff = false
+                        preserveLocalUiDuringSpotifyHandoff = false
+                        val item = buildMediaItem(track, source)
+                        executeOrQueue { player -> player.addMediaItem(item) }
+                    }
 
-                is PlaybackHandle.ExternalController -> {
-                    activeBackend = ActiveBackend.SPOTIFY_REMOTE
-                    disconnectLocalController(resetState = false)
-                    spotifyRemotePlayer.addToQueue(track)
+                    is PlaybackHandle.ExternalController -> {
+                        activeBackend = ActiveBackend.SPOTIFY_REMOTE
+                        disconnectLocalController(resetState = false)
+                        spotifyRemotePlayer.addToQueue(track)
+                    }
                 }
+            }.onFailure { error ->
+                Log.w(TAG, "addToQueue failed for ${track.id}", error)
             }
         }
     }
@@ -421,6 +454,7 @@ class PlaybackManager(
     }
 
     private fun startPositionUpdates() {
+        if (!hostStarted) return
         if (positionUpdateJob?.isActive == true) return
         positionUpdateJob = scope.launch {
             while (isActive) {
@@ -622,13 +656,20 @@ class PlaybackManager(
         lastRecordedTrackId = track.id
         val fallbackDurationSec = track.durationSec ?: lastKnownDurationSecById[track.id]
         scope.launch {
-            repository.recordPlay(
-                track = track,
-                durationMs = state.duration.coerceAtLeast(0L).takeIf { it > 0L }
-                    ?: ((fallbackDurationSec ?: 0) * 1_000L),
-                completedPercent = 0f,
-                activityContext = _currentActivityContext.value,
-            )
+            // Losing one history row must never take playback down with it
+            // (scope has no CoroutineExceptionHandler — an uncaught Room
+            // failure here would crash the app on track change).
+            runCatching {
+                repository.recordPlay(
+                    track = track,
+                    durationMs = state.duration.coerceAtLeast(0L).takeIf { it > 0L }
+                        ?: ((fallbackDurationSec ?: 0) * 1_000L),
+                    completedPercent = 0f,
+                    activityContext = _currentActivityContext.value,
+                )
+            }.onFailure { error ->
+                Log.w(TAG, "recordPlay failed for ${track.id}", error)
+            }
         }
     }
 
@@ -818,11 +859,21 @@ class PlaybackManager(
         )
         val future = MediaController.Builder(context, sessionToken).buildAsync()
         return suspendCancellableCoroutine { continuation ->
+            // If connectJob is cancelled (profile switch / Spotify handoff)
+            // while the controller is still being built, releaseFuture both
+            // cancels a pending build and releases an already-built
+            // controller — otherwise the orphan keeps PlaybackService bound
+            // forever. The resume onCancellation lambda covers the remaining
+            // race: cancellation landing after resume but before the
+            // coroutine consumes the value. releaseFuture is idempotent.
+            continuation.invokeOnCancellation { MediaController.releaseFuture(future) }
             Futures.addCallback(
                 future,
                 object : FutureCallback<MediaController> {
                     override fun onSuccess(result: MediaController) {
-                        continuation.resume(result)
+                        continuation.resume(result) { _, _, _ ->
+                            MediaController.releaseFuture(future)
+                        }
                     }
 
                     override fun onFailure(t: Throwable) {
@@ -835,6 +886,8 @@ class PlaybackManager(
     }
 
     companion object {
+        private const val TAG = "PlaybackManager"
+
         private const val POSITION_UPDATE_INTERVAL_MS = 250L
 
         private const val EXTRA_MEDIA_ID = "media_id"

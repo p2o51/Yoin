@@ -9,6 +9,7 @@ import com.gpo.yoin.data.model.Lyrics as SourceLyrics
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.YoinDevice
 import com.gpo.yoin.data.repository.YoinRepository
+import com.gpo.yoin.data.source.spotify.SpotifyAuthException
 import com.gpo.yoin.player.CastManager
 import com.gpo.yoin.player.CastState
 import com.gpo.yoin.player.ConnectionPhase
@@ -217,7 +218,14 @@ class NowPlayingViewModel(
     val devicesState: StateFlow<DevicesSheetState> = _devicesState.asStateFlow()
 
     private val playbackAndContext = combine(
-        playbackManager.playbackState,
+        // position/bufferedPosition tick 4×/s during playback, but [uiState]
+        // no longer embeds them (the screen reads [positionMs]/[bufferedMs]
+        // directly). Strip the ticking fields BEFORE the big combine so a
+        // pure position tick dedupes right here instead of rebuilding — and
+        // re-emitting — a fresh Playing instance 4×/s.
+        playbackManager.playbackState
+            .map { it.copy(position = 0L, bufferedPosition = 0L) }
+            .distinctUntilChanged(),
         playbackManager.currentActivityContext,
     ) { state, ctx -> state to ctx }
 
@@ -259,9 +267,7 @@ class NowPlayingViewModel(
                 albumName = song.album.orEmpty(),
                 coverArtUrl = repository.resolveCoverUrl(song.coverArt),
                 isPlaying = state.isPlaying,
-                positionMs = state.position,
                 durationMs = state.duration,
-                bufferedMs = state.bufferedPosition,
                 songId = song.id.toString(),
                 rating = rating,
                 isStarred = isStarred,
@@ -310,6 +316,55 @@ class NowPlayingViewModel(
             else -> NowPlayingUiState.Idle
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), NowPlayingUiState.Idle)
+
+    /**
+     * 4Hz playhead position, deliberately kept OUT of [uiState] (see
+     * [playbackAndContext]) so only the leaves that render position — wave
+     * progress bar, time labels, lyrics highlight — recompose per tick.
+     *
+     * Shared EAGERLY, not WhileSubscribed: the only collector lives inside the
+     * Now Playing overlay, so with WhileSubscribed the flow went cold 5s after
+     * a dismiss and cached the close-time position — reopening then composed
+     * its first frame against that stale value (collectAsState always seeds
+     * from StateFlow.value) and the lyric panes instant-anchored to the wrong
+     * line before re-gliding. Eager upkeep is two field projections per 250ms
+     * tick (and the ticker only runs while playing) — cheap insurance that
+     * `.value` is never stale.
+     */
+    val positionMs: StateFlow<Long> = playbackManager.playbackState
+        .map { it.position }
+        .stateIn(
+            viewModelScope,
+            SharingStarted.Eagerly,
+            playbackManager.playbackState.value.position,
+        )
+
+    /** Buffered position, split out of [uiState] for the same reason as [positionMs]. */
+    val bufferedMs: StateFlow<Long> = playbackManager.playbackState
+        .map { it.bufferedPosition }
+        .stateIn(
+            viewModelScope,
+            SharingStarted.Eagerly,
+            playbackManager.playbackState.value.bufferedPosition,
+        )
+
+    /**
+     * Live play/pause bit, split out of [uiState] for the same staleness
+     * reason as [positionMs] — plus one more: [uiState] is a multi-source
+     * combine, so after a cold resubscribe it can't emit until EVERY source
+     * (lyrics, rating, favorite) has produced a value, and until then
+     * collectAsState serves the cached close-time snapshot. The wave bar keys
+     * wavy-vs-flat off isPlaying, so a stale `false` here while the eager
+     * position ticked on rendered as "progress moving but the line stays
+     * flat". The overlay host overrides Playing.isPlaying with this value.
+     */
+    val isPlayingLive: StateFlow<Boolean> = playbackManager.playbackState
+        .map { it.isPlaying }
+        .stateIn(
+            viewModelScope,
+            SharingStarted.Eagerly,
+            playbackManager.playbackState.value.isPlaying,
+        )
 
     fun togglePlayPause() {
         val state = playbackManager.playbackState.value
@@ -593,11 +648,11 @@ class NowPlayingViewModel(
         }
     }
 
-    fun saveCurrentNote(content: String) {
+    fun saveCurrentNote(content: String, positionMs: Long? = null) {
         if (content.isBlank()) return
         val track = playbackManager.playbackState.value.currentTrack ?: return
         viewModelScope.launch {
-            repository.addNote(track, content)
+            repository.addNote(track, content, positionMs)
         }
     }
 
@@ -649,7 +704,14 @@ class NowPlayingViewModel(
                     providerId = providerId,
                     devices = latestDevices.ifEmpty { fallbackDevices(providerId, castState) },
                     loading = false,
-                    errorMessage = error.message ?: "Couldn't load devices.",
+                    // 403 here = token minted before user-read-playback-state
+                    // joined SCOPES (it's not in REQUIRED_SCOPES, so no forced
+                    // reconnect) — say what actually fixes it.
+                    errorMessage = if (error is SpotifyAuthException && error.code == 403) {
+                        "Spotify needs re-connecting to list devices (new permission)."
+                    } else {
+                        error.message ?: "Couldn't load devices."
+                    },
                 )
             }
         }

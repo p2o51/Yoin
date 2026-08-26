@@ -8,7 +8,6 @@ import com.gpo.yoin.AppContainer
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.repository.YoinRepository
 import com.gpo.yoin.ui.experience.ExperienceSessionStore
-import com.gpo.yoin.ui.experience.MemoryScrollPosition
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -28,7 +27,7 @@ class MemoriesViewModel(
     private val deckCoordinator: MemoriesDeckCoordinator,
     private val sessionStore: ExperienceSessionStore,
     private val repository: YoinRepository,
-    activeProfileId: StateFlow<String?>,
+    private val activeProfileId: StateFlow<String?>,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow<MemoriesUiState>(MemoriesUiState.Loading)
@@ -97,6 +96,9 @@ class MemoriesViewModel(
         // cancellation `finally` runs late on Main.immediate — from nulling the
         // live job's reference and defeating the isActive guard.
         initialLoadJob?.cancel()
+        // A reset also orphans any in-flight deck advance — cancel it so it
+        // can't write (or re-persist) the previous profile's deck afterwards.
+        adjacentDeckJob?.cancel()
         val job = viewModelScope.launch {
             _uiState.value = MemoriesUiState.Loading
             try {
@@ -137,6 +139,7 @@ class MemoriesViewModel(
      */
     private fun ensureLoadedFocused(focusSessionId: Long) {
         initialLoadJob?.cancel()
+        adjacentDeckJob?.cancel()
         val job = viewModelScope.launch {
             _uiState.value = MemoriesUiState.Loading
             try {
@@ -173,11 +176,16 @@ class MemoriesViewModel(
     fun advanceDeck(direction: MemoryDeckDirection) {
         val currentContent = _uiState.value as? MemoriesUiState.Content ?: return
         if (adjacentDeckJob?.isActive == true) return
+        // The coordinator call below can outlive a profile switch (which only
+        // cancels this job); re-check the owning profile after the suspension
+        // so a slow advance can never paint one account's deck under another.
+        val profileId = activeProfileId.value
 
         _uiState.value = currentContent.copy(isLoadingAdjacentDeck = true)
         adjacentDeckJob = viewModelScope.launch {
             try {
                 val nextDeck = deckCoordinator.advanceDeck(direction)
+                if (activeProfileId.value != profileId) return@launch
                 if (nextDeck.isEmpty()) {
                     _uiState.value = currentContent.copy(isLoadingAdjacentDeck = false)
                     return@launch
@@ -189,11 +197,19 @@ class MemoriesViewModel(
                     deckDirection = direction,
                     isLoadingAdjacentDeck = false,
                 )
+            } catch (cancellation: CancellationException) {
+                // Superseded by a reload / profile switch — the winning load owns
+                // the state, but never leave a Content stuck mid-advance.
+                val latest = _uiState.value as? MemoriesUiState.Content
+                if (latest?.isLoadingAdjacentDeck == true) {
+                    _uiState.value = latest.copy(isLoadingAdjacentDeck = false)
+                }
+                throw cancellation
             } catch (_: Exception) {
                 val latest = _uiState.value as? MemoriesUiState.Content ?: return@launch
                 _uiState.value = latest.copy(isLoadingAdjacentDeck = false)
             } finally {
-                adjacentDeckJob = null
+                if (adjacentDeckJob === coroutineContext[Job]) adjacentDeckJob = null
             }
         }
     }
@@ -202,14 +218,6 @@ class MemoriesViewModel(
         val currentPage = sessionState.value.currentPage
         if (currentPage == page) return
         sessionStore.setMemoriesCurrentPage(page)
-    }
-
-    fun setMemoryScroll(
-        activityId: Long,
-        position: MemoryScrollPosition,
-    ) {
-        if (sessionState.value.perMemoryScrollOffsets[activityId] == position) return
-        sessionStore.setMemoryScrollPosition(activityId, position)
     }
 
     /**

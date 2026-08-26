@@ -14,6 +14,8 @@ package com.gpo.yoin.data.model
  *   playlist-mutation endpoints (`POST /playlists/{id}/items` returns a new
  *   snapshot; `DELETE /playlists/{id}/items` accepts one). Subsonic leaves
  *   it `null`.
+ * @property comment Free-form description authored on the server — Subsonic's
+ *   `comment`, Spotify's `description`. `null` when the provider carries none.
  */
 data class Playlist(
     val id: MediaId,
@@ -25,6 +27,7 @@ data class Playlist(
     val tracks: List<Track> = emptyList(),
     val canWrite: Boolean = false,
     val snapshotId: String? = null,
+    val comment: String? = null,
 )
 
 /**

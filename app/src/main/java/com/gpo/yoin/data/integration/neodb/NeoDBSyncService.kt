@@ -94,43 +94,36 @@ class NeoDBSyncService internal constructor(
             val reviewBody = local.review.orEmpty()
             val existingUuid = local.neoDbReviewUuid
             val newUuid = when {
-                reviewBody.isBlank() && existingUuid != null -> {
-                    // Delete path：**不再把失败吞掉**。
+                reviewBody.isBlank() -> {
+                    // Delete path：**不再把失败吞掉**。删除按 item uuid 走，
+                    // 且不再拿本地 review uuid 当触发条件 —— 现行 API 的
+                    // review 没有 uuid 概念（POST 响应是 Result 消息壳），
+                    // 本地 uuid 永远是空的，靠它判断会漏删远端孤儿。
                     //  - 204 / 200 / 404 都视为已不在（NeoDB 上已经没这条
-                    //    Review 了，目标状态一致）→ 清 uuid + 清脏位。
+                    //    Review 了，目标状态一致）→ 清脏位。
                     //  - 其它失败（401 / 5xx / 网络）抛给外层 runCatching，
-                    //    Room 的 upsert 不会执行 → 本地保持 uuid + 脏位，
-                    //    下次同步时继续重试。
+                    //    Room 的 upsert 不会执行 → 本地保持脏位，下次同步
+                    //    时继续重试。
                     try {
-                        api.deleteReview(session.instance, session.token, existingUuid)
+                        api.deleteReview(session.instance, session.token, itemUuid)
                     } catch (error: NeoDBException) {
                         if (error.code != 404) throw error
                     }
                     null
                 }
-                reviewBody.isBlank() -> null
-                existingUuid != null -> {
-                    api.updateReview(
+                else -> {
+                    // POST /api/me/review/item/{uuid} 是 upsert —— 新建与
+                    // 覆写同一条路，不再需要 create/update 分叉。
+                    api.postReview(
                         session.instance,
                         session.token,
-                        existingUuid,
+                        itemUuid,
                         ReviewRequest(
-                            itemUuid = itemUuid,
+                            visibility = 0,
                             title = album.name,
                             body = reviewBody,
                         ),
                     ).uuid ?: existingUuid
-                }
-                else -> {
-                    api.createReview(
-                        session.instance,
-                        session.token,
-                        ReviewRequest(
-                            itemUuid = itemUuid,
-                            title = album.name,
-                            body = reviewBody,
-                        ),
-                    ).uuid
                 }
             }
 
@@ -157,12 +150,10 @@ class NeoDBSyncService internal constructor(
      *
      * Review merge：
      *  - 本地有 `reviewNeedsSync = true` → 跳过远端值，保护飞行模式草稿。
-     *  - 本地已有 uuid → 按 uuid GET review body（旧路径）。
-     *  - **本地没 uuid 但远端可能有**（「远端先写、本地从没推过」的冷启
-     *    动场景）→ 调 [NeoDBApi.listMyReviews] 按 item uuid 反查，找到
-     *    就回写本地 uuid + body，让后续双向同步能接上。这条路径修 P1
-     *    critique：之前 pullAlbum 只靠本地 uuid 匹配，远端孤儿 review
-     *    永远拉不下来。
+     *  - 其余一律 [NeoDBApi.getMyReviewForItem] 按 item uuid 拉（现行 API
+     *    是 item 中心，本地有没有 review uuid 都是同一条查询）——「远端
+     *    先写、本地从没推过」的孤儿 review 冷启动场景天然覆盖，找到就
+     *    回写本地 uuid + body，让后续双向同步能接上。
      */
     suspend fun pullAlbum(profileId: String, album: Album): Result<AlbumRating?> = runCatching {
         val session = currentSession() ?: error("NeoDB 未配置")
@@ -274,16 +265,12 @@ class NeoDBSyncService internal constructor(
         itemUuid: String,
         existingUuid: String?,
     ): ReviewLookup? {
-        if (existingUuid != null) {
-            val direct = runCatching {
-                api.getReview(session.instance, session.token, existingUuid)
-            }.getOrNull() ?: return null
-            return ReviewLookup(uuid = direct.uuid ?: existingUuid, body = direct.body)
-        }
-        val listed = runCatching {
-            api.listMyReviewsForItem(session.instance, session.token, itemUuid)
-        }.getOrNull()?.firstOrNull() ?: return null
-        return ReviewLookup(uuid = listed.uuid, body = listed.body)
+        // item 中心 API 下本地有没有 uuid 都是同一条查询；远端 uuid 缺失时
+        // 退回本地已知的，保持旧行为。
+        val remote = runCatching {
+            api.getMyReviewForItem(session.instance, session.token, itemUuid)
+        }.getOrNull() ?: return null
+        return ReviewLookup(uuid = remote.uuid ?: existingUuid, body = remote.body)
     }
 
     private data class ReviewLookup(val uuid: String?, val body: String?)

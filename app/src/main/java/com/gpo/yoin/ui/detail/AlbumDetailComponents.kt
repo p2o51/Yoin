@@ -1,6 +1,8 @@
 package com.gpo.yoin.ui.detail
 
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -21,8 +23,9 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.StickyNote2
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.rounded.Favorite
+import androidx.compose.material.icons.rounded.FavoriteBorder
+import androidx.compose.material.icons.rounded.GraphicEq
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
@@ -40,6 +43,7 @@ import androidx.compose.material3.toShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -76,10 +80,13 @@ import androidx.compose.ui.unit.em
 import com.gpo.yoin.ui.component.YoinArmTransform
 import com.gpo.yoin.ui.component.YoinMark
 import com.gpo.yoin.ui.component.elasticPress
+import com.gpo.yoin.ui.component.formatTotalDuration
+import com.gpo.yoin.ui.component.formatTrackDuration
 import com.gpo.yoin.ui.component.minimumTouchTarget
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
 import com.gpo.yoin.ui.theme.YoinMotion
-import com.gpo.yoin.ui.theme.YoinShapeTokens
+import com.gpo.yoin.ui.theme.YoinMotionRole
+import com.gpo.yoin.ui.theme.YoinContainerShapes
 import com.gpo.yoin.ui.theme.withTabularFigures
 import java.time.Instant
 import java.time.LocalDate
@@ -211,7 +218,7 @@ internal class WavyBandShape(
     private val expand: Float,
     private val amplitude: Dp = 3.5.dp,
     private val waveLength: Dp = 48.dp,
-    private val heroCorner: Dp = 28.dp,
+    private val heroCorner: Dp = 8.dp,
     private val bottomPhase: Float = PI.toFloat(),
 ) : Shape {
     override fun createOutline(
@@ -361,7 +368,7 @@ internal fun AlbumTrackCountLabel(
         text = buildString {
             append(tracks)
             totalDurationSeconds?.takeIf { it > 0 }?.let {
-                append("  ·  ${formatAlbumTotalDuration(it)}")
+                append("  ·  ${formatTotalDuration(it)}")
             }
         },
         style = MaterialTheme.typography.labelMedium,
@@ -416,7 +423,7 @@ internal fun buildAlbumTrackTitles(
 }
 
 // ---------------------------------------------------------------------------
-// Track row: number · title (+ note marker) · artist · duration · ⊕/✓ toggle.
+// Track row: number · title (+ note marker) · artist · duration · ♥ toggle.
 // ---------------------------------------------------------------------------
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -425,6 +432,7 @@ internal fun AlbumTrackRow(
     index: Int,
     song: AlbumSong,
     hasNote: Boolean,
+    isNowPlaying: Boolean,
     accent: Color,
     onClick: () -> Unit,
     onLongClick: () -> Unit,
@@ -435,7 +443,7 @@ internal fun AlbumTrackRow(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .clip(YoinShapeTokens.Large)
+            .clip(YoinContainerShapes.ListRow)
             .combinedClickable(
                 onClick = onClick,
                 onLongClick = {
@@ -447,13 +455,29 @@ internal fun AlbumTrackRow(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Text(
-            text = (song.trackNumber ?: (index + 1)).toString(),
-            style = MaterialTheme.typography.labelMedium.withTabularFigures(),
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            textAlign = TextAlign.End,
-            modifier = Modifier.widthIn(min = 18.dp),
-        )
+        if (isNowPlaying) {
+            // Same slot width as the index number, so swapping in the
+            // indicator never shifts the row's columns.
+            Box(
+                modifier = Modifier.widthIn(min = 18.dp),
+                contentAlignment = Alignment.CenterEnd,
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.GraphicEq,
+                    contentDescription = "Now playing",
+                    tint = accent,
+                    modifier = Modifier.size(16.dp),
+                )
+            }
+        } else {
+            Text(
+                text = (song.trackNumber ?: (index + 1)).toString(),
+                style = MaterialTheme.typography.labelMedium.withTabularFigures(),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.End,
+                modifier = Modifier.widthIn(min = 18.dp),
+            )
+        }
         Column(
             modifier = Modifier.weight(1f),
             verticalArrangement = Arrangement.spacedBy(2.dp),
@@ -465,7 +489,7 @@ internal fun AlbumTrackRow(
                 Text(
                     text = song.title,
                     style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.onSurface,
+                    color = if (isNowPlaying) accent else MaterialTheme.colorScheme.onSurface,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f, fill = false),
@@ -515,8 +539,22 @@ private fun AlbumCircleToggle(
         animationSpec = YoinMotion.effectsSpring(),
         label = "trackToggleContainer",
     )
+    // Same heart pop as Now Playing's FavoriteButton (the two toggle the same
+    // repository favorite): a short over-peak snap, then a spatial-spring
+    // settle. Peak is higher on the fill moment so it reads as a heart pop.
+    // Settle role pinned to Standard like NP's, not the page's Expressive.
+    var tapPulse by remember { mutableIntStateOf(0) }
+    val bounce = remember { Animatable(1f) }
+    val bounceSpec = YoinMotion.defaultSpatialSpec<Float>(role = YoinMotionRole.Standard)
+    LaunchedEffect(tapPulse) {
+        if (tapPulse == 0) return@LaunchedEffect
+        val peak = if (active) 1.25f else 1.15f
+        bounce.animateTo(peak, tween(durationMillis = 90))
+        bounce.animateTo(1f, bounceSpec)
+    }
     IconButton(
         onClick = {
+            tapPulse++
             if (active) haptics.performTick() else haptics.performConfirm()
             onToggle()
         },
@@ -527,6 +565,10 @@ private fun AlbumCircleToggle(
         Box(
             modifier = Modifier
                 .size(28.dp)
+                .graphicsLayer {
+                    scaleX = bounce.value
+                    scaleY = bounce.value
+                }
                 .clip(CircleShape)
                 .background(container)
                 .then(
@@ -543,8 +585,8 @@ private fun AlbumCircleToggle(
             contentAlignment = Alignment.Center,
         ) {
             Icon(
-                imageVector = if (active) Icons.Filled.Check else Icons.Filled.Add,
-                contentDescription = if (active) "Saved" else "Save",
+                imageVector = if (active) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder,
+                contentDescription = if (active) "Remove from favorites" else "Add to favorites",
                 tint = if (active) {
                     MaterialTheme.colorScheme.onPrimary
                 } else {
@@ -668,20 +710,6 @@ internal fun formatAlbumScore(rating: Float): String {
     val roundedTenths = (rating.coerceIn(0f, 10f) * 10f).roundToInt()
     if (roundedTenths >= 100) return "10"
     return "%d.%d".format(roundedTenths / 10, roundedTenths % 10)
-}
-
-private fun formatTrackDuration(seconds: Int): String {
-    val mins = seconds / 60
-    val secs = seconds % 60
-    return "%d:%02d".format(mins, secs)
-}
-
-/** Album total runtime → "38m" / "1h 12m" (matches the playlist pill format). */
-internal fun formatAlbumTotalDuration(seconds: Int): String {
-    val totalMin = seconds / 60
-    val h = totalMin / 60
-    val m = totalMin % 60
-    return if (h > 0) "${h}h ${m}m" else "${m}m"
 }
 
 /**

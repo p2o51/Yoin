@@ -63,6 +63,10 @@ internal fun SubsonicAlbum.toAlbum(): Album = Album(
     genre = genre,
     isStarred = !starred.isNullOrEmpty(),
     tracks = song.map { it.toTrack() },
+    // `starred` is the per-user "when I starred this" timestamp (ISO-8601);
+    // carry it as addedAt so starred albums feed the home "Recently Added"
+    // albums shelf, mirroring the track mapper above.
+    addedAt = starred,
 )
 
 internal fun SubsonicArtist.toArtist(): Artist = Artist(
@@ -100,6 +104,7 @@ internal fun SubsonicPlaylist.toPlaylist(): NeutralPlaylist = NeutralPlaylist(
     // no snapshot/etag concurrency token, so snapshotId stays null.
     canWrite = true,
     snapshotId = null,
+    comment = comment,
 )
 
 internal fun SubsonicSearchResult.toSearchResults(): SearchResults = SearchResults(
@@ -119,7 +124,11 @@ internal fun SubsonicLyricsList.toLyrics(): Lyrics? {
     return if (structured.synced && structured.line.any { it.start != null }) {
         Lyrics.Synced(
             language = structured.lang,
-            lines = structured.line.map { LyricLine(startMs = it.start ?: 0L, text = it.value) },
+            // Servers may emit lines out of order; ascending startMs is an
+            // invariant the lyric-index scans (early-break) rely on.
+            lines = structured.line
+                .map { LyricLine(startMs = it.start ?: 0L, text = it.value) }
+                .sortedBy { it.startMs },
         )
     } else {
         Lyrics.Unsynced(

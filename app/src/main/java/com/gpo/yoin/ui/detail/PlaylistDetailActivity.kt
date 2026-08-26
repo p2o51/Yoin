@@ -14,6 +14,12 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import com.gpo.yoin.ui.nowplaying.NowPlayingAccessories
+import com.gpo.yoin.ui.nowplaying.NowPlayingOverlayHost
+import com.gpo.yoin.ui.nowplaying.NowPlayingViewModel
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -37,6 +43,7 @@ class PlaylistDetailActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableYoinEdgeToEdge()
+        applyDetailCloseTransition()
         val playlistId = intent.getStringExtra(EXTRA_PLAYLIST_ID)
         if (playlistId.isNullOrBlank()) {
             finish()
@@ -66,7 +73,9 @@ class PlaylistDetailActivity : ComponentActivity() {
                 }
 
                 // Shared play path: optional shuffle, with a stable playlist
-                // ActivityContext (cover derived from the un-shuffled order).
+                // ActivityContext. The cover is the playlist's OWN art —
+                // a track cover only when the playlist has none — so the Home
+                // activity card wears the playlist's face, not the first song's.
                 fun playFrom(startIndex: Int, shuffle: Boolean) {
                     val ordered = viewModel.getPlaylistSongs()
                     if (ordered.isEmpty()) return
@@ -76,7 +85,8 @@ class PlaylistDetailActivity : ComponentActivity() {
                             playlistId = playlistId,
                             playlistName = content.playlistName,
                             owner = content.owner.takeIf { it.isNotBlank() },
-                            coverArtId = ordered.firstNotNullOfOrNull(::trackCoverArtId),
+                            coverArtId = viewModel.getPlaylistCoverArtKey()
+                                ?: ordered.firstNotNullOfOrNull(::trackCoverArtId),
                         )
                     } ?: ActivityContext.None
                     app.container.profileManager.activeSource.value?.let { source ->
@@ -89,10 +99,30 @@ class PlaylistDetailActivity : ComponentActivity() {
                     }
                 }
 
+                // Now Playing is hosted IN THIS window: the pill opens it in
+                // place and back collapses it back onto this page — no shell
+                // relaunch, no home cameo, and the back stack stays truthful.
+                val nowPlayingViewModel: NowPlayingViewModel = viewModel(
+                    factory = NowPlayingViewModel.Factory(app.container),
+                )
+                var nowPlayingOpen by rememberSaveable { mutableStateOf(false) }
+                val miniPlayerState by rememberDetailMiniPlayerState(app.container)
+                val miniPlayerProgress by rememberDetailMiniPlayerProgress(app.container)
+
                 Box(modifier = Modifier.fillMaxSize()) {
                     PlaylistDetailScreen(
                         uiState = uiState,
-                        onBackClick = { finish() },
+                        onBackClick = {
+                            // Pre-morph the covered shell bar to nav chrome so the reveal
+                            // after the dissolve matches the scrubbed detail bar.
+                            (application as YoinApplication).container.experienceSessionStore
+                                .setDetailChromeActive(false)
+                            finish()
+                        },
+                        morphBarOnBack = intent.getBooleanExtra(DETAIL_EXTRA_FROM_SHELL, false),
+                        navSection = intent.detailOriginSection(),
+                        enterBarHandoff = intent.getBooleanExtra(DETAIL_EXTRA_BAR_HANDOFF, false),
+                        barExitsOnBack = intent.getBooleanExtra(DETAIL_EXTRA_FROM_NOW_PLAYING, false),
                         onPlayAllClick = { playFrom(startIndex = 0, shuffle = false) },
                         onShufflePlay = { playFrom(startIndex = 0, shuffle = true) },
                         onSongClick = { songId ->
@@ -109,8 +139,33 @@ class PlaylistDetailActivity : ComponentActivity() {
                         sharedTransitionKey = null,
                         sharedTransitionScope = null,
                         animatedVisibilityScope = null,
+                        onOpenNowPlaying = { nowPlayingOpen = true },
+                        nowPlayingOpen = nowPlayingOpen,
+                        miniPlayerState = miniPlayerState,
+                        playbackProgress = miniPlayerProgress,
                         modifier = Modifier.fillMaxSize(),
                     )
+
+
+                NowPlayingOverlayHost(
+                    viewModel = nowPlayingViewModel,
+                    container = app.container,
+                    expanded = nowPlayingOpen,
+                    onExpandedChange = { nowPlayingOpen = it },
+                    onAlbumClick = { id ->
+                        context.startActivity(AlbumDetailActivity.intent(context, id))
+                    },
+                    onArtistClick = { id ->
+                        context.startActivity(ArtistDetailActivity.intent(context, id))
+                    },
+                    onPlaylistClick = { id ->
+                        context.startActivity(PlaylistDetailActivity.intent(context, id))
+                    },
+                )
+                NowPlayingAccessories(
+                    viewModel = nowPlayingViewModel,
+                    container = app.container,
+                )
 
                     SnackbarHost(
                         hostState = snackbarHostState,
@@ -123,6 +178,15 @@ class PlaylistDetailActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    override fun onStop() {
+        super.onStop()
+        // The system defers onStop past the exit animation, so this is the
+        // moment this window is truly off screen — the shell's chrome restore
+        // (bar reverse morph) waits for it.
+        (application as YoinApplication).container.experienceSessionStore
+            .noteDetailWindowSettled()
     }
 
     companion object {

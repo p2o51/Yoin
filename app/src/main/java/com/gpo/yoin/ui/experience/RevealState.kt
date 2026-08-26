@@ -10,6 +10,7 @@ import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import com.gpo.yoin.ui.theme.YoinMotion
+import kotlin.coroutines.coroutineContext
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -67,9 +68,11 @@ class RevealState internal constructor(
 
     /**
      * Animate to the closer endpoint, preserving the finger's velocity.
-     * Suspends until the spring settles or is interrupted, then returns
-     * the chosen endpoint (0f open, 1f closed). Cancels any in-flight
-     * settle.
+     * Suspends until the spring settles, then returns the chosen endpoint
+     * (0f open, 1f closed). Cancels any in-flight settle. If a drag (or a
+     * newer settle) interrupts the animation, the calling coroutine is
+     * cancelled — the gesture owns the fraction from that point on, so
+     * post-settle work must not run as if the settle completed.
      */
     suspend fun settle(velocityPxPerSec: Float, containerPx: Float): Float {
         val velocityFractionPerSec = if (containerPx > 0f) {
@@ -82,7 +85,11 @@ class RevealState internal constructor(
         return target
     }
 
-    /** Programmatic open (0f) or close (1f). */
+    /**
+     * Programmatic open (0f) or close (1f). Interruptible like [settle]:
+     * a drag cancels the calling coroutine. Fire-and-forget call sites
+     * (state-driven side effects) should prefer [launchAnimateTo].
+     */
     suspend fun animateTo(target: Float) {
         animateInternal(target.coerceIn(0f, 1f), initialVelocity = 0f)
     }
@@ -117,6 +124,14 @@ class RevealState internal constructor(
 
     private suspend fun animateInternal(target: Float, initialVelocity: Float) {
         settleJob?.cancel()
+        // Register the calling coroutine as the settle owner so dragBy can
+        // cancel a suspend-path animation the same way it cancels a
+        // launchAnimateTo one — otherwise the spring keeps writing _fraction
+        // against the finger every frame until it finishes. Cancelling
+        // settleJob then cancels the caller, which is the intent: nothing
+        // downstream of an interrupted settle should run as if it completed.
+        val owner = coroutineContext[Job]
+        settleJob = owner
         try {
             animate(
                 initialValue = _fraction,
@@ -124,8 +139,8 @@ class RevealState internal constructor(
                 initialVelocity = initialVelocity,
                 animationSpec = settleSpec,
             ) { value, _ -> _fraction = value }
-        } catch (_: CancellationException) {
-            // A new drag/settle took over; leave fraction at the latest value.
+        } finally {
+            if (settleJob === owner) settleJob = null
         }
     }
 

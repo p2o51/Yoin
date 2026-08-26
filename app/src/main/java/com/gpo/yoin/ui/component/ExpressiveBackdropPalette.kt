@@ -16,7 +16,7 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.graphics.ColorUtils
 import androidx.palette.graphics.Palette
-import coil3.ImageLoader
+import coil3.SingletonImageLoader
 import coil3.request.ImageRequest
 import coil3.request.SuccessResult
 import coil3.request.allowHardware
@@ -58,19 +58,6 @@ private object ExpressiveBackdropPaletteCache {
 
     fun put(model: String, colors: ExpressiveBackdropColors) {
         cache.put(model, colors)
-    }
-}
-
-private object ExpressiveBackdropImageLoader {
-    @Volatile
-    private var loader: ImageLoader? = null
-
-    fun get(context: Context): ImageLoader {
-        return loader ?: synchronized(this) {
-            loader ?: ImageLoader.Builder(context.applicationContext)
-                .build()
-                .also { loader = it }
-        }
     }
 }
 
@@ -148,7 +135,9 @@ private suspend fun loadBackdropColors(
             .size(Size(BackdropPaletteRequestSize, BackdropPaletteRequestSize))
             .allowHardware(false)
             .build()
-        val result = ExpressiveBackdropImageLoader.get(context).execute(request)
+        // App-wide singleton (YoinApplication is the factory) — palette pixel
+        // reads stay safe because allowHardware(false) is set per-request.
+        val result = SingletonImageLoader.get(context).execute(request)
         val bitmap = (result as? SuccessResult)?.image?.toBitmap()
         bitmap?.let(::extractBackdropColors)
     }

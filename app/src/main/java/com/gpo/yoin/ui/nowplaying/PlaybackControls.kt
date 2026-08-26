@@ -53,6 +53,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.gpo.yoin.ui.component.WaveProgressBar
+import com.gpo.yoin.ui.component.formatTrackDurationMs
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
 import com.gpo.yoin.ui.theme.ProvideYoinMotionRole
 import com.gpo.yoin.ui.theme.YoinMotion
@@ -80,6 +81,7 @@ internal fun PlaybackControls(
     controlSize: Dp = 56.dp,
     lyricsExpanded: Boolean = false,
     onExpandLyrics: (() -> Unit)? = null,
+    noteAnchorsMs: List<Long> = emptyList(),
     modifier: Modifier = Modifier,
 ) {
     ProvideYoinMotionRole(role = YoinMotionRole.Standard) {
@@ -350,7 +352,7 @@ internal fun PlaybackControls(
 
                         if (labelsInline) {
                             PlaybackTimeLabel(
-                                text = formatTime(positionMs),
+                                text = formatTrackDurationMs(positionMs),
                                 modifier = Modifier
                                     .width(44.dp)
                                     .offset(y = 6.dp),
@@ -362,11 +364,12 @@ internal fun PlaybackControls(
                             durationMs = durationMs,
                             onSeek = onSeek,
                             isPlaying = isPlaying,
+                            noteAnchorsMs = noteAnchorsMs,
                             modifier = Modifier.weight(1f),
                         )
                         if (labelsInline) {
                             PlaybackTimeLabel(
-                                text = "-${formatTime((durationMs - positionMs).coerceAtLeast(0L))}",
+                                text = "-${formatTrackDurationMs((durationMs - positionMs).coerceAtLeast(0L))}",
                                 modifier = Modifier
                                     .width(52.dp)
                                     .offset(y = 6.dp),
@@ -381,9 +384,9 @@ internal fun PlaybackControls(
                                 .padding(start = controlSize + 8.dp),
                             horizontalArrangement = Arrangement.SpaceBetween,
                         ) {
-                            PlaybackTimeLabel(text = formatTime(positionMs))
+                            PlaybackTimeLabel(text = formatTrackDurationMs(positionMs))
                             PlaybackTimeLabel(
-                                text = "-${formatTime((durationMs - positionMs).coerceAtLeast(0L))}",
+                                text = "-${formatTrackDurationMs((durationMs - positionMs).coerceAtLeast(0L))}",
                                 textAlign = androidx.compose.ui.text.style.TextAlign.End,
                             )
                         }

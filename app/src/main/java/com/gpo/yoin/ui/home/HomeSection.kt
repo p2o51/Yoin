@@ -13,7 +13,9 @@ import com.gpo.yoin.data.home.HomeSectionPref
  *
  * Adding a section later is just: append a constant here + teach
  * `HomeEditorialContent` how to render it. Existing saved layouts pick it up at
- * its default via [HomeLayout.reconcile] — no migration needed.
+ * its default via [HomeLayout.reconcile] — no migration needed. Removing one is
+ * the mirror image: delete the constant and reconcile drops the saved id
+ * (retired ids so far: `memory_teaser`, `memories`).
  */
 enum class HomeSection(
     val id: String,
@@ -22,28 +24,22 @@ enum class HomeSection(
     val supportingText: String,
     val defaultEnabled: Boolean,
 ) {
-    MemoryTeaser(
-        id = "memory_teaser",
-        title = "Album memory",
-        supportingText = "Nudges to revisit and shape album memories",
-        defaultEnabled = true,
-    ),
     Activities(
         id = "activities",
         title = "Activities",
         supportingText = "Your recent plays and visits",
         defaultEnabled = true,
     ),
+    JumpBackIn(
+        id = "jump_back_in",
+        title = "Jump Back In",
+        supportingText = "Albums, songs, and playlists to pick back up — memories woven in",
+        defaultEnabled = true,
+    ),
     RecentlyAdded(
         id = "recently_added",
         title = "Recently Added",
         supportingText = "Added to your library this week",
-        defaultEnabled = true,
-    ),
-    JumpBackIn(
-        id = "jump_back_in",
-        title = "Jump Back In",
-        supportingText = "Albums, songs, and artists to pick back up",
         defaultEnabled = true,
     ),
     ;

@@ -14,6 +14,7 @@ import com.gpo.yoin.data.model.Starred
 import com.gpo.yoin.data.model.Track
 import com.gpo.yoin.data.repository.YoinRepository
 import com.gpo.yoin.data.source.Capability
+import com.gpo.yoin.ui.component.toUserMessage
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -60,6 +61,10 @@ class LibraryViewModel(
     private var cachedFavorites: Starred? = null
     private var pendingSearchShortcutScope: LibrarySearchScope? = null
     private var searchFocusRequestCounter = 0L
+    private var searchAttemptCounter = 0
+
+    /** Monotonic id per selectTab load; a stale failure must not revert a newer selection. */
+    private var tabLoadGeneration = 0L
 
     val notedSongIds: StateFlow<Set<String>> = uiState
         .flatMapLatest { state ->
@@ -68,7 +73,7 @@ class LibraryViewModel(
                     state.searchQuery.isNotBlank() ->
                         state.searchResults?.tracks.orEmpty().map(Track::id)
                     state.selectedTab == LibraryTab.Songs ->
-                        state.songs.map(Track::id)
+                        state.songs.orEmpty().map(Track::id)
                     state.selectedTab == LibraryTab.Favorites ->
                         state.favorites?.tracks.orEmpty().map(Track::id)
                     else -> emptyList()
@@ -133,9 +138,12 @@ class LibraryViewModel(
                 _uiState.value = LibraryUiState.Content(
                     selectedTab = LibraryTab.Artists,
                     artists = artists,
-                    albums = emptyList(),
-                    songs = emptyList(),
-                    playlists = emptyList(),
+                    // null = not loaded yet; each tab lazy-loads on first
+                    // selection and the UI shows a loading indicator instead
+                    // of a misleading "No X found" empty state.
+                    albums = null,
+                    songs = null,
+                    playlists = null,
                     favorites = null,
                     searchQuery = "",
                     searchResults = null,
@@ -153,9 +161,9 @@ class LibraryViewModel(
                     _uiState.value = LibraryUiState.Content(
                         selectedTab = LibraryTab.Artists,
                         artists = artists,
-                        albums = emptyList(),
-                        songs = emptyList(),
-                        playlists = emptyList(),
+                        albums = null,
+                        songs = null,
+                        playlists = null,
                         favorites = null,
                         searchQuery = "",
                         searchResults = null,
@@ -208,6 +216,8 @@ class LibraryViewModel(
 
     fun selectTab(tab: LibraryTab) {
         val current = _uiState.value as? LibraryUiState.Content ?: return
+        val previousTab = current.selectedTab
+        val loadGeneration = ++tabLoadGeneration
         _uiState.value = current.copy(selectedTab = tab)
         viewModelScope.launch {
             try {
@@ -220,7 +230,9 @@ class LibraryViewModel(
                     }
                     LibraryTab.Albums -> {
                         if (cachedAlbums == null) {
-                            cachedAlbums = repository.getAlbumList("alphabeticalByName", size = 500)
+                            // 最近添加 newest-first — "newest" is recently ADDED on
+                            // both providers (Subsonic native; Spotify addedAt sort).
+                            cachedAlbums = repository.getAlbumList("newest", size = 500)
                         }
                         updateContent { copy(albums = cachedAlbums.orEmpty()) }
                     }
@@ -249,8 +261,56 @@ class LibraryViewModel(
                 if (isSpotifyProvider() && hasSpotifyTabCache(tab)) {
                     return@launch
                 }
-                _uiState.value = LibraryUiState.Error(
-                    e.message ?: "Failed to load ${tab.name}",
+                val content = _uiState.value as? LibraryUiState.Content
+                if (content == null) {
+                    _uiState.value = LibraryUiState.Error(
+                        e.message ?: "Failed to load ${tab.name}",
+                    )
+                    return@launch
+                }
+                // One tab failing shouldn't blank the whole library: keep the
+                // Content we have and explain via snackbar. The failed tab has
+                // nothing to show (its payload is still null, so it would sit
+                // on its loading indicator forever), so step back to the tab
+                // the user came from — unless they've already moved on, or a
+                // NEWER load of this same tab is in flight (a stale failure
+                // must not undo its selection).
+                if (content.selectedTab == tab && loadGeneration == tabLoadGeneration) {
+                    _uiState.value = content.copy(selectedTab = previousTab)
+                }
+                _messages.tryEmit(
+                    e.message?.takeIf { it.isNotBlank() }
+                        ?: "Failed to load ${tab.name}",
+                )
+            }
+        }
+    }
+
+    /**
+     * Discards the current random sample and draws a fresh one. The Songs tab
+     * is a 50-song random mix ([selectTab] only loads when `cachedSongs` is
+     * null), so this is the only way to reshuffle — favorite toggles
+     * deliberately never re-read it (see [observeFavoriteOverrides]).
+     */
+    fun reshuffleSongs() {
+        val current = _uiState.value as? LibraryUiState.Content ?: return
+        if (current.selectedTab != LibraryTab.Songs) return
+        val previousSongs = cachedSongs
+        cachedSongs = null
+        updateContent { copy(songs = null) }
+        viewModelScope.launch {
+            try {
+                cachedSongs = repository.getRandomSongs(size = 50)
+                    .applyFavoriteOverrides(repository.favoriteOverrides.value)
+                updateContent { copy(songs = cachedSongs.orEmpty()) }
+            } catch (e: Exception) {
+                // Keep the sample the user already had rather than stranding
+                // the tab on its loading indicator.
+                cachedSongs = previousSongs
+                updateContent { copy(songs = previousSongs) }
+                _messages.tryEmit(
+                    e.message?.takeIf { it.isNotBlank() }
+                        ?: "Couldn't reshuffle songs",
                 )
             }
         }
@@ -265,6 +325,7 @@ class LibraryViewModel(
                 searchQuery = "",
                 searchResults = null,
                 isSearching = false,
+                searchError = null,
             )
         }
     }
@@ -282,6 +343,7 @@ class LibraryViewModel(
             searchQuery = "",
             searchResults = null,
             isSearching = false,
+            searchError = null,
             searchFocusRequestId = nextSearchFocusRequestId(),
         )
     }
@@ -295,6 +357,7 @@ class LibraryViewModel(
             searchScope = effectiveScope,
             searchResults = null,
             isSearching = current.searchQuery.isNotBlank(),
+            searchError = null,
         )
         searchRequestFlow.value = LibrarySearchRequest(current.searchQuery, effectiveScope)
     }
@@ -312,6 +375,7 @@ class LibraryViewModel(
                     searchQuery = query,
                     searchResults = searchResults.takeIf { query.isNotBlank() },
                     isSearching = if (query.isBlank()) false else isSearching,
+                    searchError = null,
                 )
             }
         }
@@ -329,8 +393,26 @@ class LibraryViewModel(
                 searchQuery = "",
                 searchResults = null,
                 isSearching = false,
+                searchError = null,
             )
         }
+    }
+
+    /**
+     * Re-runs the current query after a failed search. The request pipeline
+     * is a [MutableStateFlow], which drops value-equal writes — the bumped
+     * `attempt` makes the retried request distinct so it actually re-fires.
+     */
+    fun retrySearch() {
+        val current = _uiState.value as? LibraryUiState.Content ?: return
+        if (current.searchQuery.isBlank()) return
+        updateContent { copy(isSearching = true, searchError = null) }
+        searchAttemptCounter += 1
+        searchRequestFlow.value = LibrarySearchRequest(
+            query = current.searchQuery,
+            scope = normaliseSearchScope(current.searchScope),
+            attempt = searchAttemptCounter,
+        )
     }
 
     private fun observeSearch() {
@@ -345,12 +427,13 @@ class LibraryViewModel(
                             copy(
                                 searchResults = null,
                                 isSearching = false,
+                                searchError = null,
                             )
                         }
                         return@collectLatest
                     }
 
-                    updateContent { copy(isSearching = true) }
+                    updateContent { copy(isSearching = true, searchError = null) }
                     try {
                         val results = searchWithScope(query, request.scope)
                             .applyFavoriteOverrides(repository.favoriteOverrides.value)
@@ -364,6 +447,7 @@ class LibraryViewModel(
                                 copy(
                                     searchResults = results,
                                     isSearching = false,
+                                    searchError = null,
                                 )
                             }
                         }
@@ -373,6 +457,9 @@ class LibraryViewModel(
                             e.message?.takeIf { it.isNotBlank() }
                                 ?: "Search failed",
                         )
+                        // A failure is not "no results": null results plus a
+                        // populated searchError drive the retryable error
+                        // surface instead of a false "No results found".
                         updateContent {
                             if (
                                 searchQuery != query ||
@@ -381,8 +468,9 @@ class LibraryViewModel(
                                 this
                             } else {
                                 copy(
-                                    searchResults = SearchResults(),
+                                    searchResults = null,
                                     isSearching = false,
+                                    searchError = e.toUserMessage("Search failed."),
                                 )
                             }
                         }
@@ -448,6 +536,7 @@ class LibraryViewModel(
                         searchScope = nextScope,
                         searchResults = current.searchResults.takeUnless { scopeChanged },
                         isSearching = if (scopeChanged) false else current.isSearching,
+                        searchError = current.searchError.takeUnless { scopeChanged },
                     )
                     if (current.searchQuery.isNotBlank() && scopeChanged) {
                         searchRequestFlow.value = LibrarySearchRequest(current.searchQuery, nextScope)
@@ -508,7 +597,7 @@ class LibraryViewModel(
 
         updateContent {
             copy(
-                songs = songs.applyFavoriteOverrides(overrides),
+                songs = songs?.applyFavoriteOverrides(overrides),
                 favorites = favorites?.applyFavoriteOverrides(overrides),
                 searchResults = searchResults?.applyFavoriteOverrides(overrides),
             )
@@ -622,6 +711,8 @@ class LibraryViewModel(
 private data class LibrarySearchRequest(
     val query: String,
     val scope: LibrarySearchScope,
+    /** Bumped by retry so an identical query/scope re-crosses the StateFlow's equality gate. */
+    val attempt: Int = 0,
 )
 
 private fun String.normaliseForSearch(): String = trim().lowercase()

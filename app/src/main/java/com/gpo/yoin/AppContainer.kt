@@ -84,6 +84,10 @@ class AppContainer(private val context: Context) {
                 MIGRATION_21_22,
                 MIGRATION_22_23,
                 MIGRATION_23_24,
+                MIGRATION_24_25,
+                MIGRATION_25_26,
+                MIGRATION_26_27,
+                MIGRATION_27_28,
             )
             // v11 冻结了 0.3 schema；0.5 上架前的备份降级保险（用户拿着 v11
             // 备份在旧版设备恢复）走这条：数据丢但应用不崩。没数据丢失比
@@ -423,6 +427,83 @@ class AppContainer(private val context: Context) {
 
     companion object {
         const val ProviderHttpCacheBytes: Long = 50L * 1024L * 1024L
+
+        // v24 → v25: memory_copy_cache 的 PK 加 profileId。两个 Subsonic
+        // profile（不同服务器）共享 provider="subsonic"，raw album id 又在
+        // 同一命名空间，旧 PK (provider, entityType, entityId) 会让 B 号
+        // 吃到 A 号的 Gemini 文案。SQLite 改不了 PK，旧行也没法可靠补
+        // profileId —— 文案本来就是可再生的 AI 缓存，直接重建表最干净。
+        // 顺带给 detail_cache.accessedAt 建索引（LRU 淘汰按它排序扫描）。
+        // v25 → v26: persisted candidate pools for the home Jump Back In
+        // widget grid. Written pre-shuffled at fetch time so the shelf is
+        // deterministic across app opens until the pools age out — the grid
+        // rotates on a TTL instead of re-rolling every cold start.
+        // song_notes 加歌内时间戳：笔记锚定到歌曲时间线（时间线排序 +
+        // 随播放高亮当前条）。旧行保持 NULL = 未锚定。
+        // v27 → v28: Memory 卡的 AI 拟题（memoryTitle）缓存进 memory_copy_cache
+        // 同表两列 —— title 与 copy 同 key 同 TTL，失效跟随各自的 promptHash。
+        // 旧行 NULL = 还没拟过题，读到 NULL 走 deterministic fallback。
+        val MIGRATION_27_28 = object : Migration(27, 28) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE memory_copy_cache ADD COLUMN title TEXT")
+                db.execSQL("ALTER TABLE memory_copy_cache ADD COLUMN titlePromptHash TEXT")
+            }
+        }
+
+        val MIGRATION_26_27 = object : Migration(26, 27) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE song_notes ADD COLUMN positionMs INTEGER")
+            }
+        }
+
+        val MIGRATION_25_26 = object : Migration(25, 26) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `home_grid_pool_cache` (
+                        `profileId` TEXT NOT NULL,
+                        `provider` TEXT NOT NULL,
+                        `itemType` TEXT NOT NULL,
+                        `itemId` TEXT NOT NULL,
+                        `title` TEXT NOT NULL,
+                        `subtitle` TEXT,
+                        `coverArtKey` TEXT,
+                        `albumId` TEXT,
+                        `durationSec` INTEGER,
+                        `sortOrder` INTEGER NOT NULL,
+                        `cachedAt` INTEGER NOT NULL,
+                        PRIMARY KEY(`profileId`, `provider`, `itemType`, `itemId`)
+                    )
+                    """.trimIndent(),
+                )
+            }
+        }
+
+        val MIGRATION_24_25 = object : Migration(24, 25) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("DROP TABLE IF EXISTS `memory_copy_cache`")
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `memory_copy_cache` (
+                        `profileId` TEXT NOT NULL,
+                        `provider` TEXT NOT NULL,
+                        `entityType` TEXT NOT NULL,
+                        `entityId` TEXT NOT NULL,
+                        `copy` TEXT NOT NULL,
+                        `promptHash` TEXT NOT NULL,
+                        `generatedAt` INTEGER NOT NULL,
+                        PRIMARY KEY(`profileId`, `provider`, `entityType`, `entityId`)
+                    )
+                    """.trimIndent(),
+                )
+                db.execSQL(
+                    """
+                    CREATE INDEX IF NOT EXISTS `index_detail_cache_accessedAt`
+                    ON `detail_cache` (`accessedAt`)
+                    """.trimIndent(),
+                )
+            }
+        }
 
         // v23 → v24: per-profile customizable home layout. One row per profile
         // holds the ordered/toggled section list as JSON; absence = catalog

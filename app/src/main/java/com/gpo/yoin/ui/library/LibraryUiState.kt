@@ -12,14 +12,27 @@ sealed interface LibraryUiState {
 
     data class Content(
         val selectedTab: LibraryTab,
-        val artists: List<Artist>,
-        val albums: List<Album>,
-        val songs: List<Track>,
-        val playlists: List<Playlist>,
+        /**
+         * Per-tab payloads. `null` = not loaded yet (the tab shows a loading
+         * indicator); empty = loaded and genuinely empty (the tab shows its
+         * empty state). Same semantics as the long-standing
+         * `favorites: Starred?` — without the distinction a freshly selected
+         * tab flashed a factually-wrong "No X found" while its fetch ran.
+         */
+        val artists: List<Artist>?,
+        val albums: List<Album>?,
+        val songs: List<Track>?,
+        val playlists: List<Playlist>?,
         val favorites: Starred?,
         val searchQuery: String,
         val searchResults: SearchResults?,
         val isSearching: Boolean,
+        /**
+         * Human-readable failure for the most recent search attempt; `null`
+         * while idle, in flight, or after a success. Distinguishes "the
+         * search failed" from "the search genuinely matched nothing".
+         */
+        val searchError: String? = null,
         val searchScope: LibrarySearchScope = LibrarySearchScope.CurrentLibrary,
         val canSearchSpotifyCatalog: Boolean = false,
         val searchFocusRequestId: Long = 0L,

@@ -95,7 +95,13 @@ class AudioVisualizerManager {
         try {
             visualizer?.enabled = false
             visualizer?.release()
-        } catch (_: Exception) { }
+        } catch (e: Exception) {
+            // Never propagate: the fields below still have to be cleared or the
+            // next start() would short-circuit on a dead Visualizer. But a failed
+            // disable/release can leave the audio session's Visualizer alive, so
+            // it gets logged rather than swallowed.
+            Log.w(TAG, "Visualizer teardown failed, audio session may stay captured", e)
+        }
         visualizer = null
         currentSessionId = -1
         _visualizerData.value = VisualizerData.Empty

@@ -35,6 +35,14 @@ class NowPlayingStageProgress internal constructor(
     val isGestureDriving: Boolean get() = gestureActive
 
     /**
+     * True while any stage value is in flight (gesture or settle) — the ARR
+     * high-refresh vote window. Animatable.isRunning is snapshot-backed, so a
+     * derivedStateOf over this flips composition only at the endpoints.
+     */
+    val isMoving: Boolean
+        get() = gestureActive || detailAnim.isRunning || immersiveAnim.isRunning
+
+    /**
      * Directly track the back gesture: snap the live value each event. The
      * system already spring-smooths back progress (BackProgressAnimator), so a
      * direct eased snap reads as smooth finger-tracking — and avoids the

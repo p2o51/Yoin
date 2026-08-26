@@ -18,6 +18,12 @@ Yoin now treats Material 3 motion theming as the baseline.
 | Now Playing hero | Cover, title, artist shared morph and stretch | Expressive | Spatial | Slow | Preserve shared continuity; reduce stretch intensity |
 | Now Playing controls | Play, skip, favorite, queue, cast, pills | Standard | Spatial + effects | Default / Fast | Favor tighter width and color changes; no hero bounce |
 | Album detail | Shared cover transition + staged content reveal | Expressive hero + standard support | Spatial + effects | Slow hero, default support | Shared artwork still leads; supporting content stays softer |
+| Detail page open | Launch Album / Artist / Playlist | Expressive scene motion | Spatial + effects | Default | Keep the content slide, shorten its offset; the window still only fades |
+| Detail predictive back | Edge swipe or back button on a detail page | Expressive scene motion | Spatial + effects | Default, gesture-scrubbed | Keep the AOSP collapse at lower amplitude; settle sooner after commit |
+| Shell behind a detail | Detail hand-off, back gesture, commit settle | Expressive | Spatial | Default | Hold the recede but shrink its offset; drop the vertical follow |
+| Bottom bar chrome | Detail launch tap, back scrub, commit settle | Standard | Spatial | Default | Morph straight between nav and split; no interactive scrub preview |
+| Bottom bar idle | Nothing playing, first track arriving | Standard | Spatial + effects | Default | Width morph only; labels fade without added travel |
+| Now Playing pill | Track change from skip, auto-advance, or remote device | Standard chrome + expressive push-in | Spatial + effects | Fast out, default in | Swap track content with a fade; no horizontal push |
 | Library | Tab content swap, search state, repeated content reveal | Standard | Effects | Default | Crossfade only; no expressive stagger on repeat visits |
 | Settings | Connection status, form visibility, save/test feedback | Standard | Effects | Default | Minimal color/alpha feedback, no theatrical movement |
 
@@ -29,3 +35,4 @@ Yoin now treats Material 3 motion theming as the baseline.
 - Supporting content enters softer than hero content and exits at least as gently.
 - Repeated list scrolling does not trigger fresh performative entrance animations.
 - `AdaptiveReduced` swaps to lighter buckets without changing scene role.
+- Cross-window poses (detail collapse, shell recede, bar morph) have exactly one owner per window; a second driver on the same value reads as a flash at the hand-off.
