@@ -68,10 +68,6 @@ import androidx.compose.material.icons.rounded.Shuffle
 import androidx.compose.material.icons.rounded.SkipNext
 import androidx.compose.material.icons.rounded.SkipPrevious
 import androidx.compose.material.icons.automirrored.rounded.StickyNote2
-import androidx.compose.material3.ButtonGroup
-import androidx.compose.material3.ButtonGroupDefaults
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.ButtonGroupScope
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.FilledTonalButton
@@ -147,6 +143,7 @@ import com.gpo.yoin.ui.experience.LocalMotionProfile
 import com.gpo.yoin.ui.experience.LocalYoinWindowInfo
 import com.gpo.yoin.ui.experience.MotionProfile
 import com.gpo.yoin.ui.experience.ReportMotionPressure
+import com.gpo.yoin.ui.experience.isDualPaneNowPlaying
 import com.gpo.yoin.ui.theme.ContinuousRoundedCornerShape
 import com.gpo.yoin.ui.theme.ProvideYoinMotionRole
 import com.gpo.yoin.ui.theme.YoinArtworkShapes
@@ -617,7 +614,18 @@ private fun PlayingContent(
     // hinge resizes the window mid-measure) and that path crashes the shell
     // ButtonGroup on a real foldable. A plain fade+scale needs no lookahead pass.
     AnimatedContent(
-        targetState = LocalYoinWindowInfo.current.layoutMode,
+        // Short windows fall back to the single-column body: the dual-pane
+        // reserve math needs ≈590dp of height — a landscape handset reads
+        // Wide on width but clips the transport (YoinWindowInfo predicate).
+        targetState = LocalYoinWindowInfo.current.let { info ->
+            if (info.isDualPaneNowPlaying) {
+                info.layoutMode
+            } else if (info.layoutMode == LayoutMode.Tabletop) {
+                LayoutMode.Tabletop
+            } else {
+                LayoutMode.Compact
+            }
+        },
         transitionSpec = {
             // Expressive (overshooting) spring on the scale so the posture swap
             // bounces; a 0.88 start/target gives the spring real travel. Fades stay
@@ -1027,7 +1035,15 @@ private fun CompactPlayingContent(
             .padding(WindowInsets.systemBars.asPaddingValues()),
     ) {
         val horizontalPadding = 24.dp
-        val compactCoverHeight = (maxWidth - 108.dp).coerceIn(168.dp, 312.dp)
+        // Height-aware cap: the resting Compact page stacks ~392dp of fixed
+        // chrome around the cover (top bar 56 + tabs 30 + spacer 4 + controls
+        // 148 + hero 86 + accessory 68). Short windows (landscape, split,
+        // IME resize) shrink the cover toward a 96dp floor instead of pushing
+        // the controls/pills off-screen; windows whose height clears the
+        // 312dp cap resolve exactly as before.
+        val compactCoverHeight = (maxWidth - 108.dp)
+            .coerceIn(168.dp, 312.dp)
+            .coerceAtMost((maxHeight - 392.dp).coerceAtLeast(96.dp))
         val immersiveCoverHeight = (maxWidth - horizontalPadding * 2)
             .coerceAtLeast(compactCoverHeight)
             .coerceAtMost(420.dp)
@@ -2247,7 +2263,11 @@ private fun TabletopPlayingContent(
                             style = MaterialTheme.typography.headlineSmall.copy(
                                 // Wider travel (24→15 / 16→12 / 0.95→1.70 lyric scale):
                                 // the old 24→17 barely registered on the tabletop pane.
-                                fontSize = (24f - 9f * lyricsEmphasis).sp,
+                                // Pinned to designed geometry: the formula assumes
+                                // fontScale 1 — dividing it back out stops the user's
+                                // fontScale double-applying inside the fixed tabletop
+                                // pane (lyrics keep the user's scale; they scroll).
+                                fontSize = (24f - 9f * lyricsEmphasis).sp / density.fontScale,
                             ),
                             color = MaterialTheme.colorScheme.onSurface,
                             maxLines = 1,
@@ -2273,7 +2293,7 @@ private fun TabletopPlayingContent(
                         Text(
                             text = state.artist,
                             style = MaterialTheme.typography.titleMedium.copy(
-                                fontSize = (16f - 4f * lyricsEmphasis).sp,
+                                fontSize = (16f - 4f * lyricsEmphasis).sp / density.fontScale,
                             ),
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 1,

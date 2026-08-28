@@ -20,6 +20,8 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.luminance
+import com.gpo.yoin.ui.theme.YoinMotion
+import com.gpo.yoin.ui.theme.YoinMotionRole
 import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.max
@@ -32,7 +34,7 @@ import kotlinx.coroutines.launch
  * on its own orbit speed (the parallax gives the field a layered, 3D-ish
  * depth), with the hue sliding between the base and accent tones so the
  * colour itself is visibly in motion. Swiping to another memory re-tints the
- * whole atmosphere through the palette's own 380ms hand-off.
+ * whole atmosphere through the palette's own effects-spring hand-off.
  *
  * Performance follows the Now Playing aurora's discipline: the drift/breath
  * loops run ONLY while [visible] (the deck is on screen), all animated values
@@ -70,7 +72,9 @@ internal fun Modifier.memoriesAuroraBackground(
     }
     val activeFraction by animateFloatAsState(
         targetValue = if (visible) 1f else 0f,
-        animationSpec = tween(durationMillis = 900, easing = FastOutSlowInEasing),
+        // Slow effects spring: a long, soft ambient envelope that still
+        // obeys the effects-spring law for alpha changes.
+        animationSpec = YoinMotion.slowEffectsSpec(role = YoinMotionRole.Expressive),
         label = "memoriesAuroraActive",
     )
     val isDark = MaterialTheme.colorScheme.background.luminance() < 0.5f

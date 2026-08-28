@@ -49,6 +49,19 @@ val LayoutMode.isDualPaneNowPlaying: Boolean
     get() = this == LayoutMode.Medium || this == LayoutMode.Wide
 
 /**
+ * The NP-gate predicate the app actually consumes: dual-pane layout AND enough
+ * HEIGHT for its reserve math. The two-column player needs ≈590dp of height
+ * (450dp reserve + 140dp cover floor) — a landscape handset (~918×411dp) reads
+ * Wide on width but clips the transport/pills off-screen, so on short windows
+ * every NP gate (body dispatch, drag-to-dismiss, stage back layer, shared
+ * elements) falls back to the single-column player, whose cover is
+ * height-aware. Tablets/desktops are ≥600dp tall even in landscape and are
+ * unaffected; Tabletop never reads dual-pane in the first place.
+ */
+val YoinWindowInfo.isDualPaneNowPlaying: Boolean
+    get() = layoutMode.isDualPaneNowPlaying && isHeightAtLeastMedium
+
+/**
  * Window configuration snapshot. Recomposes on fold / rotate / split-screen
  * because [rememberYoinWindowInfo] reads the observable [currentWindowAdaptiveInfo].
  *
@@ -58,6 +71,7 @@ val LayoutMode.isDualPaneNowPlaying: Boolean
 data class YoinWindowInfo(
     val layoutMode: LayoutMode,
     val isWidthAtLeastMedium: Boolean,
+    val isHeightAtLeastMedium: Boolean,
     val hingeBounds: Rect?,
 )
 
@@ -70,6 +84,7 @@ val LocalYoinWindowInfo = staticCompositionLocalOf {
     YoinWindowInfo(
         layoutMode = LayoutMode.Compact,
         isWidthAtLeastMedium = false,
+        isHeightAtLeastMedium = false,
         hingeBounds = null,
     )
 }
@@ -93,6 +108,11 @@ fun rememberYoinWindowInfo(): YoinWindowInfo {
     val widthAtLeastExpanded = adaptiveInfo.windowSizeClass.isWidthAtLeastBreakpoint(
         WindowSizeClass.WIDTH_DP_EXPANDED_LOWER_BOUND,
     )
+    // Height gates ONLY the dual-pane Now Playing (see the windowInfo predicate):
+    // a landscape handset is wide but far too short for the two-column player.
+    val heightAtLeastMedium = adaptiveInfo.windowSizeClass.isHeightAtLeastBreakpoint(
+        WindowSizeClass.HEIGHT_DP_MEDIUM_LOWER_BOUND,
+    )
     // A horizontal hinge (fold line runs left-to-right) splits top/bottom.
     val horizontalHinge = adaptiveInfo.windowPosture.hingeList.firstOrNull { hinge ->
         !hinge.isVertical
@@ -106,6 +126,7 @@ fun rememberYoinWindowInfo(): YoinWindowInfo {
     return YoinWindowInfo(
         layoutMode = layoutMode,
         isWidthAtLeastMedium = widthAtLeastMedium,
+        isHeightAtLeastMedium = heightAtLeastMedium,
         hingeBounds = horizontalHinge?.bounds,
     )
 }

@@ -53,9 +53,9 @@ Only build what is in the MVP or explicitly requested.
 
 Do not add out-of-scope features such as podcast, radio, chat, user management, jukebox, bookmarks, shares, video, or phase-2 playlist CRUD unless the task explicitly asks for them.
 
-### Dark theme defaults
+### Theme defaults
 
-- Default theme is dynamic dark.
+- Theme follows the system dark/light setting (`isSystemInDarkTheme()`), using dynamic color on API 31+ (`dynamicDarkColorScheme()` / `dynamicLightColorScheme()`). There is no in-app theme override today.
 - Playing-state palette extraction may replace global color tokens.
 - Color changes should animate, not snap.
 

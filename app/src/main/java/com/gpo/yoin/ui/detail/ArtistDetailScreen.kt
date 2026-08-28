@@ -107,6 +107,11 @@ import com.gpo.yoin.ui.theme.withTabularFigures
 fun ArtistDetailScreen(
     uiState: ArtistDetailUiState,
     onBackClick: () -> Unit,
+    // The actual window exit, invoked by the back-collapse handler AFTER its
+    // commit motion. Defaults to onBackClick so previews/tests keep the old
+    // direct-exit behaviour; the Activity passes a dispatcher-routed
+    // onBackClick + a finish()-ing onLeavePage.
+    onLeavePage: () -> Unit = onBackClick,
     onAlbumClick: (albumId: String) -> Unit,
     onRetry: () -> Unit,
     onToggleFollow: () -> Unit = {},
@@ -145,7 +150,7 @@ fun ArtistDetailScreen(
         // window beneath (the Activity turns translucent for the gesture);
         // the bar is a sibling on top and never transforms — it scrubs its
         // own morph off the same progress.
-        val backCollapse = rememberDetailBackCollapse(onBack = onBackClick)
+        val backCollapse = rememberDetailBackCollapse(onBack = onLeavePage)
         val enterIntro = rememberDetailEnterIntro(enterBarHandoff)
         Box(
             modifier = modifier.then(

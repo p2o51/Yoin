@@ -114,6 +114,35 @@ class ExperienceSessionStore {
         _detailWindowSettledTick.update { it + 1L }
     }
 
+    /**
+     * Ticks when a detail Activity's content actually STARTS its enter slide
+     * (i.e. after launch latency + the 200ms bar-handoff window hold). The
+     * shell's −96dp recede waits on this so it runs in lockstep with the
+     * incoming slide instead of racing ahead at tap time — otherwise the
+     * recede's 450ms ride finishes before the detail window has even faded
+     * in, and the user watches Home slide into blank space.
+     */
+    private val _detailEnterSlideTick = MutableStateFlow(0L)
+    val detailEnterSlideTick: StateFlow<Long> = _detailEnterSlideTick.asStateFlow()
+
+    fun noteDetailEnterSlideStarted() {
+        _detailEnterSlideTick.update { it + 1L }
+    }
+
+    /**
+     * Ticks when the shell Activity resumes (is back in the foreground drawing
+     * frames). A detail page's button-back reveal waits on this instead of a
+     * fixed grace: the shell is STOPPED while an opaque detail covers it, and
+     * its restart + first-frame latency varies (~170-300ms) — fading over the
+     * not-yet-drawn window reads as black frames.
+     */
+    private val _shellReadyTick = MutableStateFlow(0L)
+    val shellReadyTick: StateFlow<Long> = _shellReadyTick.asStateFlow()
+
+    fun noteShellReady() {
+        _shellReadyTick.update { it + 1L }
+    }
+
     fun replaceMemoriesDeck(
         activityIds: List<Long>,
         currentPage: Int,

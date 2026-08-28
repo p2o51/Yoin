@@ -58,7 +58,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.ui.text.LinkAnnotation
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextLinkStyles
@@ -94,6 +94,11 @@ import com.gpo.yoin.ui.theme.rememberCoverColorScheme
 fun PlaylistDetailScreen(
     uiState: PlaylistDetailUiState,
     onBackClick: () -> Unit,
+    // The actual window exit, invoked by the back-collapse handler AFTER its
+    // commit motion. Defaults to onBackClick so previews/tests keep the old
+    // direct-exit behaviour; the Activity passes a dispatcher-routed
+    // onBackClick + a finish()-ing onLeavePage.
+    onLeavePage: () -> Unit = onBackClick,
     onPlayAllClick: () -> Unit,
     onShufflePlay: () -> Unit = {},
     onSongClick: (songId: String) -> Unit,
@@ -148,7 +153,7 @@ fun PlaylistDetailScreen(
         // — background included — collapses as one card over the LIVE window
         // beneath (the Activity turns translucent for the gesture); the bar is a
         // sibling on top and never transforms.
-        val backCollapse = rememberDetailBackCollapse(onBack = onBackClick)
+        val backCollapse = rememberDetailBackCollapse(onBack = onLeavePage)
         val enterIntro = rememberDetailEnterIntro(enterBarHandoff)
         Box(
             modifier = modifier.then(
@@ -428,9 +433,6 @@ private fun PlaylistDetailContent(
     modifier: Modifier = Modifier,
 ) {
     val navBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
-    // Match the Album hero cover footprint: centered square, capped at 300dp.
-    val screenWidth = LocalConfiguration.current.screenWidthDp.dp
-    val coverSide = minOf(screenWidth * 0.74f, 300.dp)
     Column(
         modifier = modifier
             .fillMaxSize()
@@ -446,16 +448,22 @@ private fun PlaylistDetailContent(
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         // Centered album-sized cover (name/owner credit now live in the
-        // top app bar, like the Album & Artist pages).
-        PlaylistHeroArtwork(
-            playlistId = content.playlistId,
-            sharedTransitionKey = sharedTransitionKey,
-            coverArtUrl = content.coverArtUrl,
-            playlistName = content.playlistName,
-            sharedTransitionScope = sharedTransitionScope,
-            animatedVisibilityScope = animatedVisibilityScope,
-            modifier = Modifier.size(coverSide),
-        )
+        // top app bar, like the Album & Artist pages). Match the Album hero
+        // cover footprint (0.74 × width, capped at 300dp) pane-relatively —
+        // split panes and freeform windows are narrower than the screen.
+        BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+            PlaylistHeroArtwork(
+                playlistId = content.playlistId,
+                sharedTransitionKey = sharedTransitionKey,
+                coverArtUrl = content.coverArtUrl,
+                playlistName = content.playlistName,
+                sharedTransitionScope = sharedTransitionScope,
+                animatedVisibilityScope = animatedVisibilityScope,
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .size(minOf(maxWidth * 0.74f, 300.dp)),
+            )
+        }
         content.comment?.takeIf { it.isNotBlank() }?.let { description ->
             Text(
                 text = description,

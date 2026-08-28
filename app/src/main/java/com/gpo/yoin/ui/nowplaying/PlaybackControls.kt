@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -354,7 +355,10 @@ internal fun PlaybackControls(
                             PlaybackTimeLabel(
                                 text = formatTrackDurationMs(positionMs),
                                 modifier = Modifier
-                                    .width(44.dp)
+                                    // minWidth (not fixed width): fontScale>1 grows
+                                    // instead of clipping; tabular figures keep the
+                                    // fontScale-1 footprint identical.
+                                    .defaultMinSize(minWidth = 44.dp)
                                     .offset(y = 6.dp),
                             )
                         }
@@ -371,7 +375,7 @@ internal fun PlaybackControls(
                             PlaybackTimeLabel(
                                 text = "-${formatTrackDurationMs((durationMs - positionMs).coerceAtLeast(0L))}",
                                 modifier = Modifier
-                                    .width(52.dp)
+                                    .defaultMinSize(minWidth = 52.dp)
                                     .offset(y = 6.dp),
                                 textAlign = androidx.compose.ui.text.style.TextAlign.End,
                             )
@@ -408,6 +412,8 @@ private fun PlaybackTimeLabel(
         style = MaterialTheme.typography.labelLarge.withTabularFigures(),
         color = MaterialTheme.colorScheme.onSurfaceVariant,
         textAlign = textAlign,
+        maxLines = 1,
+        softWrap = false,
         modifier = modifier,
     )
 }

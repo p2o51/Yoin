@@ -1,7 +1,6 @@
 package com.gpo.yoin.ui.detail
 
 import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -13,6 +12,9 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalContext
+import com.gpo.yoin.YoinApplication
+import com.gpo.yoin.ui.navigation.back.BackMotionTokens
 import kotlinx.coroutines.delay
 
 /**
@@ -41,14 +43,23 @@ class DetailEnterIntroState internal constructor(alreadyPlayed: Boolean) {
 fun rememberDetailEnterIntro(barHandoff: Boolean): DetailEnterIntroState {
     var played by rememberSaveable { mutableStateOf(false) }
     val state = remember { DetailEnterIntroState(played) }
+    val context = LocalContext.current
+    val store = remember(context) {
+        (context.applicationContext as YoinApplication).container.experienceSessionStore
+    }
     LaunchedEffect(Unit) {
         if (!played) {
             if (barHandoff) delay(BAR_HANDOFF_HOLD_MS)
+            // Signal BEFORE the first animated value lands: the shell's
+            // mirrored recede keys off this tick to run the same 450ms
+            // EMPHASIZED ride in lockstep with this slide (its own clock
+            // starts at tap time, hundreds of ms before this window exists).
+            store.noteDetailEnterSlideStarted()
             state.slide.animateTo(
                 targetValue = 0f,
                 animationSpec = tween(
                     durationMillis = ENTER_DURATION_MS,
-                    easing = EnterEmphasizedEasing,
+                    easing = BackMotionTokens.EmphasizedEasing,
                 ),
             )
             played = true
@@ -73,6 +84,3 @@ private const val ENTER_DURATION_MS = 450
 
 /** res/anim/detail_bar_handoff_enter.xml's startOffset. */
 private const val BAR_HANDOFF_HOLD_MS = 200L
-
-/** AOSP Interpolators.EMPHASIZED. */
-private val EnterEmphasizedEasing = CubicBezierEasing(0.05f, 0.7f, 0.1f, 1f)
