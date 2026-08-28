@@ -143,6 +143,14 @@ class ExperienceSessionStore {
         _shellReadyTick.update { it + 1L }
     }
 
+    /**
+     * In-memory "newest memory timestamp the deck has already stamped".
+     * Seeded to the current deck's max on first open, so only memories born
+     * AFTER that read as new (and earn the seal-stamp moment on their card).
+     * Session-scoped on purpose: a cold start must never false-stamp.
+     */
+    var memoriesStampedTimestamp: Long = Long.MAX_VALUE
+
     fun replaceMemoriesDeck(
         activityIds: List<Long>,
         currentPage: Int,

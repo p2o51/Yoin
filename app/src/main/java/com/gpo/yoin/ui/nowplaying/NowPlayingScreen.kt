@@ -180,6 +180,9 @@ fun NowPlayingScreen(
     // over the aurora (full-screen on the outer Box), so the peek never reveals
     // the shell behind. 1f = inert.
     contentScale: Float = 1f,
+    // +1 = forward skip (next / auto-advance), −1 = back — forwarded to the
+    // single-column body for its directional cover ride-in.
+    skipDirection: Int = 1,
     onTogglePlayPause: () -> Unit,
     onSkipNext: () -> Unit,
     onSkipPrevious: () -> Unit,
@@ -349,6 +352,7 @@ fun NowPlayingScreen(
                     sharedTransitionScope = sharedTransitionScope,
                     animatedVisibilityScope = animatedVisibilityScope,
                     contentScale = contentScale,
+                    skipDirection = skipDirection,
                 )
             }
         }
@@ -556,6 +560,9 @@ private fun PlayingContent(
     // this scale while the top bar, controls, title/artist and pills stay fixed as a
     // stable frame. 1f = inert.
     contentScale: Float = 1f,
+    // +1 = forward skip (next / auto-advance), −1 = back — forwarded to the
+    // single-column body for its directional cover ride-in.
+    skipDirection: Int = 1,
     onTogglePlayPause: () -> Unit,
     onSkipNext: () -> Unit,
     onSkipPrevious: () -> Unit,
@@ -762,6 +769,7 @@ private fun PlayingContent(
             positionMs = positionMs,
             bufferedMs = bufferedMs,
             contentScale = contentScale,
+            skipDirection = skipDirection,
             onTogglePlayPause = onTogglePlayPause,
             onSkipNext = onSkipNext,
             onSkipPrevious = onSkipPrevious,
@@ -831,6 +839,9 @@ private fun CompactPlayingContent(
     // Predictive-back collapse preview: the STAGE recedes to this scale; the
     // controls, title/artist and pills stay fixed. 1f = inert.
     contentScale: Float = 1f,
+    // +1 = forward skip (next / auto-advance), −1 = back — the cover ride-in's
+    // travel direction on track change.
+    skipDirection: Int = 1,
     onTogglePlayPause: () -> Unit,
     onSkipNext: () -> Unit,
     onSkipPrevious: () -> Unit,
@@ -1071,6 +1082,23 @@ private fun CompactPlayingContent(
             .coerceAtLeast(0.dp)
             .coerceAtMost(compactCoverHeight)
 
+        // Track-change cover ride-in (skip direction comes from the ViewModel;
+        // fires only on an actual songId CHANGE, never on first composition).
+        // Slow spatial spring on purpose: the ride must still be travelling
+        // when Coil's replacement image lands (~200-400ms behind the songId
+        // flip), or the eye reads a plain crossfade and no ride at all.
+        val coverRide = remember { Animatable(1f) }
+        val coverRideTravelPx = with(LocalDensity.current) { 28.dp.toPx() }
+        var lastRideSongId by remember { mutableStateOf(state.songId) }
+        val coverRideSpec = YoinMotion.slowSpatialSpec<Float>(role = YoinMotionRole.Expressive)
+        LaunchedEffect(state.songId) {
+            if (lastRideSongId != state.songId) {
+                lastRideSongId = state.songId
+                coverRide.snapTo(0f)
+                coverRide.animateTo(1f, coverRideSpec)
+            }
+        }
+
         Column(
             modifier = Modifier.fillMaxSize(),
             horizontalAlignment = Alignment.Start,
@@ -1134,7 +1162,21 @@ private fun CompactPlayingContent(
                             Box(
                                 modifier = Modifier
                                     .weight(1f)
-                                    .fillMaxHeight(),
+                                    .fillMaxHeight()
+                                    // Directional ride-in on track change:
+                                    // next arrives from the right, previous
+                                    // from the left (auto-advance reads as
+                                    // next). Coil owns the image crossfade;
+                                    // this moves the whole cover, draw-phase
+                                    // reads only.
+                                    .graphicsLayer {
+                                        val p = coverRide.value
+                                        if (p < 1f) {
+                                            translationX =
+                                                (1f - p) * skipDirection * coverRideTravelPx
+                                            alpha = 0.35f + 0.65f * p
+                                        }
+                                    },
                                 contentAlignment = Alignment.TopStart,
                             ) {
                                 AlbumCover(

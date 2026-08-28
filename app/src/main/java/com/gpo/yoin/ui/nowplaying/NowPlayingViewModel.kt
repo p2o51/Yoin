@@ -375,11 +375,21 @@ class NowPlayingViewModel(
         playbackManager.toggleShuffle()
     }
 
+    /**
+     * +1 = moved forward (tap skip-next, or auto-advance default), −1 = back.
+     * Only a display hint for the Now Playing cover's directional ride-in;
+     * auto-advance correctly falls out as +1 since nothing flips it.
+     */
+    private val _skipDirection = MutableStateFlow(1)
+    val skipDirection: StateFlow<Int> = _skipDirection.asStateFlow()
+
     fun skipNext() {
+        _skipDirection.value = 1
         playbackManager.skipNext()
     }
 
     fun skipPrevious() {
+        _skipDirection.value = -1
         playbackManager.skipPrevious()
     }
 

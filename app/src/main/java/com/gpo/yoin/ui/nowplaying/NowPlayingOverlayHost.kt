@@ -83,6 +83,7 @@ fun NowPlayingOverlayHost(
     val lyricsSearchState by viewModel.lyricsSearchState.collectAsState()
     val castState by container.castManager.castState.collectAsState()
     val dualPaneNowPlaying = LocalYoinWindowInfo.current.isDualPaneNowPlaying
+    val skipDirection by viewModel.skipDirection.collectAsState()
 
     var dismissDragPx by remember { mutableStateOf(0f) }
     var predictiveBackProgress by remember { mutableStateOf(0f) }
@@ -390,6 +391,7 @@ fun NowPlayingOverlayHost(
                 // over the full-screen aurora) — NOT the whole overlay, which
                 // would reveal the host behind and read as the app shrinking.
                 contentScale = stageBackScale,
+                skipDirection = skipDirection,
                 modifier = Modifier
                     .fillMaxSize()
                     .offset {
