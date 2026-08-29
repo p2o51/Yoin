@@ -19,6 +19,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.lifecycle.Lifecycle
 import com.gpo.yoin.YoinActivityRoot
 import com.gpo.yoin.YoinApplication
 import com.gpo.yoin.data.repository.ActivityContext
@@ -35,6 +36,23 @@ import kotlinx.coroutines.flow.map
  * that only styles the OPEN — see DetailBottomBar / launchDetailFromShell.)
  */
 class AlbumDetailActivity : ComponentActivity() {
+    private val detailLaunchGate = DetailActivityLaunchGate()
+
+    override fun onResume() {
+        super.onResume()
+        detailLaunchGate.release()
+    }
+
+    private fun launchChildDetail(intent: Intent) {
+        if (!detailLaunchGate.tryAcquire(lifecycle.currentState == Lifecycle.State.RESUMED)) return
+        try {
+            startActivity(intent)
+        } catch (error: RuntimeException) {
+            detailLaunchGate.release()
+            throw error
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableYoinEdgeToEdge()
@@ -115,8 +133,10 @@ class AlbumDetailActivity : ComponentActivity() {
                     onLeavePage = {
                         // Pre-morph the covered shell bar to nav chrome so the reveal
                         // after the dissolve matches the scrubbed detail bar.
-                        (application as YoinApplication).container.experienceSessionStore
-                            .setDetailChromeActive(false)
+                        if (intent.getBooleanExtra(DETAIL_EXTRA_FROM_SHELL, false)) {
+                            (application as YoinApplication).container.experienceSessionStore
+                                .setDetailChromeActive(false)
+                        }
                         finish()
                     },
                     morphBarOnBack = intent.getBooleanExtra(DETAIL_EXTRA_FROM_SHELL, false),
@@ -152,7 +172,11 @@ class AlbumDetailActivity : ComponentActivity() {
                         context.startActivity(Intent.createChooser(send, null))
                     },
                     onOpenArtist = (uiState as? AlbumDetailUiState.Content)?.artistId?.let { artistId ->
-                        { context.startActivity(ArtistDetailActivity.intent(context, artistId)) }
+                        {
+                            launchChildDetail(
+                                ArtistDetailActivity.intent(this@AlbumDetailActivity, artistId),
+                            )
+                        }
                     },
                     isPlaying = playbackState.isPlaying,
                     playbackSignal = if (playbackState.isPlaying) playbackSignal else 0f,
@@ -169,13 +193,13 @@ class AlbumDetailActivity : ComponentActivity() {
                     expanded = nowPlayingOpen,
                     onExpandedChange = { nowPlayingOpen = it },
                     onAlbumClick = { id ->
-                        context.startActivity(AlbumDetailActivity.intent(context, id))
+                        launchChildDetail(AlbumDetailActivity.intent(this@AlbumDetailActivity, id))
                     },
                     onArtistClick = { id ->
-                        context.startActivity(ArtistDetailActivity.intent(context, id))
+                        launchChildDetail(ArtistDetailActivity.intent(this@AlbumDetailActivity, id))
                     },
                     onPlaylistClick = { id ->
-                        context.startActivity(PlaylistDetailActivity.intent(context, id))
+                        launchChildDetail(PlaylistDetailActivity.intent(this@AlbumDetailActivity, id))
                     },
                 )
                 NowPlayingAccessories(
@@ -189,11 +213,14 @@ class AlbumDetailActivity : ComponentActivity() {
 
     override fun onStop() {
         super.onStop()
-        // The system defers onStop past the exit animation, so this is the
-        // moment this window is truly off screen — the shell's chrome restore
-        // (bar reverse morph) waits for it.
-        (application as YoinApplication).container.experienceSessionStore
-            .noteDetailWindowSettled()
+        // Only the outer detail launched from the shell owns this backstop.
+        // With translucent detail windows, MainActivity stays STARTED; letting
+        // an inner detail's onStop publish the tick would clear the shell pose
+        // while its outer detail is still on screen.
+        if (isFinishing && intent.getBooleanExtra(DETAIL_EXTRA_FROM_SHELL, false)) {
+            (application as YoinApplication).container.experienceSessionStore
+                .noteDetailWindowSettled()
+        }
     }
 
     companion object {

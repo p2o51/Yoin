@@ -46,10 +46,10 @@ class YoinApplication : Application(), SingletonImageLoader.Factory {
     /**
      * Drive the playback host lifecycle (Spotify App Remote warm-up) from the
      * whole activity stack instead of a single Activity. With detail pages as
-     * separate Activities, MainActivity.onStop fires during the shell→detail
-     * handoff; counting started activities keeps the remote connected as long
-     * as ANY Yoin Activity is foregrounded, and only tears it down when the
-     * last one stops (the app is actually backgrounded).
+     * separate Activities, individual hosts can pause or stop during handoffs;
+     * counting started activities keeps the remote connected as long as ANY
+     * Yoin Activity is foregrounded, and only tears it down when the last one
+     * stops (the app is actually backgrounded).
      */
     private fun registerHostLifecycle() {
         registerActivityLifecycleCallbacks(object : ActivityLifecycleCallbacks {

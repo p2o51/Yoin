@@ -29,6 +29,7 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SnackbarResult
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -46,6 +47,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -76,6 +78,7 @@ import com.gpo.yoin.ui.home.HomeViewModel
 import com.gpo.yoin.ui.library.LibraryScreen
 import com.gpo.yoin.ui.library.LibrarySearchScope
 import com.gpo.yoin.ui.library.LibraryViewModel
+import com.gpo.yoin.ui.experience.DetailBackPhase
 import com.gpo.yoin.ui.experience.HomeSurface
 import com.gpo.yoin.ui.experience.LayoutMode
 import com.gpo.yoin.ui.experience.LocalYoinWindowInfo
@@ -360,7 +363,7 @@ private fun YoinShell(
         onNavigateToSettings(focusSection)
     }
     // Flip the bar to detail chrome the moment the tap lands — the nav→split
-    // morph IS the tap feedback; the detail window's delayed fade then lands
+    // morph IS the tap feedback; the detail window's delayed slide then lands
     // on its own identical bar (see detail_bar_handoff_enter.xml). The flag
     // stays up while the detail stack is on top so the predictive-back
     // preview reveals a matching bar; the restore effect below flips it back.
@@ -373,6 +376,51 @@ private fun YoinShell(
     // 窗格宽（Compact），拿它做门会把编舞错误放行（P0 修正案 2026-07-27）。
     val shellContext = LocalContext.current
     val shellHostActivity = remember(shellContext) { shellContext.findActivityOrNull() }
+    val lifecycleOwner = LocalLifecycleOwner.current
+    var detailLaunchPending by remember { mutableStateOf(false) }
+    var detailLaunchSawPause by remember { mutableStateOf(false) }
+
+    // A lifecycle gate alone still has a short hole between startActivity()
+    // and MainActivity receiving ON_PAUSE. Two taps inside that hole used to
+    // launch two translucent detail windows into the same WM transition. Arm
+    // this latch synchronously with the first tap and retire it only after the
+    // shell really returns. Embedded/no-op launches never pause the shell, so
+    // release those after a bounded grace period.
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_PAUSE -> detailLaunchSawPause = true
+                Lifecycle.Event.ON_RESUME -> {
+                    if (detailLaunchSawPause) {
+                        detailLaunchPending = false
+                        detailLaunchSawPause = false
+                    }
+                }
+                else -> Unit
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+    LaunchedEffect(detailLaunchPending, detailLaunchSawPause) {
+        if (detailLaunchPending && !detailLaunchSawPause) {
+            delay(DETAIL_LAUNCH_PAUSE_GRACE_MS)
+            if (!detailLaunchSawPause &&
+                lifecycleOwner.lifecycle.currentState == Lifecycle.State.RESUMED
+            ) {
+                detailLaunchPending = false
+            }
+        }
+    }
+    val canLaunchDetail = {
+        shellHostActivity?.let {
+            canLaunchDetailFromShell(
+                lifecycleState = lifecycleOwner.lifecycle.currentState,
+                backPhase = experienceSessionStore.detailBackPhase.value,
+                launchPending = detailLaunchPending,
+            )
+        } == true
+    }
     val armDetailChrome = {
         val splitTakesIt = shellHostActivity?.let(::isDetailSplitEligible) == true
         // INVARIANT: cross-window bar choreography exists ONLY when the shell
@@ -384,35 +432,59 @@ private fun YoinShell(
             !splitTakesIt &&
             layoutMode == LayoutMode.Compact
         ) {
+            experienceSessionStore.prepareDetailEnterSlide()
             experienceSessionStore.setDetailChromeActive(true)
         }
     }
     val navigateToAlbumFromShell: (String, String?) -> Unit = { albumId, sharedTransitionKey ->
-        armDetailChrome()
-        dismissMemoriesIfActive()
-        onNavigateToAlbum(albumId, sharedTransitionKey)
+        if (canLaunchDetail()) {
+            detailLaunchPending = true
+            try {
+                armDetailChrome()
+                dismissMemoriesIfActive()
+                onNavigateToAlbum(albumId, sharedTransitionKey)
+            } catch (error: RuntimeException) {
+                detailLaunchPending = false
+                experienceSessionStore.setDetailChromeActive(false)
+                throw error
+            }
+        }
     }
     val navigateToArtistFromShell: (String, String?) -> Unit = { artistId, sharedTransitionKey ->
-        armDetailChrome()
-        dismissMemoriesIfActive()
-        onNavigateToArtist(artistId, sharedTransitionKey)
+        if (canLaunchDetail()) {
+            detailLaunchPending = true
+            try {
+                armDetailChrome()
+                dismissMemoriesIfActive()
+                onNavigateToArtist(artistId, sharedTransitionKey)
+            } catch (error: RuntimeException) {
+                detailLaunchPending = false
+                experienceSessionStore.setDetailChromeActive(false)
+                throw error
+            }
+        }
     }
     val navigateToPlaylistFromShell: (String, String?) -> Unit = { playlistId, sharedTransitionKey ->
-        armDetailChrome()
-        dismissMemoriesIfActive()
-        onNavigateToPlaylist(playlistId, sharedTransitionKey)
+        if (canLaunchDetail()) {
+            detailLaunchPending = true
+            try {
+                armDetailChrome()
+                dismissMemoriesIfActive()
+                onNavigateToPlaylist(playlistId, sharedTransitionKey)
+            } catch (error: RuntimeException) {
+                detailLaunchPending = false
+                experienceSessionStore.setDetailChromeActive(false)
+                throw error
+            }
+        }
     }
 
     // Reverse morph BACKSTOP: restore nav chrome when a detail window leaves
-    // the screen while the shell is visible (its onStop tick fires after the
-    // exit animation) — the primary restores are the detail's own onBackClick
-    // and the commit settle above. The drop(1) sits INSIDE repeatOnLifecycle
-    // so the StateFlow's replayed value is discarded on EVERY resubscription:
-    // a detail back gesture flips the window translucent, which restarts the
-    // shell, and a globally-applied drop(1) let those replays through —
-    // clearing the chrome mid-gesture. Detail→detail hops still tick only
-    // while the shell is covered (collector down), so they can't reset it.
-    val lifecycleOwner = LocalLifecycleOwner.current
+    // the screen while the shell is visible (the outer shell-launched detail
+    // publishes an onStop tick after its exit animation) — the primary
+    // restores are the detail's own onBackClick and the commit settle above.
+    // Keep drop(1) INSIDE repeatOnLifecycle so a replayed old completion tick
+    // is discarded on every app foreground resubscription.
     LaunchedEffect(lifecycleOwner) {
         lifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
             experienceSessionStore.detailWindowSettledTick
@@ -600,10 +672,23 @@ private fun YoinShell(
                                         // full MediaId — recombine or parse throws
                                         // and the page lands on "Couldn't load
                                         // this album." (memory → goto album).
-                                        onNavigateToAlbum(
-                                            "${memory.entityProvider}:${memory.entityId}",
-                                            null,
-                                        )
+                                        if (canLaunchDetail()) {
+                                            detailLaunchPending = true
+                                            try {
+                                                // Memories stays mounted for the return,
+                                                // but uses the same chrome and stale-input
+                                                // gate as every other shell entrypoint.
+                                                armDetailChrome()
+                                                onNavigateToAlbum(
+                                                    "${memory.entityProvider}:${memory.entityId}",
+                                                    null,
+                                                )
+                                            } catch (error: RuntimeException) {
+                                                detailLaunchPending = false
+                                                experienceSessionStore.setDetailChromeActive(false)
+                                                throw error
+                                            }
+                                        }
                                     },
                                     onNavigateToNeoDbSettings = {
                                         navigateToSettingsFromShell("neodb")
@@ -992,6 +1077,16 @@ private fun MemoryEntry.toPlaybackActivityContext(): ActivityContext {
 internal fun trackCoverArtId(track: Track): String? =
     CoverRef.toStorageKey(track.coverArt)
         ?: track.albumId?.rawId?.takeIf { track.id.provider == MediaId.PROVIDER_SUBSONIC }
+
+internal fun canLaunchDetailFromShell(
+    lifecycleState: Lifecycle.State,
+    backPhase: DetailBackPhase,
+    launchPending: Boolean = false,
+): Boolean = lifecycleState == Lifecycle.State.RESUMED &&
+    backPhase == DetailBackPhase.Idle &&
+    !launchPending
+
+private const val DETAIL_LAUNCH_PAUSE_GRACE_MS = 500L
 
 @Preview(showBackground = true, backgroundColor = 0xFF1C1B1F)
 @Composable

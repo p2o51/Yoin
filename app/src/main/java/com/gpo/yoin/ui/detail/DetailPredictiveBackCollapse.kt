@@ -1,16 +1,11 @@
 package com.gpo.yoin.ui.detail
 
-import android.app.Activity
-import android.content.Context
-import android.content.ContextWrapper
-import android.os.Build
 import androidx.activity.BackEventCompat
 import androidx.activity.compose.PredictiveBackHandler
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
@@ -33,10 +28,12 @@ import kotlin.coroutines.cancellation.CancellationException
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withTimeoutOrNull
 
 /**
  * In-window predictive back for the detail pages, a faithful port of AOSP's
@@ -79,44 +76,105 @@ class DetailBackCollapseState internal constructor() {
 
     /** Post-commit exit fraction (0..1): fast fade + slight drift. */
     internal val exit = Animatable(0f)
+
+    /**
+     * True from the first gesture sample until its cancel spring has settled.
+     * Enter choreography observes this local owner state instead of the global
+     * cross-window bridge, whose Idle value can be restored by another window.
+     */
+    internal var gestureActive by mutableStateOf(false)
+
+    /** Terminal for this Activity instance: once a back commits it never resets. */
+    internal var committed by mutableStateOf(false)
+}
+
+/**
+ * Serialises a cancelled gesture's host-scope settle with the next back
+ * operation. Animatable cancels an in-flight mutation when another starts; if
+ * an old cancel settle is allowed to touch the same Animatable after a button
+ * commit begins, it can cancel that commit and swallow the first back press.
+ */
+internal class DetailBackOperationGuard {
+    private var generation = 0L
+    private var cancelSettleJob: Job? = null
+    private var committed = false
+    private var finishDispatched = false
+
+    suspend fun beginOperation(): Long {
+        // Invalidate the old owner's completion before cancelling it. Even a
+        // non-cooperative settle can no longer publish Idle for this operation.
+        val owner = ++generation
+        cancelSettleJob?.cancelAndJoin()
+        cancelSettleJob = null
+        return owner
+    }
+
+    fun launchCancelSettle(
+        scope: CoroutineScope,
+        owner: Long,
+        settle: suspend () -> Unit,
+        onSettled: () -> Unit,
+    ) {
+        cancelSettleJob = scope.launch {
+            settle()
+            currentCoroutineContext().ensureActive()
+            if (generation == owner && !committed) onSettled()
+        }
+    }
+
+    fun markCommitted() {
+        committed = true
+    }
+
+    fun dispatchFinishOnce(onFinish: () -> Unit) {
+        if (finishDispatched) return
+        finishDispatched = true
+        onFinish()
+    }
+
+    fun recoverCancellation(
+        onCommittedCancellation: () -> Unit,
+        onGestureCancellation: () -> Unit,
+    ) {
+        if (committed) onCommittedCancellation() else onGestureCancellation()
+    }
 }
 
 @Composable
 fun rememberDetailBackCollapse(onBack: () -> Unit): DetailBackCollapseState {
     val state = remember { DetailBackCollapseState() }
+    val operationGuard = remember { DetailBackOperationGuard() }
     val scope = rememberCoroutineScope()
     val settleSpec = YoinMotion.predictiveBackSettleSpring<Float>()
     val commitSpec = YoinMotion.defaultSpatialSpec<Float>(role = YoinMotionRole.Standard)
     val context = LocalContext.current
-    val activity = remember(context) { context.findActivity() }
     val store = remember(context) {
         (context.applicationContext as YoinApplication).container.experienceSessionStore
     }
 
-    // Steady state = OPAQUE: the theme is translucent so the enter hand-off
-    // fades over the LIVE window beneath; once settled, convert to opaque so
-    // that window stops normally. The gesture converts back for its duration.
-    // [opaqueConverted] tells the button-back path whether the reveal window
-    // is actually stopped (i.e. it must wait for the shell's resume tick).
-    var opaqueConverted by remember { mutableStateOf(false) }
-    LaunchedEffect(Unit) {
-        delay(OPAQUE_AFTER_ENTER_MS)
-        if (store.detailBackPhase.value == DetailBackPhase.Idle) {
-            activity?.setTranslucentCompat(false)
-            opaqueConverted = true
-        }
-    }
+    // Keep the detail window translucent for its whole lifetime. Converting it
+    // to opaque lets WM stop and discard the shell surface underneath. On the
+    // first predictive-back frame, setTranslucent(true) cannot recreate and
+    // present that surface before the 1:1 card transform exposes it, leaving a
+    // black ring for several frames. A normal app has no atomic cross-window
+    // transaction that can wake the shell and move this content together, so
+    // keeping the already-rendered shell surface alive is the only path that
+    // preserves both the destination preview and direct finger tracking.
 
     PredictiveBackHandler { events ->
         var initialTouchY = Float.NaN
         var sawGesture = false
+        var operationOwner: Long? = null
         try {
+            // A quick button-back can arrive while the previous gesture's
+            // cancel spring is still running. Join that settle before touching
+            // either Animatable, then synchronously restore the commit alpha.
+            operationOwner = operationGuard.beginOperation()
+            state.exit.snapTo(0f)
             events.collect { event ->
                 if (!sawGesture) {
                     sawGesture = true
-                    // Wake the window beneath: it renders the AOSP entering
-                    // side (already in place, moving with the gesture).
-                    activity?.setTranslucentCompat(true)
+                    state.gestureActive = true
                     store.detailBackPhase.value = DetailBackPhase.Gesture
                 }
                 if (initialTouchY.isNaN()) initialTouchY = event.touchY
@@ -135,19 +193,12 @@ fun rememberDetailBackCollapse(onBack: () -> Unit): DetailBackCollapseState {
             // content exit (the fade lands within ~90ms) first, while the
             // window beneath runs its own entering settle off the phase flip.
             //
-            // The window MUST be translucent — and the conversion must have
-            // had time to LAND — before finish() on every path: an opaque
-            // finish makes the system animate the whole revealed window in
-            // (a horizontal slide our alpha-hold override does not replace
-            // on this translucent-themed activity) — the "content jumps in
-            // from the right" on button-backs, and on gestures whose
-            // setTranslucent call had silently failed (runCatching). The
-            // button-back therefore converts FIRST, then waits for the shell
-            // to report resumed (drawn) before the content fade — no fixed
-            // grace, no fade-over-black.
-            if (!sawGesture) {
-                activity?.setTranslucentCompat(true)
-            }
+            // The detail Activity stays translucent, so the shell surface is
+            // already live before either a gesture or button commit reveals
+            // it. No resume/readiness handshake is needed here.
+            operationGuard.markCommitted()
+            state.committed = true
+            state.gestureActive = false
             store.detailBackPhase.value = DetailBackPhase.Committed
             if (sawGesture && state.chased.value > 0.02f) {
                 // Finish the bar's scrub to full nav — the SAME spec the shell
@@ -160,42 +211,46 @@ fun rememberDetailBackCollapse(onBack: () -> Unit): DetailBackCollapseState {
             } else if (!sawGesture) {
                 // Button-back: play the same commit motion from rest — the
                 // card collapse + bar scrub (morph or slide-down) + content
-                // fade. When the reveal window was stopped (we had converted
-                // to opaque), hold the fade until the shell reports resumed —
-                // its restart + first-frame latency varies (~170-300ms), and
-                // fading earlier reads as black frames around the card. The
-                // timeout only covers a missed tick; the bar scrub covers the
-                // wait. Skipped entirely when the shell never stopped (back
-                // within the enter window) — that reveal is already live.
+                // fade. The live shell is already underneath the first frame.
                 scope.launch { state.chased.animateTo(1f, commitSpec) }
-                if (opaqueConverted) {
-                    val baseline = store.shellReadyTick.value
-                    withTimeoutOrNull(BUTTON_BACK_REVEAL_TIMEOUT_MS) {
-                        store.shellReadyTick.first { it > baseline }
-                    }
-                }
                 state.exit.animateTo(1f, tween(durationMillis = 140))
             }
-            onBack()
+            operationGuard.dispatchFinishOnce(onBack)
         } catch (e: CancellationException) {
-            // CANCEL: the handler coroutine is already dying — settle on the
-            // host scope. The Y offset needs no separate settle: its head
-            // room collapses with the progress spring (maxShift ∝ p).
-            scope.launch {
-                state.chased.animateTo(0f, settleSpec) {
-                    store.detailBackProgress.floatValue = value
+            operationGuard.recoverCancellation(
+                onCommittedCancellation = {
+                    // A commit is terminal. Lifecycle/second-back cancellation
+                    // may interrupt its cosmetic fade, but must neither reset
+                    // the shared phase to Idle nor swallow the requested finish.
+                    operationGuard.dispatchFinishOnce(onBack)
+                },
+                onGestureCancellation = {
+                    val owner = operationOwner
+                    if (owner != null && state.gestureActive) {
+                        // The handler coroutine is already dying; settle on the
+                        // host scope. This job never touches [exit] (pre-commit
+                        // exit is already zero), so it cannot cancel a later
+                        // button commit. Generation guards its final Idle write.
+                        operationGuard.launchCancelSettle(
+                            scope = scope,
+                            owner = owner,
+                            settle = {
+                                state.chased.animateTo(0f, settleSpec) {
+                                    store.detailBackProgress.floatValue = value
+                                }
+                            },
+                            onSettled = {
+                                state.touchYDelta = 0f
+                                store.detailBackTouchYDelta.floatValue = 0f
+                                state.gestureActive = false
+                                if (store.detailBackPhase.value == DetailBackPhase.Gesture) {
+                                    store.detailBackPhase.value = DetailBackPhase.Idle
+                                }
+                            },
+                        )
+                    }
                 }
-                state.touchYDelta = 0f
-                store.detailBackTouchYDelta.floatValue = 0f
-                store.detailBackPhase.value = DetailBackPhase.Idle
-                // Convert on a STATIC frame: flipping the window surface to
-                // opaque right at the settle's last moving frame reads as a
-                // flash at the bar.
-                delay(TRANSLUCENT_RESTORE_DELAY_MS)
-                if (store.detailBackPhase.value == DetailBackPhase.Idle) {
-                    activity?.setTranslucentCompat(false)
-                }
-            }
+            )
             throw e
         }
     }
@@ -217,22 +272,10 @@ fun rememberDetailMotionFrameRateModifier(
         derivedStateOf {
             back.chased.value > 0.001f ||
                 back.exit.value > 0.001f ||
-                intro.slide.value > 0.001f
+                (intro.pageVisible && intro.slide.value > 0.001f)
         }
     }
     return Modifier.voteHighFrameRate(active)
-}
-
-private tailrec fun Context.findActivity(): Activity? = when (this) {
-    is Activity -> this
-    is ContextWrapper -> baseContext.findActivity()
-    else -> null
-}
-
-private fun Activity.setTranslucentCompat(translucent: Boolean) {
-    if (Build.VERSION.SDK_INT >= 30) {
-        runCatching { setTranslucent(translucent) }
-    }
 }
 
 /**
@@ -287,15 +330,3 @@ private const val DisplayBoundsMarginDp = 8f
 
 /** Slight rightward drift during the post-commit fade. */
 private const val ExitDriftDp = 24f
-
-// The enter hand-off is 380ms (200 hold + 180 fade); leave slack before the
-// window goes opaque and stops the one beneath.
-private const val OPAQUE_AFTER_ENTER_MS = 900L
-
-// Post-settle pause before the opaque conversion (surface swap on a still frame).
-private const val TRANSLUCENT_RESTORE_DELAY_MS = 250L
-
-// Button-back only: upper bound for waiting on the shell's resume tick before
-// playing the content exit fade anyway (covers a missed tick, e.g. the resume
-// landing between the translucent conversion and the baseline read).
-private const val BUTTON_BACK_REVEAL_TIMEOUT_MS = 400L

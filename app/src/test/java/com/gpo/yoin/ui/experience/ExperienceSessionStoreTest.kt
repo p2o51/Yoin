@@ -76,4 +76,16 @@ class ExperienceSessionStoreTest {
         assertTrue(state.nowPlayingExpanded)
         assertEquals(MemoriesSessionState(), state.memories)
     }
+
+    @Test
+    fun should_capture_detailEnterBaseline_before_committedFrameTick() {
+        store.noteDetailEnterSlideStarted()
+        store.noteDetailEnterSlideStarted()
+
+        store.prepareDetailEnterSlide()
+        store.noteDetailEnterSlideStarted()
+
+        assertEquals(2L, store.detailEnterSlideBaseline)
+        assertEquals(3L, store.detailEnterSlideTick.value)
+    }
 }

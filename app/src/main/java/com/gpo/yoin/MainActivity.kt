@@ -34,12 +34,4 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
-
-    override fun onResume() {
-        super.onResume()
-        // Tell any covering detail window the shell is back in the foreground:
-        // its button-back reveal fade keys off this tick (ExperienceSessionStore)
-        // instead of guessing a fixed grace for the restart + first-frame latency.
-        (application as YoinApplication).container.experienceSessionStore.noteShellReady()
-    }
 }

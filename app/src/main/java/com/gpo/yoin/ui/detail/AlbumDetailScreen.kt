@@ -175,61 +175,72 @@ fun AlbumDetailScreen(
         // the bar is a sibling on top and never transforms — it scrubs its
         // own morph off the same progress.
         val backCollapse = rememberDetailBackCollapse(onBack = onLeavePage)
-        val enterIntro = rememberDetailEnterIntro(enterBarHandoff)
+        val enterIntro = rememberDetailEnterIntro(
+            barHandoff = enterBarHandoff,
+            visualReady = uiState !is AlbumDetailUiState.Loading,
+            back = backCollapse,
+        )
         Box(
             modifier = modifier.then(
                 rememberDetailMotionFrameRateModifier(backCollapse, enterIntro),
             ),
         ) {
-            ExpressivePageBackground(
-                accentColor = pageAccent,
-                isPlaying = isPlaying,
-                playbackSignal = playbackSignal,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .detailBackCollapseTransform(backCollapse)
-                    .detailEnterIntroTransform(enterIntro),
-            ) {
-            AnimatedContent(
-                targetState = uiState,
-                transitionSpec = {
-                    YoinMotion.fadeIn(role = YoinMotionRole.Standard) togetherWith
-                        YoinMotion.fadeOut(role = YoinMotionRole.Standard)
-                },
-                // Class-keyed so Content→Content data updates (favorite
-                // toggles, rating merges) don't re-trigger the fade.
-                contentKey = { it::class },
-                label = "albumDetailState",
-                modifier = Modifier.fillMaxSize(),
-            ) { state ->
-                when (state) {
-                    is AlbumDetailUiState.Loading ->
-                        AlbumLoadingState(onBackClick = onBackClick)
+            // Do not mount the initial Loading page. The translucent window
+            // then leaves the source page intact while data becomes visual-
+            // ready; mounting only the current branch also avoids a hidden
+            // Loading→Content crossfade becoming the first visible buffer.
+            if (enterIntro.pageVisible) {
+                DetailEnterPageMountEffect(enterIntro)
+                ExpressivePageBackground(
+                    accentColor = pageAccent,
+                    isPlaying = isPlaying,
+                    playbackSignal = playbackSignal,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .detailBackCollapseTransform(backCollapse)
+                        .detailEnterIntroTransform(enterIntro),
+                ) {
+                    AnimatedContent(
+                        targetState = uiState,
+                        transitionSpec = {
+                            YoinMotion.fadeIn(role = YoinMotionRole.Standard) togetherWith
+                                YoinMotion.fadeOut(role = YoinMotionRole.Standard)
+                        },
+                        // Class-keyed so Content→Content data updates (favorite
+                        // toggles, rating merges) don't re-trigger the fade.
+                        contentKey = { it::class },
+                        label = "albumDetailState",
+                        modifier = Modifier.fillMaxSize(),
+                    ) { state ->
+                        when (state) {
+                            is AlbumDetailUiState.Loading ->
+                                AlbumLoadingState(onBackClick = onBackClick)
 
-                    is AlbumDetailUiState.Error ->
-                        DetailErrorState(
-                            message = state.message,
-                            onRetry = onRetry,
-                            onBack = onBackClick,
-                        )
+                            is AlbumDetailUiState.Error ->
+                                DetailErrorState(
+                                    message = state.message,
+                                    onRetry = onRetry,
+                                    onBack = onBackClick,
+                                )
 
-                    is AlbumDetailUiState.Content ->
-                        AlbumDetailContent(
-                            content = state,
-                            onBackClick = onBackClick,
-                            onSongClick = onSongClick,
-                            onToggleStar = onToggleStar,
-                            notedSongIds = notedSongIds,
-                            currentTrackId = currentTrackId,
-                            expandedSongId = expandedSongId,
-                            expandedNoteBundle = expandedNoteBundle,
-                            onToggleExpandedSong = onToggleExpandedSong,
-                            onRatingCommit = onRatingCommit,
-                            onReviewDraftChange = onReviewDraftChange,
-                            onSaveReview = onSaveReview,
-                        )
+                            is AlbumDetailUiState.Content ->
+                                AlbumDetailContent(
+                                    content = state,
+                                    onBackClick = onBackClick,
+                                    onSongClick = onSongClick,
+                                    onToggleStar = onToggleStar,
+                                    notedSongIds = notedSongIds,
+                                    currentTrackId = currentTrackId,
+                                    expandedSongId = expandedSongId,
+                                    expandedNoteBundle = expandedNoteBundle,
+                                    onToggleExpandedSong = onToggleExpandedSong,
+                                    onRatingCommit = onRatingCommit,
+                                    onReviewDraftChange = onReviewDraftChange,
+                                    onSaveReview = onSaveReview,
+                                )
+                        }
+                    }
                 }
-            }
             }
 
             run {
@@ -244,7 +255,7 @@ fun AlbumDetailScreen(
                     YoinMotion.effectsSpring(),
                     label = "albumBarPlayContainer",
                 )
-                DetailBottomBar(
+            DetailBottomBar(
                     playContainer = barPlayContainer,
                     playContent = barScheme.onPrimary,
                     onPlay = onPlayAlbum,
@@ -252,7 +263,8 @@ fun AlbumDetailScreen(
                     onOpenNowPlaying = onOpenNowPlaying,
                     miniPlayer = miniPlayerState,
                     playbackProgress = playbackProgress,
-                    nowPlayingOpen = nowPlayingOpen,
+                nowPlayingOpen = nowPlayingOpen,
+                interactionsEnabled = enterIntro.pageVisible,
                     backMorphProgress = if (morphBarOnBack) {
                         { backCollapse.progress }
                     } else {

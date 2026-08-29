@@ -151,74 +151,77 @@ fun ArtistDetailScreen(
         // the bar is a sibling on top and never transforms — it scrubs its
         // own morph off the same progress.
         val backCollapse = rememberDetailBackCollapse(onBack = onLeavePage)
-        val enterIntro = rememberDetailEnterIntro(enterBarHandoff)
+        val enterIntro = rememberDetailEnterIntro(
+            barHandoff = enterBarHandoff,
+            visualReady = uiState !is ArtistDetailUiState.Loading,
+            back = backCollapse,
+        )
         Box(
             modifier = modifier.then(
                 rememberDetailMotionFrameRateModifier(backCollapse, enterIntro),
             ),
         ) {
-            ExpressivePageBackground(
-                accentColor = pageAccent,
-                isPlaying = isPlaying,
-                playbackSignal = playbackSignal,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .detailBackCollapseTransform(backCollapse)
-                    .detailEnterIntroTransform(enterIntro),
-            ) {
-            AnimatedContent(
-                targetState = uiState,
-                transitionSpec = {
-                    YoinMotion.fadeIn(role = YoinMotionRole.Standard) togetherWith
-                        YoinMotion.fadeOut(role = YoinMotionRole.Standard)
-                },
-                // Class-keyed so Content→Content data updates (topTracks
-                // arriving, follow toggles) don't re-trigger the fade.
-                contentKey = { it::class },
-                label = "artistDetailState",
-                modifier = Modifier.fillMaxSize(),
-            ) { state ->
-                when (state) {
-                    is ArtistDetailUiState.Loading ->
-                        Box(
-                            Modifier
-                                .fillMaxSize()
-                                .statusBarsPadding(),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            YoinLoadingIndicator()
-                            // Mirrors the Content top bar's nav slot (4dp bar
-                            // inset, 40dp button centered in the 64dp collapsed
-                            // row) so the crossfade doesn't jump the button.
-                            DetailBackButton(
-                                onClick = onBackClick,
-                                modifier = Modifier
-                                    .align(Alignment.TopStart)
-                                    .padding(start = 4.dp, top = 12.dp),
-                            )
+            if (enterIntro.pageVisible) {
+                DetailEnterPageMountEffect(enterIntro)
+                ExpressivePageBackground(
+                    accentColor = pageAccent,
+                    isPlaying = isPlaying,
+                    playbackSignal = playbackSignal,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .detailBackCollapseTransform(backCollapse)
+                        .detailEnterIntroTransform(enterIntro),
+                ) {
+                    AnimatedContent(
+                        targetState = uiState,
+                        transitionSpec = {
+                            YoinMotion.fadeIn(role = YoinMotionRole.Standard) togetherWith
+                                YoinMotion.fadeOut(role = YoinMotionRole.Standard)
+                        },
+                        // Class-keyed so Content→Content data updates (topTracks
+                        // arriving, follow toggles) don't re-trigger the fade.
+                        contentKey = { it::class },
+                        label = "artistDetailState",
+                        modifier = Modifier.fillMaxSize(),
+                    ) { state ->
+                        when (state) {
+                            is ArtistDetailUiState.Loading ->
+                                Box(
+                                    Modifier
+                                        .fillMaxSize()
+                                        .statusBarsPadding(),
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    YoinLoadingIndicator()
+                                    DetailBackButton(
+                                        onClick = onBackClick,
+                                        modifier = Modifier
+                                            .align(Alignment.TopStart)
+                                            .padding(start = 4.dp, top = 12.dp),
+                                    )
+                                }
+
+                            is ArtistDetailUiState.Error ->
+                                DetailErrorState(
+                                    message = state.message,
+                                    onRetry = onRetry,
+                                    onBack = onBackClick,
+                                    backPadding = PaddingValues(start = 4.dp, top = 12.dp),
+                                )
+
+                            is ArtistDetailUiState.Content ->
+                                ArtistDetailContent(
+                                    content = state,
+                                    onBackClick = onBackClick,
+                                    onAlbumClick = onAlbumClick,
+                                    onToggleFollow = onToggleFollow,
+                                    onPlay = onPlay,
+                                    onShuffle = onShuffle,
+                                    onTopTrackClick = onTopTrackClick,
+                                )
                         }
-
-                    is ArtistDetailUiState.Error ->
-                        DetailErrorState(
-                            message = state.message,
-                            onRetry = onRetry,
-                            onBack = onBackClick,
-                            // Same nav-slot offsets as the Loading branch above.
-                            backPadding = PaddingValues(start = 4.dp, top = 12.dp),
-                        )
-
-                    is ArtistDetailUiState.Content ->
-                        ArtistDetailContent(
-                            content = state,
-                            onBackClick = onBackClick,
-                            onAlbumClick = onAlbumClick,
-                            onToggleFollow = onToggleFollow,
-                            onPlay = onPlay,
-                            onShuffle = onShuffle,
-                            onTopTrackClick = onTopTrackClick,
-                        )
+                    }
                 }
-            }
             }
 
             run {
@@ -235,7 +238,7 @@ fun ArtistDetailScreen(
                 )
                 val showOpenInSpotify = content != null &&
                     MediaId.parseOrNull(content.artistId)?.provider == MediaId.PROVIDER_SPOTIFY
-                DetailBottomBar(
+            DetailBottomBar(
                     playContainer = barPlayContainer,
                     playContent = barScheme.onPrimary,
                     onPlay = onPlay,
@@ -243,7 +246,8 @@ fun ArtistDetailScreen(
                     onOpenNowPlaying = onOpenNowPlaying,
                     miniPlayer = miniPlayerState,
                     playbackProgress = playbackProgress,
-                    nowPlayingOpen = nowPlayingOpen,
+                nowPlayingOpen = nowPlayingOpen,
+                interactionsEnabled = enterIntro.pageVisible,
                     backMorphProgress = if (morphBarOnBack) {
                         { backCollapse.progress }
                     } else {

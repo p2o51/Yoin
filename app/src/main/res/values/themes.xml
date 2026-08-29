@@ -26,13 +26,16 @@
     <!--
       Detail Activities: translucent-capable so the in-window predictive back
       can reveal the LIVE window beneath while the page collapses as a card
-      (AOSP entering-target replication). The Activity converts itself to
-      OPAQUE (Activity#setTranslucent(false)) once the enter hand-off settles,
-      so the window beneath still stops in steady state; the gesture converts
-      it back for its duration.
+      (AOSP entering-target replication). It deliberately stays translucent:
+      converting to opaque lets WM discard the shell surface, which leaves a
+      black ring for several frames when a 1:1 back gesture reveals it before
+      the shell can recreate and present a new buffer.
     -->
     <style name="Theme.Yoin.DetailTranslucent" parent="Theme.Yoin">
         <item name="android:windowIsTranslucent">true</item>
+        <!-- Never let WM synthesize a stale/opaque starting preview while the
+             real visual-ready page is intentionally being held transparent. -->
+        <item name="android:windowDisablePreview">true</item>
         <item name="android:windowBackground">@android:color/transparent</item>
         <item name="android:colorBackgroundCacheHint">@null</item>
     </style>

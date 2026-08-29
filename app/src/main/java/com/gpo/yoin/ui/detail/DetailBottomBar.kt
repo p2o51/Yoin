@@ -10,6 +10,9 @@ import androidx.window.embedding.ActivityEmbeddingController
 import androidx.window.embedding.SplitController
 import androidx.window.layout.WindowMetricsCalculator
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import com.gpo.yoin.ui.theme.YoinMotionRole
 import com.gpo.yoin.ui.theme.YoinMotion
 import androidx.compose.foundation.layout.ColumnScope
@@ -47,6 +50,7 @@ fun DetailBottomBar(
     playbackProgress: Float,
     modifier: Modifier = Modifier,
     nowPlayingOpen: Boolean = false,
+    interactionsEnabled: Boolean = true,
     // Predictive-back scrub (0 = resting detail chrome, 1 = fully nav): the
     // gesture drives the split⇄nav morph interactively when this page will
     // reveal the shell. Pages stacked over another detail keep 0 — the bar
@@ -71,7 +75,27 @@ fun DetailBottomBar(
             YoinMotion.slideInVertically(role = YoinMotionRole.Standard) { it },
         exit = YoinMotion.fadeOut(role = YoinMotionRole.Standard) +
             YoinMotion.slideOutVertically(role = YoinMotionRole.Standard) { it },
-        modifier = modifier,
+        modifier = modifier.then(
+            if (interactionsEnabled) {
+                Modifier
+            } else {
+                // The hidden detail window still draws this pixel-identical
+                // bar to keep its surface alive. It must not steal a residual
+                // pointer from the source window or expose duplicate a11y
+                // actions before the page itself is committed.
+                Modifier
+                    .clearAndSetSemantics { }
+                    .pointerInput(Unit) {
+                        awaitPointerEventScope {
+                            while (true) {
+                                awaitPointerEvent(PointerEventPass.Initial)
+                                    .changes
+                                    .forEach { it.consume() }
+                            }
+                        }
+                    }
+            },
+        ),
     ) {
         // LITERALLY the shell's bar composable — pixel identity between the
         // two windows by construction, plus the nav side of the morph for
@@ -99,12 +123,12 @@ fun DetailBottomBar(
             playSplitActions = BarPlaySplitActions(
                 playContainer = playContainer,
                 playContent = playContent,
-                onPlay = onPlay,
-                onShuffle = onShuffle,
-                menuItems = menuItems,
+                onPlay = if (interactionsEnabled) onPlay else ({}),
+                onShuffle = if (interactionsEnabled) onShuffle else ({}),
+                menuItems = if (interactionsEnabled) menuItems else ({ _ -> }),
             ),
             onHomeClick = {},
-            onNowPlayingClick = onOpenNowPlaying,
+            onNowPlayingClick = if (interactionsEnabled) onOpenNowPlaying else ({}),
             onLibraryClick = {},
         )
     }
@@ -113,7 +137,7 @@ fun DetailBottomBar(
 /**
  * Launch a detail Activity from the shell with the bar hand-off animation:
  * the incoming window holds transparent while the shell bar morphs, then
- * fades in (see res/anim/detail_bar_handoff_enter.xml). The shell arms its
+ * slides in opaque (see res/anim/detail_bar_handoff_enter.xml). The shell arms its
  * bar morph (detailChromeActive) before calling this.
  *
  * Reads the session store at launch time to stamp the intent with the true
@@ -169,7 +193,7 @@ enum class DetailLaunchMode {
     /**
      * Compact shell、底部 bar 即将被完全覆盖：完整交接 —— fromShell /
      * fromNowPlaying + barHandoff extras + detail_bar_handoff_enter 的
-     * 延迟窗口淡入（shell bar 的 nav→split morph 先演）。
+     * 透明窗口 hold（shell bar 的 nav→split morph 先演），随后内容不透明推入。
      */
     FullChoreography,
 

@@ -1,12 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- Shell → detail open: the window itself runs NO system-level fade. The
-     incoming page's hold + fade + slide all run in Compose on ONE clock
+     incoming page's hold + opaque slide run in Compose on ONE clock
      (DetailEnterIntro), so the shell's mirrored recede can lock to the exact
      first visible frame via detailEnterSlideTick — the WM transition's own
      clock (this file's old startOffset) could drift from the Compose clock
      under load, which is what let the shell recede into a blank window on
      some launches. The window is transparent by theme, so the shell (and its
-     morphing bar) simply shows through until the content fades in.
+     morphing bar) shows through only where the translated content has not yet
+     covered it.
      Paired with detail_bar_handoff_exit (shell holds opaque beneath). -->
 <alpha xmlns:android="http://schemas.android.com/apk/res/android"
     android:fromAlpha="1.0"

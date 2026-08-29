@@ -154,12 +154,18 @@ fun PlaylistDetailScreen(
         // beneath (the Activity turns translucent for the gesture); the bar is a
         // sibling on top and never transforms.
         val backCollapse = rememberDetailBackCollapse(onBack = onLeavePage)
-        val enterIntro = rememberDetailEnterIntro(enterBarHandoff)
+        val enterIntro = rememberDetailEnterIntro(
+            barHandoff = enterBarHandoff,
+            visualReady = uiState !is PlaylistDetailUiState.Loading,
+            back = backCollapse,
+        )
         Box(
             modifier = modifier.then(
                 rememberDetailMotionFrameRateModifier(backCollapse, enterIntro),
             ),
         ) {
+            if (enterIntro.pageVisible) {
+            DetailEnterPageMountEffect(enterIntro)
             ExpressivePageBackground(
                 accentColor = accentColor,
                 isPlaying = isPlaying,
@@ -321,6 +327,7 @@ fun PlaylistDetailScreen(
                 }
             }
             }
+            }
 
             // Persistent bottom bar — rendered in ALL states (the bar never
             // waits for page data; the shell's morph is already playing when
@@ -335,6 +342,7 @@ fun PlaylistDetailScreen(
                 miniPlayer = miniPlayerState,
                 playbackProgress = playbackProgress,
                 nowPlayingOpen = nowPlayingOpen,
+                interactionsEnabled = enterIntro.pageVisible,
                 backMorphProgress = if (morphBarOnBack) {
                     { backCollapse.progress }
                 } else {

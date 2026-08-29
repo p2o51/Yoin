@@ -4,13 +4,13 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.runtime.derivedStateOf
 import com.gpo.yoin.ui.experience.DetailBackPhase
 import com.gpo.yoin.ui.experience.ExperienceSessionStore
 import com.gpo.yoin.ui.experience.voteHighFrameRate
@@ -20,7 +20,6 @@ import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.withTimeoutOrNull
 
 /**
  * The AOSP "entering target" movement for the window REVEALED by a detail
@@ -112,14 +111,16 @@ fun rememberDetailBackEnteringModifier(
                 // latency + the 200ms bar-handoff window hold. Wait for the
                 // slide-start tick — arming the recede at tap time ran it
                 // hundreds of ms early, so Home slid fully left into blank
-                // space before the detail page appeared. The timeout covers
-                // replays with no fresh tick (rotation restores `played`, or
-                // a launch that dies before sliding): the recede then runs
-                // invisibly while covered, restoring the covered-rest pose.
-                val baseline = store.detailEnterSlideTick.value
-                withTimeoutOrNull(ENTER_RECEDE_SYNC_TIMEOUT_MS) {
-                    store.detailEnterSlideTick.first { it > baseline }
-                }
+                // space before the detail page appeared.
+                // Captured synchronously at tap/arm time. Reading the current
+                // tick here can miss a fast detail commit that lands before
+                // this effect is scheduled, causing an endless wait for the
+                // following launch.
+                val baseline = store.detailEnterSlideBaseline
+                // No timeout fallback: a late or failed detail launch must
+                // leave Home at identity, never release a visible recede from
+                // an unrelated wall clock. Key changes cancel this wait.
+                store.detailEnterSlideTick.first { it > baseline }
             }
             if (pose.value != target || pose.targetValue != target) {
                 pose.animateTo(
@@ -139,32 +140,32 @@ fun rememberDetailBackEnteringModifier(
         remember(store) {
             Modifier.graphicsLayer {
                 val behind = pose.value
-            if (behind <= 0f) return@graphicsLayer
-            val p: Float
-            val ty: Float
-            when (store.detailBackPhase.value) {
-                DetailBackPhase.Gesture -> {
-                    p = store.detailBackProgress.floatValue
-                    ty = store.detailBackTouchYDelta.floatValue
+                if (behind <= 0f) return@graphicsLayer
+                val p: Float
+                val ty: Float
+                when (store.detailBackPhase.value) {
+                    DetailBackPhase.Gesture -> {
+                        p = store.detailBackProgress.floatValue
+                        ty = store.detailBackTouchYDelta.floatValue
+                    }
+                    DetailBackPhase.Committed -> {
+                        p = seedProgress
+                        ty = seedTouchY
+                    }
+                    DetailBackPhase.Idle -> {
+                        p = 0f
+                        ty = 0f
+                    }
                 }
-                DetailBackPhase.Committed -> {
-                    p = seedProgress
-                    ty = seedTouchY
-                }
-                DetailBackPhase.Idle -> {
-                    p = 0f
-                    ty = 0f
-                }
-            }
 
-            // Entering rect: fullscreen offset -96dp, scaled centered in sync
-            // with the closing card; everything eases out with the settle.
-            val scale = 1f - (1f - BackMotionTokens.PopPageScaleTarget) * p * behind
-            scaleX = scale
-            scaleY = scale
-            translationX = -ENTERING_START_OFFSET_DP * density * behind
+                // Entering rect: fullscreen offset -96dp, scaled centered in sync
+                // with the closing card; everything eases out with the settle.
+                val scale = 1f - (1f - BackMotionTokens.PopPageScaleTarget) * p * behind
+                scaleX = scale
+                scaleY = scale
+                translationX = -ENTERING_START_OFFSET_DP * density * behind
 
-            if (ty != 0f) {
+                if (ty != 0f) {
                     val halfH = size.height / 2f
                     val ratio = min(halfH, abs(ty)) / halfH
                     val decelerated = 1f - (1f - ratio) * (1f - ratio)
@@ -226,10 +227,3 @@ private const val ENTERING_START_OFFSET_DP = 96f
 private const val POST_COMMIT_DURATION_MS = 450
 
 private const val DISPLAY_MARGIN_DP = 8f
-
-/**
- * Upper bound for waiting on the detail's slide-start tick before running the
- * forward recede anyway (launch latency + bar-handoff hold + slack). Only a
- * fallback — the tick is the normal release.
- */
-private const val ENTER_RECEDE_SYNC_TIMEOUT_MS = 1200L

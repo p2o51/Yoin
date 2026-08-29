@@ -101,11 +101,10 @@ class ExperienceSessionStore {
     }
 
     /**
-     * Ticks when a detail Activity's window has actually LEFT the screen
-     * (its onStop — the system holds that until the exit animation ends).
-     * The shell's detail-chrome restore (bar reverse morph) waits on this
-     * instead of guessing the dissolve duration: OEMs replace or stretch
-     * activity animations.
+     * Ticks when the outer, shell-launched detail Activity has actually LEFT
+     * the screen (its finishing onStop — the system holds that until the exit
+     * animation ends). Inner detail windows do not publish this tick, so they
+     * cannot retire the shell hand-off while their parent detail remains.
      */
     private val _detailWindowSettledTick = MutableStateFlow(0L)
     val detailWindowSettledTick: StateFlow<Long> = _detailWindowSettledTick.asStateFlow()
@@ -125,22 +124,21 @@ class ExperienceSessionStore {
     private val _detailEnterSlideTick = MutableStateFlow(0L)
     val detailEnterSlideTick: StateFlow<Long> = _detailEnterSlideTick.asStateFlow()
 
-    fun noteDetailEnterSlideStarted() {
-        _detailEnterSlideTick.update { it + 1L }
+    /**
+     * Tick captured synchronously when the shell arms a forward detail hand-off.
+     * The shell effect waits for a committed-frame tick newer than this value;
+     * capturing it here avoids missing a fast commit before recomposition starts
+     * the waiter.
+     */
+    var detailEnterSlideBaseline: Long = 0L
+        private set
+
+    fun prepareDetailEnterSlide() {
+        detailEnterSlideBaseline = _detailEnterSlideTick.value
     }
 
-    /**
-     * Ticks when the shell Activity resumes (is back in the foreground drawing
-     * frames). A detail page's button-back reveal waits on this instead of a
-     * fixed grace: the shell is STOPPED while an opaque detail covers it, and
-     * its restart + first-frame latency varies (~170-300ms) — fading over the
-     * not-yet-drawn window reads as black frames.
-     */
-    private val _shellReadyTick = MutableStateFlow(0L)
-    val shellReadyTick: StateFlow<Long> = _shellReadyTick.asStateFlow()
-
-    fun noteShellReady() {
-        _shellReadyTick.update { it + 1L }
+    fun noteDetailEnterSlideStarted() {
+        _detailEnterSlideTick.update { it + 1L }
     }
 
     /**
