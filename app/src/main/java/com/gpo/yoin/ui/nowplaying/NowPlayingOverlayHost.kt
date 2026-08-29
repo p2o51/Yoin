@@ -82,7 +82,8 @@ fun NowPlayingOverlayHost(
     val devicesState by viewModel.devicesState.collectAsState()
     val lyricsSearchState by viewModel.lyricsSearchState.collectAsState()
     val castState by container.castManager.castState.collectAsState()
-    val layoutMode = LocalYoinWindowInfo.current.layoutMode
+    val dualPaneNowPlaying = LocalYoinWindowInfo.current.isDualPaneNowPlaying
+    val skipDirection by viewModel.skipDirection.collectAsState()
 
     var dismissDragPx by remember { mutableStateOf(0f) }
     var predictiveBackProgress by remember { mutableStateOf(0f) }
@@ -141,11 +142,13 @@ fun NowPlayingOverlayHost(
     // Dual-pane NP has no Expanded substate (the right column is always
     // expanded), so collapse a stale Expanded to Compact when entering a
     // dual-pane mode. Semantic flip 2026-07-27: was `== Wide`, now Medium+
-    // (isDualPaneNowPlaying) since Medium renders the same two-column body.
-    // Writes ONLY stageMode; the reconcile effect above stays the sole driver
-    // of the stage Animatable (it re-runs on the change and settles detail → 0).
-    LaunchedEffect(layoutMode, stageMode) {
-        if (layoutMode.isDualPaneNowPlaying && stageMode == NowPlayingStageMode.Expanded) {
+    // (isDualPaneNowPlaying) since Medium renders the same two-column body;
+    // short windows (landscape handsets) read false and keep the single-column
+    // Expanded. Writes ONLY stageMode; the reconcile effect above stays the
+    // sole driver of the stage Animatable (it re-runs on the change and
+    // settles detail → 0).
+    LaunchedEffect(dualPaneNowPlaying, stageMode) {
+        if (dualPaneNowPlaying && stageMode == NowPlayingStageMode.Expanded) {
             viewModel.setStageMode(NowPlayingStageMode.Compact)
         }
     }
@@ -167,14 +170,14 @@ fun NowPlayingOverlayHost(
     // too. Tabletop sits exactly where it did under `!= Wide`.
     BackHandler(
         enabled = expanded && stageMode == NowPlayingStageMode.Expanded &&
-            !layoutMode.isDualPaneNowPlaying,
+            !dualPaneNowPlaying,
     ) {
         viewModel.stepBackStage()
     }
 
     BackHandler(
         enabled = expanded &&
-            (stageMode != NowPlayingStageMode.Expanded || layoutMode.isDualPaneNowPlaying),
+            (stageMode != NowPlayingStageMode.Expanded || dualPaneNowPlaying),
         onBack = closeNowPlaying,
     )
 
@@ -190,7 +193,7 @@ fun NowPlayingOverlayHost(
         // Same semantic flip as the BackHandler pair above: the stage-collapse
         // gesture only exists where the Expanded substate does (single-column).
         enabled = expanded && stageMode == NowPlayingStageMode.Expanded &&
-            !layoutMode.isDualPaneNowPlaying,
+            !dualPaneNowPlaying,
     ) { progress ->
         stageProgress.beginGesture()
         try {
@@ -213,7 +216,7 @@ fun NowPlayingOverlayHost(
     // Predictive-back drive for the compact dismissal animation.
     PredictiveBackHandler(
         enabled = expanded &&
-            (stageMode != NowPlayingStageMode.Expanded || layoutMode.isDualPaneNowPlaying),
+            (stageMode != NowPlayingStageMode.Expanded || dualPaneNowPlaying),
     ) { progress ->
         try {
             progress.collectLatest { event ->
@@ -300,7 +303,7 @@ fun NowPlayingOverlayHost(
                     // keeps its pre-flip behavior (was on the `!= Wide`
                     // side, stays on the !isDualPaneNowPlaying side).
                     enabled = stageMode != NowPlayingStageMode.Expanded &&
-                        !layoutMode.isDualPaneNowPlaying,
+                        !dualPaneNowPlaying,
                     onDragStopped = { velocity ->
                         if (dismissDragPx > 240f || velocity > 800f) {
                             dismissDragPx = 0f
@@ -388,6 +391,7 @@ fun NowPlayingOverlayHost(
                 // over the full-screen aurora) — NOT the whole overlay, which
                 // would reveal the host behind and read as the app shrinking.
                 contentScale = stageBackScale,
+                skipDirection = skipDirection,
                 modifier = Modifier
                     .fillMaxSize()
                     .offset {

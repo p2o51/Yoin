@@ -63,7 +63,7 @@ MD3 Expressive 不是 M4，而是 M3 的扩展进化。
 ### 颜色系统
 
 1. 全部使用 **MD3 Color Tokens**（Primary、Secondary、Tertiary、Surface 等语义色）
-2. **默认 = 系统 Dynamic Color** — 通过 `dynamicDarkColorScheme()` 跟随系统壁纸/主题色
+2. **默认 = 系统 Dynamic Color** — 深浅色跟随系统设置（`isSystemInDarkTheme()`），API 31+ 通过 `dynamicDarkColorScheme()` / `dynamicLightColorScheme()` 跟随系统壁纸/主题色
 3. **播放态 = 封面提取色** — 有内容播放时，用 Palette API 从专辑封面提取主色，替换 color tokens，实现全局色调切换
 4. **颜色过渡** — 使用 Effects Spring 做平滑过渡，不生硬跳变
 
@@ -230,13 +230,14 @@ NeoDB 同步以 album 为边界。第一阶段只有同时具备 album rating �
 
 Podcast、Internet Radio、Chat、User Management、Jukebox、Bookmarks、Shares、Video
 
-### 📱 第二期额外规划
+### 📱 大屏幕适配 / 响应式设计（已落地，2026-07）
 
-- **大屏幕适配 / 响应式设计** — 适配平板、折叠屏、横屏模式：
-    - 使用 Compose Material 3 Adaptive 库（`material3-adaptive`）
-    - 大屏下可展示双栏布局（左侧 Library/主页 + 右侧 Now Playing）
-    - Button Group 在大屏下可转为 Navigation Rail
-    - 折叠屏状态感知（WindowSizeClass + Posture）
+- 三档 LayoutMode（Compact / Medium / Wide）+ Tabletop 折叠姿态（`ui/experience/WindowAdaptiveRuntime.kt`），全部由 M3 adaptive 的 window size class + 铰链姿态驱动
+- Medium+ 全窗：底部 Button Group 转为左侧 Navigation Rail（`ui/navigation/YoinNavRail.kt`）
+- Now Playing 从 Medium 起为双栏布局；Tabletop 沿铰链分上下两半
+- Activity Embedding（`res/xml/main_split_config.xml`，splitMinWidthDp=840）：任务窗 ≥840dp 时 detail 页进入右侧分栏，左侧为 placeholder
+- detail 启动按构型三值分流（`DetailLaunchMode`）：Compact 全窗走跨窗口 bar 交接编舞，Medium+ 纯推入，分栏交给系统默认
+- 页面内容宽度有 clamp 基线（`yoinPageContentWidth`，Feed=720 / Prose=640 / Card=480）
 
 ---
 

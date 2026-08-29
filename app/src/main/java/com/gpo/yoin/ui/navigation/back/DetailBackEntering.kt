@@ -1,7 +1,6 @@
 package com.gpo.yoin.ui.navigation.back
 
 import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -20,6 +19,8 @@ import com.gpo.yoin.ui.theme.YoinMotionRole
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withTimeoutOrNull
 
 /**
  * The AOSP "entering target" movement for the window REVEALED by a detail
@@ -66,7 +67,7 @@ fun rememberDetailBackEnteringModifier(
                     targetValue = 1f,
                     animationSpec = tween(
                         durationMillis = POST_COMMIT_DURATION_MS / 3,
-                        easing = EmphasizedEasing,
+                        easing = BackMotionTokens.EmphasizedEasing,
                     ),
                 )
             }
@@ -84,7 +85,7 @@ fun rememberDetailBackEnteringModifier(
                     targetValue = 0f,
                     animationSpec = tween(
                         durationMillis = POST_COMMIT_DURATION_MS,
-                        easing = EmphasizedEasing,
+                        easing = BackMotionTokens.EmphasizedEasing,
                         ),
                     )
                 }
@@ -105,12 +106,27 @@ fun rememberDetailBackEnteringModifier(
     LaunchedEffect(detailChromeActive, phase) {
         if (phase == DetailBackPhase.Idle) {
             val target = if (detailChromeActive) 1f else 0f
+            if (target == 1f) {
+                // Lockstep with the incoming window: this 450ms ride mirrors
+                // the detail's content slide, which only starts after launch
+                // latency + the 200ms bar-handoff window hold. Wait for the
+                // slide-start tick — arming the recede at tap time ran it
+                // hundreds of ms early, so Home slid fully left into blank
+                // space before the detail page appeared. The timeout covers
+                // replays with no fresh tick (rotation restores `played`, or
+                // a launch that dies before sliding): the recede then runs
+                // invisibly while covered, restoring the covered-rest pose.
+                val baseline = store.detailEnterSlideTick.value
+                withTimeoutOrNull(ENTER_RECEDE_SYNC_TIMEOUT_MS) {
+                    store.detailEnterSlideTick.first { it > baseline }
+                }
+            }
             if (pose.value != target || pose.targetValue != target) {
                 pose.animateTo(
                     targetValue = target,
                     animationSpec = tween(
                         durationMillis = POST_COMMIT_DURATION_MS,
-                        easing = EmphasizedEasing,
+                        easing = BackMotionTokens.EmphasizedEasing,
                     ),
                 )
             }
@@ -209,7 +225,11 @@ private const val ENTERING_START_OFFSET_DP = 96f
 /** AOSP DefaultCrossActivityBackAnimation.POST_COMMIT_DURATION. */
 private const val POST_COMMIT_DURATION_MS = 450
 
-/** AOSP Interpolators.EMPHASIZED. */
-private val EmphasizedEasing = CubicBezierEasing(0.05f, 0.7f, 0.1f, 1f)
-
 private const val DISPLAY_MARGIN_DP = 8f
+
+/**
+ * Upper bound for waiting on the detail's slide-start tick before running the
+ * forward recede anyway (launch latency + bar-handoff hold + slack). Only a
+ * fallback — the tick is the normal release.
+ */
+private const val ENTER_RECEDE_SYNC_TIMEOUT_MS = 1200L

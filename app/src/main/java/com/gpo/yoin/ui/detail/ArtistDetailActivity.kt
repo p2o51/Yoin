@@ -116,7 +116,12 @@ class ArtistDetailActivity : ComponentActivity() {
                 Box(modifier = Modifier.fillMaxSize()) {
                 ArtistDetailScreen(
                     uiState = uiState,
-                    onBackClick = {
+                    // Toolbar arrow routes through the dispatcher so it plays the
+                    // SAME commit choreography as a system back (card collapse +
+                    // bar scrub + content fade in DetailPredictiveBackCollapse's
+                    // no-gesture path) — one back language per page class.
+                    onBackClick = { onBackPressedDispatcher.onBackPressed() },
+                    onLeavePage = {
                         // Pre-morph the covered shell bar to nav chrome so the reveal
                         // after the dissolve matches the scrubbed detail bar.
                         (application as YoinApplication).container.experienceSessionStore

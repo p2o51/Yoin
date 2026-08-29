@@ -16,6 +16,7 @@ import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -33,7 +34,9 @@ import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 
 /**
  * In-window predictive back for the detail pages, a faithful port of AOSP's
@@ -93,10 +96,14 @@ fun rememberDetailBackCollapse(onBack: () -> Unit): DetailBackCollapseState {
     // Steady state = OPAQUE: the theme is translucent so the enter hand-off
     // fades over the LIVE window beneath; once settled, convert to opaque so
     // that window stops normally. The gesture converts back for its duration.
+    // [opaqueConverted] tells the button-back path whether the reveal window
+    // is actually stopped (i.e. it must wait for the shell's resume tick).
+    var opaqueConverted by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) {
         delay(OPAQUE_AFTER_ENTER_MS)
         if (store.detailBackPhase.value == DetailBackPhase.Idle) {
             activity?.setTranslucentCompat(false)
+            opaqueConverted = true
         }
     }
 
@@ -135,9 +142,9 @@ fun rememberDetailBackCollapse(onBack: () -> Unit): DetailBackCollapseState {
             // on this translucent-themed activity) — the "content jumps in
             // from the right" on button-backs, and on gestures whose
             // setTranslucent call had silently failed (runCatching). The
-            // button-back therefore converts FIRST and rides the 140ms
-            // content exit fade as the conversion window — same choreography
-            // as a gesture commit, minus the scrub.
+            // button-back therefore converts FIRST, then waits for the shell
+            // to report resumed (drawn) before the content fade — no fixed
+            // grace, no fade-over-black.
             if (!sawGesture) {
                 activity?.setTranslucentCompat(true)
             }
@@ -153,12 +160,21 @@ fun rememberDetailBackCollapse(onBack: () -> Unit): DetailBackCollapseState {
             } else if (!sawGesture) {
                 // Button-back: play the same commit motion from rest — the
                 // card collapse + bar scrub (morph or slide-down) + content
-                // fade. Besides mirroring the gesture, this buys the stopped
-                // reveal window time to draw its first frame; finishing
-                // instantly showed a floating bar over a black void.
+                // fade. When the reveal window was stopped (we had converted
+                // to opaque), hold the fade until the shell reports resumed —
+                // its restart + first-frame latency varies (~170-300ms), and
+                // fading earlier reads as black frames around the card. The
+                // timeout only covers a missed tick; the bar scrub covers the
+                // wait. Skipped entirely when the shell never stopped (back
+                // within the enter window) — that reveal is already live.
                 scope.launch { state.chased.animateTo(1f, commitSpec) }
+                if (opaqueConverted) {
+                    val baseline = store.shellReadyTick.value
+                    withTimeoutOrNull(BUTTON_BACK_REVEAL_TIMEOUT_MS) {
+                        store.shellReadyTick.first { it > baseline }
+                    }
+                }
                 state.exit.animateTo(1f, tween(durationMillis = 140))
-                delay(BUTTON_BACK_REVEAL_GRACE_MS)
             }
             onBack()
         } catch (e: CancellationException) {
@@ -279,7 +295,7 @@ private const val OPAQUE_AFTER_ENTER_MS = 900L
 // Post-settle pause before the opaque conversion (surface swap on a still frame).
 private const val TRANSLUCENT_RESTORE_DELAY_MS = 250L
 
-// Button-back only: extra beat after the commit motion so the just-woken
-// window beneath (stopped while we were opaque) gets a first frame up before
-// finish() — otherwise the dissolve reveals black.
-private const val BUTTON_BACK_REVEAL_GRACE_MS = 90L
+// Button-back only: upper bound for waiting on the shell's resume tick before
+// playing the content exit fade anyway (covers a missed tick, e.g. the resume
+// landing between the translucent conversion and the baseline read).
+private const val BUTTON_BACK_REVEAL_TIMEOUT_MS = 400L

@@ -2,6 +2,7 @@ package com.gpo.yoin.ui.memories
 
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
@@ -65,6 +66,7 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -79,6 +81,7 @@ import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -88,6 +91,7 @@ import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.gpo.yoin.YoinApplication
 import com.gpo.yoin.ui.component.ExpressiveMediaArtwork
 import com.gpo.yoin.ui.component.ExpressivePageBackground
 import com.gpo.yoin.ui.component.YoinLoadingIndicator
@@ -460,6 +464,19 @@ private fun MemoriesContent(
                         .padding(horizontal = 20.dp),
                 )
 
+                // Baseline for the seal-stamp: the first deck read marks the
+                // current newest memory as already-seen, so only memories born
+                // LATER stamp. Without this nothing would ever read as new.
+                val sessionStore = (LocalContext.current.applicationContext as YoinApplication)
+                    .container.experienceSessionStore
+                LaunchedEffect(memories) {
+                    if (sessionStore.memoriesStampedTimestamp == Long.MAX_VALUE &&
+                        memories.isNotEmpty()
+                    ) {
+                        sessionStore.memoriesStampedTimestamp = memories.maxOf { it.timestamp }
+                    }
+                }
+
                 HorizontalPager(
                     state = pagerState,
                     modifier = Modifier
@@ -706,6 +723,25 @@ private fun MemorySealCard(
     var showFullReview by remember(memory.stableId) { mutableStateOf(false) }
     val navBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
 
+    // Seal-stamp moment: a memory born AFTER the deck's seen-baseline gets its
+    // seal stamped in once (1.35× → 1 with a −10° un-rotate + confirm haptic),
+    // then the session mark advances so it never re-stamps.
+    val sessionStore = (LocalContext.current.applicationContext as YoinApplication)
+        .container.experienceSessionStore
+    val isFreshMemory = memory.timestamp > sessionStore.memoriesStampedTimestamp
+    var stamped by rememberSaveable(memory.stableId) { mutableStateOf(false) }
+    val stampProgress = remember { Animatable(if (isFreshMemory && !stamped) 0f else 1f) }
+    val stampSpec = YoinMotion.fastSpatialSpec<Float>(role = YoinMotionRole.Expressive)
+    LaunchedEffect(Unit) {
+        if (isFreshMemory && !stamped) {
+            haptics.performConfirm()
+            stampProgress.animateTo(1f, stampSpec)
+            stamped = true
+            sessionStore.memoriesStampedTimestamp =
+                maxOf(sessionStore.memoriesStampedTimestamp, memory.timestamp)
+        }
+    }
+
     Column(
         // 限宽链在来件 modifier 之后:wrapContentWidth 上报的尺寸仍被上游
         // fillMaxSize 的固定约束钳成全宽,所以 dismiss draggable 的命中区
@@ -761,10 +797,23 @@ private fun MemorySealCard(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(20.dp),
         ) {
-            MemorySeal(
-                memory = memory,
-                scheme = memoryColorScheme,
-            )
+            Box(
+                modifier = Modifier.graphicsLayer {
+                    val p = stampProgress.value
+                    if (p < 1f) {
+                        val s = 1f + 0.35f * (1f - p)
+                        scaleX = s
+                        scaleY = s
+                        rotationZ = -10f * (1f - p)
+                        alpha = p
+                    }
+                },
+            ) {
+                MemorySeal(
+                    memory = memory,
+                    scheme = memoryColorScheme,
+                )
+            }
             Column(
                 modifier = Modifier
                     .weight(1f)

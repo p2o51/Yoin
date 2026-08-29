@@ -83,6 +83,7 @@ import com.gpo.yoin.ui.component.elasticPress
 import com.gpo.yoin.ui.component.formatTotalDuration
 import com.gpo.yoin.ui.component.formatTrackDuration
 import com.gpo.yoin.ui.component.minimumTouchTarget
+import com.gpo.yoin.ui.component.ratingBloom
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
 import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinMotionRole
@@ -285,7 +286,10 @@ internal fun AlbumScoreBun(
             onClick = onClick,
             modifier = Modifier
                 .size(width = 56.dp, height = 58.dp)
-                .elasticPress(interaction),
+                .elasticPress(interaction)
+                // "Score bloom": pops only when a rating COMMIT lands — the
+                // settle window inside keeps page-open resolves silent.
+                .ratingBloom(score),
             enabled = enabled,
             interactionSource = interaction,
             shape = MaterialShapes.Bun.toShape(),
@@ -617,6 +621,11 @@ internal fun AlbumRatingReviewSheet(
     val haptics = rememberYoinHaptics()
     var sliderValue by remember(userRating) { mutableStateOf(userRating ?: 0f) }
     LaunchedEffect(userRating) { sliderValue = userRating ?: 0f }
+    // Commit-point "score bloom" nonce: increments per slider-release commit
+    // so the readout above the slider pops right where the finger lands
+    // (the page badge's own bloom rides the Room flow and lands after the
+    // sheet has closed over it — invisible on this path).
+    var commitNonce by remember { mutableIntStateOf(0) }
 
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
         Column(
@@ -650,6 +659,7 @@ internal fun AlbumRatingReviewSheet(
                     },
                     style = MaterialTheme.typography.titleMedium.withTabularFigures(),
                     color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.ratingBloom(commitNonce, settleMs = 0),
                 )
             }
             Slider(
@@ -657,6 +667,7 @@ internal fun AlbumRatingReviewSheet(
                 onValueChange = { sliderValue = it },
                 onValueChangeFinished = {
                     haptics.performTick()
+                    commitNonce++
                     onRatingCommit(sliderValue)
                 },
                 valueRange = 0f..10f,

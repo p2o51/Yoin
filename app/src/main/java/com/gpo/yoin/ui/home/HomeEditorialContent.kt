@@ -81,6 +81,8 @@ import com.gpo.yoin.ui.component.ignoreParentHorizontalPadding
 import com.gpo.yoin.ui.component.horizontalEdgeFadeOnScroll
 import com.gpo.yoin.ui.component.noRippleClickable
 import com.gpo.yoin.ui.component.rememberExpressiveBackdropColors
+import com.gpo.yoin.ui.component.rememberStagedReveal
+import com.gpo.yoin.ui.component.stagedBeat
 import com.gpo.yoin.ui.component.yoinPageContentWidth
 import com.gpo.yoin.ui.experience.LayoutMode
 import com.gpo.yoin.ui.experience.LocalYoinWindowInfo
@@ -243,6 +245,18 @@ internal fun HomeEditorialContent(
 
     val shouldExtractBackdropColors = allowBackdropPalette && !listState.isScrollInProgress
 
+    // Cold-start "启幕": one staged reveal for the above-the-fold sections
+    // (hero bento → widget grid → recently added). Once per process per key —
+    // rememberSaveable survives the covered-shell pause, so returning from a
+    // detail page never replays it (motion audit: no repeat-visit staggers).
+    // Gated on content arrival: the feed loads async, and a reveal fired
+    // against the loading spinner is a reveal nobody sees.
+    val firstReveal = rememberStagedReveal(
+        key = "home-feed",
+        ready = activityEntries.isNotEmpty() || widgetGrid.isNotEmpty() ||
+            recentlyAddedTracks.isNotEmpty() || recentlyAddedAlbums.isNotEmpty(),
+    )
+
     val navBarBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
     // Wide 全窗桌面态（owner A-prime 裁决 2026-07-28）：feed 不再夹 720dp
     // Feed 档，铺满画布 + 32dp 侧 gutter。Compact/Medium/Tabletop 走原路
@@ -348,6 +362,11 @@ internal fun HomeEditorialContent(
                                     fadeInSpec = YoinMotion.effectsSpring(),
                                     placementSpec = YoinMotion.spatialSpring(),
                                     fadeOutSpec = YoinMotion.effectsSpring(),
+                                )
+                                .stagedBeat(
+                                    progress = { firstReveal.hero },
+                                    rise = 18.dp,
+                                    scaleFrom = 0.97f,
                                 ),
                         )
                     } else {
@@ -380,6 +399,10 @@ internal fun HomeEditorialContent(
                                     fadeInSpec = YoinMotion.effectsSpring(),
                                     placementSpec = YoinMotion.spatialSpring(),
                                     fadeOutSpec = YoinMotion.effectsSpring(),
+                                )
+                                .stagedBeat(
+                                    progress = { firstReveal.meta },
+                                    rise = 16.dp,
                                 ),
                         )
                     }
@@ -406,6 +429,10 @@ internal fun HomeEditorialContent(
                                         fadeInSpec = YoinMotion.effectsSpring(),
                                         placementSpec = YoinMotion.spatialSpring(),
                                         fadeOutSpec = YoinMotion.effectsSpring(),
+                                    )
+                                    .stagedBeat(
+                                        progress = { firstReveal.payload },
+                                        rise = 16.dp,
                                     ),
                             )
                         }

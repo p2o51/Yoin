@@ -25,6 +25,8 @@ import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
+import com.gpo.yoin.ui.theme.YoinMotion
+import com.gpo.yoin.ui.theme.YoinMotionRole
 import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.max
@@ -118,13 +120,12 @@ fun Modifier.nowPlayingAuroraBackground(
     gatherFocalRoot: Offset?,
     burstFocalRoot: Offset?,
 ): Modifier {
-    // Envelope for the Gemini aurora: in while thinking, out when the answer lands.
+    // Envelope for the Gemini aurora: in while thinking, out when the answer
+    // lands. Slow effects spring — the motion law for alpha envelopes, with
+    // the slow bucket keeping the long-duration treatment.
     val activeFraction by animateFloatAsState(
         targetValue = if (auroraActive) 1f else 0f,
-        animationSpec = tween(
-            durationMillis = if (auroraActive) 900 else 1300,
-            easing = FastOutSlowInEasing,
-        ),
+        animationSpec = YoinMotion.slowEffectsSpec(role = YoinMotionRole.Expressive),
         label = "auroraActiveFraction",
     )
     val auroraVisible = auroraActive || activeFraction > 0.01f
@@ -159,10 +160,9 @@ fun Modifier.nowPlayingAuroraBackground(
     // about to pause, so the gather is already the pause colour.
     val gather by animateFloatAsState(
         targetValue = if (pressActive) 1f else 0f,
-        animationSpec = tween(
-            durationMillis = if (pressActive) 460 else 360,
-            easing = FastOutSlowInEasing,
-        ),
+        // Finger-coupled anticipation: a Standard effects spring tracks the
+        // press crisply (the motion law for alpha changes).
+        animationSpec = YoinMotion.defaultEffectsSpec(role = YoinMotionRole.Standard),
         label = "transportGather",
     )
 

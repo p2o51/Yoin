@@ -309,6 +309,7 @@ private fun YoinShell(
     // Now Playing overlay only derives a Boolean spectrum-presence from it.
     val playbackSignal by app.container.audioVisualizerManager.playbackSignal.collectAsState()
     val layoutMode = LocalYoinWindowInfo.current.layoutMode
+    val dualPaneNowPlaying = LocalYoinWindowInfo.current.isDualPaneNowPlaying
     // Medium+ 全窗 shell 用左侧 rail；Compact 与 Tabletop 保持底部 bar（合页
     // 上下分屏依赖 bar 的位置）。门按 doctrine 写成 != Compact（禁止
     // == Medium）。分栏里本 Activity 读到的是窗格宽（Compact）→ 自动回落到
@@ -593,7 +594,16 @@ private fun YoinShell(
                                     // 不 dismiss —— Memories 留在原地，back
                                     // 从专辑页回来时它还在。
                                     onOpenAlbum = { memory ->
-                                        onNavigateToAlbum(memory.entityId, null)
+                                        // MemoryEntry.entityId is the RAW id
+                                        // (the coordinator strips the provider
+                                        // prefix); AlbumDetailViewModel parses a
+                                        // full MediaId — recombine or parse throws
+                                        // and the page lands on "Couldn't load
+                                        // this album." (memory → goto album).
+                                        onNavigateToAlbum(
+                                            "${memory.entityProvider}:${memory.entityId}",
+                                            null,
+                                        )
                                     },
                                     onNavigateToNeoDbSettings = {
                                         navigateToSettingsFromShell("neodb")
@@ -894,12 +904,12 @@ private fun YoinShell(
                             // Medium up, so disable the shell's shared elements wherever
                             // it does (isDualPaneNowPlaying). Tabletop keeps its scopes
                             // exactly as before the flip.
-                            sharedTransitionScope = if (layoutMode.isDualPaneNowPlaying) {
+                            sharedTransitionScope = if (dualPaneNowPlaying) {
                                 null
                             } else {
                                 sharedTransitionScope
                             },
-                            animatedVisibilityScope = if (layoutMode.isDualPaneNowPlaying) {
+                            animatedVisibilityScope = if (dualPaneNowPlaying) {
                                 null
                             } else {
                                 bgAvScope

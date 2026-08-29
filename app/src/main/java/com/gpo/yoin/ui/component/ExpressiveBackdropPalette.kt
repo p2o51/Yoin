@@ -4,7 +4,6 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.util.LruCache
 import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.tween
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -24,6 +23,8 @@ import coil3.size.Size
 import coil3.toBitmap
 import com.gpo.yoin.ui.experience.LocalMotionProfile
 import com.gpo.yoin.ui.experience.MotionProfile
+import com.gpo.yoin.ui.theme.YoinMotion
+import com.gpo.yoin.ui.theme.YoinMotionRole
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -104,17 +105,18 @@ internal fun rememberExpressiveBackdropColors(
             fallbackColors = fallbackColors,
         )
     }
-    // Soften the hand-off when the palette resolves: tween the two
-    // colors instead of snapping from fallback → extracted, which is
-    // what the user perceives as a "flash" on newly-loaded artwork.
+    // Soften the hand-off when the palette resolves: spring the two
+    // colors (effects bucket — the motion law for color/alpha) instead of
+    // snapping from fallback → extracted, which is what the user perceives
+    // as a "flash" on newly-loaded artwork.
     val animatedBase by animateColorAsState(
         targetValue = resolvedColors.baseColor,
-        animationSpec = tween(durationMillis = 380),
+        animationSpec = YoinMotion.defaultEffectsSpec(role = YoinMotionRole.Standard),
         label = "backdropBase",
     )
     val animatedAccent by animateColorAsState(
         targetValue = resolvedColors.accentColor,
-        animationSpec = tween(durationMillis = 380),
+        animationSpec = YoinMotion.defaultEffectsSpec(role = YoinMotionRole.Standard),
         label = "backdropAccent",
     )
     return ExpressiveBackdropColors(

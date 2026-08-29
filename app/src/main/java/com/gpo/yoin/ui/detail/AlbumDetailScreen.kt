@@ -83,6 +83,8 @@ import com.gpo.yoin.ui.component.YoinDropdownMenu
 import com.gpo.yoin.ui.component.YoinDropdownMenuItem
 import com.gpo.yoin.ui.component.YoinLoadingIndicator
 import com.gpo.yoin.ui.component.minimumTouchTarget
+import com.gpo.yoin.ui.component.rememberStagedReveal
+import com.gpo.yoin.ui.component.stagedBeat
 import com.gpo.yoin.ui.component.yoinPageContentWidth
 import com.gpo.yoin.ui.experience.LayoutMode
 import com.gpo.yoin.ui.experience.LocalYoinWindowInfo
@@ -124,6 +126,11 @@ private fun chooseExpandedTarget(fraction: Float, rawVelocity: Float, travelPx: 
 fun AlbumDetailScreen(
     uiState: AlbumDetailUiState,
     onBackClick: () -> Unit,
+    // The actual window exit, invoked by the back-collapse handler AFTER its
+    // commit motion. Defaults to onBackClick so previews/tests keep the old
+    // direct-exit behaviour; the Activity passes a dispatcher-routed
+    // onBackClick + a finish()-ing onLeavePage.
+    onLeavePage: () -> Unit = onBackClick,
     onSongClick: (songId: String) -> Unit,
     onToggleStar: (songId: String) -> Unit,
     onRetry: () -> Unit,
@@ -167,7 +174,7 @@ fun AlbumDetailScreen(
         // window beneath (the Activity turns translucent for the gesture);
         // the bar is a sibling on top and never transforms — it scrubs its
         // own morph off the same progress.
-        val backCollapse = rememberDetailBackCollapse(onBack = onBackClick)
+        val backCollapse = rememberDetailBackCollapse(onBack = onLeavePage)
         val enterIntro = rememberDetailEnterIntro(enterBarHandoff)
         Box(
             modifier = modifier.then(
@@ -534,6 +541,10 @@ private fun AlbumOverviewPage(
     val density = LocalDensity.current
     val reshapeScope = rememberCoroutineScope()
     val listState = rememberLazyListState()
+    // Staged "启幕" for this album: cover lands first (grow-in), the hero meta
+    // rises a beat later. Once per album per page instance — rotation never
+    // replays, and the reveal compose stays out of the pull-up reshape math.
+    val stagedReveal = rememberStagedReveal("album-${content.albumId}")
     val isMany = content.songs.size > AlbumManyTracksThreshold
     // The reshape only traverses the upper region, not the full page height, so
     // scale the drag against a fraction of it for a closer-to-1:1 finger feel.
@@ -646,7 +657,12 @@ private fun AlbumOverviewPage(
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(coverHeight + arrowBand),
+                        .height(coverHeight + arrowBand)
+                        .stagedBeat(
+                            progress = { stagedReveal.hero },
+                            rise = 20.dp,
+                            scaleFrom = 0.94f,
+                        ),
                     contentAlignment = BiasAlignment(horizontalBias = coverBias, verticalBias = 0f),
                 ) {
                     ExpressiveMediaArtwork(
@@ -710,7 +726,11 @@ private fun AlbumOverviewPage(
                                 .graphicsLayer {
                                     alpha = (1f - expand).coerceIn(0f, 1f)
                                     translationY = -expand * 40f
-                                },
+                                }
+                                .stagedBeat(
+                                    progress = { stagedReveal.meta },
+                                    rise = 14.dp,
+                                ),
                         )
                     }
                 }

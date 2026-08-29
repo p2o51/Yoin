@@ -68,10 +68,6 @@ import androidx.compose.material.icons.rounded.Shuffle
 import androidx.compose.material.icons.rounded.SkipNext
 import androidx.compose.material.icons.rounded.SkipPrevious
 import androidx.compose.material.icons.automirrored.rounded.StickyNote2
-import androidx.compose.material3.ButtonGroup
-import androidx.compose.material3.ButtonGroupDefaults
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.ButtonGroupScope
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.FilledTonalButton
@@ -147,6 +143,7 @@ import com.gpo.yoin.ui.experience.LocalMotionProfile
 import com.gpo.yoin.ui.experience.LocalYoinWindowInfo
 import com.gpo.yoin.ui.experience.MotionProfile
 import com.gpo.yoin.ui.experience.ReportMotionPressure
+import com.gpo.yoin.ui.experience.isDualPaneNowPlaying
 import com.gpo.yoin.ui.theme.ContinuousRoundedCornerShape
 import com.gpo.yoin.ui.theme.ProvideYoinMotionRole
 import com.gpo.yoin.ui.theme.YoinArtworkShapes
@@ -183,6 +180,9 @@ fun NowPlayingScreen(
     // over the aurora (full-screen on the outer Box), so the peek never reveals
     // the shell behind. 1f = inert.
     contentScale: Float = 1f,
+    // +1 = forward skip (next / auto-advance), −1 = back — forwarded to the
+    // single-column body for its directional cover ride-in.
+    skipDirection: Int = 1,
     onTogglePlayPause: () -> Unit,
     onSkipNext: () -> Unit,
     onSkipPrevious: () -> Unit,
@@ -352,6 +352,7 @@ fun NowPlayingScreen(
                     sharedTransitionScope = sharedTransitionScope,
                     animatedVisibilityScope = animatedVisibilityScope,
                     contentScale = contentScale,
+                    skipDirection = skipDirection,
                 )
             }
         }
@@ -559,6 +560,9 @@ private fun PlayingContent(
     // this scale while the top bar, controls, title/artist and pills stay fixed as a
     // stable frame. 1f = inert.
     contentScale: Float = 1f,
+    // +1 = forward skip (next / auto-advance), −1 = back — forwarded to the
+    // single-column body for its directional cover ride-in.
+    skipDirection: Int = 1,
     onTogglePlayPause: () -> Unit,
     onSkipNext: () -> Unit,
     onSkipPrevious: () -> Unit,
@@ -617,7 +621,18 @@ private fun PlayingContent(
     // hinge resizes the window mid-measure) and that path crashes the shell
     // ButtonGroup on a real foldable. A plain fade+scale needs no lookahead pass.
     AnimatedContent(
-        targetState = LocalYoinWindowInfo.current.layoutMode,
+        // Short windows fall back to the single-column body: the dual-pane
+        // reserve math needs ≈590dp of height — a landscape handset reads
+        // Wide on width but clips the transport (YoinWindowInfo predicate).
+        targetState = LocalYoinWindowInfo.current.let { info ->
+            if (info.isDualPaneNowPlaying) {
+                info.layoutMode
+            } else if (info.layoutMode == LayoutMode.Tabletop) {
+                LayoutMode.Tabletop
+            } else {
+                LayoutMode.Compact
+            }
+        },
         transitionSpec = {
             // Expressive (overshooting) spring on the scale so the posture swap
             // bounces; a 0.88 start/target gives the spring real travel. Fades stay
@@ -754,6 +769,7 @@ private fun PlayingContent(
             positionMs = positionMs,
             bufferedMs = bufferedMs,
             contentScale = contentScale,
+            skipDirection = skipDirection,
             onTogglePlayPause = onTogglePlayPause,
             onSkipNext = onSkipNext,
             onSkipPrevious = onSkipPrevious,
@@ -823,6 +839,9 @@ private fun CompactPlayingContent(
     // Predictive-back collapse preview: the STAGE recedes to this scale; the
     // controls, title/artist and pills stay fixed. 1f = inert.
     contentScale: Float = 1f,
+    // +1 = forward skip (next / auto-advance), −1 = back — the cover ride-in's
+    // travel direction on track change.
+    skipDirection: Int = 1,
     onTogglePlayPause: () -> Unit,
     onSkipNext: () -> Unit,
     onSkipPrevious: () -> Unit,
@@ -1027,7 +1046,15 @@ private fun CompactPlayingContent(
             .padding(WindowInsets.systemBars.asPaddingValues()),
     ) {
         val horizontalPadding = 24.dp
-        val compactCoverHeight = (maxWidth - 108.dp).coerceIn(168.dp, 312.dp)
+        // Height-aware cap: the resting Compact page stacks ~392dp of fixed
+        // chrome around the cover (top bar 56 + tabs 30 + spacer 4 + controls
+        // 148 + hero 86 + accessory 68). Short windows (landscape, split,
+        // IME resize) shrink the cover toward a 96dp floor instead of pushing
+        // the controls/pills off-screen; windows whose height clears the
+        // 312dp cap resolve exactly as before.
+        val compactCoverHeight = (maxWidth - 108.dp)
+            .coerceIn(168.dp, 312.dp)
+            .coerceAtMost((maxHeight - 392.dp).coerceAtLeast(96.dp))
         val immersiveCoverHeight = (maxWidth - horizontalPadding * 2)
             .coerceAtLeast(compactCoverHeight)
             .coerceAtMost(420.dp)
@@ -1054,6 +1081,23 @@ private fun CompactPlayingContent(
         val compactCoverSize = (maxWidth - horizontalPadding * 2 - 12.dp - 56.dp)
             .coerceAtLeast(0.dp)
             .coerceAtMost(compactCoverHeight)
+
+        // Track-change cover ride-in (skip direction comes from the ViewModel;
+        // fires only on an actual songId CHANGE, never on first composition).
+        // Slow spatial spring on purpose: the ride must still be travelling
+        // when Coil's replacement image lands (~200-400ms behind the songId
+        // flip), or the eye reads a plain crossfade and no ride at all.
+        val coverRide = remember { Animatable(1f) }
+        val coverRideTravelPx = with(LocalDensity.current) { 28.dp.toPx() }
+        var lastRideSongId by remember { mutableStateOf(state.songId) }
+        val coverRideSpec = YoinMotion.slowSpatialSpec<Float>(role = YoinMotionRole.Expressive)
+        LaunchedEffect(state.songId) {
+            if (lastRideSongId != state.songId) {
+                lastRideSongId = state.songId
+                coverRide.snapTo(0f)
+                coverRide.animateTo(1f, coverRideSpec)
+            }
+        }
 
         Column(
             modifier = Modifier.fillMaxSize(),
@@ -1118,7 +1162,21 @@ private fun CompactPlayingContent(
                             Box(
                                 modifier = Modifier
                                     .weight(1f)
-                                    .fillMaxHeight(),
+                                    .fillMaxHeight()
+                                    // Directional ride-in on track change:
+                                    // next arrives from the right, previous
+                                    // from the left (auto-advance reads as
+                                    // next). Coil owns the image crossfade;
+                                    // this moves the whole cover, draw-phase
+                                    // reads only.
+                                    .graphicsLayer {
+                                        val p = coverRide.value
+                                        if (p < 1f) {
+                                            translationX =
+                                                (1f - p) * skipDirection * coverRideTravelPx
+                                            alpha = 0.35f + 0.65f * p
+                                        }
+                                    },
                                 contentAlignment = Alignment.TopStart,
                             ) {
                                 AlbumCover(
@@ -2247,7 +2305,11 @@ private fun TabletopPlayingContent(
                             style = MaterialTheme.typography.headlineSmall.copy(
                                 // Wider travel (24→15 / 16→12 / 0.95→1.70 lyric scale):
                                 // the old 24→17 barely registered on the tabletop pane.
-                                fontSize = (24f - 9f * lyricsEmphasis).sp,
+                                // Pinned to designed geometry: the formula assumes
+                                // fontScale 1 — dividing it back out stops the user's
+                                // fontScale double-applying inside the fixed tabletop
+                                // pane (lyrics keep the user's scale; they scroll).
+                                fontSize = (24f - 9f * lyricsEmphasis).sp / density.fontScale,
                             ),
                             color = MaterialTheme.colorScheme.onSurface,
                             maxLines = 1,
@@ -2273,7 +2335,7 @@ private fun TabletopPlayingContent(
                         Text(
                             text = state.artist,
                             style = MaterialTheme.typography.titleMedium.copy(
-                                fontSize = (16f - 4f * lyricsEmphasis).sp,
+                                fontSize = (16f - 4f * lyricsEmphasis).sp / density.fontScale,
                             ),
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 1,
