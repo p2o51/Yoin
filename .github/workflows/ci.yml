@@ -26,7 +26,7 @@ jobs:
           distribution: temurin
           java-version: '17'
       - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v4
+        uses: gradle/actions/setup-gradle@v6.2.0
       - name: ktlint
         run: ./gradlew ktlintCheck
       - name: Upload ktlint reports
@@ -48,7 +48,7 @@ jobs:
           distribution: temurin
           java-version: '17'
       - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v4
+        uses: gradle/actions/setup-gradle@v6.2.0
       - name: Unit tests
         run: ./gradlew test
       - name: Upload test reports
@@ -70,7 +70,7 @@ jobs:
           distribution: temurin
           java-version: '17'
       - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v4
+        uses: gradle/actions/setup-gradle@v6.2.0
       - name: Android Lint (fails only on issues not in lint-baseline.xml)
         run: ./gradlew :app:lintDebug
       - name: Upload lint report
@@ -92,7 +92,7 @@ jobs:
           distribution: temurin
           java-version: '17'
       - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v4
+        uses: gradle/actions/setup-gradle@v6.2.0
       - name: Assemble debug APK
         run: ./gradlew assembleDebug
       - name: Upload debug APK
