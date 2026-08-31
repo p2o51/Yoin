@@ -1,8 +1,8 @@
 [versions]
 # Core
 agp = "9.1.0"
-kotlin = "2.3.20"
-ksp = "2.3.6"
+kotlin = "2.4.10"
+ksp = "2.3.11"
 
 # Compose
 composeBom = "2026.03.01"
@@ -30,7 +30,7 @@ castFramework = "22.0.0"
 okhttp = "5.0.0-alpha.14"
 retrofit = "2.11.0"
 retrofitKotlinxSerialization = "1.0.0"
-kotlinxSerialization = "1.8.0"
+kotlinxSerialization = "1.11.0"
 gson = "2.13.1"
 
 # Image
