@@ -265,3 +265,28 @@ When producing code for this repository:
 - Do not scatter temporary back logic through page implementations.
 - Preserve repository-wide consistency over one-off cleverness.
 - Optimize for all pages feeling like they belong to the same motion system.
+
+## Cursor Cloud specific instructions
+
+The macOS build instructions in `README.md` / `CONTRIBUTING.md` (Android Studio
+JBR + `~/Library/Android/sdk`) do not apply on Linux / Cursor Cloud Agents. On
+those hosts:
+
+- **Java**: use the pre-installed system JDK. Gradle's daemon toolchain is
+  pinned to Java 21 (`gradle/gradle-daemon-jvm.properties`) and is auto-detected
+  from the system JVMs; `app` still targets Java 17 bytecode. Do not export a
+  `JAVA_HOME` pointing at a macOS path.
+- **Android SDK**: provisioned under `$HOME/android-sdk` (command-line tools,
+  `platform-tools`, `platforms;android-36`, `build-tools;36.0.0`). `local.properties`
+  is git-ignored, so it is (re)written with `sdk.dir` on setup.
+- **Bootstrap**: `scripts/cloud-agent-install.sh` is the idempotent setup entry
+  point — it installs the SDK if missing, writes `local.properties`, and warms
+  `assembleDebug`. Run it once, then the standard `./gradlew` commands work.
+- **CI-gate checks** (`ktlintCheck`, `test`, `:app:lintDebug`, `assembleDebug`)
+  all run headlessly with no extra configuration.
+- **Emulator / instrumented tests**: a full Android emulator guest does not boot
+  under the Cloud Agent's nested virtualization (the guest kernel hangs even with
+  `/dev/kvm` present), so `connectedAndroidTest` and GUI runs of the app are not
+  available there. Validate app behavior with the JVM/Robolectric unit tests,
+  Compose previews, `aapt2 dump badging` on the built APK, and the runnable
+  `:playground:track-match` JVM tool.
