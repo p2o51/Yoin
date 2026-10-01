@@ -49,6 +49,7 @@ class NowPlayingViewModel(
     private val repository: YoinRepository,
     private val castManager: CastManager,
     private val onPlaylistMutated: () -> Unit = {},
+    private val lyricHintStore: LyricHintStore = LyricHintStore.InMemory(),
 ) : ViewModel() {
 
     private val _lyrics = MutableStateFlow<List<LyricLine>>(emptyList())
@@ -105,6 +106,13 @@ class NowPlayingViewModel(
 
     private val _detailPage = MutableStateFlow(NowPlayingDetailPage.Lyrics)
     val detailPage: StateFlow<NowPlayingDetailPage> = _detailPage.asStateFlow()
+
+    // Medium windows: side panel (false) or the enlarged phone (true), 断点
+    // 交接 §3.4. Held here — not in the composition — so a detail Activity
+    // recreated by rotation keeps the user's choice (MainActivity never
+    // recreates; the model survives either way).
+    private val _mediumFullscreen = MutableStateFlow(false)
+    val mediumFullscreen: StateFlow<Boolean> = _mediumFullscreen.asStateFlow()
 
     private val currentSongId: StateFlow<MediaId?> = playbackManager.playbackState
         .map { it.currentTrack?.id }
@@ -968,6 +976,21 @@ class NowPlayingViewModel(
         _detailPage.value = page
     }
 
+    fun setMediumFullscreen(fullscreen: Boolean) {
+        _mediumFullscreen.value = fullscreen
+    }
+
+    /**
+     * Claims today's single "tap to expand" lyric hint (断点交接 §3.1: at most
+     * once a day, by local date). True exactly once per day; the claim is
+     * persisted immediately so a second window / process can't show it again.
+     */
+    fun claimLyricIdleHint(today: java.time.LocalDate = java.time.LocalDate.now()): Boolean {
+        if (!lyricIdleHintAllowed(lyricHintStore.lastShownEpochDay(), today)) return false
+        lyricHintStore.markShown(today.toEpochDay())
+        return true
+    }
+
     // Compact pager AND fullscreen pager both hit `onAboutOpened` when
     // their LaunchedEffects fire during the same frame — without an
     // in-flight guard we issue two concurrent Gemini calls, both see an
@@ -1148,6 +1171,7 @@ class NowPlayingViewModel(
                 repository = container.repository,
                 castManager = container.castManager,
                 onPlaylistMutated = container::notifyPlaylistMutation,
+                lyricHintStore = container.lyricHintStore,
             ) as T
     }
 }

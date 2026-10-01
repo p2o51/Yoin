@@ -23,6 +23,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.gpo.yoin.ui.theme.ProvideYoinMotionRole
 import com.gpo.yoin.ui.theme.YoinMotionRole
@@ -40,6 +41,9 @@ internal fun LyricsActionBar(
     onRecenterClick: () -> Unit,
     modifier: Modifier = Modifier,
     searchModifier: Modifier = Modifier,
+    // 52 in the bottom accessory; smaller when the tools ride the tab row
+    // (16:9 lyrics page, enlarged phone — 断点交接 §3.1 / §3.4).
+    iconSize: Dp = 52.dp,
 ) {
     val searchInteraction = remember { MutableInteractionSource() }
     val translateInteraction = remember { MutableInteractionSource() }
@@ -49,7 +53,7 @@ internal fun LyricsActionBar(
     ProvideYoinMotionRole(role = YoinMotionRole.Standard) {
         ButtonGroup(
             overflowIndicator = { _ -> },
-            modifier = modifier.height(52.dp),
+            modifier = modifier.height(iconSize),
             expandedRatio = ButtonGroupDefaults.ExpandedRatio,
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -62,6 +66,7 @@ internal fun LyricsActionBar(
                         interactionSource = searchInteraction,
                         enabled = actionInFlight == null,
                         onClick = onSearchClick,
+                        size = iconSize,
                         modifier = searchModifier,
                     )
                 },
@@ -75,6 +80,7 @@ internal fun LyricsActionBar(
                         interactionSource = translateInteraction,
                         enabled = actionInFlight == null && canTranslate,
                         onClick = onTranslateClick,
+                        size = iconSize,
                     )
                 },
                 menuContent = { _ -> },
@@ -87,6 +93,7 @@ internal fun LyricsActionBar(
                         interactionSource = applyInteraction,
                         enabled = actionInFlight == null,
                         onClick = onApplyClick,
+                        size = iconSize,
                     )
                 },
                 menuContent = { _ -> },
@@ -99,6 +106,7 @@ internal fun LyricsActionBar(
                         interactionSource = recenterInteraction,
                         enabled = actionInFlight == null && canRecenter,
                         onClick = onRecenterClick,
+                        size = iconSize,
                     )
                 },
                 menuContent = { _ -> },
@@ -117,15 +125,16 @@ private fun ButtonGroupScope.LyricsActionIcon(
     enabled: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    size: Dp = 52.dp,
 ) {
     FilledTonalIconButton(
         onClick = onClick,
         enabled = enabled,
         modifier = modifier
-            .size(width = 52.dp, height = 52.dp)
+            .size(width = size, height = size)
             .animateWidth(interactionSource),
         interactionSource = interactionSource,
-        shape = RoundedCornerShape(16.dp),
+        shape = RoundedCornerShape(size * 0.31f),
         colors = IconButtonDefaults.filledTonalIconButtonColors(
             containerColor = MaterialTheme.colorScheme.primaryContainer,
             contentColor = MaterialTheme.colorScheme.onPrimaryContainer,

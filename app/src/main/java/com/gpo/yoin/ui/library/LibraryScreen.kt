@@ -131,8 +131,17 @@ private const val MaxAnimatedLibraryItems = 10
 
 @Composable
 private fun floatingBottomGroupContentPadding(): Dp =
-    FloatingBottomGroupContentPaddingBase +
-        WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+    // Landscape handsets keep the Button Group in the left cutout band — the
+    // grid only clears the nav bar at the bottom (断点交接 §2.2).
+    (
+        if (LocalYoinWindowInfo.current.isCompactHeight) {
+            LandscapeBottomBreathing
+        } else {
+            FloatingBottomGroupContentPaddingBase
+        }
+    ) + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+
+private val LandscapeBottomBreathing = 16.dp
 
 // Albums/Artists grid columns (大屏适配基线).
 //
@@ -157,6 +166,9 @@ private val LibraryGridAdaptiveMinSize = 108.dp
 // 1440 → 8 (~151dp), 1920 → 11 (~150dp).
 private val LibraryGridWideMinSize = 150.dp
 
+// Landscape handset header: a fixed search pill so the chips keep the row.
+private val LibraryLandscapeSearchWidth = 208.dp
+
 // Compact keeps Fixed(3) because it also spans sub-389dp windows (360dp
 // handsets, display-size scaling, split-screen narrow) where Adaptive(108)
 // would resolve to 2 columns — the Fixed(3) branch keeps every Compact
@@ -167,12 +179,46 @@ private val LibraryGridWideMinSize = 150.dp
 // has always drawn Adaptive(108) and must keep doing so — only full-window
 // Wide forks to the larger desktop cell.
 @Composable
-private fun libraryGridCells(): GridCells =
-    when (LocalYoinWindowInfo.current.layoutMode) {
+private fun libraryGridCells(): GridCells {
+    val windowInfo = LocalYoinWindowInfo.current
+    // Height first (断点交接 §4): a landscape handset's short window takes
+    // ~100dp cells — 6 columns, two whole rows on the first screen — whether
+    // its width reads Medium (780) or Wide (844).
+    if (windowInfo.isCompactHeight) return GridCells.Adaptive(minSize = LibraryGridLandscapeMinSize)
+    return when (windowInfo.layoutMode) {
         LayoutMode.Compact -> GridCells.Fixed(3)
         LayoutMode.Medium, LayoutMode.Tabletop -> GridCells.Adaptive(minSize = LibraryGridAdaptiveMinSize)
         LayoutMode.Wide -> GridCells.Adaptive(minSize = LibraryGridWideMinSize)
     }
+}
+
+/**
+ * The shell pane narrows when a split opens and widens again when it closes,
+ * so a grid's column count changes under the user. LazyGrid then re-anchors
+ * on the first item of the row holding its first visible item, drifting up to
+ * a row on every narrow ↔ wide trip. This remembers the item the user scrolled
+ * to (index changes seen while a scroll is in progress — relayouts happen
+ * outside one) and brings its row back to the top after each width change.
+ */
+@Composable
+private fun KeepGridAnchorAcrossWidthChanges(state: LazyGridState) {
+    val anchor = remember(state) { intArrayOf(state.firstVisibleItemIndex) }
+    LaunchedEffect(state) {
+        launch {
+            snapshotFlow { state.firstVisibleItemIndex }
+                .collect { index -> if (state.isScrollInProgress) anchor[0] = index }
+        }
+        var lastWidth = 0
+        snapshotFlow { state.layoutInfo.viewportSize.width }
+            .collect { width ->
+                if (lastWidth > 0 && width > 0 && width != lastWidth) state.scrollToItem(anchor[0])
+                lastWidth = width
+            }
+    }
+}
+
+// Landscape handset cell (LibLandscape: ~100–108dp → 6 columns at 844).
+private val LibraryGridLandscapeMinSize = 100.dp
 
 // 三档宽度策略(2026-07-28 A-prime 裁定):Compact/Medium/Tabletop 走原
 // yoinPageContentWidth 限宽链,逐字节不变;full-window Wide 桌面档不再夹
@@ -398,7 +444,10 @@ private fun LibraryContentBody(
 
     // Wide 桌面档(A-prime):LayoutMode 是 pane-relative,分栏窗格读不到
     // Wide;这里为 true 就意味着整窗归本页,走桌面渲染档。
-    val isDesktopWide = LocalYoinWindowInfo.current.layoutMode == LayoutMode.Wide
+    // Height before width (断点交接 §4): landscape handsets get their own
+    // one-row header whatever their width reads.
+    val isLandscapePhone = LocalYoinWindowInfo.current.isCompactHeight
+    val isDesktopWide = !isLandscapePhone && LocalYoinWindowInfo.current.layoutMode == LayoutMode.Wide
 
     // One remembered scroll state per tab, hoisted above the tab
     // AnimatedContent: exited tab content is disposed, so a lazy state
@@ -494,9 +543,25 @@ private fun LibraryContentBody(
             // 大屏限宽:夹的是内容列(搜索 pill、chips、各 tab 网格/列表共享
             // 一个边缘);ExpressivePageBackground 留在上层全出血。Wide 桌面
             // 档不夹、铺满 —— 见 libraryPageWidth。
-            .libraryPageWidth(isDesktopWide),
+            .then(if (isLandscapePhone) Modifier else Modifier.libraryPageWidth(isDesktopWide)),
     ) {
-        if (isDesktopWide) {
+        if (isLandscapePhone) {
+            // Landscape handset (LibLandscape): ONE header row — search pill
+            // 208 · chips (scrolling) · settings — and no title: the Button
+            // Group in the cutout band already says Library.
+            LibraryWideHeaderRow(
+                searchBarState = searchBarState,
+                inputField = inputField,
+                tabs = state.availableTabs,
+                selectedTab = state.selectedTab,
+                onTabSelected = onTabSelected,
+                onNavigateToSettings = onNavigateToSettings,
+                showTitle = false,
+                searchMaxWidth = LibraryLandscapeSearchWidth,
+                horizontalPadding = 16.dp,
+                topPadding = 8.dp,
+            )
+        } else if (isDesktopWide) {
             // 桌面头排:标题、搜索 pill、tab chips、settings 一行左对齐排开。
             // pill 绑的还是同一个 searchBarState —— 点击照旧 morph 进下面的
             // ExpandedFullScreenSearchBar,预测性返回不变。
@@ -556,8 +621,8 @@ private fun LibraryContentBody(
                 .fillMaxWidth(),
             verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
-            // Wide 桌面档 chips 已并进头排,这里不再重复渲染一份。
-            if (!isDesktopWide) {
+            // Wide 桌面档与手机横屏的 chips 已并进头排,这里不再重复渲染一份。
+            if (!isDesktopWide && !isLandscapePhone) {
                 LibraryFilterChips(
                     tabs = state.availableTabs,
                     selectedTab = state.selectedTab,
@@ -725,6 +790,10 @@ private fun LibraryWideHeaderRow(
     onTabSelected: (LibraryTab) -> Unit,
     onNavigateToSettings: () -> Unit,
     modifier: Modifier = Modifier,
+    showTitle: Boolean = true,
+    searchMaxWidth: Dp = LibraryWideSearchBarMaxWidth,
+    horizontalPadding: Dp = 16.dp,
+    topPadding: Dp = 16.dp,
 ) {
     val haptics = rememberYoinHaptics()
     Row(
@@ -733,15 +802,17 @@ private fun LibraryWideHeaderRow(
             .statusBarsPadding()
             // 外层 libraryPageWidth 已有 16dp,这里再补 16dp → 32dp 桌面
             // gutter,与下方网格 contentPadding 的合计边距对齐一条线。
-            .padding(start = 16.dp, top = 16.dp, end = 16.dp, bottom = 6.dp),
+            .padding(start = horizontalPadding, top = topPadding, end = horizontalPadding, bottom = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        Text(
-            text = "Library",
-            style = MaterialTheme.typography.headlineMedium,
-            color = MaterialTheme.colorScheme.onSurface,
-        )
+        if (showTitle) {
+            Text(
+                text = "Library",
+                style = MaterialTheme.typography.headlineMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+        }
         SearchBar(
             state = searchBarState,
             inputField = inputField,
@@ -750,7 +821,7 @@ private fun LibraryWideHeaderRow(
             colors = SearchBarDefaults.colors(
                 containerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
             ),
-            modifier = Modifier.widthIn(max = LibraryWideSearchBarMaxWidth),
+            modifier = Modifier.widthIn(max = searchMaxWidth),
         )
         LibraryFilterChips(
             tabs = tabs,
@@ -801,6 +872,7 @@ private fun ArtistsTabContent(
         EmptyState(message = "No artists found", modifier = modifier)
         return
     }
+    KeepGridAnchorAcrossWidthChanges(gridState)
     // 3-column portrait grid on phones (one artist per row wasted most of
     // the width); adaptive at Medium+ — see libraryGridCells.
     LazyVerticalGrid(
@@ -994,6 +1066,7 @@ private fun AlbumsTabContent(
         EmptyState(message = "No albums found", modifier = modifier)
         return
     }
+    KeepGridAnchorAcrossWidthChanges(gridState)
     LazyVerticalGrid(
         columns = libraryGridCells(),
         state = gridState,

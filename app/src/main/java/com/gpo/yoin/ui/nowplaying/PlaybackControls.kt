@@ -50,6 +50,8 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -99,6 +101,17 @@ internal fun PlaybackControls(
         var playCenter by remember { mutableStateOf(Offset.Unspecified) }
         var nextCenter by remember { mutableStateOf(Offset.Unspecified) }
         var prevCenter by remember { mutableStateOf(Offset.Unspecified) }
+      // Controls always fit (断点交接 §3.3): on a narrow column the PLAY pill
+      // first gives up its side padding, then every control steps 56 → 48.
+      // Shuffle is measured before the transport group, so it is never the
+      // one that gets cut.
+      BoxWithConstraints(modifier = modifier.fillMaxWidth()) {
+        val fit = rememberPlaybackControlsFit(
+            maxWidth = maxWidth,
+            controlSize = controlSize,
+            hasExpandToggle = onExpandLyrics != null,
+        )
+        val controlSize = fit.controlSize
         val controlButtonSize = controlSize
         // Glyphs scale with the button so a bigger control (tabletop) gets a bigger
         // icon, not a small icon lost in a large circle. 56dp → 28dp (unchanged).
@@ -119,7 +132,7 @@ internal fun PlaybackControls(
                 nextPressed -> 14.dp
                 isPlaying -> 24.dp
                 else -> 16.dp
-            },
+            } * fit.playPaddingScale,
             animationSpec = controlSpatialSpec,
             label = "playHorizontalPadding",
         )
@@ -138,14 +151,19 @@ internal fun PlaybackControls(
             label = "textStretch",
         )
 
-        Column(modifier = modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.fillMaxWidth()) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 ButtonGroup(
                     overflowIndicator = { _ -> },
-                    modifier = Modifier.height(controlButtonSize),
+                    // Weighted, not filling: measured AFTER the fixed trailing
+                    // controls, so the group gets what they leave.
+                    modifier = Modifier
+                        .weight(1f, fill = false)
+                        .height(controlButtonSize),
                     expandedRatio = ButtonGroupDefaults.ExpandedRatio,
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.CenterVertically,
@@ -231,8 +249,7 @@ internal fun PlaybackControls(
                     )
                 }
 
-                Spacer(modifier = Modifier.weight(1f))
-
+                Row(verticalAlignment = Alignment.CenterVertically) {
                 // Tabletop adds an "expand lyrics" toggle to the right group (left of
                 // shuffle); other layouts pass null and never render it.
                 if (onExpandLyrics != null) {
@@ -308,6 +325,7 @@ internal fun PlaybackControls(
                         contentDescription = if (shuffleEnabled) "Disable shuffle" else "Enable shuffle",
                         modifier = Modifier.size(controlIconSize),
                     )
+                }
                 }
             }
 
@@ -398,6 +416,7 @@ internal fun PlaybackControls(
                 }
             }
         }
+      }
     }
 }
 
@@ -417,3 +436,62 @@ private fun PlaybackTimeLabel(
         modifier = modifier,
     )
 }
+
+/** How the transport rows fit a column; see [rememberPlaybackControlsFit]. */
+internal data class PlaybackControlsFit(
+    val controlSize: Dp,
+    val playPaddingScale: Float,
+)
+
+/**
+ * Pure fit rule (unit-tested): the natural row is
+ * [PLAY/PAUSE + padding][Next] … [expand?][Shuffle]. Too wide → halve PLAY's
+ * padding; still too wide → 48dp controls. Shuffle is never shrunk away.
+ */
+internal fun fitPlaybackControls(
+    maxWidth: Dp,
+    controlSize: Dp,
+    playTextWidth: Dp,
+    hasExpandToggle: Boolean,
+): PlaybackControlsFit {
+    fun needs(size: Dp, paddingScale: Float): Dp {
+        val play = playTextWidth * PlayTextStretchMax + PlayRestPadding * 2 * paddingScale
+        val trailing = size + if (hasExpandToggle) size + TransportGap else 0.dp
+        return play + TransportGap + size + TransportGap + trailing
+    }
+    return when {
+        needs(controlSize, 1f) <= maxWidth -> PlaybackControlsFit(controlSize, 1f)
+        needs(controlSize, 0.5f) <= maxWidth -> PlaybackControlsFit(controlSize, 0.5f)
+        else -> PlaybackControlsFit(minOf(controlSize, CompactControlSize), 0.5f)
+    }
+}
+
+@Composable
+private fun rememberPlaybackControlsFit(
+    maxWidth: Dp,
+    controlSize: Dp,
+    hasExpandToggle: Boolean,
+): PlaybackControlsFit {
+    val textMeasurer = rememberTextMeasurer()
+    val style = MaterialTheme.typography.titleLarge.let { base ->
+        base.copy(
+            fontSize = base.fontSize * 0.9f,
+            fontWeight = FontWeight.Bold,
+            letterSpacing = 0.5.sp,
+        )
+    }
+    val density = LocalDensity.current
+    return remember(maxWidth, controlSize, hasExpandToggle, style, density) {
+        val playTextWidth = with(density) {
+            textMeasurer.measure("PAUSE", style, maxLines = 1, softWrap = false).size.width.toDp()
+        }
+        fitPlaybackControls(maxWidth, controlSize, playTextWidth, hasExpandToggle)
+    }
+}
+
+private val PlayRestPadding = 24.dp
+private val TransportGap = 8.dp
+private val CompactControlSize = 48.dp
+
+/** PLAY's text stretch peaks at 1.10 while pressed. */
+private const val PlayTextStretchMax = 1.1f

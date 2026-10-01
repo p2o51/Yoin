@@ -88,6 +88,7 @@ import com.gpo.yoin.data.local.GeminiConfig
 import com.gpo.yoin.data.profile.ProfileManager
 import com.gpo.yoin.data.profile.ProviderKind
 import com.gpo.yoin.ui.component.ExpressivePageBackground
+import com.gpo.yoin.ui.component.ExpressiveSectionPanel
 import com.gpo.yoin.ui.component.ExpressiveTextField
 import com.gpo.yoin.ui.component.YoinDropdownMenu
 import com.gpo.yoin.ui.component.YoinDropdownMenuItem
@@ -97,6 +98,9 @@ import com.gpo.yoin.ui.component.horizontalEdgeFadeOnScroll
 import com.gpo.yoin.ui.component.ignoreParentHorizontalPadding
 import com.gpo.yoin.ui.component.minimumTouchTarget
 import com.gpo.yoin.ui.component.yoinPageContentWidth
+import com.gpo.yoin.ui.experience.rememberIsActivityEmbedded
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.ui.platform.LocalContext
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
 import com.gpo.yoin.ui.settings.service.ServiceSetupContract
 import com.gpo.yoin.ui.settings.service.ServiceSetupRequest
@@ -135,12 +139,31 @@ fun SettingsScreen(
     val neoDbOAuthLauncher = rememberLauncherForActivityResult(NeoDBOAuthContract()) { result ->
         viewModel.commitNeoDbOAuth(result)
     }
+    // List-detail (SettingsTablet, 断点交接 §7): in an Activity Embedding split
+    // the account pages open in the right pane; the list marks the open one.
+    val listDetail = rememberIsActivityEmbedded()
+    var openAccountId by rememberSaveable { mutableStateOf<String?>(null) }
+    var openFeature by rememberSaveable { mutableStateOf<SettingsFeature?>(null) }
     // The setup page hands back the id of a newly added account; the switch
     // runs here so it survives that page finishing.
     val serviceSetupLauncher = rememberLauncherForActivityResult(ServiceSetupContract()) { activateId ->
+        openAccountId = null
         activateId?.let(viewModel::switchToProfile)
     }
-    val openService: (ServiceSetupRequest) -> Unit = { serviceSetupLauncher.launch(it) }
+    val openService: (ServiceSetupRequest) -> Unit = { request ->
+        openFeature = null
+        openAccountId = request.profileId
+        serviceSetupLauncher.launch(request)
+    }
+    val featureLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+        openFeature = null
+    }
+    val context = LocalContext.current
+    val openFeaturePage: (SettingsFeature) -> Unit = { feature ->
+        openAccountId = null
+        openFeature = feature
+        featureLauncher.launch(SettingsFeatureActivity.intent(context, feature))
+    }
 
     LaunchedEffect(viewModel) {
         viewModel.events.collect { event ->
@@ -193,6 +216,10 @@ fun SettingsScreen(
         onSaveNeoDbConfig = viewModel::saveNeoDbConfig,
         onClearNeoDbToken = viewModel::clearNeoDbToken,
         onClearCache = viewModel::clearCache,
+        listDetail = listDetail,
+        openAccountId = openAccountId,
+        openFeature = openFeature,
+        onOpenFeature = openFeaturePage,
         modifier = modifier,
     )
 }
@@ -222,6 +249,11 @@ fun SettingsContent(
     onOpenNeoDbSignIn: (String) -> Unit = {},
     onSaveNeoDbConfig: (String, String) -> Unit = { _, _ -> },
     onClearNeoDbToken: () -> Unit = {},
+    // List-detail pane: accounts as rows, the open one highlighted (§7).
+    listDetail: Boolean = false,
+    openAccountId: String? = null,
+    openFeature: SettingsFeature? = null,
+    onOpenFeature: (SettingsFeature) -> Unit = {},
 ) {
     ProvideYoinMotionRole(role = YoinMotionRole.Standard) {
         val haptics = rememberYoinHaptics()
@@ -304,6 +336,8 @@ fun SettingsContent(
                                         onOpenService = onOpenService,
                                         onRequestDeleteProfile = onRequestDeleteProfile,
                                         onAddAccount = onShowProviderPicker,
+                                        asRows = listDetail,
+                                        openAccountId = openAccountId,
                                     )
                                     SettingsGroup(
                                         title = "Features",
@@ -316,6 +350,13 @@ fun SettingsContent(
                                             targetLanguage = state.geminiTargetLanguage,
                                             onSaveApiKey = onSaveGeminiApiKey,
                                             onSaveTargetLanguage = onSaveGeminiTargetLanguage,
+                                            // List-detail: the feature opens on the right (§7).
+                                            onOpenPage = if (listDetail) {
+                                                { onOpenFeature(SettingsFeature.Gemini) }
+                                            } else {
+                                                null
+                                            },
+                                            selected = openFeature == SettingsFeature.Gemini,
                                         )
                                         SettingsRowDivider()
                                         NeoDbItem(
@@ -325,6 +366,12 @@ fun SettingsContent(
                                             onOpenSignIn = onOpenNeoDbSignIn,
                                             onSaveConfig = onSaveNeoDbConfig,
                                             onClearToken = onClearNeoDbToken,
+                                            onOpenPage = if (listDetail) {
+                                                { onOpenFeature(SettingsFeature.NeoDb) }
+                                            } else {
+                                                null
+                                            },
+                                            selected = openFeature == SettingsFeature.NeoDb,
                                         )
                                     }
                                     SettingsGroup(title = "Storage") {
@@ -384,6 +431,8 @@ private fun AccountsSection(
     onOpenService: (ServiceSetupRequest) -> Unit,
     onRequestDeleteProfile: (String) -> Unit,
     onAddAccount: () -> Unit,
+    asRows: Boolean = false,
+    openAccountId: String? = null,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         SettingsGroupLabel(
@@ -392,6 +441,39 @@ private fun AccountsSection(
         )
         if (profileCards.isEmpty()) {
             EmptyAccountsCard(onAddAccount)
+            return@Column
+        }
+        if (asRows) {
+            // List-detail: a row per account; tapping opens its page on the
+            // right (the ⋮ menu keeps "Use" and "Remove").
+            ExpressiveSectionPanel(
+                modifier = Modifier.fillMaxWidth(),
+                containerColor = MaterialTheme.colorScheme.surfaceContainer,
+                tonalElevation = 1.dp,
+            ) {
+                profileCards.forEachIndexed { index, card ->
+                    if (index > 0) SettingsRowDivider()
+                    ProfileAccountRow(
+                        card = card,
+                        selected = card.id == openAccountId,
+                        onOpen = {
+                            SetupService.forProvider(card.provider)?.let { service ->
+                                onOpenService(ServiceSetupRequest(service, profileId = card.id))
+                            }
+                        },
+                        onUse = { onSwitchToProfile(card.id) },
+                        onRemove = { onRequestDeleteProfile(card.id) },
+                    )
+                }
+                if (canAddProfile) {
+                    SettingsRowDivider()
+                    SettingsItem(
+                        icon = Icons.Rounded.Add,
+                        title = "Add account",
+                        onClick = onAddAccount,
+                    )
+                }
+            }
             return@Column
         }
         val rowState = rememberLazyListState()
@@ -437,6 +519,94 @@ private fun AccountsSection(
 }
 
 private val IntrinsicCardHeight = 172.dp
+
+/** One account as a list-detail row: the open one sits on a selected surface. */
+@Composable
+private fun ProfileAccountRow(
+    card: ProfileCard,
+    selected: Boolean,
+    onOpen: () -> Unit,
+    onUse: () -> Unit,
+    onRemove: () -> Unit,
+) {
+    val haptics = rememberYoinHaptics()
+    val container by animateColorAsState(
+        targetValue = if (selected) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent,
+        animationSpec = YoinMotion.defaultEffectsSpec(),
+        label = "accountRowSelection",
+    )
+    var menuOpen by remember { mutableStateOf(false) }
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("account_row_${card.id}"),
+        shape = YoinContainerShapes.ListRow,
+        color = container,
+        onClick = {
+            haptics.performClick()
+            onOpen()
+        },
+    ) {
+        Row(
+            modifier = Modifier.padding(start = 16.dp, top = 12.dp, bottom = 12.dp, end = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
+            Icon(
+                imageVector = providerIcon(card.provider),
+                contentDescription = card.provider.displayLabel,
+                modifier = Modifier.size(24.dp),
+            )
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                Text(
+                    text = card.displayName,
+                    style = MaterialTheme.typography.titleMedium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                AccountStatus(card = card, contentColor = MaterialTheme.colorScheme.onSurface)
+            }
+            Box {
+                IconButton(
+                    onClick = {
+                        haptics.performTick()
+                        menuOpen = true
+                    },
+                    modifier = Modifier.minimumTouchTarget(),
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.MoreVert,
+                        contentDescription = "Account options",
+                        modifier = Modifier.size(20.dp),
+                    )
+                }
+                YoinDropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                    if (!card.isActive) {
+                        YoinDropdownMenuItem(
+                            text = "Use this account",
+                            onClick = {
+                                haptics.performContextClick()
+                                menuOpen = false
+                                onUse()
+                            },
+                        )
+                    }
+                    YoinDropdownMenuItem(
+                        text = "Remove",
+                        onClick = {
+                            haptics.performReject()
+                            menuOpen = false
+                            onRemove()
+                        },
+                    )
+                }
+            }
+        }
+    }
+}
 
 @Composable
 private fun EmptyAccountsCard(onAddAccount: () -> Unit) {
@@ -786,7 +956,27 @@ private fun GeminiItem(
     targetLanguage: String,
     onSaveApiKey: (String) -> Unit,
     onSaveTargetLanguage: (String) -> Unit,
+    // List-detail: the row opens the feature's page on the right instead.
+    onOpenPage: (() -> Unit)? = null,
+    selected: Boolean = false,
+    // The feature's own page: always open.
+    asPage: Boolean = false,
 ) {
+    val summaryText = if (apiKey.isBlank()) {
+        "Song info, Ask Gemini and translation"
+    } else {
+        "Gemini · ${GeminiConfig.normalizeTargetLanguage(targetLanguage)}"
+    }
+    if (onOpenPage != null) {
+        FeaturePageRow(
+            icon = Icons.Rounded.AutoAwesome,
+            title = "AI features",
+            summary = summaryText,
+            selected = selected,
+            onClick = onOpenPage,
+        )
+        return
+    }
     var expanded by rememberSaveable { mutableStateOf(false) }
     var draftKey by rememberSaveable(apiKey) { mutableStateOf(apiKey) }
     var languageMenuOpen by remember { mutableStateOf(false) }
@@ -796,9 +986,10 @@ private fun GeminiItem(
     SettingsExpandableItem(
         icon = Icons.Rounded.AutoAwesome,
         title = "AI features",
-        summary = if (apiKey.isBlank()) "Song info, Ask Gemini and translation" else "Gemini · $language",
+        summary = summaryText,
         expanded = expanded,
         onExpandedChange = { expanded = it },
+        collapsible = !asPage,
     ) {
         SecretTextField(
             value = draftKey,
@@ -845,7 +1036,24 @@ private fun NeoDbItem(
     onOpenSignIn: (String) -> Unit,
     onSaveConfig: (String, String) -> Unit,
     onClearToken: () -> Unit,
+    onOpenPage: (() -> Unit)? = null,
+    selected: Boolean = false,
+    asPage: Boolean = false,
 ) {
+    if (onOpenPage != null) {
+        FeaturePageRow(
+            icon = Icons.Rounded.Reviews,
+            title = "NeoDB",
+            summary = if (accessToken.isNotBlank()) {
+                "Album ratings and reviews sync"
+            } else {
+                "Sync album ratings and reviews"
+            },
+            selected = selected,
+            onClick = onOpenPage,
+        )
+        return
+    }
     var expanded by rememberSaveable { mutableStateOf(initiallyExpanded) }
     var draftInstance by rememberSaveable(instance) { mutableStateOf(instance) }
     var draftToken by rememberSaveable(accessToken) { mutableStateOf(accessToken) }
@@ -858,6 +1066,7 @@ private fun NeoDbItem(
         summary = if (signedIn) "Album ratings and reviews sync" else "Sync album ratings and reviews",
         expanded = expanded,
         onExpandedChange = { expanded = it },
+        collapsible = !asPage,
     ) {
         ExpressiveTextField(
             value = draftInstance,
@@ -904,6 +1113,140 @@ private fun NeoDbItem(
                         onClick = { onSaveConfig(draftInstance, draftToken) },
                         enabled = draftToken.isNotBlank() && draftToken.trim() != accessToken.trim(),
                     ) { Text("Save token") }
+                }
+            }
+        }
+    }
+}
+
+/** A Features row in list-detail: opens the feature's page on the right, marked while open. */
+@Composable
+private fun FeaturePageRow(
+    icon: ImageVector,
+    title: String,
+    summary: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    val container by animateColorAsState(
+        targetValue = if (selected) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent,
+        animationSpec = YoinMotion.defaultEffectsSpec(),
+        label = "featureRowSelection",
+    )
+    Surface(color = container, shape = YoinContainerShapes.ListRow) {
+        SettingsItem(
+            icon = icon,
+            title = title,
+            summary = summary,
+            onClick = onClick,
+            trailing = {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Rounded.KeyboardArrowRight,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            },
+        )
+    }
+}
+
+/** Which Settings feature a [SettingsFeatureScreen] shows. */
+enum class SettingsFeature { Gemini, NeoDb }
+
+/**
+ * A Settings feature (AI features / NeoDB) as its own page — the right pane of
+ * the Settings list-detail (断点交接 §7). Same controls as the in-place
+ * expansion on narrow windows, always open.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+internal fun SettingsFeatureScreen(
+    viewModel: SettingsViewModel,
+    feature: SettingsFeature,
+    onBackClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val uiState by viewModel.uiState.collectAsState()
+    val snackbarHostState = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
+    val neoDbOAuthLauncher = rememberLauncherForActivityResult(NeoDBOAuthContract()) { result ->
+        viewModel.commitNeoDbOAuth(result)
+    }
+    LaunchedEffect(viewModel) {
+        viewModel.events.collect { event ->
+            when (event) {
+                is SettingsOneShotEvent.LaunchNeoDbOAuth -> neoDbOAuthLauncher.launch(event.instance)
+                is SettingsOneShotEvent.ShowError ->
+                    scope.launch { snackbarHostState.showSnackbar(event.message) }
+            }
+        }
+    }
+    val haptics = rememberYoinHaptics()
+    ProvideYoinMotionRole(role = YoinMotionRole.Standard) {
+        ExpressivePageBackground(modifier = modifier) {
+            Scaffold(
+                modifier = Modifier.fillMaxSize(),
+                containerColor = Color.Transparent,
+                contentColor = MaterialTheme.colorScheme.onSurface,
+                contentWindowInsets = WindowInsets(0, 0, 0, 0),
+                topBar = {
+                    TopAppBar(
+                        title = {},
+                        navigationIcon = {
+                            IconButton(
+                                onClick = {
+                                    haptics.performClick()
+                                    onBackClick()
+                                },
+                            ) {
+                                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                            }
+                        },
+                        colors = TopAppBarDefaults.topAppBarColors(
+                            containerColor = Color.Transparent,
+                            navigationIconContentColor = MaterialTheme.colorScheme.onSurface,
+                        ),
+                    )
+                },
+                snackbarHost = { SnackbarHost(snackbarHostState) { Snackbar(it) } },
+            ) { innerPadding ->
+                val navBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .yoinPageContentWidth(YoinPageWidths.Prose)
+                        .imePadding()
+                        .padding(innerPadding)
+                        .verticalScroll(rememberScrollState())
+                        .padding(start = 16.dp, top = 8.dp, end = 16.dp, bottom = 24.dp + navBottom),
+                ) {
+                    val content = uiState as? SettingsUiState.Content
+                    if (content == null) {
+                        Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                            YoinLoadingIndicator()
+                        }
+                    } else {
+                        SettingsGroup(title = "Features") {
+                            when (feature) {
+                                SettingsFeature.Gemini -> GeminiItem(
+                                    apiKey = content.geminiApiKey,
+                                    targetLanguage = content.geminiTargetLanguage,
+                                    onSaveApiKey = viewModel::saveGeminiApiKey,
+                                    onSaveTargetLanguage = viewModel::saveGeminiTargetLanguage,
+                                    asPage = true,
+                                )
+                                SettingsFeature.NeoDb -> NeoDbItem(
+                                    instance = content.neoDbInstance,
+                                    accessToken = content.neoDbAccessToken,
+                                    initiallyExpanded = true,
+                                    onOpenSignIn = viewModel::openNeoDbSignIn,
+                                    onSaveConfig = viewModel::saveNeoDbConfig,
+                                    onClearToken = viewModel::clearNeoDbToken,
+                                    asPage = true,
+                                )
+                            }
+                        }
+                    }
                 }
             }
         }

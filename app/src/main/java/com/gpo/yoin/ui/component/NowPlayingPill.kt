@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material3.ButtonDefaults
@@ -41,7 +42,12 @@ import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.layout.layout
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
 import com.gpo.yoin.ui.navigation.nowPlayingCoverSharedKey
 import com.gpo.yoin.ui.navigation.rememberActiveOnlySharedContentConfig
@@ -302,6 +308,196 @@ fun NowPlayingPill(
     }
 }
 
+/**
+ * The same pill turned upright for the edge-split capsule
+ * (ShellChromeForm.EdgeSplit, 断点交接 §2.2): 52 × (capsule − 12), 26dp
+ * corners. The progress wash rises from the bottom behind the same sine edge
+ * (turned 90°), the 34dp cover sits at the bottom (9dp inset) and title /
+ * artist read bottom-to-top above it, ellipsized when they don't fit.
+ *
+ * Only the cover keeps its shared element: sideways text has no bounds worth
+ * morphing, and the cover is the anchor Now Playing rises from and settles to.
+ */
+@OptIn(ExperimentalSharedTransitionApi::class)
+@Composable
+fun NowPlayingPillVertical(
+    currentTrackId: String?,
+    currentTrackTitle: String?,
+    currentTrackArtist: String?,
+    currentTrackCoverArtUrl: String?,
+    connectionErrorMessage: String?,
+    playbackProgress: Float,
+    isPlaying: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    sharedTransitionScope: SharedTransitionScope? = null,
+    animatedVisibilityScope: AnimatedVisibilityScope? = null,
+) {
+    val haptics = rememberYoinHaptics()
+    val trackPresence by animateFloatAsState(
+        targetValue = if (currentTrackTitle != null) 1f else 0f,
+        animationSpec = YoinMotion.defaultEffectsSpec(),
+        label = "verticalPillTrackPresence",
+    )
+    val colors = MaterialTheme.colorScheme
+    val containerColor = lerp(colors.surfaceContainerHighest, colors.primaryContainer, trackPresence)
+    val contentColor = lerp(colors.onSurfaceVariant, colors.onPrimaryContainer, trackPresence)
+    val progressFillColor = colors.primary.copy(alpha = 0.25f)
+    val wave = rememberPlaybackWave(isPlaying)
+    val clampedProgress = playbackProgress.coerceIn(0f, 1f)
+    val shape = RoundedCornerShape(VerticalPillCornerRadius)
+
+    // Track-change push, upright: the old song leaves upward, the next rides
+    // in from below — the same held-copy scheme as the horizontal pill.
+    val push = remember { Animatable(0f) }
+    val pushInSpec = YoinMotion.defaultSpatialSpec<Float>(role = YoinMotionRole.Expressive)
+    var shown by remember {
+        mutableStateOf(
+            PillTrack(currentTrackId, currentTrackTitle, currentTrackArtist, currentTrackCoverArtUrl),
+        )
+    }
+    LaunchedEffect(currentTrackId, currentTrackTitle, currentTrackArtist, currentTrackCoverArtUrl) {
+        val next =
+            PillTrack(currentTrackId, currentTrackTitle, currentTrackArtist, currentTrackCoverArtUrl)
+        val previous = shown
+        if (previous.id != null && next.id != null && previous.id != next.id) {
+            if (push.value != 0f) push.snapTo(0f)
+            push.animateTo(1f, tween(durationMillis = 90, easing = LinearEasing))
+            shown = next
+            push.snapTo(-1f)
+            push.animateTo(0f, pushInSpec)
+        } else {
+            shown = next
+        }
+    }
+
+    FilledTonalButton(
+        onClick = {
+            haptics.performContextClick()
+            onClick()
+        },
+        modifier = modifier,
+        shape = shape,
+        contentPadding = PaddingValues(0.dp),
+        colors = ButtonDefaults.filledTonalButtonColors(
+            containerColor = containerColor,
+            contentColor = contentColor,
+        ),
+    ) {
+        Box(modifier = Modifier.fillMaxSize()) {
+            if (currentTrackTitle != null && clampedProgress > 0f) {
+                Box(
+                    modifier = Modifier
+                        .matchParentSize()
+                        .clip(shape)
+                        .drawWithContent {
+                            drawContent()
+                            val width = size.width
+                            val height = size.height
+                            val progressY = height * (1f - clampedProgress)
+                            val amplitude = 4.dp.toPx() * wave.amplitude
+                            val waveSteps = 12
+                            val path = Path().apply {
+                                moveTo(0f, height)
+                                for (index in 0..waveSteps) {
+                                    val fraction = index.toFloat() / waveSteps
+                                    val dy = sin(
+                                        wave.phase + fraction * 2f * Math.PI.toFloat(),
+                                    ) * amplitude
+                                    lineTo(fraction * width, progressY + dy)
+                                }
+                                lineTo(width, height)
+                                close()
+                            }
+                            drawPath(path, progressFillColor)
+                        },
+                )
+            }
+
+            val pushModifier = Modifier.graphicsLayer {
+                val p = push.value
+                translationY = -PillPushTravel.toPx() * p
+                alpha = 1f - 0.9f * kotlin.math.abs(p)
+            }
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(top = 10.dp, bottom = VerticalPillTextBottom)
+                    .then(pushModifier),
+                contentAlignment = Alignment.BottomCenter,
+            ) {
+                Column(modifier = Modifier.rotateBottomToTop()) {
+                    Text(
+                        text = shown.title ?: when {
+                            connectionErrorMessage != null -> "Playback unavailable"
+                            else -> "Nothing playing"
+                        },
+                        style = MaterialTheme.typography.labelLarge.copy(
+                            fontSize = 13.sp,
+                            lineHeight = 17.sp,
+                            fontWeight = FontWeight.SemiBold,
+                        ),
+                        color = contentColor,
+                        maxLines = 1,
+                        softWrap = false,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Text(
+                        text = shown.artist ?: connectionErrorMessage.orEmpty(),
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            fontSize = 11.sp,
+                            lineHeight = 15.sp,
+                        ),
+                        color = contentColor.copy(alpha = 0.8f),
+                        maxLines = 1,
+                        softWrap = false,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+            NowPlayingPillArtwork(
+                currentTrackId = shown.id,
+                currentTrackCoverArtUrl = shown.cover,
+                currentTrackTitle = shown.title,
+                sharedTransitionScope = sharedTransitionScope,
+                animatedVisibilityScope = animatedVisibilityScope,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 9.dp)
+                    .then(pushModifier),
+            )
+        }
+    }
+}
+
+/**
+ * Lays its content out sideways, reading bottom-to-top: measured against the
+ * parent's HEIGHT, placed rotated −90° about its centre.
+ */
+private fun Modifier.rotateBottomToTop(): Modifier = layout { measurable, constraints ->
+    val placeable = measurable.measure(
+        Constraints(
+            minWidth = 0,
+            maxWidth = constraints.maxHeight,
+            minHeight = 0,
+            maxHeight = constraints.maxWidth,
+        ),
+    )
+    layout(placeable.height, placeable.width) {
+        placeable.placeWithLayer(
+            x = (placeable.height - placeable.width) / 2,
+            y = (placeable.width - placeable.height) / 2,
+        ) {
+            rotationZ = -90f
+        }
+    }
+}
+
+private val VerticalPillCornerRadius = 26.dp
+
+/** Text stops above the cover: 9 inset + 34 cover + 10 air. */
+private val VerticalPillTextBottom = 53.dp
+
 @OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
 private fun NowPlayingPillArtwork(
@@ -369,3 +565,23 @@ private val PillArtworkRequestSize = 96.dp
 
 /** Horizontal travel of the track-change push. */
 private val PillPushTravel = 30.dp
+
+@androidx.compose.ui.tooling.preview.Preview(name = "Upright pill", widthDp = 64, heightDp = 160, showBackground = true)
+@Composable
+private fun NowPlayingPillVerticalPreview() {
+    com.gpo.yoin.ui.theme.YoinTheme {
+        NowPlayingPillVertical(
+            currentTrackId = "1",
+            currentTrackTitle = "RUNNING TO YOU",
+            currentTrackArtist = "Blusher",
+            currentTrackCoverArtUrl = null,
+            connectionErrorMessage = null,
+            playbackProgress = 0.4f,
+            isPlaying = true,
+            onClick = {},
+            modifier = Modifier
+                .padding(6.dp)
+                .size(width = 52.dp, height = 142.dp),
+        )
+    }
+}

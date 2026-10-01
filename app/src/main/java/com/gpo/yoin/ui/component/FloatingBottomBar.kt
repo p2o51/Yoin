@@ -1,7 +1,6 @@
 package com.gpo.yoin.ui.component
 
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Row
@@ -10,6 +9,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
@@ -17,6 +19,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.gpo.yoin.ui.experience.CenteredBarBottomMargin
+import com.gpo.yoin.ui.experience.CenteredBarHorizontalMargin
+import com.gpo.yoin.ui.experience.CenteredBarMaxWidth
+import com.gpo.yoin.ui.experience.PortraitBarVerticalMargin
 
 /**
  * The floating bottom bar scaffold — outer margins, pill Surface, and inner
@@ -29,23 +35,46 @@ import androidx.compose.ui.unit.dp
  * plain Row/Box only, exotic measure policies hang under the shell's
  * shared-transition lookahead). No implicit child spacing: callers own
  * their gaps.
+ *
+ * [centered] is ShellChromeForm.CenteredBar (断点交接 §2.3): the same bar,
+ * horizontally centred, capped at 600dp, [bottomMargin] above the nav bar.
+ * [barWidth] (optional) narrows the pill surface inside that slot — the Now
+ * Playing side panel folds the bar down to its two nav buttons with it.
  */
 @Composable
 fun FloatingBottomBar(
     modifier: Modifier = Modifier,
+    centered: Boolean = false,
+    bottomMargin: Dp = CenteredBarBottomMargin,
+    barWidth: ((maxWidth: Dp) -> Dp)? = null,
     overlay: @Composable BoxScope.() -> Unit = {},
     content: @Composable RowScope.(innerWidth: Dp) -> Unit,
 ) {
-    BoxWithConstraints(
-        modifier = modifier
+    val slot = if (centered) {
+        modifier
             .fillMaxWidth()
             .navigationBarsPadding()
-            .padding(horizontal = 16.dp, vertical = 12.dp),
-    ) {
-        val innerWidth = maxWidth - 20.dp // row's 10dp horizontal padding × 2
+            .padding(
+                start = CenteredBarHorizontalMargin,
+                end = CenteredBarHorizontalMargin,
+                top = PortraitBarVerticalMargin,
+                bottom = bottomMargin,
+            )
+            .wrapContentWidth(align = Alignment.CenterHorizontally)
+            .widthIn(max = CenteredBarMaxWidth)
+    } else {
+        modifier
+            .fillMaxWidth()
+            .navigationBarsPadding()
+            .padding(horizontal = 16.dp, vertical = PortraitBarVerticalMargin)
+    }
+    BoxWithConstraints(modifier = slot) {
+        val surfaceWidth = barWidth?.invoke(maxWidth)?.coerceAtMost(maxWidth) ?: maxWidth
+        val innerWidth = surfaceWidth - 20.dp // row's 10dp horizontal padding × 2
         Surface(
             modifier = Modifier
-                .fillMaxWidth()
+                .align(Alignment.Center)
+                .then(if (barWidth != null) Modifier.width(surfaceWidth) else Modifier.fillMaxWidth())
                 .bottomBarShadow(MaterialTheme.shapes.extraLarge, elevation = 12.dp),
             shape = MaterialTheme.shapes.extraLarge,
             color = MaterialTheme.colorScheme.surfaceContainerHigh,
@@ -80,3 +109,6 @@ val FloatingBarItemGap = 8.dp
  * half stretches inside it, so font scale squeezes padding, not layout.
  */
 val FloatingBarSplitWidth = 156.dp
+
+/** CenteredBar detail pose: the now-playing pill's fixed width (§2.3). */
+val FloatingBarDetailPillWidth = 200.dp

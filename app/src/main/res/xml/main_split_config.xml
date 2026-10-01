@@ -1,7 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  Activity Embedding：大屏上 shell（MainActivity）与 detail 页左右分栏。
+  Activity Embedding：大屏上打开 detail 页时，shell（MainActivity）与它左右分栏。
 
+  - 按需分栏（2026-10-01）：shell 平时独占整窗（1280 宽读 Wide，首页走桌面档），
+    打开第一个 detail 才分栏，关掉最后一个 detail 分栏解散、shell 回到整窗。
+    shell 没有占位规则 —— 以前的 DetailPlaceholderActivity 让 >= 840 的窗一进
+    首页就分栏、右半边空着，已删。分栏开合的动画交给系统（底色见 SplitLayout
+    的 calculator）；分栏里的 detail 没有底栏，返回走系统原生（predictive-back
+    skill 的 Pattern A），右栏最后一张关掉时系统直接收起分栏。
   - 只在窗口宽度 >= 840dp（LayoutMode.Wide 同一条线）激活：600-840 的
     Medium 档保持整窗推入，与 WindowAdaptiveRuntime 的阈值审计一致。
   - shell 0.45 / detail 0.55。
@@ -10,22 +16,16 @@
   - 只声明 shell→detail 三对。分栏激活期间从 detail 再推 detail 时，
     配对判定看的是 primary 容器顶部的 Activity（仍是 MainActivity），
     所以 detail→detail 自然堆叠在右栏，不需要额外的 filter。
-  - Settings 不参与分栏（保持整窗，全局表单页语义）。
+  - 比例由 YoinApplication 的 SplitAttributesCalculator 按窗口宽重算
+    （断点交接 §7）：窗口 >= 1080 时 shell = max(600, 0.45 × 窗宽)、详情至少
+    480；更窄照旧 0.45。这里的 0.45 是 WindowSdkExtensions < 2（不支持
+    calculator）的机器的回退值。
+  - Settings → 账号二级页是 list-detail（tag="settings-*"，SettingsTablet）：
+    左 Settings、右 ServiceSetup，无选中时右栏是占位页。
 -->
 <resources xmlns:window="http://schemas.android.com/apk/res-auto">
-    <!-- 右栏占位面：shell 一进分栏就有内容站位。detail 在同一容器里叠在它
-         上面 —— 半透明预测性返回塌缩透出的是它（不再是黑幕）；最后一张
-         detail 关掉后右栏落回占位，分栏不解散、shell 不跳宽。
-         stickyPlaceholder=false：窗口收窄到规则线以下时占位自动退场。 -->
-    <SplitPlaceholderRule
-        window:placeholderActivityName="com.gpo.yoin.ui.detail.DetailPlaceholderActivity"
-        window:splitRatio="0.45"
-        window:splitMinWidthDp="840"
-        window:stickyPlaceholder="false">
-        <ActivityFilter window:activityName="com.gpo.yoin.MainActivity" />
-    </SplitPlaceholderRule>
-
     <SplitPairRule
+        window:tag="shell-detail"
         window:splitRatio="0.45"
         window:splitMinWidthDp="840"
         window:finishPrimaryWithSecondary="never"
@@ -39,5 +39,48 @@
         <SplitPairFilter
             window:primaryActivityName="com.gpo.yoin.MainActivity"
             window:secondaryActivityName="com.gpo.yoin.ui.detail.PlaylistDetailActivity" />
+    </SplitPairRule>
+
+    <!-- Settings 从 shell 打开时要有自己的整窗容器（calculator 对
+         shell-settings 返回 EXPAND）：否则开着详情分栏时它会落进 shell 分栏
+         右侧、压在详情上，settings 分栏再拿那个容器当主栏 —— Settings 一退出，
+         容器里剩下的页就和 Settings 占位页并排（实测，2026-10-01）。
+         WindowSdkExtensions < 2 的机器没有 calculator，退回 0.45 分栏。 -->
+    <SplitPairRule
+        window:tag="shell-settings"
+        window:splitRatio="0.45"
+        window:splitMinWidthDp="840"
+        window:finishPrimaryWithSecondary="never"
+        window:finishSecondaryWithPrimary="always">
+        <SplitPairFilter
+            window:primaryActivityName="com.gpo.yoin.MainActivity"
+            window:secondaryActivityName="com.gpo.yoin.ui.settings.SettingsActivity" />
+    </SplitPairRule>
+
+    <!-- Settings list-detail：选中账号的二级页开在右栏，clearTop 让换账号
+         替换右栏而不是叠一层。Settings 自己不 alwaysExpand —— 那样它永远
+         不参与分栏，list-detail 就做不成了（断点交接 §7）。 -->
+    <SplitPlaceholderRule
+        window:tag="settings-placeholder"
+        window:placeholderActivityName="com.gpo.yoin.ui.settings.SettingsPlaceholderActivity"
+        window:splitRatio="0.33"
+        window:splitMinWidthDp="840"
+        window:stickyPlaceholder="false">
+        <ActivityFilter window:activityName="com.gpo.yoin.ui.settings.SettingsActivity" />
+    </SplitPlaceholderRule>
+
+    <SplitPairRule
+        window:tag="settings-setup"
+        window:splitRatio="0.33"
+        window:splitMinWidthDp="840"
+        window:clearTop="true"
+        window:finishPrimaryWithSecondary="never"
+        window:finishSecondaryWithPrimary="always">
+        <SplitPairFilter
+            window:primaryActivityName="com.gpo.yoin.ui.settings.SettingsActivity"
+            window:secondaryActivityName="com.gpo.yoin.ui.settings.service.ServiceSetupActivity" />
+        <SplitPairFilter
+            window:primaryActivityName="com.gpo.yoin.ui.settings.SettingsActivity"
+            window:secondaryActivityName="com.gpo.yoin.ui.settings.SettingsFeatureActivity" />
     </SplitPairRule>
 </resources>

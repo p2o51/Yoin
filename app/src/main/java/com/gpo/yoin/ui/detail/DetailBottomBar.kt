@@ -1,9 +1,5 @@
 package com.gpo.yoin.ui.detail
 
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideOutVertically
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.fadeIn
 import android.app.Activity
 import android.app.ActivityOptions
 import android.content.Context
@@ -25,11 +21,15 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.graphicsLayer
 import com.gpo.yoin.R
 import com.gpo.yoin.YoinApplication
+import com.gpo.yoin.ui.component.BarExtraAction
 import com.gpo.yoin.ui.component.BarPlaySplitActions
-import com.gpo.yoin.ui.component.YoinButtonGroup
+import com.gpo.yoin.ui.component.YoinChromeGroup
+import com.gpo.yoin.ui.experience.LayoutMode
+import com.gpo.yoin.ui.experience.LocalYoinWindowInfo
+import com.gpo.yoin.ui.experience.ShellChromeForm
+import com.gpo.yoin.ui.experience.rememberIsActivityEmbedded
 import com.gpo.yoin.ui.navigation.YoinSection
 
 /**
@@ -75,17 +75,34 @@ fun DetailBottomBar(
     // the gesture DOWN off-screen 1:1 (cancel springs it back, commit
     // finishes the ride). Mutually exclusive with backMorphProgress.
     backExitProgress: () -> Float = { 0f },
+    // Page actions that may leave ▾ for their own buttons where the bar has
+    // room (Go to artist, Share — 断点交接 §2.3); menu rows elsewhere.
+    promotable: List<BarExtraAction> = emptyList(),
     menuItems: @Composable ColumnScope.(dismissMenu: () -> Unit) -> Unit = {},
 ) {
+    // An Activity Embedding detail pane has no bar: now playing lives once,
+    // in the shell pane's bar, and Play/Share sit in the page's hero (§2.3).
+    // Subscribed — the pane can join or leave a split while this page lives.
+    if (rememberIsActivityEmbedded()) return
+    val windowInfo = LocalYoinWindowInfo.current
+    val form = windowInfo.chromeForm
     // Same choreography as the shell bar when NP expands over it: the bar
-    // slides down out of the way while the player rises.
+    // slides out of the way (down, or left for the edge capsules) while the
+    // player rises.
+    val edge = form == ShellChromeForm.EdgeSplit
     OverlayChromeVisibility(
         expanded = nowPlayingOpen,
 
-        enter = YoinMotion.fadeIn(role = YoinMotionRole.Standard) +
-            YoinMotion.slideInVertically(role = YoinMotionRole.Standard) { it },
-        exit = YoinMotion.fadeOut(role = YoinMotionRole.Standard) +
-            YoinMotion.slideOutVertically(role = YoinMotionRole.Standard) { it },
+        enter = YoinMotion.fadeIn(role = YoinMotionRole.Standard) + if (edge) {
+            YoinMotion.slideInHorizontally(role = YoinMotionRole.Standard) { -it }
+        } else {
+            YoinMotion.slideInVertically(role = YoinMotionRole.Standard) { it }
+        },
+        exit = YoinMotion.fadeOut(role = YoinMotionRole.Standard) + if (edge) {
+            YoinMotion.slideOutHorizontally(role = YoinMotionRole.Standard) { -it }
+        } else {
+            YoinMotion.slideOutVertically(role = YoinMotionRole.Standard) { it }
+        },
         modifier = modifier.then(
             if (interactionsEnabled) {
                 Modifier
@@ -108,15 +125,14 @@ fun DetailBottomBar(
             },
         ),
     ) {
-        // LITERALLY the shell's bar composable — pixel identity between the
-        // two windows by construction, plus the nav side of the morph for
-        // the predictive-back scrub. The graphicsLayer reads the exit scrub
-        // per frame (its own height + spare covers the nav-bar inset the
-        // scaffold carries internally).
-        YoinButtonGroup(
-            modifier = Modifier.graphicsLayer {
-                translationY = size.height * 1.15f * backExitProgress().coerceIn(0f, 1f)
-            },
+        // LITERALLY the shell's group composable, in the window's form —
+        // pixel identity between the two windows by construction, plus the
+        // nav side of the morph for the predictive-back scrub. The exit scrub
+        // is read per frame inside the group's graphicsLayer.
+        YoinChromeGroup(
+            form = form,
+            wide = windowInfo.layoutMode == LayoutMode.Wide,
+            exitProgress = backExitProgress,
             selectedSection = navSection,
             // Real id, not null: the pill's track-change push animation keys
             // on it — with null the detail pages never animated song changes.
@@ -137,6 +153,7 @@ fun DetailBottomBar(
                 onPlay = if (interactionsEnabled) onPlay else ({}),
                 onShuffle = if (interactionsEnabled) onShuffle else ({}),
                 menuItems = if (interactionsEnabled) menuItems else ({ _ -> }),
+                promotable = if (interactionsEnabled) promotable else emptyList(),
             ),
             onHomeClick = {},
             onNowPlayingClick = if (interactionsEnabled) onOpenNowPlaying else ({}),
@@ -179,9 +196,19 @@ internal fun detailBarExitProgress(
     return entering + (1f - entering) * back.progress.coerceIn(0f, 1f)
 }
 
-/** Nested pushes retain the actual source surface and use only Compose motion. */
+/**
+ * Nested pushes retain the actual source surface and use only Compose motion —
+ * except inside a split pane, where the push stacks in the same pane and the
+ * system's own open animation runs (no custom window animation on top).
+ */
 internal fun launchDetailFromDetail(context: Context, intent: Intent, fromNowPlaying: Boolean) {
     intent.putExtra(DETAIL_EXTRA_FROM_NOW_PLAYING, fromNowPlaying)
+    val source = context.findActivityOrNull()
+    if (source != null && ActivityEmbeddingController.getInstance(source).isActivityEmbedded(source)) {
+        intent.putExtra(DETAIL_EXTRA_EMBEDDED, true)
+        context.startActivity(intent)
+        return
+    }
     val options = ActivityOptions.makeCustomAnimation(
         context,
         R.anim.detail_bar_handoff_enter,
@@ -208,11 +235,12 @@ internal fun launchDetailFromDetail(context: Context, intent: Intent, fromNowPla
  * 2026-07-27 方案 §1）。判定基准与 main_split_config.xml 的
  * splitMinWidthDp=840 同源：
  *
- *  - shell 已在分栏里（placeholder 让 >= 840 窗一进就分栏，此时 Activity
- *    自己的窗格宽是 576dp 这类手机值，LayoutMode 读数不可用）→
- *    [ActivityEmbeddingController.isActivityEmbedded]，同步 Boolean。
- *  - 尚未嵌入时当前窗 = 任务窗，>= 840dp 且设备的 WM Extensions 可用
- *    （[SplitController.splitSupportStatus]）→ 分栏会接住。
+ *  - shell 已在分栏里（开着 detail 时，此时 Activity 自己的窗格宽是 600dp
+ *    这类值，LayoutMode 读数不可用）→ [ActivityEmbeddingController.isActivityEmbedded]，
+ *    同步 Boolean。
+ *  - 尚未嵌入时当前窗 = 任务窗（按需分栏：没开 detail 时 shell 独占整窗，
+ *    这是 >= 840 窗的常态），>= 840dp 且设备的 WM Extensions 可用
+ *    （[SplitController.splitSupportStatus]）→ 这次启动会新建分栏。
  *    不能用 computeMaximumWindowMetrics：那是显示器上限，OS 分屏半窗里
  *    任务 < 840 而屏 >= 840，会误杀整窗推入的编舞。
  */
@@ -263,8 +291,10 @@ enum class DetailLaunchMode {
 
     /**
      * Activity Embedding 会把这个 detail 放进右侧分栏（任务窗 >= 840dp，
-     * 规则见 main_split_config.xml）：shell 一直可见、它的 bar 不 morph，
-     * 同样是 originSection-only 的普通启动，进场交给系统的分栏默认。
+     * 规则见 main_split_config.xml；没开 detail 时这次启动会新建分栏）：
+     * shell 一直可见、它的 bar 不 morph，同样是 originSection-only 的普通
+     * 启动。进场全交给系统的分栏动画 —— 带 [DETAIL_EXTRA_EMBEDDED]，页面
+     * 不再叠自己的 96dp 内容滑入；返回走系统原生（Pattern A）。
      */
     Embedded,
 }
@@ -279,6 +309,7 @@ fun launchDetailFromShell(
     when (mode) {
         DetailLaunchMode.Embedded -> {
             intent.putExtra(DETAIL_EXTRA_ORIGIN_SECTION, session.selectedSection.name)
+            intent.putExtra(DETAIL_EXTRA_EMBEDDED, true)
             context.startActivity(intent)
         }
 
@@ -332,6 +363,25 @@ fun Activity.applyDetailCloseTransition() {
 }
 
 /**
+ * Which back this detail window plays (predictive-back skill): in an Activity
+ * Embedding pane there is no bar to keep pixel-locked, so the page is a plain
+ * destination — opaque window, the system close transition, no consuming
+ * callback (Pattern A). Out of a split it returns to the consumed in-window
+ * replica (Pattern B): translucent, with the in-place close dissolve. Called
+ * whenever the pane joins or leaves a split — never mid-gesture.
+ */
+internal fun Activity.applyDetailWindowBackMode(nativeBack: Boolean) {
+    if (nativeBack) {
+        if (Build.VERSION.SDK_INT >= 34) {
+            clearOverrideActivityTransition(Activity.OVERRIDE_TRANSITION_CLOSE)
+        }
+    } else {
+        applyDetailCloseTransition()
+    }
+    if (Build.VERSION.SDK_INT >= 30) setTranslucent(!nativeBack)
+}
+
+/**
  * Set by [launchDetailFromShell]: this detail window sits directly over the
  * SHELL, so its predictive-back scrub should morph the bar toward nav
  * chrome. Detail→detail pushes lack it — the bar beneath is identical.
@@ -357,6 +407,14 @@ const val DETAIL_EXTRA_BAR_HANDOFF = "barHandoff"
 
 /** Memories remains mounted underneath; its hidden bar is not a morph target. */
 const val DETAIL_EXTRA_FROM_MEMORIES = "fromMemories"
+
+/**
+ * Set on launches the split takes (shell → detail at >= 840, detail → detail
+ * inside a pane): the system animates the pane, so the page skips its own
+ * enter slide. Read together with the live embedding check — the extension
+ * may not report the pane before the first frame.
+ */
+const val DETAIL_EXTRA_EMBEDDED = "embedded"
 
 internal fun Intent.detailBarExitsOnBack(): Boolean =
     getBooleanExtra(DETAIL_EXTRA_FROM_NOW_PLAYING, false) ||

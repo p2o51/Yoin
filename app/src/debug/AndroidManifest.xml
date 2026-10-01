@@ -21,6 +21,10 @@
             android:exported="true"
             android:theme="@style/Theme.Yoin" />
         <activity
+            android:name=".debug.MemoryCardScreenshotActivity"
+            android:exported="true"
+            android:theme="@style/Theme.Yoin" />
+        <activity
             android:name=".debug.LibraryScreenshotActivity"
             android:exported="true"
             android:theme="@style/Theme.Yoin" />

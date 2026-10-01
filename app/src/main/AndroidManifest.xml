@@ -75,10 +75,15 @@
             android:name=".ui.settings.service.ServiceSetupActivity"
             android:exported="false"
             android:windowSoftInputMode="adjustResize" />
-        <!-- Activity Embedding 右栏占位面（SplitPlaceholderRule 自动启动，
-             只在 >= 840dp 分栏激活时出现）。 -->
+        <!-- Settings list-detail 右栏的功能页（AI features / NeoDB），只从
+             分栏里的 Settings 打开。Plain Activity：原生跨 Activity 返回。 -->
         <activity
-            android:name=".ui.detail.DetailPlaceholderActivity"
+            android:name=".ui.settings.SettingsFeatureActivity"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize" />
+        <!-- Settings list-detail 右栏占位面（tag="settings-placeholder" 的 SplitPlaceholderRule）。 -->
+        <activity
+            android:name=".ui.settings.SettingsPlaceholderActivity"
             android:exported="false" />
 
         <!-- Activity Embedding 开关：声明本应用的分栏由自己负责（规则见

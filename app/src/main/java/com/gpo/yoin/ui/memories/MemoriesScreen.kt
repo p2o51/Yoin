@@ -33,7 +33,11 @@ import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.systemBars
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.displayCutout
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.pager.HorizontalPager
@@ -87,6 +91,7 @@ import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -101,6 +106,9 @@ import com.gpo.yoin.ui.component.rememberExpressiveBackdropColors
 import com.gpo.yoin.ui.component.yoinPageContentWidth
 import com.gpo.yoin.ui.experience.DeckIndicatorTransitionState
 import com.gpo.yoin.ui.experience.EdgeAdvanceDirection
+import com.gpo.yoin.ui.experience.LayoutMode
+import com.gpo.yoin.ui.experience.LocalYoinWindowInfo
+import com.gpo.yoin.ui.experience.YoinWindowInfo
 import com.gpo.yoin.ui.experience.LocalMotionProfile
 import com.gpo.yoin.ui.experience.MemoriesSessionState
 import com.gpo.yoin.ui.experience.MotionProfile
@@ -330,6 +338,12 @@ private fun MemoriesContent(
 
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
         val containerHeightPx = with(density) { maxHeight.toPx().coerceAtLeast(1f) }
+        // Breakpoints (断点交接 §6), height first: a landscape handset splits
+        // the one card into two columns; a Wide full window opens it as a
+        // spread; a 16:9 screen (the card face needs ~765dp without its
+        // flexible air) tightens the seal row so nothing overflows. Medium and
+        // split panes keep the 480 card as it is.
+        val cardLayout = memoryCardLayoutFor(LocalYoinWindowInfo.current, maxHeight)
 
         // Deck switches animate as ONE AnimatedContent transition (slide + fade
         // in, symmetric slide + fade out) — it is the sole owner of the pane's
@@ -445,9 +459,13 @@ private fun MemoriesContent(
                         accentColor = auroraColors.accentColor,
                         visible = revealState.fraction < 0.999f,
                     )
-                    .padding(top = WindowInsets.systemBars.asPaddingValues().calculateTopPadding() + 12.dp),
+                    .padding(top = WindowInsets.systemBars.asPaddingValues().calculateTopPadding() + 12.dp)
+                    // Landscape: the Button Group hides here, so the card only
+                    // clears the cutout band (§6).
+                    .windowInsetsPadding(WindowInsets.displayCutout.only(WindowInsetsSides.Horizontal)),
             ) {
                 MemoriesHeader(
+                    compact = cardLayout == MemoryCardLayout.Landscape,
                     memories = memories,
                     selectedIndex = selectedIndex,
                     currentPageOffsetFraction = pagerState.currentPageOffsetFraction,
@@ -499,6 +517,7 @@ private fun MemoriesContent(
                     }
                     MemorySealCard(
                         memory = memory,
+                        layout = cardLayout,
                         seedColor = pageColors.baseColor,
                         isSyncingToNeoDb = "${memory.entityProvider}:${memory.entityId}" in syncingEntityIds,
                         onSyncToNeoDb = { onSyncToNeoDb(memory) },
@@ -579,34 +598,61 @@ private fun MemoriesHeader(
     adjacentDeckDirection: MemoryDeckDirection?,
     onSelect: (Int) -> Unit,
     modifier: Modifier = Modifier,
+    // Landscape handset: date, title and dots pressed into one row (§6).
+    compact: Boolean = false,
 ) {
     Row(
         modifier = modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Column(
-            modifier = Modifier.weight(1f),
-            verticalArrangement = Arrangement.spacedBy(2.dp),
-        ) {
-            Text(
-                text = selectedMemory.timestamp.toShortMemoryDate(),
-                style = MaterialTheme.typography.displaySmall.copy(
-                    fontWeight = FontWeight.SemiBold,
-                    fontFamily = GoogleSansFlex,
-                ),
-                color = MaterialTheme.colorScheme.onSurface,
-            )
-            Text(
-                text = "Memories",
-                style = MaterialTheme.typography.titleLarge.copy(
-                    fontWeight = FontWeight.SemiBold,
-                    fontSize = 18.sp,
-                    lineHeight = 22.sp,
-                    fontFamily = GoogleSansFlex,
-                ),
-                color = MaterialTheme.colorScheme.onSurface,
-            )
+        if (compact) {
+            Row(
+                modifier = Modifier.weight(1f),
+                verticalAlignment = Alignment.Bottom,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Text(
+                    text = selectedMemory.timestamp.toShortMemoryDate(),
+                    style = MaterialTheme.typography.headlineSmall.copy(
+                        fontWeight = FontWeight.SemiBold,
+                        fontFamily = GoogleSansFlex,
+                    ),
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+                Text(
+                    text = "Memories",
+                    style = MaterialTheme.typography.titleMedium.copy(
+                        fontWeight = FontWeight.SemiBold,
+                        fontFamily = GoogleSansFlex,
+                    ),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        } else {
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                Text(
+                    text = selectedMemory.timestamp.toShortMemoryDate(),
+                    style = MaterialTheme.typography.displaySmall.copy(
+                        fontWeight = FontWeight.SemiBold,
+                        fontFamily = GoogleSansFlex,
+                    ),
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+                Text(
+                    text = "Memories",
+                    style = MaterialTheme.typography.titleLarge.copy(
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 18.sp,
+                        lineHeight = 22.sp,
+                        fontFamily = GoogleSansFlex,
+                    ),
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+            }
         }
 
         MemoriesDots(
@@ -704,6 +750,7 @@ private fun MemoriesDots(
 @Composable
 private fun MemorySealCard(
     memory: MemoryEntry,
+    layout: MemoryCardLayout,
     seedColor: Color,
     isSyncingToNeoDb: Boolean,
     onSyncToNeoDb: () -> Unit,
@@ -742,15 +789,15 @@ private fun MemorySealCard(
         }
     }
 
-    Column(
-        // 限宽链在来件 modifier 之后:wrapContentWidth 上报的尺寸仍被上游
-        // fillMaxSize 的固定约束钳成全宽,所以 dismiss draggable 的命中区
-        // 保持整面板宽度——侧边空档起手的下拉照样能关掉页面。
-        modifier = modifier
-            .yoinPageContentWidth(YoinPageWidths.Card)
-            .padding(start = 20.dp, end = 20.dp, top = 20.dp),
-    ) {
-        // ── 标题区：专辑名 + 艺人·年份，72dp 裸封面（点按即播） ──
+    val short = layout == MemoryCardLayout.Short
+    val sealSize = when (layout) {
+        MemoryCardLayout.Portrait -> MemorySealSize
+        MemoryCardLayout.Short, MemoryCardLayout.Landscape -> MemorySealSizeCompact
+        MemoryCardLayout.Spread -> MemorySealSizeSpread
+    }
+
+    // ── 标题区：专辑名 + 艺人·年份，72dp 裸封面（点按即播） ──
+    val titleBlock: @Composable () -> Unit = {
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(16.dp),
@@ -762,9 +809,14 @@ private fun MemorySealCard(
             ) {
                 Text(
                     text = memory.title,
-                    style = MaterialTheme.typography.headlineLarge.copy(
-                        fontWeight = FontWeight.SemiBold,
-                    ),
+                    // 16:9 / landscape: one step down (§6).
+                    style = (
+                        if (layout == MemoryCardLayout.Portrait || layout == MemoryCardLayout.Spread) {
+                            MaterialTheme.typography.headlineLarge
+                        } else {
+                            MaterialTheme.typography.headlineMedium
+                        }
+                        ).copy(fontWeight = FontWeight.SemiBold),
                     color = MaterialTheme.colorScheme.onSurface,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
@@ -789,10 +841,10 @@ private fun MemorySealCard(
                 shadowElevation = 0.dp,
             )
         }
+    }
 
-        Spacer(modifier = Modifier.height(24.dp))
-
-        // ── 印章行：148dp 曲奇印章 × AI 拟题 + 正文 ──
+    // ── 印章行：曲奇印章 × AI 拟题 ──
+    val sealRow: @Composable () -> Unit = {
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(20.dp),
@@ -812,12 +864,13 @@ private fun MemorySealCard(
                 MemorySeal(
                     memory = memory,
                     scheme = memoryColorScheme,
+                    size = sealSize,
                 )
             }
             Column(
                 modifier = Modifier
                     .weight(1f)
-                    .height(MemorySealSize),
+                    .height(sealSize),
                 verticalArrangement = Arrangement.Center,
             ) {
                 // 右列只放拟题（方案 B）：正文升级为下方的全宽区块。
@@ -828,8 +881,8 @@ private fun MemorySealCard(
                         style = MaterialTheme.typography.titleLarge.copy(
                             fontWeight = FontWeight.SemiBold,
                             fontFamily = YoinSerifTitle,
-                            fontSize = 22.sp,
-                            lineHeight = 30.sp,
+                            fontSize = if (sealSize < MemorySealSize) 20.sp else 22.sp,
+                            lineHeight = if (sealSize < MemorySealSize) 27.sp else 30.sp,
                         ),
                         color = MaterialTheme.colorScheme.onSurface,
                         maxLines = 3,
@@ -838,11 +891,11 @@ private fun MemorySealCard(
                 }
             }
         }
+    }
 
-        Spacer(modifier = Modifier.height(24.dp))
-
-        // ── 全宽乐评区（方案 B）：长评终于有配得上它的面积。硬截断，
-        //    点击开 sheet 读全文；笔记不再占卡面（收进底部按钮）。 ──
+    // ── 全宽乐评区（方案 B）：长评终于有配得上它的面积。硬截断，
+    //    点击开 sheet 读全文；笔记不再占卡面（收进底部按钮）。 ──
+    val words: @Composable (reviewMaxLines: Int) -> Unit = { reviewMaxLines ->
         val reviewText = memory.review?.text
         if (reviewText != null) {
             // 正文主体 = 系统默认黑体（字体规范 2026-07-26）——衬线让位给标题。
@@ -860,7 +913,7 @@ private fun MemorySealCard(
                     lineHeight = 25.sp,
                 ),
                 color = MaterialTheme.colorScheme.onSurface,
-                maxLines = 8,
+                maxLines = reviewMaxLines,
                 overflow = TextOverflow.Ellipsis,
             )
         } else {
@@ -882,31 +935,45 @@ private fun MemorySealCard(
                     maxLines = 3,
                     overflow = TextOverflow.Ellipsis,
                 )
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(if (short) 10.dp else 16.dp))
             }
-            Text(
-                text = "How did this album land for you?",
-                style = MaterialTheme.typography.bodySmall.copy(
-                    fontStyle = FontStyle.Italic,
-                ),
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            TextButton(
-                onClick = onOpenAlbum,
-                contentPadding = PaddingValues(horizontal = 4.dp),
-            ) {
+            val prompt: @Composable () -> Unit = {
                 Text(
-                    text = "Write a review",
-                    style = MaterialTheme.typography.labelLarge,
-                    color = memoryColorScheme.primary,
+                    text = "How did this album land for you?",
+                    style = MaterialTheme.typography.bodySmall.copy(
+                        fontStyle = FontStyle.Italic,
+                    ),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
+            val writeButton: @Composable () -> Unit = {
+                TextButton(
+                    onClick = onOpenAlbum,
+                    contentPadding = PaddingValues(horizontal = 4.dp),
+                ) {
+                    Text(
+                        text = "Write a review",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = memoryColorScheme.primary,
+                    )
+                }
+            }
+            if (short || layout == MemoryCardLayout.Landscape) {
+                // 16:9: the question and its button share one row (§6).
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(modifier = Modifier.weight(1f, fill = false)) { prompt() }
+                    Spacer(modifier = Modifier.width(4.dp))
+                    writeButton()
+                }
+            } else {
+                prompt()
+                writeButton()
+            }
         }
+    }
 
-        // ── 弹性呼吸：notes 与锚底 footnotes 之间 ──
-        Spacer(modifier = Modifier.weight(1f))
-
-        // ── footnotes：证据句 + NeoDB 五态（锚底，四卡同位） ──
+    // ── footnotes：证据句 + NeoDB 五态（锚底，四卡同位） ──
+    val footnotes: @Composable () -> Unit = {
         Text(
             text = memory.evidenceLine(),
             style = MaterialTheme.typography.bodySmall.withTabularFigures(),
@@ -936,17 +1003,16 @@ private fun MemorySealCard(
                 MemoryNeoDbState.UNAVAILABLE -> Unit
             }
         }
+    }
 
-        Spacer(modifier = Modifier.height(12.dp))
-
-        // ── 底部按钮排：笔记入口（带条数）在左，前往专辑在右。
-        //    笔记卡从卡面退场后，这颗按钮就是它们唯一的家。 ──
+    // ── 底部按钮排：笔记入口（带条数）在左，前往专辑在右。
+    //    笔记卡从卡面退场后，这颗按钮就是它们唯一的家（对开页除外）。 ──
+    val actions: @Composable (showNotesButton: Boolean) -> Unit = { showNotesButton ->
         Row(
-            modifier = Modifier.align(Alignment.CenterHorizontally),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            if (memory.writings.isNotEmpty()) {
+            if (showNotesButton && memory.writings.isNotEmpty()) {
                 TextButton(
                     onClick = {
                         haptics.performClick()
@@ -978,8 +1044,88 @@ private fun MemorySealCard(
                 Text(text = "→", style = MaterialTheme.typography.labelLarge)
             }
         }
+    }
 
-        Spacer(modifier = Modifier.height(navBottom + 44.dp))
+    when (layout) {
+        MemoryCardLayout.Portrait,
+        MemoryCardLayout.Short,
+        -> Column(
+            // 限宽链在来件 modifier 之后:wrapContentWidth 上报的尺寸仍被上游
+            // fillMaxSize 的固定约束钳成全宽,所以 dismiss draggable 的命中区
+            // 保持整面板宽度——侧边空档起手的下拉照样能关掉页面。
+            modifier = modifier
+                .yoinPageContentWidth(YoinPageWidths.Card)
+                .padding(start = 20.dp, end = 20.dp, top = if (short) 12.dp else 20.dp),
+        ) {
+            titleBlock()
+            Spacer(modifier = Modifier.height(if (short) 16.dp else 24.dp))
+            sealRow()
+            Spacer(modifier = Modifier.height(if (short) 16.dp else 24.dp))
+            words(if (short) 5 else 8)
+            // ── 弹性呼吸：notes 与锚底 footnotes 之间 ──
+            Spacer(modifier = Modifier.weight(1f))
+            footnotes()
+            Spacer(modifier = Modifier.height(12.dp))
+            Box(modifier = Modifier.align(Alignment.CenterHorizontally)) { actions(true) }
+            Spacer(modifier = Modifier.height(navBottom + if (short) 36.dp else 44.dp))
+        }
+
+        // Landscape handset (MemLandscape): still ONE card that never scrolls,
+        // split into two columns — title, cover and seal on the left; the
+        // words, the evidence line and Go to album on the right.
+        MemoryCardLayout.Landscape -> Row(
+            modifier = modifier
+                .yoinPageContentWidth(MemoryLandscapeCardWidth)
+                .padding(start = 20.dp, end = 20.dp, top = 8.dp, bottom = navBottom + 12.dp),
+            horizontalArrangement = Arrangement.spacedBy(32.dp),
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                titleBlock()
+                Spacer(modifier = Modifier.height(12.dp))
+                sealRow()
+            }
+            Column(modifier = Modifier.weight(1f)) {
+                words(4)
+                Spacer(modifier = Modifier.weight(1f))
+                footnotes()
+                Spacer(modifier = Modifier.height(8.dp))
+                actions(true)
+            }
+        }
+
+        // Wide full window (MemDesktop): a spread — identity and a big seal on
+        // the left page, the whole review on the right, and the notes back on
+        // the card face (there's room for them here).
+        MemoryCardLayout.Spread -> Row(
+            modifier = modifier
+                .yoinPageContentWidth(MemorySpreadMaxWidth)
+                .padding(start = 32.dp, end = 32.dp, top = 24.dp, bottom = navBottom + 56.dp),
+            horizontalArrangement = Arrangement.spacedBy(56.dp),
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                titleBlock()
+                Spacer(modifier = Modifier.height(32.dp))
+                sealRow()
+                Spacer(modifier = Modifier.weight(1f))
+                footnotes()
+            }
+            Column(modifier = Modifier.weight(1f)) {
+                words(MemorySpreadReviewLines)
+                if (memory.writings.isNotEmpty()) {
+                    Spacer(modifier = Modifier.height(20.dp))
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        memory.writings.take(MemorySpreadNoteCount).forEach { writing ->
+                            MemoryNoteCard(
+                                writing = writing,
+                                containerColor = memoryColorScheme.surfaceContainerHigh,
+                            )
+                        }
+                    }
+                }
+                Spacer(modifier = Modifier.weight(1f))
+                actions(memory.writings.size > MemorySpreadNoteCount)
+            }
+        }
     }
 
     if (showAllNotes) {
@@ -1052,6 +1198,61 @@ private fun MemorySealCard(
 
 private val MemorySealSize = 148.dp
 
+/** 16:9 and landscape seal (MemShort / MemLandscape). */
+private val MemorySealSizeCompact = 112.dp
+
+/** The spread's big seal (MemDesktop). */
+private val MemorySealSizeSpread = 190.dp
+
+/** Below this the portrait card face overflows (mem2: ~765dp without its air). */
+private val MemoryCardComfortHeight = 765.dp
+
+private val MemoryLandscapeCardWidth = 760.dp
+private val MemorySpreadMaxWidth = 1160.dp
+private const val MemorySpreadReviewLines = 14
+private const val MemorySpreadNoteCount = 3
+
+/** How one memory card lays out in this window (断点交接 §6). */
+private enum class MemoryCardLayout {
+    Portrait,
+    Short,
+    Landscape,
+    Spread,
+}
+
+private fun memoryCardLayoutFor(windowInfo: YoinWindowInfo, height: Dp): MemoryCardLayout = when {
+    windowInfo.isCompactHeight -> MemoryCardLayout.Landscape
+    windowInfo.layoutMode == LayoutMode.Wide -> MemoryCardLayout.Spread
+    height < MemoryCardComfortHeight -> MemoryCardLayout.Short
+    else -> MemoryCardLayout.Portrait
+}
+
+/**
+ * One card on its own, laid out for the current window exactly as the deck
+ * would — for the debug screenshot harness and previews (the deck itself
+ * needs a live [MemoriesViewModel]).
+ */
+@Composable
+internal fun MemoryCardStandalone(memory: MemoryEntry, modifier: Modifier = Modifier) {
+    BoxWithConstraints(
+        modifier = modifier
+            .fillMaxSize()
+            .padding(top = WindowInsets.systemBars.asPaddingValues().calculateTopPadding() + 12.dp)
+            .windowInsetsPadding(WindowInsets.displayCutout.only(WindowInsetsSides.Horizontal)),
+    ) {
+        MemorySealCard(
+            memory = memory,
+            layout = memoryCardLayoutFor(LocalYoinWindowInfo.current, maxHeight),
+            seedColor = MaterialTheme.colorScheme.primary,
+            isSyncingToNeoDb = false,
+            onSyncToNeoDb = {},
+            onPlayCover = {},
+            onOpenAlbum = {},
+            modifier = Modifier.fillMaxSize(),
+        )
+    }
+}
+
 /**
  * 评分印章：三态同几何（rule 2 零跳变）。
  * 实心 = 用户亲手落的专辑评分（knockout 数字）；描边 = 逐曲均分（机器算的，
@@ -1064,6 +1265,7 @@ private val MemorySealSize = 148.dp
 private fun MemorySeal(
     memory: MemoryEntry,
     scheme: ColorScheme,
+    size: Dp = MemorySealSize,
 ) {
     val sealShape = MaterialShapes.Cookie12Sided.toShape()
     val reduceMotion = LocalMotionProfile.current == MotionProfile.AdaptiveReduced
@@ -1082,14 +1284,16 @@ private fun MemorySeal(
         animated
     }
 
+    // Numbers scale with the seal (112 on 16:9, 190 on the spread).
+    val sealScale = size / MemorySealSize
     Box(
-        modifier = Modifier.size(MemorySealSize),
+        modifier = Modifier.size(size),
         contentAlignment = Alignment.Center,
     ) {
         // aurora halo 的近似：印章中心的一圈同调色光晕。
         Box(
             modifier = Modifier
-                .requiredSize(MemorySealSize * 1.7f)
+                .requiredSize(size * 1.7f)
                 .background(
                     brush = Brush.radialGradient(
                         colors = listOf(
@@ -1141,8 +1345,8 @@ private fun MemorySeal(
                 Text(
                     text = memory.scoreText,
                     style = MaterialTheme.typography.displayLarge.copy(
-                        fontSize = 44.sp,
-                        lineHeight = 48.sp,
+                        fontSize = 44.sp * sealScale,
+                        lineHeight = 48.sp * sealScale,
                         fontWeight = FontWeight.SemiBold,
                     ).withTabularFigures(),
                     color = onSeal,

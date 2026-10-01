@@ -3,6 +3,8 @@ package com.gpo.yoin.ui.detail
 import android.os.Build
 import android.os.SystemClock
 import android.view.View
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
 import androidx.compose.runtime.Composable
@@ -21,9 +23,13 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalInspectionMode
 import androidx.compose.ui.platform.LocalView
+import androidx.window.embedding.ActivityEmbeddingController
 import com.gpo.yoin.YoinApplication
 import com.gpo.yoin.ui.component.BottomBarShadowPageCoverEffect
+import com.gpo.yoin.ui.component.YoinLoadingIndicator
 import com.gpo.yoin.ui.navigation.back.BackMotionTokens
+import com.gpo.yoin.ui.theme.YoinMotion
+import com.gpo.yoin.ui.theme.YoinMotionRole
 import kotlin.coroutines.resume
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
@@ -64,9 +70,18 @@ import kotlinx.coroutines.withTimeoutOrNull
  * buffer reached SurfaceFlinger. Now Playing and detail→detail pushes use the same readiness
  * boundary without the shell's 200ms bar hold. Plays once per Activity
  * (rememberSaveable), so rotation doesn't replay it.
+ *
+ * Pages opened into an Activity Embedding pane skip all of it: the system
+ * animates the pane (the split opening, or a push inside it), so a second
+ * slide would stack on the platform's, and the page mounts at once — an
+ * unmounted translucent pane would show nothing behind it.
  */
 @Stable
-class DetailEnterIntroState internal constructor(alreadyPlayed: Boolean) {
+class DetailEnterIntroState internal constructor(
+    alreadyPlayed: Boolean,
+    /** Opened into a split pane: mounted at once, so its spinner waits (see [DetailLoadingIndicator]). */
+    internal val mountedEarly: Boolean = false,
+) {
     internal val slide = Animatable(if (alreadyPlayed) 0f else 1f)
     var pageVisible by mutableStateOf(alreadyPlayed)
         internal set
@@ -77,6 +92,47 @@ class DetailEnterIntroState internal constructor(alreadyPlayed: Boolean) {
 
     internal fun notePageMounted() {
         pageMounted = true
+    }
+}
+
+/**
+ * Whether this page opened into a split pane: the launch said so
+ * ([DETAIL_EXTRA_EMBEDDED]) or the extension already reports the pane.
+ */
+@Composable
+private fun rememberDetailOpenedInSplit(): Boolean {
+    val activity = LocalContext.current.findActivityOrNull()
+    return remember(activity) {
+        activity != null && (
+            activity.intent.getBooleanExtra(DETAIL_EXTRA_EMBEDDED, false) ||
+                ActivityEmbeddingController.getInstance(activity).isActivityEmbedded(activity)
+            )
+    }
+}
+
+/**
+ * A detail page's loading affordance. Gated pages mount Loading only after the
+ * visual-ready window has already passed, so they show it at once; a page
+ * opened into a split pane mounts immediately (nothing behind it to show
+ * instead), so its spinner waits out that same window — a cached page fades
+ * from the bare page surface straight to content, never through a spinner flash.
+ */
+@Composable
+internal fun DetailLoadingIndicator(intro: DetailEnterIntroState, modifier: Modifier = Modifier) {
+    var show by remember { mutableStateOf(!intro.mountedEarly) }
+    LaunchedEffect(Unit) {
+        if (!show) {
+            delay(VISUAL_READY_TIMEOUT_MS)
+            show = true
+        }
+    }
+    AnimatedVisibility(
+        visible = show,
+        enter = YoinMotion.fadeIn(role = YoinMotionRole.Standard),
+        exit = ExitTransition.None,
+        modifier = modifier,
+    ) {
+        YoinLoadingIndicator()
     }
 }
 
@@ -97,8 +153,9 @@ fun rememberDetailEnterIntro(
 ): DetailEnterIntroState {
     // Previews render the settled end state directly (no enter animation).
     val inspectionMode = LocalInspectionMode.current
-    var played by rememberSaveable { mutableStateOf(inspectionMode) }
-    val state = remember { DetailEnterIntroState(played) }
+    val openedInSplit = rememberDetailOpenedInSplit()
+    var played by rememberSaveable { mutableStateOf(inspectionMode || openedInSplit) }
+    val state = remember { DetailEnterIntroState(played, mountedEarly = openedInSplit && !inspectionMode) }
     val context = LocalContext.current
     val store = remember(context) {
         (context.applicationContext as YoinApplication).container.experienceSessionStore

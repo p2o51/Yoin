@@ -28,6 +28,10 @@ import com.gpo.yoin.enableYoinEdgeToEdge
 import com.gpo.yoin.ui.nowplaying.NowPlayingAccessories
 import com.gpo.yoin.ui.nowplaying.NowPlayingOverlayHost
 import com.gpo.yoin.ui.nowplaying.NowPlayingViewModel
+import com.gpo.yoin.ui.nowplaying.ProvideBesidePanelWindowInfo
+import com.gpo.yoin.ui.nowplaying.besideNowPlayingPanel
+import com.gpo.yoin.ui.nowplaying.rememberNowPlayingFrame
+import com.gpo.yoin.ui.nowplaying.rememberNowPlayingPanelInset
 import kotlinx.coroutines.launch
 
 /**
@@ -130,8 +134,13 @@ class ArtistDetailActivity : ComponentActivity() {
 
                 val miniPlayerState by rememberDetailMiniPlayerState(app.container)
                 val miniPlayerProgress by rememberDetailMiniPlayerProgress(app.container)
+                // A Medium window opens Now Playing as a side panel: the page
+                // gives up its width and reads as a handset (断点交接 §3.4).
+                val nowPlayingFrame = rememberNowPlayingFrame(nowPlayingViewModel)
+                val nowPlayingPanel = rememberNowPlayingPanelInset(nowPlayingFrame, nowPlayingOpen)
 
                 Box(modifier = Modifier.fillMaxSize()) {
+                ProvideBesidePanelWindowInfo(nowPlayingPanel) {
                 ArtistDetailScreen(
                     uiState = uiState,
                     // Toolbar arrow routes through the dispatcher so it plays the
@@ -179,8 +188,11 @@ class ArtistDetailActivity : ComponentActivity() {
 
                     miniPlayerState = miniPlayerState,
                     playbackProgress = miniPlayerProgress,
-                    modifier = Modifier.fillMaxSize(),
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .besideNowPlayingPanel(nowPlayingPanel),
                 )
+                }
 
                 NowPlayingOverlayHost(
 

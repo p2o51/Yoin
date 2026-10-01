@@ -66,18 +66,20 @@ import androidx.compose.ui.unit.dp
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.ReleaseType
 import com.gpo.yoin.data.source.ServiceFeatureCatalog
+import com.gpo.yoin.ui.component.BarExtraAction
 import com.gpo.yoin.ui.component.DetailErrorState
 import com.gpo.yoin.ui.component.ExpressiveMediaArtwork
 import com.gpo.yoin.ui.component.ExpressivePageBackground
 import com.gpo.yoin.ui.component.ExpressiveSegmentedTabs
 import com.gpo.yoin.ui.component.YoinDropdownMenuItem
-import com.gpo.yoin.ui.component.YoinLoadingIndicator
 import com.gpo.yoin.ui.component.formatTrackDuration
 import com.gpo.yoin.ui.component.yoinPageContentWidth
 import com.gpo.yoin.ui.experience.LayoutMode
 import com.gpo.yoin.ui.experience.LocalMotionProfile
 import com.gpo.yoin.ui.experience.LocalYoinWindowInfo
+import com.gpo.yoin.ui.experience.ProvidePreviewWindow
 import com.gpo.yoin.ui.experience.MotionProfile
+import com.gpo.yoin.ui.experience.rememberIsActivityEmbedded
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
 import com.gpo.yoin.ui.navigation.YoinSection
 import com.gpo.yoin.ui.theme.ProvideYoinMotionRole
@@ -165,6 +167,14 @@ fun ArtistDetailScreen(
 
     val provider = content?.artistId?.let { MediaId.parseOrNull(it)?.provider }
     val supportsFollow = content != null && ServiceFeatureCatalog.forProvider(provider).supportsFavorites
+    // Breakpoints (断点交接 §5): height first, then width. From Medium up the
+    // hero carries the name and Follow, so the header keeps only back — the
+    // name appears once. A split pane gets Play / Share in the hero.
+    val windowInfo = LocalYoinWindowInfo.current
+    val landscape = windowInfo.isCompactHeight
+    val heroCarriesIdentity = !landscape &&
+        windowInfo.layoutMode != LayoutMode.Compact && windowInfo.layoutMode != LayoutMode.Tabletop
+    val embedded = rememberIsActivityEmbedded()
 
     ProvideYoinMotionRole(role = YoinMotionRole.Expressive) {
         // In-window predictive back (AOSP cross-activity math): the whole
@@ -197,7 +207,11 @@ fun ArtistDetailScreen(
                         .detailBackCollapseTransform(backCollapse)
                         .detailEnterIntroTransform(enterIntro),
                 ) {
-                    Column(modifier = Modifier.fillMaxSize()) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .detailChromeBand(),
+                    ) {
                         // The Album / Playlist compact header; persists across
                         // Loading/Error/Content (it carries the back affordance).
                         ArtistTopHeader(
@@ -205,7 +219,8 @@ fun ArtistDetailScreen(
                             activeSpan = content?.let { artistActiveSpan(it.albums) },
                             titleColor = titleColor,
                             accentText = accentText,
-                            showFollow = supportsFollow,
+                            showIdentity = !heroCarriesIdentity,
+                            showFollow = supportsFollow && !heroCarriesIdentity,
                             following = content?.isStarred == true,
                             followLabels = artistFollowLabels(provider),
                             onBackClick = onBackClick,
@@ -233,7 +248,7 @@ fun ArtistDetailScreen(
                                             .navigationBarsPadding(),
                                         contentAlignment = Alignment.Center,
                                     ) {
-                                        YoinLoadingIndicator()
+                                        DetailLoadingIndicator(enterIntro)
                                     }
 
                                 // No onBack: the persistent header carries it.
@@ -251,6 +266,32 @@ fun ArtistDetailScreen(
                                         colors = colors,
                                         onAlbumClick = onAlbumClick,
                                         onMostPlayedClick = onMostPlayedClick,
+                                        follow = if (supportsFollow) {
+                                            {
+                                                ArtistFollowStar(
+                                                    following = state.isStarred,
+                                                    labels = artistFollowLabels(provider),
+                                                    activeTint = titleColor,
+                                                    onToggle = onToggleFollow,
+                                                    showLabel = true,
+                                                )
+                                            }
+                                        } else {
+                                            null
+                                        },
+                                        heroActions = if (embedded) {
+                                            {
+                                                DetailHeroActions(
+                                                    playContainer = titleColor,
+                                                    playContent = scheme.onPrimary,
+                                                    onPlay = onPlay,
+                                                    onShuffle = onShuffle,
+                                                    onShare = onShare,
+                                                )
+                                            }
+                                        } else {
+                                            null
+                                        },
                                     )
                             }
                         }
@@ -287,6 +328,13 @@ fun ArtistDetailScreen(
                 } else {
                     { 0f }
                 },
+                promotable = listOf(
+                    BarExtraAction(
+                        icon = Icons.Rounded.IosShare,
+                        label = "Share",
+                        onClick = onShare,
+                    ),
+                ),
                 modifier = Modifier.align(Alignment.BottomCenter),
             ) { dismissMenu ->
                 if (showOpenInSpotify) {
@@ -305,18 +353,6 @@ fun ArtistDetailScreen(
                         contentPadding = PaddingValues(horizontal = 20.dp, vertical = 14.dp),
                     )
                 }
-                YoinDropdownMenuItem(
-                    text = "Share",
-                    onClick = {
-                        dismissMenu()
-                        onShare()
-                    },
-                    leadingIcon = {
-                        Icon(Icons.Rounded.IosShare, contentDescription = null, modifier = Modifier.size(22.dp))
-                    },
-                    textStyle = MaterialTheme.typography.titleMedium,
-                    contentPadding = PaddingValues(horizontal = 20.dp, vertical = 14.dp),
-                )
             }
         }
     }
@@ -351,6 +387,8 @@ private fun ArtistTopHeader(
     onBackClick: () -> Unit,
     onToggleFollow: () -> Unit,
     modifier: Modifier = Modifier,
+    // False from Medium up: the wide hero carries name and Follow (§5).
+    showIdentity: Boolean = true,
 ) {
     Row(
         modifier = modifier
@@ -363,19 +401,21 @@ private fun ArtistTopHeader(
         // Air between the button's touch halo and the title cluster (Album parity).
         Spacer(modifier = Modifier.width(14.dp))
         Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = artistName,
-                style = MaterialTheme.typography.headlineSmall,
-                color = titleColor,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Text(
-                text = if (activeSpan != null) "Artist  ·  $activeSpan" else "Artist",
-                style = MaterialTheme.typography.bodyMedium,
-                color = accentText,
-                maxLines = 1,
-            )
+            if (showIdentity) {
+                Text(
+                    text = artistName,
+                    style = MaterialTheme.typography.headlineSmall,
+                    color = titleColor,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    text = if (activeSpan != null) "Artist  ·  $activeSpan" else "Artist",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = accentText,
+                    maxLines = 1,
+                )
+            }
         }
         if (showFollow) {
             ArtistFollowStar(
@@ -398,6 +438,8 @@ private fun ArtistFollowStar(
     labels: Pair<String, String>,
     activeTint: Color,
     onToggle: () -> Unit,
+    // The wide hero names the action beside the star (Follow / Favorite).
+    showLabel: Boolean = false,
 ) {
     val haptics = rememberYoinHaptics()
     val tint by animateColorAsState(
@@ -413,22 +455,28 @@ private fun ArtistFollowStar(
         bounce.animateTo(if (following) 1.25f else 1.15f, tween(durationMillis = 90))
         bounce.animateTo(1f, bounceSpec)
     }
-    IconButton(
-        onClick = {
-            tapPulse++
-            if (following) haptics.performTick() else haptics.performConfirm()
-            onToggle()
-        },
-    ) {
-        Icon(
-            imageVector = if (following) Icons.Filled.Star else Icons.Filled.StarBorder,
-            contentDescription = if (following) labels.second else labels.first,
-            tint = tint,
-            modifier = Modifier.graphicsLayer {
-                scaleX = bounce.value
-                scaleY = bounce.value
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        if (showLabel) {
+            AlbumSectionLabel(text = if (following) labels.second else labels.first)
+            Spacer(modifier = Modifier.width(4.dp))
+        }
+        IconButton(
+            onClick = {
+                tapPulse++
+                if (following) haptics.performTick() else haptics.performConfirm()
+                onToggle()
             },
-        )
+        ) {
+            Icon(
+                imageVector = if (following) Icons.Filled.Star else Icons.Filled.StarBorder,
+                contentDescription = if (following) labels.second else labels.first,
+                tint = tint,
+                modifier = Modifier.graphicsLayer {
+                    scaleX = bounce.value
+                    scaleY = bounce.value
+                },
+            )
+        }
     }
 }
 
@@ -461,12 +509,18 @@ private fun ArtistBody(
     colors: ArtistPageColors,
     onAlbumClick: (String) -> Unit,
     onMostPlayedClick: (Int) -> Unit,
+    follow: (@Composable () -> Unit)? = null,
+    heroActions: (@Composable () -> Unit)? = null,
 ) {
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
         val maxW = maxWidth
-        // PANE-relative (an embedded activity sees its own container).
-        val layoutMode = LocalYoinWindowInfo.current.layoutMode
-        val wide = layoutMode != LayoutMode.Compact && layoutMode != LayoutMode.Tabletop
+        // PANE-relative (an embedded activity sees its own container). Height
+        // first: a landscape handset turns the hero sideways (§5).
+        val windowInfo = LocalYoinWindowInfo.current
+        val landscape = windowInfo.isCompactHeight
+        val layoutMode = windowInfo.layoutMode
+        val desktop = !landscape && layoutMode == LayoutMode.Wide
+        val wide = !landscape && layoutMode != LayoutMode.Compact && layoutMode != LayoutMode.Tabletop
         val navBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
         val scrollState = rememberScrollState()
         // The pinwheel turns with the page as it scrolls (read at draw time —
@@ -476,70 +530,177 @@ private fun ArtistBody(
             ArtistPinwheelRestDegrees +
                 if (turnWithScroll) scrollState.value * ArtistPinwheelDegreesPerPx else 0f
         }
+        val mostPlayedVisible = content.listening?.mostPlayed?.isNotEmpty() == true
 
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .verticalScroll(scrollState)
-                .padding(bottom = 120.dp + navBottom),
+                // Landscape keeps the group in the cutout band: only the nav
+                // bar needs clearing at the bottom.
+                .padding(bottom = (if (landscape) 24.dp else 120.dp) + navBottom),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            if (wide) {
-                ArtistWideHero(
+            when {
+                landscape -> ArtistLandscapeHero(
                     content = content,
                     heroUrl = heroUrl,
                     colors = colors,
                     pinwheelTurn = pinwheelTurn,
-                    modifier = Modifier.yoinPageContentWidth(),
+                    onMostPlayedClick = onMostPlayedClick,
                 )
+                wide -> ArtistWideHero(
+                    content = content,
+                    heroUrl = heroUrl,
+                    colors = colors,
+                    pinwheelTurn = pinwheelTurn,
+                    desktop = desktop,
+                    follow = follow,
+                    heroActions = heroActions,
+                    modifier = if (desktop) Modifier else Modifier.yoinPageContentWidth(),
+                )
+                else -> {
+                    // Portrait on the pinwheel's hub; the meta row below takes the
+                    // Album hero's cover-block width so the two pages line up.
+                    val portraitSize = minOf(maxW * 0.52f, 216.dp)
+                    ArtistPinwheelHero(
+                        heroUrl = heroUrl,
+                        artistName = content.artistName,
+                        colors = colors,
+                        portraitSize = portraitSize,
+                        pinwheelTurn = pinwheelTurn,
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    ArtistHeroMeta(
+                        content = content,
+                        colors = colors,
+                        modifier = Modifier.width(minOf(maxW * 0.74f, 300.dp)),
+                    )
+                    if (heroActions != null) {
+                        Spacer(modifier = Modifier.height(16.dp))
+                        heroActions()
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(if (landscape) 20.dp else 32.dp))
+
+            if (desktop) {
+                // Wide full window (ArtistDesktop): Most Played (480) beside
+                // the discography, under the hero.
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 40.dp),
+                    horizontalArrangement = Arrangement.spacedBy(48.dp),
+                ) {
+                    if (mostPlayedVisible) {
+                        ArtistMostPlayed(
+                            listening = content.listening,
+                            onClick = onMostPlayedClick,
+                            modifier = Modifier.width(ArtistDesktopMostPlayedWidth),
+                        )
+                    }
+                    ArtistDiscography(
+                        albums = content.albums,
+                        accent = colors.accent,
+                        onAlbumClick = onAlbumClick,
+                        modifier = Modifier.weight(1f),
+                    )
+                }
             } else {
-                // Portrait on the pinwheel's hub; the meta row below takes the
-                // Album hero's cover-block width so the two pages line up.
-                val portraitSize = minOf(maxW * 0.52f, 216.dp)
-                ArtistPinwheelHero(
-                    heroUrl = heroUrl,
-                    artistName = content.artistName,
-                    colors = colors,
-                    portraitSize = portraitSize,
-                    pinwheelTurn = pinwheelTurn,
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-                ArtistHeroMeta(
-                    content = content,
-                    colors = colors,
-                    modifier = Modifier.width(minOf(maxW * 0.74f, 300.dp)),
-                )
-            }
+                val sections = Modifier
+                    .then(if (landscape) Modifier.fillMaxWidth() else Modifier.yoinPageContentWidth())
+                    .padding(horizontal = 16.dp)
+                // Landscape shows Most Played beside the portrait already.
+                if (!landscape) {
+                    // Arrives with the personal layer; grows in instead of popping.
+                    AnimatedVisibility(
+                        visible = mostPlayedVisible,
+                        enter = YoinMotion.fadeIn(role = YoinMotionRole.Expressive) +
+                            expandVertically(animationSpec = YoinMotion.spatialSpring()),
+                        exit = YoinMotion.fadeOut(role = YoinMotionRole.Expressive) +
+                            shrinkVertically(animationSpec = YoinMotion.spatialSpring()),
+                    ) {
+                        ArtistMostPlayed(
+                            listening = content.listening,
+                            onClick = onMostPlayedClick,
+                            modifier = sections.padding(bottom = 32.dp),
+                        )
+                    }
+                }
 
-            Spacer(modifier = Modifier.height(32.dp))
-
-            val sections = Modifier
-                .yoinPageContentWidth()
-                .padding(horizontal = 16.dp)
-            // Arrives with the personal layer; grows in instead of popping.
-            AnimatedVisibility(
-                visible = content.listening?.mostPlayed?.isNotEmpty() == true,
-                enter = YoinMotion.fadeIn(role = YoinMotionRole.Expressive) +
-                    expandVertically(animationSpec = YoinMotion.spatialSpring()),
-                exit = YoinMotion.fadeOut(role = YoinMotionRole.Expressive) +
-                    shrinkVertically(animationSpec = YoinMotion.spatialSpring()),
-            ) {
-                ArtistMostPlayed(
-                    listening = content.listening,
-                    onClick = onMostPlayedClick,
-                    modifier = sections.padding(bottom = 32.dp),
+                ArtistDiscography(
+                    albums = content.albums,
+                    accent = colors.accent,
+                    onAlbumClick = onAlbumClick,
+                    modifier = sections,
                 )
             }
-
-            ArtistDiscography(
-                albums = content.albums,
-                accent = colors.accent,
-                onAlbumClick = onAlbumClick,
-                modifier = sections,
-            )
         }
     }
 }
+
+private val ArtistDesktopMostPlayedWidth = 480.dp
+
+/**
+ * Landscape handset (ArtistLandscape): the portrait turned sideways — the
+ * 220dp circle on its pinwheel on the left (arms kept whole and clear of the
+ * capsule band), Last Play | Avg. and Most Played on the right. The name is
+ * in the header row only; the discography follows below with the page.
+ */
+@Composable
+private fun ArtistLandscapeHero(
+    content: ArtistDetailUiState.Content,
+    heroUrl: String?,
+    colors: ArtistPageColors,
+    pinwheelTurn: () -> Float,
+    onMostPlayedClick: (Int) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            // The arms reach ~137dp from the hub: this keeps them whole — clear
+            // of the capsule band on the left and of the scroll edge on top.
+            .padding(start = 40.dp, end = 24.dp, top = 28.dp),
+        horizontalArrangement = Arrangement.spacedBy(48.dp),
+    ) {
+        Box(modifier = Modifier.size(ArtistLandscapePortraitSize)) {
+            ArtistPinwheelBackground(
+                colors = colors.arms,
+                lineColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.65f),
+                portraitSize = ArtistLandscapePortraitSize,
+                rotationDegrees = pinwheelTurn,
+                modifier = Modifier.fillMaxSize(),
+                markScale = ArtistPinwheelLandscapeScale,
+            )
+            ArtistPortrait(heroUrl = heroUrl, artistName = content.artistName, modifier = Modifier.fillMaxSize())
+        }
+        Column(modifier = Modifier.weight(1f)) {
+            ArtistHeroMeta(
+                content = content,
+                colors = colors,
+                modifier = Modifier
+                    .widthIn(max = 300.dp)
+                    .fillMaxWidth(),
+            )
+            if (content.listening?.mostPlayed?.isNotEmpty() == true) {
+                Spacer(modifier = Modifier.height(20.dp))
+                ArtistMostPlayed(
+                    listening = content.listening,
+                    onClick = onMostPlayedClick,
+                )
+            }
+        }
+    }
+}
+
+private val ArtistLandscapePortraitSize = 220.dp
+
+// Arms reach ≈0.46 × portrait × scale from the hub: 1.35 keeps them whole
+// inside the 40dp gutter, never under the capsules.
+private const val ArtistPinwheelLandscapeScale = 1.35f
 
 // ---------------------------------------------------------------------------
 // Hero
@@ -650,8 +811,11 @@ private fun ArtistHeroMeta(
 }
 
 /**
- * >= Medium hero: the pinwheel portrait on the left, the identity column —
- * name, meta line and the same Last Play | Avg. row — on the right.
+ * >= Medium hero (ArtistFold / ArtistDesktop): the pinwheel portrait on the
+ * left (180 Medium, 220 Wide), the identity column on the right — the ONLY
+ * place the name appears here (the header keeps just back), the meta line,
+ * Follow, and the Last Play | Avg. row. Play lives in the bottom bar, not
+ * here; a split pane (no bar) adds [heroActions].
  */
 @Composable
 private fun ArtistWideHero(
@@ -660,12 +824,22 @@ private fun ArtistWideHero(
     colors: ArtistPageColors,
     pinwheelTurn: () -> Float,
     modifier: Modifier = Modifier,
+    desktop: Boolean = false,
+    follow: (@Composable () -> Unit)? = null,
+    heroActions: (@Composable () -> Unit)? = null,
 ) {
-    val portraitSize = 200.dp
+    val portraitSize = if (desktop) 220.dp else 180.dp
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = ArtistWideHeroGap),
+            .padding(
+                // The boards' portrait insets (ArtistFold 24, ArtistDesktop
+                // 64): with the matching mark scale below they keep the
+                // pinwheel's left arm inside the pane — a split pane's edge
+                // clips it otherwise.
+                horizontal = if (desktop) 64.dp else 24.dp,
+                vertical = ArtistWideHeroGap,
+            ),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(ArtistWideHeroGap),
     ) {
@@ -678,7 +852,7 @@ private fun ArtistWideHero(
                 portraitSize = portraitSize,
                 rotationDegrees = pinwheelTurn,
                 modifier = Modifier.fillMaxSize(),
-                markScale = ArtistPinwheelWideScale,
+                markScale = if (desktop) ArtistPinwheelWideScale else ArtistPinwheelMediumScale,
             )
             ArtistPortrait(heroUrl = heroUrl, artistName = content.artistName, modifier = Modifier.fillMaxSize())
         }
@@ -688,17 +862,22 @@ private fun ArtistWideHero(
         ) {
             Text(
                 text = content.artistName,
-                style = MaterialTheme.typography.headlineMedium,
-                color = MaterialTheme.colorScheme.onSurface,
+                style = if (desktop) MaterialTheme.typography.displayMedium else MaterialTheme.typography.headlineLarge,
+                color = colors.accent,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
             )
             Text(
-                text = artistReleaseCountLabel(content.albums.size),
+                text = listOfNotNull(
+                    "Artist",
+                    artistReleaseCountLabel(content.albums.size),
+                    artistActiveSpan(content.albums),
+                ).joinToString("  ·  "),
                 style = MaterialTheme.typography.titleSmall.copy(fontFamily = FontFamily.Monospace),
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            Spacer(modifier = Modifier.height(10.dp))
+            follow?.invoke()
+            Spacer(modifier = Modifier.height(4.dp))
             ArtistHeroMeta(
                 content = content,
                 colors = colors,
@@ -708,6 +887,10 @@ private fun ArtistWideHero(
                     .widthIn(max = 320.dp)
                     .fillMaxWidth(),
             )
+            if (heroActions != null) {
+                Spacer(modifier = Modifier.height(12.dp))
+                heroActions()
+            }
         }
     }
 }
@@ -723,6 +906,10 @@ private const val ArtistPinwheelDegreesPerPx = 0.06f
 // its right; the arms reach ≈0.78 × portrait from the hub, so the row's gap
 // and vertical room keep them clear of that text.
 private const val ArtistPinwheelWideScale = 1.7f
+
+// Medium's 180dp portrait sits 24dp in: at this scale the arms reach ≈19dp
+// past the portrait, so they stay inside the pane.
+private const val ArtistPinwheelMediumScale = 1.5f
 private val ArtistWideHeroGap = 56.dp
 
 private fun artistReleaseCountLabel(count: Int): String =
@@ -1061,7 +1248,29 @@ private fun releaseMetaLine(album: ArtistAlbum): String {
 @Preview(showBackground = true, backgroundColor = 0xFF1C1B1F)
 @Composable
 private fun ArtistDetailScreenContentPreview() {
-    YoinTheme {
+    YoinTheme { ArtistDetailPreviewContent() }
+}
+
+@Preview(name = "Landscape handset", widthDp = 844, heightDp = 390, showBackground = true)
+@Composable
+private fun ArtistDetailLandscapePreview() {
+    YoinTheme { ProvidePreviewWindow(widthDp = 844, heightDp = 390) { ArtistDetailPreviewContent() } }
+}
+
+@Preview(name = "Medium fold", widthDp = 690, heightDp = 840, showBackground = true)
+@Composable
+private fun ArtistDetailFoldPreview() {
+    YoinTheme { ProvidePreviewWindow(widthDp = 690, heightDp = 840) { ArtistDetailPreviewContent() } }
+}
+
+@Preview(name = "Wide full window", widthDp = 1440, heightDp = 900, showBackground = true)
+@Composable
+private fun ArtistDetailDesktopPreview() {
+    YoinTheme { ProvidePreviewWindow(widthDp = 1440, heightDp = 900) { ArtistDetailPreviewContent() } }
+}
+
+@Composable
+private fun ArtistDetailPreviewContent() {
         ArtistDetailScreen(
             uiState = ArtistDetailUiState.Content(
                 artistId = "artist-1",
@@ -1086,5 +1295,4 @@ private fun ArtistDetailScreenContentPreview() {
             onAlbumClick = {},
             onRetry = {},
         )
-    }
 }

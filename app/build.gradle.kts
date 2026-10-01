@@ -114,6 +114,9 @@ android {
             // of throwing "Method ... not mocked"; tests that need real Android
             // behaviour use Robolectric explicitly.
             isReturnDefaultValues = true
+            // Robolectric Compose UI tests (breakpoint fit checks) need the
+            // merged manifest's ComponentActivity and the app's resources.
+            isIncludeAndroidResources = true
         }
     }
 
@@ -222,6 +225,8 @@ dependencies {
     testImplementation(libs.coroutines.test)
     testImplementation(libs.androidx.test.core)
     testImplementation(libs.robolectric)
+    testImplementation(composeBom)
+    testImplementation(libs.compose.ui.test.junit4)
     androidTestImplementation(libs.compose.ui.test.junit4)
     debugImplementation(libs.compose.ui.test.manifest)
 }

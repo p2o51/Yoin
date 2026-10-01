@@ -197,6 +197,9 @@ internal fun SettingsExpandableItem(
     expanded: Boolean,
     onExpandedChange: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
+    // False on a feature's own page (list-detail right pane): always open,
+    // no chevron, the header row is just the heading.
+    collapsible: Boolean = true,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val chevronRotation by animateFloatAsState(
@@ -209,18 +212,22 @@ internal fun SettingsExpandableItem(
             icon = icon,
             title = title,
             summary = summary,
-            onClick = { onExpandedChange(!expanded) },
-            trailing = {
-                Icon(
-                    imageVector = Icons.Rounded.ExpandMore,
-                    contentDescription = if (expanded) "Collapse" else "Expand",
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.graphicsLayer { rotationZ = chevronRotation },
-                )
+            onClick = if (collapsible) ({ onExpandedChange(!expanded) }) else null,
+            trailing = if (collapsible) {
+                {
+                    Icon(
+                        imageVector = Icons.Rounded.ExpandMore,
+                        contentDescription = if (expanded) "Collapse" else "Expand",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.graphicsLayer { rotationZ = chevronRotation },
+                    )
+                }
+            } else {
+                null
             },
         )
         AnimatedVisibility(
-            visible = expanded,
+            visible = expanded || !collapsible,
             enter = expandVertically(
                 animationSpec = YoinMotion.spatialSpring(),
                 expandFrom = Alignment.Top,

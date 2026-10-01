@@ -22,9 +22,11 @@ import com.gpo.yoin.ui.component.ProvideBottomBarShadowHost
 import com.gpo.yoin.ui.component.LocalPlaybackWaveState
 import com.gpo.yoin.ui.experience.LocalMotionCapabilityProvider
 import com.gpo.yoin.ui.experience.LocalMotionProfile
+import com.gpo.yoin.ui.experience.LocalShellChromeInsets
 import com.gpo.yoin.ui.experience.LocalYoinWindowInfo
 import com.gpo.yoin.ui.experience.MotionCapabilityProvider
 import com.gpo.yoin.ui.experience.MotionProfile
+import com.gpo.yoin.ui.experience.rememberShellChromeInsets
 import com.gpo.yoin.ui.experience.rememberYoinWindowInfo
 import com.gpo.yoin.ui.theme.YoinTheme
 
@@ -121,14 +123,17 @@ private fun YoinAppEnvironment(content: @Composable () -> Unit) {
     }
 
     // Window size + fold posture, observed once per Activity. Drives the
-    // Compact / Wide / Tabletop render dimension (orthogonal to stage mode).
+    // Compact / Wide / Tabletop render dimension (orthogonal to stage mode)
+    // and where the Button Group lives (ShellChromeForm).
     val windowInfo = rememberYoinWindowInfo()
+    val shellChromeInsets = rememberShellChromeInsets(windowInfo)
 
     CompositionLocalProvider(
         LocalPlaybackWaveState provides app?.container?.experienceSessionStore?.playbackWave,
         LocalMotionCapabilityProvider provides motionCapabilityProvider,
         LocalMotionProfile provides motionProfile,
         LocalYoinWindowInfo provides windowInfo,
+        LocalShellChromeInsets provides shellChromeInsets,
     ) {
         content()
     }

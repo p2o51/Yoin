@@ -24,6 +24,8 @@ import androidx.compose.foundation.gestures.draggable
 import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.calculateEndPadding
+import androidx.compose.foundation.layout.calculateStartPadding
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.offset
@@ -49,6 +51,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
@@ -70,7 +73,7 @@ import com.gpo.yoin.data.model.Track
 import com.gpo.yoin.data.repository.ActivityContext
 import com.gpo.yoin.data.source.Capability
 import com.gpo.yoin.ui.component.AddToPlaylistSheet
-import com.gpo.yoin.ui.component.YoinButtonGroup
+import com.gpo.yoin.ui.component.YoinChromeGroup
 import com.gpo.yoin.ui.detail.hasOverlayHidingBottomBar
 import com.gpo.yoin.ui.detail.AlbumDetailActivity
 import com.gpo.yoin.ui.detail.ArtistDetailActivity
@@ -88,7 +91,10 @@ import com.gpo.yoin.ui.library.LibraryViewModel
 import com.gpo.yoin.ui.experience.DetailBackPhase
 import com.gpo.yoin.ui.experience.HomeSurface
 import com.gpo.yoin.ui.experience.LayoutMode
+import com.gpo.yoin.ui.experience.LocalShellChromeInsets
 import com.gpo.yoin.ui.experience.LocalYoinWindowInfo
+import com.gpo.yoin.ui.experience.ShellChromeForm
+import com.gpo.yoin.ui.experience.hasChromeHandoff
 import com.gpo.yoin.ui.experience.isDualPaneNowPlaying
 import com.gpo.yoin.ui.experience.rememberRevealState
 import com.gpo.yoin.ui.memories.MemoryEntityType
@@ -106,6 +112,11 @@ import com.gpo.yoin.ui.nowplaying.NowPlayingStageMode
 import com.gpo.yoin.ui.nowplaying.NowPlayingScreen
 import com.gpo.yoin.ui.nowplaying.NowPlayingAccessories
 import com.gpo.yoin.ui.nowplaying.NowPlayingOverlayHost
+import com.gpo.yoin.ui.nowplaying.NowPlayingPresentation
+import com.gpo.yoin.ui.nowplaying.ProvideBesidePanelWindowInfo
+import com.gpo.yoin.ui.nowplaying.besideNowPlayingPanel
+import com.gpo.yoin.ui.nowplaying.rememberNowPlayingFrame
+import com.gpo.yoin.ui.nowplaying.rememberNowPlayingPanelInset
 import com.gpo.yoin.ui.nowplaying.NowPlayingViewModel
 import com.gpo.yoin.ui.nowplaying.rememberNowPlayingStageProgress
 import com.gpo.yoin.ui.theme.YoinMotion
@@ -141,14 +152,16 @@ fun YoinNavHost(
         // hand-off. PANE-relative LayoutMode 在这里读是对的：它描述用户此刻
         // 看到的 shell 窗格；分栏里的窗格读 Compact，但 detailSplitEligible()
         // 先命中 Embedded，轮不到它。
-        val shellLayoutMode = LocalYoinWindowInfo.current.layoutMode
+        val shellWindowInfo = LocalYoinWindowInfo.current
         val detailLaunchMode = {
             when {
                 detailSplitEligible() -> DetailLaunchMode.Embedded
-                // Medium+ 全窗 shell：rail 在场、没有底部 bar，detail 的返回
-                // scrub 不许朝一根不存在的 bar 做 morph → 纯推入。
-                shellLayoutMode != LayoutMode.Compact -> DetailLaunchMode.PlainPush
-                else -> DetailLaunchMode.FullChoreography
+                // 竖屏底栏（Compact、非 Tabletop）与手机横屏的分离式组：两个
+                // 窗口的 Button Group 逐像素同位，完整交接。居中底栏（Medium+
+                // 整窗）的详情形态换了排布（外提动作 + 定宽 pill），不做跨窗口
+                // morph → 纯推入；Tabletop 照旧纯推入。
+                shellWindowInfo.hasChromeHandoff -> DetailLaunchMode.FullChoreography
+                else -> DetailLaunchMode.PlainPush
             }
         }
         val nowPlayingViewModel: NowPlayingViewModel = viewModel(
@@ -320,13 +333,30 @@ private fun YoinShell(
     // The full VisualizerData stream stays out of composition entirely — the
     // Now Playing overlay only derives a Boolean spectrum-presence from it.
     val playbackSignal by app.container.audioVisualizerManager.playbackSignal.collectAsState()
-    val layoutMode = LocalYoinWindowInfo.current.layoutMode
-    val dualPaneNowPlaying = LocalYoinWindowInfo.current.isDualPaneNowPlaying
-    // Medium+ 全窗 shell 用左侧 rail；Compact 与 Tabletop 保持底部 bar（合页
-    // 上下分屏依赖 bar 的位置）。门按 doctrine 写成 != Compact（禁止
-    // == Medium）。分栏里本 Activity 读到的是窗格宽（Compact）→ 自动回落到
-    // bar，正确。
-    val chromeUsesRail = layoutMode != LayoutMode.Compact && layoutMode != LayoutMode.Tabletop
+    val windowInfo = LocalYoinWindowInfo.current
+    val dualPaneNowPlaying = windowInfo.isDualPaneNowPlaying
+    // One Button Group, three forms (断点交接 §1): portrait bar, edge-split
+    // capsules for short windows, centred capped bar from Medium up. The old
+    // Medium+ left rail is gone — tall windows no longer ration height.
+    val chromeForm = windowInfo.chromeForm
+    val edgeSplit = chromeForm == ShellChromeForm.EdgeSplit
+    val shellChromeInsets = LocalShellChromeInsets.current
+    val shellLayoutDirection = LocalLayoutDirection.current
+    val edgeContentPadding = if (edgeSplit) {
+        Modifier.padding(
+            start = shellChromeInsets.calculateStartPadding(shellLayoutDirection),
+            end = shellChromeInsets.calculateEndPadding(shellLayoutDirection),
+        )
+    } else {
+        Modifier
+    }
+    // Now Playing's frame in this window: on a Medium full window the pill
+    // opens a phone-width side panel and the shell content keeps working
+    // beside it, narrower and read as a handset (断点交接 §3.4 / §14.3).
+    val npFrame = rememberNowPlayingFrame(nowPlayingViewModel)
+    val npPanel = rememberNowPlayingPanelInset(npFrame, showNowPlaying)
+    val npSharesCover = npFrame.presentation == NowPlayingPresentation.Phone ||
+        npFrame.presentation == NowPlayingPresentation.Tabletop
     val memoriesReveal = rememberRevealState(
         initialFraction = if (homeSurface == HomeSurface.Memories) 0f else 1f,
     )
@@ -432,14 +462,15 @@ private fun YoinShell(
     }
     val armDetailChrome = {
         val splitTakesIt = shellHostActivity?.let(::isDetailSplitEligible) == true
-        // INVARIANT: cross-window bar choreography exists ONLY when the shell
-        // is Compact, has a bottom bar, and will be fully covered. Medium+
-        // shows the rail（没有 bar 可 morph → PlainPush），分栏永远盖不住
-        // shell（→ Embedded）—— 两者都绝不许 arm，与 detailLaunchMode 的三值
-        // 选择一一对应。
+        // INVARIANT: cross-window bar choreography exists ONLY when both
+        // windows draw the SAME group geometry and the shell will be fully
+        // covered: the portrait bar (Compact, not Tabletop) or the edge-split
+        // capsules (hasChromeHandoff). The centred bar's detail pose differs
+        // (→ PlainPush) and a split never covers the shell (→ Embedded) —
+        // neither may arm; one-to-one with detailLaunchMode's choice.
         if (!experienceSessionStore.state.value.hasOverlayHidingBottomBar &&
             !splitTakesIt &&
-            layoutMode == LayoutMode.Compact
+            windowInfo.hasChromeHandoff
         ) {
             experienceSessionStore.prepareDetailEnterSlide()
             experienceSessionStore.setDetailChromeActive(true)
@@ -577,70 +608,179 @@ private fun YoinShell(
         }
     }
 
-    Box(modifier = modifier.fillMaxSize()) {
-        AnimatedContent<YoinSection>(
-            targetState = selectedSection,
-            transitionSpec = {
-                YoinMotion.fadeIn(role = YoinMotionRole.Standard) togetherWith
-                    YoinMotion.fadeOut(role = YoinMotionRole.Standard)
-            },
-            // AOSP "entering target": while a detail page's predictive back
-            // collapses its card above this (now-visible) window, the shell
-            // CONTENT sits 96dp left, scales in sync and follows the finger,
-            // then settles on commit. The bar below stays put — it is the
-            // static twin under the detail window's bar.
-            modifier = Modifier
-                .fillMaxSize()
-                // Rail chrome: the section content shifts right so the rail
-                // owns the left edge. Compact/Tabletop 取空 Modifier ——
-                // `then(Modifier)` 原样返回 receiver，Compact 的修饰链逐字节
-                // 不变。
-                .then(
-                    if (chromeUsesRail) {
-                        Modifier.padding(start = YoinNavRailWidth)
-                    } else {
-                        Modifier
-                    },
-                )
-                .then(
-                    rememberDetailBackEnteringModifier(
-                        experienceSessionStore,
-                        experienceSession.detailChromeActive,
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background),
+    ) {
+        ProvideBesidePanelWindowInfo(npPanel) {
+            AnimatedContent<YoinSection>(
+                targetState = selectedSection,
+                transitionSpec = {
+                    YoinMotion.fadeIn(role = YoinMotionRole.Standard) togetherWith
+                        YoinMotion.fadeOut(role = YoinMotionRole.Standard)
+                },
+                // AOSP "entering target": while a detail page's predictive back
+                // collapses its card above this (now-visible) window, the shell
+                // CONTENT sits 96dp left, scales in sync and follows the finger,
+                // then settles on commit. The bar below stays put — it is the
+                // static twin under the detail window's bar.
+                modifier = Modifier
+                    .fillMaxSize()
+                    .besideNowPlayingPanel(npPanel)
+                    .then(
+                        rememberDetailBackEnteringModifier(
+                            experienceSessionStore,
+                            experienceSession.detailChromeActive,
+                        ),
                     ),
-                ),
-            label = "shellSection",
-        ) { section: YoinSection ->
-            when (section) {
-                YoinSection.HOME -> {
-                    val homeBgColor = MaterialTheme.colorScheme.background
+                label = "shellSection",
+            ) { section: YoinSection ->
+                when (section) {
+                    YoinSection.HOME -> {
+                        val homeBgColor = MaterialTheme.colorScheme.background
 
-                    Box(
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(homeBgColor),
+                        ) {
+                            HomeScreen(
+                                viewModel = homeViewModel,
+                                isPlaying = isPlaying,
+                                playbackSignal = if (isPlaying) playbackSignal else 0f,
+                                activeSongId = currentTrack?.id?.toString(),
+                                suppressBackHandling = showNowPlaying,
+                                onNavigateToSettings = { navigateToSettingsFromShell(null) },
+                                onNavigateToMemories = {
+                                    experienceSessionStore.setHomeSurface(HomeSurface.Memories)
+                                },
+                                onOpenMemoryFocus = { sessionId ->
+                                    // Park the focus, then open — MemoriesViewModel's
+                                    // observer builds the deck stopped on this album.
+                                    experienceSessionStore.requestMemoriesFocus(sessionId)
+                                    experienceSessionStore.setHomeSurface(HomeSurface.Memories)
+                                },
+                                memoriesRevealState = memoriesReveal,
+                                onCommitMemoriesReveal = {
+                                    experienceSessionStore.setHomeSurface(HomeSurface.Memories)
+                                },
+                                onAlbumClick = navigateToAlbumFromShell,
+                                onArtistClick = { artistId -> navigateToArtistFromShell(artistId, null) },
+                                onPlaylistClick = { playlistId -> navigateToPlaylistFromShell(playlistId, null) },
+                                onSongClick = { song ->
+                                    app.container.profileManager.activeSource.value?.let { source ->
+                                        app.container.playbackManager.playSingle(
+                                            track = song,
+                                            source = source,
+                                        )
+                                    }
+                                },
+                                sharedTransitionScope = sharedTransitionScope,
+                                animatedVisibilityScope = shellAnimatedVisibilityScope,
+                                // Edge-split: the feed starts past the capsules (84dp)
+                                // and stops short of a right cutout; the background
+                                // above stays full-bleed. Memories below is NOT
+                                // shifted — the group hides there, it only clears
+                                // the cutout band (§6).
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .then(edgeContentPadding),
+                            )
+
+                            if (memoriesMounted) {
+                                BackHandler(enabled = shellBackOwner == ShellBackOwner.Memories) {
+                                    closeMemories()
+                                }
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .graphicsLayer {
+                                            translationY = -memoriesReveal.fraction * size.height
+                                        },
+                                ) {
+                                    MemoriesScreen(
+                                        viewModel = memoriesViewModel,
+                                        revealState = memoriesReveal,
+                                        onDismissed = closeMemories,
+                                        // 印章卡唯一的导航出口：走 shell 的标准
+                                        // detail 前进推入（隐藏底栏不参与 morph 交接）。
+                                        // 不 dismiss —— Memories 留在原地，back
+                                        // 从专辑页回来时它还在。
+                                        onOpenAlbum = { memory ->
+                                            // MemoryEntry.entityId is the RAW id
+                                            // (the coordinator strips the provider
+                                            // prefix); AlbumDetailViewModel parses a
+                                            // full MediaId — recombine or parse throws
+                                            // and the page lands on "Couldn't load
+                                            // this album." (memory → goto album).
+                                            if (canLaunchDetail()) {
+                                                detailLaunchPending = true
+                                                try {
+                                                    // Keep the deck mounted. Its hidden bottom bar must
+                                                    // not participate in a shell chrome hand-off.
+                                                    armDetailChrome()
+                                                    onNavigateToAlbum(
+                                                        "${memory.entityProvider}:${memory.entityId}",
+                                                        null,
+                                                    )
+                                                } catch (error: RuntimeException) {
+                                                    detailLaunchPending = false
+                                                    experienceSessionStore.setDetailChromeActive(false)
+                                                    throw error
+                                                }
+                                            }
+                                        },
+                                        onNavigateToNeoDbSettings = {
+                                            navigateToSettingsFromShell("neodb")
+                                        },
+                                        onPlayMemoryTrack = { memory, trackIndex ->
+                                            val queue = memory.playbackSongs
+                                            if (queue.isNotEmpty()) {
+                                                val startIndex = trackIndex.coerceIn(0, queue.lastIndex)
+                                                val selectedSong = queue[startIndex]
+                                                val activityContext = memory.toPlaybackActivityContext()
+
+                                                if (memory.entityType == MemoryEntityType.SONG || queue.size <= 1) {
+                                                    app.container.profileManager.activeSource.value?.let { source ->
+                                                        app.container.playbackManager.playSingle(
+                                                            track = selectedSong,
+                                                            source = source,
+                                                            activityContext = activityContext,
+                                                        )
+                                                    }
+                                                } else {
+                                                    app.container.profileManager.activeSource.value?.let { source ->
+                                                        app.container.playbackManager.play(
+                                                            tracks = queue,
+                                                            startIndex = startIndex,
+                                                            source = source,
+                                                            activityContext = activityContext,
+                                                        )
+                                                    }
+                                                }
+                                            }
+                                        },
+                                        modifier = Modifier.fillMaxSize(),
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    YoinSection.LIBRARY -> Box(
                         modifier = Modifier
                             .fillMaxSize()
-                            .background(homeBgColor),
+                            .background(MaterialTheme.colorScheme.background),
                     ) {
-                        HomeScreen(
-                            viewModel = homeViewModel,
+                        LibraryScreen(
+                            viewModel = libraryViewModel,
+                            activeSongId = currentTrack?.id?.toString(),
                             isPlaying = isPlaying,
                             playbackSignal = if (isPlaying) playbackSignal else 0f,
-                            activeSongId = currentTrack?.id?.toString(),
-                            suppressBackHandling = showNowPlaying,
                             onNavigateToSettings = { navigateToSettingsFromShell(null) },
-                            onNavigateToMemories = {
-                                experienceSessionStore.setHomeSurface(HomeSurface.Memories)
-                            },
-                            onOpenMemoryFocus = { sessionId ->
-                                // Park the focus, then open — MemoriesViewModel's
-                                // observer builds the deck stopped on this album.
-                                experienceSessionStore.requestMemoriesFocus(sessionId)
-                                experienceSessionStore.setHomeSurface(HomeSurface.Memories)
-                            },
-                            memoriesRevealState = memoriesReveal,
-                            onCommitMemoriesReveal = {
-                                experienceSessionStore.setHomeSurface(HomeSurface.Memories)
-                            },
-                            onAlbumClick = navigateToAlbumFromShell,
                             onArtistClick = { artistId -> navigateToArtistFromShell(artistId, null) },
+                            onAlbumClick = { albumId -> navigateToAlbumFromShell(albumId, null) },
                             onPlaylistClick = { playlistId -> navigateToPlaylistFromShell(playlistId, null) },
                             onSongClick = { song ->
                                 app.container.profileManager.activeSource.value?.let { source ->
@@ -650,136 +790,37 @@ private fun YoinShell(
                                     )
                                 }
                             },
-                            sharedTransitionScope = sharedTransitionScope,
-                            animatedVisibilityScope = shellAnimatedVisibilityScope,
-                            modifier = Modifier.fillMaxSize(),
+                            onFavoriteSongClick = { song, queue, startIndex ->
+                                val safeQueue = queue.ifEmpty { listOf(song) }
+                                val safeIndex = startIndex.takeIf { it in safeQueue.indices }
+                                    ?: safeQueue.indexOfFirst { it.id == song.id }.coerceAtLeast(0)
+                                app.container.profileManager.activeSource.value?.let { source ->
+                                    app.container.playbackManager.play(
+                                        tracks = safeQueue,
+                                        startIndex = safeIndex,
+                                        source = source,
+                                        activityContext = ActivityContext.LikedSongs(
+                                            coverArtId = safeQueue
+                                                .firstOrNull()
+                                                ?.let(::trackCoverArtId),
+                                        ),
+                                    )
+                                }
+                            },
+                            onAddSongToPlaylist = { song ->
+                                nowPlayingViewModel.requestAddTracksToPlaylist(listOf(song.id))
+                            },
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .then(edgeContentPadding),
                         )
-
-                        if (memoriesMounted) {
-                            BackHandler(enabled = shellBackOwner == ShellBackOwner.Memories) {
-                                closeMemories()
-                            }
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .graphicsLayer {
-                                        translationY = -memoriesReveal.fraction * size.height
-                                    },
-                            ) {
-                                MemoriesScreen(
-                                    viewModel = memoriesViewModel,
-                                    revealState = memoriesReveal,
-                                    onDismissed = closeMemories,
-                                    // 印章卡唯一的导航出口：走 shell 的标准
-                                    // detail 前进推入（隐藏底栏不参与 morph 交接）。
-                                    // 不 dismiss —— Memories 留在原地，back
-                                    // 从专辑页回来时它还在。
-                                    onOpenAlbum = { memory ->
-                                        // MemoryEntry.entityId is the RAW id
-                                        // (the coordinator strips the provider
-                                        // prefix); AlbumDetailViewModel parses a
-                                        // full MediaId — recombine or parse throws
-                                        // and the page lands on "Couldn't load
-                                        // this album." (memory → goto album).
-                                        if (canLaunchDetail()) {
-                                            detailLaunchPending = true
-                                            try {
-                                                // Keep the deck mounted. Its hidden bottom bar must
-                                                // not participate in a shell chrome hand-off.
-                                                armDetailChrome()
-                                                onNavigateToAlbum(
-                                                    "${memory.entityProvider}:${memory.entityId}",
-                                                    null,
-                                                )
-                                            } catch (error: RuntimeException) {
-                                                detailLaunchPending = false
-                                                experienceSessionStore.setDetailChromeActive(false)
-                                                throw error
-                                            }
-                                        }
-                                    },
-                                    onNavigateToNeoDbSettings = {
-                                        navigateToSettingsFromShell("neodb")
-                                    },
-                                    onPlayMemoryTrack = { memory, trackIndex ->
-                                        val queue = memory.playbackSongs
-                                        if (queue.isNotEmpty()) {
-                                            val startIndex = trackIndex.coerceIn(0, queue.lastIndex)
-                                            val selectedSong = queue[startIndex]
-                                            val activityContext = memory.toPlaybackActivityContext()
-
-                                            if (memory.entityType == MemoryEntityType.SONG || queue.size <= 1) {
-                                                app.container.profileManager.activeSource.value?.let { source ->
-                                                    app.container.playbackManager.playSingle(
-                                                        track = selectedSong,
-                                                        source = source,
-                                                        activityContext = activityContext,
-                                                    )
-                                                }
-                                            } else {
-                                                app.container.profileManager.activeSource.value?.let { source ->
-                                                    app.container.playbackManager.play(
-                                                        tracks = queue,
-                                                        startIndex = startIndex,
-                                                        source = source,
-                                                        activityContext = activityContext,
-                                                    )
-                                                }
-                                            }
-                                        }
-                                    },
-                                    modifier = Modifier.fillMaxSize(),
-                                )
-                            }
-                        }
                     }
                 }
-
-                YoinSection.LIBRARY -> LibraryScreen(
-                    viewModel = libraryViewModel,
-                    activeSongId = currentTrack?.id?.toString(),
-                    isPlaying = isPlaying,
-                    playbackSignal = if (isPlaying) playbackSignal else 0f,
-                    onNavigateToSettings = { navigateToSettingsFromShell(null) },
-                    onArtistClick = { artistId -> navigateToArtistFromShell(artistId, null) },
-                    onAlbumClick = { albumId -> navigateToAlbumFromShell(albumId, null) },
-                    onPlaylistClick = { playlistId -> navigateToPlaylistFromShell(playlistId, null) },
-                    onSongClick = { song ->
-                        app.container.profileManager.activeSource.value?.let { source ->
-                            app.container.playbackManager.playSingle(
-                                track = song,
-                                source = source,
-                            )
-                        }
-                    },
-                    onFavoriteSongClick = { song, queue, startIndex ->
-                        val safeQueue = queue.ifEmpty { listOf(song) }
-                        val safeIndex = startIndex.takeIf { it in safeQueue.indices }
-                            ?: safeQueue.indexOfFirst { it.id == song.id }.coerceAtLeast(0)
-                        app.container.profileManager.activeSource.value?.let { source ->
-                            app.container.playbackManager.play(
-                                tracks = safeQueue,
-                                startIndex = safeIndex,
-                                source = source,
-                                activityContext = ActivityContext.LikedSongs(
-                                    coverArtId = safeQueue
-                                        .firstOrNull()
-                                        ?.let(::trackCoverArtId),
-                                ),
-                            )
-                        }
-                    },
-                    onAddSongToPlaylist = { song ->
-                        nowPlayingViewModel.requestAddTracksToPlaylist(listOf(song.id))
-                    },
-                    modifier = Modifier.fillMaxSize(),
-                )
             }
         }
 
         // ── Now Playing overlay (scrim + slide-up + back layering) ───────
         NowPlayingOverlayHost(
-
             viewModel = nowPlayingViewModel,
             container = app.container,
             expanded = showNowPlaying,
@@ -795,224 +836,165 @@ private fun YoinShell(
             sharedTransitionScope = sharedTransitionScope,
         )
 
-        // ── Navigation chrome: bottom bar (Compact / Tabletop) ⇄ left rail ─
-        // Simple if/else inside a Crossfade on the effects spring — no shape
-        // morph between the two chromes. On Compact windows the target never
-        // flips, so the bar branch composes exactly as it always has and the
-        // rail code never runs.
+        // ── Navigation chrome: the Button Group in the window's form ──────
+        // Bar forms slide the group fully off-screen BELOW the nav bar when
+        // Now Playing rises: the group carries the nav-bar inset as internal
+        // bottom padding, so a plain slide of `it` (its own height) would
+        // leave it starting part-way up the screen. The edge capsules slide
+        // off to the left instead. A form change (rotate, fold) crossfades.
+        val navBarBottomPx = with(LocalDensity.current) {
+            WindowInsets.navigationBars.getBottom(this)
+        }
+        // NOTE: a dock hand-off (shell → detail morph) deliberately does NOT
+        // touch the bar. The detail window fades in with a group at the exact
+        // same bounds/color, so the true crossfade happens between the two
+        // windows; the real group stays put beneath and is simply there again
+        // on return (including the predictive-back preview).
+        // Cold-launch entrance: start hidden for one frame so the same
+        // slide+fade that plays after a Now Playing dismiss also greets the
+        // app open — the group rises in instead of just being there.
+        var barEntered by remember { mutableStateOf(false) }
+        LaunchedEffect(Unit) { barEntered = true }
         Crossfade(
-            targetState = chromeUsesRail,
+            targetState = chromeForm,
             animationSpec = YoinMotion.effectsSpring(),
-            label = "shellNavChrome",
-        ) { railChrome ->
-            if (railChrome) {
-                // ── Left navigation rail (Medium+ full-window shell) ─────
-                // Mirrors the bar's Now Playing choreography: the rail sits
-                // above NowPlayingOverlayHost in z-order, so it slides off
-                // LEFT while the player owns the window instead of drawing
-                // over the stage. Other overlays are untouched v1: Memories
-                // rises inside the shifted content pane (the rail stays
-                // visible beside it) and snackbars anchor to the full
-                // window, overlapping the rail area.
-                OverlayChromeVisibility(
-                    expanded = showNowPlaying,
+            label = "shellChromeForm",
+        ) { form ->
+            val formIsEdge = form == ShellChromeForm.EdgeSplit
+            OverlayChromeVisibility(
+                // Beside the side panel the group stays: the content it
+                // navigates is still usable (it folds to Home / Library).
+                expanded = showNowPlaying && !npPanel.panelOpen,
 
-                    enter = YoinMotion.fadeIn(role = YoinMotionRole.Standard) +
-                        YoinMotion.slideInHorizontally(role = YoinMotionRole.Standard) { -it },
-                    exit = YoinMotion.fadeOut(role = YoinMotionRole.Standard) +
-                        YoinMotion.slideOutHorizontally(role = YoinMotionRole.Standard) { -it },
-                ) {
-                    // Twin of the bar branch's derivation below (the bar code
-                    // must stay untouched, so the projection is duplicated,
-                    // not hoisted): the 4Hz position tick recomposes only
-                    // this chrome subtree and stops entirely while Now
-                    // Playing is open (this content is disposed). Same
-                    // narrow projection — no new shell-level collector.
-                    val railPlaybackProgress by remember(playbackManager) {
-                        playbackManager.playbackState
-                            .map { state ->
-                                if (state.duration > 0L) {
-                                    (state.position.toFloat() / state.duration).coerceIn(0f, 1f)
-                                } else {
-                                    0f
-                                }
+                enabled = barEntered,
+                enter = YoinMotion.fadeIn(role = YoinMotionRole.Standard) + if (formIsEdge) {
+                    YoinMotion.slideInHorizontally(role = YoinMotionRole.Standard) { -it }
+                } else {
+                    YoinMotion.slideInVertically(role = YoinMotionRole.Standard) { it + navBarBottomPx }
+                },
+                exit = YoinMotion.fadeOut(role = YoinMotionRole.Standard) + if (formIsEdge) {
+                    YoinMotion.slideOutHorizontally(role = YoinMotionRole.Standard) { -it }
+                } else {
+                    YoinMotion.slideOutVertically(role = YoinMotionRole.Standard) { it + navBarBottomPx }
+                },
+            ) {
+                val bgAvScope = this
+                // The mini player's progress is the ONLY shell consumer of the
+                // 4Hz position tick. Derive it inside this chrome subtree so
+                // ticks recompose just this block — and stop entirely while Now
+                // Playing is open (this AnimatedVisibility content is disposed).
+                val playbackProgress by remember(playbackManager) {
+                    playbackManager.playbackState
+                        .map { state ->
+                            if (state.duration > 0L) {
+                                (state.position.toFloat() / state.duration).coerceIn(0f, 1f)
+                            } else {
+                                0f
                             }
-                            .distinctUntilChanged()
-                    }.collectAsState(
-                        initial = remember(playbackManager) {
-                            playbackManager.playbackState.value.let { state ->
-                                if (state.duration > 0L) {
-                                    (state.position.toFloat() / state.duration).coerceIn(0f, 1f)
-                                } else {
-                                    0f
-                                }
+                        }
+                        .distinctUntilChanged()
+                }.collectAsState(
+                    // Seed from the live state, not 0f: this subtree remounts every
+                    // time Now Playing closes, and a 0% first frame reads as a blip.
+                    // Read inside remember so the StateFlow is not touched from
+                    // composition; the seed matters only for that first frame.
+                    initial = remember(playbackManager) {
+                        playbackManager.playbackState.value.let { state ->
+                            if (state.duration > 0L) {
+                                (state.position.toFloat() / state.duration).coerceIn(0f, 1f)
+                            } else {
+                                0f
+                            }
+                        }
+                    },
+                )
+
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .besideNowPlayingPanel(npPanel)
+                        .graphicsLayer {
+                            // Couple the group to the Memories reveal so it
+                            // slides/fades out together with the open gesture
+                            // instead of waiting for the surface flip — down
+                            // for the bar forms, left for the edge capsules.
+                            val hide = (1f - memoriesReveal.fraction).coerceIn(0f, 1f)
+                            alpha = (1f - hide * 1.4f).coerceAtLeast(0f)
+                            if (formIsEdge) {
+                                translationX = -hide * 120.dp.toPx()
+                            } else {
+                                translationY = hide * 120.dp.toPx()
                             }
                         },
-                    )
-                    YoinNavRail(
+                    contentAlignment = Alignment.BottomCenter,
+                ) {
+                    YoinChromeGroup(
+                        form = form,
+                        wide = windowInfo.layoutMode == LayoutMode.Wide,
+                        // The pill became the side panel: the bar keeps only
+                        // the two destinations, centred in the content pane.
+                        navOnly = npPanel.panelOpen,
                         selectedSection = selectedSection,
-                        // Same session mutations as the bar's nav buttons;
-                        // haptics live inside the rail, like the bar's.
-                        onSelectHome = {
+                        // Single settle owner for the group pose: open/restore
+                        // morphs AND the detail-back commit settle (seeded from
+                        // the frozen scrub pose bridged through the store, so the
+                        // dissolve above crossfades onto a matching group).
+                        chromeProgress = rememberShellBarChromeMorph(
+                            experienceSessionStore,
+                            experienceSession.detailChromeActive,
+                        ),
+                        currentTrackId = currentTrack?.id?.toString(),
+                        currentTrackTitle = currentTrack?.title,
+                        currentTrackArtist = currentTrack?.artist,
+                        currentTrackCoverArtUrl = coverArtUrl,
+                        isPlaybackReady = isPlaybackReady,
+                        connectionErrorMessage = playbackConnectionError,
+                        playbackProgress = playbackProgress,
+                        isPlaying = isPlaying,
+                        onHomeClick = {
                             experienceSessionStore.setSelectedSection(YoinSection.HOME)
                             experienceSessionStore.setHomeSurface(HomeSurface.Feed)
+                            // LaunchedEffect(homeSurface) handles the close animation.
                         },
-                        onSelectLibrary = {
+                        onNowPlayingClick = {
+                            dismissMemoriesIfActive()
+                            experienceSessionStore.setNowPlayingExpanded(true)
+                        },
+                        onLibraryClick = {
                             libraryViewModel.showLibraryHome()
                             experienceSessionStore.setSelectedSection(YoinSection.LIBRARY)
                             experienceSessionStore.setHomeSurface(HomeSurface.Feed)
                         },
-                        playbackTrackId = currentTrack?.id?.toString(),
-                        playbackCoverUrl = coverArtUrl,
-                        playbackProgress = railPlaybackProgress,
-                        isPlaying = isPlaying,
-                        connectionErrorMessage = playbackConnectionError,
-                        onOpenNowPlaying = {
-                            dismissMemoriesIfActive()
-                            experienceSessionStore.setNowPlayingExpanded(true)
+                        onLibraryLongClick = {
+                            val scope = if (
+                                app.container.repository.currentProviderId() == MediaId.PROVIDER_SPOTIFY
+                            ) {
+                                LibrarySearchScope.SpotifyGlobal
+                            } else {
+                                LibrarySearchScope.CurrentLibrary
+                            }
+                            libraryViewModel.openSearchShortcut(scope)
+                            experienceSessionStore.setSelectedSection(YoinSection.LIBRARY)
+                            experienceSessionStore.setHomeSurface(HomeSurface.Feed)
+                        },
+                        // Only the full-window phone column (and Tabletop) takes the
+                        // mini-player → cover morph; the side panel, the enlarged
+                        // phone and the two-column player drop it. Leaving the mini
+                        // cover's shared element here would make it a no-peer
+                        // shared element, which the SharedTransitionLayout
+                        // lookahead measures with degenerate constraints — so the
+                        // shell's side is disabled exactly where NP's is.
+                        sharedTransitionScope = if (npSharesCover) {
+                            sharedTransitionScope
+                        } else {
+                            null
+                        },
+                        animatedVisibilityScope = if (npSharesCover) {
+                            bgAvScope
+                        } else {
+                            null
                         },
                     )
-                }
-            } else {
-                // ── Bottom navigation ────────────────────────────────────
-                // Slide the bottom group fully off-screen, BELOW the nav bar: the group
-                // carries the nav-bar inset as internal bottom padding, so a plain
-                // slide of `it` (its own height) leaves it starting part-way up the
-                // screen rather than off the edge. Adding the inset to the offset makes
-                // it enter from truly off-screen while keeping its resting position and
-                // edge-to-edge transparency intact.
-                val navBarBottomPx = with(LocalDensity.current) {
-                    WindowInsets.navigationBars.getBottom(this)
-                }
-                // NOTE: a dock hand-off (shell → detail morph) deliberately does NOT
-                // touch the bar. The detail window fades in with a pill at the bar's
-                // exact bounds/color, so the true crossfade bar→pill happens between
-                // the two windows; the real bar stays put beneath and is simply there
-                // again on return (including the predictive-back preview).
-                // Cold-launch entrance: start hidden for one frame so the same
-                // slide+fade that plays after a Now Playing dismiss also greets the
-                // app open — the bar rises in instead of just being there.
-                var barEntered by remember { mutableStateOf(false) }
-                LaunchedEffect(Unit) { barEntered = true }
-                OverlayChromeVisibility(
-                    expanded = showNowPlaying,
-
-                    enabled = barEntered,
-                    enter = YoinMotion.fadeIn(role = YoinMotionRole.Standard) +
-                        YoinMotion.slideInVertically(role = YoinMotionRole.Standard) { it + navBarBottomPx },
-                    exit = YoinMotion.fadeOut(role = YoinMotionRole.Standard) +
-                        YoinMotion.slideOutVertically(role = YoinMotionRole.Standard) { it + navBarBottomPx },
-                ) {
-                    val bgAvScope = this
-                    // The mini player's progress ring is the ONLY shell consumer of the
-                    // 4Hz position tick. Derive it inside this bottom-nav subtree so
-                    // ticks recompose just this block — and stop entirely while Now
-                    // Playing is open (this AnimatedVisibility content is disposed).
-                    val playbackProgress by remember(playbackManager) {
-                        playbackManager.playbackState
-                            .map { state ->
-                                if (state.duration > 0L) {
-                                    (state.position.toFloat() / state.duration).coerceIn(0f, 1f)
-                                } else {
-                                    0f
-                                }
-                            }
-                            .distinctUntilChanged()
-                    }.collectAsState(
-                        // Seed from the live state, not 0f: this subtree remounts every
-                        // time Now Playing closes, and a 0% first frame reads as a blip.
-                        // Read inside remember so the StateFlow is not touched from
-                        // composition; the seed matters only for that first frame.
-                        initial = remember(playbackManager) {
-                            playbackManager.playbackState.value.let { state ->
-                                if (state.duration > 0L) {
-                                    (state.position.toFloat() / state.duration).coerceIn(0f, 1f)
-                                } else {
-                                    0f
-                                }
-                            }
-                        },
-                    )
-
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .graphicsLayer {
-                                // Couple the mini player to the Memories reveal so it
-                                // slides/fades out together with the open gesture
-                                // instead of waiting for the surface flip.
-                                val hide = (1f - memoriesReveal.fraction).coerceIn(0f, 1f)
-                                alpha = (1f - hide * 1.4f).coerceAtLeast(0f)
-                                translationY = hide * 120.dp.toPx()
-                            },
-                        contentAlignment = Alignment.BottomCenter,
-                    ) {
-                        YoinButtonGroup(
-                            selectedSection = selectedSection,
-                            // Single settle owner for the bar pose: open/restore
-                            // morphs AND the detail-back commit settle (seeded from
-                            // the frozen scrub pose bridged through the store, so the
-                            // dissolve above crossfades onto a matching bar).
-                            chromeProgress = rememberShellBarChromeMorph(
-                                experienceSessionStore,
-                                experienceSession.detailChromeActive,
-                            ),
-                            currentTrackId = currentTrack?.id?.toString(),
-                            currentTrackTitle = currentTrack?.title,
-                            currentTrackArtist = currentTrack?.artist,
-                            currentTrackCoverArtUrl = coverArtUrl,
-                            isPlaybackReady = isPlaybackReady,
-                            connectionErrorMessage = playbackConnectionError,
-                            playbackProgress = playbackProgress,
-                            isPlaying = isPlaying,
-                            onHomeClick = {
-                                experienceSessionStore.setSelectedSection(YoinSection.HOME)
-                                experienceSessionStore.setHomeSurface(HomeSurface.Feed)
-                                // LaunchedEffect(homeSurface) handles the close animation.
-                            },
-                            onNowPlayingClick = {
-                                dismissMemoriesIfActive()
-                                experienceSessionStore.setNowPlayingExpanded(true)
-                            },
-                            onLibraryClick = {
-                                libraryViewModel.showLibraryHome()
-                                experienceSessionStore.setSelectedSection(YoinSection.LIBRARY)
-                                experienceSessionStore.setHomeSurface(HomeSurface.Feed)
-                            },
-                            onLibraryLongClick = {
-                                val scope = if (
-                                    app.container.repository.currentProviderId() == MediaId.PROVIDER_SPOTIFY
-                                ) {
-                                    LibrarySearchScope.SpotifyGlobal
-                                } else {
-                                    LibrarySearchScope.CurrentLibrary
-                                }
-                                libraryViewModel.openSearchShortcut(scope)
-                                experienceSessionStore.setSelectedSection(YoinSection.LIBRARY)
-                                experienceSessionStore.setHomeSurface(HomeSurface.Feed)
-                            },
-                            // In dual-pane NP there is NO mini-player → cover morph (the
-                            // two-column player drops the cover shared element). Leaving
-                            // the mini cover's shared element here makes it a no-peer
-                            // shared element, which the SharedTransitionLayout lookahead
-                            // measures with degenerate constraints and crashes M3
-                            // ButtonGroup. Semantic flip 2026-07-27: was `== Wide`; the
-                            // hazard follows WidePlayingContent, which now renders from
-                            // Medium up, so disable the shell's shared elements wherever
-                            // it does (isDualPaneNowPlaying). Tabletop keeps its scopes
-                            // exactly as before the flip.
-                            sharedTransitionScope = if (dualPaneNowPlaying) {
-                                null
-                            } else {
-                                sharedTransitionScope
-                            },
-                            animatedVisibilityScope = if (dualPaneNowPlaying) {
-                                null
-                            } else {
-                                bgAvScope
-                            },
-                        )
-                    }
                 }
             }
         }

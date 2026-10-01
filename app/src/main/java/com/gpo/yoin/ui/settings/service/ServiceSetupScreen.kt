@@ -24,6 +24,14 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.displayCutout
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.union
+import androidx.compose.foundation.layout.windowInsetsPadding
+import com.gpo.yoin.ui.experience.LocalYoinWindowInfo
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.rounded.Check
@@ -198,6 +206,74 @@ fun ServiceSetupContent(
                 snackbarHost = { SnackbarHost(snackbarHostState) { Snackbar(it) } },
             ) { innerPadding ->
                 val navBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+                val connectGroup: @Composable () -> Unit = {
+                    when (state.service) {
+                        SetupService.Subsonic -> SubsonicConnectGroup(
+                            state = state,
+                            onTest = onTestSubsonic,
+                            onSave = onSaveSubsonic,
+                        )
+                        SetupService.Spotify -> SpotifyConnectGroup(
+                            state = state,
+                            focusClientId = focusClientId,
+                            onSaveClientId = onSaveSpotifyClientId,
+                            onConnect = onConnectSpotify,
+                        )
+                        SetupService.AppleMusic -> SettingsGroup(title = "Account") {
+                            appleMusicContent()
+                        }
+                    }
+                }
+                if (LocalYoinWindowInfo.current.isCompactHeight) {
+                    // Landscape handset (SetupLandscape, 断点交接 §7): the left
+                    // column stays put — back, hero, what you'll need — so the
+                    // keyboard never scrolls the service away; the right column
+                    // scrolls with the form FIRST and "What you get" after it.
+                    Row(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(innerPadding)
+                            .windowInsetsPadding(
+                                WindowInsets.displayCutout
+                                    .union(WindowInsets.navigationBars)
+                                    .only(WindowInsetsSides.Horizontal),
+                            )
+                            .imePadding(),
+                        horizontalArrangement = Arrangement.spacedBy(32.dp),
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .weight(0.42f)
+                                .fillMaxHeight()
+                                .padding(start = 16.dp, top = 4.dp),
+                            verticalArrangement = Arrangement.spacedBy(20.dp),
+                        ) {
+                            ServiceHero(
+                                intro = intro,
+                                title = heroTitle,
+                                tagline = if (state.isManaging) intro.name else intro.tagline,
+                                compactTitle = true,
+                            )
+                            if (!state.isManaging) {
+                                RequirementsGroup(intro.requirements)
+                            }
+                        }
+                        Column(
+                            modifier = Modifier
+                                .weight(0.58f)
+                                .fillMaxHeight()
+                                .verticalScroll(rememberScrollState())
+                                .padding(end = 16.dp, top = 4.dp, bottom = 24.dp + navBottom),
+                            verticalArrangement = Arrangement.spacedBy(28.dp),
+                        ) {
+                            connectGroup()
+                            if (!state.isManaging) {
+                                HighlightsGroup(intro)
+                            }
+                        }
+                    }
+                    return@Scaffold
+                }
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
@@ -225,22 +301,7 @@ fun ServiceSetupContent(
                         HighlightsGroup(intro)
                         RequirementsGroup(intro.requirements)
                     }
-                    when (state.service) {
-                        SetupService.Subsonic -> SubsonicConnectGroup(
-                            state = state,
-                            onTest = onTestSubsonic,
-                            onSave = onSaveSubsonic,
-                        )
-                        SetupService.Spotify -> SpotifyConnectGroup(
-                            state = state,
-                            focusClientId = focusClientId,
-                            onSaveClientId = onSaveSpotifyClientId,
-                            onConnect = onConnectSpotify,
-                        )
-                        SetupService.AppleMusic -> SettingsGroup(title = "Account") {
-                            appleMusicContent()
-                        }
-                    }
+                    connectGroup()
                 }
             }
         }

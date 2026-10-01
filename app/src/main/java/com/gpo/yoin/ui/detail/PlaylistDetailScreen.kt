@@ -13,9 +13,13 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
@@ -29,6 +33,7 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.IosShare
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.LibraryMusic
@@ -71,12 +76,12 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.lerp
+import com.gpo.yoin.ui.component.BarExtraAction
 import com.gpo.yoin.ui.component.DetailErrorState
 import com.gpo.yoin.ui.component.ExpressiveMediaArtwork
 import com.gpo.yoin.ui.component.ExpressivePageBackground
 import com.gpo.yoin.ui.component.YoinDropdownMenu
 import com.gpo.yoin.ui.component.YoinDropdownMenuItem
-import com.gpo.yoin.ui.component.YoinLoadingIndicator
 import com.gpo.yoin.ui.component.formatTotalDuration
 import com.gpo.yoin.ui.component.formatTrackDuration
 import com.gpo.yoin.ui.component.rememberStagedReveal
@@ -88,6 +93,8 @@ import com.gpo.yoin.ui.component.stagedBeat
 import com.gpo.yoin.ui.component.yoinPageContentWidth
 import com.gpo.yoin.ui.experience.LayoutMode
 import com.gpo.yoin.ui.experience.LocalYoinWindowInfo
+import com.gpo.yoin.ui.experience.ProvidePreviewWindow
+import com.gpo.yoin.ui.experience.rememberIsActivityEmbedded
 import com.gpo.yoin.ui.experience.rememberRevealState
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
 import com.gpo.yoin.ui.navigation.YoinSection
@@ -115,6 +122,7 @@ fun PlaylistDetailScreen(
     onRetry: () -> Unit,
     onRename: (name: String) -> Unit = {},
     onDelete: () -> Unit = {},
+    onShare: () -> Unit = {},
     isPlaying: Boolean = false,
     playbackSignal: Float = 0f,
     onOpenNowPlaying: () -> Unit = {},
@@ -154,6 +162,8 @@ fun PlaylistDetailScreen(
     val stackColors = listOf(stackBack, stackMiddle, stackFront)
 
     val accentColor = rememberDetailPageAccent(content?.coverArtUrl)
+    // A split-pane detail has no bottom bar (断点交接 §2.3): Play / Share in the hero.
+    val embedded = rememberIsActivityEmbedded()
     ProvideYoinMotionRole(role = YoinMotionRole.Expressive) {
         // In-window predictive back (AOSP cross-activity math): the whole page
         // — background included — collapses as one card over the LIVE window
@@ -185,7 +195,11 @@ fun PlaylistDetailScreen(
                         .detailBackCollapseTransform(backCollapse)
                         .detailEnterIntroTransform(enterIntro),
                 ) {
-                    Column(modifier = Modifier.fillMaxSize()) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .detailChromeBand(),
+                    ) {
                         // The header persists across Loading/Error/Content (it
                         // carries the back affordance); only the body crossfades.
                         PlaylistTopHeader(
@@ -220,7 +234,7 @@ fun PlaylistDetailScreen(
                                             .navigationBarsPadding(),
                                         contentAlignment = Alignment.Center,
                                     ) {
-                                        YoinLoadingIndicator()
+                                        DetailLoadingIndicator(enterIntro)
                                     }
                                 }
 
@@ -237,6 +251,19 @@ fun PlaylistDetailScreen(
                                         content = state,
                                         stackColors = stackColors,
                                         onSongClick = onSongClick,
+                                        heroActions = if (embedded) {
+                                            {
+                                                DetailHeroActions(
+                                                    playContainer = titleColor,
+                                                    playContent = headerScheme.onPrimary,
+                                                    onPlay = onPlayAllClick,
+                                                    onShuffle = onShufflePlay,
+                                                    onShare = onShare,
+                                                )
+                                            }
+                                        } else {
+                                            null
+                                        },
                                     )
                             }
                         }
@@ -274,6 +301,13 @@ fun PlaylistDetailScreen(
                 } else {
                     { 0f }
                 },
+                promotable = listOf(
+                    BarExtraAction(
+                        icon = Icons.Rounded.IosShare,
+                        label = "Share",
+                        onClick = onShare,
+                    ),
+                ),
                 modifier = Modifier.align(Alignment.BottomCenter),
             )
         }
@@ -460,12 +494,28 @@ private fun PlaylistDetailContent(
     content: PlaylistDetailUiState.Content,
     stackColors: List<Color>,
     onSongClick: (songId: String) -> Unit,
+    heroActions: (@Composable () -> Unit)? = null,
 ) {
-    val layoutMode = LocalYoinWindowInfo.current.layoutMode
-    if (layoutMode != LayoutMode.Compact && layoutMode != LayoutMode.Tabletop) {
-        PlaylistMediumOverview(content = content, onSongClick = onSongClick)
-    } else {
-        PlaylistPullUpOverview(
+    // Same breakpoints as the Album (断点交接 §5): height first — a landscape
+    // handset turns the hero sideways and keeps the pull-up — then width.
+    val windowInfo = LocalYoinWindowInfo.current
+    val layoutMode = windowInfo.layoutMode
+    when {
+        windowInfo.isCompactHeight -> PlaylistPullUpOverview(
+            content = content,
+            stackColors = stackColors,
+            onSongClick = onSongClick,
+            landscape = true,
+        )
+        layoutMode == LayoutMode.Wide -> PlaylistWideOverview(
+            content = content,
+            stackColors = stackColors,
+            heroActions = heroActions,
+            onSongClick = onSongClick,
+        )
+        layoutMode != LayoutMode.Compact && layoutMode != LayoutMode.Tabletop ->
+            PlaylistMediumOverview(content = content, heroActions = heroActions, onSongClick = onSongClick)
+        else -> PlaylistPullUpOverview(
             content = content,
             stackColors = stackColors,
             onSongClick = onSongClick,
@@ -473,11 +523,84 @@ private fun PlaylistDetailContent(
     }
 }
 
+// Wide full window: the Album's identity column (cover 360 on its stacked V,
+// Length | Owner) beside the full list (max 800).
+@Composable
+private fun PlaylistWideOverview(
+    content: PlaylistDetailUiState.Content,
+    stackColors: List<Color>,
+    heroActions: (@Composable () -> Unit)?,
+    onSongClick: (songId: String) -> Unit,
+) {
+    val listState = rememberLazyListState()
+    Row(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(start = 40.dp, end = 24.dp),
+        horizontalArrangement = Arrangement.spacedBy(40.dp),
+    ) {
+        Column(
+            modifier = Modifier
+                .width(PlaylistWideIdentityWidth)
+                .fillMaxHeight()
+                .verticalScroll(rememberScrollState())
+                .padding(top = 24.dp, bottom = 120.dp),
+        ) {
+            Box(
+                modifier = Modifier.size(PlaylistWideCoverSide + 40.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                PlaylistStackBackground(
+                    colors = stackColors,
+                    lineColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.65f),
+                    coverSide = PlaylistWideCoverSide,
+                    modifier = Modifier.size(PlaylistWideCoverSide),
+                )
+                ExpressiveMediaArtwork(
+                    model = content.coverArtUrl,
+                    contentDescription = content.playlistName,
+                    modifier = Modifier.size(PlaylistWideCoverSide),
+                    shape = YoinArtworkShapes.Hero,
+                    fallbackIcon = Icons.Filled.LibraryMusic,
+                    border = null,
+                    shadowElevation = 0.dp,
+                    tonalElevation = 3.dp,
+                    requestSizePx = 900,
+                )
+            }
+            Spacer(modifier = Modifier.height(16.dp))
+            PlaylistHeroMeta(content = content, modifier = Modifier.width(PlaylistWideCoverSide))
+            if (heroActions != null) {
+                Spacer(modifier = Modifier.height(20.dp))
+                heroActions()
+            }
+        }
+        PlaylistTrackList(
+            content = content,
+            listState = listState,
+            onSongClick = onSongClick,
+            modifier = Modifier
+                .weight(1f)
+                .widthIn(max = PlaylistWideListMaxWidth)
+                .fillMaxHeight()
+                .padding(top = 16.dp),
+        )
+    }
+}
+
+private val PlaylistWideIdentityWidth = 400.dp
+private val PlaylistWideCoverSide = 360.dp
+private val PlaylistWideListMaxWidth = 800.dp
+
 @Composable
 private fun PlaylistPullUpOverview(
     content: PlaylistDetailUiState.Content,
     stackColors: List<Color>,
     onSongClick: (songId: String) -> Unit,
+    // Landscape handset (PlaylistLandscape): the hero turned sideways — cover
+    // on its stacked V at the left, Length | Owner and the flowing titles on
+    // the right — over the SAME pull-up into the list.
+    landscape: Boolean = false,
 ) {
     val density = LocalDensity.current
     // fraction 1 = hero, 0 = track list; `expanded` is the durable truth and
@@ -502,6 +625,19 @@ private fun PlaylistPullUpOverview(
         val maxW = maxWidth
         // Read HERE so only this page recomposes per reshape frame.
         val expand = 1f - revealState.fraction
+        if (landscape) {
+            PlaylistLandscapeLayers(
+                content = content,
+                stackColors = stackColors,
+                expand = expand,
+                expanded = expanded,
+                coverSide = minOf(PlaylistLandscapeCoverSide, maxHeight - 36.dp),
+                gestures = gestures,
+                listState = listState,
+                onSongClick = onSongClick,
+            )
+            return@BoxWithConstraints
+        }
 
         // Pane-relative: the Album hero's cover footprint (0.74 × width, ≤ 300dp).
         val heroCoverSide = minOf(maxW * 0.74f, 300.dp)
@@ -620,6 +756,104 @@ private fun PlaylistPullUpOverview(
 
 // Room the hero band adds around the cover for the stacked-V backdrop.
 private val PlaylistHeroStackBand = 56.dp
+
+private val PlaylistLandscapeCoverSide = 256.dp
+
+@Composable
+private fun PlaylistLandscapeLayers(
+    content: PlaylistDetailUiState.Content,
+    stackColors: List<Color>,
+    expand: Float,
+    expanded: Boolean,
+    coverSide: Dp,
+    gestures: DetailPullUpGestures,
+    listState: LazyListState,
+    onSongClick: (songId: String) -> Unit,
+) {
+    Box(modifier = Modifier.fillMaxSize()) {
+        if (expand > 0.001f) {
+            PlaylistTrackList(
+                content = content,
+                listState = listState,
+                onSongClick = onSongClick,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 16.dp)
+                    .graphicsLayer {
+                        alpha = expand.coerceIn(0f, 1f)
+                        translationY = (1f - expand) * 40f
+                    }
+                    .nestedScroll(gestures.listConnection),
+                footer = {
+                    PlaylistHeroMeta(
+                        content = content,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(start = 8.dp, end = 8.dp, top = 28.dp),
+                    )
+                },
+            )
+        }
+        if (expand < 0.999f) {
+            Row(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .then(gestures.heroDrag(enabled = !expanded))
+                    .graphicsLayer {
+                        alpha = (1f - expand).coerceIn(0f, 1f)
+                        translationY = -expand * 40f
+                    }
+                    // Top room: the back layer rides ~6% above the cover.
+                    .padding(start = 44.dp, top = 24.dp, end = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(40.dp),
+            ) {
+                Box(
+                    modifier = Modifier.size(coverSide),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    // Whole layers around the cover — nothing cut straight, and
+                    // the 40dp gutter keeps the wings clear of the capsules.
+                    PlaylistStackBackground(
+                        colors = stackColors,
+                        lineColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.65f),
+                        coverSide = coverSide,
+                        modifier = Modifier.size(coverSide),
+                    )
+                    ExpressiveMediaArtwork(
+                        model = content.coverArtUrl,
+                        contentDescription = content.playlistName,
+                        modifier = Modifier.fillMaxSize(),
+                        shape = YoinArtworkShapes.Hero,
+                        fallbackIcon = Icons.Filled.LibraryMusic,
+                        border = null,
+                        shadowElevation = 0.dp,
+                        tonalElevation = 3.dp,
+                        requestSizePx = 640,
+                    )
+                }
+                Column(modifier = Modifier.weight(1f)) {
+                    PlaylistHeroMeta(content = content, modifier = Modifier.widthIn(max = 300.dp))
+                    Spacer(modifier = Modifier.height(20.dp))
+                    if (content.songs.isNotEmpty()) {
+                        Text(
+                            text = buildPlaylistTrackTitles(
+                                songs = content.songs,
+                                separatorColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                                onSongClick = if (expand < 0.5f) onSongClick else null,
+                            ),
+                            style = MaterialTheme.typography.headlineSmall,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            overflow = TextOverflow.Visible,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .wrapContentHeight(align = Alignment.Top, unbounded = true),
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
 
 @Composable
 private fun PlaylistHeroDetails(
@@ -800,6 +1034,7 @@ private val PlaylistMediumHeroCoverSide = 240.dp
 @Composable
 private fun PlaylistMediumOverview(
     content: PlaylistDetailUiState.Content,
+    heroActions: (@Composable () -> Unit)?,
     onSongClick: (songId: String) -> Unit,
 ) {
     val listState = rememberLazyListState()
@@ -830,7 +1065,13 @@ private fun PlaylistMediumOverview(
                     tonalElevation = 3.dp,
                     requestSizePx = 640,
                 )
-                PlaylistHeroMeta(content = content, modifier = Modifier.weight(1f))
+                Column(modifier = Modifier.weight(1f)) {
+                    PlaylistHeroMeta(content = content)
+                    if (heroActions != null) {
+                        Spacer(modifier = Modifier.height(16.dp))
+                        heroActions()
+                    }
+                }
             }
         },
     )
@@ -940,7 +1181,17 @@ private fun buildPlaylistTrackTitles(
 @Preview(showBackground = true, backgroundColor = 0xFF1C1B1F)
 @Composable
 private fun PlaylistDetailContentPreview() {
-    YoinTheme {
+    YoinTheme { PlaylistDetailPreviewContent() }
+}
+
+@Preview(name = "Landscape handset", widthDp = 844, heightDp = 390, showBackground = true)
+@Composable
+private fun PlaylistDetailLandscapePreview() {
+    YoinTheme { ProvidePreviewWindow(widthDp = 844, heightDp = 390) { PlaylistDetailPreviewContent() } }
+}
+
+@Composable
+private fun PlaylistDetailPreviewContent() {
         PlaylistDetailScreen(
             uiState = PlaylistDetailUiState.Content(
                 playlistId = "playlist-preview",
@@ -975,5 +1226,4 @@ private fun PlaylistDetailContentPreview() {
             onSongClick = {},
             onRetry = {},
         )
-    }
 }

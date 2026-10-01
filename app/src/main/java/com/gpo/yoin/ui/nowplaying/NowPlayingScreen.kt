@@ -108,7 +108,16 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.layout
+import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.Canvas
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
+import android.os.SystemClock
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
@@ -145,8 +154,8 @@ import com.gpo.yoin.ui.experience.LayoutMode
 import com.gpo.yoin.ui.experience.LocalMotionProfile
 import com.gpo.yoin.ui.experience.LocalYoinWindowInfo
 import com.gpo.yoin.ui.experience.MotionProfile
+import com.gpo.yoin.ui.experience.ProvidePreviewWindow
 import com.gpo.yoin.ui.experience.ReportMotionPressure
-import com.gpo.yoin.ui.experience.isDualPaneNowPlaying
 import com.gpo.yoin.ui.theme.ContinuousRoundedCornerShape
 import com.gpo.yoin.ui.theme.ProvideYoinMotionRole
 import com.gpo.yoin.ui.theme.YoinArtworkShapes
@@ -233,6 +242,13 @@ fun NowPlayingScreen(
     onCastClick: () -> Unit = {},
     sharedTransitionScope: SharedTransitionScope? = null,
     animatedVisibilityScope: AnimatedVisibilityScope? = null,
+    // Which frame this window gives Now Playing (断点交接 §3.4): the phone
+    // column (also inside the side panel), the enlarged phone, the two-column
+    // player or the tabletop split. The host decides; this only draws it.
+    presentation: NowPlayingPresentation = NowPlayingPresentation.Phone,
+    enlarged: NowPlayingEnlargedSpec? = null,
+    topBarAction: (@Composable () -> Unit)? = null,
+    onClaimLyricIdleHint: () -> Boolean = { false },
     modifier: Modifier = Modifier,
 ) {
     // Note ordering is a reading preference, not per-song state — held here
@@ -356,6 +372,10 @@ fun NowPlayingScreen(
                     animatedVisibilityScope = animatedVisibilityScope,
                     contentScale = contentScale,
                     skipDirection = skipDirection,
+                    presentation = presentation,
+                    enlarged = enlarged,
+                    topBarAction = topBarAction,
+                    onClaimLyricIdleHint = onClaimLyricIdleHint,
                 )
             }
         }
@@ -615,6 +635,10 @@ private fun PlayingContent(
     onCastClick: () -> Unit = {},
     sharedTransitionScope: SharedTransitionScope? = null,
     animatedVisibilityScope: AnimatedVisibilityScope? = null,
+    presentation: NowPlayingPresentation = NowPlayingPresentation.Phone,
+    enlarged: NowPlayingEnlargedSpec? = null,
+    topBarAction: (@Composable () -> Unit)? = null,
+    onClaimLyricIdleHint: () -> Boolean = { false },
     modifier: Modifier = Modifier,
 ) {
     // Animate posture/size swaps (fold ↔ unfold, enter/leave tabletop). Official
@@ -624,17 +648,20 @@ private fun PlayingContent(
     // hinge resizes the window mid-measure) and that path crashes the shell
     // ButtonGroup on a real foldable. A plain fade+scale needs no lookahead pass.
     AnimatedContent(
-        // Short windows fall back to the single-column body: the dual-pane
-        // reserve math needs ≈590dp of height — a landscape handset reads
-        // Wide on width but clips the transport (YoinWindowInfo predicate).
-        targetState = LocalYoinWindowInfo.current.let { info ->
-            if (info.isDualPaneNowPlaying) {
-                info.layoutMode
-            } else if (info.layoutMode == LayoutMode.Tabletop) {
-                LayoutMode.Tabletop
-            } else {
-                LayoutMode.Compact
-            }
+        // The host resolved the frame (NowPlayingPresentation): the two-column
+        // player only where the window/pane is Wide AND tall; the hinge split
+        // on Tabletop; everything else — phone, side panel, enlarged phone —
+        // is the single column (the panel ⇄ enlarged switch is the host's
+        // container animation, not a posture swap).
+        targetState = when (presentation) {
+            NowPlayingPresentation.DualPane,
+            NowPlayingPresentation.Tabletop,
+            NowPlayingPresentation.Landscape,
+            -> presentation
+            NowPlayingPresentation.Phone,
+            NowPlayingPresentation.Panel,
+            NowPlayingPresentation.Enlarged,
+            -> NowPlayingPresentation.Phone
         },
         transitionSpec = {
             // Expressive (overshooting) spring on the scale so the posture swap
@@ -651,15 +678,13 @@ private fun PlayingContent(
             )
         },
         label = "nowPlayingPosture",
-    ) { layoutMode ->
+    ) { body ->
     // Posture swaps animate with no finger down — vote High for their
     // duration or the fold/unfold spring paces at ARR-Normal (60Hz).
     val posturing = transition.currentState != transition.targetState
-    when (layoutMode) {
-        // Dual-pane from Medium up (isDualPaneNowPlaying, scheme §5 option A):
-        // pane-relative LayoutMode made a true Wide reading rare, so the
-        // two-column player keys off Medium+. Tabletop keeps its hinge layout.
-        LayoutMode.Wide, LayoutMode.Medium -> WidePlayingContent(
+    when (body) {
+        // Two-column player: Wide (≥ 840 window or pane) and tall only.
+        NowPlayingPresentation.DualPane -> WidePlayingContent(
             state = state,
             skipDirection = skipDirection,
             positionMs = positionMs,
@@ -715,7 +740,63 @@ private fun PlayingContent(
             animatedVisibilityScope = animatedVisibilityScope,
             modifier = modifier.voteHighFrameRate(posturing),
         )
-        LayoutMode.Tabletop -> TabletopPlayingContent(
+        // Landscape handset (LandscapeNP): cover left, the phone's column on
+        // the right.
+        NowPlayingPresentation.Landscape -> LandscapePlayingContent(
+            state = state,
+            skipDirection = skipDirection,
+            positionMs = positionMs,
+            bufferedMs = bufferedMs,
+            onTogglePlayPause = onTogglePlayPause,
+            onSkipNext = onSkipNext,
+            onSkipPrevious = onSkipPrevious,
+            onSeek = onSeek,
+            onSeekToMs = onSeekToMs,
+            lyricsSearchState = lyricsSearchState,
+            onOpenLyricsSearch = onOpenLyricsSearch,
+            onLyricsSearchQueryChange = onLyricsSearchQueryChange,
+            onSearchLyrics = onSearchLyrics,
+            onApplyLyricsSearchResult = onApplyLyricsSearchResult,
+            onDismissLyricsSearch = onDismissLyricsSearch,
+            onTranslateLyrics = onTranslateLyrics,
+            onApplyLyrics = onApplyLyrics,
+            onRatingChange = onRatingChange,
+            onToggleFavorite = onToggleFavorite,
+            onAddCurrentToPlaylist = onAddCurrentToPlaylist,
+            onSkipToQueueItem = onSkipToQueueItem,
+            onToggleShuffle = onToggleShuffle,
+            onAlbumClick = onAlbumClick,
+            onArtistClick = onArtistClick,
+            onPlaylistClick = onPlaylistClick,
+            onDismiss = onDismiss,
+            dismissFraction = dismissFraction,
+            aboutUiState = aboutUiState,
+            onRetryFetchSongInfo = onRetryFetchSongInfo,
+            askState = askState,
+            onAboutOpened = onAboutOpened,
+            onAskQuestion = onAskQuestion,
+            onAskBarFocused = onAskBarFocused,
+            onAskBarCollapseRequested = onAskBarCollapseRequested,
+            onDismissAskError = onDismissAskError,
+            stageMode = stageMode,
+            stageProgress = stageProgress,
+            detailPage = detailPage,
+            onStageModeChange = onStageModeChange,
+            onDetailPageChange = onDetailPageChange,
+            notesState = notesState,
+            onSaveNote = onSaveNote,
+            noteSortMode = noteSortMode,
+            onNoteSortModeChange = onNoteSortModeChange,
+            onDeleteNote = onDeleteNote,
+            devicesState = devicesState,
+            onRefreshDevices = onRefreshDevices,
+            onSelectDevice = onSelectDevice,
+            castState = castState,
+            onCastClick = onCastClick,
+            contentScale = contentScale,
+            modifier = modifier.voteHighFrameRate(posturing),
+        )
+        NowPlayingPresentation.Tabletop -> TabletopPlayingContent(
             state = state,
             skipDirection = skipDirection,
             positionMs = positionMs,
@@ -769,7 +850,10 @@ private fun PlayingContent(
             animatedVisibilityScope = animatedVisibilityScope,
             modifier = modifier.voteHighFrameRate(posturing),
         )
-        LayoutMode.Compact -> CompactPlayingContent(
+        NowPlayingPresentation.Phone,
+        NowPlayingPresentation.Panel,
+        NowPlayingPresentation.Enlarged,
+        -> CompactPlayingContent(
             state = state,
             positionMs = positionMs,
             bufferedMs = bufferedMs,
@@ -824,6 +908,9 @@ private fun PlayingContent(
             onCastClick = onCastClick,
             sharedTransitionScope = sharedTransitionScope,
             animatedVisibilityScope = animatedVisibilityScope,
+            enlarged = if (presentation == NowPlayingPresentation.Enlarged) enlarged else null,
+            topBarAction = topBarAction,
+            onClaimLyricIdleHint = onClaimLyricIdleHint,
             modifier = modifier.voteHighFrameRate(posturing),
         )
     }
@@ -831,9 +918,10 @@ private fun PlayingContent(
 }
 
 /**
- * The single-column player — phones, outer foldable screens, narrow split-screen.
- * This is the original [PlayingContent] body, unchanged; since the Medium flip
- * (isDualPaneNowPlaying) it renders ONLY for [LayoutMode.Compact].
+ * The single-column player — phones, outer foldable screens, narrow split-screen,
+ * the Medium side panel (a phone page in a phone-width container) and, with
+ * [enlarged], the enlarged phone of a Medium window (断点交接 §3.4). Short
+ * windows fold the lyric window to one tappable line (§3.1).
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -897,6 +985,13 @@ private fun CompactPlayingContent(
     onCastClick: () -> Unit = {},
     sharedTransitionScope: SharedTransitionScope? = null,
     animatedVisibilityScope: AnimatedVisibilityScope? = null,
+    // Medium's "enlarged phone" (断点交接 §3.4): the same column, centred and
+    // scaled up. Null = a phone (or the side panel, which IS a phone).
+    enlarged: NowPlayingEnlargedSpec? = null,
+    // Corner button at the top bar's end (panel → full screen, and back).
+    topBarAction: (@Composable () -> Unit)? = null,
+    // Claims today's single "tap to expand" hint (once a day, §3.1).
+    onClaimLyricIdleHint: () -> Boolean = { false },
     modifier: Modifier = Modifier,
 ) {
     val lyricsSearchBarState = rememberSearchBarState()
@@ -1029,36 +1124,125 @@ private fun CompactPlayingContent(
             }
     }
 
+    // Auto-immersive (断点交接 §3.2): playing + Lyrics + synced lyrics + 5s
+    // without a touch → ONLY the four lyric tools step away. A touch, a manual
+    // lyrics scroll (recenter lit) or a pause brings them straight back.
+    val interactionClock = remember { longArrayOf(0L) }
+    var lyricToolsIdle by remember { mutableStateOf(false) }
+
     BoxWithConstraints(
         modifier = modifier
             .fillMaxSize()
             .voteHighFrameRate(stageMoving)
+            .pointerInput(Unit) {
+                awaitPointerEventScope {
+                    while (true) {
+                        awaitPointerEvent(PointerEventPass.Initial)
+                        interactionClock[0] = SystemClock.uptimeMillis()
+                        if (lyricToolsIdle) lyricToolsIdle = false
+                    }
+                }
+            }
             .padding(WindowInsets.systemBars.asPaddingValues()),
     ) {
         val horizontalPadding = 24.dp
+        // Enlarged phone: the column is centred at its own width; every width
+        // below reads stageWidth. A phone keeps reading maxWidth, unchanged.
+        val stageMaxWidth = enlarged?.let { minOf(maxWidth, it.columnWidth + horizontalPadding * 2) } ?: maxWidth
+        val ratingColumn = enlarged?.ratingColumn ?: 56.dp
+        val stageControlSize = enlarged?.controlSize ?: 56.dp
+        val controlsSlotHeight = 148.dp + (stageControlSize - 56.dp) * 2
         // Height-aware cap: the resting Compact page stacks ~392dp of fixed
         // chrome around the cover (top bar 56 + tabs 30 + spacer 4 + controls
         // 148 + hero 86 + accessory 68). Short windows (landscape, split,
         // IME resize) shrink the cover toward a 96dp floor instead of pushing
         // the controls/pills off-screen; windows whose height clears the
         // 312dp cap resolve exactly as before.
-        val compactCoverHeight = (maxWidth - 108.dp)
-            .coerceIn(168.dp, 312.dp)
-            .coerceAtMost((maxHeight - 392.dp).coerceAtLeast(96.dp))
-        val immersiveCoverHeight = (maxWidth - horizontalPadding * 2)
+        val baseReserve = 392.dp + (controlsSlotHeight - 148.dp) +
+            (if (enlarged != null) EnlargedTabRowHeight - 30.dp else 0.dp)
+        fun coverFor(reserve: Dp): Dp = if (enlarged == null) {
+            (maxWidth - 108.dp)
+                .coerceIn(168.dp, 312.dp)
+                .coerceAtMost((maxHeight - reserve).coerceAtLeast(96.dp))
+        } else {
+            (stageMaxWidth - horizontalPadding * 2 - 12.dp - ratingColumn)
+                .coerceAtMost((maxHeight - reserve).coerceAtLeast(96.dp))
+        }
+        // The 16:9 gate (§3.1): when the lyric window can't hold two lines,
+        // Lyrics / About / Note + the window fold into ONE tappable lyric line,
+        // and the expanded lyrics page moves its tools up beside text tabs.
+        val twoLyricLines = with(LocalDensity.current) { (24.sp.toDp() + 8.dp) * 2 + 2.dp }
+        val normalCover = coverFor(baseReserve)
+        val lyricOneLine = maxHeight - baseReserve - normalCover < twoLyricLines
+        val oneLineReserve = baseReserve - (if (enlarged != null) EnlargedTabRowHeight else 30.dp) -
+            4.dp + OneLineLyricRowHeight
+        val compactCoverHeight = if (lyricOneLine) coverFor(oneLineReserve) else normalCover
+        // A height-limited enlarged cover pulls the column in with it, so the
+        // rating column stays beside the cover (FoldNPSingle: 380 + rating).
+        val stageWidth = if (enlarged != null) {
+            minOf(stageMaxWidth, compactCoverHeight + 12.dp + ratingColumn + horizontalPadding * 2)
+        } else {
+            maxWidth
+        }
+        val stageOffsetX = (maxWidth - stageWidth) / 2
+        // Enlarged tablet: the lyric tools ride at the end of the tab row even
+        // at rest (TabletPortraitNP).
+        val toolsInCompactTabs = enlarged != null && !lyricOneLine
+        val immersiveCoverHeight = (stageWidth - horizontalPadding * 2)
             .coerceAtLeast(compactCoverHeight)
-            .coerceAtMost(420.dp)
+            .coerceAtMost(if (enlarged != null) stageWidth else 420.dp)
+            .coerceAtMost(
+                (maxHeight - (if (lyricOneLine) oneLineReserve else baseReserve - 34.dp))
+                    .coerceAtLeast(compactCoverHeight),
+            )
         val visibleCoverHeight = lerpDp(compactCoverHeight, immersiveCoverHeight, immersiveProgress)
         val coverRowHeight = lerpDp(visibleCoverHeight, 0.dp, detailProgress)
         val coverRowAlpha = compactProgress
-        val compactTabHeight = lerpDp(30.dp, 0.dp, immersiveProgress)
+        val restingTabHeight = when {
+            lyricOneLine -> 0.dp
+            toolsInCompactTabs -> EnlargedTabRowHeight
+            else -> 30.dp
+        }
+        val compactTabHeight = lerpDp(restingTabHeight, 0.dp, immersiveProgress)
         val tabHeight = lerpDp(compactTabHeight, 52.dp, detailProgress)
-        val tabSpacerHeight = lerpDp(lerpDp(4.dp, 0.dp, immersiveProgress), 12.dp, detailProgress)
+        val tabSpacerHeight = lerpDp(
+            lerpDp(if (lyricOneLine) 0.dp else 4.dp, 0.dp, immersiveProgress),
+            12.dp,
+            detailProgress,
+        )
         val ratingRetreatProgress = maxOf(immersiveProgress, detailProgress)
         val ratingGap = lerpDp(12.dp, 0.dp, ratingRetreatProgress)
-        val ratingSlotWidth = lerpDp(56.dp, 0.dp, ratingRetreatProgress)
+        val ratingSlotWidth = lerpDp(ratingColumn, 0.dp, ratingRetreatProgress)
+        val lyricsPageSelected = detailPage == NowPlayingDetailPage.Lyrics
+        val idleEligible = state.isPlaying && hasSyncedLyrics && lyricsAutoScroll && lyricsPageSelected &&
+            (stageMode == NowPlayingStageMode.Expanded || toolsInCompactTabs)
+        LaunchedEffect(idleEligible) {
+            lyricToolsIdle = false
+            if (!idleEligible) return@LaunchedEffect
+            interactionClock[0] = SystemClock.uptimeMillis()
+            while (true) {
+                val elapsed = SystemClock.uptimeMillis() - interactionClock[0]
+                if (elapsed >= LyricToolsIdleMs) {
+                    if (!lyricToolsIdle) lyricToolsIdle = true
+                    delay(LyricToolsIdlePollMs)
+                } else {
+                    delay(LyricToolsIdleMs - elapsed)
+                }
+            }
+        }
+        val lyricToolsAlpha by animateFloatAsState(
+            targetValue = if (lyricToolsIdle) 0f else 1f,
+            animationSpec = YoinMotion.defaultEffectsSpec(role = YoinMotionRole.Standard),
+            label = "lyricToolsAlpha",
+        )
+        // Bottom tools collapse their slot when they move up (16:9) or step
+        // away (idle): the title sinks to where the tools' bottom edge was and
+        // the lyrics grow into the space.
+        val accessoryToolsCollapsed = stageMode == NowPlayingStageMode.Expanded && lyricsPageSelected &&
+            (lyricOneLine || lyricToolsIdle)
         val bottomAccessoryTargetHeight = when {
             detailPage == NowPlayingDetailPage.About && askState is AskBarState.Focused -> 276.dp
+            accessoryToolsCollapsed -> 0.dp
             else -> 68.dp
         }
         val bottomAccessoryHeight by animateDpAsState(
@@ -1066,7 +1250,7 @@ private fun CompactPlayingContent(
             animationSpec = YoinMotion.defaultSpatialSpec(role = YoinMotionRole.Expressive),
             label = "nowPlayingBottomAccessoryHeight",
         )
-        val controlsHeight = lerpDp(148.dp, 0.dp, detailProgress)
+        val controlsHeight = lerpDp(controlsSlotHeight, 0.dp, detailProgress)
         val coverSpacerHeight = lerpDp(16.dp, 8.dp, detailProgress)
         // Add back the space the surrounding slots will release at Expanded.
         // Round each slot separately, exactly as their layout modifiers do, so
@@ -1078,12 +1262,33 @@ private fun CompactPlayingContent(
                 tabSpacerHeight.roundToPx() - 12.dp.roundToPx()
         }
         val heroHeight = 86.dp
-        val compactCoverSize = (maxWidth - horizontalPadding * 2 - 12.dp - 56.dp)
+        val compactCoverSize = (stageWidth - horizontalPadding * 2 - 12.dp - ratingColumn)
             .coerceAtLeast(0.dp)
             .coerceAtMost(compactCoverHeight)
+        val lyricTools: @Composable (iconSize: Dp) -> Unit = { iconSize ->
+            LyricsActionBar(
+                searchModifier = Modifier.onGloballyPositioned {
+                    lyricsSearchBarState.collapsedCoords = it
+                },
+                actionInFlight = state.lyricsActionInFlight,
+                canTranslate = state.lyrics.isNotEmpty(),
+                canRecenter = !lyricsAutoScroll && hasSyncedLyrics,
+                onSearchClick = lyricsActions.onOpenLyricsSearch,
+                onTranslateClick = lyricsActions.onTranslateLyrics,
+                onApplyClick = { showApplyDialog = true },
+                onRecenterClick = {
+                    lyricsAutoScroll = true
+                    lyricsRecenterTick += 1
+                },
+                iconSize = iconSize,
+            )
+        }
 
         Column(
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier
+                .fillMaxHeight()
+                .width(stageWidth)
+                .align(Alignment.TopCenter),
             horizontalAlignment = Alignment.Start,
             verticalArrangement = Arrangement.Top,
         ) {
@@ -1109,6 +1314,7 @@ private fun CompactPlayingContent(
                 onAlbumClick = navigationActions.onAlbumClick,
                 onArtistClick = navigationActions.onArtistClick,
                 onPlaylistClick = navigationActions.onPlaylistClick,
+                trailingAction = topBarAction,
                 modifier = Modifier.padding(horizontal = horizontalPadding),
             )
 
@@ -1194,7 +1400,7 @@ private fun CompactPlayingContent(
                                 Column(
                                     horizontalAlignment = Alignment.CenterHorizontally,
                                     modifier = Modifier
-                                        .width(56.dp)
+                                        .width(ratingColumn)
                                         .fillMaxHeight()
                                         .graphicsLayer {
                                             alpha = (1f - ratingRetreatProgress).coerceIn(0f, 1f)
@@ -1233,12 +1439,33 @@ private fun CompactPlayingContent(
 
                     Spacer(modifier = Modifier.height(coverSpacerHeight))
 
+                    val tabsSelected = NowPlayingDetailPage.entries[pagerState.targetPage]
                     StageTabs(
-                        selected = NowPlayingDetailPage.entries[pagerState.targetPage],
+                        selected = tabsSelected,
                         detailProgress = detailProgress,
                         height = tabHeight,
                         onSelect = { page ->
                             pagerScope.launch { pagerState.settleToPage(page.ordinal) }
+                        },
+                        // 16:9: the expanded page keeps TEXT tabs, tools at their end.
+                        textOnly = lyricOneLine,
+                        tools = if (
+                            tabsSelected == NowPlayingDetailPage.Lyrics &&
+                            (lyricOneLine || toolsInCompactTabs)
+                        ) {
+                            {
+                                Box(
+                                    modifier = Modifier.graphicsLayer {
+                                        // Top tools fade IN PLACE when idle — nothing moves.
+                                        alpha = lyricToolsAlpha *
+                                            if (lyricOneLine) detailProgress else 1f
+                                    },
+                                ) {
+                                    lyricTools(if (lyricOneLine) ShortTabToolSize else EnlargedTabToolSize)
+                                }
+                            }
+                        } else {
+                            null
                         },
                         modifier = Modifier.padding(horizontal = horizontalPadding),
                     )
@@ -1255,7 +1482,10 @@ private fun CompactPlayingContent(
                         HorizontalPager(
                             state = pagerState,
                             beyondViewportPageCount = 1,
-                            userScrollEnabled = stageMode != NowPlayingStageMode.Immersive,
+                            // The one-line row is not a pager page: swipe only
+                            // once the lyric page has expanded.
+                            userScrollEnabled = stageMode != NowPlayingStageMode.Immersive &&
+                                !(lyricOneLine && stageMode == NowPlayingStageMode.Compact),
                             modifier = Modifier.fillMaxSize(),
                         ) { page ->
                             val pageModifier = Modifier
@@ -1279,7 +1509,7 @@ private fun CompactPlayingContent(
                                     immersiveProgress = immersiveProgress,
                                     onRetryFetchSongInfo = onRetryFetchSongInfo,
                                     modifier = pageModifier.graphicsLayer {
-                                        alpha = compactProgress
+                                        alpha = if (lyricOneLine) 0f else compactProgress
                                         translationY = 12.dp.toPx() * detailProgress
                                     },
                                 )
@@ -1324,6 +1554,25 @@ private fun CompactPlayingContent(
                             }
                         }
 
+                        if (lyricOneLine && detailProgress < 1f - HiddenLayerVisibilityThreshold) {
+                            // 16:9: the whole row IS the expand button (no
+                            // separate key — it sat too far from the lyric).
+                            OneLineLyricRow(
+                                state = state,
+                                positionMs = positionMs,
+                                onExpand = {
+                                    onDetailPageChange(NowPlayingDetailPage.Lyrics)
+                                    onStageModeChange(NowPlayingStageMode.Expanded)
+                                },
+                                onClaimIdleHint = onClaimLyricIdleHint,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(OneLineLyricRowHeight)
+                                    .padding(horizontal = horizontalPadding)
+                                    .graphicsLayer { alpha = compactProgress },
+                            )
+                        }
+
                         if (stageMode == NowPlayingStageMode.Immersive) {
                             Box(
                                 modifier = Modifier
@@ -1359,6 +1608,7 @@ private fun CompactPlayingContent(
                             nextPressed = nextPressed,
                             shuffleEnabled = state.shuffleEnabled,
                             onToggleShuffle = playbackActions.onToggleShuffle,
+                            controlSize = stageControlSize,
                             modifier = Modifier
                                 .padding(horizontal = horizontalPadding)
                                 .graphicsLayer {
@@ -1453,21 +1703,12 @@ private fun CompactPlayingContent(
                                         contentAlignment = Alignment.BottomStart,
                                     ) {
                                         when (NowPlayingDetailPage.entries[page]) {
-                                            NowPlayingDetailPage.Lyrics -> LyricsActionBar(
-                                                searchModifier = Modifier.onGloballyPositioned {
-                                                    lyricsSearchBarState.collapsedCoords = it
-                                                },
-                                                actionInFlight = state.lyricsActionInFlight,
-                                                canTranslate = state.lyrics.isNotEmpty(),
-                                                canRecenter = !lyricsAutoScroll && hasSyncedLyrics,
-                                                onSearchClick = lyricsActions.onOpenLyricsSearch,
-                                                onTranslateClick = lyricsActions.onTranslateLyrics,
-                                                onApplyClick = { showApplyDialog = true },
-                                                onRecenterClick = {
-                                                    lyricsAutoScroll = true
-                                                    lyricsRecenterTick += 1
-                                                },
-                                            )
+                                            // 16:9 moved the tools up beside the tabs.
+                                            NowPlayingDetailPage.Lyrics -> if (!lyricOneLine) {
+                                                Box(modifier = Modifier.graphicsLayer { alpha = lyricToolsAlpha }) {
+                                                    lyricTools(52.dp)
+                                                }
+                                            }
                                             NowPlayingDetailPage.About -> AskGeminiBar(
                                                 askState = askState,
                                                 onSubmit = onAskQuestion,
@@ -1492,10 +1733,10 @@ private fun CompactPlayingContent(
         CoverTransitionOverlay(
             coverArtUrl = state.coverArtUrl,
             progress = detailProgress,
-            startX = horizontalPadding,
+            startX = stageOffsetX + horizontalPadding,
             startY = 56.dp,
             startSize = compactCoverSize,
-            endX = horizontalPadding + 56.dp,
+            endX = stageOffsetX + horizontalPadding + 56.dp,
             endY = 0.dp,
             endSize = 44.dp,
         )
@@ -1695,9 +1936,35 @@ private fun WidePlayingContent(
                 )
             }
     }
+    // Auto-immersive (断点交接 §3.2), same rule as the single column: the
+    // lyric tools step away after 5s without a touch while synced lyrics play.
+    val interactionClock = remember { longArrayOf(0L) }
+    var lyricToolsIdle by remember { mutableStateOf(false) }
+    val idleEligible = state.isPlaying && hasSyncedLyrics && lyricsAutoScroll &&
+        detailPage == NowPlayingDetailPage.Lyrics
+    LaunchedEffect(idleEligible) {
+        lyricToolsIdle = false
+        if (!idleEligible) return@LaunchedEffect
+        interactionClock[0] = SystemClock.uptimeMillis()
+        while (true) {
+            val elapsed = SystemClock.uptimeMillis() - interactionClock[0]
+            if (elapsed >= LyricToolsIdleMs) {
+                if (!lyricToolsIdle) lyricToolsIdle = true
+                delay(LyricToolsIdlePollMs)
+            } else {
+                delay(LyricToolsIdleMs - elapsed)
+            }
+        }
+    }
+    val lyricToolsAlpha by animateFloatAsState(
+        targetValue = if (lyricToolsIdle) 0f else 1f,
+        animationSpec = YoinMotion.defaultEffectsSpec(role = YoinMotionRole.Standard),
+        label = "wideLyricToolsAlpha",
+    )
     // Small by default; the Ask Gemini bar grows when focused (matches Compact).
     val bottomAccessoryTargetHeight = when {
         detailPage == NowPlayingDetailPage.About && askState is AskBarState.Focused -> 276.dp
+        detailPage == NowPlayingDetailPage.Lyrics && lyricToolsIdle -> 0.dp
         else -> 68.dp
     }
     val bottomAccessoryHeight by animateDpAsState(
@@ -1724,7 +1991,17 @@ private fun WidePlayingContent(
         // region. Inset only the TOP + sides on the content; the bottom stays
         // full-bleed so the gradient reaches the nav-bar edge (the button group
         // gets its own navigationBarsPadding to stay tappable).
-        modifier = modifier.fillMaxSize(),
+        modifier = modifier
+            .fillMaxSize()
+            .pointerInput(Unit) {
+                awaitPointerEventScope {
+                    while (true) {
+                        awaitPointerEvent(PointerEventPass.Initial)
+                        interactionClock[0] = SystemClock.uptimeMillis()
+                        if (lyricToolsIdle) lyricToolsIdle = false
+                    }
+                }
+            },
     ) {
         Column(
             modifier = Modifier
@@ -1748,36 +2025,57 @@ private fun WidePlayingContent(
                 modifier = Modifier.fillMaxWidth(),
             )
             Spacer(modifier = Modifier.height(8.dp))
-            Row(
+            BoxWithConstraints(
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f),
             ) {
-                // LEFT — passive: cover + rating/favorite + title/artist, with the
-                // Queue/Devices/Write pills pinned at the bottom. The identity block
-                // is centred in the space above the pills via two weight spacers.
+            // The left column is sized by its controls, not by a weight
+            // (断点交接 §3.3): 312dp = the cover side (TabletNP), lyrics take
+            // the rest. A zoomed cover may grow it to 1.5× but the lyrics
+            // column never drops under 320dp.
+            val rowWidth = maxWidth
+            val leftRest = WideLeftColumnWidth.coerceAtMost(rowWidth - WideRightColumnMin - WideColumnGap)
+            val leftZoomed = (WideLeftColumnWidth * 1.5f)
+                .coerceAtMost(rowWidth - WideRightColumnMin - WideColumnGap)
+                .coerceAtLeast(leftRest)
+            val leftWidth = lerpDp(leftRest, leftZoomed, coverZoom)
+            Row(modifier = Modifier.fillMaxSize()) {
+                // LEFT — passive: cover + rating/favorite, transport, title/artist,
+                // with the Queue/Devices/Write pills pinned at the bottom. The
+                // identity block is centred in the space above the pills via two
+                // weight spacers.
                 Column(
                     modifier = Modifier
-                        // Tapping the cover widens the whole left column (1:1 → 1.5:1);
-                        // the column-filling cover grows with it instead of resizing in
-                        // place. The right column stays weight 1f.
-                        .weight(1f + 0.5f * coverZoom)
+                        .width(leftWidth + WideColumnGap)
                         .fillMaxHeight()
-                        .padding(end = 24.dp),
+                        .padding(end = WideColumnGap),
                 ) {
                     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
-                        // Cap the cover height so the rating / title / transport / pills
-                        // below always fit. On zoom the identity block (rating +
-                        // title/artist) retreats, so the reserve shrinks and the cover
-                        // claims that freed height — that, plus the wider column, is how
-                        // it actually grows on the near-square inner display.
+                        // Cap the cover height so the rating / transport / title /
+                        // pills below always fit. On zoom the identity blocks
+                        // retreat, so the reserve shrinks and the cover claims that
+                        // freed height.
                         val reservedForRest = lerpDp(450.dp, 274.dp, coverZoom)
                         val coverSize = maxWidth
                             .coerceAtMost((maxHeight - reservedForRest).coerceAtLeast(140.dp))
+                        // Rating + title/artist retreat (fade + height collapse) when
+                        // the cover is zoomed; transport + pills stay put.
+                        val retreat = Modifier
+                            .fillMaxWidth()
+                            .graphicsLayer { alpha = (1f - coverZoom).coerceIn(0f, 1f) }
+                            .layout { measurable, constraints ->
+                                val placeable = measurable.measure(constraints)
+                                val h = (placeable.height * (1f - coverZoom))
+                                    .roundToInt()
+                                    .coerceAtLeast(0)
+                                layout(placeable.width, h) { placeable.place(0, 0) }
+                            }
+                            .clipToBounds()
                         Column(
                             // Constrain the whole left stack to the cover's width and
-                            // centre it, so the cover, rating bar, title, transport and
-                            // pills all share ONE width (no cover-vs-rating mismatch).
+                            // centre it, so the cover, rating bar, transport, title
+                            // and pills all share ONE width.
                             modifier = Modifier
                                 .width(coverSize)
                                 .fillMaxHeight()
@@ -1791,11 +2089,8 @@ private fun WidePlayingContent(
                                 // NO shared element in Wide. A fillMaxWidth shared cover
                                 // resolves to an UNBOUNDED width in the shared-transition
                                 // lookahead and propagates Constraints.Infinity into the
-                                // shell ButtonGroup's height(IntrinsicSize.Max) intrinsic
-                                // measurement (YoinButtonGroup.kt) — which M3's ButtonGroup
-                                // cannot take and crashes on. Drop the mini→cover morph here;
-                                // the cover simply appears. (Compact keeps the morph because
-                                // its cover is a fixed dp size, so its bounds stay finite.)
+                                // shell bar's measurement — which crashes. Drop the
+                                // mini→cover morph here; the cover simply appears.
                                 sharedTransitionScope = null,
                                 animatedVisibilityScope = null,
                                 interactionSource = coverInteraction,
@@ -1805,86 +2100,69 @@ private fun WidePlayingContent(
                                         coverZoomed = !coverZoomed
                                     },
                             )
-                            Spacer(modifier = Modifier.height(20.dp))
-                            // Rating + title/artist retreat (fade + height collapse) when
-                            // the cover is zoomed, freeing the room the square cover needs
-                            // to grow. Transport + pills below stay put.
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .graphicsLayer { alpha = (1f - coverZoom).coerceIn(0f, 1f) }
-                                    .layout { measurable, constraints ->
-                                        val placeable = measurable.measure(constraints)
-                                        val h = (placeable.height * (1f - coverZoom))
-                                            .roundToInt()
-                                            .coerceAtLeast(0)
-                                        layout(placeable.width, h) { placeable.place(0, 0) }
-                                    }
-                                    .clipToBounds(),
+                            Spacer(modifier = Modifier.height(12.dp))
+                            // Always-visible full rating slider; the favorite is
+                            // pinned at the trailing end.
+                            Row(
+                                modifier = retreat,
+                                verticalAlignment = Alignment.CenterVertically,
                             ) {
-                                // Always-visible full rating slider; the favorite is
-                                // pinned at the trailing end.
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    verticalAlignment = Alignment.CenterVertically,
+                                Box(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .height(48.dp),
                                 ) {
-                                    Box(
-                                        modifier = Modifier
-                                            .weight(1f)
-                                            .height(48.dp),
-                                    ) {
-                                        RatingSlider(
-                                            rating = state.rating,
-                                            onRatingChange = onRatingChange,
-                                            orientation = Orientation.Horizontal,
-                                            modifier = Modifier.fillMaxSize(),
-                                        )
-                                    }
-                                    Spacer(modifier = Modifier.width(12.dp))
-                                    if (state.serviceFeatures.supportsFavorites) {
-                                        FavoriteButton(
-                                            isStarred = state.isStarred,
-                                            actionLabel = if (state.isStarred) {
-                                                state.serviceFeatures.removeLabel
-                                            } else {
-                                                state.serviceFeatures.saveLabel
-                                            },
-                                            onClick = onToggleFavorite,
-                                            onLongClick = onAddCurrentToPlaylist,
-                                        )
-                                    }
-                                    // Room for the heart's tap-bounce (scales to 1.25×):
-                                    // it's pinned at the trailing edge, so its right
-                                    // overflow would be cut by the Column's clipToBounds.
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                }
-                                Spacer(modifier = Modifier.height(16.dp))
-                                // Same press language as Compact: route stretch
-                                // (grow on press, dip on release), no ripple.
-                                val wideTitleRoute = albumId?.let { id ->
-                                    rememberNowPlayingRouteInteraction(
-                                        onNavigate = { onAlbumClick(id) },
+                                    RatingSlider(
+                                        rating = state.rating,
+                                        onRatingChange = onRatingChange,
+                                        orientation = Orientation.Horizontal,
+                                        modifier = Modifier.fillMaxSize(),
                                     )
                                 }
-                                Text(
-                                    text = state.songTitle,
-                                    style = MaterialTheme.typography.headlineSmall,
-                                    color = MaterialTheme.colorScheme.onSurface,
-                                    maxLines = 2,
-                                    overflow = TextOverflow.Ellipsis,
-                                    modifier = wideTitleRoute?.let { route ->
-                                        Modifier
-                                            .graphicsLayer {
-                                                scaleX = route.scaleX
-                                                transformOrigin = TransformOrigin(0f, 0.5f)
-                                            }
-                                            .noRippleClickable(
-                                                interactionSource = route.interactionSource,
-                                                onClick = route.onClick,
-                                            )
-                                    } ?: Modifier,
-                                )
-                                Spacer(modifier = Modifier.height(4.dp))
+                                Spacer(modifier = Modifier.width(12.dp))
+                                if (state.serviceFeatures.supportsFavorites) {
+                                    FavoriteButton(
+                                        isStarred = state.isStarred,
+                                        actionLabel = if (state.isStarred) {
+                                            state.serviceFeatures.removeLabel
+                                        } else {
+                                            state.serviceFeatures.saveLabel
+                                        },
+                                        onClick = onToggleFavorite,
+                                        onLongClick = onAddCurrentToPlaylist,
+                                    )
+                                }
+                                // Room for the heart's tap-bounce (scales to 1.25×):
+                                // it's pinned at the trailing edge, so its right
+                                // overflow would be cut by the retreat's clip.
+                                Spacer(modifier = Modifier.width(8.dp))
+                            }
+                            Spacer(modifier = Modifier.height(24.dp))
+                            TickingPlaybackControls(
+                                noteAnchorsMs = remember(notesState) {
+                                    notesState.mapNotNull { it.positionMs }.sorted()
+                                },
+                                isPlaying = state.isPlaying,
+                                onTogglePlayPause = onTogglePlayPause,
+                                onSkipNext = onSkipNext,
+                                onSkipPrevious = onSkipPrevious,
+                                positionMs = positionMs,
+                                bufferedMs = bufferedMs,
+                                durationMs = state.durationMs,
+                                onSeek = onSeek,
+                                playInteractionSource = playInteractionSource,
+                                nextInteractionSource = nextInteractionSource,
+                                playPressed = playPressed,
+                                nextPressed = nextPressed,
+                                shuffleEnabled = state.shuffleEnabled,
+                                onToggleShuffle = onToggleShuffle,
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                            Spacer(modifier = Modifier.height(16.dp))
+                            // Title/artist sit right above the pills, as on every
+                            // Now Playing (TabletNP). Same press language as
+                            // Compact: route stretch, no ripple.
+                            Column(modifier = retreat) {
                                 val wideArtistRoute = artistId?.let { id ->
                                     rememberNowPlayingRouteInteraction(
                                         onNavigate = { onArtistClick(id) },
@@ -1908,42 +2186,45 @@ private fun WidePlayingContent(
                                             )
                                     } ?: Modifier,
                                 )
+                                Spacer(modifier = Modifier.height(2.dp))
+                                val wideTitleRoute = albumId?.let { id ->
+                                    rememberNowPlayingRouteInteraction(
+                                        onNavigate = { onAlbumClick(id) },
+                                    )
+                                }
+                                Text(
+                                    text = state.songTitle,
+                                    style = MaterialTheme.typography.headlineMedium,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = wideTitleRoute?.let { route ->
+                                        Modifier
+                                            .graphicsLayer {
+                                                scaleX = route.scaleX
+                                                transformOrigin = TransformOrigin(0f, 0.5f)
+                                            }
+                                            .noRippleClickable(
+                                                interactionSource = route.interactionSource,
+                                                onClick = route.onClick,
+                                            )
+                                    } ?: Modifier,
+                                )
                             }
-                    Spacer(modifier = Modifier.height(16.dp))
-                    // Transport + progress live in the left column now (the right
-                    // column is lyrics-only with a small tab indicator).
-                    TickingPlaybackControls(
-                        noteAnchorsMs = remember(notesState) { notesState.mapNotNull { it.positionMs }.sorted() },
-                        isPlaying = state.isPlaying,
-                        onTogglePlayPause = onTogglePlayPause,
-                        onSkipNext = onSkipNext,
-                        onSkipPrevious = onSkipPrevious,
-                        positionMs = positionMs,
-                        bufferedMs = bufferedMs,
-                        durationMs = state.durationMs,
-                        onSeek = onSeek,
-                        playInteractionSource = playInteractionSource,
-                        nextInteractionSource = nextInteractionSource,
-                        playPressed = playPressed,
-                        nextPressed = nextPressed,
-                        shuffleEnabled = state.shuffleEnabled,
-                        onToggleShuffle = onToggleShuffle,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                    Spacer(modifier = Modifier.weight(1f))
-                    BottomPills(
-                        supportsYoinCast = state.serviceFeatures.supportsYoinCast,
-                        onQueueClick = { showQueue = true },
-                        onDevicesClick = { showDevicesSheet = true },
-                        onWriteClick = { showWriteSheet = true },
-                        castState = castState,
-                        onCastClick = onCastClick,
-                        // Pinned at the bottom of the left column; clears the nav bar
-                        // since the content runs edge-to-edge.
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .navigationBarsPadding(),
-                    )
+                            Spacer(modifier = Modifier.weight(1f))
+                            BottomPills(
+                                supportsYoinCast = state.serviceFeatures.supportsYoinCast,
+                                onQueueClick = { showQueue = true },
+                                onDevicesClick = { showDevicesSheet = true },
+                                onWriteClick = { showWriteSheet = true },
+                                castState = castState,
+                                onCastClick = onCastClick,
+                                // Pinned at the bottom of the left column; clears the nav bar
+                                // since the content runs edge-to-edge.
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .navigationBarsPadding(),
+                            )
                         }
                     }
                 }
@@ -1951,9 +2232,8 @@ private fun WidePlayingContent(
                 // RIGHT — lyrics-only: small tab indicator + detail pager + action bar.
                 Column(
                     modifier = Modifier
-                        // Mirror of the left weight: rests at 1.5 (so columns are 1:1.5,
-                        // lyrics-wide) and animates to 1 on cover zoom (→ 1.5:1).
-                        .weight(1.5f - 0.5f * coverZoom)
+                        // Lyrics take whatever the controls-sized left column leaves.
+                        .weight(1f)
                         .fillMaxHeight(),
                 ) {
                     // Small text indicator (collapsed-card feel), not the big button
@@ -2040,6 +2320,7 @@ private fun WidePlayingContent(
                                 ) {
                                     when (NowPlayingDetailPage.entries[page]) {
                                         NowPlayingDetailPage.Lyrics -> LyricsActionBar(
+                                            modifier = Modifier.graphicsLayer { alpha = lyricToolsAlpha },
                                             searchModifier = Modifier.onGloballyPositioned {
                                                 lyricsSearchBarState.collapsedCoords = it
                                             },
@@ -2069,6 +2350,7 @@ private fun WidePlayingContent(
                         }
                     }
                 }
+            }
             }
         }
     }
@@ -2135,6 +2417,436 @@ private fun WidePlayingContent(
         }
     }
 }
+
+/**
+ * Landscape handset (LandscapeNP, 断点交接 §3.5): the cover and a horizontal
+ * rating on the left, the phone's column on the right — header, Lyrics /
+ * About / Note over a two-line lyric window, transport, title, pills. A tap on
+ * the lyrics runs the SAME Expanded stage as portrait (the overlay host owns
+ * it and its back layer): the transport and pills fold away and the page
+ * takes the column, tools beside the text tabs as on 16:9.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun LandscapePlayingContent(
+    state: NowPlayingUiState.Playing,
+    skipDirection: Int,
+    positionMs: () -> Long,
+    bufferedMs: () -> Long,
+    onTogglePlayPause: () -> Unit,
+    onSkipNext: () -> Unit,
+    onSkipPrevious: () -> Unit,
+    onSeek: (Float) -> Unit,
+    onSeekToMs: (Long) -> Unit,
+    lyricsSearchState: LyricsSearchState,
+    onOpenLyricsSearch: () -> Unit,
+    onLyricsSearchQueryChange: (String) -> Unit,
+    onSearchLyrics: (String) -> Unit,
+    onApplyLyricsSearchResult: (LyricsSearchResultUi) -> Unit,
+    onDismissLyricsSearch: () -> Unit,
+    onTranslateLyrics: () -> Unit,
+    onApplyLyrics: (String) -> Unit,
+    onRatingChange: (Float) -> Unit,
+    onToggleFavorite: () -> Unit,
+    onAddCurrentToPlaylist: () -> Unit,
+    onSkipToQueueItem: (Int) -> Unit,
+    onToggleShuffle: () -> Unit,
+    onAlbumClick: (String) -> Unit,
+    onArtistClick: (String) -> Unit,
+    onPlaylistClick: (String) -> Unit,
+    onDismiss: () -> Unit,
+    dismissFraction: () -> Float,
+    aboutUiState: AboutUiState,
+    onRetryFetchSongInfo: () -> Unit,
+    askState: AskBarState,
+    onAboutOpened: () -> Unit,
+    onAskQuestion: (String) -> Unit,
+    onAskBarFocused: () -> Unit,
+    onAskBarCollapseRequested: () -> Unit,
+    onDismissAskError: () -> Unit,
+    stageMode: NowPlayingStageMode,
+    stageProgress: NowPlayingStageProgress?,
+    detailPage: NowPlayingDetailPage,
+    onStageModeChange: (NowPlayingStageMode) -> Unit,
+    onDetailPageChange: (NowPlayingDetailPage) -> Unit,
+    notesState: List<SongNote>,
+    onSaveNote: (String, Long?) -> Unit,
+    noteSortMode: NoteSortMode,
+    onNoteSortModeChange: (NoteSortMode) -> Unit,
+    onDeleteNote: (String) -> Unit,
+    devicesState: DevicesSheetState,
+    onRefreshDevices: () -> Unit,
+    onSelectDevice: (YoinDevice) -> Unit,
+    castState: CastState,
+    onCastClick: () -> Unit,
+    contentScale: Float,
+    modifier: Modifier = Modifier,
+) {
+    val lyricsSearchBarState = rememberSearchBarState()
+    var showQueue by remember { mutableStateOf(false) }
+    var showDevicesSheet by remember(state.songId) { mutableStateOf(false) }
+    var showWriteSheet by remember(state.songId) { mutableStateOf(false) }
+    var showApplyDialog by remember(state.songId) { mutableStateOf(false) }
+    var lyricsAutoScroll by remember(state.songId) { mutableStateOf(true) }
+    var lyricsRecenterTick by remember(state.songId) { mutableIntStateOf(0) }
+    val hasSyncedLyrics = remember(state.lyrics) { state.lyrics.any { it.startMs != null } }
+    val playInteractionSource = rememberNowPlayingButtonGroupInteractionSource()
+    val nextInteractionSource = rememberNowPlayingButtonGroupInteractionSource()
+    val playPressed by playInteractionSource.collectIsPressedAsState()
+    val nextPressed by nextInteractionSource.collectIsPressedAsState()
+    val resolvedStageProgress = stageProgress ?: rememberNowPlayingStageProgress(stageMode)
+    val detailProgress = resolvedStageProgress.detail
+    val expanded = stageMode == NowPlayingStageMode.Expanded
+
+    val pagerState = rememberPagerState(initialPage = detailPage.ordinal, pageCount = { 3 })
+    val pagerScope = rememberCoroutineScope()
+    LaunchedEffect(detailPage) {
+        if (detailPage.ordinal != pagerState.targetPage) {
+            pagerState.settleToPage(detailPage.ordinal)
+        }
+    }
+    LaunchedEffect(pagerState) {
+        snapshotFlow { pagerState.settledPage }.collect { settled ->
+            val page = NowPlayingDetailPage.entries[settled]
+            if (page != detailPage) onDetailPageChange(page)
+            if (page == NowPlayingDetailPage.About) onAboutOpened()
+        }
+    }
+
+    BoxWithConstraints(
+        modifier = modifier
+            .fillMaxSize()
+            .padding(WindowInsets.systemBars.asPaddingValues())
+            .padding(horizontal = 24.dp, vertical = 12.dp),
+    ) {
+        // The cover takes the height the rating row leaves, capped so the
+        // right column keeps a phone's width.
+        val coverSide = (maxHeight - LandscapeRatingRowHeight - 12.dp)
+            .coerceAtMost(maxWidth * 0.42f)
+            .coerceAtLeast(120.dp)
+        Row(modifier = Modifier.fillMaxSize()) {
+            Column(
+                modifier = Modifier
+                    .width(coverSide)
+                    .fillMaxHeight()
+                    .graphicsLayer {
+                        scaleX = contentScale
+                        scaleY = contentScale
+                    },
+            ) {
+                AlbumCover(
+                    songId = state.songId,
+                    coverArtUrl = state.coverArtUrl,
+                    revealDirection = skipDirection,
+                    // Lookahead-safe: no shared element outside the phone column.
+                    sharedTransitionScope = null,
+                    animatedVisibilityScope = null,
+                    interactionSource = remember { MutableInteractionSource() },
+                    modifier = Modifier.size(coverSide),
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(LandscapeRatingRowHeight),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(48.dp),
+                    ) {
+                        RatingSlider(
+                            rating = state.rating,
+                            onRatingChange = onRatingChange,
+                            orientation = Orientation.Horizontal,
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                    }
+                    if (state.serviceFeatures.supportsFavorites) {
+                        Spacer(modifier = Modifier.width(12.dp))
+                        FavoriteButton(
+                            isStarred = state.isStarred,
+                            actionLabel = if (state.isStarred) {
+                                state.serviceFeatures.removeLabel
+                            } else {
+                                state.serviceFeatures.saveLabel
+                            },
+                            onClick = onToggleFavorite,
+                            onLongClick = onAddCurrentToPlaylist,
+                        )
+                    }
+                }
+            }
+            Spacer(modifier = Modifier.width(28.dp))
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxHeight(),
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(40.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    IconButton(onClick = onDismiss, modifier = Modifier.size(40.dp)) {
+                        Icon(
+                            imageVector = Icons.Rounded.KeyboardArrowDown,
+                            contentDescription = "Close Now Playing",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.graphicsLayer {
+                                rotationZ = 180f * dismissFraction() + 90f * detailProgress
+                            },
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(4.dp))
+                    PlayingFromLabel(
+                        activityContext = state.activityContext,
+                        fallbackAlbumName = state.albumName,
+                        onAlbumClick = onAlbumClick,
+                        onArtistClick = onArtistClick,
+                        onPlaylistClick = onPlaylistClick,
+                        singleLine = true,
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+                // Text tabs; the lyric tools join them once the page expands.
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(if (expanded) 44.dp else 28.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    CompactTextTabs(
+                        selected = NowPlayingDetailPage.entries[pagerState.targetPage],
+                        onSelect = { page ->
+                            pagerScope.launch { pagerState.settleToPage(page.ordinal) }
+                        },
+                    )
+                    Spacer(modifier = Modifier.weight(1f))
+                    if (expanded &&
+                        NowPlayingDetailPage.entries[pagerState.targetPage] == NowPlayingDetailPage.Lyrics
+                    ) {
+                        LyricsActionBar(
+                            searchModifier = Modifier.onGloballyPositioned {
+                                lyricsSearchBarState.collapsedCoords = it
+                            },
+                            actionInFlight = state.lyricsActionInFlight,
+                            canTranslate = state.lyrics.isNotEmpty(),
+                            canRecenter = !lyricsAutoScroll && hasSyncedLyrics,
+                            onSearchClick = onOpenLyricsSearch,
+                            onTranslateClick = onTranslateLyrics,
+                            onApplyClick = { showApplyDialog = true },
+                            onRecenterClick = {
+                                lyricsAutoScroll = true
+                                lyricsRecenterTick += 1
+                            },
+                            iconSize = ShortTabToolSize,
+                            modifier = Modifier.graphicsLayer { alpha = detailProgress },
+                        )
+                    }
+                }
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f)
+                        .edgeFade(start = 0.dp, end = 12.dp),
+                ) {
+                    HorizontalPager(
+                        state = pagerState,
+                        beyondViewportPageCount = 1,
+                        modifier = Modifier.fillMaxSize(),
+                    ) { page ->
+                        val detailPageEntry = NowPlayingDetailPage.entries[page]
+                        if (expanded || detailProgress > HiddenLayerVisibilityThreshold) {
+                            ExpandedDetailPage(
+                                page = detailPageEntry,
+                                state = state,
+                                positionMs = positionMs,
+                                aboutUiState = aboutUiState,
+                                notes = notesState,
+                                noteSortMode = noteSortMode,
+                                onNoteSortModeChange = onNoteSortModeChange,
+                                lyricsAutoScroll = lyricsAutoScroll,
+                                lyricsRecenterTick = lyricsRecenterTick,
+                                onLyricsUserScroll = { lyricsAutoScroll = false },
+                                onSeekToMs = { targetMs ->
+                                    lyricsAutoScroll = true
+                                    lyricsRecenterTick += 1
+                                    onSeekToMs(targetMs)
+                                },
+                                onRetryCanonical = onRetryFetchSongInfo,
+                                onSaveNote = onSaveNote,
+                                onDeleteNote = onDeleteNote,
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .graphicsLayer { alpha = detailProgress },
+                            )
+                        }
+                        if (!expanded || detailProgress < 1f - HiddenLayerVisibilityThreshold) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .tapWithoutConsumingDrag(enabled = !expanded) {
+                                        onStageModeChange(NowPlayingStageMode.Expanded)
+                                    },
+                            ) {
+                                CompactDetailPage(
+                                    page = detailPageEntry,
+                                    state = state,
+                                    positionMs = positionMs,
+                                    aboutUiState = aboutUiState,
+                                    notes = notesState,
+                                    immersiveProgress = 0f,
+                                    onRetryFetchSongInfo = onRetryFetchSongInfo,
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .graphicsLayer { alpha = 1f - detailProgress },
+                                )
+                            }
+                        }
+                    }
+                }
+                // Transport + pills fold away while the page is expanded.
+                StageHeightSlot(
+                    height = lerpDp(LandscapeControlsHeight, 0.dp, detailProgress),
+                    alpha = 1f - detailProgress,
+                ) {
+                    TickingPlaybackControls(
+                        noteAnchorsMs = remember(notesState) { notesState.mapNotNull { it.positionMs }.sorted() },
+                        isPlaying = state.isPlaying,
+                        onTogglePlayPause = onTogglePlayPause,
+                        onSkipNext = onSkipNext,
+                        onSkipPrevious = onSkipPrevious,
+                        positionMs = positionMs,
+                        bufferedMs = bufferedMs,
+                        durationMs = state.durationMs,
+                        onSeek = onSeek,
+                        playInteractionSource = playInteractionSource,
+                        nextInteractionSource = nextInteractionSource,
+                        playPressed = playPressed,
+                        nextPressed = nextPressed,
+                        shuffleEnabled = state.shuffleEnabled,
+                        onToggleShuffle = onToggleShuffle,
+                        controlSize = LandscapeControlSize,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 6.dp),
+                    )
+                }
+                Text(
+                    text = state.artist,
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                NowPlayingMarqueeTitle(
+                    text = state.songTitle,
+                    style = MaterialTheme.typography.headlineSmall,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    stretchScale = 1f,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                StageHeightSlot(
+                    height = when {
+                        expanded && detailPage == NowPlayingDetailPage.About -> 68.dp
+                        else -> lerpDp(LandscapePillsHeight, 0.dp, detailProgress)
+                    },
+                    alpha = 1f,
+                    modifier = Modifier.imePadding(),
+                ) {
+                    if (expanded && detailPage == NowPlayingDetailPage.About) {
+                        AskGeminiBar(
+                            askState = askState,
+                            onSubmit = onAskQuestion,
+                            onFocus = onAskBarFocused,
+                            onCollapseRequest = onAskBarCollapseRequested,
+                            onDismissError = onDismissAskError,
+                        )
+                    } else {
+                        BottomPills(
+                            supportsYoinCast = state.serviceFeatures.supportsYoinCast,
+                            onQueueClick = { showQueue = true },
+                            onDevicesClick = { showDevicesSheet = true },
+                            onWriteClick = { showWriteSheet = true },
+                            castState = castState,
+                            onCastClick = onCastClick,
+                            pillHeight = 40.dp,
+                            modifier = Modifier
+                                .padding(top = 6.dp)
+                                .graphicsLayer { alpha = 1f - detailProgress },
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    LyricsSearchSheet(
+        searchBarState = lyricsSearchBarState,
+        state = lyricsSearchState,
+        onQueryChange = onLyricsSearchQueryChange,
+        onSearch = onSearchLyrics,
+        onSelect = onApplyLyricsSearchResult,
+        onDismiss = onDismissLyricsSearch,
+    )
+    if (showApplyDialog) {
+        LyricsApplyDialog(
+            initialText = remember(state.songId, state.lyrics) { state.lyrics.toEditableLyricsText() },
+            onDismiss = { showApplyDialog = false },
+            onApply = { rawLyrics ->
+                showApplyDialog = false
+                onApplyLyrics(rawLyrics)
+            },
+        )
+    }
+    if (showQueue) {
+        ProvideYoinMotionRole(role = YoinMotionRole.Standard) {
+            QueueSheet(
+                queue = state.queue,
+                currentIndex = state.currentQueueIndex,
+                onItemClick = { index ->
+                    onSkipToQueueItem(index)
+                    showQueue = false
+                },
+                onDismiss = { showQueue = false },
+            )
+        }
+    }
+    if (showDevicesSheet) {
+        ProvideYoinMotionRole(role = YoinMotionRole.Standard) {
+            DevicesSheet(
+                providerId = devicesState.providerId,
+                devices = devicesState.devices,
+                loading = devicesState.loading,
+                busyDeviceId = devicesState.busyDeviceId,
+                errorMessage = devicesState.errorMessage,
+                onRefresh = onRefreshDevices,
+                onSelect = onSelectDevice,
+                onDismiss = { showDevicesSheet = false },
+            )
+        }
+    }
+    if (showWriteSheet) {
+        ProvideYoinMotionRole(role = YoinMotionRole.Standard) {
+            WriteNoteSheet(
+                onSave = onSaveNote,
+                positionMs = positionMs,
+                trackTitle = state.songTitle,
+                onDismiss = { showWriteSheet = false },
+            )
+        }
+    }
+}
+
+private val LandscapeRatingRowHeight = 48.dp
+private val LandscapeControlSize = 48.dp
+
+/** Two 48dp transport rows + the 4dp between + 6dp above. */
+private val LandscapeControlsHeight = 106.dp
+private val LandscapePillsHeight = 46.dp
 
 /**
  * Kickstand (tabletop) player. The foldable is half-open on a HORIZONTAL hinge, so
@@ -2571,6 +3283,7 @@ private fun StageTopBar(
     onArtistClick: (String) -> Unit,
     onPlaylistClick: (String) -> Unit,
     modifier: Modifier = Modifier,
+    trailingAction: (@Composable () -> Unit)? = null,
 ) {
     val dockProgress = detailProgress
     val dockCoverAlpha = if (dockProgress >= 1f - HiddenLayerVisibilityThreshold) 1f else 0f
@@ -2634,6 +3347,10 @@ private fun StageTopBar(
                     translationX = 10.dp.toPx() * dockProgress
                 },
         )
+        if (trailingAction != null) {
+            Spacer(modifier = Modifier.width(8.dp))
+            trailingAction()
+        }
     }
 }
 
@@ -2741,6 +3458,10 @@ private fun StageTabs(
     height: Dp,
     onSelect: (NowPlayingDetailPage) -> Unit,
     modifier: Modifier = Modifier,
+    // 16:9 (断点交接 §3.1): the expanded page keeps the TEXT tabs instead of
+    // swapping to the big button group, with the lyric tools at the row's end.
+    textOnly: Boolean = false,
+    tools: (@Composable () -> Unit)? = null,
 ) {
     Box(
         modifier = modifier
@@ -2748,18 +3469,36 @@ private fun StageTabs(
             .height(height)
             .clipToBounds(),
     ) {
+        if (textOnly) {
+            Row(
+                modifier = Modifier.fillMaxSize(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                CompactTextTabs(selected = selected, onSelect = onSelect)
+                Spacer(modifier = Modifier.weight(1f))
+                tools?.invoke()
+            }
+            return@Box
+        }
         // Conditional composition, not just alpha: an alpha-0 layer still
         // hit-tests, so the invisible big buttons were swallowing collapsed-tab
         // clicks (and vice versa).
         if (detailProgress < 1f) {
-            CompactTextTabs(
-                selected = selected,
-                onSelect = onSelect,
-                modifier = Modifier.graphicsLayer {
-                    alpha = (1f - detailProgress).coerceIn(0f, 1f)
-                    translationY = -6.dp.toPx() * detailProgress
-                },
-            )
+            Row(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer {
+                        alpha = (1f - detailProgress).coerceIn(0f, 1f)
+                        translationY = -6.dp.toPx() * detailProgress
+                    },
+                verticalAlignment = if (tools != null) Alignment.CenterVertically else Alignment.Top,
+            ) {
+                CompactTextTabs(selected = selected, onSelect = onSelect)
+                if (tools != null) {
+                    Spacer(modifier = Modifier.weight(1f))
+                    tools()
+                }
+            }
         }
         if (detailProgress > 0f) {
             FullscreenTabGroup(
@@ -2913,6 +3652,142 @@ internal fun OneLineLyricPreview(
         )
     }
 }
+
+/**
+ * The 16:9 lyric entry (断点交接 §3.1): the current line, bold primary, one
+ * line, and the whole row is the button that expands the lyrics page.
+ *
+ * When a line holds for [LyricIdleHintDelayMs] (intro, break, a long note)
+ * the row cross-fades — at most once a day — to an animated unfold symbol
+ * with "Tap to expand", shown only while the symbol moves, then fades back.
+ */
+@Composable
+private fun OneLineLyricRow(
+    state: NowPlayingUiState.Playing,
+    positionMs: () -> Long,
+    onExpand: () -> Unit,
+    onClaimIdleHint: () -> Boolean,
+    modifier: Modifier = Modifier,
+) {
+    val currentPositionMs by rememberUpdatedState(positionMs)
+    val activeLine by remember(state.lyrics) {
+        derivedStateOf {
+            val position = currentPositionMs()
+            state.lyrics.indexOfLast { line -> line.startMs?.let { position >= it } == true }
+        }
+    }
+    val hasSyncedLyrics = remember(state.lyrics) { state.lyrics.any { it.startMs != null } }
+    val claimHint by rememberUpdatedState(onClaimIdleHint)
+    var hintShowing by remember(state.songId) { mutableStateOf(false) }
+    LaunchedEffect(activeLine, state.isPlaying, state.songId, hasSyncedLyrics) {
+        hintShowing = false
+        if (!state.isPlaying || !hasSyncedLyrics) return@LaunchedEffect
+        delay(LyricIdleHintDelayMs)
+        if (claimHint()) {
+            hintShowing = true
+            // Fixed hold: under a 0× animator scale the symbol snaps still and
+            // the text simply stays ~2s.
+            delay(LyricIdleHintShowMs)
+            hintShowing = false
+        }
+    }
+    val hintAlpha by animateFloatAsState(
+        targetValue = if (hintShowing) 1f else 0f,
+        animationSpec = YoinMotion.defaultEffectsSpec(role = YoinMotionRole.Standard),
+        label = "lyricIdleHint",
+    )
+    val haptics = rememberYoinHaptics()
+    val interaction = remember { MutableInteractionSource() }
+    Box(
+        modifier = modifier
+            .semantics(mergeDescendants = true) { role = Role.Button }
+            .noRippleClickable(interactionSource = interaction) {
+                haptics.performClick()
+                onExpand()
+            },
+        contentAlignment = Alignment.CenterStart,
+    ) {
+        OneLineLyricPreview(
+            state = state,
+            positionMs = positionMs,
+            modifier = Modifier
+                .fillMaxWidth()
+                .graphicsLayer { alpha = 1f - hintAlpha },
+        )
+        if (hintAlpha > 0.01f) {
+            Row(
+                modifier = Modifier.graphicsLayer { alpha = hintAlpha },
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                UnfoldHintSymbol(
+                    playing = hintShowing,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(24.dp),
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "Tap to expand",
+                    style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Bold),
+                    color = MaterialTheme.colorScheme.primary,
+                    maxLines = 1,
+                )
+            }
+        }
+    }
+}
+
+/**
+ * `ic_yoin_unfold_more` drawn live: the two chevrons press ~1.8dp toward the
+ * centre line, then spring ~2.6dp outward and settle (spatial springs). The
+ * Yoin Symbols motion painter isn't in the repo; two paths on a Canvas are
+ * the whole symbol, so no dependency for it (§3.1).
+ */
+@Composable
+private fun UnfoldHintSymbol(
+    playing: Boolean,
+    color: androidx.compose.ui.graphics.Color,
+    modifier: Modifier = Modifier,
+) {
+    val displacement = remember { Animatable(0f) }
+    val pressSpec = YoinMotion.fastSpatialSpec<Float>(role = YoinMotionRole.Expressive)
+    val bounceSpec = YoinMotion.defaultSpatialSpec<Float>(role = YoinMotionRole.Expressive)
+    LaunchedEffect(playing) {
+        if (!playing) return@LaunchedEffect
+        displacement.snapTo(0f)
+        displacement.animateTo(-UnfoldPressDp, pressSpec)
+        displacement.animateTo(UnfoldBounceDp, bounceSpec)
+        displacement.animateTo(0f, bounceSpec)
+    }
+    Canvas(modifier = modifier) {
+        val unit = size.width / 24f
+        // Negative = toward the centre line: the upper chevron moves down,
+        // the lower one up.
+        val d = displacement.value.dp.toPx()
+        val stroke = Stroke(
+            width = 1.5f * unit,
+            cap = StrokeCap.Round,
+            join = StrokeJoin.Round,
+        )
+        val upper = Path().apply {
+            moveTo(8f * unit, 9.1f * unit - d)
+            lineTo(12f * unit, 5.1f * unit - d)
+            lineTo(16f * unit, 9.1f * unit - d)
+        }
+        val lower = Path().apply {
+            moveTo(8f * unit, 14.9f * unit + d)
+            lineTo(12f * unit, 18.9f * unit + d)
+            lineTo(16f * unit, 14.9f * unit + d)
+        }
+        drawPath(upper, color, style = stroke)
+        drawPath(lower, color, style = stroke)
+    }
+}
+
+private const val UnfoldPressDp = 1.8f
+private const val UnfoldBounceDp = 2.6f
+
+/** How long the hint (and its moving symbol) stays before the lyric returns. */
+private const val LyricIdleHintShowMs = 1_800L
 
 @Composable
 private fun ExpandedDetailPage(
@@ -3267,6 +4142,25 @@ private fun Modifier.tapWithoutConsumingDrag(
 }
 
 private const val NowPlayingRouteNavigationDelayMs = 72L
+
+/** The one tappable lyric line that replaces tabs + lyric window on 16:9 screens. */
+private val OneLineLyricRowHeight = 44.dp
+
+/** Enlarged phone: the tab row grows to hold the lyric tools at its end. */
+private val EnlargedTabRowHeight = 44.dp
+private val EnlargedTabToolSize = 44.dp
+private val ShortTabToolSize = 40.dp
+
+/** Auto-immersive: the lyric tools step away after this long without a touch. */
+private const val LyricToolsIdleMs = 5_000L
+private const val LyricToolsIdlePollMs = 200L
+
+/** TabletNP left column: sized by the controls — the 312dp cover side. */
+private val WideLeftColumnWidth = 312.dp
+
+/** The lyrics column never gets narrower than a phone line. */
+private val WideRightColumnMin = 320.dp
+private val WideColumnGap = 24.dp
 private const val HiddenLayerVisibilityThreshold = 0.01f
 
 private data class NowPlayingRouteInteraction(
@@ -3705,6 +4599,65 @@ private fun NowPlayingScreenPlayingPreview() {
             onSkipToQueueItem = {},
         )
     }
+}
+
+/** One breakpoint of the player (断点交接 §3 previews: 16:9, panel, enlarged, TabletNP). */
+@Composable
+private fun NowPlayingBreakpointPreview(
+    widthDp: Int,
+    heightDp: Int,
+    presentation: NowPlayingPresentation,
+) {
+    YoinTheme {
+        ProvidePreviewWindow(widthDp = widthDp, heightDp = heightDp) {
+            NowPlayingScreen(
+                uiState = previewPlayingState,
+                positionMs = { 125_000L },
+                bufferedMs = { 180_000L },
+                hasAudioSpectrum = true,
+                onTogglePlayPause = {},
+                onSkipNext = {},
+                onSkipPrevious = {},
+                onSeek = {},
+                onRatingChange = {},
+                onToggleFavorite = {},
+                onAddCurrentToPlaylist = {},
+                onSkipToQueueItem = {},
+                presentation = presentation,
+                enlarged = nowPlayingEnlargedSpec(widthDp.dp),
+            )
+        }
+    }
+}
+
+@Preview(name = "16:9 · one lyric line", widthDp = 375, heightDp = 667, showBackground = true)
+@Composable
+private fun NowPlayingShortPhonePreview() {
+    NowPlayingBreakpointPreview(375, 667, NowPlayingPresentation.Phone)
+}
+
+@Preview(name = "Side panel (tablet portrait)", widthDp = 400, heightDp = 1280, showBackground = true)
+@Composable
+private fun NowPlayingPanelPreview() {
+    NowPlayingBreakpointPreview(400, 1280, NowPlayingPresentation.Panel)
+}
+
+@Preview(name = "Enlarged phone · tablet portrait", widthDp = 800, heightDp = 1280, showBackground = true)
+@Composable
+private fun NowPlayingEnlargedTabletPreview() {
+    NowPlayingBreakpointPreview(800, 1280, NowPlayingPresentation.Enlarged)
+}
+
+@Preview(name = "Enlarged phone · fold", widthDp = 690, heightDp = 840, showBackground = true)
+@Composable
+private fun NowPlayingEnlargedFoldPreview() {
+    NowPlayingBreakpointPreview(690, 840, NowPlayingPresentation.Enlarged)
+}
+
+@Preview(name = "TabletNP · two columns", widthDp = 1280, heightDp = 800, showBackground = true)
+@Composable
+private fun NowPlayingDualPanePreview() {
+    NowPlayingBreakpointPreview(1280, 800, NowPlayingPresentation.DualPane)
 }
 
 @Preview(showBackground = true, backgroundColor = 0xFF1C1B1F, showSystemUi = true)

@@ -33,6 +33,10 @@ import com.gpo.yoin.ui.navigation.trackCoverArtId
 import com.gpo.yoin.ui.nowplaying.NowPlayingAccessories
 import com.gpo.yoin.ui.nowplaying.NowPlayingOverlayHost
 import com.gpo.yoin.ui.nowplaying.NowPlayingViewModel
+import com.gpo.yoin.ui.nowplaying.ProvideBesidePanelWindowInfo
+import com.gpo.yoin.ui.nowplaying.besideNowPlayingPanel
+import com.gpo.yoin.ui.nowplaying.rememberNowPlayingFrame
+import com.gpo.yoin.ui.nowplaying.rememberNowPlayingPanelInset
 
 /**
  * Standalone Activity for a playlist detail page. Unlike the shell-hosted
@@ -127,8 +131,13 @@ class PlaylistDetailActivity : ComponentActivity() {
 
                 val miniPlayerState by rememberDetailMiniPlayerState(app.container)
                 val miniPlayerProgress by rememberDetailMiniPlayerProgress(app.container)
+                // A Medium window opens Now Playing as a side panel: the page
+                // gives up its width and reads as a handset (断点交接 §3.4).
+                val nowPlayingFrame = rememberNowPlayingFrame(nowPlayingViewModel)
+                val nowPlayingPanel = rememberNowPlayingPanelInset(nowPlayingFrame, nowPlayingOpen)
 
                 Box(modifier = Modifier.fillMaxSize()) {
+                    ProvideBesidePanelWindowInfo(nowPlayingPanel) {
                     PlaylistDetailScreen(
                         uiState = uiState,
                         // Toolbar arrow routes through the dispatcher so it plays the
@@ -160,6 +169,16 @@ class PlaylistDetailActivity : ComponentActivity() {
                         onRetry = viewModel::retry,
                         onRename = viewModel::rename,
                         onDelete = viewModel::delete,
+                        onShare = {
+                            val text = (uiState as? PlaylistDetailUiState.Content)
+                                ?.playlistName
+                                ?: "Check out this playlist"
+                            val send = Intent(Intent.ACTION_SEND).apply {
+                                type = "text/plain"
+                                putExtra(Intent.EXTRA_TEXT, text)
+                            }
+                            context.startActivity(Intent.createChooser(send, null))
+                        },
                         isPlaying = playbackState.isPlaying,
                         playbackSignal = if (playbackState.isPlaying) playbackSignal else 0f,
                         onOpenNowPlaying = { nowPlayingOpen = true },
@@ -167,8 +186,11 @@ class PlaylistDetailActivity : ComponentActivity() {
 
                         miniPlayerState = miniPlayerState,
                         playbackProgress = miniPlayerProgress,
-                        modifier = Modifier.fillMaxSize(),
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .besideNowPlayingPanel(nowPlayingPanel),
                     )
+                    }
 
 
                 NowPlayingOverlayHost(

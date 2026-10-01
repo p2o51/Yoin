@@ -262,8 +262,16 @@ internal fun HomeEditorialContent(
     // Feed 档，铺满画布 + 32dp 侧 gutter。Compact/Medium/Tabletop 走原路
     // （限宽 + 16dp 页边），逐字节不变。出血 shelf 的页边与 contentPadding
     // 同源，静止边继续贴住页边（no-midpage-truncation 纪律不破）。
-    val isDesktopWide = LocalYoinWindowInfo.current.layoutMode == LayoutMode.Wide
-    val pageHorizontalPadding = if (isDesktopWide) 32.dp else 16.dp
+    // 先判高度，再判宽度（断点交接 §4 / §14.6）：高 < 480 的手机横屏走单独的
+    // 横屏档 —— 844 宽读成 Wide 也不能落到桌面档。
+    val windowInfo = LocalYoinWindowInfo.current
+    val isLandscapePhone = windowInfo.isCompactHeight
+    val isDesktopWide = !isLandscapePhone && windowInfo.layoutMode == LayoutMode.Wide
+    val pageHorizontalPadding = when {
+        isLandscapePhone -> 24.dp
+        isDesktopWide -> 32.dp
+        else -> 16.dp
+    }
     LazyColumn(
         state = listState,
         modifier = modifier
@@ -271,7 +279,7 @@ internal fun HomeEditorialContent(
             // 大屏限宽:夹的是内容列本身;高度不受影响,所以下面
             // onSizeChanged 喂给 reveal settle 的 containerHeightPx 语义不变。
             // Wide 桌面态例外:不夹,直接满宽(then(Modifier) 即无操作)。
-            .then(if (isDesktopWide) Modifier else Modifier.yoinPageContentWidth())
+            .then(if (isDesktopWide || isLandscapePhone) Modifier else Modifier.yoinPageContentWidth())
             .onSizeChanged { containerHeightPx = it.height.toFloat().coerceAtLeast(1f) }
             .nestedScroll(pullToMemoriesConnection)
             // Long-press → layout editor. Cards only consume taps
@@ -289,9 +297,11 @@ internal fun HomeEditorialContent(
             start = pageHorizontalPadding,
             end = pageHorizontalPadding,
             top = 4.dp,
-            bottom = 108.dp + navBarBottom,
+            // The landscape Button Group lives in the left cutout band, not
+            // at the bottom: only the nav bar needs clearing there.
+            bottom = (if (isLandscapePhone) 16.dp else 108.dp) + navBarBottom,
         ),
-        verticalArrangement = Arrangement.spacedBy(18.dp),
+        verticalArrangement = Arrangement.spacedBy(if (isLandscapePhone) 10.dp else 18.dp),
     ) {
         // The page header (title + nav icons) is pinned above the reorderable
         // sections — it's chrome, not a section.
@@ -300,6 +310,7 @@ internal fun HomeEditorialContent(
                 // Page-level title: sections below it are user-reorderable, so
                 // the header can't borrow the first section's name anymore.
                 title = "Home",
+                compact = isLandscapePhone,
                 onNavigateToSettings = onNavigateToSettings,
                 onNavigateToMemories = onNavigateToMemories,
                 memoriesHintProgress = memoriesHintProgress,
@@ -319,13 +330,18 @@ internal fun HomeEditorialContent(
                         // （6 条，构图不动）；Wide 全窗桌面 = 10 条三行
                         // tapestry。层级递减的构图仍是 Yoin 自己的，Spotify
                         // 参照只取「多列多条目」的思路（owner 修正 2026-07-27）。
-                        val tier = when (LocalYoinWindowInfo.current.layoutMode) {
-                            LayoutMode.Compact -> ActivityBentoTier.Phone
-                            LayoutMode.Wide -> ActivityBentoTier.Desktop
-                            else -> ActivityBentoTier.Dense
+                        val tier = when {
+                            isLandscapePhone -> ActivityBentoTier.Landscape
+                            else -> when (LocalYoinWindowInfo.current.layoutMode) {
+                                LayoutMode.Compact -> ActivityBentoTier.Phone
+                                LayoutMode.Wide -> ActivityBentoTier.Desktop
+                                else -> ActivityBentoTier.Dense
+                            }
                         }
                         val bentoEntries = when (tier) {
-                            ActivityBentoTier.Phone -> activityEntries
+                            ActivityBentoTier.Phone,
+                            ActivityBentoTier.Landscape,
+                            -> activityEntries
                             ActivityBentoTier.Dense -> remember(activities, buildCoverArtUrl) {
                                 buildActivityEntries(
                                     activities = activities,
@@ -423,6 +439,7 @@ internal fun HomeEditorialContent(
                                 },
                                 buildCoverArtUrl = buildCoverArtUrl,
                                 pageHorizontalPadding = pageHorizontalPadding,
+                                singleRowShelf = isLandscapePhone,
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .animateItem(
@@ -449,6 +466,8 @@ private fun HomeContentHeader(
     onNavigateToMemories: () -> Unit,
     memoriesHintProgress: Float,
     modifier: Modifier = Modifier,
+    // Landscape handset: a 28sp title (LandscapeHome).
+    compact: Boolean = false,
 ) {
     val haptics = rememberYoinHaptics()
     Row(
@@ -460,7 +479,7 @@ private fun HomeContentHeader(
     ) {
         Text(
             text = title,
-            style = MaterialTheme.typography.headlineLarge,
+            style = if (compact) MaterialTheme.typography.headlineMedium else MaterialTheme.typography.headlineLarge,
             color = MaterialTheme.colorScheme.onBackground,
         )
         Row(
@@ -520,6 +539,9 @@ private enum class ActivityBentoTier(val supportingSlots: Int) {
 
     /** Wide 全窗桌面：3:2:1 行 + 1:2:1:2 行 + 三 strip。 */
     Desktop(9),
+
+    /** 手机横屏（高 < 480，LandscapeHome）：单行三卡 hero 2 : small 1 : wide 1.4。 */
+    Landscape(2),
 }
 
 /** Medium（含 Tabletop）密度上限：hero 1:1 行（2）+ 支撑行（2）+ 双 strip（2）= 6。 */
@@ -559,7 +581,47 @@ private fun ActivityBento(
         // would crash here — MarqueeTitle's BoxWithConstraints is a
         // SubcomposeLayout, which cannot answer intrinsic measurements.
         val fontScale = LocalDensity.current.fontScale.coerceAtLeast(1f)
-        if (tier == ActivityBentoTier.Desktop) {
+        if (tier == ActivityBentoTier.Landscape) {
+            // One row, so the first screen keeps Recently Added in view.
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(124.dp * fontScale),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                hero?.let { entry ->
+                    ActivityHeroCard(
+                        entry = entry,
+                        footnoteExtra = heroFootnoteExtra,
+                        extractBackdropColors = extractBackdropColors,
+                        onClick = { onEntryClick(entry.target) },
+                        modifier = Modifier
+                            .weight(2f)
+                            .fillMaxHeight(),
+                    )
+                }
+                supporting.getOrNull(0)?.let { small ->
+                    ActivitySmallCard(
+                        entry = small,
+                        extractBackdropColors = extractBackdropColors,
+                        onClick = { onEntryClick(small.target) },
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxHeight(),
+                    )
+                } ?: Spacer(modifier = Modifier.weight(1f))
+                supporting.getOrNull(1)?.let { wide ->
+                    ActivityWideCard(
+                        entry = wide,
+                        extractBackdropColors = extractBackdropColors,
+                        onClick = { onEntryClick(wide.target) },
+                        modifier = Modifier
+                            .weight(1.4f)
+                            .fillMaxHeight(),
+                    )
+                } ?: Spacer(modifier = Modifier.weight(1.4f))
+            }
+        } else if (tier == ActivityBentoTier.Desktop) {
             ActivityBentoDesktopRows(
                 hero = hero,
                 supporting = supporting,
@@ -1132,6 +1194,7 @@ private fun widgetShapeKindForActivity(entityType: String): WidgetShapeKind = wh
 // covers and the album shrink together to hold the height match). Still clearly
 // smaller than the album cover, matching the mock ratio.
 private val RecentlyAddedTrackCover = 52.dp
+private val RecentlyAddedLandscapeGridMax = 340.dp
 private val RecentlyAddedAlbumCover = 82.dp
 
 @Composable
@@ -1145,6 +1208,9 @@ private fun RecentlyAddedSection(
     // 页边距由 feed 统一供给（Compact/Medium/Tabletop 16dp、Wide 桌面
     // 32dp）——出血宽度与 contentPadding 必须同源，否则静止边对不齐页边。
     pageHorizontalPadding: Dp = 16.dp,
+    // Landscape handset: the track grid gives up width so the album covers
+    // read as one row across the page (LandscapeHome).
+    singleRowShelf: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     Column(
@@ -1163,7 +1229,11 @@ private fun RecentlyAddedSection(
             // The grid keeps its old resting share of the viewport (2.6 of
             // 3.6 weight units) so the resting frame is unchanged: grid left,
             // ~1.5 album cards peeking on the right.
-            val trackGridWidth = (maxWidth - 14.dp) * (2.6f / 3.6f)
+            val trackGridWidth = if (singleRowShelf) {
+                minOf((maxWidth - 14.dp) * 0.45f, RecentlyAddedLandscapeGridMax)
+            } else {
+                (maxWidth - 14.dp) * (2.6f / 3.6f)
+            }
             val shelfState = rememberLazyListState()
             LazyRow(
                 state = shelfState,

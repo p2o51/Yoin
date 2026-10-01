@@ -109,6 +109,12 @@ MD3 Expressive 不是 M4，而是 M3 的扩展进化。
 - **中间按钮 — 正在播放**：显示当前曲目缩略封面 + 歌名 + 歌手名；点击后通过共享元素转场展开为全屏 Now Playing
 - **右按钮 — Library**：点击切换到 Library 内容
 - Button Group 之间的切换使用 MD3 Expressive 的 **Shape Morph** 动画（选中按钮膨胀、未选中收缩）
+- **同一个 Button Group，三种形态**（2026-09-30 断点适配，判定源 `ShellChromeForm`，先判高度再判宽度）：
+  - **竖屏底栏**（宽 < 600 且高 ≥ 480，以及 Tabletop）：上面这条，不变
+  - **手机横屏 · 分离式挖孔带**（高 < 480，不管宽度）：两段 64dp 胶囊贴左边、住进挖孔那条 inset 带——挖孔上面是导航 / 详情页的竖向 Play 分体键，下面是竖版正在播放 pill（封面在底、进度从下往上涨、歌名从下往上读）；挖孔位置读 `displayCutout.boundingRects`，90° ↔ 270° 翻转只跟 insets 走。左边没有挖孔时两段之间只留 8dp，多出的一格放「随机播放」。内容从 8 + 64 + 12 = 84dp 开始
+  - **Medium 及以上 · 居中底栏**（宽 ≥ 600 且高 ≥ 480）：竖屏那条本身，水平居中、限宽 600，下边距 24（Wide 28）；详情形态把 ▾ 里的动作拿出来单独放（随机播放 / 前往歌手 / 分享）+ 定宽 200 的正在播放 pill。原左侧 Navigation Rail 已删除
+- 页面用 `LocalShellChromeInsets` 给 Button Group 让位（底部两种形态留栏高，分离式留左侧 84dp + 右侧挖孔）
+- 被拿出来单独放的动作一律从 ▾ 菜单里去掉，不重复
 
 ### 🏠 主页
 
@@ -155,6 +161,13 @@ NeoDB 同步以 album 为边界。第一阶段只有同时具备 album rating �
 - **底部操作胶囊 (Pills)**：设备投射（Chromecast/Sonos）、播放队列、笔记等次级入口
 - **背景**：两个暗色调的微妙渐变（渐变过渡极其平滑，几乎感觉是纯色）+ 实时音频可视化（与背景融为一体，有呼吸感）
 - **退出**：下滑手势 / 系统返回键（适配 Android 14+ Predictive Back，缩回时有连贯的预览动画）
+- **断点**（2026-09-30，`NowPlayingPresentation`）：
+  - **16:9 矮屏**（歌词区放不下 2 行）：Lyrics / About / Note 那一行 + 歌词窗口收成**一行当前歌词**（bold、primary、单行省略），整行就是展开按钮，没有单独的展开键；同一句停 ≥ 8 秒时这一行交叉淡入成「展开符号动画 + Tap to expand」，**一天最多一次**（按本地日期记在 `yoin_ui_hints`）；动画缩放为 0 时符号不动、字停约 2 秒。歌词展开页 tabs 保持文字，4 个歌词工具键挪到 tabs 同一行右侧，底部只剩标题
+  - **自动沉浸**（所有尺寸）：播放中 + Lyrics 页 + 有同步歌词 + 5 秒无操作 → 只有 4 个歌词工具键隐藏；在底部时淡出并塌缩槽位（标题下沉、歌词往下长），在顶部时原地淡出；手动滚过歌词、触摸、暂停都会恢复
+  - **控件永远排得下**：胶囊组先按真实宽度量，放不下整组收成纯图标（按下时展开标签），三个都在；控制行先收 PLAY 的内边距、再把控件从 56 降到 48，Shuffle 永远完整
+  - **Medium 整窗（折叠屏内屏、平板竖屏）· Spotify 式**：点 pill 先从右边推出手机宽的**侧栏**（clamp(窗宽 × 0.5, 360, 420)，左侧圆角 28，就是手机那一页、歌词吃满剩余高度）；旁边的内容让出这块宽度继续可用、读成 Compact；底栏折成 [Home][Library] 居中。侧栏右上角「全屏」→ **放大的手机**（列宽 ≤ 640 居中，封面随高度收，评分列 / 控件随列放大；右上角「收回侧栏」）。返回一级一级退：全屏 → 侧栏 → 关闭，左上角 ▾ 直接关闭；侧栏往右滑也能关，三者共用一个 dismiss 控制器。展开折叠屏（Compact → Medium）时直接进全屏态，其它进入 Medium 默认侧栏；「侧栏 / 全屏」状态在 NP 的 ViewModel 里。窗宽 − 侧栏 < 320 时不开侧栏，直接全屏态
+  - **分栏窗格里**（开着详情时）：NP 占满本窗格，不开侧栏也没有全屏键——< 600 手机 NP、600–840 放大的手机、≥ 840 双栏；没开详情时 shell 独占整窗，平板横屏从首页打开就是整屏双栏
+  - **双栏只留给 Wide**（≥ 840 的整窗或窗格，且够高）：左栏按控件定宽 312（= 封面边长），右栏歌词吃剩下的；点封面放大时左栏最多 1.5 倍、右栏不小于 320
 
 ### 🔊 后台播放与系统集成
 
@@ -183,6 +196,7 @@ NeoDB 同步以 album 为边界。第一阶段只有同时具备 album rating �
 
 #### 账号与服务二级页（2026-09-26，取代 2026-09-06 版）
 
+- **大屏 list-detail**（2026-09-30，SettingsTablet）：窗口 ≥ 840 时 Settings 与二级页走原生 Activity Embedding 分栏（`tag="settings-*"` 的 SplitPairRule + SplitPlaceholderRule，约 420 | 860，叠在 shell 分栏之上，两个 Activity 不合并）。左栏账号卡改为竖排行、右栏打开的那个高亮（⋮ 里保留 Use / Remove）；Features 里的 AI features / NeoDB 也在右栏打开（`SettingsFeatureActivity`），窄窗仍是行内展开。二级页手机横屏：左栏固定（hero + You'll need，不随输入法滚走），右栏滚动、表单在前、What you get 在后
 - Settings 主页只做「列出 / 切换 / 移除」：Accounts 横向卡片（名称 + 一行状态：问题徽标 > In use > 服务器/账号），其余设置按 Features / Storage / About 分组，行内折叠展开（空间弹簧 + 效果弹簧），不再平铺说明段落。
 - 服务能做什么，只在用户表达兴趣时讲：Add → 选择面板（每项名称 + 一句话）→ 服务二级页 `ServiceSetupActivity`。二级页 = 服务标识 + 一句定位 + What you get（≤4 条亮点）+ You'll need（前置条件）+ 连接表单。不做支持矩阵、不罗列“不能做什么”；做不了的操作照旧隐藏，失败时给简短可处理的错误。
 - 管理已有账号（编辑 Subsonic、Spotify 重新登录、凭据缺失恢复）复用同一二级页的 manage 模式：跳过介绍，直接给表单/操作。Spotify Client ID 属于一次性开发者配置，收进二级页的 Developer setup 折叠行，仅在缺失时自动展开；「No Client ID」深链打开该页并聚焦输入框。
@@ -257,13 +271,13 @@ Now Playing 恢复原有的封面、标题、歌手名 Shared Bounds：整页使
 
 Podcast、Internet Radio、Chat、User Management、Jukebox、Bookmarks、Shares、Video
 
-### 📱 大屏幕适配 / 响应式设计（已落地，2026-07）
+### 📱 大屏幕适配 / 响应式设计（2026-07 落地，2026-09-30 断点适配重订）
 
-- 三档 LayoutMode（Compact / Medium / Wide）+ Tabletop 折叠姿态（`ui/experience/WindowAdaptiveRuntime.kt`），全部由 M3 adaptive 的 window size class + 铰链姿态驱动
-- Medium+ 全窗：底部 Button Group 转为左侧 Navigation Rail（`ui/navigation/YoinNavRail.kt`）
-- Now Playing 从 Medium 起为双栏布局；Tabletop 沿铰链分上下两半
-- Activity Embedding（`res/xml/main_split_config.xml`，splitMinWidthDp=840）：任务窗 ≥840dp 时 detail 页进入右侧分栏，左侧为 placeholder
-- detail 启动按构型三值分流（`DetailLaunchMode`）：Compact 全窗走跨窗口 bar 交接编舞，Medium+ 纯推入，分栏交给系统默认
+- 宽度三档 LayoutMode（Compact < 600 / Medium 600–840 / Wide ≥ 840）+ Tabletop 折叠姿态，**高度另读**：高 < 480 是手机横屏（`isCompactHeight`），页面先判高度再判宽度——844 宽的手机横屏不会落到桌面档。判定源都在 `ui/experience/WindowAdaptiveRuntime.kt`，由 M3 adaptive 的 window size class + 铰链姿态驱动，LayoutMode 按窗格相对（分栏里每个窗格读自己的宽度）
+- Button Group 三种形态（竖屏底栏 / 手机横屏分离式挖孔带 / Medium+ 底栏居中限宽 600）见「导航结构」；`LocalShellChromeInsets` 给页面让位；原 Navigation Rail 已删除
+- 跨窗口 bar 交接（`DetailLaunchMode.FullChoreography`）在竖屏底栏与分离式挖孔带下都做（两个窗口的组逐像素同位）；居中底栏的详情形态换了排布，纯推入；分栏交给系统默认
+- Activity Embedding（`res/xml/main_split_config.xml`）：**按需分栏**（2026-10-01）——任务窗 ≥ 840 时 shell 平时独占整窗（平板横屏读 Wide，首页 / 资料库走桌面档），打开第一个详情才分成 shell | detail，关掉最后一个详情分栏解散、shell 回到整窗；不再有右栏占位页。分栏开合、栏内推入的动画全交给系统（不叠我们的 96dp 内容滑入），动画露出的底色由 calculator 设成 app 背景色（深浅色各自取 dynamic scheme 的 background）。分栏里的详情没有底栏，返回走系统原生（predictive-back Pattern A：窗口不透明、不注册返回回调、用系统关闭动画），右栏最后一张关掉时系统直接收起分栏。宽窄切换时首页 / 资料库的 tab 和滚动位置保留（资料库网格记住用户滚到的那一格，列数变了也回到那一行）。比例由 `SplitAttributesCalculator` 按窗宽算：≥ 1080 时 shell = max(600, 0.45 × 窗宽)（扣掉分隔条后仍 ≥ 600，1280 宽约 0.48），详情 ≥ 480；更窄照旧 0.45。分隔条用平台的可拖动 `DraggableDividerAttributes`（extension < 6 没有，不自己画），颜色设成 `surfaceContainerHigh`（比页面底深一档，同 TabletSplit 的色带；库默认是黑色），深浅色切换时主动刷新分栏让它跟着变。分栏里详情窗格没有底栏，[分享][Play 分体键] 放进 hero，正在播放只在 shell 那条出现
+- 页面：Home / Library 手机横屏有单独一档（Home 28sp 标题、Activities 单行三卡；Library 单行头部 [搜索 208][chips][设置]、~100dp 格子 6 列）；详情页手机横屏把竖屏 hero 横过来（封面左、竖屏里封面下面的东西在右，上拉照旧），背景图形做成贴着封面的闭合形状、不伸到左边的组下面；Medium 歌手是宽 hero（名字只出现一次，Follow 进 hero，Play 只在底栏）；Wide 整窗专辑 / 歌单是 400 身份栏 + 完整曲目表，歌手是横顶 hero + Most Played 480 | Discography；Memories 16:9 印章 112、提问与 Write a review 并行，手机横屏一张卡拆两栏，Wide 整窗对开（大印章 190、笔记回到卡面）
 - 页面内容宽度有 clamp 基线（`yoinPageContentWidth`，Feed=720 / Prose=640 / Card=480）
 
 ---

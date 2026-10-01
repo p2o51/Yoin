@@ -28,20 +28,31 @@ fun OverlayChromeVisibility(
     )
 }
 
-/** The pre-rewrite NP entrance/exit, kept together for reference-frame verification. */
+/**
+ * The NP entrance/exit. Rises from the bottom; with [fromEnd] (the Medium
+ * side panel family, 断点交接 §3.4) it slides in from — and retreats to — the
+ * right edge on the same spatial spring.
+ */
 @Composable
 fun OverlayPlayerVisibility(
     expanded: Boolean,
     modifier: Modifier = Modifier,
+    fromEnd: Boolean = false,
     content: @Composable AnimatedVisibilityScope.() -> Unit,
 ) {
     AnimatedVisibility(
         visible = expanded,
         modifier = modifier,
-        enter = YoinMotion.slideInVertically(role = YoinMotionRole.Expressive) { it } +
-            YoinMotion.fadeIn(role = YoinMotionRole.Standard),
-        exit = YoinMotion.slideOutVertically(role = YoinMotionRole.Standard) { it } +
-            YoinMotion.fadeOut(role = YoinMotionRole.Standard),
+        enter = if (fromEnd) {
+            YoinMotion.slideInHorizontally(role = YoinMotionRole.Expressive) { it }
+        } else {
+            YoinMotion.slideInVertically(role = YoinMotionRole.Expressive) { it }
+        } + YoinMotion.fadeIn(role = YoinMotionRole.Standard),
+        exit = if (fromEnd) {
+            YoinMotion.slideOutHorizontally(role = YoinMotionRole.Standard) { it }
+        } else {
+            YoinMotion.slideOutVertically(role = YoinMotionRole.Standard) { it }
+        } + YoinMotion.fadeOut(role = YoinMotionRole.Standard),
         content = content,
     )
 }

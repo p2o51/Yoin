@@ -5,6 +5,7 @@ import androidx.activity.compose.PredictiveBackHandler
 import androidx.compose.animation.core.Animatable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
@@ -20,6 +21,7 @@ import androidx.compose.ui.platform.LocalContext
 import com.gpo.yoin.YoinApplication
 import com.gpo.yoin.ui.component.rememberBottomBarShadowHandBack
 import com.gpo.yoin.ui.experience.DetailBackPhase
+import com.gpo.yoin.ui.experience.rememberIsActivityEmbedded
 import com.gpo.yoin.ui.experience.voteHighFrameRate
 import com.gpo.yoin.ui.navigation.back.BackMotionTokens
 import com.gpo.yoin.ui.theme.YoinMotion
@@ -57,6 +59,13 @@ import kotlinx.coroutines.launch
  *
  * The whole gesture is CONSUMED, so the system's window-level animation —
  * which would scale the bar too — never engages. Activities stay Activities.
+ *
+ * Except in an Activity Embedding pane: a split-pane detail has no bar, so
+ * the reason for the replica is gone and the page is a plain destination
+ * (predictive-back skill, Pattern A). There the handler is disabled, the
+ * window opaque and the close transition the system's — the platform plays
+ * its own back, including closing the split when the pane's last page goes,
+ * with nothing of ours to reveal a black pane behind it.
  */
 @Stable
 class DetailBackCollapseState internal constructor() {
@@ -171,7 +180,12 @@ fun rememberDetailBackCollapse(
         (context.applicationContext as YoinApplication).container.experienceSessionStore
     }
 
-    // Keep the detail window translucent for its whole lifetime. Converting it
+    // Pattern A inside a split pane, Pattern B everywhere else — re-decided
+    // whenever the pane joins or leaves a split (rotation, resizing).
+    val nativeBack = rememberIsActivityEmbedded()
+    DetailWindowBackModeEffect(nativeBack)
+
+    // Out of a split, keep the detail window translucent for its whole lifetime. Converting it
     // to opaque lets WM stop and discard the shell surface underneath. On the
     // first predictive-back frame, setTranslucent(true) cannot recreate and
     // present that surface before the 1:1 card transform exposes it, leaving a
@@ -180,7 +194,7 @@ fun rememberDetailBackCollapse(
     // keeping the already-rendered shell surface alive is the only path that
     // preserves both the destination preview and direct finger tracking.
 
-    PredictiveBackHandler { events ->
+    PredictiveBackHandler(enabled = !nativeBack) { events ->
         if (state.committed) {
             events.collect { }
             return@PredictiveBackHandler
@@ -282,6 +296,24 @@ fun rememberDetailBackCollapse(
         }
     }
     return state
+}
+
+/**
+ * Applies [applyDetailWindowBackMode] when the pane's embedding changes. The
+ * Activity's onCreate already set up Pattern B (translucent theme + close
+ * dissolve), so nothing is re-applied until the first real switch.
+ */
+@Composable
+private fun DetailWindowBackModeEffect(nativeBack: Boolean) {
+    val activity = LocalContext.current.findActivityOrNull() ?: return
+    val applied = remember(activity) { BooleanArray(1) }
+    DisposableEffect(activity, nativeBack) {
+        if (applied[0] != nativeBack) {
+            activity.applyDetailWindowBackMode(nativeBack)
+            applied[0] = nativeBack
+        }
+        onDispose { }
+    }
 }
 
 /**

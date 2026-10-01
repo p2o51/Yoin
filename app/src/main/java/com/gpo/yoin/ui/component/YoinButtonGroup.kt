@@ -24,8 +24,10 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.LibraryMusic
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.FilledIconButton
+import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
@@ -44,6 +46,8 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.lerp
+import com.gpo.yoin.ui.experience.CenteredBarBottomMargin
+import com.gpo.yoin.ui.experience.CenteredBarBottomMarginWide
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
 import com.gpo.yoin.ui.navigation.YoinSection
 import com.gpo.yoin.ui.theme.ProvideYoinMotionRole
@@ -100,6 +104,15 @@ fun YoinButtonGroup(
     onLibraryLongClick: () -> Unit = onLibraryClick,
     sharedTransitionScope: SharedTransitionScope? = null,
     animatedVisibilityScope: AnimatedVisibilityScope? = null,
+    // ShellChromeForm.CenteredBar: centred, capped at 600, and the detail pose
+    // pulls the page's promotable actions out of ▾ into round buttons with a
+    // fixed 200dp pill (断点交接 §2.3). False = the portrait bar, unchanged.
+    centered: Boolean = false,
+    // Wide windows sit the centred bar 28dp up instead of 24.
+    wideMargin: Boolean = false,
+    // Now Playing side panel open: the pill folds away (it became the panel)
+    // and the bar wraps its two nav buttons (断点交接 §3.4).
+    navOnly: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     ProvideYoinMotionRole(role = YoinMotionRole.Standard) {
@@ -117,9 +130,34 @@ fun YoinButtonGroup(
         val libraryContainerColor = lerp(colors.surfaceContainerHighest, colors.primaryContainer, 1f - homeSelection)
         val libraryContentColor = lerp(colors.onSurfaceVariant, colors.onPrimaryContainer, 1f - homeSelection)
         var showLibrarySearchHint by remember { mutableStateOf(false) }
+        val navOnlyProgress by animateFloatAsState(
+            targetValue = if (navOnly) 1f else 0f,
+            animationSpec = YoinMotion.defaultSpatialSpec(),
+            label = "barNavOnly",
+        )
+        val promotedExtras = if (centered) {
+            playSplitActions?.let { actions ->
+                listOf(
+                    BarExtraAction(
+                        icon = Icons.Filled.Shuffle,
+                        label = "Shuffle play",
+                        onClick = actions.onShuffle,
+                    ),
+                ) + actions.promotable
+            }.orEmpty()
+        } else {
+            emptyList()
+        }
 
         FloatingBottomBar(
             modifier = modifier,
+            centered = centered,
+            bottomMargin = if (wideMargin) CenteredBarBottomMarginWide else CenteredBarBottomMargin,
+            barWidth = if (navOnlyProgress > 0f) {
+                { max -> lerp(max, NavOnlyBarWidth, navOnlyProgress) }
+            } else {
+                null
+            },
             overlay = {
                 LibrarySearchShortcutHint(
                     visible = showLibrarySearchHint,
@@ -188,23 +226,38 @@ fun YoinButtonGroup(
             // width. All plain Row/Box + width(dp) — see the class KDoc for
             // why nothing fancier is allowed in here.
             val morph = chromeProgress().coerceIn(0f, 1f)
+            // The panel fold wins over the idle halves: nav buttons keep
+            // their resting sizes while the bar wraps them.
+            val idleWeight = idleProgress * (1f - navOnlyProgress)
             val idleHalf = (innerWidth - FloatingBarItemGap * 2) / 2
-            val homeWidth = lerp(FloatingBarButtonHeight * homeAspect, idleHalf, idleProgress)
-            val libraryWidth = lerp(FloatingBarButtonHeight * libraryAspect, idleHalf, idleProgress)
+            val homeWidth = lerp(FloatingBarButtonHeight * homeAspect, idleHalf, idleWeight)
+            val libraryWidth = lerp(FloatingBarButtonHeight * libraryAspect, idleHalf, idleWeight)
             val pillNavWidth =
-                innerWidth - homeWidth - libraryWidth - FloatingBarItemGap * 2
-            val pillDetailWidth =
+                (innerWidth - homeWidth - libraryWidth - FloatingBarItemGap * 2).coerceAtLeast(0.dp)
+            // CenteredBar detail pose: [Play split (stretches)] [extras…] [pill 200].
+            val extrasWidth = (FloatingBarButtonHeight + FloatingBarItemGap) * promotedExtras.size
+            val pillDetailWidth = if (centered) {
+                FloatingBarDetailPillWidth
+            } else {
                 innerWidth - FloatingBarSplitWidth - FloatingBarItemGap
+            }
+            val splitDetailWidth = if (centered) {
+                (innerWidth - pillDetailWidth - FloatingBarItemGap - extrasWidth)
+                    .coerceAtLeast(FloatingBarSplitWidth)
+            } else {
+                FloatingBarSplitWidth
+            }
             val pillWidth = lerp(pillNavWidth, pillDetailWidth, morph)
-            val leftWidth = lerp(homeWidth, FloatingBarSplitWidth, morph)
+            val leftWidth = lerp(homeWidth, splitDetailWidth, morph)
+            val extrasSlotWidth = lerp(0.dp, extrasWidth, morph)
             // Library slot carries its own leading gap so both collapse to 0.
             val rightWidth = lerp(FloatingBarItemGap + libraryWidth, 0.dp, morph)
             val navAlpha = (1f - morph / 0.6f).coerceIn(0f, 1f)
             val splitAlpha = ((morph - 0.4f) / 0.6f).coerceIn(0f, 1f)
             // Label reveal rides the tail of the width spring; fade the pill
             // out fast so the squeeze never shows crushed content.
-            val idleLabelAlpha = ((idleProgress - 0.55f) / 0.45f).coerceIn(0f, 1f)
-            val pillIdleAlpha = (1f - idleProgress / 0.5f).coerceIn(0f, 1f)
+            val idleLabelAlpha = ((idleWeight - 0.55f) / 0.45f).coerceIn(0f, 1f)
+            val pillIdleAlpha = (1f - maxOf(idleProgress, navOnlyProgress) / 0.5f).coerceIn(0f, 1f)
 
             // LEFT SLOT — Home fading out beneath the stretching Play split.
             Box(
@@ -263,10 +316,19 @@ fun YoinButtonGroup(
                         buttonHeight = FloatingBarButtonHeight,
                         fillPlay = true,
                         compact = true,
-                        trailingMenuItems = playSplitActions?.menuItems ?: {},
+                        showShuffleInMenu = promotedExtras.isEmpty(),
+                        trailingMenuItems = { dismissMenu ->
+                            playSplitActions?.menuItems?.invoke(this, dismissMenu)
+                            if (promotedExtras.isEmpty()) {
+                                BarExtraActionMenuItems(
+                                    actions = playSplitActions?.promotable.orEmpty(),
+                                    dismissMenu = dismissMenu,
+                                )
+                            }
+                        },
                         modifier = Modifier
                             .align(Alignment.CenterStart)
-                            .width(FloatingBarSplitWidth)
+                            .width(splitDetailWidth)
                             .graphicsLayer { alpha = splitAlpha },
                     )
                 }
@@ -274,12 +336,45 @@ fun YoinButtonGroup(
 
             Spacer(modifier = Modifier.width(FloatingBarItemGap))
 
+            // EXTRAS (CenteredBar detail pose only) — each carries its own
+            // trailing gap so the slot collapses cleanly to 0 in nav pose.
+            if (promotedExtras.isNotEmpty() && morph > 0.01f) {
+                Row(
+                    modifier = Modifier
+                        .width(extrasSlotWidth)
+                        .height(FloatingBarButtonHeight)
+                        .clipToBounds()
+                        .graphicsLayer { alpha = splitAlpha },
+                ) {
+                    promotedExtras.forEach { action ->
+                        FilledTonalIconButton(
+                            onClick = {
+                                haptics.performClick()
+                                action.onClick()
+                            },
+                            modifier = Modifier.size(FloatingBarButtonHeight),
+                            colors = IconButtonDefaults.filledTonalIconButtonColors(
+                                containerColor = colors.surfaceContainerHighest,
+                                contentColor = colors.onSurfaceVariant,
+                            ),
+                        ) {
+                            Icon(
+                                imageVector = action.icon,
+                                contentDescription = action.label,
+                                modifier = Modifier.size(22.dp),
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(FloatingBarItemGap))
+                    }
+                }
+            }
+
             // CENTER — the now-playing pill, absorbing whatever the sides
             // release. Fully idle (and not in detail chrome) = not composed:
             // its 0dp slot would still marquee and hit-test, and an idle tap
             // opening the "Nothing playing" page is exactly what the idle
             // pose exists to retire.
-            if (idleProgress < 0.995f || morph > 0.005f) {
+            if ((idleProgress < 0.995f && navOnlyProgress < 0.995f) || morph > 0.005f) {
                 NowPlayingPill(
                     currentTrackId = currentTrackId,
                     currentTrackTitle = currentTrackTitle,
@@ -375,7 +470,7 @@ fun YoinButtonGroup(
 }
 
 @Composable
-private fun LibrarySearchShortcutHint(
+internal fun LibrarySearchShortcutHint(
     visible: Boolean,
     modifier: Modifier = Modifier,
 ) {
@@ -433,11 +528,22 @@ private const val MIN_ASPECT = 0.7f
 private const val LIBRARY_SEARCH_HINT_DELAY_MS = 240L
 private const val LIBRARY_SEARCH_HINT_SETTLE_MS = 120L
 
-/** Functional Play-split wiring for the detail windows' bar. */
+/**
+ * Functional Play-split wiring for the detail windows' bar.
+ *
+ * [menuItems] always stay in ▾ (Open in Spotify…); [promotable] actions (Go to
+ * artist, Share) leave the menu for their own round buttons wherever the bar
+ * has room — the CenteredBar detail pose (断点交接 §2.3) — and render as menu
+ * rows everywhere else. Shuffle is promoted alongside them.
+ */
 class BarPlaySplitActions(
     val playContainer: androidx.compose.ui.graphics.Color,
     val playContent: androidx.compose.ui.graphics.Color,
     val onPlay: () -> Unit,
     val onShuffle: () -> Unit,
     val menuItems: @Composable androidx.compose.foundation.layout.ColumnScope.(dismissMenu: () -> Unit) -> Unit,
+    val promotable: List<BarExtraAction> = emptyList(),
 )
+
+/** The bar folded to [Home] [Library] for the Now Playing side panel: 72 + 48 + two gaps + 20 padding. */
+private val NavOnlyBarWidth = 156.dp

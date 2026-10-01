@@ -13,9 +13,21 @@ import androidx.compose.foundation.gestures.draggable
 import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.CloseFullscreen
+import androidx.compose.material.icons.rounded.OpenInFull
+import androidx.compose.material3.FilledTonalIconButton
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButtonDefaults
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Snackbar
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
@@ -27,10 +39,13 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import com.gpo.yoin.AppContainer
@@ -38,7 +53,7 @@ import com.gpo.yoin.data.source.Capability
 import com.gpo.yoin.ui.component.AddToPlaylistSheet
 import com.gpo.yoin.ui.component.DevicesSheet
 import com.gpo.yoin.ui.experience.LocalYoinWindowInfo
-import com.gpo.yoin.ui.experience.isDualPaneNowPlaying
+import com.gpo.yoin.ui.experience.rememberYoinHaptics
 import com.gpo.yoin.ui.theme.ProvideYoinMotionRole
 import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinMotionRole
@@ -82,15 +97,51 @@ fun NowPlayingOverlayHost(
     val devicesState by viewModel.devicesState.collectAsState()
     val lyricsSearchState by viewModel.lyricsSearchState.collectAsState()
     val castState by container.castManager.castState.collectAsState()
-    val dualPaneNowPlaying = LocalYoinWindowInfo.current.isDualPaneNowPlaying
     val skipDirection by viewModel.skipDirection.collectAsState()
+
+    // The frame this window gives Now Playing (断点交接 §3.4 / §14.1) — the
+    // same resolution the host content beside a side panel reads.
+    val frame = rememberNowPlayingFrame(viewModel)
+    val presentation = frame.presentation
+    val dualPaneNowPlaying = presentation == NowPlayingPresentation.DualPane
+    val panelMode = presentation == NowPlayingPresentation.Panel
+    // Medium full window: panel ⇄ enlarged phone share one container that
+    // slides in from the right; everything else rises from the bottom.
+    val panelFamily = frame.panelAvailable &&
+        (panelMode || presentation == NowPlayingPresentation.Enlarged)
+
+    // Size switches while open: unfolding a phone lands in the enlarged phone,
+    // any other arrival in Medium starts as the panel; a fresh open is always
+    // the panel. The flag lives in the ViewModel, so a recreated detail
+    // Activity keeps the user's choice.
+    val layoutMode = LocalYoinWindowInfo.current.layoutMode
+    var lastLayoutMode by remember { mutableStateOf(layoutMode) }
+    LaunchedEffect(layoutMode) {
+        val previous = lastLayoutMode
+        lastLayoutMode = layoutMode
+        if (previous != layoutMode) {
+            viewModel.setMediumFullscreen(
+                fullscreenAfterLayoutChange(
+                    previous = previous,
+                    current = layoutMode,
+                    expanded = expanded,
+                    wasFullscreen = viewModel.mediumFullscreen.value,
+                ),
+            )
+        }
+    }
+    var wasExpanded by rememberSaveable { mutableStateOf(expanded) }
+    LaunchedEffect(expanded) {
+        if (expanded && !wasExpanded) viewModel.setMediumFullscreen(false)
+        wasExpanded = expanded
+    }
 
     var dismissDragPx by remember { mutableStateOf(0f) }
     var predictiveBackProgress by remember { mutableStateOf(0f) }
-    // Expanded-collapse predictive back drives a uniform SCALE-down preview
-    // (below) instead of scrubbing the layout reshape — a partial reshape
-    // freezes a half-built, truncated stage; a uniform scale of the complete
-    // layout cannot.
+    // Expanded-collapse (and enlarged → panel) predictive back drives a
+    // uniform SCALE-down preview (below) instead of scrubbing a layout
+    // reshape — a partial reshape freezes a half-built, truncated stage; a
+    // uniform scale of the complete layout cannot.
     var stageBackProgress by remember { mutableStateOf(0f) }
     val stageProgress = rememberNowPlayingStageProgress(initialMode = stageMode)
     val dragResetSpec = YoinMotion.defaultSpatialSpec<Float>(role = YoinMotionRole.Standard)
@@ -104,10 +155,9 @@ fun NowPlayingOverlayHost(
         animationSpec = YoinMotion.defaultSpatialSpec(role = YoinMotionRole.Standard),
         label = "overlayOffsetPx",
     )
-    // Expanded-collapse predictive-back PREVIEW scale: 1f → ~0.90f (the
-    // platform's ~90% min back-scale) as the gesture progresses; animated so
-    // the release settles smoothly back to 1f instead of snapping. Inert (1f)
-    // when not gesturing.
+    // Collapse PREVIEW scale: 1f → ~0.90f (the platform's ~90% min
+    // back-scale) as the gesture progresses; animated so the release settles
+    // smoothly back to 1f instead of snapping. Inert (1f) when not gesturing.
     val stageBackScale by animateFloatAsState(
         targetValue = 1f - 0.10f * stageBackProgress,
         animationSpec = YoinMotion.defaultSpatialSpec(role = YoinMotionRole.Standard),
@@ -140,13 +190,9 @@ fun NowPlayingOverlayHost(
     }
 
     // Dual-pane NP has no Expanded substate (the right column is always
-    // expanded), so collapse a stale Expanded to Compact when entering a
-    // dual-pane mode. Semantic flip 2026-07-27: was `== Wide`, now Medium+
-    // (isDualPaneNowPlaying) since Medium renders the same two-column body;
-    // short windows (landscape handsets) read false and keep the single-column
-    // Expanded. Writes ONLY stageMode; the reconcile effect above stays the
-    // sole driver of the stage Animatable (it re-runs on the change and
-    // settles detail → 0).
+    // expanded), so collapse a stale Expanded to Compact when entering the
+    // two-column player (Wide + tall only). Writes ONLY stageMode; the
+    // reconcile effect above stays the sole driver of the stage Animatable.
     LaunchedEffect(dualPaneNowPlaying, stageMode) {
         if (dualPaneNowPlaying && stageMode == NowPlayingStageMode.Expanded) {
             viewModel.setStageMode(NowPlayingStageMode.Compact)
@@ -161,40 +207,32 @@ fun NowPlayingOverlayHost(
         onExpandedChange(false)
     }
 
-    // Layered back priority: Expanded collapses in place first. Immersive is
-    // a transient cover-focus variant of Compact, so it does not enter the
-    // stage back chain; Back closes Now Playing just like Compact.
-    // Semantic flip 2026-07-27: the stage-collapse back layer exists only where
-    // the Expanded substate exists — the single-column player. Was `!= Wide`;
-    // now !isDualPaneNowPlaying so Medium (two-column, no Expanded) skips it
-    // too. Tabletop sits exactly where it did under `!= Wide`.
-    BackHandler(
-        enabled = expanded && stageMode == NowPlayingStageMode.Expanded &&
-            !dualPaneNowPlaying,
-    ) {
+    // Layered back, one level at a time (断点交接 §3.4): the Expanded stage
+    // collapses in place first (single-column only — Immersive is a transient
+    // cover-focus variant of Compact and never enters the chain); the enlarged
+    // phone steps back to its side panel; then Now Playing closes. The three
+    // levels' `enabled` flags are mutually exclusive, so a closed overlay —
+    // or a level that doesn't exist here — never swallows the host's back.
+    val stageBackLevel = expanded && stageMode == NowPlayingStageMode.Expanded && !dualPaneNowPlaying
+    val fullscreenBackLevel = expanded && !stageBackLevel &&
+        presentation == NowPlayingPresentation.Enlarged && frame.panelAvailable
+    val closeBackLevel = expanded && !stageBackLevel && !fullscreenBackLevel
+
+    BackHandler(enabled = stageBackLevel) {
         viewModel.stepBackStage()
     }
-
-    BackHandler(
-        enabled = expanded &&
-            (stageMode != NowPlayingStageMode.Expanded || dualPaneNowPlaying),
-        onBack = closeNowPlaying,
-    )
+    BackHandler(enabled = fullscreenBackLevel) {
+        viewModel.setMediumFullscreen(false)
+    }
+    BackHandler(enabled = closeBackLevel, onBack = closeNowPlaying)
 
     // Predictive-back drive for stage collapse (Expanded → Compact). Uniform
     // SCALE-DOWN preview, NOT a layout scrub: the finger peeks the WHOLE expanded
     // stage toward ~90% (the platform's min back-scale) while the layout stays
-    // fully expanded (detail = 1, held there by the gesture-gated reconcile). A
-    // partial layout reshape would freeze a half-built, truncated stage (the
-    // collapsing cover row clips the square art); a uniform scale of the complete
-    // layout cannot truncate. COMMIT runs the real detail 1→0 reshape and the
-    // scale springs back to 1; CANCEL just springs the scale back, detail stays 1.
-    PredictiveBackHandler(
-        // Same semantic flip as the BackHandler pair above: the stage-collapse
-        // gesture only exists where the Expanded substate does (single-column).
-        enabled = expanded && stageMode == NowPlayingStageMode.Expanded &&
-            !dualPaneNowPlaying,
-    ) { progress ->
+    // fully expanded (detail = 1, held there by the gesture-gated reconcile).
+    // COMMIT runs the real detail 1→0 reshape and the scale springs back to 1;
+    // CANCEL just springs the scale back, detail stays 1.
+    PredictiveBackHandler(enabled = stageBackLevel) { progress ->
         stageProgress.beginGesture()
         try {
             progress.collect { event ->
@@ -213,11 +251,24 @@ fun NowPlayingOverlayHost(
         }
     }
 
-    // Predictive-back drive for the compact dismissal animation.
-    PredictiveBackHandler(
-        enabled = expanded &&
-            (stageMode != NowPlayingStageMode.Expanded || dualPaneNowPlaying),
-    ) { progress ->
+    // Enlarged → panel: the same uniform scale preview of the complete stage;
+    // the container's width change runs only on commit, on its own spring.
+    PredictiveBackHandler(enabled = fullscreenBackLevel) { progress ->
+        try {
+            progress.collect { event ->
+                stageBackProgress = YoinMotion.backGestureEasing.transform(event.progress)
+            }
+            viewModel.setMediumFullscreen(false)
+        } catch (e: CancellationException) {
+            throw e
+        } finally {
+            stageBackProgress = 0f
+        }
+    }
+
+    // Predictive-back drive for the dismissal: slides down (right, for the
+    // side panel) on the same channel as the drag-to-dismiss.
+    PredictiveBackHandler(enabled = closeBackLevel) { progress ->
         try {
             progress.collectLatest { event ->
                 predictiveBackProgress = event.progress
@@ -230,8 +281,9 @@ fun NowPlayingOverlayHost(
     }
 
     // ── Background scrim ─────────────────────────────────────────────────
+    // None beside the side panel: the host content stays usable next to it.
     val scrimAlpha by animateFloatAsState(
-        targetValue = if (expanded) 0.5f else 0f,
+        targetValue = if (expanded && !panelMode) 0.5f else 0f,
         animationSpec = YoinMotion.defaultEffectsSpec(role = YoinMotionRole.Standard),
         label = "scrimAlpha",
     )
@@ -243,8 +295,19 @@ fun NowPlayingOverlayHost(
         )
     }
 
+    // Panel (0) ⇄ enlarged phone (1): one container, one spatial spring.
+    val fullFraction by animateFloatAsState(
+        targetValue = if (panelMode) 0f else 1f,
+        animationSpec = YoinMotion.defaultSpatialSpec(role = YoinMotionRole.Standard),
+        label = "nowPlayingPanelFull",
+    )
+
     // ── Now Playing overlay ──────────────────────────────────────────────
-    OverlayPlayerVisibility(expanded = expanded, modifier = Modifier.fillMaxSize()) {
+    OverlayPlayerVisibility(
+        expanded = expanded,
+        fromEnd = panelFamily,
+        modifier = Modifier.fillMaxSize(),
+    ) {
         val npAvScope = this
         // The 4Hz playhead is collected HERE (not in the host body) and
         // handed to the screen as reader lambdas, so only the leaves that
@@ -266,6 +329,9 @@ fun NowPlayingOverlayHost(
                 container.audioVisualizerManager.visualizerData.value.fft.isNotEmpty()
             },
         )
+        // ONE dismiss controller: drag and predictive back both feed
+        // dismissFraction. Down on the phone / enlarged phone, rightward on
+        // the side panel ("swipe right to close", §3.4).
         val draggableState = rememberDraggableState { delta ->
             if (delta > 0f || dismissDragPx > 0f) {
                 dismissDragPx = (dismissDragPx + delta).coerceAtLeast(0f)
@@ -278,142 +344,226 @@ fun NowPlayingOverlayHost(
         // bound to the same devicesState / refresh / select flow.
         var showCastDevicesSheet by remember { mutableStateOf(false) }
 
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .draggable(
-                    state = draggableState,
-                    orientation = Orientation.Vertical,
-                    // Drag-to-dismiss is a single-column affordance. In
-                    // Expanded/Immersive panes have
-                    // their own vertical scroll / IME interactions;
-                    // letting draggable eat those deltas is what
-                    // causes Lyrics scroll to fight dismiss.
-                    // Semantic flip 2026-07-27: was `!= Wide`; dual-pane
-                    // NP (now Medium too) has no bar beneath and closes
-                    // via explicit affordances (WideTopBar back + system
-                    // back), so the drag is gated off there. Tabletop
-                    // keeps its pre-flip behavior (was on the `!= Wide`
-                    // side, stays on the !isDualPaneNowPlaying side).
-                    enabled = stageMode != NowPlayingStageMode.Expanded &&
-                        !dualPaneNowPlaying,
-                    onDragStopped = { velocity ->
-                        if (dismissDragPx > 240f || velocity > 800f) {
-                            dismissDragPx = 0f
-                            predictiveBackProgress = 0f
-                            onExpandedChange(false)
-                        } else {
-                            animate(
-                                initialValue = dismissDragPx,
-                                targetValue = 0f,
-                                animationSpec = dragResetSpec,
-                            ) { value, _ ->
-                                dismissDragPx = value
-                            }
-                        }
-                    },
-                ),
-        ) {
-            NowPlayingScreen(
-                // Playing.isPlaying is overridden with the EAGER projection:
-                // uiState's combine can serve a stale cached snapshot after a
-                // cold resubscribe (see isPlayingLive) and the wave bar must
-                // never disagree with the ticking playhead.
-                uiState = when (val s = nowPlayingUiState) {
-                    is NowPlayingUiState.Playing ->
-                        if (s.isPlaying == nowPlayingIsPlaying) s
-                        else s.copy(isPlaying = nowPlayingIsPlaying)
-                    else -> s
-                },
-                // Mirrors the dismissFraction pattern below: reader lambdas
-                // over collected State, invoked only at the consuming leaves.
-                positionMs = { nowPlayingPositionMs.value },
-                bufferedMs = { nowPlayingBufferedMs.value },
-                hasAudioSpectrum = hasAudioSpectrum,
-                onTogglePlayPause = viewModel::togglePlayPause,
-                onSkipNext = viewModel::skipNext,
-                onSkipPrevious = viewModel::skipPrevious,
-                onSeek = viewModel::seekTo,
-                onSeekToMs = viewModel::seekToMs,
-                lyricsSearchState = lyricsSearchState,
-                onOpenLyricsSearch = viewModel::openLyricsSearch,
-                onLyricsSearchQueryChange = viewModel::updateLyricsSearchQuery,
-                onSearchLyrics = viewModel::searchLyrics,
-                onApplyLyricsSearchResult = viewModel::applyLyricsSearchResult,
-                onDismissLyricsSearch = viewModel::dismissLyricsSearch,
-                onTranslateLyrics = viewModel::translateLyrics,
-                onApplyLyrics = viewModel::applyLyrics,
-                onRatingChange = viewModel::setRating,
-                onToggleFavorite = viewModel::toggleFavorite,
-                onAddCurrentToPlaylist = viewModel::requestAddCurrentToPlaylist,
-                onSkipToQueueItem = viewModel::skipToQueueItem,
-                onToggleShuffle = viewModel::toggleShuffle,
-                onAlbumClick = onAlbumClick,
-                onArtistClick = onArtistClick,
-                onPlaylistClick = onPlaylistClick,
-                onDismiss = closeNowPlaying,
-                dismissFraction = {
-                    val dragProgress = (dismissDragPx / 240f).coerceIn(0f, 1f)
-                    maxOf(dragProgress, predictiveBackProgress).coerceIn(0f, 1f)
-                },
-                aboutUiState = aboutUiState,
-                onRetryFetchSongInfo = viewModel::retryFetchSongInfo,
-                askState = askState,
-                onAboutOpened = viewModel::onAboutOpened,
-                onAskQuestion = viewModel::askQuestion,
-                onAskBarFocused = viewModel::onAskBarFocused,
-                onAskBarCollapseRequested = viewModel::onAskBarCollapseRequested,
-                onDismissAskError = viewModel::dismissAskError,
-                stageMode = stageMode,
-                stageProgress = stageProgress,
-                detailPage = detailPage,
-                onStageModeChange = viewModel::setStageMode,
-                onStageBack = viewModel::stepBackStage,
-                onDetailPageChange = viewModel::setDetailPage,
-                notesState = notesState,
-                onSaveNote = viewModel::saveCurrentNote,
-                onDeleteNote = viewModel::deleteNote,
-                devicesState = devicesState,
-                onRefreshDevices = viewModel::refreshDevices,
-                onSelectDevice = viewModel::selectDevice,
-                castState = castState,
-                onCastClick = { showCastDevicesSheet = true },
-                sharedTransitionScope = sharedTransitionScope,
-                animatedVisibilityScope = npAvScope,
-                // Collapse PREVIEW recedes the CONTENT (inside NowPlayingScreen,
-                // over the full-screen aurora) — NOT the whole overlay, which
-                // would reveal the host behind and read as the app shrinking.
-                contentScale = stageBackScale,
-                skipDirection = skipDirection,
+        BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+            val density = LocalDensity.current
+            val containerWidth = if (panelFamily) {
+                frame.panelWidth + (maxWidth - frame.panelWidth) * fullFraction
+            } else {
+                maxWidth
+            }
+            val panelCorner = if (panelFamily) PanelCornerRadius * (1f - fullFraction) else 0.dp
+            val panelShape = RoundedCornerShape(topStart = panelCorner, bottomStart = panelCorner)
+            val panelShadowPx = with(density) { PanelShadowElevation.toPx() }
+            Box(
                 modifier = Modifier
-                    .fillMaxSize()
-                    .offset {
-                        IntOffset(
-                            x = 0,
-                            y = (overlayOffsetPx + dismissDragPx).roundToInt(),
+                    .align(Alignment.CenterEnd)
+                    .width(containerWidth)
+                    .fillMaxHeight()
+                    .graphicsLayer {
+                        if (panelFamily) {
+                            shape = panelShape
+                            clip = true
+                            shadowElevation = panelShadowPx * (1f - fullFraction)
+                        }
+                    }
+                    .draggable(
+                        state = draggableState,
+                        orientation = if (panelMode) Orientation.Horizontal else Orientation.Vertical,
+                        // Drag-to-dismiss is a single-column affordance. In
+                        // Expanded/Immersive panes have their own vertical
+                        // scroll / IME interactions; letting draggable eat
+                        // those deltas is what causes Lyrics scroll to fight
+                        // dismiss. The two-column player has no bar beneath
+                        // and closes via explicit affordances (its top bar +
+                        // system back), so the drag is gated off there.
+                        enabled = stageMode != NowPlayingStageMode.Expanded &&
+                            !dualPaneNowPlaying,
+                        onDragStopped = { velocity ->
+                            if (dismissDragPx > 240f || velocity > 800f) {
+                                dismissDragPx = 0f
+                                predictiveBackProgress = 0f
+                                onExpandedChange(false)
+                            } else {
+                                animate(
+                                    initialValue = dismissDragPx,
+                                    targetValue = 0f,
+                                    animationSpec = dragResetSpec,
+                                ) { value, _ ->
+                                    dismissDragPx = value
+                                }
+                            }
+                        },
+                    ),
+            ) {
+                NowPlayingScreen(
+                    // Playing.isPlaying is overridden with the EAGER projection:
+                    // uiState's combine can serve a stale cached snapshot after a
+                    // cold resubscribe (see isPlayingLive) and the wave bar must
+                    // never disagree with the ticking playhead.
+                    uiState = when (val s = nowPlayingUiState) {
+                        is NowPlayingUiState.Playing ->
+                            if (s.isPlaying == nowPlayingIsPlaying) s
+                            else s.copy(isPlaying = nowPlayingIsPlaying)
+                        else -> s
+                    },
+                    // Mirrors the dismissFraction pattern below: reader lambdas
+                    // over collected State, invoked only at the consuming leaves.
+                    positionMs = { nowPlayingPositionMs.value },
+                    bufferedMs = { nowPlayingBufferedMs.value },
+                    hasAudioSpectrum = hasAudioSpectrum,
+                    onTogglePlayPause = viewModel::togglePlayPause,
+                    onSkipNext = viewModel::skipNext,
+                    onSkipPrevious = viewModel::skipPrevious,
+                    onSeek = viewModel::seekTo,
+                    onSeekToMs = viewModel::seekToMs,
+                    lyricsSearchState = lyricsSearchState,
+                    onOpenLyricsSearch = viewModel::openLyricsSearch,
+                    onLyricsSearchQueryChange = viewModel::updateLyricsSearchQuery,
+                    onSearchLyrics = viewModel::searchLyrics,
+                    onApplyLyricsSearchResult = viewModel::applyLyricsSearchResult,
+                    onDismissLyricsSearch = viewModel::dismissLyricsSearch,
+                    onTranslateLyrics = viewModel::translateLyrics,
+                    onApplyLyrics = viewModel::applyLyrics,
+                    onRatingChange = viewModel::setRating,
+                    onToggleFavorite = viewModel::toggleFavorite,
+                    onAddCurrentToPlaylist = viewModel::requestAddCurrentToPlaylist,
+                    onSkipToQueueItem = viewModel::skipToQueueItem,
+                    onToggleShuffle = viewModel::toggleShuffle,
+                    onAlbumClick = onAlbumClick,
+                    onArtistClick = onArtistClick,
+                    onPlaylistClick = onPlaylistClick,
+                    onDismiss = closeNowPlaying,
+                    dismissFraction = {
+                        val dragProgress = (dismissDragPx / 240f).coerceIn(0f, 1f)
+                        maxOf(dragProgress, predictiveBackProgress).coerceIn(0f, 1f)
+                    },
+                    aboutUiState = aboutUiState,
+                    onRetryFetchSongInfo = viewModel::retryFetchSongInfo,
+                    askState = askState,
+                    onAboutOpened = viewModel::onAboutOpened,
+                    onAskQuestion = viewModel::askQuestion,
+                    onAskBarFocused = viewModel::onAskBarFocused,
+                    onAskBarCollapseRequested = viewModel::onAskBarCollapseRequested,
+                    onDismissAskError = viewModel::dismissAskError,
+                    stageMode = stageMode,
+                    stageProgress = stageProgress,
+                    detailPage = detailPage,
+                    onStageModeChange = viewModel::setStageMode,
+                    onStageBack = viewModel::stepBackStage,
+                    onDetailPageChange = viewModel::setDetailPage,
+                    notesState = notesState,
+                    onSaveNote = viewModel::saveCurrentNote,
+                    onDeleteNote = viewModel::deleteNote,
+                    devicesState = devicesState,
+                    onRefreshDevices = viewModel::refreshDevices,
+                    onSelectDevice = viewModel::selectDevice,
+                    castState = castState,
+                    onCastClick = { showCastDevicesSheet = true },
+                    // The pill → cover morph only where the phone column fills
+                    // the window; panel / enlarged / two-column bodies drop it
+                    // (bounded, lookahead-safe, and the pill folds away there).
+                    sharedTransitionScope = sharedTransitionScope.takeIf {
+                        presentation == NowPlayingPresentation.Phone ||
+                            presentation == NowPlayingPresentation.Tabletop
+                    },
+                    animatedVisibilityScope = npAvScope,
+                    // Collapse PREVIEW recedes the CONTENT (inside NowPlayingScreen,
+                    // over the full-screen aurora) — NOT the whole overlay, which
+                    // would reveal the host behind and read as the app shrinking.
+                    contentScale = stageBackScale,
+                    skipDirection = skipDirection,
+                    presentation = presentation,
+                    enlarged = nowPlayingEnlargedSpec(frame.windowWidth).let { spec ->
+                        // Grows in with the container, so the panel → full
+                        // screen change never pops the rating column.
+                        spec.copy(
+                            ratingColumn = 56.dp + (spec.ratingColumn - 56.dp) * fullFraction,
+                            controlSize = if (fullFraction > 0.5f) spec.controlSize else 56.dp,
                         )
                     },
-            )
+                    topBarAction = if (panelFamily) {
+                        {
+                            PanelToggleButton(
+                                fullscreen = !panelMode,
+                                onClick = { viewModel.setMediumFullscreen(panelMode) },
+                            )
+                        }
+                    } else {
+                        null
+                    },
+                    onClaimLyricIdleHint = { viewModel.claimLyricIdleHint() },
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .offset {
+                            if (panelMode) {
+                                // Panel: back / drag carry it right, toward where
+                                // the pill sat; capped + chased like the phone's.
+                                IntOffset(
+                                    x = (overlayOffsetPx * PanelBackTravelFraction + dismissDragPx).roundToInt(),
+                                    y = 0,
+                                )
+                            } else {
+                                IntOffset(
+                                    x = 0,
+                                    y = (overlayOffsetPx + dismissDragPx).roundToInt(),
+                                )
+                            }
+                        },
+                )
 
-            if (showCastDevicesSheet) {
-                // Pixel-twin of NowPlayingScreen's own Devices-pill mount:
-                // same component, same motion role, same callbacks.
-                ProvideYoinMotionRole(role = YoinMotionRole.Standard) {
-                    DevicesSheet(
-                        providerId = devicesState.providerId,
-                        devices = devicesState.devices,
-                        loading = devicesState.loading,
-                        busyDeviceId = devicesState.busyDeviceId,
-                        errorMessage = devicesState.errorMessage,
-                        onRefresh = viewModel::refreshDevices,
-                        onSelect = viewModel::selectDevice,
-                        onDismiss = { showCastDevicesSheet = false },
-                    )
+                if (showCastDevicesSheet) {
+                    // Pixel-twin of NowPlayingScreen's own Devices-pill mount:
+                    // same component, same motion role, same callbacks.
+                    ProvideYoinMotionRole(role = YoinMotionRole.Standard) {
+                        DevicesSheet(
+                            providerId = devicesState.providerId,
+                            devices = devicesState.devices,
+                            loading = devicesState.loading,
+                            busyDeviceId = devicesState.busyDeviceId,
+                            errorMessage = devicesState.errorMessage,
+                            onRefresh = viewModel::refreshDevices,
+                            onSelect = viewModel::selectDevice,
+                            onDismiss = { showCastDevicesSheet = false },
+                        )
+                    }
                 }
             }
         }
     }
 }
+
+/** The panel's corner button: full screen, or back to the side panel. */
+@Composable
+private fun PanelToggleButton(
+    fullscreen: Boolean,
+    onClick: () -> Unit,
+) {
+    val haptics = rememberYoinHaptics()
+    FilledTonalIconButton(
+        onClick = {
+            haptics.performClick()
+            onClick()
+        },
+        modifier = Modifier.size(44.dp),
+        colors = IconButtonDefaults.filledTonalIconButtonColors(
+            containerColor = MaterialTheme.colorScheme.secondaryContainer,
+            contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+        ),
+    ) {
+        Icon(
+            imageVector = if (fullscreen) Icons.Rounded.CloseFullscreen else Icons.Rounded.OpenInFull,
+            contentDescription = if (fullscreen) "Back to side panel" else "Full screen",
+            modifier = Modifier.size(20.dp),
+        )
+    }
+}
+
+/** Left corners of the side panel (FoldNPPanel). */
+private val PanelCornerRadius = 28.dp
+private val PanelShadowElevation = 16.dp
+
+/** The panel's back preview travels a third of the phone's 1200px chase. */
+private const val PanelBackTravelFraction = 0.35f
 
 /**
  * The Add-to-Playlist sheet + its snackbar, bound to a [NowPlayingViewModel].

@@ -1,6 +1,5 @@
 package com.gpo.yoin.ui.detail
 
-
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
@@ -15,11 +14,17 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.requiredSize
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -68,12 +73,11 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.lerp
+import com.gpo.yoin.ui.component.BarExtraAction
 import com.gpo.yoin.ui.component.DetailErrorState
 import com.gpo.yoin.ui.component.ExpressiveMediaArtwork
 import com.gpo.yoin.ui.component.ExpressivePageBackground
 import com.gpo.yoin.ui.component.YoinDropdownMenu
-import com.gpo.yoin.ui.component.YoinDropdownMenuItem
-import com.gpo.yoin.ui.component.YoinLoadingIndicator
 import com.gpo.yoin.ui.component.minimumTouchTarget
 import com.gpo.yoin.ui.component.rememberStagedReveal
 import com.gpo.yoin.ui.component.seamScrolledPx
@@ -83,7 +87,9 @@ import com.gpo.yoin.ui.component.stagedBeat
 import com.gpo.yoin.ui.component.yoinPageContentWidth
 import com.gpo.yoin.ui.experience.LayoutMode
 import com.gpo.yoin.ui.experience.LocalYoinWindowInfo
+import com.gpo.yoin.ui.experience.ProvidePreviewWindow
 import com.gpo.yoin.ui.experience.RevealState
+import com.gpo.yoin.ui.experience.rememberIsActivityEmbedded
 import com.gpo.yoin.ui.experience.rememberRevealState
 import com.gpo.yoin.ui.navigation.YoinSection
 import com.gpo.yoin.ui.theme.ProvideYoinMotionRole
@@ -148,6 +154,9 @@ fun AlbumDetailScreen(
 ) {
     val content = uiState as? AlbumDetailUiState.Content
     val pageAccent = rememberDetailPageAccent(content?.coverArtUrl)
+    // A split-pane detail has no bottom bar (断点交接 §2.3): Play / Share
+    // move into the hero. Subscribed — the pane can join or leave a split.
+    val embedded = rememberIsActivityEmbedded()
 
     ProvideYoinMotionRole(role = YoinMotionRole.Expressive) {
         // In-window predictive back (AOSP cross-activity math): the whole
@@ -194,11 +203,15 @@ fun AlbumDetailScreen(
                         // toggles, rating merges) don't re-trigger the fade.
                         contentKey = { it::class },
                         label = "albumDetailState",
-                        modifier = Modifier.fillMaxSize(),
+                        // Landscape: header + body clear the capsule band; the
+                        // background above stays full-bleed.
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .detailChromeBand(),
                     ) { state ->
                         when (state) {
                             is AlbumDetailUiState.Loading ->
-                                AlbumLoadingState(onBackClick = onBackClick)
+                                AlbumLoadingState(intro = enterIntro, onBackClick = onBackClick)
 
                             is AlbumDetailUiState.Error ->
                                 DetailErrorState(
@@ -210,6 +223,30 @@ fun AlbumDetailScreen(
                             is AlbumDetailUiState.Content ->
                                 AlbumDetailContent(
                                     content = state,
+                                    heroActions = if (embedded) {
+                                        {
+                                            val heroScheme = rememberCoverColorScheme(state.coverArtUrl)
+                                                ?: MaterialTheme.colorScheme
+                                            DetailHeroActions(
+                                                playContainer = heroScheme.primary,
+                                                playContent = heroScheme.onPrimary,
+                                                onPlay = onPlayAlbum,
+                                                onShuffle = onShufflePlay,
+                                                onShare = onShare,
+                                                menuActions = listOfNotNull(
+                                                    onOpenArtist?.let { openArtist ->
+                                                        BarExtraAction(
+                                                            icon = Icons.Filled.Person,
+                                                            label = "Go to artist",
+                                                            onClick = openArtist,
+                                                        )
+                                                    },
+                                                ),
+                                            )
+                                        }
+                                    } else {
+                                        null
+                                    },
                                     onBackClick = onBackClick,
                                     onSongClick = onSongClick,
                                     onToggleStar = onToggleStar,
@@ -265,43 +302,22 @@ fun AlbumDetailScreen(
                     } else {
                         { 0f }
                     },
-                    modifier = Modifier.align(Alignment.BottomCenter),
-                ) { dismissMenu ->
-                    if (onOpenArtist != null) {
-                        YoinDropdownMenuItem(
-                            text = "Go to artist",
-                            onClick = {
-                                dismissMenu()
-                                onOpenArtist()
-                            },
-                            leadingIcon = {
-                                Icon(
-                                    Icons.Filled.Person,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(22.dp),
-                                )
-                            },
-                            textStyle = MaterialTheme.typography.titleMedium,
-                            contentPadding = PaddingValues(horizontal = 20.dp, vertical = 14.dp),
-                        )
-                    }
-                    YoinDropdownMenuItem(
-                        text = "Share",
-                        onClick = {
-                            dismissMenu()
-                            onShare()
-                        },
-                        leadingIcon = {
-                            Icon(
-                                Icons.Rounded.IosShare,
-                                contentDescription = null,
-                                modifier = Modifier.size(22.dp),
+                    promotable = listOfNotNull(
+                        onOpenArtist?.let { openArtist ->
+                            BarExtraAction(
+                                icon = Icons.Filled.Person,
+                                label = "Go to artist",
+                                onClick = openArtist,
                             )
                         },
-                        textStyle = MaterialTheme.typography.titleMedium,
-                        contentPadding = PaddingValues(horizontal = 20.dp, vertical = 14.dp),
-                    )
-                }
+                        BarExtraAction(
+                            icon = Icons.Rounded.IosShare,
+                            label = "Share",
+                            onClick = onShare,
+                        ),
+                    ),
+                    modifier = Modifier.align(Alignment.BottomCenter),
+                )
             }
         }
     }
@@ -311,6 +327,8 @@ fun AlbumDetailScreen(
 @Composable
 private fun AlbumDetailContent(
     content: AlbumDetailUiState.Content,
+    // Split-pane detail: [Share] [Play ▾] in the hero (no bottom bar there).
+    heroActions: (@Composable () -> Unit)? = null,
     onBackClick: () -> Unit,
     onSongClick: (songId: String) -> Unit,
     onToggleStar: (songId: String) -> Unit,
@@ -336,17 +354,26 @@ private fun AlbumDetailContent(
     val bunContainer = s.primaryContainer
     val bunContent = s.onPrimaryContainer
 
-    // >=Medium windows (Tabletop stays on the Compact path) fork the overview
-    // to a plain scrolling layout: the two Compact states are mutually
-    // exclusive alpha layers, so this is a layout fork, not a pinned reveal.
-    val layoutMode = LocalYoinWindowInfo.current.layoutMode
-    val useMediumOverview =
+    // Height first (断点交接 §5 / §14.6): a landscape handset turns the portrait
+    // hero sideways (cover left, what sits under it on the right) and keeps
+    // the pull-up. Then width: >=Medium windows (Tabletop stays on the Compact
+    // path) fork to a plain scrolling layout — hero row + list at Medium, an
+    // identity column beside the full track list on a Wide full window.
+    val windowInfo = LocalYoinWindowInfo.current
+    val landscape = windowInfo.isCompactHeight
+    val layoutMode = windowInfo.layoutMode
+    val useWideOverview = !landscape && layoutMode == LayoutMode.Wide
+    val useMediumOverview = !landscape && !useWideOverview &&
         layoutMode != LayoutMode.Compact && layoutMode != LayoutMode.Tabletop
 
     // Pull-up reshape: reuse RevealState. fraction 1 = hero, 0 = track list.
-    // Compact-only — the >=Medium overview composes none of the reveal machine,
-    // so the state (and its settle effect) does not exist there at all.
-    val revealState = if (useMediumOverview) null else rememberRevealState(initialFraction = 1f)
+    // Compact and landscape only — the >=Medium overviews compose none of the
+    // reveal machine, so the state (and its settle effect) does not exist there.
+    val revealState = if (useMediumOverview || useWideOverview) {
+        null
+    } else {
+        rememberRevealState(initialFraction = 1f)
+    }
     var expanded by rememberSaveable(content.albumId) { mutableStateOf(false) }
     if (revealState != null) {
         // SINGLE settle owner (cf. the NowPlaying "ONE settle driver" rule):
@@ -389,12 +416,51 @@ private fun AlbumDetailContent(
                         // Fork at the overview call site: reveal == null means
                         // the >=Medium layout; Compact is the untouched call.
                         val reveal = revealState
-                        if (reveal == null) {
+                        if (useWideOverview) {
+                            AlbumWideOverview(
+                                content = content,
+                                primaryBlock = primaryBlock,
+                                secondaryBlock = secondaryBlock,
+                                accent = primaryBlock,
+                                bunContainer = bunContainer,
+                                bunContent = bunContent,
+                                heroActions = heroActions,
+                                notedSongIds = notedSongIds,
+                                currentTrackId = currentTrackId,
+                                expandedSongId = expandedSongId,
+                                expandedNoteBundle = expandedNoteBundle,
+                                onSongClick = onSongClick,
+                                onToggleStar = onToggleStar,
+                                onToggleExpandedSong = onToggleExpandedSong,
+                                onEditComment = { showEditSheet = true },
+                            )
+                        } else if (reveal == null) {
                             AlbumMediumOverview(
                                 content = content,
                                 accent = primaryBlock,
                                 bunContainer = bunContainer,
                                 bunContent = bunContent,
+                                heroActions = heroActions,
+                                notedSongIds = notedSongIds,
+                                currentTrackId = currentTrackId,
+                                expandedSongId = expandedSongId,
+                                expandedNoteBundle = expandedNoteBundle,
+                                onSongClick = onSongClick,
+                                onToggleStar = onToggleStar,
+                                onToggleExpandedSong = onToggleExpandedSong,
+                                onEditComment = { showEditSheet = true },
+                            )
+                        } else if (landscape) {
+                            AlbumLandscapeOverview(
+                                content = content,
+                                primaryBlock = primaryBlock,
+                                secondaryBlock = secondaryBlock,
+                                accent = primaryBlock,
+                                bunContainer = bunContainer,
+                                bunContent = bunContent,
+                                revealState = reveal,
+                                expanded = expanded,
+                                onExpandedCommit = { expanded = it },
                                 notedSongIds = notedSongIds,
                                 currentTrackId = currentTrackId,
                                 expandedSongId = expandedSongId,
@@ -952,6 +1018,7 @@ private fun AlbumMediumOverview(
     accent: Color,
     bunContainer: Color,
     bunContent: Color,
+    heroActions: (@Composable () -> Unit)?,
     notedSongIds: Set<String>,
     currentTrackId: String?,
     expandedSongId: String?,
@@ -985,6 +1052,7 @@ private fun AlbumMediumOverview(
                 content = content,
                 bunContainer = bunContainer,
                 bunContent = bunContent,
+                heroActions = heroActions,
                 onEditComment = onEditComment,
             )
         },
@@ -996,6 +1064,7 @@ private fun AlbumMediumHeroRow(
     content: AlbumDetailUiState.Content,
     bunContainer: Color,
     bunContent: Color,
+    heroActions: (@Composable () -> Unit)?,
     onEditComment: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -1019,15 +1088,279 @@ private fun AlbumMediumHeroRow(
         )
         // The hero's own sub-blocks, reused unchanged; always interactive here
         // (there is no fading twin layer whose buttons could steal taps).
-        AlbumHeroMetaBlocks(
+        Column(modifier = Modifier.weight(1f)) {
+            AlbumHeroMetaBlocks(
+                content = content,
+                bunContainer = bunContainer,
+                bunContent = bunContent,
+                interactive = true,
+                onEditComment = onEditComment,
+                onTapBun = onEditComment,
+            )
+            if (heroActions != null) {
+                Spacer(modifier = Modifier.height(16.dp))
+                heroActions()
+            }
+        }
+    }
+}
+
+// Wide full window (AlbumDesktop): an identity column — cover 360, Last Play
+// | Avg., Comment — beside the complete track list (max 800). No 720 clamp:
+// the two columns share the canvas instead of centring one narrow feed.
+private val AlbumWideIdentityWidth = 400.dp
+private val AlbumWideCoverSide = 360.dp
+private val AlbumWideListMaxWidth = 800.dp
+
+@Composable
+private fun AlbumWideOverview(
+    content: AlbumDetailUiState.Content,
+    primaryBlock: Color,
+    secondaryBlock: Color,
+    accent: Color,
+    bunContainer: Color,
+    bunContent: Color,
+    heroActions: (@Composable () -> Unit)?,
+    notedSongIds: Set<String>,
+    currentTrackId: String?,
+    expandedSongId: String?,
+    expandedNoteBundle: AlbumExpandedNoteBundle?,
+    onSongClick: (songId: String) -> Unit,
+    onToggleStar: (songId: String) -> Unit,
+    onToggleExpandedSong: (songId: String) -> Unit,
+    onEditComment: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val listState = rememberLazyListState()
+    Row(
+        modifier = modifier
+            .fillMaxSize()
+            .padding(start = 40.dp, end = 24.dp),
+        horizontalArrangement = Arrangement.spacedBy(40.dp),
+    ) {
+        Column(
+            modifier = Modifier
+                .width(AlbumWideIdentityWidth)
+                .fillMaxHeight()
+                .verticalScroll(rememberScrollState())
+                .padding(top = 24.dp, bottom = 120.dp),
+        ) {
+            Box(
+                modifier = Modifier.size(AlbumWideCoverSide + 40.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                AlbumArrowBackdropHugging(
+                    primaryBlock = primaryBlock,
+                    secondaryBlock = secondaryBlock,
+                    lineColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.65f),
+                    modifier = Modifier.matchParentSize(),
+                )
+                ExpressiveMediaArtwork(
+                    model = content.coverArtUrl,
+                    contentDescription = content.albumName,
+                    modifier = Modifier.size(AlbumWideCoverSide),
+                    shape = YoinArtworkShapes.Hero,
+                    fallbackIcon = Icons.Filled.LibraryMusic,
+                    border = null,
+                    shadowElevation = 0.dp,
+                    tonalElevation = 3.dp,
+                    requestSizePx = 900,
+                )
+            }
+            Spacer(modifier = Modifier.height(16.dp))
+            AlbumHeroMetaBlocks(
+                content = content,
+                bunContainer = bunContainer,
+                bunContent = bunContent,
+                interactive = true,
+                onEditComment = onEditComment,
+                onTapBun = onEditComment,
+                modifier = Modifier.width(AlbumWideCoverSide),
+            )
+            if (heroActions != null) {
+                Spacer(modifier = Modifier.height(20.dp))
+                heroActions()
+            }
+        }
+        AlbumTrackList(
             content = content,
-            bunContainer = bunContainer,
-            bunContent = bunContent,
-            interactive = true,
-            onEditComment = onEditComment,
-            onTapBun = onEditComment,
-            modifier = Modifier.weight(1f),
+            accent = accent,
+            notedSongIds = notedSongIds,
+            currentTrackId = currentTrackId,
+            expandedSongId = expandedSongId,
+            expandedNoteBundle = expandedNoteBundle,
+            onSongClick = onSongClick,
+            onToggleStar = onToggleStar,
+            onToggleExpandedSong = onToggleExpandedSong,
+            listState = listState,
+            modifier = Modifier
+                .weight(1f)
+                .widthIn(max = AlbumWideListMaxWidth)
+                .fillMaxHeight()
+                .padding(top = 16.dp),
         )
+    }
+}
+
+// Landscape handset (AlbumLandscape): the portrait hero turned sideways —
+// cover 256 on the left with the two blocks hugging it, and everything that
+// sits under the cover on a phone on the right (Last Play | Avg., Comment,
+// "12 tracks · 50m", the flowing titles). Pulling up runs the SAME reshape
+// machine as portrait (RevealState + DetailPullUpReconcile) into the list.
+private val AlbumLandscapeCoverSide = 256.dp
+
+// Room left of the cover for the whole mark (1.3 × cover, centred on it).
+private val AlbumLandscapeCoverInset = 48.dp
+private const val AlbumLandscapeMarkScale = 1.3f
+
+@Composable
+private fun AlbumLandscapeOverview(
+    content: AlbumDetailUiState.Content,
+    primaryBlock: Color,
+    secondaryBlock: Color,
+    accent: Color,
+    bunContainer: Color,
+    bunContent: Color,
+    revealState: RevealState,
+    expanded: Boolean,
+    onExpandedCommit: (Boolean) -> Unit,
+    notedSongIds: Set<String>,
+    currentTrackId: String?,
+    expandedSongId: String?,
+    expandedNoteBundle: AlbumExpandedNoteBundle?,
+    onSongClick: (songId: String) -> Unit,
+    onToggleStar: (songId: String) -> Unit,
+    onToggleExpandedSong: (songId: String) -> Unit,
+    onEditComment: () -> Unit,
+) {
+    val density = LocalDensity.current
+    val listState = rememberLazyListState()
+    val travelPx = remember { mutableFloatStateOf(1f) }
+    BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+        travelPx.floatValue = with(density) { maxHeight.toPx() } * DetailPullUpTravelFraction
+        val gestures = rememberDetailPullUpGestures(
+            revealState = revealState,
+            listState = listState,
+            travelPx = travelPx,
+            onExpandedCommit = onExpandedCommit,
+        )
+        // Read HERE so only this page recomposes per reshape frame.
+        val expand = 1f - revealState.fraction
+        val coverSide = minOf(AlbumLandscapeCoverSide, maxHeight - 24.dp)
+        if (expand > 0.001f) {
+            AlbumTrackList(
+                content = content,
+                accent = accent,
+                notedSongIds = notedSongIds,
+                currentTrackId = currentTrackId,
+                expandedSongId = expandedSongId,
+                expandedNoteBundle = expandedNoteBundle,
+                onSongClick = onSongClick,
+                onToggleStar = onToggleStar,
+                onToggleExpandedSong = onToggleExpandedSong,
+                listState = listState,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 16.dp)
+                    .graphicsLayer {
+                        alpha = expand.coerceIn(0f, 1f)
+                        translationY = (1f - expand) * 40f
+                    }
+                    .nestedScroll(gestures.listConnection),
+                footer = {
+                    AlbumHeroMetaBlocks(
+                        content = content,
+                        bunContainer = bunContainer,
+                        bunContent = bunContent,
+                        interactive = expand >= 0.5f,
+                        onEditComment = onEditComment,
+                        onTapBun = onEditComment,
+                        modifier = Modifier.padding(start = 8.dp, end = 8.dp, top = 28.dp),
+                    )
+                },
+            )
+        }
+        if (expand < 0.999f) {
+            Row(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .then(gestures.heroDrag(enabled = !expanded))
+                    .graphicsLayer {
+                        alpha = (1f - expand).coerceIn(0f, 1f)
+                        translationY = -expand * 40f
+                    }
+                    .padding(start = AlbumLandscapeCoverInset, top = 12.dp, end = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(40.dp),
+            ) {
+                Box(
+                    modifier = Modifier.size(coverSide),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    // The two blocks hang below the cover's top edge (never cut
+                    // by the pager's top) and stay right of the capsule band.
+                    val markSide = coverSide * AlbumLandscapeMarkScale
+                    AlbumArrowBackdropHugging(
+                        primaryBlock = primaryBlock,
+                        secondaryBlock = secondaryBlock,
+                        lineColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.65f),
+                        modifier = Modifier
+                            .requiredSize(markSide)
+                            .offset(y = (markSide - coverSide) / 2),
+                    )
+                    ExpressiveMediaArtwork(
+                        model = content.coverArtUrl,
+                        contentDescription = content.albumName,
+                        modifier = Modifier.fillMaxSize(),
+                        shape = YoinArtworkShapes.Hero,
+                        fallbackIcon = Icons.Filled.LibraryMusic,
+                        border = null,
+                        shadowElevation = 0.dp,
+                        tonalElevation = 3.dp,
+                        requestSizePx = 640,
+                    )
+                }
+                Column(modifier = Modifier.weight(1f)) {
+                    AlbumHeroMetaBlocks(
+                        content = content,
+                        bunContainer = bunContainer,
+                        bunContent = bunContent,
+                        interactive = expand < 0.5f,
+                        onEditComment = onEditComment,
+                        onTapBun = onEditComment,
+                        modifier = Modifier.widthIn(max = 300.dp),
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+                    if (content.songs.isNotEmpty()) {
+                        AlbumTrackCountLabel(
+                            count = content.trackTotal,
+                            totalDurationSeconds = content.totalDuration,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+                    }
+                    // Flowing titles, clickable, flowing on past the bottom edge
+                    // exactly like portrait (overflow Visible, unbounded height).
+                    Text(
+                        text = if (content.songs.isEmpty()) {
+                            buildAnnotatedString { append(content.albumName) }
+                        } else {
+                            buildAlbumTrackTitles(
+                                songs = content.songs,
+                                separatorColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                                featColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                onSongClick = if (expand < 0.5f) onSongClick else null,
+                            )
+                        },
+                        style = MaterialTheme.typography.headlineSmall,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        overflow = TextOverflow.Visible,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .wrapContentHeight(align = Alignment.Top, unbounded = true),
+                    )
+                }
+            }
+        }
     }
 }
 
@@ -1112,12 +1445,13 @@ private fun AlbumSongNotes(
 
 @Composable
 private fun AlbumLoadingState(
+    intro: DetailEnterIntroState,
     onBackClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Box(modifier = modifier.fillMaxSize()) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            YoinLoadingIndicator()
+            DetailLoadingIndicator(intro)
         }
         // Mirrors AlbumTopHeader's nav slot — same insets AND the invisible
         // title-cluster line heights that set the row height — so the
@@ -1143,6 +1477,28 @@ private fun AlbumLoadingState(
 @Composable
 private fun AlbumDetailScreenContentPreview() {
     YoinTheme {
+        AlbumDetailPreviewContent()
+    }
+}
+
+@Preview(name = "Landscape handset", widthDp = 844, heightDp = 390, showBackground = true)
+@Composable
+private fun AlbumDetailLandscapePreview() {
+    YoinTheme {
+        ProvidePreviewWindow(widthDp = 844, heightDp = 390) { AlbumDetailPreviewContent() }
+    }
+}
+
+@Preview(name = "Wide full window", widthDp = 1440, heightDp = 900, showBackground = true)
+@Composable
+private fun AlbumDetailDesktopPreview() {
+    YoinTheme {
+        ProvidePreviewWindow(widthDp = 1440, heightDp = 900) { AlbumDetailPreviewContent() }
+    }
+}
+
+@Composable
+private fun AlbumDetailPreviewContent() {
         AlbumDetailScreen(
             uiState = AlbumDetailUiState.Content(
                 albumId = "album-1",
@@ -1178,5 +1534,4 @@ private fun AlbumDetailScreenContentPreview() {
             onToggleStar = {},
             onRetry = {},
         )
-    }
 }

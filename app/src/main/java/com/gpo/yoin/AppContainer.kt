@@ -345,6 +345,11 @@ class AppContainer(private val context: Context) {
 
     val bottomBarShadows = BottomBarShadowRegistry()
 
+    /** Once-a-day UI hints (the Now Playing "tap to expand" lyric line). */
+    val lyricHintStore: com.gpo.yoin.ui.nowplaying.LyricHintStore by lazy {
+        com.gpo.yoin.ui.nowplaying.SharedPrefsLyricHintStore(context)
+    }
+
     val experienceSessionStore: ExperienceSessionStore by lazy {
         ExperienceSessionStore()
     }
