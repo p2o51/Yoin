@@ -12,6 +12,7 @@ import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import androidx.test.platform.app.InstrumentationRegistry
 import com.gpo.yoin.data.repository.ActivityContext
+import com.gpo.yoin.player.PlayMode
 import com.gpo.yoin.ui.theme.YoinTheme
 import java.io.File
 import org.junit.Assert.assertTrue
@@ -36,7 +37,7 @@ class ArtworkDissolvePreviewTest {
             isPlaying = false, durationMs = 240_000, rating = 4.2f, isStarred = false,
             lyrics = listOf(LyricLine(0, "A little color, a change of scene")), showLyricsTranslation = false,
             lyricsActionInFlight = null, lyricsLoading = false, queue = emptyList(),
-            currentQueueIndex = 0, shuffleEnabled = false, albumId = null, artistId = null,
+            currentQueueIndex = 0, playMode = PlayMode.RepeatAll, albumId = null, artistId = null,
             activityContext = ActivityContext.None
         )
         var state by mutableStateOf(initial)

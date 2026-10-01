@@ -1,8 +1,6 @@
 package com.gpo.yoin.ui.detail
 
 import androidx.compose.foundation.layout.size
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButtonDefaults
@@ -12,6 +10,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import com.gpo.yoin.symbols.YoinSymbols
 import com.gpo.yoin.ui.component.minimumTouchTarget
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
 import com.gpo.yoin.ui.theme.YoinTheme
@@ -38,7 +37,7 @@ internal fun DetailBackButton(
         ),
     ) {
         Icon(
-            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+            imageVector = YoinSymbols.Back,
             contentDescription = "Back",
             modifier = Modifier.size(22.dp),
         )

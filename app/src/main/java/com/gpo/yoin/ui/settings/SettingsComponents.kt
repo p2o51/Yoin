@@ -1,7 +1,6 @@
 package com.gpo.yoin.ui.settings
 
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.layout.Arrangement
@@ -14,10 +13,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.size
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.ExpandMore
-import androidx.compose.material.icons.rounded.Visibility
-import androidx.compose.material.icons.rounded.VisibilityOff
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -32,12 +27,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.gpo.yoin.symbols.YoinSymbols
+import com.gpo.yoin.symbols.rememberExpandSymbolPainter
 import com.gpo.yoin.ui.component.ExpressiveSectionPanel
 import com.gpo.yoin.ui.component.ExpressiveTextField
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
@@ -187,7 +183,8 @@ internal fun SettingsItem(
 
 /**
  * A row that opens in place to reveal its fields. Height grows on the spatial
- * spring, the body fades on the effects spring, and the chevron turns with it.
+ * spring, the body fades on the effects spring, and the chevron folds over
+ * like a hinge (flattens, then flips — it doesn't spin).
  */
 @Composable
 internal fun SettingsExpandableItem(
@@ -202,11 +199,6 @@ internal fun SettingsExpandableItem(
     collapsible: Boolean = true,
     content: @Composable ColumnScope.() -> Unit,
 ) {
-    val chevronRotation by animateFloatAsState(
-        targetValue = if (expanded) 180f else 0f,
-        animationSpec = YoinMotion.spatialSpring(),
-        label = "settingsChevron",
-    )
     Column(modifier = modifier.fillMaxWidth()) {
         SettingsItem(
             icon = icon,
@@ -216,10 +208,9 @@ internal fun SettingsExpandableItem(
             trailing = if (collapsible) {
                 {
                     Icon(
-                        imageVector = Icons.Rounded.ExpandMore,
+                        painter = rememberExpandSymbolPainter(expanded),
                         contentDescription = if (expanded) "Collapse" else "Expand",
                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.graphicsLayer { rotationZ = chevronRotation },
                     )
                 }
             } else {
@@ -280,7 +271,7 @@ internal fun SecretTextField(
                     modifier = Modifier.requiredSize(44.dp),
                 ) {
                     Icon(
-                        imageVector = if (visible) Icons.Rounded.VisibilityOff else Icons.Rounded.Visibility,
+                        imageVector = if (visible) YoinSymbols.VisibilityOff else YoinSymbols.Visibility,
                         contentDescription = if (visible) "Hide $label" else "Show $label",
                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.size(18.dp),

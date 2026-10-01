@@ -19,12 +19,6 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Shuffle
-import androidx.compose.material.icons.rounded.SkipNext
-import androidx.compose.material.icons.rounded.SkipPrevious
-import androidx.compose.material.icons.rounded.UnfoldLess
-import androidx.compose.material.icons.rounded.UnfoldMore
 import androidx.compose.material3.ButtonGroup
 import androidx.compose.material3.ButtonGroupDefaults
 import androidx.compose.material3.ButtonDefaults
@@ -51,16 +45,24 @@ import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.rememberTextMeasurer
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.gpo.yoin.player.PlayMode
+import com.gpo.yoin.symbols.SymbolPlayMode
+import com.gpo.yoin.symbols.YoinSymbols
+import com.gpo.yoin.symbols.rememberPlayModeSymbolPainter
 import com.gpo.yoin.ui.component.WaveProgressBar
 import com.gpo.yoin.ui.component.formatTrackDurationMs
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
 import com.gpo.yoin.ui.theme.ProvideYoinMotionRole
 import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinMotionRole
+import com.gpo.yoin.ui.theme.YoinTheme
 import com.gpo.yoin.ui.theme.withTabularFigures
 
 @OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
@@ -79,8 +81,8 @@ internal fun PlaybackControls(
     nextInteractionSource: MutableInteractionSource,
     playPressed: Boolean,
     nextPressed: Boolean,
-    shuffleEnabled: Boolean = false,
-    onToggleShuffle: () -> Unit = {},
+    playMode: PlayMode = PlayMode.RepeatAll,
+    onCyclePlayMode: () -> Unit = {},
     controlSize: Dp = 56.dp,
     lyricsExpanded: Boolean = false,
     onExpandLyrics: (() -> Unit)? = null,
@@ -103,8 +105,8 @@ internal fun PlaybackControls(
         var prevCenter by remember { mutableStateOf(Offset.Unspecified) }
       // Controls always fit (断点交接 §3.3): on a narrow column the PLAY pill
       // first gives up its side padding, then every control steps 56 → 48.
-      // Shuffle is measured before the transport group, so it is never the
-      // one that gets cut.
+      // The play-mode button is measured before the transport group, so it is
+      // never the one that gets cut.
       BoxWithConstraints(modifier = modifier.fillMaxWidth()) {
         val fit = rememberPlaybackControlsFit(
             maxWidth = maxWidth,
@@ -239,7 +241,7 @@ internal fun PlaybackControls(
                                 ),
                             ) {
                                 Icon(
-                                    imageVector = Icons.Rounded.SkipNext,
+                                    imageVector = YoinSymbols.SkipNextFilled,
                                     contentDescription = "Skip next",
                                     modifier = Modifier.size(controlIconSize),
                                 )
@@ -251,7 +253,7 @@ internal fun PlaybackControls(
 
                 Row(verticalAlignment = Alignment.CenterVertically) {
                 // Tabletop adds an "expand lyrics" toggle to the right group (left of
-                // shuffle); other layouts pass null and never render it.
+                // the play-mode button); other layouts pass null and never render it.
                 if (onExpandLyrics != null) {
                     val expandContainer = if (lyricsExpanded) {
                         MaterialTheme.colorScheme.primary
@@ -276,9 +278,9 @@ internal fun PlaybackControls(
                     ) {
                         Icon(
                             imageVector = if (lyricsExpanded) {
-                                Icons.Rounded.UnfoldLess
+                                YoinSymbols.UnfoldLess
                             } else {
-                                Icons.Rounded.UnfoldMore
+                                YoinSymbols.UnfoldMore
                             },
                             contentDescription = if (lyricsExpanded) {
                                 "Collapse lyrics"
@@ -291,38 +293,44 @@ internal fun PlaybackControls(
                     Spacer(modifier = Modifier.width(8.dp))
                 }
 
-                val shuffleContainer by animateColorAsState(
-                    targetValue = if (shuffleEnabled) {
+                // Play mode: repeat all (the default) keeps the resting tertiary
+                // colours; shuffle and repeat one light up like shuffle-on used to.
+                val playModeLit = playMode != PlayMode.RepeatAll
+                val playModeContainer by animateColorAsState(
+                    targetValue = if (playModeLit) {
                         MaterialTheme.colorScheme.primary
                     } else {
                         MaterialTheme.colorScheme.tertiaryContainer
                     },
                     animationSpec = YoinMotion.defaultEffectsSpec(),
-                    label = "shuffleContainer",
+                    label = "playModeContainer",
                 )
-                val shuffleContent by animateColorAsState(
-                    targetValue = if (shuffleEnabled) {
+                val playModeContent by animateColorAsState(
+                    targetValue = if (playModeLit) {
                         MaterialTheme.colorScheme.onPrimary
                     } else {
                         MaterialTheme.colorScheme.onTertiaryContainer
                     },
                     animationSpec = YoinMotion.defaultEffectsSpec(),
-                    label = "shuffleContent",
+                    label = "playModeContent",
                 )
+                val playModeState = playMode.stateDescription()
                 FilledIconButton(
                     onClick = {
                         haptics.performTick()
-                        onToggleShuffle()
+                        onCyclePlayMode()
                     },
-                    modifier = Modifier.size(controlSize),
+                    modifier = Modifier
+                        .size(controlSize)
+                        .semantics { stateDescription = playModeState },
                     colors = IconButtonDefaults.filledIconButtonColors(
-                        containerColor = shuffleContainer,
-                        contentColor = shuffleContent,
+                        containerColor = playModeContainer,
+                        contentColor = playModeContent,
                     ),
                 ) {
                     Icon(
-                        imageVector = Icons.Rounded.Shuffle,
-                        contentDescription = if (shuffleEnabled) "Disable shuffle" else "Enable shuffle",
+                        painter = rememberPlayModeSymbolPainter(playMode.toSymbol()),
+                        contentDescription = "Play mode",
                         modifier = Modifier.size(controlIconSize),
                     )
                 }
@@ -363,7 +371,7 @@ internal fun PlaybackControls(
                             ),
                         ) {
                             Icon(
-                                imageVector = Icons.Rounded.SkipPrevious,
+                                imageVector = YoinSymbols.SkipPreviousFilled,
                                 contentDescription = "Skip previous",
                                 modifier = Modifier.size(controlIconSize),
                             )
@@ -437,6 +445,19 @@ private fun PlaybackTimeLabel(
     )
 }
 
+private fun PlayMode.toSymbol(): SymbolPlayMode = when (this) {
+    PlayMode.RepeatAll -> SymbolPlayMode.RepeatAll
+    PlayMode.Shuffle -> SymbolPlayMode.Shuffle
+    PlayMode.RepeatOne -> SymbolPlayMode.RepeatOne
+}
+
+/** TalkBack reads the button as "Play mode, <state>, button". */
+private fun PlayMode.stateDescription(): String = when (this) {
+    PlayMode.RepeatAll -> "Repeat all"
+    PlayMode.Shuffle -> "Shuffle"
+    PlayMode.RepeatOne -> "Repeat one"
+}
+
 /** How the transport rows fit a column; see [rememberPlaybackControlsFit]. */
 internal data class PlaybackControlsFit(
     val controlSize: Dp,
@@ -445,8 +466,8 @@ internal data class PlaybackControlsFit(
 
 /**
  * Pure fit rule (unit-tested): the natural row is
- * [PLAY/PAUSE + padding][Next] … [expand?][Shuffle]. Too wide → halve PLAY's
- * padding; still too wide → 48dp controls. Shuffle is never shrunk away.
+ * [PLAY/PAUSE + padding][Next] … [expand?][Play mode]. Too wide → halve PLAY's
+ * padding; still too wide → 48dp controls. Play mode is never shrunk away.
  */
 internal fun fitPlaybackControls(
     maxWidth: Dp,
@@ -495,3 +516,45 @@ private val CompactControlSize = 48.dp
 
 /** PLAY's text stretch peaks at 1.10 while pressed. */
 private const val PlayTextStretchMax = 1.1f
+
+// ── Previews: one per play mode ─────────────────────────────────────────
+
+@Composable
+private fun PlayModePreviewControls(playMode: PlayMode) {
+    YoinTheme {
+        PlaybackControls(
+            isPlaying = true,
+            onTogglePlayPause = {},
+            onSkipNext = {},
+            onSkipPrevious = {},
+            positionMs = 96_000L,
+            durationMs = 240_000L,
+            progress = 0.4f,
+            buffered = 0.7f,
+            onSeek = {},
+            playInteractionSource = remember { MutableInteractionSource() },
+            nextInteractionSource = remember { MutableInteractionSource() },
+            playPressed = false,
+            nextPressed = false,
+            playMode = playMode,
+        )
+    }
+}
+
+@Preview(name = "Play mode · repeat all", showBackground = true, backgroundColor = 0xFF1C1B1F)
+@Composable
+private fun PlaybackControlsRepeatAllPreview() {
+    PlayModePreviewControls(PlayMode.RepeatAll)
+}
+
+@Preview(name = "Play mode · shuffle", showBackground = true, backgroundColor = 0xFF1C1B1F)
+@Composable
+private fun PlaybackControlsShufflePreview() {
+    PlayModePreviewControls(PlayMode.Shuffle)
+}
+
+@Preview(name = "Play mode · repeat one", showBackground = true, backgroundColor = 0xFF1C1B1F)
+@Composable
+private fun PlaybackControlsRepeatOnePreview() {
+    PlayModePreviewControls(PlayMode.RepeatOne)
+}

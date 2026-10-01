@@ -31,12 +31,8 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.windowInsetsPadding
+import com.gpo.yoin.symbols.YoinSymbols
 import com.gpo.yoin.ui.experience.LocalYoinWindowInfo
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.rounded.Check
-import androidx.compose.material.icons.rounded.Code
-import androidx.compose.material.icons.rounded.ErrorOutline
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
@@ -194,7 +190,7 @@ fun ServiceSetupContent(
                                     onBackClick()
                                 },
                             ) {
-                                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                                Icon(YoinSymbols.Back, contentDescription = "Back")
                             }
                         },
                         colors = TopAppBarDefaults.topAppBarColors(
@@ -426,7 +422,7 @@ private fun RequirementsGroup(requirements: List<String>) {
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Icon(
-                            imageVector = Icons.Rounded.Check,
+                            imageVector = YoinSymbols.Check,
                             contentDescription = null,
                             tint = MaterialTheme.colorScheme.primary,
                             modifier = Modifier.size(18.dp),
@@ -541,8 +537,8 @@ private fun SubsonicStatusLine(status: SubsonicStatus) {
                     color = color,
                 )
             }
-            SubsonicStatus.Reachable -> StatusRow(Icons.Rounded.Check, "Server found — ready to connect", color)
-            is SubsonicStatus.Failed -> StatusRow(Icons.Rounded.ErrorOutline, current.message, color)
+            SubsonicStatus.Reachable -> StatusRow(YoinSymbols.Check, "Server found — ready to connect", color)
+            is SubsonicStatus.Failed -> StatusRow(YoinSymbols.Error, current.message, color)
         }
     }
 }
@@ -639,7 +635,7 @@ private fun SpotifyDeveloperGroup(
     }
     SettingsGroup(title = "Developer setup") {
         SettingsExpandableItem(
-            icon = Icons.Rounded.Code,
+            icon = YoinSymbols.Code,
             title = "Client ID",
             summary = when {
                 clientId.isBlank() -> "Not set"

@@ -13,8 +13,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.EditNote
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -30,6 +28,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.gpo.yoin.data.local.SongNote
+import com.gpo.yoin.symbols.YoinSymbols
 import com.gpo.yoin.ui.component.NoteCard
 import com.gpo.yoin.ui.component.NoteComposer
 import com.gpo.yoin.ui.component.NoteSortMode
@@ -70,7 +69,7 @@ fun NoteFullscreenPane(
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 Icon(
-                    imageVector = Icons.Rounded.EditNote,
+                    imageVector = YoinSymbols.EditNote,
                     contentDescription = null,
                     tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.8f),
                     modifier = Modifier.size(28.dp),

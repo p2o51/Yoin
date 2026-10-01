@@ -27,20 +27,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
-import androidx.compose.material.icons.rounded.Add
-import androidx.compose.material.icons.rounded.AutoAwesome
-import androidx.compose.material.icons.rounded.CloudQueue
-import androidx.compose.material.icons.rounded.Error
-import androidx.compose.material.icons.rounded.Folder
-import androidx.compose.material.icons.rounded.Headphones
-import androidx.compose.material.icons.rounded.Info
-import androidx.compose.material.icons.rounded.MoreVert
-import androidx.compose.material.icons.rounded.MusicNote
-import androidx.compose.material.icons.rounded.Reviews
-import androidx.compose.material.icons.rounded.Storage
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -87,6 +73,7 @@ import com.gpo.yoin.data.integration.neodb.NeoDBOAuthContract
 import com.gpo.yoin.data.local.GeminiConfig
 import com.gpo.yoin.data.profile.ProfileManager
 import com.gpo.yoin.data.profile.ProviderKind
+import com.gpo.yoin.symbols.YoinSymbols
 import com.gpo.yoin.ui.component.ExpressivePageBackground
 import com.gpo.yoin.ui.component.ExpressiveSectionPanel
 import com.gpo.yoin.ui.component.ExpressiveTextField
@@ -274,7 +261,7 @@ fun SettingsContent(
                                         onBackClick()
                                     },
                                 ) {
-                                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                                    Icon(YoinSymbols.Back, contentDescription = "Back")
                                 }
                             },
                             colors = TopAppBarDefaults.topAppBarColors(
@@ -379,7 +366,7 @@ fun SettingsContent(
                                     }
                                     SettingsGroup(title = "About") {
                                         SettingsItem(
-                                            icon = Icons.Rounded.Info,
+                                            icon = YoinSymbols.Info,
                                             title = "Yoin",
                                             summary = "Version ${BuildConfig.VERSION_NAME}",
                                         )
@@ -468,7 +455,7 @@ private fun AccountsSection(
                 if (canAddProfile) {
                     SettingsRowDivider()
                     SettingsItem(
-                        icon = Icons.Rounded.Add,
+                        icon = YoinSymbols.Add,
                         title = "Add account",
                         onClick = onAddAccount,
                     )
@@ -578,7 +565,7 @@ private fun ProfileAccountRow(
                     modifier = Modifier.minimumTouchTarget(),
                 ) {
                     Icon(
-                        imageVector = Icons.Rounded.MoreVert,
+                        imageVector = YoinSymbols.MoreVertical,
                         contentDescription = "Account options",
                         modifier = Modifier.size(20.dp),
                     )
@@ -632,7 +619,7 @@ private fun EmptyAccountsCard(onAddAccount: () -> Unit) {
                     onAddAccount()
                 },
             ) {
-                Icon(Icons.Rounded.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                Icon(YoinSymbols.Add, contentDescription = null, modifier = Modifier.size(18.dp))
                 Spacer(Modifier.width(8.dp))
                 Text("Add account")
             }
@@ -710,7 +697,7 @@ private fun ProfileCardTile(
                         modifier = Modifier.minimumTouchTarget(),
                     ) {
                         Icon(
-                            imageVector = Icons.Rounded.MoreVert,
+                            imageVector = YoinSymbols.MoreVertical,
                             contentDescription = "Account options",
                             tint = contentColor.copy(alpha = 0.72f),
                             modifier = Modifier.size(20.dp),
@@ -809,17 +796,17 @@ private fun AddAccountTile(onClick: () -> Unit) {
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterVertically),
         ) {
-            Icon(Icons.Rounded.Add, contentDescription = null, modifier = Modifier.size(28.dp))
+            Icon(YoinSymbols.Add, contentDescription = null, modifier = Modifier.size(28.dp))
             Text("Add", style = MaterialTheme.typography.labelLarge)
         }
     }
 }
 
 private fun providerIcon(kind: ProviderKind): ImageVector = when (kind) {
-    ProviderKind.SUBSONIC -> Icons.Rounded.CloudQueue
-    ProviderKind.SPOTIFY -> Icons.Rounded.Headphones
-    ProviderKind.APPLE_MUSIC -> Icons.Rounded.MusicNote
-    ProviderKind.LOCAL -> Icons.Rounded.Folder
+    ProviderKind.SUBSONIC -> YoinSymbols.Cloud
+    ProviderKind.SPOTIFY -> YoinSymbols.Headphones
+    ProviderKind.APPLE_MUSIC -> YoinSymbols.MusicNote
+    ProviderKind.LOCAL -> YoinSymbols.Folder
 }
 
 // ── Add account sheet ────────────────────────────────────────────────
@@ -857,26 +844,26 @@ private fun AddAccountSheet(
                 modifier = Modifier.padding(start = 24.dp, end = 24.dp, bottom = 12.dp),
             )
             ServiceChoiceRow(
-                icon = Icons.Rounded.CloudQueue,
+                icon = YoinSymbols.Cloud,
                 title = "Subsonic",
                 summary = "Navidrome, Airsonic and other servers",
                 onClick = { pick(SetupService.Subsonic) },
             )
             ServiceChoiceRow(
-                icon = Icons.Rounded.Headphones,
+                icon = YoinSymbols.Headphones,
                 title = "Spotify",
                 summary = "Your Spotify library",
                 onClick = { pick(SetupService.Spotify) },
             )
             ServiceChoiceRow(
-                icon = Icons.Rounded.MusicNote,
+                icon = YoinSymbols.MusicNote,
                 title = "Apple Music",
                 summary = "Your Apple Music library and catalog",
                 badge = "Preview",
                 onClick = { pick(SetupService.AppleMusic) },
             )
             ServiceChoiceRow(
-                icon = Icons.Rounded.Folder,
+                icon = YoinSymbols.Folder,
                 title = "Files on this device",
                 summary = "Coming later",
                 onClick = null,
@@ -939,7 +926,7 @@ private fun ServiceChoiceRow(
             }
             if (enabled) {
                 Icon(
-                    Icons.AutoMirrored.Rounded.KeyboardArrowRight,
+                    YoinSymbols.ChevronRight,
                     contentDescription = null,
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -969,7 +956,7 @@ private fun GeminiItem(
     }
     if (onOpenPage != null) {
         FeaturePageRow(
-            icon = Icons.Rounded.AutoAwesome,
+            icon = YoinSymbols.Sparkle,
             title = "AI features",
             summary = summaryText,
             selected = selected,
@@ -984,7 +971,7 @@ private fun GeminiItem(
     val haptics = rememberYoinHaptics()
 
     SettingsExpandableItem(
-        icon = Icons.Rounded.AutoAwesome,
+        icon = YoinSymbols.Sparkle,
         title = "AI features",
         summary = summaryText,
         expanded = expanded,
@@ -1042,7 +1029,7 @@ private fun NeoDbItem(
 ) {
     if (onOpenPage != null) {
         FeaturePageRow(
-            icon = Icons.Rounded.Reviews,
+            icon = YoinSymbols.Reviews,
             title = "NeoDB",
             summary = if (accessToken.isNotBlank()) {
                 "Album ratings and reviews sync"
@@ -1061,7 +1048,7 @@ private fun NeoDbItem(
     val signedIn = accessToken.isNotBlank()
 
     SettingsExpandableItem(
-        icon = Icons.Rounded.Reviews,
+        icon = YoinSymbols.Reviews,
         title = "NeoDB",
         summary = if (signedIn) "Album ratings and reviews sync" else "Sync album ratings and reviews",
         expanded = expanded,
@@ -1141,7 +1128,7 @@ private fun FeaturePageRow(
             onClick = onClick,
             trailing = {
                 Icon(
-                    imageVector = Icons.AutoMirrored.Rounded.KeyboardArrowRight,
+                    imageVector = YoinSymbols.ChevronRight,
                     contentDescription = null,
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -1199,7 +1186,7 @@ internal fun SettingsFeatureScreen(
                                     onBackClick()
                                 },
                             ) {
-                                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                                Icon(YoinSymbols.Back, contentDescription = "Back")
                             }
                         },
                         colors = TopAppBarDefaults.topAppBarColors(
@@ -1259,7 +1246,7 @@ internal fun SettingsFeatureScreen(
 private fun CacheItem(cacheSizeBytes: Long, onClearCache: () -> Unit) {
     val haptics = rememberYoinHaptics()
     SettingsItem(
-        icon = Icons.Rounded.Storage,
+        icon = YoinSymbols.Storage,
         title = "Playback cache",
         summary = formatBytes(cacheSizeBytes),
         trailing = {
@@ -1328,7 +1315,7 @@ private fun ProfileSwitchOverlay(
                     }
                     is ProfileManager.SwitchState.Error -> {
                         Icon(
-                            imageVector = Icons.Rounded.Error,
+                            imageVector = YoinSymbols.ErrorFilled,
                             contentDescription = null,
                             tint = MaterialTheme.colorScheme.error,
                             modifier = Modifier.size(36.dp),

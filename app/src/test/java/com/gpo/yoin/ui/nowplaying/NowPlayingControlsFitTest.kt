@@ -23,8 +23,8 @@ import org.robolectric.RobolectricTestRunner
 
 /**
  * 断点交接 §3.3: on a 240dp column at font scale 1.3 no Now Playing control is
- * clipped or dropped — all three pills stay (folded to icons), and Shuffle
- * keeps its full circle at the row's end.
+ * clipped or dropped — all three pills stay (folded to icons), and the
+ * play-mode button keeps its full circle at the row's end.
  */
 @RunWith(RobolectricTestRunner::class)
 class NowPlayingControlsFitTest {
@@ -56,7 +56,7 @@ class NowPlayingControlsFitTest {
     }
 
     @Test
-    fun should_keepShuffleWhole_when_columnIs240dpAtFontScale1_3() {
+    fun should_keepPlayModeWhole_when_columnIs240dpAtFontScale1_3() {
         rule.setContent {
             YoinTheme {
                 DeviceConfigurationOverride(DeviceConfigurationOverride.FontScale(1.3f)) {
@@ -80,13 +80,13 @@ class NowPlayingControlsFitTest {
                 }
             }
         }
-        val shuffle = rule.onNodeWithContentDescription("Enable shuffle")
-        shuffle.assertIsDisplayed()
-        val bounds = shuffle.getBoundsInRoot()
-        assertTrue("shuffle ends inside the column", bounds.right <= NarrowColumn)
+        val playMode = rule.onNodeWithContentDescription("Play mode")
+        playMode.assertIsDisplayed()
+        val bounds = playMode.getBoundsInRoot()
+        assertTrue("play mode ends inside the column", bounds.right <= NarrowColumn)
         // A whole circle: 56, or the 48 step — never squeezed below it.
         val side = (bounds.right - bounds.left).value
-        assertTrue("shuffle is a whole control ($side dp)", side >= 47.5f && side <= 56.5f)
+        assertTrue("play mode is a whole control ($side dp)", side >= 47.5f && side <= 56.5f)
         rule.onNodeWithContentDescription("Skip next").assertIsDisplayed()
     }
 

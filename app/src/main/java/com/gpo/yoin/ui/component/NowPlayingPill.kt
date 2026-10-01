@@ -21,8 +21,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.MaterialTheme
@@ -48,6 +46,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.gpo.yoin.symbols.YoinSymbols
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
 import com.gpo.yoin.ui.navigation.nowPlayingCoverSharedKey
 import com.gpo.yoin.ui.navigation.rememberActiveOnlySharedContentConfig
@@ -545,7 +544,7 @@ private fun NowPlayingPillArtwork(
         contentDescription = currentTrackTitle ?: "Current track",
         modifier = finalModifier,
         shape = YoinArtworkShapes.ThumbAnimated,
-        fallbackIcon = Icons.Filled.MusicNote,
+        fallbackIcon = YoinSymbols.MusicNote,
         tonalElevation = 1.dp,
         shadowElevation = 0.dp,
         requestSizePx = requestSizePx,

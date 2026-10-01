@@ -13,10 +13,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.QueueMusic
-import androidx.compose.material.icons.automirrored.rounded.StickyNote2
-import androidx.compose.material.icons.rounded.Devices
 import androidx.compose.material3.ButtonGroup
 import androidx.compose.material3.ButtonGroupDefaults
 import androidx.compose.material3.ButtonDefaults
@@ -40,6 +36,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.gpo.yoin.player.CastState
+import com.gpo.yoin.symbols.YoinSymbols
 import com.gpo.yoin.ui.component.CastButton
 import com.gpo.yoin.ui.component.minimumTouchTarget
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
@@ -118,7 +115,7 @@ internal fun BottomPills(
                                     haptics.performContextClick()
                                     onQueueClick()
                                 },
-                                icon = Icons.AutoMirrored.Rounded.QueueMusic,
+                                icon = YoinSymbols.Queue,
                                 label = "Queue",
                                 showLabel = labelVisible(queuePressed, "Queue"),
                                 pressWiden = layout.labelled,
@@ -136,7 +133,7 @@ internal fun BottomPills(
                                     haptics.performContextClick()
                                     onDevicesClick()
                                 },
-                                icon = Icons.Rounded.Devices,
+                                icon = YoinSymbols.Devices,
                                 label = "Devices",
                                 showLabel = labelVisible(devicesPressed, "Devices"),
                                 pressWiden = layout.labelled,
@@ -159,7 +156,7 @@ internal fun BottomPills(
                                         haptics.performContextClick()
                                         onWriteClick()
                                     },
-                                    icon = Icons.AutoMirrored.Rounded.StickyNote2,
+                                    icon = YoinSymbols.Note,
                                     label = "Write",
                                     showLabel = labelVisible(writePressed, "Write"),
                                     pressWiden = layout.labelled,

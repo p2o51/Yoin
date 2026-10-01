@@ -5,11 +5,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Check
-import androidx.compose.material.icons.rounded.Search
-import androidx.compose.material.icons.rounded.Translate
-import androidx.compose.material.icons.rounded.VerticalAlignCenter
 import androidx.compose.material3.ButtonGroup
 import androidx.compose.material3.ButtonGroupDefaults
 import androidx.compose.material3.ButtonGroupScope
@@ -22,9 +17,12 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.graphics.painter.Painter
+import androidx.compose.ui.graphics.vector.rememberVectorPainter
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.gpo.yoin.symbols.YoinSymbols
+import com.gpo.yoin.symbols.rememberTranslateSymbolPainter
 import com.gpo.yoin.ui.theme.ProvideYoinMotionRole
 import com.gpo.yoin.ui.theme.YoinMotionRole
 
@@ -61,7 +59,7 @@ internal fun LyricsActionBar(
             customItem(
                 buttonGroupContent = {
                     LyricsActionIcon(
-                        icon = Icons.Rounded.Search,
+                        icon = rememberVectorPainter(YoinSymbols.Search),
                         contentDescription = "Search lyrics",
                         interactionSource = searchInteraction,
                         enabled = actionInFlight == null,
@@ -74,12 +72,16 @@ internal fun LyricsActionBar(
             )
             customItem(
                 buttonGroupContent = {
+                    // The translate key stays lit while its own translation runs, so
+                    // the 文 ⇄ A orbit is visible (a disabled IconButton drops its
+                    // content to 38% alpha); taps are ignored until it finishes.
+                    val translating = actionInFlight == LyricsAction.Translate
                     LyricsActionIcon(
-                        icon = Icons.Rounded.Translate,
+                        icon = rememberTranslateSymbolPainter(translating = translating),
                         contentDescription = "Translate lyrics",
                         interactionSource = translateInteraction,
-                        enabled = actionInFlight == null && canTranslate,
-                        onClick = onTranslateClick,
+                        enabled = (actionInFlight == null || translating) && canTranslate,
+                        onClick = { if (actionInFlight == null) onTranslateClick() },
                         size = iconSize,
                     )
                 },
@@ -88,7 +90,7 @@ internal fun LyricsActionBar(
             customItem(
                 buttonGroupContent = {
                     LyricsActionIcon(
-                        icon = Icons.Rounded.Check,
+                        icon = rememberVectorPainter(YoinSymbols.Check),
                         contentDescription = "Apply lyrics",
                         interactionSource = applyInteraction,
                         enabled = actionInFlight == null,
@@ -101,7 +103,7 @@ internal fun LyricsActionBar(
             customItem(
                 buttonGroupContent = {
                     LyricsActionIcon(
-                        icon = Icons.Rounded.VerticalAlignCenter,
+                        icon = rememberVectorPainter(YoinSymbols.Recenter),
                         contentDescription = "Return to current line",
                         interactionSource = recenterInteraction,
                         enabled = actionInFlight == null && canRecenter,
@@ -119,7 +121,7 @@ internal fun LyricsActionBar(
 @OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun ButtonGroupScope.LyricsActionIcon(
-    icon: ImageVector,
+    icon: Painter,
     contentDescription: String,
     interactionSource: MutableInteractionSource,
     enabled: Boolean,
@@ -141,7 +143,7 @@ private fun ButtonGroupScope.LyricsActionIcon(
         ),
     ) {
         Icon(
-            imageVector = icon,
+            painter = icon,
             contentDescription = contentDescription,
         )
     }

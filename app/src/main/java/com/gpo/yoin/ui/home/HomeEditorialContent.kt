@@ -28,10 +28,6 @@ import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.KeyboardArrowDown
-import androidx.compose.material.icons.filled.LibraryMusic
-import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -73,6 +69,7 @@ import com.gpo.yoin.data.model.Album
 import com.gpo.yoin.data.model.CoverRef
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.Track
+import com.gpo.yoin.symbols.YoinSymbols
 import com.gpo.yoin.ui.component.ExpressiveMediaArtwork
 import com.gpo.yoin.ui.component.ExpressiveSectionPanel
 import com.gpo.yoin.ui.component.MarqueeText
@@ -497,7 +494,7 @@ private fun HomeContentHeader(
                 },
             ) {
                 Icon(
-                    imageVector = Icons.Filled.KeyboardArrowDown,
+                    imageVector = YoinSymbols.ChevronDown,
                     contentDescription = "Memories",
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -509,7 +506,7 @@ private fun HomeContentHeader(
                 },
             ) {
                 Icon(
-                    imageVector = Icons.Filled.Settings,
+                    imageVector = YoinSymbols.Settings,
                     contentDescription = "Settings",
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -1332,7 +1329,7 @@ private fun RecentlyAddedTrackTile(
             contentDescription = track.title.orEmpty(),
             modifier = Modifier.size(RecentlyAddedTrackCover),
             shape = YoinArtworkShapes.Thumb,
-            fallbackIcon = Icons.Filled.LibraryMusic,
+            fallbackIcon = YoinSymbols.Album,
             interactionSource = interactionSource,
             tonalElevation = 1.dp,
             shadowElevation = 0.dp,

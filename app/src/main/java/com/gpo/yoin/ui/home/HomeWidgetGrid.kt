@@ -15,11 +15,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.QueueMusic
-import androidx.compose.material.icons.filled.LibraryMusic
-import androidx.compose.material.icons.filled.MusicNote
-import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.MaterialShapes
 import androidx.compose.material3.MaterialTheme
@@ -36,6 +31,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.gpo.yoin.symbols.YoinSymbols
 import com.gpo.yoin.ui.component.ExpressiveMediaArtwork
 import com.gpo.yoin.ui.component.rememberPressMorphShape
 import com.gpo.yoin.ui.component.elasticPress
@@ -456,8 +452,8 @@ internal fun WidgetBackdropArtwork(
 }
 
 private fun widgetFallbackIcon(kind: WidgetShapeKind): ImageVector = when (kind) {
-    WidgetShapeKind.Playlist -> Icons.AutoMirrored.Filled.QueueMusic
-    WidgetShapeKind.Song -> Icons.Filled.MusicNote
-    WidgetShapeKind.Album -> Icons.Filled.LibraryMusic
-    WidgetShapeKind.Artist -> Icons.Filled.Person
+    WidgetShapeKind.Playlist -> YoinSymbols.Playlist
+    WidgetShapeKind.Song -> YoinSymbols.MusicNote
+    WidgetShapeKind.Album -> YoinSymbols.Album
+    WidgetShapeKind.Artist -> YoinSymbols.Artist
 }

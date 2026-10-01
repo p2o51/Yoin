@@ -17,9 +17,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.DragHandle
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -46,6 +43,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
+import com.gpo.yoin.symbols.YoinSymbols
 import com.gpo.yoin.ui.component.minimumTouchTarget
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
 import com.gpo.yoin.ui.theme.YoinMotion
@@ -175,7 +173,7 @@ internal fun HomeLayoutEditor(
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Icon(
-                            imageVector = Icons.Filled.DragHandle,
+                            imageVector = YoinSymbols.DragHandle,
                             contentDescription = "Reorder ${sectionState.section.title}",
                             tint = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier
@@ -321,7 +319,7 @@ private fun EditorHeader(
         )
         IconButton(onClick = onDone) {
             Icon(
-                imageVector = Icons.Filled.Check,
+                imageVector = YoinSymbols.Check,
                 contentDescription = "Done",
                 tint = MaterialTheme.colorScheme.primary,
             )

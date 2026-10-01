@@ -55,6 +55,10 @@ robolectric = "4.16.1"
 # Code quality
 ktlint = "12.1.2"
 
+# Icons — Yoin Symbols. Built from source via composite build (settings.gradle.kts)
+# until it is published to Maven Central.
+yoinSymbols = "0.1.0"
+
 [libraries]
 # Compose BOM
 compose-bom = { group = "androidx.compose", name = "compose-bom", version.ref = "composeBom" }
@@ -72,6 +76,7 @@ material3-expressive = { group = "androidx.compose.material3", name = "material3
 material3-adaptive = { group = "androidx.compose.material3.adaptive", name = "adaptive", version.ref = "material3Adaptive" }
 androidx-window = { group = "androidx.window", name = "window", version.ref = "window" }
 material-icons-extended = { group = "androidx.compose.material", name = "material-icons-extended" }
+yoin-symbols = { group = "io.github.p2o51", name = "yoin-symbols", version.ref = "yoinSymbols" }
 
 # Navigation 3
 androidx-navigation3-runtime = { group = "androidx.navigation3", name = "navigation3-runtime", version.ref = "nav3Core" }

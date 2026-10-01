@@ -2,6 +2,7 @@ package com.gpo.yoin.ui.nowplaying
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import com.gpo.yoin.symbols.YoinSymbols
 import com.gpo.yoin.ui.theme.YoinContainerShapes
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -23,10 +24,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.input.rememberTextFieldState
 import androidx.compose.foundation.text.input.setTextAndPlaceCursorAtEnd
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.ArrowBack
-import androidx.compose.material.icons.rounded.ChevronRight
-import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExpandedFullScreenSearchBar
@@ -123,7 +120,7 @@ internal fun LyricsSearchSheet(
             leadingIcon = {
                 IconButton(onClick = { scope.launch { searchBarState.animateToCollapsed() } }) {
                     Icon(
-                        imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
+                        imageVector = YoinSymbols.Back,
                         contentDescription = "Close lyrics search",
                     )
                 }
@@ -137,7 +134,7 @@ internal fun LyricsSearchSheet(
                 } else if (textFieldState.text.isNotEmpty()) {
                     IconButton(onClick = { textFieldState.setTextAndPlaceCursorAtEnd("") }) {
                         Icon(
-                            imageVector = Icons.Rounded.Close,
+                            imageVector = YoinSymbols.Close,
                             contentDescription = "Clear",
                         )
                     }
@@ -341,7 +338,7 @@ private fun LyricsSearchResultRow(
             )
         } else {
             Icon(
-                imageVector = Icons.Rounded.ChevronRight,
+                imageVector = YoinSymbols.ChevronRight,
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
             )

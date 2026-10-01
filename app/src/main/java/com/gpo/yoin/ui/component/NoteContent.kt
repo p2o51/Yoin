@@ -24,10 +24,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.Send
-import androidx.compose.material.icons.rounded.Delete
-import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material3.BottomSheetDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -55,6 +51,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.gpo.yoin.data.local.SongNote
+import com.gpo.yoin.symbols.YoinSymbols
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
 import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinShapeTokens
@@ -199,7 +196,7 @@ fun NoteCard(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     note.positionMs?.let { anchor ->
                         Icon(
-                            imageVector = Icons.Rounded.MusicNote,
+                            imageVector = YoinSymbols.MusicNote,
                             contentDescription = null,
                             tint = metaColor,
                             modifier = Modifier.size(12.dp),
@@ -231,7 +228,7 @@ fun NoteCard(
                     modifier = Modifier.size(36.dp),
                 ) {
                     Icon(
-                        imageVector = Icons.Rounded.Delete,
+                        imageVector = YoinSymbols.Delete,
                         contentDescription = "Delete note",
                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.size(18.dp),
@@ -467,7 +464,7 @@ private fun NoteAnchorChip(
             horizontalArrangement = Arrangement.spacedBy(5.dp),
         ) {
             Icon(
-                imageVector = Icons.Rounded.MusicNote,
+                imageVector = YoinSymbols.MusicNote,
                 contentDescription = "对齐到当前时刻",
                 tint = MaterialTheme.colorScheme.onSecondaryContainer,
                 modifier = Modifier.size(14.dp),
@@ -517,7 +514,7 @@ private fun NoteSavePill(
             horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             Icon(
-                imageVector = Icons.AutoMirrored.Rounded.Send,
+                imageVector = YoinSymbols.Send,
                 contentDescription = null,
                 tint = content,
                 modifier = Modifier.size(16.dp),

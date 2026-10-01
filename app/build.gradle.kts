@@ -165,6 +165,8 @@ dependencies {
     // Material3 — stable from BOM + Expressive alpha explicit
     implementation(libs.material3)
     implementation(libs.material.icons.extended)
+    // Yoin Symbols — the app's icon set (composite build, see settings.gradle.kts)
+    implementation(libs.yoin.symbols)
     implementation(libs.material3.expressive)
     // Window size class + fold posture (currentWindowAdaptiveInfo)
     implementation(libs.material3.adaptive)

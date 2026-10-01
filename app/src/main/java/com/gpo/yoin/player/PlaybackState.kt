@@ -61,4 +61,8 @@ data class PlaybackState(
     /** Compatibility shim: old callers expect `controllerReady: Boolean`. */
     val controllerReady: Boolean
         get() = connectionPhase == ConnectionPhase.Ready
+
+    /** The play-mode button's state, read back from [repeatMode] + [shuffleEnabled]. */
+    val playMode: PlayMode
+        get() = PlayMode.of(repeatMode, shuffleEnabled)
 }

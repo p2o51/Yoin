@@ -35,16 +35,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.input.rememberTextFieldState
 import androidx.compose.foundation.text.input.setTextAndPlaceCursorAtEnd
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.QueueMusic
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Clear
-import androidx.compose.material.icons.filled.LibraryMusic
-import androidx.compose.material.icons.filled.Person
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AppBarWithSearch
 import androidx.compose.material3.ExpandedFullScreenSearchBar
@@ -96,6 +86,7 @@ import com.gpo.yoin.data.model.Starred
 import com.gpo.yoin.data.model.Track
 // VisualizerData intentionally removed: LibraryScreen consumes a
 // pre-smoothed playbackSignal from AudioVisualizerManager instead.
+import com.gpo.yoin.symbols.YoinSymbols
 import com.gpo.yoin.ui.component.ExpressiveBackdropArtwork
 import com.gpo.yoin.ui.component.ExpressiveBackdropVariant
 import com.gpo.yoin.ui.component.ExpressiveMetaPill
@@ -509,12 +500,12 @@ private fun LibraryContentBody(
                         },
                     ) {
                         Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                            imageVector = YoinSymbols.Back,
                             contentDescription = "Close search",
                         )
                     }
                 } else {
-                    Icon(imageVector = Icons.Filled.Search, contentDescription = null)
+                    Icon(imageVector = YoinSymbols.Search, contentDescription = null)
                 }
             },
             trailingIcon = {
@@ -528,7 +519,7 @@ private fun LibraryContentBody(
                         },
                     ) {
                         Icon(
-                            imageVector = Icons.Filled.Clear,
+                            imageVector = YoinSymbols.Close,
                             contentDescription = "Clear search",
                         )
                     }
@@ -600,7 +591,7 @@ private fun LibraryContentBody(
                         modifier = Modifier.minimumTouchTarget(),
                     ) {
                         Icon(
-                            imageVector = Icons.Filled.Settings,
+                            imageVector = YoinSymbols.Settings,
                             contentDescription = "Settings",
                         )
                     }
@@ -837,7 +828,7 @@ private fun LibraryWideHeaderRow(
             modifier = Modifier.minimumTouchTarget(),
         ) {
             Icon(
-                imageVector = Icons.Filled.Settings,
+                imageVector = YoinSymbols.Settings,
                 contentDescription = "Settings",
             )
         }
@@ -952,7 +943,7 @@ private fun ArtistGridItem(
                     contentAlignment = Alignment.Center,
                 ) {
                     Icon(
-                        imageVector = Icons.Filled.Person,
+                        imageVector = YoinSymbols.Artist,
                         contentDescription = null,
                         tint = MaterialTheme.colorScheme.onSecondaryContainer,
                         modifier = Modifier.size(28.dp),
@@ -1022,7 +1013,7 @@ private fun ArtistListItem(
                         contentAlignment = Alignment.Center,
                     ) {
                         Icon(
-                            imageVector = Icons.Filled.Person,
+                            imageVector = YoinSymbols.Artist,
                             contentDescription = null,
                             tint = MaterialTheme.colorScheme.onSecondaryContainer,
                             modifier = Modifier.size(22.dp),
@@ -1245,7 +1236,7 @@ private fun RandomMixHeader(
             modifier = Modifier.minimumTouchTarget(),
         ) {
             Icon(
-                imageVector = Icons.Filled.Shuffle,
+                imageVector = YoinSymbols.Shuffle,
                 contentDescription = "Reshuffle",
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.size(20.dp),
@@ -1360,7 +1351,7 @@ private fun PlaylistsTabContent(
                 expanded = fabVisible,
                 icon = {
                     Icon(
-                        imageVector = Icons.Filled.Add,
+                        imageVector = YoinSymbols.Add,
                         contentDescription = null,
                     )
                 },
@@ -1446,7 +1437,7 @@ private fun PlaylistListItem(
                 variant = ExpressiveBackdropVariant.Ghostish,
                 modifier = Modifier.size(48.dp).seamDissolve(),
                 shape = YoinArtworkShapes.Thumb,
-                fallbackIcon = Icons.AutoMirrored.Filled.QueueMusic,
+                fallbackIcon = YoinSymbols.Playlist,
                 // Full-bleed: the sub-1f fractions were placeholders for the
                 // removed animated backdrop shape and just left ghost margins.
                 fillFraction = 1f,
@@ -1644,7 +1635,7 @@ private fun AlbumListItem(
                 // ghost margin left by the removed backdrop shape.
                 modifier = Modifier.size(48.dp).seamDissolve(),
                 shape = YoinArtworkShapes.Thumb,
-                fallbackIcon = Icons.Filled.LibraryMusic,
+                fallbackIcon = YoinSymbols.Album,
                 fillFraction = 1f,
                 tonalElevation = 0.dp,
                 extractBackdropColors = false,

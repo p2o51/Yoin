@@ -5,8 +5,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -30,6 +28,7 @@ import coil3.decode.DataSource
 import coil3.intercept.Interceptor
 import coil3.request.ImageRequest
 import coil3.request.SuccessResult
+import com.gpo.yoin.symbols.YoinSymbols
 import com.gpo.yoin.ui.theme.YoinLightColorScheme
 import com.gpo.yoin.ui.theme.YoinTheme
 import java.io.File
@@ -206,7 +205,7 @@ class PlaybackVisualContinuityTest {
                     ExpressiveMediaArtwork(
                         model = model,
                         contentDescription = "Cover",
-                        fallbackIcon = Icons.Filled.MusicNote,
+                        fallbackIcon = YoinSymbols.MusicNote,
                         modifier = Modifier.size(240.dp).testTag("artwork"),
                         reveal = ArtworkReveal.DotDissolve
                     )
@@ -275,7 +274,7 @@ class PlaybackVisualContinuityTest {
                     ExpressiveMediaArtwork(
                         model = model,
                         contentDescription = "Twin",
-                        fallbackIcon = Icons.Filled.MusicNote,
+                        fallbackIcon = YoinSymbols.MusicNote,
                         modifier = Modifier.size(34.dp).testTag("artwork"),
                         requestSizePx = 96
                     )
@@ -355,7 +354,7 @@ class PlaybackVisualContinuityTest {
                     ExpressiveMediaArtwork(
                         model = model,
                         contentDescription = "Cover",
-                        fallbackIcon = Icons.Filled.MusicNote,
+                        fallbackIcon = YoinSymbols.MusicNote,
                         modifier = Modifier.size(160.dp).testTag("artwork")
                     )
                 }

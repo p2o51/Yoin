@@ -220,11 +220,15 @@ internal class SpotifyAppRemotePlayer(
      *  signal. On failure (typically `NO_ACTIVE_DEVICE` / `PREMIUM_REQUIRED`
      *  / transport error) we silently fall back to the bare App Remote
      *  `play(uri) + queue(uri)` path that already works.
+     * @param playMode optional — Yoin-initiated playback applies the user's
+     *  play mode right after the start command, inside the same operation,
+     *  so it can't race the start and survives a provider switch.
      */
     fun playQueue(
         tracks: List<Track>,
         startIndex: Int,
         startContextPlayback: (suspend () -> Unit)? = null,
+        playMode: PlayMode? = null,
     ) {
         if (tracks.isEmpty() || startIndex !in tracks.indices) return
         Log.d(
@@ -274,6 +278,7 @@ internal class SpotifyAppRemotePlayer(
                     // state, which replaces our pending snapshot. No need to
                     // also pump play+queue on App Remote; doing both would
                     // double-start (the second `play` cancels the first).
+                    playMode?.let { applyPlayMode(connected, it) }
                     return@enqueueOperation
                 }
             }
@@ -283,6 +288,7 @@ internal class SpotifyAppRemotePlayer(
             // context but always works as long as App Remote is connected.
             val current = tracks[startIndex]
             connected.playerApi.play(current.spotifyUri()).awaitUnit()
+            playMode?.let { applyPlayMode(connected, it) }
             tracks.drop(startIndex + 1).forEach { track ->
                 connected.playerApi.queue(track.spotifyUri()).awaitUnit()
             }
@@ -328,10 +334,24 @@ internal class SpotifyAppRemotePlayer(
         }
     }
 
-    fun toggleShuffle() {
-        val target = !lastSnapshot.shuffleEnabled
+    fun setShuffle(enabled: Boolean) {
         enqueueOperation { connected ->
-            connected.playerApi.setShuffle(target).awaitUnit()
+            connected.playerApi.setShuffle(enabled).awaitUnit()
+        }
+    }
+
+    /**
+     * Writes repeat + shuffle for a Yoin-started queue. A failure here is
+     * logged and swallowed: the queue that just started matters more than
+     * the mode, and the button keeps showing what Spotify reports.
+     */
+    private suspend fun applyPlayMode(connected: SpotifyAppRemote, mode: PlayMode) {
+        runCatching {
+            connected.playerApi.setRepeat(mode.repeatMode).awaitUnit()
+            connected.playerApi.setShuffle(mode.shuffle).awaitUnit()
+        }.onFailure { e ->
+            if (e is CancellationException) throw e
+            Log.w(tag, "applyPlayMode($mode) failed: ${e.javaClass.simpleName}: ${e.message}")
         }
     }
 

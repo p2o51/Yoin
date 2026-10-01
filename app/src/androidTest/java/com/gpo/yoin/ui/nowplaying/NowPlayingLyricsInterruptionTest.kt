@@ -24,6 +24,7 @@ import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.unit.dp
 import androidx.test.platform.app.InstrumentationRegistry
 import com.gpo.yoin.data.repository.ActivityContext
+import com.gpo.yoin.player.PlayMode
 import com.gpo.yoin.ui.navigation.back.OverlayChromeVisibility
 import com.gpo.yoin.ui.navigation.back.OverlayPlayerVisibility
 import com.gpo.yoin.ui.theme.YoinMotion
@@ -53,7 +54,7 @@ class NowPlayingLyricsInterruptionTest {
             isPlaying = false, durationMs = 240_000, rating = 0f, isStarred = false,
             lyrics = listOf(LyricLine(0, "Lyrics")), showLyricsTranslation = false,
             lyricsActionInFlight = null, lyricsLoading = false, queue = emptyList(),
-            currentQueueIndex = 0, shuffleEnabled = false, albumId = null, artistId = null,
+            currentQueueIndex = 0, playMode = PlayMode.RepeatAll, albumId = null, artistId = null,
             activityContext = ActivityContext.None,
         )
         var open by mutableStateOf(false)

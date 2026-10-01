@@ -9,8 +9,6 @@ import androidx.compose.foundation.layout.calculateStartPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.IosShare
 import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButtonDefaults
@@ -21,6 +19,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.unit.dp
+import com.gpo.yoin.symbols.YoinSymbols
 import com.gpo.yoin.ui.component.BarExtraAction
 import com.gpo.yoin.ui.component.BarExtraActionMenuItems
 import com.gpo.yoin.ui.component.PlaySplitButton
@@ -84,7 +83,7 @@ internal fun DetailHeroActions(
                 contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
             ),
         ) {
-            Icon(Icons.Rounded.IosShare, contentDescription = "Share", modifier = Modifier.size(22.dp))
+            Icon(YoinSymbols.Share, contentDescription = "Share", modifier = Modifier.size(22.dp))
         }
         PlaySplitButton(
             playContainer = playContainer,

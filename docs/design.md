@@ -69,6 +69,51 @@ MD3 Expressive 不是 M4，而是 M3 的扩展进化。
 
 浮动底栏的 12dp 阴影由最上层、同位置的底栏窗口绘制；透明页面交接与预测性返回期间不叠加下层阴影。分栏中不重叠的底栏各自保留阴影。“最上层”以真正上屏为准：新窗口首帧提交后才接管阴影，窗口开始 finish（关闭淡出）时立即交还；下层阴影随之按效果弹簧淡出 / 淡入，不做硬切，避免进场时阴影先消失、返回时阴影闪回。
 
+### 图标：Yoin Symbols
+
+**来源**
+
+- 依赖 `io.github.p2o51:yoin-symbols`（包名 `com.gpo.yoin.symbols`），源码在 `~/Developer/yoin-symbols`。发布到 Maven Central 之前用 composite build：`settings.gradle.kts` 默认 include `../yoin-symbols/android`，CI 传 `-PyoinSymbolsDir=<path>`。
+- app 不再用 material-icons，也不在 app 里放图标 vector（`res/drawable/ic_yoin_*` 只剩 3 个 launcher 素材）。缺的符号先加进库的 `generator/`，再在 app 里用。
+- 暂时的例外：Now Playing 侧栏右上角的「全屏 / 收回侧栏」键库里还没有对应符号，仍用 Material 的 `OpenInFull` / `CloseFullscreen`，所以 `material-icons-extended` 暂时保留；补上符号后删掉依赖。
+- 另一个例外：16:9 矮屏「Tap to expand」提示里的展开符号动画（`NowPlayingScreen.kt` 的 `UnfoldHintSymbol`）仍在 app 里用 Canvas 画，因为库 0.1.0 只有静态 `UnfoldMore`；库加上动效版后换掉。
+- 通知小图标这类要资源 id 的地方，用库的 VectorDrawable：`com.gpo.yoin.symbols.R.drawable.ic_yoin_<name>`（工程开了 `nonTransitiveRClass`，要 `import com.gpo.yoin.symbols.R as SymbolsR`）。
+
+**规则**
+
+- 默认用线性版；「选中」或「已开启」用 *Filled 版（导航的 Home / Library 选中时用 `HomeFilled` / `LibraryFilled`）。
+- 播放控制键用 *Filled 多边形版：`PlayFilled`、`SkipNextFilled`、`SkipPreviousFilled`。PLAY / PAUSE 大按钮保持文字。
+- 返回、左右箭头、发送在 RTL 布局里自动镜像。
+- 按场景选：专辑封面兜底 `Album`，歌单封面兜底 `Playlist`，单曲兜底 `MusicNote`，歌手 `Artist`，队列 `Queue`。
+
+**动效符号和用在哪**（都读 `LocalSymbolMotion`，不显式传 motion）
+
+| 符号 | 用在哪 |
+| --- | --- |
+| 翻译 `rememberTranslateSymbolPainter` | 歌词工具条的翻译键：翻译进行中「文」「A」绕圈换位，结束回到「文A」；进行中按键保持亮着 |
+| 收藏 `rememberFavoriteSymbolPainter` | Now Playing 的收藏键、专辑页曲目行的收藏键 |
+| 均衡器 `rememberEqualizerSymbolPainter` | 专辑页当前曲目：播放时跳，暂停后从两边往中间沉成点 |
+| 展开箭头 `rememberExpandSymbolPainter` | 设置的可展开项、Play ▾（横版和竖版）：铰链式先压平再翻过去，不转圈 |
+| 播放模式 `rememberPlayModeSymbolPainter` | Now Playing 的播放模式键 |
+
+- 动效档位跟随 `MotionProfile`：`AdaptiveReduced` 对应 `SymbolMotion.Reduced`，其余 `SymbolMotion.Default`（库的默认弹簧就是 M3 Expressive motion scheme），在 `YoinActivityRoot` 统一提供。系统「移除动画」时符号静止。
+
+**播放模式**（一个按钮三个状态，点一下按顺序切换，默认列表循环）
+
+| 模式 | 图标 `SymbolPlayMode` | Media3 | Spotify App Remote |
+| --- | --- | --- | --- |
+| 列表循环（默认） | `RepeatAll` | `REPEAT_MODE_ALL`，shuffle 关 | `setRepeat(ALL)` + `setShuffle(false)` |
+| 随机 | `Shuffle` | `REPEAT_MODE_ALL`，shuffle 开 | `setRepeat(ALL)` + `setShuffle(true)` |
+| 单曲循环 | `RepeatOne` | `REPEAT_MODE_ONE`，shuffle 关 | `setRepeat(ONE)` + `setShuffle(false)` |
+
+- 顺序：列表循环 → 随机 → 单曲循环 → 列表循环。repeat 和 shuffle 每次一起写。
+- 读回：`REPEAT_MODE_ONE` → 单曲循环；shuffle 开 → 随机；其它（含 `REPEAT_MODE_OFF`）→ 列表循环。
+- Yoin 自己开播的队列（任何后端）开播后套用用户选的模式；在 Spotify App 等别处开始的播放只观察、不写。模式不跨进程保存。
+- 配色：列表循环用 `tertiaryContainer` / `onTertiaryContainer`，随机和单曲循环亮成 `primary` / `onPrimary`，Effects Spring 过渡。
+- 详情页的「Shuffle play」是把列表本身打乱，不碰播放模式。
+
+**`docs/icons/`**：第一轮图标草稿，已被 yoin-symbols 取代，留着存档，不要删。
+
 ### 实验性 API 策略
 
 - **核心 UI 框架用稳定版 M3**（Material3 `1.4.x` stable）— 主题、基础组件、Navigation
@@ -164,7 +209,7 @@ NeoDB 同步以 album 为边界。第一阶段只有同时具备 album rating �
 - **断点**（2026-09-30，`NowPlayingPresentation`）：
   - **16:9 矮屏**（歌词区放不下 2 行）：Lyrics / About / Note 那一行 + 歌词窗口收成**一行当前歌词**（bold、primary、单行省略），整行就是展开按钮，没有单独的展开键；同一句停 ≥ 8 秒时这一行交叉淡入成「展开符号动画 + Tap to expand」，**一天最多一次**（按本地日期记在 `yoin_ui_hints`）；动画缩放为 0 时符号不动、字停约 2 秒。歌词展开页 tabs 保持文字，4 个歌词工具键挪到 tabs 同一行右侧，底部只剩标题
   - **自动沉浸**（所有尺寸）：播放中 + Lyrics 页 + 有同步歌词 + 5 秒无操作 → 只有 4 个歌词工具键隐藏；在底部时淡出并塌缩槽位（标题下沉、歌词往下长），在顶部时原地淡出；手动滚过歌词、触摸、暂停都会恢复
-  - **控件永远排得下**：胶囊组先按真实宽度量，放不下整组收成纯图标（按下时展开标签），三个都在；控制行先收 PLAY 的内边距、再把控件从 56 降到 48，Shuffle 永远完整
+  - **控件永远排得下**：胶囊组先按真实宽度量，放不下整组收成纯图标（按下时展开标签），三个都在；控制行先收 PLAY 的内边距、再把控件从 56 降到 48，播放模式键永远完整
   - **Medium 整窗（折叠屏内屏、平板竖屏）· Spotify 式**：点 pill 先从右边推出手机宽的**侧栏**（clamp(窗宽 × 0.5, 360, 420)，左侧圆角 28，就是手机那一页、歌词吃满剩余高度）；旁边的内容让出这块宽度继续可用、读成 Compact；底栏折成 [Home][Library] 居中。侧栏右上角「全屏」→ **放大的手机**（列宽 ≤ 640 居中，封面随高度收，评分列 / 控件随列放大；右上角「收回侧栏」）。返回一级一级退：全屏 → 侧栏 → 关闭，左上角 ▾ 直接关闭；侧栏往右滑也能关，三者共用一个 dismiss 控制器。展开折叠屏（Compact → Medium）时直接进全屏态，其它进入 Medium 默认侧栏；「侧栏 / 全屏」状态在 NP 的 ViewModel 里。窗宽 − 侧栏 < 320 时不开侧栏，直接全屏态
   - **分栏窗格里**（开着详情时）：NP 占满本窗格，不开侧栏也没有全屏键——< 600 手机 NP、600–840 放大的手机、≥ 840 双栏；没开详情时 shell 独占整窗，平板横屏从首页打开就是整屏双栏
   - **双栏只留给 Wide**（≥ 840 的整窗或窗格，且够高）：左栏按控件定宽 312（= 封面边长），右栏歌词吃剩下的；点封面放大时左栏最多 1.5 倍、右栏不小于 320
@@ -322,7 +367,7 @@ Podcast、Internet Radio、Chat、User Management、Jukebox、Bookmarks、Shares
 
 - [x]  滑动评分条的 UI 设计稿 — 已确认：垂直粗条，位于封面右侧，显示浮点评分（参见设计稿截图）
 - [ ]  音频可视化的具体视觉效果 — 实现时再探索，先做基础版再迭代（视觉表现仍未定；采样代码写好了但**尚未接通**：`player/AudioVisualizerData.kt` 的 `AudioVisualizerManager` 只在 `AppContainer` 里 lazy 构造，全仓没有任何一处调用它的 `start(audioSessionId)`，`PlaybackService.audioSessionId` 这条流也没人喂给它，所以 UI 侧 collect 的 `playbackSignal` / `visualizerData` 目前恒为 0 / Empty）
-- [x]  App 图标设计 — 已完成：三箭头全出血几何，自适应图标 `app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml`（含 `ic_launcher_round.xml`），三层素材在 `res/drawable/ic_launcher_{background,foreground,monochrome}.xml`，monochrome 供主题图标使用
+- [x]  App 图标设计 — 已完成：三箭头全出血几何，自适应图标 `app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml`（含 `ic_launcher_round.xml`），三层素材在 `res/drawable/ic_yoin_launcher_{background,foreground,monochrome}.xml`，monochrome 供主题图标使用
 
 ![image.png](attachment:37c0d660-23b7-4c25-9fb4-e77630964bcd:image.png)
 

@@ -32,6 +32,13 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      - name: Check out Yoin Symbols
+        uses: actions/checkout@v5
+        with:
+          repository: p2o51/yoin-symbols
+          ref: v0.1.0
+          path: yoin-symbols
+
       - name: Set up JDK 17
         uses: actions/setup-java@v5
         with:
@@ -79,7 +86,8 @@ jobs:
           SPOTIFY_CLIENT_ID: ${{ secrets.SPOTIFY_CLIENT_ID }}
         run: |
           ./gradlew :app:bundleRelease :app:assembleRelease \
-            -PspotifyClientId="$SPOTIFY_CLIENT_ID"
+            -PspotifyClientId="$SPOTIFY_CLIENT_ID" \
+            -PyoinSymbolsDir=yoin-symbols
 
       - name: Create GitHub Release
         if: startsWith(github.ref, 'refs/tags/')

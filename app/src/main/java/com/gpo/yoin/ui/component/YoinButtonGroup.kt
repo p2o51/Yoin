@@ -20,11 +20,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.LibraryMusic
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.FilledTonalIconButton
@@ -46,6 +41,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.lerp
+import com.gpo.yoin.symbols.YoinSymbols
 import com.gpo.yoin.ui.experience.CenteredBarBottomMargin
 import com.gpo.yoin.ui.experience.CenteredBarBottomMarginWide
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
@@ -139,7 +135,7 @@ fun YoinButtonGroup(
             playSplitActions?.let { actions ->
                 listOf(
                     BarExtraAction(
-                        icon = Icons.Filled.Shuffle,
+                        icon = YoinSymbols.Shuffle,
                         label = "Shuffle play",
                         onClick = actions.onShuffle,
                     ),
@@ -288,7 +284,11 @@ fun YoinButtonGroup(
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
                             Icon(
-                                imageVector = Icons.Filled.Home,
+                                imageVector = if (selectedSection == YoinSection.HOME) {
+                                    YoinSymbols.HomeFilled
+                                } else {
+                                    YoinSymbols.Home
+                                },
                                 contentDescription = "Home",
                             )
                             if (idleLabelAlpha > 0.01f) {
@@ -448,7 +448,11 @@ fun YoinButtonGroup(
                                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                             ) {
                                 Icon(
-                                    imageVector = Icons.Filled.LibraryMusic,
+                                    imageVector = if (selectedSection == YoinSection.LIBRARY) {
+                                        YoinSymbols.LibraryFilled
+                                    } else {
+                                        YoinSymbols.Library
+                                    },
                                     contentDescription = "Library",
                                 )
                                 if (idleLabelAlpha > 0.01f) {
@@ -503,7 +507,7 @@ internal fun LibrarySearchShortcutHint(
                     contentAlignment = Alignment.Center,
                 ) {
                     Icon(
-                        imageVector = Icons.Filled.Search,
+                        imageVector = YoinSymbols.Search,
                         contentDescription = "Search shortcut",
                         modifier = Modifier.size(21.dp),
                     )

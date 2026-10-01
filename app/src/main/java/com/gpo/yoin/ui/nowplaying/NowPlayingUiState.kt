@@ -4,6 +4,7 @@ package com.gpo.yoin.ui.nowplaying
 import com.gpo.yoin.data.repository.ActivityContext
 import com.gpo.yoin.data.source.ServiceFeatureCatalog
 import com.gpo.yoin.data.source.ServiceFeatures
+import com.gpo.yoin.player.PlayMode
 
 sealed interface NowPlayingUiState {
 
@@ -66,7 +67,7 @@ sealed interface NowPlayingUiState {
         val lyricsLoading: Boolean,
         val queue: List<QueueItem>,
         val currentQueueIndex: Int,
-        val shuffleEnabled: Boolean,
+        val playMode: PlayMode,
         val albumId: String?,
         val artistId: String?,
         val activityContext: ActivityContext,

@@ -362,7 +362,7 @@ class NowPlayingViewModel(
                     )
                 },
                 currentQueueIndex = state.currentIndex,
-                shuffleEnabled = state.shuffleEnabled,
+                playMode = state.playMode,
                 albumId = song.albumId?.toString(),
                 artistId = song.artistId?.toString(),
                 activityContext = activityContext,
@@ -450,8 +450,9 @@ class NowPlayingViewModel(
         if (state.isPlaying) playbackManager.pause() else playbackManager.resume()
     }
 
-    fun toggleShuffle() {
-        playbackManager.toggleShuffle()
+    /** Repeat all → shuffle → repeat one → repeat all, from what the player reports. */
+    fun cyclePlayMode() {
+        playbackManager.setPlayMode(playbackManager.playbackState.value.playMode.next())
     }
 
     /**

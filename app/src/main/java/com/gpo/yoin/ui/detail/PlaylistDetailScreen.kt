@@ -32,13 +32,6 @@ import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.IosShare
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.LibraryMusic
-import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
@@ -76,6 +69,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.lerp
+import com.gpo.yoin.symbols.YoinSymbols
 import com.gpo.yoin.ui.component.BarExtraAction
 import com.gpo.yoin.ui.component.DetailErrorState
 import com.gpo.yoin.ui.component.ExpressiveMediaArtwork
@@ -303,7 +297,7 @@ fun PlaylistDetailScreen(
                 },
                 promotable = listOf(
                     BarExtraAction(
-                        icon = Icons.Rounded.IosShare,
+                        icon = YoinSymbols.Share,
                         label = "Share",
                         onClick = onShare,
                     ),
@@ -421,7 +415,7 @@ private fun PlaylistTopHeader(
                     },
                 ) {
                     Icon(
-                        imageVector = Icons.Filled.MoreVert,
+                        imageVector = YoinSymbols.MoreVertical,
                         contentDescription = "More actions",
                     )
                 }
@@ -431,7 +425,7 @@ private fun PlaylistTopHeader(
                 ) {
                     YoinDropdownMenuItem(
                         text = "Rename",
-                        leadingIcon = { Icon(Icons.Filled.Edit, contentDescription = null) },
+                        leadingIcon = { Icon(YoinSymbols.Edit, contentDescription = null) },
                         onClick = {
                             showOverflow = false
                             onRename()
@@ -439,7 +433,7 @@ private fun PlaylistTopHeader(
                     )
                     YoinDropdownMenuItem(
                         text = "Delete",
-                        leadingIcon = { Icon(Icons.Filled.Delete, contentDescription = null) },
+                        leadingIcon = { Icon(YoinSymbols.Delete, contentDescription = null) },
                         onClick = {
                             showOverflow = false
                             onDelete()
@@ -561,7 +555,7 @@ private fun PlaylistWideOverview(
                     contentDescription = content.playlistName,
                     modifier = Modifier.size(PlaylistWideCoverSide),
                     shape = YoinArtworkShapes.Hero,
-                    fallbackIcon = Icons.Filled.LibraryMusic,
+                    fallbackIcon = YoinSymbols.Playlist,
                     border = null,
                     shadowElevation = 0.dp,
                     tonalElevation = 3.dp,
@@ -686,7 +680,7 @@ private fun PlaylistPullUpOverview(
                             .width(coverWidth)
                             .height(coverHeight),
                         shape = RoundedCornerShape(coverCorner),
-                        fallbackIcon = Icons.Filled.LibraryMusic,
+                        fallbackIcon = YoinSymbols.Playlist,
                         // No shadow / border — flat, exactly like the Album cover.
                         border = null,
                         shadowElevation = 0.dp,
@@ -824,7 +818,7 @@ private fun PlaylistLandscapeLayers(
                         contentDescription = content.playlistName,
                         modifier = Modifier.fillMaxSize(),
                         shape = YoinArtworkShapes.Hero,
-                        fallbackIcon = Icons.Filled.LibraryMusic,
+                        fallbackIcon = YoinSymbols.Playlist,
                         border = null,
                         shadowElevation = 0.dp,
                         tonalElevation = 3.dp,
@@ -991,7 +985,7 @@ private fun PlaylistTrackRow(
                 .size(44.dp)
                 .seamDissolve(),
             shape = YoinArtworkShapes.Thumb,
-            fallbackIcon = Icons.Filled.MusicNote,
+            fallbackIcon = YoinSymbols.MusicNote,
             border = null,
             shadowElevation = 0.dp,
             requestSizePx = 120,
@@ -1059,7 +1053,7 @@ private fun PlaylistMediumOverview(
                     contentDescription = content.playlistName,
                     modifier = Modifier.size(PlaylistMediumHeroCoverSide),
                     shape = YoinArtworkShapes.Hero,
-                    fallbackIcon = Icons.Filled.LibraryMusic,
+                    fallbackIcon = YoinSymbols.Playlist,
                     border = null,
                     shadowElevation = 0.dp,
                     tonalElevation = 3.dp,

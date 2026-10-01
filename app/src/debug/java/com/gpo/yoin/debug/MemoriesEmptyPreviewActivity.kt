@@ -29,12 +29,6 @@ import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.width
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.KeyboardArrowUp
-import androidx.compose.material.icons.filled.LibraryMusic
-import androidx.compose.material.icons.filled.StarBorder
-import androidx.compose.material.icons.rounded.EditNote
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
@@ -57,6 +51,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.gpo.yoin.enableYoinEdgeToEdge
+import com.gpo.yoin.symbols.YoinSymbols
 import com.gpo.yoin.ui.component.ExpressiveMediaArtwork
 import com.gpo.yoin.ui.component.ExpressivePageBackground
 import com.gpo.yoin.ui.component.YoinPageWidths
@@ -153,7 +148,7 @@ private fun MemoriesEmptyPrototype(
             }
             // Same return-to-home hint as the loaded deck.
             Icon(
-                imageVector = Icons.Filled.KeyboardArrowUp,
+                imageVector = YoinSymbols.ChevronUp,
                 contentDescription = "Back to Home",
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier
@@ -238,15 +233,15 @@ private fun MemoryGatesCard() {
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             GateRow(
-                icon = { Icon(Icons.Filled.StarBorder, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(20.dp)) },
+                icon = { Icon(YoinSymbols.Star, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(20.dp)) },
                 text = "Rate most of an album's songs (60%+)",
             )
             GateRow(
-                icon = { Icon(Icons.Filled.Edit, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(20.dp)) },
+                icon = { Icon(YoinSymbols.Edit, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(20.dp)) },
                 text = "Write an album review",
             )
             GateRow(
-                icon = { Icon(Icons.Rounded.EditNote, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(20.dp)) },
+                icon = { Icon(YoinSymbols.EditNote, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(20.dp)) },
                 text = "Save two notes on an album",
             )
             Text(
@@ -312,7 +307,7 @@ private fun ColumnScope.AlmostBody(nearMissCover: String) {
                         contentDescription = "Little House",
                         modifier = Modifier.size(72.dp),
                         shape = YoinArtworkShapes.Cover,
-                        fallbackIcon = Icons.Filled.LibraryMusic,
+                        fallbackIcon = YoinSymbols.Album,
                         tonalElevation = 0.dp,
                         shadowElevation = 0.dp,
                     )
@@ -422,7 +417,7 @@ private fun GhostSeal() {
                 ),
         )
         Icon(
-            imageVector = Icons.Filled.StarBorder,
+            imageVector = YoinSymbols.Star,
             contentDescription = null,
             tint = MaterialTheme.colorScheme.outline,
             modifier = Modifier.size(44.dp),

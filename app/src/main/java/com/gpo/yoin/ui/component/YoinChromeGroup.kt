@@ -4,12 +4,10 @@ import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Person
-import androidx.compose.material.icons.rounded.IosShare
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
+import com.gpo.yoin.symbols.YoinSymbols
 import com.gpo.yoin.ui.experience.EdgeSplitContentStart
 import com.gpo.yoin.ui.experience.ShellChromeForm
 import com.gpo.yoin.ui.navigation.YoinSection
@@ -134,8 +132,8 @@ private fun YoinChromeGroupCenteredDetailPreview() {
                 onShuffle = {},
                 menuItems = {},
                 promotable = listOf(
-                    BarExtraAction(Icons.Filled.Person, "Go to artist") {},
-                    BarExtraAction(Icons.Rounded.IosShare, "Share") {},
+                    BarExtraAction(YoinSymbols.Artist, "Go to artist") {},
+                    BarExtraAction(YoinSymbols.Share, "Share") {},
                 ),
             ),
             onHomeClick = {},

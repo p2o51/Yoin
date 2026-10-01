@@ -428,7 +428,7 @@ fun NowPlayingOverlayHost(
                     onToggleFavorite = viewModel::toggleFavorite,
                     onAddCurrentToPlaylist = viewModel::requestAddCurrentToPlaylist,
                     onSkipToQueueItem = viewModel::skipToQueueItem,
-                    onToggleShuffle = viewModel::toggleShuffle,
+                    onCyclePlayMode = viewModel::cyclePlayMode,
                     onAlbumClick = onAlbumClick,
                     onArtistClick = onArtistClick,
                     onPlaylistClick = onPlaylistClick,

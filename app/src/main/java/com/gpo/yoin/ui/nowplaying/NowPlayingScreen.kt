@@ -57,17 +57,6 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.shape.CornerSize
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Favorite
-import androidx.compose.material.icons.rounded.FavoriteBorder
-import androidx.compose.material.icons.rounded.KeyboardArrowDown
-import androidx.compose.material.icons.rounded.PlayArrow
-import androidx.compose.material.icons.automirrored.rounded.QueueMusic
-import androidx.compose.material.icons.rounded.Devices
-import androidx.compose.material.icons.rounded.Shuffle
-import androidx.compose.material.icons.rounded.SkipNext
-import androidx.compose.material.icons.rounded.SkipPrevious
-import androidx.compose.material.icons.automirrored.rounded.StickyNote2
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.FilledTonalButton
@@ -132,6 +121,9 @@ import coil3.compose.AsyncImage
 import com.gpo.yoin.data.model.YoinDevice
 import com.gpo.yoin.data.repository.ActivityContext
 import com.gpo.yoin.player.CastState
+import com.gpo.yoin.player.PlayMode
+import com.gpo.yoin.symbols.YoinSymbols
+import com.gpo.yoin.symbols.rememberFavoriteSymbolPainter
 import com.gpo.yoin.data.local.SongNote
 import com.gpo.yoin.ui.component.NoteSortMode
 import com.gpo.yoin.ui.component.CastButton
@@ -212,7 +204,7 @@ fun NowPlayingScreen(
     onToggleFavorite: () -> Unit,
     onAddCurrentToPlaylist: () -> Unit,
     onSkipToQueueItem: (Int) -> Unit,
-    onToggleShuffle: () -> Unit = {},
+    onCyclePlayMode: () -> Unit = {},
     onAlbumClick: (String) -> Unit = {},
     onArtistClick: (String) -> Unit = {},
     onPlaylistClick: (String) -> Unit = {},
@@ -338,7 +330,7 @@ fun NowPlayingScreen(
                     onToggleFavorite = onToggleFavorite,
                     onAddCurrentToPlaylist = onAddCurrentToPlaylist,
                     onSkipToQueueItem = onSkipToQueueItem,
-                    onToggleShuffle = onToggleShuffle,
+                    onCyclePlayMode = onCyclePlayMode,
                     onAlbumClick = onAlbumClick,
                     onArtistClick = onArtistClick,
                     onPlaylistClick = onPlaylistClick,
@@ -421,7 +413,7 @@ private fun LaunchingContent(
             modifier = Modifier.align(Alignment.Start),
         ) {
             Icon(
-                imageVector = Icons.Rounded.KeyboardArrowDown,
+                imageVector = YoinSymbols.ChevronDown,
                 contentDescription = "Collapse",
                 modifier = Modifier.graphicsLayer { rotationZ = 180f * dismissFraction() },
             )
@@ -498,7 +490,7 @@ private fun ConnectErrorContent(
             modifier = Modifier.align(Alignment.Start),
         ) {
             Icon(
-                imageVector = Icons.Rounded.KeyboardArrowDown,
+                imageVector = YoinSymbols.ChevronDown,
                 contentDescription = "Collapse",
                 modifier = Modifier.graphicsLayer { rotationZ = 180f * dismissFraction() },
             )
@@ -546,7 +538,7 @@ private data class NowPlayingPlaybackActions(
     val onSkipNext: () -> Unit,
     val onSkipPrevious: () -> Unit,
     val onSeek: (Float) -> Unit,
-    val onToggleShuffle: () -> Unit,
+    val onCyclePlayMode: () -> Unit,
 )
 
 private data class NowPlayingLyricsActions(
@@ -603,7 +595,7 @@ private fun PlayingContent(
     onToggleFavorite: () -> Unit,
     onAddCurrentToPlaylist: () -> Unit,
     onSkipToQueueItem: (Int) -> Unit,
-    onToggleShuffle: () -> Unit = {},
+    onCyclePlayMode: () -> Unit = {},
     onAlbumClick: (String) -> Unit = {},
     onArtistClick: (String) -> Unit = {},
     onPlaylistClick: (String) -> Unit = {},
@@ -706,7 +698,7 @@ private fun PlayingContent(
             onToggleFavorite = onToggleFavorite,
             onAddCurrentToPlaylist = onAddCurrentToPlaylist,
             onSkipToQueueItem = onSkipToQueueItem,
-            onToggleShuffle = onToggleShuffle,
+            onCyclePlayMode = onCyclePlayMode,
             onAlbumClick = onAlbumClick,
             onArtistClick = onArtistClick,
             onPlaylistClick = onPlaylistClick,
@@ -764,7 +756,7 @@ private fun PlayingContent(
             onToggleFavorite = onToggleFavorite,
             onAddCurrentToPlaylist = onAddCurrentToPlaylist,
             onSkipToQueueItem = onSkipToQueueItem,
-            onToggleShuffle = onToggleShuffle,
+            onCyclePlayMode = onCyclePlayMode,
             onAlbumClick = onAlbumClick,
             onArtistClick = onArtistClick,
             onPlaylistClick = onPlaylistClick,
@@ -818,7 +810,7 @@ private fun PlayingContent(
             onToggleFavorite = onToggleFavorite,
             onAddCurrentToPlaylist = onAddCurrentToPlaylist,
             onSkipToQueueItem = onSkipToQueueItem,
-            onToggleShuffle = onToggleShuffle,
+            onCyclePlayMode = onCyclePlayMode,
             onAlbumClick = onAlbumClick,
             onArtistClick = onArtistClick,
             onPlaylistClick = onPlaylistClick,
@@ -876,7 +868,7 @@ private fun PlayingContent(
             onToggleFavorite = onToggleFavorite,
             onAddCurrentToPlaylist = onAddCurrentToPlaylist,
             onSkipToQueueItem = onSkipToQueueItem,
-            onToggleShuffle = onToggleShuffle,
+            onCyclePlayMode = onCyclePlayMode,
             onAlbumClick = onAlbumClick,
             onArtistClick = onArtistClick,
             onPlaylistClick = onPlaylistClick,
@@ -953,7 +945,7 @@ private fun CompactPlayingContent(
     onToggleFavorite: () -> Unit,
     onAddCurrentToPlaylist: () -> Unit,
     onSkipToQueueItem: (Int) -> Unit,
-    onToggleShuffle: () -> Unit = {},
+    onCyclePlayMode: () -> Unit = {},
     onAlbumClick: (String) -> Unit = {},
     onArtistClick: (String) -> Unit = {},
     onPlaylistClick: (String) -> Unit = {},
@@ -1015,7 +1007,7 @@ private fun CompactPlayingContent(
         onSkipNext = onSkipNext,
         onSkipPrevious = onSkipPrevious,
         onSeek = onSeek,
-        onToggleShuffle = onToggleShuffle,
+        onCyclePlayMode = onCyclePlayMode,
     )
     val lyricsActions = NowPlayingLyricsActions(
         onSeekToMs = onSeekToMs,
@@ -1606,8 +1598,8 @@ private fun CompactPlayingContent(
                             nextInteractionSource = nextInteractionSource,
                             playPressed = playPressed,
                             nextPressed = nextPressed,
-                            shuffleEnabled = state.shuffleEnabled,
-                            onToggleShuffle = playbackActions.onToggleShuffle,
+                            playMode = state.playMode,
+                            onCyclePlayMode = playbackActions.onCyclePlayMode,
                             controlSize = stageControlSize,
                             modifier = Modifier
                                 .padding(horizontal = horizontalPadding)
@@ -1842,7 +1834,7 @@ private fun WidePlayingContent(
     onToggleFavorite: () -> Unit,
     onAddCurrentToPlaylist: () -> Unit,
     onSkipToQueueItem: (Int) -> Unit,
-    onToggleShuffle: () -> Unit = {},
+    onCyclePlayMode: () -> Unit = {},
     onAlbumClick: (String) -> Unit = {},
     onArtistClick: (String) -> Unit = {},
     onPlaylistClick: (String) -> Unit = {},
@@ -2154,8 +2146,8 @@ private fun WidePlayingContent(
                                 nextInteractionSource = nextInteractionSource,
                                 playPressed = playPressed,
                                 nextPressed = nextPressed,
-                                shuffleEnabled = state.shuffleEnabled,
-                                onToggleShuffle = onToggleShuffle,
+                                playMode = state.playMode,
+                                onCyclePlayMode = onCyclePlayMode,
                                 modifier = Modifier.fillMaxWidth(),
                             )
                             Spacer(modifier = Modifier.height(16.dp))
@@ -2450,7 +2442,7 @@ private fun LandscapePlayingContent(
     onToggleFavorite: () -> Unit,
     onAddCurrentToPlaylist: () -> Unit,
     onSkipToQueueItem: (Int) -> Unit,
-    onToggleShuffle: () -> Unit,
+    onCyclePlayMode: () -> Unit,
     onAlbumClick: (String) -> Unit,
     onArtistClick: (String) -> Unit,
     onPlaylistClick: (String) -> Unit,
@@ -2592,7 +2584,7 @@ private fun LandscapePlayingContent(
                 ) {
                     IconButton(onClick = onDismiss, modifier = Modifier.size(40.dp)) {
                         Icon(
-                            imageVector = Icons.Rounded.KeyboardArrowDown,
+                            imageVector = YoinSymbols.ChevronDown,
                             contentDescription = "Close Now Playing",
                             tint = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.graphicsLayer {
@@ -2727,8 +2719,8 @@ private fun LandscapePlayingContent(
                         nextInteractionSource = nextInteractionSource,
                         playPressed = playPressed,
                         nextPressed = nextPressed,
-                        shuffleEnabled = state.shuffleEnabled,
-                        onToggleShuffle = onToggleShuffle,
+                        playMode = state.playMode,
+                        onCyclePlayMode = onCyclePlayMode,
                         controlSize = LandscapeControlSize,
                         modifier = Modifier
                             .fillMaxWidth()
@@ -2882,7 +2874,7 @@ private fun TabletopPlayingContent(
     onToggleFavorite: () -> Unit,
     onAddCurrentToPlaylist: () -> Unit,
     onSkipToQueueItem: (Int) -> Unit,
-    onToggleShuffle: () -> Unit = {},
+    onCyclePlayMode: () -> Unit = {},
     onAlbumClick: (String) -> Unit = {},
     onArtistClick: (String) -> Unit = {},
     onPlaylistClick: (String) -> Unit = {},
@@ -3115,7 +3107,7 @@ private fun TabletopPlayingContent(
                         .padding(4.dp),
                 ) {
                     Icon(
-                        imageVector = Icons.Rounded.KeyboardArrowDown,
+                        imageVector = YoinSymbols.ChevronDown,
                         contentDescription = "Close",
                         modifier = Modifier.graphicsLayer {
                             rotationZ = 180f * dismissFraction()
@@ -3153,8 +3145,8 @@ private fun TabletopPlayingContent(
                     nextInteractionSource = nextInteractionSource,
                     playPressed = playPressed,
                     nextPressed = nextPressed,
-                    shuffleEnabled = state.shuffleEnabled,
-                    onToggleShuffle = onToggleShuffle,
+                    playMode = state.playMode,
+                    onCyclePlayMode = onCyclePlayMode,
                     controlSize = 72.dp,
                     lyricsExpanded = lyricsExpanded,
                     onExpandLyrics = { lyricsExpanded = !lyricsExpanded },
@@ -3232,7 +3224,7 @@ private fun WideTopBar(
     ) {
         IconButton(onClick = onBack) {
             Icon(
-                imageVector = Icons.Rounded.KeyboardArrowDown,
+                imageVector = YoinSymbols.ChevronDown,
                 contentDescription = "Close",
                 modifier = Modifier.graphicsLayer { rotationZ = 180f * dismissFraction() },
             )
@@ -3296,7 +3288,7 @@ private fun StageTopBar(
     ) {
         IconButton(onClick = onBack) {
             Icon(
-                imageVector = Icons.Rounded.KeyboardArrowDown,
+                imageVector = YoinSymbols.ChevronDown,
                 contentDescription = if (stageMode == NowPlayingStageMode.Compact) {
                     "Close Now Playing"
                 } else {
@@ -3738,9 +3730,10 @@ private fun OneLineLyricRow(
 
 /**
  * `ic_yoin_unfold_more` drawn live: the two chevrons press ~1.8dp toward the
- * centre line, then spring ~2.6dp outward and settle (spatial springs). The
- * Yoin Symbols motion painter isn't in the repo; two paths on a Canvas are
- * the whole symbol, so no dependency for it (§3.1).
+ * centre line, then spring ~2.6dp outward and settle (spatial springs).
+ * Yoin Symbols 0.1.0 only ships a static `UnfoldMore` (no motion painter);
+ * two paths on a Canvas are the whole symbol, so it stays drawn here (§3.1)
+ * until the library gains an animated twin.
  */
 @Composable
 private fun UnfoldHintSymbol(
@@ -3867,8 +3860,8 @@ private fun TickingPlaybackControls(
     nextInteractionSource: MutableInteractionSource,
     playPressed: Boolean,
     nextPressed: Boolean,
-    shuffleEnabled: Boolean = false,
-    onToggleShuffle: () -> Unit = {},
+    playMode: PlayMode = PlayMode.RepeatAll,
+    onCyclePlayMode: () -> Unit = {},
     controlSize: Dp = 56.dp,
     lyricsExpanded: Boolean = false,
     onExpandLyrics: (() -> Unit)? = null,
@@ -3901,8 +3894,8 @@ private fun TickingPlaybackControls(
         nextInteractionSource = nextInteractionSource,
         playPressed = playPressed,
         nextPressed = nextPressed,
-        shuffleEnabled = shuffleEnabled,
-        onToggleShuffle = onToggleShuffle,
+        playMode = playMode,
+        onCyclePlayMode = onCyclePlayMode,
         controlSize = controlSize,
         lyricsExpanded = lyricsExpanded,
         onExpandLyrics = onExpandLyrics,
@@ -4090,7 +4083,7 @@ internal fun PlainAlbumCover(
         contentDescription = "Album cover",
         modifier = modifier,
         shape = shape,
-        fallbackIcon = Icons.Rounded.PlayArrow,
+        fallbackIcon = YoinSymbols.PlayArrow,
         interactionSource = interactionSource,
         tonalElevation = 0.dp,
         shadowElevation = 0.dp,
@@ -4414,7 +4407,7 @@ internal fun FavoriteButton(
             contentAlignment = Alignment.Center,
         ) {
             Icon(
-                imageVector = if (isStarred) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder,
+                painter = rememberFavoriteSymbolPainter(favorite = isStarred),
                 contentDescription = actionLabel,
                 tint = heartColor,
                 modifier = Modifier.size(24.dp),
@@ -4474,7 +4467,7 @@ internal fun AlbumCover(
         contentDescription = "Album cover",
         modifier = finalModifier,
         shape = YoinArtworkShapes.NowPlayingCover,
-        fallbackIcon = Icons.Rounded.PlayArrow,
+        fallbackIcon = YoinSymbols.PlayArrow,
         interactionSource = interactionSource,
         tonalElevation = 0.dp,
         shadowElevation = 0.dp,
@@ -4574,7 +4567,7 @@ private val previewPlayingState = NowPlayingUiState.Playing(
         QueueItem("3", "Map of the Problematique", "Muse", null),
     ),
     currentQueueIndex = 0,
-    shuffleEnabled = false,
+    playMode = PlayMode.RepeatAll,
     albumId = null,
     artistId = null,
     activityContext = ActivityContext.None,

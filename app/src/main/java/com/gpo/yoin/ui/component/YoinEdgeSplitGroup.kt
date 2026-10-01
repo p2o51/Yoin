@@ -17,9 +17,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.LibraryMusic
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButtonDefaults
@@ -40,6 +37,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.lerp
+import com.gpo.yoin.symbols.YoinSymbols
 import com.gpo.yoin.ui.experience.EdgeSplitGroupInset
 import com.gpo.yoin.ui.experience.EdgeSplitGroupWidth
 import com.gpo.yoin.ui.experience.EdgeSplitSegments
@@ -251,7 +249,11 @@ private fun UpperCapsuleContent(
                         .height(homeHeight),
                 ) {
                     Icon(
-                        imageVector = Icons.Filled.Home,
+                        imageVector = if (selectedSection == YoinSection.HOME) {
+                            YoinSymbols.HomeFilled
+                        } else {
+                            YoinSymbols.Home
+                        },
                         contentDescription = "Home",
                         modifier = Modifier.size(EdgeNavIconSize),
                     )
@@ -285,7 +287,11 @@ private fun UpperCapsuleContent(
                 ) {
                     Box(contentAlignment = Alignment.Center) {
                         Icon(
-                            imageVector = Icons.Filled.LibraryMusic,
+                            imageVector = if (selectedSection == YoinSection.LIBRARY) {
+                                YoinSymbols.LibraryFilled
+                            } else {
+                                YoinSymbols.Library
+                            },
                             contentDescription = "Library",
                             modifier = Modifier.size(EdgeNavIconSize),
                         )

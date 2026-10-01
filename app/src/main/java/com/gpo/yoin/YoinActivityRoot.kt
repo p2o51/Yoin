@@ -18,6 +18,8 @@ import coil3.request.SuccessResult
 import coil3.request.allowHardware
 import coil3.size.Size
 import coil3.toBitmap
+import com.gpo.yoin.symbols.LocalSymbolMotion
+import com.gpo.yoin.symbols.SymbolMotion
 import com.gpo.yoin.ui.component.ProvideBottomBarShadowHost
 import com.gpo.yoin.ui.component.LocalPlaybackWaveState
 import com.gpo.yoin.ui.experience.LocalMotionCapabilityProvider
@@ -127,11 +129,15 @@ private fun YoinAppEnvironment(content: @Composable () -> Unit) {
     // and where the Button Group lives (ShellChromeForm).
     val windowInfo = rememberYoinWindowInfo()
     val shellChromeInsets = rememberShellChromeInsets(windowInfo)
+    // Yoin Symbols' animated icons follow the same motion tier as the rest of the app.
+    val symbolMotion =
+        if (motionProfile == MotionProfile.AdaptiveReduced) SymbolMotion.Reduced else SymbolMotion.Default
 
     CompositionLocalProvider(
         LocalPlaybackWaveState provides app?.container?.experienceSessionStore?.playbackWave,
         LocalMotionCapabilityProvider provides motionCapabilityProvider,
         LocalMotionProfile provides motionProfile,
+        LocalSymbolMotion provides symbolMotion,
         LocalYoinWindowInfo provides windowInfo,
         LocalShellChromeInsets provides shellChromeInsets,
     ) {

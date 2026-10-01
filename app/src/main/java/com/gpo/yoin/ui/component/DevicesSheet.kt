@@ -16,9 +16,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Check
-import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material3.BottomSheetDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -41,6 +38,7 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.unit.dp
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.YoinDevice
+import com.gpo.yoin.symbols.YoinSymbols
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
 import com.gpo.yoin.ui.theme.YoinContainerShapes
 
@@ -113,7 +111,7 @@ fun DevicesSheet(
                         )
                     } else {
                         Icon(
-                            imageVector = Icons.Rounded.Refresh,
+                            imageVector = YoinSymbols.Refresh,
                             contentDescription = "Refresh devices",
                         )
                     }
@@ -240,7 +238,7 @@ private fun DeviceRow(
                         strokeWidth = 2.dp,
                     )
                     device.isActive -> Icon(
-                        imageVector = Icons.Rounded.Check,
+                        imageVector = YoinSymbols.Check,
                         contentDescription = "Current device",
                         tint = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.size(24.dp),

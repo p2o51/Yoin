@@ -75,6 +75,15 @@ class PlaybackManager(
     private var preserveLocalUiDuringSpotifyHandoff: Boolean = false
 
     /**
+     * The play mode the user last picked (repeat all by default). Applied to
+     * whichever backend a Yoin-started queue lands on, so both the default
+     * and the user's choice survive a provider switch. Playback started
+     * outside Yoin (e.g. in the Spotify app) is only observed, never
+     * overwritten. Not persisted across process death.
+     */
+    private var preferredPlayMode: PlayMode = PlayMode.RepeatAll
+
+    /**
      * Wall-clock anchor for Spotify position interpolation.
      *
      * App Remote only emits `PlayerState` on state transitions (play /
@@ -244,10 +253,12 @@ class PlaybackManager(
                         activeBackend = ActiveBackend.LOCAL
                         spotifyRemotePlayer.disconnect(resetState = false)
                         val items = tracks.map { buildMediaItem(it, source) }
+                        val playMode = preferredPlayMode
                         executeOrQueue { player ->
                             player.setMediaItems(items, startIndex, 0L)
                             player.prepare()
                             player.play()
+                            player.applyPlayMode(playMode)
                         }
                     }
 
@@ -258,10 +269,12 @@ class PlaybackManager(
                             activeBackend = ActiveBackend.LOCAL
                             spotifyRemotePlayer.disconnect(resetState = false)
                             val items = tracks.map { buildMediaItem(it, source) }
+                            val playMode = preferredPlayMode
                             executeOrQueue { player ->
                                 player.setMediaItems(items, startIndex, 0L)
                                 player.playWhenReady = true
                                 player.prepare()
+                                player.applyPlayMode(playMode)
                             }
                             return@runCatching
                         }
@@ -285,7 +298,12 @@ class PlaybackManager(
                             activityContext = activityContext,
                             startIndex = startIndex,
                         )
-                        spotifyRemotePlayer.playQueue(tracks, startIndex, startContextPlayback)
+                        spotifyRemotePlayer.playQueue(
+                            tracks = tracks,
+                            startIndex = startIndex,
+                            startContextPlayback = startContextPlayback,
+                            playMode = preferredPlayMode,
+                        )
                     }
                 }
             }.onFailure { error ->
@@ -358,12 +376,19 @@ class PlaybackManager(
         }
     }
 
-    fun toggleShuffle() {
+    /**
+     * Switches the play mode. Repeat and shuffle are always written together
+     * (see [PlayMode]); the mode is also remembered for the next queue Yoin
+     * starts, on any backend.
+     */
+    fun setPlayMode(mode: PlayMode) {
+        preferredPlayMode = mode
         when (activeBackend) {
-            ActiveBackend.SPOTIFY_REMOTE -> spotifyRemotePlayer.toggleShuffle()
-            else -> executeOrQueue { player ->
-                player.shuffleModeEnabled = !player.shuffleModeEnabled
+            ActiveBackend.SPOTIFY_REMOTE -> {
+                spotifyRemotePlayer.setRepeatMode(mode.repeatMode)
+                spotifyRemotePlayer.setShuffle(mode.shuffle)
             }
+            else -> executeOrQueue { it.applyPlayMode(mode) }
         }
     }
 
@@ -552,6 +577,11 @@ class PlaybackManager(
             pendingCommands += command
             connectInBackground()
         }
+    }
+
+    private fun Player.applyPlayMode(mode: PlayMode) {
+        repeatMode = mode.repeatMode
+        shuffleModeEnabled = mode.shuffle
     }
 
     private fun flushPendingCommands(player: MediaController) {

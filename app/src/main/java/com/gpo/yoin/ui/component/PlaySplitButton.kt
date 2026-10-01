@@ -12,10 +12,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.KeyboardArrowDown
-import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
@@ -33,11 +29,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.gpo.yoin.symbols.YoinSymbols
+import com.gpo.yoin.symbols.rememberExpandSymbolPainter
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
 
 /** Original detail floating-toolbar button height; the bottom bar uses 48dp. */
@@ -105,7 +102,7 @@ fun PlaySplitButton(
             contentPadding = PaddingValues(horizontal = if (compact) 16.dp else 26.dp),
         ) {
             Icon(
-                imageVector = Icons.Filled.PlayArrow,
+                imageVector = YoinSymbols.PlayFilled,
                 contentDescription = null,
                 modifier = Modifier.size(SplitButtonDefaults.LeadingIconSize),
             )
@@ -125,12 +122,11 @@ fun PlaySplitButton(
             modifier = Modifier.height(buttonHeight),
             contentPadding = PaddingValues(horizontal = if (compact) 14.dp else 20.dp),
         ) {
+            // ▾ folds over like a hinge while the menu is open (Yoin Symbols).
             Icon(
-                imageVector = Icons.Filled.KeyboardArrowDown,
+                painter = rememberExpandSymbolPainter(menuOpen),
                 contentDescription = "More play options",
-                modifier = Modifier
-                    .size(SplitButtonDefaults.TrailingIconSize)
-                    .graphicsLayer { rotationZ = if (menuOpen) 180f else 0f },
+                modifier = Modifier.size(SplitButtonDefaults.TrailingIconSize),
             )
             YoinDropdownMenu(
                 expanded = menuOpen,
@@ -164,7 +160,7 @@ private fun ColumnScope.PlayMenuContent(
             },
             leadingIcon = {
                 Icon(
-                    Icons.Filled.Shuffle,
+                    YoinSymbols.Shuffle,
                     contentDescription = null,
                     modifier = Modifier.size(22.dp),
                 )
@@ -225,7 +221,7 @@ fun PlaySplitButtonVertical(
                 .height(playHeight),
         ) {
             Icon(
-                imageVector = Icons.Filled.PlayArrow,
+                imageVector = YoinSymbols.PlayFilled,
                 contentDescription = "Play",
                 modifier = Modifier.size(26.dp),
             )
@@ -249,11 +245,9 @@ fun PlaySplitButtonVertical(
                     .height(VerticalSplitMenuHeight),
             ) {
                 Icon(
-                    imageVector = Icons.Filled.KeyboardArrowDown,
+                    painter = rememberExpandSymbolPainter(menuOpen),
                     contentDescription = "More play options",
-                    modifier = Modifier
-                        .size(20.dp)
-                        .graphicsLayer { rotationZ = if (menuOpen) 180f else 0f },
+                    modifier = Modifier.size(20.dp),
                 )
             }
             YoinDropdownMenu(
@@ -286,7 +280,7 @@ fun PlaySplitButtonVertical(
                     .height(VerticalSplitShuffleHeight),
             ) {
                 Icon(
-                    imageVector = Icons.Filled.Shuffle,
+                    imageVector = YoinSymbols.Shuffle,
                     contentDescription = "Shuffle play",
                     modifier = Modifier.size(20.dp),
                 )

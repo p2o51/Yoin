@@ -21,11 +21,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.StickyNote2
-import androidx.compose.material.icons.rounded.Favorite
-import androidx.compose.material.icons.rounded.FavoriteBorder
-import androidx.compose.material.icons.rounded.GraphicEq
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
@@ -69,6 +64,9 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
+import com.gpo.yoin.symbols.YoinSymbols
+import com.gpo.yoin.symbols.rememberEqualizerSymbolPainter
+import com.gpo.yoin.symbols.rememberFavoriteSymbolPainter
 import com.gpo.yoin.ui.component.YoinArmTransform
 import com.gpo.yoin.ui.component.YoinMark
 import com.gpo.yoin.ui.component.elasticPress
@@ -440,6 +438,9 @@ internal fun AlbumTrackRow(
     // credit line then only repeats the header on every row, so the row
     // collapses to one 56dp line. Compilations / feat. credits keep it.
     showArtist: Boolean = true,
+    // Drives the now-playing equalizer: bars jump while playing and sink
+    // into dots on pause. Only read when [isNowPlaying].
+    isPlaying: Boolean = false,
 ) {
     val haptics = rememberYoinHaptics()
     Row(
@@ -465,7 +466,7 @@ internal fun AlbumTrackRow(
                 contentAlignment = Alignment.CenterEnd,
             ) {
                 Icon(
-                    imageVector = Icons.Rounded.GraphicEq,
+                    painter = rememberEqualizerSymbolPainter(playing = isPlaying),
                     contentDescription = "Now playing",
                     tint = accent,
                     modifier = Modifier.size(16.dp),
@@ -498,7 +499,7 @@ internal fun AlbumTrackRow(
                 )
                 if (hasNote) {
                     Icon(
-                        imageVector = Icons.AutoMirrored.Rounded.StickyNote2,
+                        imageVector = YoinSymbols.Note,
                         contentDescription = "Has note",
                         tint = accent.copy(alpha = 0.8f),
                         modifier = Modifier.size(12.dp),
@@ -593,7 +594,7 @@ private fun AlbumCircleToggle(
             contentAlignment = Alignment.Center,
         ) {
             Icon(
-                imageVector = if (active) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder,
+                painter = rememberFavoriteSymbolPainter(favorite = active),
                 contentDescription = if (active) "Remove from favorites" else "Add to favorites",
                 tint = if (active) {
                     MaterialTheme.colorScheme.onPrimary

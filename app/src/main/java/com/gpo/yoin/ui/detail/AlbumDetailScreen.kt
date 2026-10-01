@@ -36,14 +36,6 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.LibraryMusic
-import androidx.compose.material.icons.filled.Person
-import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Shuffle
-import androidx.compose.material.icons.outlined.Insights
-import androidx.compose.material.icons.rounded.IosShare
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
@@ -73,6 +65,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.lerp
+import com.gpo.yoin.symbols.YoinSymbols
 import com.gpo.yoin.ui.component.BarExtraAction
 import com.gpo.yoin.ui.component.DetailErrorState
 import com.gpo.yoin.ui.component.ExpressiveMediaArtwork
@@ -236,7 +229,7 @@ fun AlbumDetailScreen(
                                                 menuActions = listOfNotNull(
                                                     onOpenArtist?.let { openArtist ->
                                                         BarExtraAction(
-                                                            icon = Icons.Filled.Person,
+                                                            icon = YoinSymbols.Artist,
                                                             label = "Go to artist",
                                                             onClick = openArtist,
                                                         )
@@ -252,6 +245,7 @@ fun AlbumDetailScreen(
                                     onToggleStar = onToggleStar,
                                     notedSongIds = notedSongIds,
                                     currentTrackId = currentTrackId,
+                                    isPlaying = isPlaying,
                                     expandedSongId = expandedSongId,
                                     expandedNoteBundle = expandedNoteBundle,
                                     onToggleExpandedSong = onToggleExpandedSong,
@@ -305,13 +299,13 @@ fun AlbumDetailScreen(
                     promotable = listOfNotNull(
                         onOpenArtist?.let { openArtist ->
                             BarExtraAction(
-                                icon = Icons.Filled.Person,
+                                icon = YoinSymbols.Artist,
                                 label = "Go to artist",
                                 onClick = openArtist,
                             )
                         },
                         BarExtraAction(
-                            icon = Icons.Rounded.IosShare,
+                            icon = YoinSymbols.Share,
                             label = "Share",
                             onClick = onShare,
                         ),
@@ -334,6 +328,7 @@ private fun AlbumDetailContent(
     onToggleStar: (songId: String) -> Unit,
     notedSongIds: Set<String>,
     currentTrackId: String?,
+    isPlaying: Boolean,
     expandedSongId: String?,
     expandedNoteBundle: AlbumExpandedNoteBundle?,
     onToggleExpandedSong: (songId: String) -> Unit,
@@ -427,6 +422,7 @@ private fun AlbumDetailContent(
                                 heroActions = heroActions,
                                 notedSongIds = notedSongIds,
                                 currentTrackId = currentTrackId,
+                                isPlaying = isPlaying,
                                 expandedSongId = expandedSongId,
                                 expandedNoteBundle = expandedNoteBundle,
                                 onSongClick = onSongClick,
@@ -443,6 +439,7 @@ private fun AlbumDetailContent(
                                 heroActions = heroActions,
                                 notedSongIds = notedSongIds,
                                 currentTrackId = currentTrackId,
+                                isPlaying = isPlaying,
                                 expandedSongId = expandedSongId,
                                 expandedNoteBundle = expandedNoteBundle,
                                 onSongClick = onSongClick,
@@ -463,6 +460,7 @@ private fun AlbumDetailContent(
                                 onExpandedCommit = { expanded = it },
                                 notedSongIds = notedSongIds,
                                 currentTrackId = currentTrackId,
+                                isPlaying = isPlaying,
                                 expandedSongId = expandedSongId,
                                 expandedNoteBundle = expandedNoteBundle,
                                 onSongClick = onSongClick,
@@ -483,6 +481,7 @@ private fun AlbumDetailContent(
                                 onExpandedCommit = { expanded = it },
                                 notedSongIds = notedSongIds,
                                 currentTrackId = currentTrackId,
+                                isPlaying = isPlaying,
                                 expandedSongId = expandedSongId,
                                 expandedNoteBundle = expandedNoteBundle,
                                 onSongClick = onSongClick,
@@ -591,6 +590,7 @@ private fun AlbumOverviewPage(
     onExpandedCommit: (Boolean) -> Unit,
     notedSongIds: Set<String>,
     currentTrackId: String?,
+    isPlaying: Boolean,
     expandedSongId: String?,
     expandedNoteBundle: AlbumExpandedNoteBundle?,
     onSongClick: (songId: String) -> Unit,
@@ -686,7 +686,7 @@ private fun AlbumOverviewPage(
                         // Long lists dock to the straight band (8dp hero corner
                         // relaxing to square); short ones to a capsule.
                         shape = RoundedCornerShape(if (isMany) bandCorner else coverCorner),
-                        fallbackIcon = Icons.Filled.LibraryMusic,
+                        fallbackIcon = YoinSymbols.Album,
                         border = null,
                         shadowElevation = 0.dp,
                         tonalElevation = 3.dp,
@@ -705,6 +705,7 @@ private fun AlbumOverviewPage(
                             accent = accent,
                             notedSongIds = notedSongIds,
                             currentTrackId = currentTrackId,
+                            isPlaying = isPlaying,
                             expandedSongId = expandedSongId,
                             expandedNoteBundle = expandedNoteBundle,
                             onSongClick = onSongClick,
@@ -903,7 +904,7 @@ private fun AlbumHeroMetaBlocks(
                             .minimumTouchTarget(),
                     ) {
                         Icon(
-                            imageVector = Icons.Filled.Edit,
+                            imageVector = YoinSymbols.Edit,
                             contentDescription = "Edit comment",
                             tint = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.size(16.dp),
@@ -932,6 +933,7 @@ private fun AlbumTrackList(
     accent: Color,
     notedSongIds: Set<String>,
     currentTrackId: String?,
+    isPlaying: Boolean,
     expandedSongId: String?,
     expandedNoteBundle: AlbumExpandedNoteBundle?,
     onSongClick: (songId: String) -> Unit,
@@ -977,6 +979,7 @@ private fun AlbumTrackList(
                     song = song,
                     hasNote = song.id in notedSongIds,
                     isNowPlaying = song.id == currentTrackId,
+                    isPlaying = isPlaying,
                     accent = accent,
                     onClick = { onSongClick(song.id) },
                     onLongClick = { onToggleExpandedSong(song.id) },
@@ -1021,6 +1024,7 @@ private fun AlbumMediumOverview(
     heroActions: (@Composable () -> Unit)?,
     notedSongIds: Set<String>,
     currentTrackId: String?,
+    isPlaying: Boolean,
     expandedSongId: String?,
     expandedNoteBundle: AlbumExpandedNoteBundle?,
     onSongClick: (songId: String) -> Unit,
@@ -1035,6 +1039,7 @@ private fun AlbumMediumOverview(
         accent = accent,
         notedSongIds = notedSongIds,
         currentTrackId = currentTrackId,
+        isPlaying = isPlaying,
         expandedSongId = expandedSongId,
         expandedNoteBundle = expandedNoteBundle,
         onSongClick = onSongClick,
@@ -1080,7 +1085,7 @@ private fun AlbumMediumHeroRow(
             contentDescription = content.albumName,
             modifier = Modifier.size(AlbumMediumHeroCoverSide),
             shape = YoinArtworkShapes.Hero,
-            fallbackIcon = Icons.Filled.LibraryMusic,
+            fallbackIcon = YoinSymbols.Album,
             border = null,
             shadowElevation = 0.dp,
             tonalElevation = 3.dp,
@@ -1123,6 +1128,7 @@ private fun AlbumWideOverview(
     heroActions: (@Composable () -> Unit)?,
     notedSongIds: Set<String>,
     currentTrackId: String?,
+    isPlaying: Boolean,
     expandedSongId: String?,
     expandedNoteBundle: AlbumExpandedNoteBundle?,
     onSongClick: (songId: String) -> Unit,
@@ -1160,7 +1166,7 @@ private fun AlbumWideOverview(
                     contentDescription = content.albumName,
                     modifier = Modifier.size(AlbumWideCoverSide),
                     shape = YoinArtworkShapes.Hero,
-                    fallbackIcon = Icons.Filled.LibraryMusic,
+                    fallbackIcon = YoinSymbols.Album,
                     border = null,
                     shadowElevation = 0.dp,
                     tonalElevation = 3.dp,
@@ -1187,6 +1193,7 @@ private fun AlbumWideOverview(
             accent = accent,
             notedSongIds = notedSongIds,
             currentTrackId = currentTrackId,
+            isPlaying = isPlaying,
             expandedSongId = expandedSongId,
             expandedNoteBundle = expandedNoteBundle,
             onSongClick = onSongClick,
@@ -1226,6 +1233,7 @@ private fun AlbumLandscapeOverview(
     onExpandedCommit: (Boolean) -> Unit,
     notedSongIds: Set<String>,
     currentTrackId: String?,
+    isPlaying: Boolean,
     expandedSongId: String?,
     expandedNoteBundle: AlbumExpandedNoteBundle?,
     onSongClick: (songId: String) -> Unit,
@@ -1253,6 +1261,7 @@ private fun AlbumLandscapeOverview(
                 accent = accent,
                 notedSongIds = notedSongIds,
                 currentTrackId = currentTrackId,
+                isPlaying = isPlaying,
                 expandedSongId = expandedSongId,
                 expandedNoteBundle = expandedNoteBundle,
                 onSongClick = onSongClick,
@@ -1312,7 +1321,7 @@ private fun AlbumLandscapeOverview(
                         contentDescription = content.albumName,
                         modifier = Modifier.fillMaxSize(),
                         shape = YoinArtworkShapes.Hero,
-                        fallbackIcon = Icons.Filled.LibraryMusic,
+                        fallbackIcon = YoinSymbols.Album,
                         border = null,
                         shadowElevation = 0.dp,
                         tonalElevation = 3.dp,
@@ -1377,7 +1386,7 @@ private fun AlbumSecondaryPage(modifier: Modifier = Modifier) {
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Icon(
-                imageVector = Icons.Outlined.Insights,
+                imageVector = YoinSymbols.Insights,
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.size(40.dp),

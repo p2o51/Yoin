@@ -12,9 +12,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.StickyNote2
-import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -28,6 +25,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import com.gpo.yoin.symbols.YoinSymbols
 import com.gpo.yoin.ui.theme.YoinArtworkShapes
 import com.gpo.yoin.ui.theme.YoinContainerShapes
 import com.gpo.yoin.ui.theme.YoinTheme
@@ -87,7 +85,7 @@ fun SongListItem(
                 // shape) that never lined up with the 48dp artist avatars.
                 modifier = Modifier.size(48.dp).seamDissolve(),
                 shape = YoinArtworkShapes.Thumb,
-                fallbackIcon = Icons.Filled.MusicNote,
+                fallbackIcon = YoinSymbols.MusicNote,
                 interactionSource = interactionSource,
                 isPlaybackActive = isNowPlaying,
                 playbackSignal = playbackSignal,
@@ -114,7 +112,7 @@ fun SongListItem(
                     )
                     if (hasNote) {
                         Icon(
-                            imageVector = Icons.AutoMirrored.Rounded.StickyNote2,
+                            imageVector = YoinSymbols.Note,
                             contentDescription = "Has note",
                             tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.72f),
                             modifier = Modifier.size(12.dp),

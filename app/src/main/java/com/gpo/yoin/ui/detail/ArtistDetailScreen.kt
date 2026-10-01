@@ -31,14 +31,6 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Album
-import androidx.compose.material.icons.filled.Launch
-import androidx.compose.material.icons.filled.MusicNote
-import androidx.compose.material.icons.filled.Person
-import androidx.compose.material.icons.filled.Star
-import androidx.compose.material.icons.filled.StarBorder
-import androidx.compose.material.icons.rounded.IosShare
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -66,6 +58,7 @@ import androidx.compose.ui.unit.dp
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.ReleaseType
 import com.gpo.yoin.data.source.ServiceFeatureCatalog
+import com.gpo.yoin.symbols.YoinSymbols
 import com.gpo.yoin.ui.component.BarExtraAction
 import com.gpo.yoin.ui.component.DetailErrorState
 import com.gpo.yoin.ui.component.ExpressiveMediaArtwork
@@ -330,7 +323,7 @@ fun ArtistDetailScreen(
                 },
                 promotable = listOf(
                     BarExtraAction(
-                        icon = Icons.Rounded.IosShare,
+                        icon = YoinSymbols.Share,
                         label = "Share",
                         onClick = onShare,
                     ),
@@ -347,7 +340,7 @@ fun ArtistDetailScreen(
                             onOpenInSpotify()
                         },
                         leadingIcon = {
-                            Icon(Icons.Filled.Launch, contentDescription = null, modifier = Modifier.size(22.dp))
+                            Icon(YoinSymbols.Launch, contentDescription = null, modifier = Modifier.size(22.dp))
                         },
                         textStyle = MaterialTheme.typography.titleMedium,
                         contentPadding = PaddingValues(horizontal = 20.dp, vertical = 14.dp),
@@ -468,7 +461,7 @@ private fun ArtistFollowStar(
             },
         ) {
             Icon(
-                imageVector = if (following) Icons.Filled.Star else Icons.Filled.StarBorder,
+                imageVector = if (following) YoinSymbols.StarFilled else YoinSymbols.Star,
                 contentDescription = if (following) labels.second else labels.first,
                 tint = tint,
                 modifier = Modifier.graphicsLayer {
@@ -742,7 +735,7 @@ private fun ArtistPortrait(heroUrl: String?, artistName: String, modifier: Modif
         contentDescription = artistName,
         modifier = modifier,
         shape = CircleShape,
-        fallbackIcon = Icons.Filled.Person,
+        fallbackIcon = YoinSymbols.Artist,
         border = null,
         shadowElevation = 0.dp,
         tonalElevation = 3.dp,
@@ -975,7 +968,7 @@ private fun ArtistPlayedRow(
             contentDescription = null,
             modifier = Modifier.size(44.dp),
             shape = YoinArtworkShapes.Thumb,
-            fallbackIcon = Icons.Filled.MusicNote,
+            fallbackIcon = YoinSymbols.MusicNote,
             border = null,
             shadowElevation = 0.dp,
             requestSizePx = 120,
@@ -1186,7 +1179,7 @@ private fun ArtistReleaseRow(
             contentDescription = album.name,
             modifier = Modifier.size(56.dp),
             shape = YoinArtworkShapes.Cover,
-            fallbackIcon = Icons.Filled.Album,
+            fallbackIcon = YoinSymbols.Album,
             border = null,
             shadowElevation = 0.dp,
             requestSizePx = 168,

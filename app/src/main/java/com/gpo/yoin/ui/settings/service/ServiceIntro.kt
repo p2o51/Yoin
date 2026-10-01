@@ -1,19 +1,7 @@
 package com.gpo.yoin.ui.settings.service
 
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.QueueMusic
-import androidx.compose.material.icons.rounded.Cast
-import androidx.compose.material.icons.rounded.CloudQueue
-import androidx.compose.material.icons.rounded.EditNote
-import androidx.compose.material.icons.rounded.Favorite
-import androidx.compose.material.icons.rounded.GraphicEq
-import androidx.compose.material.icons.rounded.Headphones
-import androidx.compose.material.icons.rounded.LibraryMusic
-import androidx.compose.material.icons.rounded.MusicNote
-import androidx.compose.material.icons.rounded.Search
-import androidx.compose.material.icons.rounded.Speaker
-import androidx.compose.material.icons.rounded.PlayCircle
 import androidx.compose.ui.graphics.vector.ImageVector
+import com.gpo.yoin.symbols.YoinSymbols
 
 /**
  * What a service is, told the way a person would pitch it: a tagline, a few
@@ -43,25 +31,25 @@ internal val SetupService.intro: ServiceIntro
 private val SubsonicIntro = ServiceIntro(
     name = "Subsonic",
     tagline = "Your own music server — Navidrome, Airsonic, Gonic or anything OpenSubsonic.",
-    icon = Icons.Rounded.CloudQueue,
+    icon = YoinSymbols.Cloud,
     highlights = listOf(
         ServiceIntro.Highlight(
-            Icons.Rounded.GraphicEq,
+            YoinSymbols.Equalizer,
             "Plays right in Yoin",
             "Streams from your server, with lock-screen and background controls.",
         ),
         ServiceIntro.Highlight(
-            Icons.Rounded.Favorite,
+            YoinSymbols.Favorite,
             "Favorites stay in sync",
             "A heart in Yoin stars the song on your server.",
         ),
         ServiceIntro.Highlight(
-            Icons.AutoMirrored.Rounded.QueueMusic,
+            YoinSymbols.Playlist,
             "Your playlists",
             "Browse them all and edit the ones you own.",
         ),
         ServiceIntro.Highlight(
-            Icons.Rounded.Cast,
+            YoinSymbols.Cast,
             "Cast and cache",
             "Send music to a speaker; recent plays are cached for you.",
         ),
@@ -72,25 +60,25 @@ private val SubsonicIntro = ServiceIntro(
 private val SpotifyIntro = ServiceIntro(
     name = "Spotify",
     tagline = "Your Spotify library in Yoin, played through the Spotify app.",
-    icon = Icons.Rounded.Headphones,
+    icon = YoinSymbols.Headphones,
     highlights = listOf(
         ServiceIntro.Highlight(
-            Icons.Rounded.LibraryMusic,
+            YoinSymbols.Library,
             "Everything you've saved",
             "Playlists, liked songs, albums and artists.",
         ),
         ServiceIntro.Highlight(
-            Icons.Rounded.Favorite,
+            YoinSymbols.Favorite,
             "Hearts go to Liked Songs",
             "Save a song in Yoin and it shows up in Spotify.",
         ),
         ServiceIntro.Highlight(
-            Icons.Rounded.Speaker,
+            YoinSymbols.Speaker,
             "Spotify Connect",
             "Play on any speaker or device Spotify can reach.",
         ),
         ServiceIntro.Highlight(
-            Icons.Rounded.EditNote,
+            YoinSymbols.EditNote,
             "Yoin's extras",
             "Lyrics, ratings and notes, kept in Yoin.",
         ),
@@ -101,16 +89,16 @@ private val SpotifyIntro = ServiceIntro(
 private val AppleMusicIntro = ServiceIntro(
     name = "Apple Music",
     tagline = "Your Apple Music library and catalog, played in Yoin.",
-    icon = Icons.Rounded.MusicNote,
+    icon = YoinSymbols.MusicNote,
     badge = "Preview",
     highlights = listOf(
         ServiceIntro.Highlight(
-            Icons.Rounded.Search,
+            YoinSymbols.Search,
             "Search the catalog",
             "Find any song on Apple Music.",
         ),
         ServiceIntro.Highlight(
-            Icons.Rounded.PlayCircle,
+            YoinSymbols.PlayCircle,
             "Plays in Yoin",
             "Listen with MusicKit, background playback and system controls.",
         ),

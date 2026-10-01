@@ -4,6 +4,7 @@ import android.content.Intent
 import androidx.annotation.OptIn
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
+import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.database.StandaloneDatabaseProvider
 import androidx.media3.datasource.cache.CacheDataSource
@@ -51,6 +52,9 @@ class PlaybackService : MediaSessionService() {
             .setAudioAttributes(audioAttributes, true)
             .setHandleAudioBecomingNoisy(true)
             .build()
+        // Default play mode is repeat all (see PlayMode). PlaybackManager also
+        // applies the user's current mode whenever Yoin starts a queue.
+        player.repeatMode = Player.REPEAT_MODE_ALL
 
         mediaSession = MediaSession.Builder(this, player).build()
         _audioSessionId.value = player.audioSessionId

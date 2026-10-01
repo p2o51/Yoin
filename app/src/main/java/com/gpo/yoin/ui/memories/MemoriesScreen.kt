@@ -43,9 +43,6 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.KeyboardArrowUp
-import androidx.compose.material.icons.filled.LibraryMusic
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ColorScheme
@@ -97,6 +94,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.gpo.yoin.YoinApplication
+import com.gpo.yoin.symbols.YoinSymbols
 import com.gpo.yoin.ui.component.ExpressiveMediaArtwork
 import com.gpo.yoin.ui.component.ExpressivePageBackground
 import com.gpo.yoin.ui.component.YoinLoadingIndicator
@@ -572,7 +570,7 @@ private fun MemoriesContent(
 
         // Return-to-home hint arrow
         Icon(
-            imageVector = Icons.Filled.KeyboardArrowUp,
+            imageVector = YoinSymbols.ChevronUp,
             contentDescription = "Back to Home",
             tint = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier
@@ -836,7 +834,7 @@ private fun MemorySealCard(
                     .size(72.dp)
                     .clickable(onClick = onPlayCover),
                 shape = YoinArtworkShapes.Cover,
-                fallbackIcon = Icons.Filled.LibraryMusic,
+                fallbackIcon = YoinSymbols.Album,
                 tonalElevation = 0.dp,
                 shadowElevation = 0.dp,
             )
