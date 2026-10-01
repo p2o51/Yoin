@@ -143,6 +143,19 @@ internal fun ExpressivePageBackground(
     )
 }
 
+/**
+ * The page colours [ExpressivePageBackground] runs through (top → bottom),
+ * for the seams' bottom field to ease its dots toward. The accent wash and
+ * the playing wobble only tint the top stop, far from the bar.
+ */
+@Composable
+internal fun expressivePageSeamBackground(): SeamBackground {
+    val scheme = MaterialTheme.colorScheme
+    return remember(scheme.surfaceContainer, scheme.background, scheme.surfaceContainerLow) {
+        SeamBackground(listOf(scheme.surfaceContainer, scheme.background, scheme.surfaceContainerLow))
+    }
+}
+
 @Composable
 internal fun ExpressiveSectionPanel(
     modifier: Modifier = Modifier,

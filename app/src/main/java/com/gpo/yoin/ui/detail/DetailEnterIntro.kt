@@ -25,7 +25,6 @@ import androidx.compose.ui.platform.LocalInspectionMode
 import androidx.compose.ui.platform.LocalView
 import androidx.window.embedding.ActivityEmbeddingController
 import com.gpo.yoin.YoinApplication
-import com.gpo.yoin.ui.component.BottomBarShadowPageCoverEffect
 import com.gpo.yoin.ui.component.YoinLoadingIndicator
 import com.gpo.yoin.ui.navigation.back.BackMotionTokens
 import com.gpo.yoin.ui.theme.YoinMotion
@@ -140,9 +139,6 @@ internal fun DetailLoadingIndicator(intro: DetailEnterIntroState, modifier: Modi
 @Composable
 internal fun DetailEnterPageMountEffect(state: DetailEnterIntroState) {
     SideEffect { state.notePageMounted() }
-    // The opaque page is up: this window's bar takes the shadow over in the
-    // same frame (the bar-hold kept it bare over the shell's shadow).
-    BottomBarShadowPageCoverEffect()
 }
 
 @Composable

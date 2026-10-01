@@ -65,7 +65,12 @@ import com.gpo.yoin.ui.component.ExpressiveMediaArtwork
 import com.gpo.yoin.ui.component.ExpressivePageBackground
 import com.gpo.yoin.ui.component.ExpressiveSegmentedTabs
 import com.gpo.yoin.ui.component.YoinDropdownMenuItem
+import com.gpo.yoin.ui.component.expressivePageSeamBackground
 import com.gpo.yoin.ui.component.formatTrackDuration
+import com.gpo.yoin.ui.component.seamDissolve
+import com.gpo.yoin.ui.component.seamDissolveViewport
+import com.gpo.yoin.ui.component.seamFade
+import com.gpo.yoin.ui.component.seamRemainingPx
 import com.gpo.yoin.ui.component.yoinPageContentWidth
 import com.gpo.yoin.ui.experience.LayoutMode
 import com.gpo.yoin.ui.experience.LocalMotionProfile
@@ -528,6 +533,12 @@ private fun ArtistBody(
         Column(
             modifier = Modifier
                 .fillMaxSize()
+                // Scrolls under the fixed header (curve C seam at the column's
+                // top edge) and on under the bar (the bottom field).
+                .seamDissolveViewport(
+                    background = expressivePageSeamBackground(),
+                    remainingPx = { scrollState.seamRemainingPx() },
+                ) { scrollState.value.toFloat() }
                 .verticalScroll(scrollState)
                 // Landscape keeps the group in the cutout band: only the nav
                 // bar needs clearing at the bottom.
@@ -711,7 +722,9 @@ private fun ArtistPinwheelHero(
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .height(portraitSize + ArtistPinwheelBandExtra),
+            .height(portraitSize + ArtistPinwheelBandExtra)
+            // Full width, so the bleeding arms stay inside the print.
+            .seamDissolve(),
         contentAlignment = Alignment.Center,
     ) {
         // Width = the page (no side padding): the arms bleed off the screen
@@ -733,7 +746,7 @@ private fun ArtistPortrait(heroUrl: String?, artistName: String, modifier: Modif
     ExpressiveMediaArtwork(
         model = heroUrl,
         contentDescription = artistName,
-        modifier = modifier,
+        modifier = modifier.seamDissolve(),
         shape = CircleShape,
         fallbackIcon = YoinSymbols.Artist,
         border = null,
@@ -763,7 +776,7 @@ private fun ArtistHeroMeta(
         AlbumScore(AlbumScoreKind.None, 0f)
     }
     Row(
-        modifier = modifier,
+        modifier = modifier.seamFade(),
         horizontalArrangement = Arrangement.SpaceBetween,
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -849,13 +862,16 @@ private fun ArtistWideHero(
             )
             ArtistPortrait(heroUrl = heroUrl, artistName = content.artistName, modifier = Modifier.fillMaxSize())
         }
+        val nameStyle = if (desktop) MaterialTheme.typography.displayMedium else MaterialTheme.typography.headlineLarge
         Column(
-            modifier = Modifier.weight(1f),
+            modifier = Modifier
+                .weight(1f)
+                .seamFade(fontSize = nameStyle.fontSize),
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             Text(
                 text = content.artistName,
-                style = if (desktop) MaterialTheme.typography.displayMedium else MaterialTheme.typography.headlineLarge,
+                style = nameStyle,
                 color = colors.accent,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
@@ -961,12 +977,16 @@ private fun ArtistPlayedRow(
             style = MaterialTheme.typography.labelLarge.copy(fontFamily = FontFamily.Monospace),
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.End,
-            modifier = Modifier.widthIn(min = 16.dp),
+            modifier = Modifier
+                .widthIn(min = 16.dp)
+                .seamFade(),
         )
         ExpressiveMediaArtwork(
             model = song.coverArtUrl,
             contentDescription = null,
-            modifier = Modifier.size(44.dp),
+            modifier = Modifier
+                .size(44.dp)
+                .seamDissolve(),
             shape = YoinArtworkShapes.Thumb,
             fallbackIcon = YoinSymbols.MusicNote,
             border = null,
@@ -974,7 +994,9 @@ private fun ArtistPlayedRow(
             requestSizePx = 120,
         )
         Column(
-            modifier = Modifier.weight(1f),
+            modifier = Modifier
+                .weight(1f)
+                .seamFade(),
             verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
             Text(
@@ -1000,6 +1022,7 @@ private fun ArtistPlayedRow(
             style = MaterialTheme.typography.labelLarge.copy(fontFamily = FontFamily.Monospace)
                 .withTabularFigures(),
             color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.seamFade(),
         )
     }
 }
@@ -1010,7 +1033,8 @@ private fun ArtistSectionHeader(title: String, trailing: String?, modifier: Modi
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 8.dp),
+            .padding(horizontal = 8.dp)
+            .seamFade(),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         AlbumSectionLabel(text = title, modifier = Modifier.weight(1f))
@@ -1075,6 +1099,7 @@ private fun ArtistDiscography(
                 selectedItem = filter,
                 label = { it.label },
                 onSelectedChange = { filter = it },
+                modifier = Modifier.seamFade(),
             )
         }
         Spacer(modifier = Modifier.height(8.dp))
@@ -1121,7 +1146,9 @@ private fun ArtistDiscography(
         if (tail.isNotEmpty()) {
             TextButton(
                 onClick = { showAll = !showAll },
-                modifier = Modifier.padding(start = ArtistReleaseYearColumn),
+                modifier = Modifier
+                    .padding(start = ArtistReleaseYearColumn)
+                    .seamFade(),
             ) {
                 Text(
                     text = if (showAll) "Show fewer" else "Show all ${shown.size}",
@@ -1163,7 +1190,8 @@ private fun ArtistReleaseRow(
         Box(
             modifier = Modifier
                 .width(ArtistReleaseYearColumn)
-                .padding(start = 8.dp),
+                .padding(start = 8.dp)
+                .seamFade(),
         ) {
             if (showYear) {
                 Text(
@@ -1177,7 +1205,9 @@ private fun ArtistReleaseRow(
         ExpressiveMediaArtwork(
             model = album.coverArtUrl,
             contentDescription = album.name,
-            modifier = Modifier.size(56.dp),
+            modifier = Modifier
+                .size(56.dp)
+                .seamDissolve(),
             shape = YoinArtworkShapes.Cover,
             fallbackIcon = YoinSymbols.Album,
             border = null,
@@ -1186,7 +1216,9 @@ private fun ArtistReleaseRow(
         )
         Spacer(modifier = Modifier.width(12.dp))
         Column(
-            modifier = Modifier.weight(1f),
+            modifier = Modifier
+                .weight(1f)
+                .seamFade(),
             verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
             Text(
@@ -1219,7 +1251,9 @@ private fun ArtistReleaseRow(
                 text = formatAlbumScore(rating),
                 style = MaterialTheme.typography.titleSmall.copy(fontFamily = FontFamily.Monospace),
                 color = accent,
-                modifier = Modifier.padding(start = 12.dp),
+                modifier = Modifier
+                    .padding(start = 12.dp)
+                    .seamFade(),
             )
         }
     }

@@ -20,8 +20,8 @@ import coil3.size.Size
 import coil3.toBitmap
 import com.gpo.yoin.symbols.LocalSymbolMotion
 import com.gpo.yoin.symbols.SymbolMotion
-import com.gpo.yoin.ui.component.ProvideBottomBarShadowHost
 import com.gpo.yoin.ui.component.LocalPlaybackWaveState
+import com.gpo.yoin.ui.component.ProvideSeamBarField
 import com.gpo.yoin.ui.experience.LocalMotionCapabilityProvider
 import com.gpo.yoin.ui.experience.LocalMotionProfile
 import com.gpo.yoin.ui.experience.LocalShellChromeInsets
@@ -80,17 +80,10 @@ private fun ComponentActivity.requestPeakRefreshRate() {
  * from their first frame. Opening a window never resets playback colors.
  */
 @Composable
-fun YoinActivityRoot(
-    // Detail windows open showing only their bar over the previous window's
-    // bar; their shadow waits for the page (see BottomBarShadowPageCoverEffect).
-    deferBottomBarShadow: Boolean = false,
-    content: @Composable () -> Unit,
-) {
+fun YoinActivityRoot(content: @Composable () -> Unit) {
     val app = LocalContext.current.applicationContext as? YoinApplication
-    ProvideBottomBarShadowHost(app?.container?.bottomBarShadows, deferUntilPageCover = deferBottomBarShadow) {
-        YoinTheme(playbackThemeState = app?.container?.playbackThemeState) {
-            YoinAppEnvironment(content = content)
-        }
+    YoinTheme(playbackThemeState = app?.container?.playbackThemeState) {
+        YoinAppEnvironment(content = content)
     }
 }
 
@@ -141,6 +134,7 @@ private fun YoinAppEnvironment(content: @Composable () -> Unit) {
         LocalYoinWindowInfo provides windowInfo,
         LocalShellChromeInsets provides shellChromeInsets,
     ) {
-        content()
+        // This window's floating bar, for the seams' bottom field (dissolve-final §1.2).
+        ProvideSeamBarField(content = content)
     }
 }

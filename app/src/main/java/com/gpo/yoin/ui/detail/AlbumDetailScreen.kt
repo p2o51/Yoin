@@ -73,6 +73,9 @@ import com.gpo.yoin.ui.component.ExpressivePageBackground
 import com.gpo.yoin.ui.component.YoinDropdownMenu
 import com.gpo.yoin.ui.component.minimumTouchTarget
 import com.gpo.yoin.ui.component.rememberStagedReveal
+import com.gpo.yoin.ui.component.expressivePageSeamBackground
+import com.gpo.yoin.ui.component.seamDissolve
+import com.gpo.yoin.ui.component.seamRemainingPx
 import com.gpo.yoin.ui.component.seamScrolledPx
 import com.gpo.yoin.ui.component.seamFade
 import com.gpo.yoin.ui.component.seamDissolveViewport
@@ -953,8 +956,12 @@ private fun AlbumTrackList(
     LazyColumn(
         state = listState,
         // The seam is the list's top edge (the docked band's lower edge in the
-        // Compact pull-up): rows fade into it instead of being cut.
-        modifier = modifier.seamDissolveViewport { listState.seamScrolledPx() },
+        // Compact pull-up): rows fade into it instead of being cut. At the
+        // bottom the bar's halftone field takes the graphics; text passes under.
+        modifier = modifier.seamDissolveViewport(
+            background = expressivePageSeamBackground(),
+            remainingPx = { listState.seamRemainingPx() },
+        ) { listState.seamScrolledPx() },
         contentPadding = PaddingValues(top = 4.dp, bottom = 112.dp + navBottom),
     ) {
         if (header != null) {
@@ -1083,7 +1090,9 @@ private fun AlbumMediumHeroRow(
         ExpressiveMediaArtwork(
             model = content.coverArtUrl,
             contentDescription = content.albumName,
-            modifier = Modifier.size(AlbumMediumHeroCoverSide),
+            modifier = Modifier
+                .size(AlbumMediumHeroCoverSide)
+                .seamDissolve(),
             shape = YoinArtworkShapes.Hero,
             fallbackIcon = YoinSymbols.Album,
             border = null,

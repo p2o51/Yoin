@@ -19,7 +19,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import com.gpo.yoin.YoinApplication
-import com.gpo.yoin.ui.component.rememberBottomBarShadowHandBack
 import com.gpo.yoin.ui.experience.DetailBackPhase
 import com.gpo.yoin.ui.experience.rememberIsActivityEmbedded
 import com.gpo.yoin.ui.experience.voteHighFrameRate
@@ -174,7 +173,6 @@ fun rememberDetailBackCollapse(
     val settleSpec = YoinMotion.predictiveBackSettleSpring<Float>()
     val commitSpec = YoinMotion.defaultSpatialSpec<Float>(role = YoinMotionRole.Standard)
     val exitSpec = YoinMotion.defaultEffectsSpec<Float>(role = YoinMotionRole.Standard)
-    val handBackBarShadow = rememberBottomBarShadowHandBack()
     val context = LocalContext.current
     val store = remember(context) {
         (context.applicationContext as YoinApplication).container.experienceSessionStore
@@ -245,15 +243,10 @@ fun rememberDetailBackCollapse(
                 settle = {
                     coroutineScope {
                         launch { state.chased.animateTo(1f, commitSpec) }
-                        launch {
-                            state.exit.animateTo(1f, exitSpec)
-                            // Page gone: only the bar is left, over its twin
-                            // beneath. Hand the shadow back while both windows
-                            // are still ours, so the system dissolve after
-                            // finish() carries a bare bar, not a shadow whose
-                            // fade another process times.
-                            handBackBarShadow(exitSpec)
-                        }
+                        // Page gone: only the bar is left, over its identical
+                        // (shadowless) twin beneath, so the system dissolve
+                        // after finish() has nothing visible to animate.
+                        launch { state.exit.animateTo(1f, exitSpec) }
                     }
                 },
                 onFinish = onBack,

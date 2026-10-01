@@ -27,8 +27,9 @@ import com.gpo.yoin.ui.experience.PortraitBarVerticalMargin
 /**
  * The floating bottom bar scaffold — outer margins, pill Surface, and inner
  * row metrics — shared VERBATIM by the shell Button Group and the detail
- * pages' bottom bar. Their opaque fills overlap during window handoff, but
- * only the frontmost overlapping host casts the shared 12dp shadow.
+ * pages' bottom bar. Their opaque fills overlap during window handoff. The
+ * bar casts no shadow: content runs on under it as the seams' bottom field
+ * (dissolve-final §1.2), so the Surface reports itself as the window's bar.
  *
  * The content lambda receives the inner row's width so callers can size
  * slots in absolute dp (the shell's morph interpolates widths by hand —
@@ -71,13 +72,14 @@ fun FloatingBottomBar(
     BoxWithConstraints(modifier = slot) {
         val surfaceWidth = barWidth?.invoke(maxWidth)?.coerceAtMost(maxWidth) ?: maxWidth
         val innerWidth = surfaceWidth - 20.dp // row's 10dp horizontal padding × 2
+        val barColor = MaterialTheme.colorScheme.surfaceContainerHigh
         Surface(
             modifier = Modifier
                 .align(Alignment.Center)
                 .then(if (barWidth != null) Modifier.width(surfaceWidth) else Modifier.fillMaxWidth())
-                .bottomBarShadow(MaterialTheme.shapes.extraLarge, elevation = 12.dp),
+                .seamBarSource(MaterialTheme.shapes.extraLarge, barColor),
             shape = MaterialTheme.shapes.extraLarge,
-            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+            color = barColor,
             tonalElevation = 8.dp,
             shadowElevation = 0.dp,
         ) {

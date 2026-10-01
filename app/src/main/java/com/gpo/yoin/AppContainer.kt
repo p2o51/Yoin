@@ -32,7 +32,6 @@ import com.gpo.yoin.player.CastManager
 import com.gpo.yoin.player.PlaybackEvent
 import com.gpo.yoin.player.PlaybackManager
 import com.gpo.yoin.player.SpotifyConnectFailure
-import com.gpo.yoin.ui.component.BottomBarShadowRegistry
 import com.gpo.yoin.ui.experience.ExperienceSessionStore
 import com.gpo.yoin.ui.experience.MotionCapabilityProvider
 import com.gpo.yoin.ui.memories.MemoriesDeckCoordinator
@@ -342,8 +341,6 @@ class AppContainer(private val context: Context) {
             CoroutineScope(SupervisorJob() + AndroidUiDispatcher.Main),
         )
     }
-
-    val bottomBarShadows = BottomBarShadowRegistry()
 
     /** Once-a-day UI hints (the Now Playing "tap to expand" lyric line). */
     val lyricHintStore: com.gpo.yoin.ui.nowplaying.LyricHintStore by lazy {

@@ -33,14 +33,6 @@
             android:exported="true"
             android:theme="@style/Theme.Yoin" />
         <activity
-            android:name=".debug.ShadowHandoffPreviewActivity"
-            android:exported="true"
-            android:theme="@style/Theme.Yoin" />
-        <activity
-            android:name=".debug.ShadowHandoffDetailActivity"
-            android:exported="false"
-            android:theme="@style/Theme.Yoin.DetailTranslucent" />
-        <activity
             android:name=".debug.ShadowReturnAuditActivity"
             android:exported="true"
             android:theme="@style/Theme.Yoin" />

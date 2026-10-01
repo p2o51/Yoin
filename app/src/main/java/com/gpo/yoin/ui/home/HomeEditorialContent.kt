@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
@@ -73,12 +74,22 @@ import com.gpo.yoin.symbols.YoinSymbols
 import com.gpo.yoin.ui.component.ExpressiveMediaArtwork
 import com.gpo.yoin.ui.component.ExpressiveSectionPanel
 import com.gpo.yoin.ui.component.MarqueeText
+import com.gpo.yoin.ui.component.SeamBackground
+import com.gpo.yoin.ui.component.SeamDissolveTokens
+import com.gpo.yoin.ui.component.SeamFlow
+import com.gpo.yoin.ui.component.SeamTop
 import com.gpo.yoin.ui.component.elasticPress
 import com.gpo.yoin.ui.component.ignoreParentHorizontalPadding
 import com.gpo.yoin.ui.component.horizontalEdgeFadeOnScroll
 import com.gpo.yoin.ui.component.noRippleClickable
 import com.gpo.yoin.ui.component.rememberExpressiveBackdropColors
 import com.gpo.yoin.ui.component.rememberStagedReveal
+import com.gpo.yoin.ui.component.seamDissolve
+import com.gpo.yoin.ui.component.seamDissolveViewport
+import com.gpo.yoin.ui.component.seamFade
+import com.gpo.yoin.ui.component.seamRemainingPx
+import com.gpo.yoin.ui.component.seamScrolledPx
+import com.gpo.yoin.ui.component.seamTide
 import com.gpo.yoin.ui.component.stagedBeat
 import com.gpo.yoin.ui.component.yoinPageContentWidth
 import com.gpo.yoin.ui.experience.LayoutMode
@@ -269,174 +280,131 @@ internal fun HomeEditorialContent(
         isDesktopWide -> 32.dp
         else -> 16.dp
     }
-    LazyColumn(
-        state = listState,
+    // Seams (dissolve-final §1.3, §3): the status bar gets the tide line —
+    // content sinks under two waves of page colour, text fades out just below
+    // it — and the bottom bar gets the halftone field. Both read one set of
+    // scroll followers.
+    val seamFlow = remember { SeamFlow() }
+    val pageColor = MaterialTheme.colorScheme.background
+    val seamBackground = remember(pageColor) { SeamBackground(listOf(pageColor)) }
+    val statusBarTop = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+    val statusBarPx = with(LocalDensity.current) { statusBarTop.toPx() }
+    Box(
         modifier = modifier
             .fillMaxSize()
-            // 大屏限宽:夹的是内容列本身;高度不受影响,所以下面
-            // onSizeChanged 喂给 reveal settle 的 containerHeightPx 语义不变。
-            // Wide 桌面态例外:不夹,直接满宽(then(Modifier) 即无操作)。
-            .then(if (isDesktopWide || isLandscapePhone) Modifier else Modifier.yoinPageContentWidth())
-            .onSizeChanged { containerHeightPx = it.height.toFloat().coerceAtLeast(1f) }
-            .nestedScroll(pullToMemoriesConnection)
-            // Long-press → layout editor. Cards only consume taps
-            // (noRippleClickable), so the press passes through them; any scroll
-            // movement cancels it before the timeout.
-            .pointerInput(Unit) {
-                detectTapGestures(
-                    onLongPress = {
-                        haptics.performLongPress()
-                        onEnterEditModeState.value()
-                    },
-                )
-            },
-        contentPadding = PaddingValues(
-            start = pageHorizontalPadding,
-            end = pageHorizontalPadding,
-            top = 4.dp,
-            // The landscape Button Group lives in the left cutout band, not
-            // at the bottom: only the nav bar needs clearing there.
-            bottom = (if (isLandscapePhone) 16.dp else 108.dp) + navBarBottom,
-        ),
-        verticalArrangement = Arrangement.spacedBy(if (isLandscapePhone) 10.dp else 18.dp),
+            .seamTide(
+                flow = seamFlow,
+                color = pageColor,
+                statusBarPx = statusBarPx,
+            ) { listState.seamScrolledPx() },
     ) {
-        // The page header (title + nav icons) is pinned above the reorderable
-        // sections — it's chrome, not a section.
-        item(key = "home-header") {
-            HomeContentHeader(
-                // Page-level title: sections below it are user-reorderable, so
-                // the header can't borrow the first section's name anymore.
-                title = "Home",
-                compact = isLandscapePhone,
-                onNavigateToSettings = onNavigateToSettings,
-                onNavigateToMemories = onNavigateToMemories,
-                memoriesHintProgress = memoriesHintProgress,
-                modifier = Modifier.fillMaxWidth(),
-            )
-        }
+        LazyColumn(
+            state = listState,
+            modifier = Modifier
+                .fillMaxSize()
+                // 大屏限宽:夹的是内容列本身;高度不受影响,所以下面
+                // onSizeChanged 喂给 reveal settle 的 containerHeightPx 语义不变。
+                // Wide 桌面态例外:不夹,直接满宽(then(Modifier) 即无操作)。
+                .then(if (isDesktopWide || isLandscapePhone) Modifier else Modifier.yoinPageContentWidth())
+                .onSizeChanged { containerHeightPx = it.height.toFloat().coerceAtLeast(1f) }
+                .seamDissolveViewport(
+                    top = SeamTop.FadeText,
+                    topInset = statusBarTop + SeamDissolveTokens.TideRest,
+                    flow = seamFlow,
+                    background = seamBackground,
+                    remainingPx = { listState.seamRemainingPx() },
+                ) { listState.seamScrolledPx() }
+                .nestedScroll(pullToMemoriesConnection)
+                // Long-press → layout editor. Cards only consume taps
+                // (noRippleClickable), so the press passes through them; any scroll
+                // movement cancels it before the timeout.
+                .pointerInput(Unit) {
+                    detectTapGestures(
+                        onLongPress = {
+                            haptics.performLongPress()
+                            onEnterEditModeState.value()
+                        },
+                    )
+                },
+            contentPadding = PaddingValues(
+                start = pageHorizontalPadding,
+                end = pageHorizontalPadding,
+                top = 4.dp,
+                // The landscape Button Group lives in the left cutout band, not
+                // at the bottom: only the nav bar needs clearing there.
+                bottom = (if (isLandscapePhone) 16.dp else 108.dp) + navBarBottom,
+            ),
+            verticalArrangement = Arrangement.spacedBy(if (isLandscapePhone) 10.dp else 18.dp),
+        ) {
+            // The page header (title + nav icons) is pinned above the reorderable
+            // sections — it's chrome, not a section.
+            item(key = "home-header") {
+                HomeContentHeader(
+                    // Page-level title: sections below it are user-reorderable, so
+                    // the header can't borrow the first section's name anymore.
+                    title = "Home",
+                    compact = isLandscapePhone,
+                    onNavigateToSettings = onNavigateToSettings,
+                    onNavigateToMemories = onNavigateToMemories,
+                    memoriesHintProgress = memoriesHintProgress,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
 
-        // Data-driven feed: render each enabled section in the user's chosen
-        // order.
-        for (sectionState in sections) {
-            if (!sectionState.enabled) continue
-            when (sectionState.section) {
-                HomeSection.Activities -> item(key = "section-activities") {
-                    if (activityEntries.isNotEmpty()) {
-                        // 渲染三档（owner A-prime 2026-07-28）：Compact = 手机
-                        // 原样；Medium 与 Tabletop 沿用旧 `!= Compact` 密档
-                        // （6 条，构图不动）；Wide 全窗桌面 = 10 条三行
-                        // tapestry。层级递减的构图仍是 Yoin 自己的，Spotify
-                        // 参照只取「多列多条目」的思路（owner 修正 2026-07-27）。
-                        val tier = when {
-                            isLandscapePhone -> ActivityBentoTier.Landscape
-                            else -> when (LocalYoinWindowInfo.current.layoutMode) {
-                                LayoutMode.Compact -> ActivityBentoTier.Phone
-                                LayoutMode.Wide -> ActivityBentoTier.Desktop
-                                else -> ActivityBentoTier.Dense
+            // Data-driven feed: render each enabled section in the user's chosen
+            // order.
+            for (sectionState in sections) {
+                if (!sectionState.enabled) continue
+                when (sectionState.section) {
+                    HomeSection.Activities -> item(key = "section-activities") {
+                        if (activityEntries.isNotEmpty()) {
+                            // 渲染三档（owner A-prime 2026-07-28）：Compact = 手机
+                            // 原样；Medium 与 Tabletop 沿用旧 `!= Compact` 密档
+                            // （6 条，构图不动）；Wide 全窗桌面 = 10 条三行
+                            // tapestry。层级递减的构图仍是 Yoin 自己的，Spotify
+                            // 参照只取「多列多条目」的思路（owner 修正 2026-07-27）。
+                            val tier = when {
+                                isLandscapePhone -> ActivityBentoTier.Landscape
+                                else -> when (LocalYoinWindowInfo.current.layoutMode) {
+                                    LayoutMode.Compact -> ActivityBentoTier.Phone
+                                    LayoutMode.Wide -> ActivityBentoTier.Desktop
+                                    else -> ActivityBentoTier.Dense
+                                }
                             }
-                        }
-                        val bentoEntries = when (tier) {
-                            ActivityBentoTier.Phone,
-                            ActivityBentoTier.Landscape,
-                            -> activityEntries
-                            ActivityBentoTier.Dense -> remember(activities, buildCoverArtUrl) {
-                                buildActivityEntries(
-                                    activities = activities,
-                                    buildCoverArtUrl = buildCoverArtUrl,
-                                    limit = ActivityBentoDenseMaxItems,
-                                )
+                            val bentoEntries = when (tier) {
+                                ActivityBentoTier.Phone,
+                                ActivityBentoTier.Landscape,
+                                -> activityEntries
+                                ActivityBentoTier.Dense -> remember(activities, buildCoverArtUrl) {
+                                    buildActivityEntries(
+                                        activities = activities,
+                                        buildCoverArtUrl = buildCoverArtUrl,
+                                        limit = ActivityBentoDenseMaxItems,
+                                    )
+                                }
+                                ActivityBentoTier.Desktop -> remember(activities, buildCoverArtUrl) {
+                                    buildActivityEntries(
+                                        activities = activities,
+                                        buildCoverArtUrl = buildCoverArtUrl,
+                                        limit = ActivityBentoDesktopMaxItems,
+                                    )
+                                }
                             }
-                            ActivityBentoTier.Desktop -> remember(activities, buildCoverArtUrl) {
-                                buildActivityEntries(
-                                    activities = activities,
-                                    buildCoverArtUrl = buildCoverArtUrl,
-                                    limit = ActivityBentoDesktopMaxItems,
-                                )
+                            // Hero slot = first album/playlist; artists fill the
+                            // smaller cards in recency order.
+                            val heroEntry = bentoEntries.firstOrNull { entry ->
+                                entry.entityType == ActivityEntityType.ALBUM.name ||
+                                    entry.entityType == ActivityEntityType.PLAYLIST.name
                             }
-                        }
-                        // Hero slot = first album/playlist; artists fill the
-                        // smaller cards in recency order.
-                        val heroEntry = bentoEntries.firstOrNull { entry ->
-                            entry.entityType == ActivityEntityType.ALBUM.name ||
-                                entry.entityType == ActivityEntityType.PLAYLIST.name
-                        }
-                        ActivityBento(
-                            hero = heroEntry,
-                            supporting = bentoEntries
-                                .filterNot { it === heroEntry }
-                                .take(tier.supportingSlots),
-                            tier = tier,
-                            heroFootnoteExtra = activityHeroFootnote,
-                            extractBackdropColors = shouldExtractBackdropColors,
-                            onEntryClick = onEntryClick,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .animateItem(
-                                    fadeInSpec = YoinMotion.effectsSpring(),
-                                    placementSpec = YoinMotion.spatialSpring(),
-                                    fadeOutSpec = YoinMotion.effectsSpring(),
-                                )
-                                .stagedBeat(
-                                    progress = { firstReveal.hero },
-                                    rise = 18.dp,
-                                    scaleFrom = 0.97f,
-                                ),
-                        )
-                    } else {
-                        HomeEmptyCard(
-                            title = "No recent activity yet",
-                            supporting = "Once you listen or visit albums and artists, this feed will start filling in.",
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .animateItem(
-                                    fadeInSpec = YoinMotion.effectsSpring(),
-                                    placementSpec = YoinMotion.spatialSpring(),
-                                    fadeOutSpec = YoinMotion.effectsSpring(),
-                                ),
-                        )
-                    }
-                }
-
-                // The merged Jump Back In × memories widget grid. Empty means
-                // nothing resolved from any source — skip the section entirely.
-                HomeSection.JumpBackIn -> if (widgetGrid.isNotEmpty()) {
-                    item(key = "section-widget-grid") {
-                        HomeWidgetGridSection(
-                            title = "Jump Back In",
-                            cards = widgetGrid,
-                            extractBackdropColors = shouldExtractBackdropColors,
-                            onCardClick = onWidgetCardClick,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .animateItem(
-                                    fadeInSpec = YoinMotion.effectsSpring(),
-                                    placementSpec = YoinMotion.spatialSpring(),
-                                    fadeOutSpec = YoinMotion.effectsSpring(),
-                                )
-                                .stagedBeat(
-                                    progress = { firstReveal.meta },
-                                    rise = 16.dp,
-                                ),
-                        )
-                    }
-                }
-
-                // Only render when there's something added this week — an empty
-                // "recently added" shelf is noise, not information.
-                HomeSection.RecentlyAdded ->
-                    if (recentlyAddedTracks.isNotEmpty() || recentlyAddedAlbums.isNotEmpty()) {
-                        item(key = "section-recently-added") {
-                            RecentlyAddedSection(
-                                tracks = recentlyAddedTracks,
-                                albums = recentlyAddedAlbums,
+                            ActivityBento(
+                                hero = heroEntry,
+                                supporting = bentoEntries
+                                    .filterNot { it === heroEntry }
+                                    .take(tier.supportingSlots),
+                                tier = tier,
+                                heroFootnoteExtra = activityHeroFootnote,
                                 extractBackdropColors = shouldExtractBackdropColors,
-                                onTrackClick = { track -> onEntryClick(HomeEntryTarget.SongTarget(track)) },
-                                onAlbumClick = { album ->
-                                    onEntryClick(HomeEntryTarget.Album(album.id.toString(), null))
-                                },
-                                buildCoverArtUrl = buildCoverArtUrl,
-                                pageHorizontalPadding = pageHorizontalPadding,
-                                singleRowShelf = isLandscapePhone,
+                                onEntryClick = onEntryClick,
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .animateItem(
@@ -445,12 +413,81 @@ internal fun HomeEditorialContent(
                                         fadeOutSpec = YoinMotion.effectsSpring(),
                                     )
                                     .stagedBeat(
-                                        progress = { firstReveal.payload },
+                                        progress = { firstReveal.hero },
+                                        rise = 18.dp,
+                                        scaleFrom = 0.97f,
+                                    ),
+                            )
+                        } else {
+                            HomeEmptyCard(
+                                title = "No recent activity yet",
+                                supporting = "Once you listen or visit albums and artists, this feed will start filling in.",
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .animateItem(
+                                        fadeInSpec = YoinMotion.effectsSpring(),
+                                        placementSpec = YoinMotion.spatialSpring(),
+                                        fadeOutSpec = YoinMotion.effectsSpring(),
+                                    ),
+                            )
+                        }
+                    }
+
+                    // The merged Jump Back In × memories widget grid. Empty means
+                    // nothing resolved from any source — skip the section entirely.
+                    HomeSection.JumpBackIn -> if (widgetGrid.isNotEmpty()) {
+                        item(key = "section-widget-grid") {
+                            HomeWidgetGridSection(
+                                title = "Jump Back In",
+                                cards = widgetGrid,
+                                extractBackdropColors = shouldExtractBackdropColors,
+                                onCardClick = onWidgetCardClick,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .animateItem(
+                                        fadeInSpec = YoinMotion.effectsSpring(),
+                                        placementSpec = YoinMotion.spatialSpring(),
+                                        fadeOutSpec = YoinMotion.effectsSpring(),
+                                    )
+                                    .stagedBeat(
+                                        progress = { firstReveal.meta },
                                         rise = 16.dp,
                                     ),
                             )
                         }
                     }
+
+                    // Only render when there's something added this week — an empty
+                    // "recently added" shelf is noise, not information.
+                    HomeSection.RecentlyAdded ->
+                        if (recentlyAddedTracks.isNotEmpty() || recentlyAddedAlbums.isNotEmpty()) {
+                            item(key = "section-recently-added") {
+                                RecentlyAddedSection(
+                                    tracks = recentlyAddedTracks,
+                                    albums = recentlyAddedAlbums,
+                                    extractBackdropColors = shouldExtractBackdropColors,
+                                    onTrackClick = { track -> onEntryClick(HomeEntryTarget.SongTarget(track)) },
+                                    onAlbumClick = { album ->
+                                        onEntryClick(HomeEntryTarget.Album(album.id.toString(), null))
+                                    },
+                                    buildCoverArtUrl = buildCoverArtUrl,
+                                    pageHorizontalPadding = pageHorizontalPadding,
+                                    singleRowShelf = isLandscapePhone,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .animateItem(
+                                            fadeInSpec = YoinMotion.effectsSpring(),
+                                            placementSpec = YoinMotion.spatialSpring(),
+                                            fadeOutSpec = YoinMotion.effectsSpring(),
+                                        )
+                                        .stagedBeat(
+                                            progress = { firstReveal.payload },
+                                            rise = 16.dp,
+                                        ),
+                                )
+                            }
+                        }
+                }
             }
         }
     }
@@ -474,12 +511,17 @@ private fun HomeContentHeader(
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        val titleStyle = MaterialTheme.typography.let { if (compact) it.headlineMedium else it.headlineLarge }
+        // Display type fades over 0.75 × its size (≈24dp at 32sp) instead of
+        // looking sliced by the short text band.
         Text(
             text = title,
-            style = if (compact) MaterialTheme.typography.headlineMedium else MaterialTheme.typography.headlineLarge,
+            style = titleStyle,
             color = MaterialTheme.colorScheme.onBackground,
+            modifier = Modifier.seamFade(fontSize = titleStyle.fontSize),
         )
         Row(
+            modifier = Modifier.seamFade(),
             horizontalArrangement = Arrangement.spacedBy(2.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -923,7 +965,11 @@ private fun ActivityHeroCard(
     val interactionSource = remember { MutableInteractionSource() }
     val colors = rememberActivityCardColors(entry.coverArtUrl, extractBackdropColors)
     Surface(
-        modifier = modifier.elasticPress(interactionSource),
+        // The tinted card and its cover break up as one print; the text on it
+        // is lifted out and passes under the bar whole.
+        modifier = modifier
+            .elasticPress(interactionSource)
+            .seamDissolve(),
         shape = YoinContainerShapes.Card,
         color = colors.container,
         tonalElevation = 0.dp,
@@ -946,7 +992,9 @@ private fun ActivityHeroCard(
                 modifier = Modifier.size(96.dp),
             )
             Column(
-                modifier = Modifier.weight(1f),
+                modifier = Modifier
+                    .weight(1f)
+                    .seamFade(),
                 verticalArrangement = Arrangement.spacedBy(3.dp),
             ) {
                 Text(
@@ -993,7 +1041,11 @@ private fun ActivitySmallCard(
     val interactionSource = remember { MutableInteractionSource() }
     val colors = rememberActivityCardColors(entry.coverArtUrl, extractBackdropColors)
     Surface(
-        modifier = modifier.elasticPress(interactionSource),
+        // The tinted card and its cover break up as one print; the text on it
+        // is lifted out and passes under the bar whole.
+        modifier = modifier
+            .elasticPress(interactionSource)
+            .seamDissolve(),
         shape = YoinContainerShapes.Card,
         color = colors.container,
         tonalElevation = 0.dp,
@@ -1020,7 +1072,7 @@ private fun ActivitySmallCard(
                     interactionSource = interactionSource,
                     modifier = Modifier.size(48.dp),
                 )
-                Column {
+                Column(modifier = Modifier.seamFade()) {
                     Text(
                         text = entry.typeLabel,
                         style = MaterialTheme.typography.labelSmall,
@@ -1049,6 +1101,7 @@ private fun ActivitySmallCard(
                 color = colors.content,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.seamFade(),
             )
         }
     }
@@ -1064,7 +1117,11 @@ private fun ActivityWideCard(
     val interactionSource = remember { MutableInteractionSource() }
     val colors = rememberActivityCardColors(entry.coverArtUrl, extractBackdropColors)
     Surface(
-        modifier = modifier.elasticPress(interactionSource),
+        // The tinted card and its cover break up as one print; the text on it
+        // is lifted out and passes under the bar whole.
+        modifier = modifier
+            .elasticPress(interactionSource)
+            .seamDissolve(),
         shape = YoinContainerShapes.Card,
         color = colors.container,
         tonalElevation = 0.dp,
@@ -1086,7 +1143,9 @@ private fun ActivityWideCard(
                 modifier = Modifier.size(80.dp),
             )
             Column(
-                modifier = Modifier.weight(1f),
+                modifier = Modifier
+                    .weight(1f)
+                    .seamFade(),
                 verticalArrangement = Arrangement.spacedBy(2.dp),
             ) {
                 Text(
@@ -1138,7 +1197,9 @@ private fun ActivityStripCard(
     }
     val colors = rememberActivityCardColors(entry.coverArtUrl, extractBackdropColors)
     Surface(
-        modifier = modifier.elasticPress(interactionSource),
+        modifier = modifier
+            .elasticPress(interactionSource)
+            .seamDissolve(),
         shape = YoinShapeTokens.Full,
         color = colors.container,
         tonalElevation = 0.dp,
@@ -1158,13 +1219,16 @@ private fun ActivityStripCard(
                 color = colors.content,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f),
+                modifier = Modifier
+                    .weight(1f)
+                    .seamFade(),
             )
             Text(
                 text = "${entry.typeLabel} · ${entry.timeAgo}",
                 style = MaterialTheme.typography.labelSmall,
                 color = colors.contentMuted,
                 maxLines = 1,
+                modifier = Modifier.seamFade(),
             )
         }
     }
@@ -1327,14 +1391,20 @@ private fun RecentlyAddedTrackTile(
         ExpressiveMediaArtwork(
             model = coverArtUrl,
             contentDescription = track.title.orEmpty(),
-            modifier = Modifier.size(RecentlyAddedTrackCover),
+            modifier = Modifier
+                .size(RecentlyAddedTrackCover)
+                .seamDissolve(),
             shape = YoinArtworkShapes.Thumb,
             fallbackIcon = YoinSymbols.Album,
             interactionSource = interactionSource,
             tonalElevation = 1.dp,
             shadowElevation = 0.dp,
         )
-        Column(modifier = Modifier.weight(1f)) {
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .seamFade(),
+        ) {
             Text(
                 text = track.title.orEmpty(),
                 // 13sp (vs bodyMedium's 14) so short titles like "Describe" fit
@@ -1391,6 +1461,7 @@ private fun RecentlyAddedAlbumCard(
             color = MaterialTheme.colorScheme.onSurface,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.seamFade(),
         )
         album.artist?.takeIf { it.isNotBlank() }?.let { artist ->
             Text(
@@ -1399,6 +1470,7 @@ private fun RecentlyAddedAlbumCard(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.seamFade(),
             )
         }
     }
@@ -1411,13 +1483,15 @@ private fun HomeEmptyCard(
     modifier: Modifier = Modifier,
 ) {
     ExpressiveSectionPanel(
-        modifier = modifier,
+        modifier = modifier.seamDissolve(),
         containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
         tonalElevation = 1.dp,
         shadowElevation = 0.dp,
     ) {
         Column(
-            modifier = Modifier.padding(18.dp),
+            modifier = Modifier
+                .padding(18.dp)
+                .seamFade(),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Text(

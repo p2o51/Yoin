@@ -67,7 +67,7 @@ class ArtistDetailActivity : ComponentActivity() {
             return
         }
         setContent {
-            YoinActivityRoot(deferBottomBarShadow = true) {
+            YoinActivityRoot {
                 val context = LocalContext.current
                 val app = context.applicationContext as YoinApplication
                 val scope = rememberCoroutineScope()

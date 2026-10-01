@@ -6,10 +6,15 @@ import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import com.gpo.yoin.ui.component.SeamBarFieldShown
 import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinMotionRole
 
-/** Original independent visibility clock; shared bounds retain their native springs. */
+/**
+ * Original independent visibility clock; shared bounds retain their native springs.
+ * The bar's halftone field (seams' bottom field) follows the same target, so it
+ * fades as Now Playing starts to rise and grows back once it has collapsed.
+ */
 @Composable
 fun OverlayChromeVisibility(
     expanded: Boolean,
@@ -19,6 +24,7 @@ fun OverlayChromeVisibility(
     enabled: Boolean = true,
     content: @Composable AnimatedVisibilityScope.() -> Unit,
 ) {
+    SeamBarFieldShown(shown = !expanded && enabled)
     AnimatedVisibility(
         visible = !expanded && enabled,
         modifier = modifier,

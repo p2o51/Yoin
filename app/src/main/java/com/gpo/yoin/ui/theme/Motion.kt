@@ -68,7 +68,19 @@ object YoinMotion {
     // The seam halftone's flow trails the scroll and coasts to rest after the
     // content stops. Stiffness of the equivalent critically damped spring
     // (decay rate ω = √stiffness): it never swings back, ~0.5s to settle.
+    // The scroll-speed follower behind the seams' stretch and disorder shares
+    // this ω, so all three settle on the same beat.
     const val SeamFlowSettleStiffness = 90f
+
+    // 静整动乱 (dissolve-final §1.7): the halftone's disorder D only exists while
+    // scrolling and settles back onto the lattice with the afterglow, so a page
+    // at rest prints perfectly regular dots. false = the previous round, D ≡ 1
+    // (the swirl and the ragged front stay at rest). Read ONLY by seamDisorder().
+    const val SeamSettleAtRest: Boolean = true
+
+    // dp/s: D = 1 − e^(−speed / SeamDisorderSpeed). Linear near rest, so D decays
+    // exactly like the afterglow (e^(−ωt)); 200 → 0.63, 800 → 0.98.
+    const val SeamDisorderSpeed: Float = 200f
 
     private val expressiveMotionScheme = MotionScheme.expressive()
     private val standardMotionScheme = MotionScheme.standard()

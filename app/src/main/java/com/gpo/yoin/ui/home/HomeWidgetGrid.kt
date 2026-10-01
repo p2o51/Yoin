@@ -37,6 +37,8 @@ import com.gpo.yoin.ui.component.rememberPressMorphShape
 import com.gpo.yoin.ui.component.elasticPress
 import com.gpo.yoin.ui.component.noRippleClickable
 import com.gpo.yoin.ui.component.rememberExpressiveBackdropColors
+import com.gpo.yoin.ui.component.seamDissolve
+import com.gpo.yoin.ui.component.seamFade
 import com.gpo.yoin.ui.experience.LayoutMode
 import com.gpo.yoin.ui.experience.LocalYoinWindowInfo
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
@@ -92,7 +94,7 @@ internal fun HomeSectionTitle(
             fontSize = 18.sp,
         ),
         color = MaterialTheme.colorScheme.onSurface,
-        modifier = modifier,
+        modifier = modifier.seamFade(),
     )
 }
 
@@ -244,7 +246,9 @@ private fun WidgetCard12(
             modifier = Modifier.width(WidgetCoverSize),
         )
         Column(
-            modifier = Modifier.weight(1f),
+            modifier = Modifier
+                .weight(1f)
+                .seamFade(),
             // The rating's own line box already carries generous leading —
             // 3dp keeps the comment visually attached to its score.
             verticalArrangement = Arrangement.spacedBy(3.dp),
@@ -353,6 +357,7 @@ private fun WidgetCoverBlock(
             color = MaterialTheme.colorScheme.onSurface,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.seamFade(),
         )
         Text(
             text = card.subtitle,
@@ -360,6 +365,7 @@ private fun WidgetCoverBlock(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.seamFade(),
         )
     }
 }
@@ -391,7 +397,7 @@ internal fun WidgetBackdropArtwork(
         ExpressiveMediaArtwork(
             model = model,
             contentDescription = contentDescription,
-            modifier = modifier,
+            modifier = modifier.seamDissolve(),
             shape = CircleShape,
             fallbackIcon = widgetFallbackIcon(kind),
             interactionSource = interactionSource,
@@ -420,7 +426,9 @@ internal fun WidgetBackdropArtwork(
     } else {
         backdropPolygon.toShape()
     }
-    Box(modifier = modifier) {
+    // Backdrop shape and cover break up as one print (a card around it, if
+    // any, takes over as the print).
+    Box(modifier = modifier.seamDissolve()) {
         Box(
             modifier = Modifier
                 .fillMaxSize()

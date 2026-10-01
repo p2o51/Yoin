@@ -103,7 +103,9 @@ import com.gpo.yoin.ui.component.minimumTouchTarget
 import com.gpo.yoin.ui.component.rememberExpressiveEntranceProgress
 import com.gpo.yoin.ui.component.seamDissolve
 import com.gpo.yoin.ui.component.seamDissolveViewport
+import com.gpo.yoin.ui.component.expressivePageSeamBackground
 import com.gpo.yoin.ui.component.seamFade
+import com.gpo.yoin.ui.component.seamRemainingPx
 import com.gpo.yoin.ui.component.seamScrolledPx
 import com.gpo.yoin.ui.component.yoinPageContentWidth
 import com.gpo.yoin.ui.experience.LayoutMode
@@ -873,7 +875,10 @@ private fun ArtistsTabContent(
         // instead of being cut at the grid's top edge.
         modifier = modifier
             .fillMaxSize()
-            .seamDissolveViewport { gridState.seamScrolledPx() },
+            .seamDissolveViewport(
+                background = expressivePageSeamBackground(),
+                remainingPx = { gridState.seamRemainingPx() },
+            ) { gridState.seamScrolledPx() },
         contentPadding = PaddingValues(
             start = 16.dp,
             top = 8.dp,
@@ -1065,7 +1070,10 @@ private fun AlbumsTabContent(
         // instead of being cut at the grid's top edge.
         modifier = modifier
             .fillMaxSize()
-            .seamDissolveViewport { gridState.seamScrolledPx() },
+            .seamDissolveViewport(
+                background = expressivePageSeamBackground(),
+                remainingPx = { gridState.seamRemainingPx() },
+            ) { gridState.seamScrolledPx() },
         // 16dp page margins to match the home feed; 12dp gutters, and a
         // tighter row gap now that the cards no longer reserve dead space.
         contentPadding = PaddingValues(
@@ -1170,7 +1178,10 @@ private fun SongsTabContent(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxWidth()
-                    .seamDissolveViewport { listState.seamScrolledPx() },
+                    .seamDissolveViewport(
+                        background = expressivePageSeamBackground(),
+                        remainingPx = { listState.seamRemainingPx() },
+                    ) { listState.seamScrolledPx() },
                 contentPadding = PaddingValues(
                     start = 0.dp,
                     top = 8.dp,
@@ -1304,7 +1315,10 @@ private fun PlaylistsTabContent(
                 state = listState,
                 modifier = Modifier
                     .fillMaxSize()
-                    .seamDissolveViewport { listState.seamScrolledPx() },
+                    .seamDissolveViewport(
+                        background = expressivePageSeamBackground(),
+                        remainingPx = { listState.seamRemainingPx() },
+                    ) { listState.seamScrolledPx() },
                 contentPadding = PaddingValues(
                     start = 0.dp,
                     top = 8.dp,
@@ -1500,7 +1514,10 @@ private fun FavoritesTabContent(
         state = listState,
         modifier = modifier
             .fillMaxSize()
-            .seamDissolveViewport { listState.seamScrolledPx() },
+            .seamDissolveViewport(
+                background = expressivePageSeamBackground(),
+                remainingPx = { listState.seamRemainingPx() },
+            ) { listState.seamScrolledPx() },
         contentPadding = PaddingValues(
             start = 0.dp,
             top = 8.dp,

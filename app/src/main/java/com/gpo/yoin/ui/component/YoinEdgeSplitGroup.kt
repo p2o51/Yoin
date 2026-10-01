@@ -157,7 +157,7 @@ fun YoinEdgeSplitGroup(
     }
 }
 
-/** One capsule: the bar's container colour, tonal lift and shared shadow, 32dp ends. */
+/** One capsule: the bar's container colour and tonal lift (no shadow, like the bar), 32dp ends. */
 @Composable
 private fun EdgeCapsule(
     x: Dp,
@@ -171,8 +171,7 @@ private fun EdgeCapsule(
         modifier = modifier
             .offset(x = x, y = top)
             .width(EdgeSplitGroupWidth)
-            .height(height)
-            .bottomBarShadow(shape, elevation = 12.dp),
+            .height(height),
         shape = shape,
         color = MaterialTheme.colorScheme.surfaceContainerHigh,
         tonalElevation = 8.dp,

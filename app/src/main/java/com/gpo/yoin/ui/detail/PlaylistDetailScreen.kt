@@ -82,7 +82,9 @@ import com.gpo.yoin.ui.component.rememberStagedReveal
 import com.gpo.yoin.ui.component.seamDissolve
 import com.gpo.yoin.ui.component.seamDissolveViewport
 import com.gpo.yoin.ui.component.seamFade
+import com.gpo.yoin.ui.component.seamRemainingPx
 import com.gpo.yoin.ui.component.seamScrolledPx
+import com.gpo.yoin.ui.component.expressivePageSeamBackground
 import com.gpo.yoin.ui.component.stagedBeat
 import com.gpo.yoin.ui.component.yoinPageContentWidth
 import com.gpo.yoin.ui.experience.LayoutMode
@@ -911,7 +913,11 @@ private fun PlaylistTrackList(
         state = listState,
         // The seam is the list's top edge (the docked band's lower edge in the
         // Compact pull-up): rows break into the halftone instead of being cut.
-        modifier = modifier.seamDissolveViewport { listState.seamScrolledPx() },
+        // At the bottom the bar's halftone field takes the thumbnails.
+        modifier = modifier.seamDissolveViewport(
+            background = expressivePageSeamBackground(),
+            remainingPx = { listState.seamRemainingPx() },
+        ) { listState.seamScrolledPx() },
         contentPadding = PaddingValues(top = 4.dp, bottom = 112.dp + navBottom),
     ) {
         if (header != null) {
@@ -1051,7 +1057,9 @@ private fun PlaylistMediumOverview(
                 ExpressiveMediaArtwork(
                     model = content.coverArtUrl,
                     contentDescription = content.playlistName,
-                    modifier = Modifier.size(PlaylistMediumHeroCoverSide),
+                    modifier = Modifier
+                        .size(PlaylistMediumHeroCoverSide)
+                        .seamDissolve(),
                     shape = YoinArtworkShapes.Hero,
                     fallbackIcon = YoinSymbols.Playlist,
                     border = null,

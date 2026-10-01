@@ -49,13 +49,14 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.drop
 
 /**
- * Account-free repro of the shell → album → back bottom-bar shadow hand-off
- * with the SHIPPING return path: this window wires its bar exactly like
+ * Account-free repro of the shell → album → back bottom-bar return (the bar
+ * once carried a cross-window shadow hand-off; it is shadowless now) with
+ * the SHIPPING return path: this window wires its bar exactly like
  * YoinNavHost (same chrome-morph owner, entering pose and settle backstop)
  * and opens the real AlbumDetailActivity through launchDetailFromShell, so
  * back runs the real predictive-back commit and the real close dissolve. The
- * fake album id leaves the page in its error state; the bars, pill and shadow
- * registry are the real ones.
+ * fake album id leaves the page in its error state; the bars and pill are the
+ * real ones.
  *
  *   adb shell am start -n com.gpo.yoin/.debug.ShadowReturnAuditActivity --el autoOpenMs 800
  *   (warm re-run: add -f 0x20000000)
