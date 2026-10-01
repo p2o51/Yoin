@@ -43,7 +43,6 @@ import androidx.compose.ui.graphics.lerp
 import kotlin.math.PI
 import kotlin.math.sin
 import kotlinx.coroutines.isActive
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
@@ -58,10 +57,6 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import coil3.compose.AsyncImage
-import coil3.request.ImageRequest
-import coil3.request.crossfade
-import coil3.size.Size
 import com.gpo.yoin.R
 import com.gpo.yoin.ui.theme.GoogleSansFlex
 import com.gpo.yoin.ui.theme.YoinMotion
@@ -188,6 +183,8 @@ internal fun ExpressiveMediaArtwork(
     // When set, the bitmap resolves at this fixed square size instead of the
     // live layout size — required when the artwork's size is being animated.
     requestSizePx: Int? = null,
+    reveal: ArtworkReveal = ArtworkReveal.Crossfade,
+    revealDirection: Int = 1,
 ) {
     val artworkModifier = if (interactionSource != null) {
         modifier.elasticPress(interactionSource)
@@ -209,31 +206,21 @@ internal fun ExpressiveMediaArtwork(
     ) {
         when {
             !LocalInspectionMode.current && model != null && !loadFailed -> {
-                val context = LocalContext.current
-                val request = remember(model, context, requestSizePx) {
-                    ImageRequest.Builder(context)
-                        .data(model)
-                        .crossfade(220)
-                        .apply {
-                            if (requestSizePx != null) {
-                                size(Size(requestSizePx, requestSizePx))
-                            }
-                        }
-                        .build()
-                }
-                AsyncImage(
-                    model = request,
+                ArtworkSwap(
+                    model = model,
                     contentDescription = contentDescription,
                     contentScale = contentScale,
                     filterQuality = filterQuality,
-                    modifier = Modifier.fillMaxSize(),
+                    requestSizePx = requestSizePx,
+                    reveal = reveal,
+                    direction = revealDirection,
                     onError = { loadFailed = true },
                 )
             }
 
             LocalInspectionMode.current -> {
                 Image(
-                    painter = painterResource(id = R.drawable.ic_launcher_foreground),
+                    painter = painterResource(id = R.drawable.ic_yoin_launcher_foreground),
                     contentDescription = contentDescription,
                     contentScale = contentScale,
                     modifier = Modifier.fillMaxSize(),

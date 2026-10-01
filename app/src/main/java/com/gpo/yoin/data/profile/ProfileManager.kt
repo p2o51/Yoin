@@ -226,6 +226,7 @@ class ProfileManager(
 
     suspend fun delete(id: String) {
         val wasActive = _activeProfileId.value == id
+        if (wasActive) onSwitchPrepare()
         profileDao.deleteById(id)
         // Drop the encrypted file too — leaving it would leak the secret
         // forever on disk under a profile id no Room row references.
@@ -302,6 +303,23 @@ class ProfileManager(
         }
     }
 
+    private val appleMigrationMutex = kotlinx.coroutines.sync.Mutex()
+
+    suspend fun migrateAppleMusicValidation(store: com.gpo.yoin.data.remote.applemusic.AppleMusicLegacyAccountStore) {
+        appleMigrationMutex.lock()
+        try {
+            val account = store.read() ?: return
+            val credentials = ProfileCredentials.AppleMusic(account.endpoint, account.musicUserToken)
+            val existing = profileDao.getAll().firstOrNull {
+                it.provider == credentials.providerId && decodeCredentials(it) == credentials
+            }
+            if (existing == null) create("Apple Music", credentials)
+            store.clear()
+        } finally {
+            appleMigrationMutex.unlock()
+        }
+    }
+
     suspend fun profileCount(): Int = profileDao.count()
 
     /**
@@ -336,6 +354,7 @@ class ProfileManager(
     private fun buildSource(profile: Profile): MusicSource? {
         val credentials = decodeCredentials(profile) ?: return null
         return when (credentials) {
+            is ProfileCredentials.AppleMusic -> com.gpo.yoin.data.source.applemusic.AppleMusicSource(credentials)
             is ProfileCredentials.Subsonic -> SubsonicMusicSource(
                 credentials = ServerCredentials(
                     serverUrl = credentials.serverUrl,

@@ -19,7 +19,7 @@ sealed class ProfileCredentials {
     data class Subsonic(
         val serverUrl: String,
         val username: String,
-        val password: String,
+        val password: String
     ) : ProfileCredentials()
 
     /**
@@ -42,12 +42,17 @@ sealed class ProfileCredentials {
         val refreshToken: String,
         val expiresAtEpochMs: Long,
         val scopes: List<String>,
-        val revoked: Boolean = false,
+        val revoked: Boolean = false
     ) : ProfileCredentials()
+
+    @Serializable
+    @SerialName("applemusic")
+    data class AppleMusic(val endpoint: String, val musicUserToken: String) : ProfileCredentials()
 
     val providerId: String
         get() = when (this) {
             is Subsonic -> MediaId.PROVIDER_SUBSONIC
             is Spotify -> MediaId.PROVIDER_SPOTIFY
+            is AppleMusic -> MediaId.PROVIDER_APPLE_MUSIC
         }
 }

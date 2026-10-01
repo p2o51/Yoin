@@ -1,5 +1,8 @@
 package com.gpo.yoin.ui.component
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.togetherWith
+import com.gpo.yoin.ui.theme.YoinMotionRole
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.layout.Arrangement
@@ -72,6 +75,46 @@ fun LyricsDisplay(
     visibleLines: Int = 5,
     fixedHeight: Dp = 160.dp,
     fontScale: Float = 1f,
+    trackKey: Any = Unit,
+    queueIndex: Int = 0,
+) {
+    // Song change = the stream carries on (see LyricsTrackTransition);
+    // loading → loaded dissolves instead of popping.
+    LyricsTrackTransition(
+        trackKey = trackKey,
+        data = lyrics to loading,
+        queueIndex = queueIndex,
+        positionMs = positionMs,
+        modifier = modifier,
+    ) { (trackLyrics, trackLoading), songPositionMs ->
+        AnimatedContent(
+            targetState = trackLyrics to trackLoading,
+            contentKey = { it.first.isEmpty() },
+            transitionSpec = {
+                (
+                    YoinMotion.slideInVertically(role = YoinMotionRole.Expressive) { it / 12 } +
+                        YoinMotion.fadeIn(role = YoinMotionRole.Standard)
+                    ) togetherWith YoinMotion.fadeOut(role = YoinMotionRole.Standard)
+            },
+            label = "compactLyricsLoaded",
+        ) { (shownLyrics, shownLoading) ->
+            LyricsDisplayContent(
+                lyrics = shownLyrics,
+                positionMs = songPositionMs,
+                loading = shownLoading,
+                fontScale = fontScale,
+            )
+        }
+    }
+}
+
+@Composable
+private fun LyricsDisplayContent(
+    lyrics: List<LyricLine>,
+    positionMs: () -> Long,
+    loading: Boolean,
+    fontScale: Float,
+    modifier: Modifier = Modifier.fillMaxSize(),
 ) {
     if (lyrics.isEmpty()) {
         Box(

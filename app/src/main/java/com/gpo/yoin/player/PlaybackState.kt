@@ -35,6 +35,14 @@ data class PlaybackState(
     val bufferedPosition: Long = 0L,
     val queue: List<Track> = emptyList(),
     val currentIndex: Int = -1,
+    /**
+     * The track that will actually play after [currentTrack], as the player
+     * resolves it (shuffle order and repeat-all included). Null at the end of
+     * the queue, under repeat-one, and for delegated backends that don't
+     * expose a queue (Spotify App Remote). Lets the lyrics view show the next
+     * song rising in during the outro.
+     */
+    val nextTrack: Track? = null,
     val repeatMode: Int = Player.REPEAT_MODE_OFF,
     val shuffleEnabled: Boolean = false,
     val audioSessionId: Int = 0,

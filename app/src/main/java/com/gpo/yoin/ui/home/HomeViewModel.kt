@@ -459,7 +459,7 @@ class HomeViewModel(
         val candidate = candidates.firstOrNull { it.hasAlbumReview }
             ?: candidates.firstOrNull { it.albumRating != null || it.averageSongRating != null }
             ?: return null
-        val rawAlbumId = rawEntityId(candidate.albumId)
+        val rawAlbumId = MediaId.storedRawId(candidate.provider, candidate.albumId)
         val albumId = MediaId(candidate.provider, rawAlbumId)
         val hasReview = candidate.hasAlbumReview
         // 首页从此渲染 AI 拟题而不是乐评全文（v2.2 印章卡决定）：只读缓存
@@ -616,7 +616,7 @@ class HomeViewModel(
         val hero = selectHomeHeroActivity(activities) ?: return null
         if (hero.entityType != ActivityEntityType.ALBUM.name) return null
         val album = try {
-            repository.getAlbum(MediaId(hero.provider, rawEntityId(hero.entityId)))
+            repository.getAlbum(MediaId(hero.provider, MediaId.storedRawId(hero.provider, hero.entityId)))
         } catch (cancellation: CancellationException) {
             throw cancellation
         } catch (_: Exception) {
@@ -628,9 +628,6 @@ class HomeViewModel(
         album.durationSec?.takeIf { seconds -> seconds > 60 }?.let { parts += "${it / 60} min" }
         return parts.takeIf { it.isNotEmpty() }?.joinToString(" · ")
     }
-
-    private fun rawEntityId(raw: String): String =
-        if (':' in raw) raw.substringAfter(':') else raw
 
     private suspend fun <T> guardedList(block: suspend () -> List<T>): List<T> = try {
         block()

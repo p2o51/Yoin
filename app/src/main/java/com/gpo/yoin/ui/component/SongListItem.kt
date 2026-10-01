@@ -85,7 +85,7 @@ fun SongListItem(
                 // 48dp full-bleed: the old 54dp slot at 0.78 fill drew a ~42dp
                 // cover with ghost margins (leftovers of the removed backdrop
                 // shape) that never lined up with the 48dp artist avatars.
-                modifier = Modifier.size(48.dp),
+                modifier = Modifier.size(48.dp).seamDissolve(),
                 shape = YoinArtworkShapes.Thumb,
                 fallbackIcon = Icons.Filled.MusicNote,
                 interactionSource = interactionSource,
@@ -98,7 +98,7 @@ fun SongListItem(
 
             // Title + subtitle flush — the line-height leading separates them.
             Column(
-                modifier = Modifier.weight(1f),
+                modifier = Modifier.weight(1f).seamFade(),
             ) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
@@ -142,6 +142,7 @@ fun SongListItem(
                     text = formatTrackDuration(durationSeconds),
                     style = MaterialTheme.typography.labelLarge.withTabularFigures(),
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.seamFade(),
                 )
             }
 

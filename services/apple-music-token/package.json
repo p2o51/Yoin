@@ -1,0 +1,1 @@
+{"name":"yoin-apple-music-token","private":true,"type":"module","scripts":{"test":"node --test *.test.mjs","check":"wrangler deploy --dry-run"},"devDependencies":{"@cloudflare/workers-types":"^5.20260906.1","miniflare":"^5.20260903.0-alpha","wrangler":"^4.129.0"}}

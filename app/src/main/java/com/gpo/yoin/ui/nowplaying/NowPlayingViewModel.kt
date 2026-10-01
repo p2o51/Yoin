@@ -9,6 +9,7 @@ import com.gpo.yoin.data.model.Lyrics as SourceLyrics
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.YoinDevice
 import com.gpo.yoin.data.repository.YoinRepository
+import com.gpo.yoin.data.source.ServiceFeatureCatalog
 import com.gpo.yoin.data.source.spotify.SpotifyAuthException
 import com.gpo.yoin.player.CastManager
 import com.gpo.yoin.player.CastState
@@ -39,6 +40,9 @@ import kotlinx.coroutines.launch
  *  (mirror of SpotifyAppRemotePlayer's fallback). Such a track can't be saved. */
 private const val REMOTE_UNKNOWN_TRACK_ID = "spotify-remote-unknown"
 
+/** Settle time before prefetching the next song's lyrics (skips cancel it). */
+private const val UP_NEXT_PREFETCH_DELAY_MS = 4_000L
+
 @OptIn(ExperimentalCoroutinesApi::class)
 class NowPlayingViewModel(
     private val playbackManager: PlaybackManager,
@@ -49,6 +53,22 @@ class NowPlayingViewModel(
 
     private val _lyrics = MutableStateFlow<List<LyricLine>>(emptyList())
     private val _lyricsLoading = MutableStateFlow(false)
+
+    /**
+     * The song the lyrics flows currently describe. Playback state and the
+     * lyrics reset arrive through different flows, so for a frame the UI can
+     * see the NEW song id next to the OLD song's lyrics. The lyrics view
+     * animates per song, so that frame would show the old lines in the new
+     * song's slot; uiState masks lyrics whose owner isn't the playing song.
+     */
+    private val _lyricsOwnerSongId = MutableStateFlow<String?>(null)
+
+    /**
+     * The next song's lyrics, fetched ahead of time so an open lyrics view can
+     * let them rise in during the outro and hand over without a loading beat.
+     * Consumed (applied as the current lyrics) when that song starts.
+     */
+    private val _upNextLyrics = MutableStateFlow<UpNextLyrics?>(null)
     private val _showLyricsTranslation = MutableStateFlow(false)
     private val _lyricsActionInFlight = MutableStateFlow<LyricsAction?>(null)
     private val _currentLyricsProviderName = MutableStateFlow<String?>(null)
@@ -105,20 +125,26 @@ class NowPlayingViewModel(
                     // 必须在任何 suspend 调用之前更新，否则一 suspend 就可能被下一次
                     // collectLatest 取消掉，用户看到的就是「上一首内容原地不动」。
                     val track = playbackManager.playbackState.value.currentTrack
+                    // Prefetched during the previous song's outro: apply it in
+                    // the same beat as the song change, so the lyrics view's
+                    // rising "up next" block becomes this song without a
+                    // loading state in between.
+                    val prefetched = _upNextLyrics.value?.takeIf { it.songId == songId.toString() }
                     _isStarred.value = track?.isStarred == true
-                    _lyrics.value = emptyList()
-                    _lyricsLoading.value = true
+                    _lyrics.value = prefetched?.lines ?: emptyList()
+                    _lyricsLoading.value = prefetched == null
+                    _lyricsOwnerSongId.value = songId.toString()
                     _showLyricsTranslation.value = false
                     _lyricsActionInFlight.value = null
-                    _currentLyricsProviderName.value = null
-                    _currentLyricsProviderSongId.value = null
+                    _currentLyricsProviderName.value = prefetched?.providerName
+                    _currentLyricsProviderSongId.value = prefetched?.providerSongId
                     pendingLyricsTranslationSwitchOffer = null
                     lyricsSearchJob?.cancel()
                     _lyricsSearchState.value = LyricsSearchState()
                     _aboutError.value = null
                     _askState.value = AskBarState.Idle
 
-                    loadLyrics(songId, track?.title, track?.artist)
+                    if (prefetched == null) loadLyrics(songId, track?.title, track?.artist)
                 } else {
                     _lyrics.value = emptyList()
                     _lyricsLoading.value = false
@@ -134,6 +160,43 @@ class NowPlayingViewModel(
                     _askState.value = AskBarState.Idle
                 }
             }
+        }
+        viewModelScope.launch {
+            // Prefetch the next song's lyrics. collectLatest + a short delay:
+            // rapid skipping cancels the fetch instead of hitting providers
+            // for every track it passes over.
+            playbackManager.playbackState
+                .map { it.nextTrack }
+                .distinctUntilChanged { a, b -> a?.id == b?.id }
+                .collectLatest { next ->
+                    if (next == null) {
+                        _upNextLyrics.value = null
+                        return@collectLatest
+                    }
+                    if (_upNextLyrics.value?.songId == next.id.toString()) return@collectLatest
+                    delay(UP_NEXT_PREFETCH_DELAY_MS)
+                    val loaded = try {
+                        repository.getLoadedLyrics(next.id, next.title, next.artist)
+                    } catch (e: kotlinx.coroutines.CancellationException) {
+                        throw e
+                    } catch (_: Exception) {
+                        null
+                    }
+                    val lines = loaded?.lyrics?.toUiLyrics().orEmpty()
+                    // Only timed lyrics can be choreographed against the outro.
+                    _upNextLyrics.value = if (lines.any { it.startMs != null }) {
+                        UpNextLyrics(
+                            songId = next.id.toString(),
+                            title = next.title.orEmpty(),
+                            artist = next.artist.orEmpty(),
+                            lines = lines,
+                            providerName = loaded?.providerName,
+                            providerSongId = loaded?.providerSongId,
+                        )
+                    } else {
+                        null
+                    }
+                }
         }
     }
 
@@ -234,12 +297,14 @@ class NowPlayingViewModel(
         _lyricsLoading,
         _showLyricsTranslation,
         _lyricsActionInFlight,
-    ) { lyrics, loading, showTranslation, actionInFlight ->
+        _lyricsOwnerSongId,
+    ) { lyrics, loading, showTranslation, actionInFlight, owner ->
         LyricsUiState(
             lyrics = lyrics,
             loading = loading,
             showTranslation = showTranslation,
             actionInFlight = actionInFlight,
+            ownerSongId = owner,
         )
     }
 
@@ -248,7 +313,8 @@ class NowPlayingViewModel(
         lyricsUiState,
         ratingFlow,
         favoriteFlow,
-    ) { (state, activityContext), lyricsState, rating, isStarred ->
+        _upNextLyrics,
+    ) { (state, activityContext), lyricsState, rating, isStarred, upNext ->
         val song = state.currentTrack
         val pending = state.pendingTrack
         when {
@@ -271,10 +337,14 @@ class NowPlayingViewModel(
                 songId = song.id.toString(),
                 rating = rating,
                 isStarred = isStarred,
-                lyrics = lyricsState.lyrics,
-                showLyricsTranslation = lyricsState.showTranslation,
+                lyrics = if (lyricsState.ownerSongId == song.id.toString()) lyricsState.lyrics else emptyList(),
+                showLyricsTranslation = lyricsState.showTranslation &&
+                    lyricsState.ownerSongId == song.id.toString(),
                 lyricsActionInFlight = lyricsState.actionInFlight,
-                lyricsLoading = lyricsState.loading,
+                lyricsLoading = lyricsState.loading || lyricsState.ownerSongId != song.id.toString(),
+                // Masked once consumed: the prefetch may still describe the
+                // song that is now playing until the next one is fetched.
+                upNextLyrics = upNext?.takeIf { it.songId != song.id.toString() },
                 queue = state.queue.map { queueSong ->
                     QueueItem(
                         songId = queueSong.id.toString(),
@@ -288,6 +358,7 @@ class NowPlayingViewModel(
                 albumId = song.albumId?.toString(),
                 artistId = song.artistId?.toString(),
                 activityContext = activityContext,
+                serviceFeatures = ServiceFeatureCatalog.forProvider(song.id.provider),
             )
 
             // Backend is still handshaking for the track the user tapped —
@@ -1123,6 +1194,7 @@ private data class LyricsUiState(
     val loading: Boolean,
     val showTranslation: Boolean,
     val actionInFlight: LyricsAction?,
+    val ownerSongId: String?,
 )
 
 private fun buildDevices(

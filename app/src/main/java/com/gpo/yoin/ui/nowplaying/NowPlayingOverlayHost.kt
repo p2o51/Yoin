@@ -2,7 +2,7 @@ package com.gpo.yoin.ui.nowplaying
 
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.PredictiveBackHandler
-import androidx.compose.animation.AnimatedVisibility
+import com.gpo.yoin.ui.navigation.back.OverlayPlayerVisibility
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.animation.core.animate
@@ -244,14 +244,7 @@ fun NowPlayingOverlayHost(
     }
 
     // ── Now Playing overlay ──────────────────────────────────────────────
-    AnimatedVisibility(
-        visible = expanded,
-        enter = YoinMotion.slideInVertically(role = YoinMotionRole.Expressive) { it } +
-            YoinMotion.fadeIn(role = YoinMotionRole.Standard),
-        exit = YoinMotion.slideOutVertically(role = YoinMotionRole.Standard) { it } +
-            YoinMotion.fadeOut(role = YoinMotionRole.Standard),
-        modifier = Modifier.fillMaxSize(),
-    ) {
+    OverlayPlayerVisibility(expanded = expanded, modifier = Modifier.fillMaxSize()) {
         val npAvScope = this
         // The 4Hz playhead is collected HERE (not in the host body) and
         // handed to the screen as reader lambdas, so only the leaves that

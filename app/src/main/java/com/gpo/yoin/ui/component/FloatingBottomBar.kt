@@ -1,6 +1,5 @@
 package com.gpo.yoin.ui.component
 
-import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
@@ -14,19 +13,16 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import com.gpo.yoin.ui.theme.YoinMotion
 
 /**
  * The floating bottom bar scaffold — outer margins, pill Surface, and inner
  * row metrics — shared VERBATIM by the shell Button Group and the detail
- * pages' bottom bar. The shell⇄detail hand-off crossfades one window's bar
- * onto the other's, so the two must be pixel twins; any metric change here
- * moves both together.
+ * pages' bottom bar. Their opaque fills overlap during window handoff, but
+ * only the frontmost overlapping host casts the shared 12dp shadow.
  *
  * The content lambda receives the inner row's width so callers can size
  * slots in absolute dp (the shell's morph interpolates widths by hand —
@@ -47,17 +43,14 @@ fun FloatingBottomBar(
             .padding(horizontal = 16.dp, vertical = 12.dp),
     ) {
         val innerWidth = maxWidth - 20.dp // row's 10dp horizontal padding × 2
-        val surfaceColor by animateColorAsState(
-            targetValue = MaterialTheme.colorScheme.surfaceContainerHigh,
-            animationSpec = YoinMotion.defaultEffectsSpec(),
-            label = "floatingBarSurfaceColor",
-        )
         Surface(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .bottomBarShadow(MaterialTheme.shapes.extraLarge, elevation = 12.dp),
             shape = MaterialTheme.shapes.extraLarge,
-            color = surfaceColor,
+            color = MaterialTheme.colorScheme.surfaceContainerHigh,
             tonalElevation = 8.dp,
-            shadowElevation = 12.dp,
+            shadowElevation = 0.dp,
         ) {
             Row(
                 modifier = Modifier

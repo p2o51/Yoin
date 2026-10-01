@@ -110,6 +110,10 @@ import com.gpo.yoin.ui.component.noRippleClickable
 import com.gpo.yoin.ui.component.formatTotalDuration
 import com.gpo.yoin.ui.component.minimumTouchTarget
 import com.gpo.yoin.ui.component.rememberExpressiveEntranceProgress
+import com.gpo.yoin.ui.component.seamDissolve
+import com.gpo.yoin.ui.component.seamDissolveViewport
+import com.gpo.yoin.ui.component.seamFade
+import com.gpo.yoin.ui.component.seamScrolledPx
 import com.gpo.yoin.ui.component.yoinPageContentWidth
 import com.gpo.yoin.ui.experience.LayoutMode
 import com.gpo.yoin.ui.experience.LocalYoinWindowInfo
@@ -446,7 +450,7 @@ private fun LibraryContentBody(
             textFieldState = textFieldState,
             searchBarState = searchBarState,
             onSearch = { onSearchQueryChanged(it) },
-            placeholder = { Text(state.searchScope.placeholder()) },
+            placeholder = { Text(if (state.searchesAppleMusicCatalog) "Search Apple Music" else state.searchScope.placeholder()) },
             leadingIcon = {
                 if (expanded) {
                     IconButton(
@@ -544,11 +548,13 @@ private fun LibraryContentBody(
         // grid covers, the list rows and the search pill all share ONE left
         // edge (the old outer 16dp stacked with the children's 16dp into a
         // misaligned 32dp).
+        // Tight 4dp under the chips: items dissolve into the seam instead of
+        // being cut at it, so the fixed gap no longer has to hide a hard edge.
         Column(
             modifier = Modifier
                 .weight(1f)
                 .fillMaxWidth(),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
             // Wide 桌面档 chips 已并进头排,这里不再重复渲染一份。
             if (!isDesktopWide) {
@@ -800,10 +806,14 @@ private fun ArtistsTabContent(
     LazyVerticalGrid(
         columns = libraryGridCells(),
         state = gridState,
-        modifier = modifier.fillMaxSize(),
+        // Items dissolve (artwork) and fade (text) into the chips above
+        // instead of being cut at the grid's top edge.
+        modifier = modifier
+            .fillMaxSize()
+            .seamDissolveViewport { gridState.seamScrolledPx() },
         contentPadding = PaddingValues(
             start = 16.dp,
-            top = 12.dp,
+            top = 8.dp,
             end = 16.dp,
             bottom = floatingBottomGroupContentPadding(),
         ),
@@ -852,6 +862,7 @@ private fun ArtistGridItem(
             modifier = Modifier
                 .fillMaxWidth()
                 .aspectRatio(1f)
+                .seamDissolve()
                 .elasticPress(interactionSource),
             shape = CircleShape,
             color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.84f),
@@ -885,7 +896,7 @@ private fun ArtistGridItem(
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
             textAlign = TextAlign.Center,
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier.fillMaxWidth().seamFade(),
         )
         artist.albumCount?.let { count ->
             Text(
@@ -894,7 +905,7 @@ private fun ArtistGridItem(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
                 textAlign = TextAlign.Center,
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth().seamFade(),
             )
         }
     }
@@ -922,7 +933,7 @@ private fun ArtistListItem(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Surface(
-                modifier = Modifier.size(48.dp),
+                modifier = Modifier.size(48.dp).seamDissolve(),
                 shape = CircleShape,
                 color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.84f),
             ) {
@@ -954,11 +965,14 @@ private fun ArtistListItem(
                 color = MaterialTheme.colorScheme.onSurface,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f),
+                modifier = Modifier.weight(1f).seamFade(),
             )
             artist.albumCount?.let { count ->
                 Spacer(modifier = Modifier.width(8.dp))
-                ExpressiveMetaPill(text = if (count == 1) "1 album" else "$count albums")
+                ExpressiveMetaPill(
+                    text = if (count == 1) "1 album" else "$count albums",
+                    modifier = Modifier.seamFade(),
+                )
             }
         }
     }
@@ -983,12 +997,16 @@ private fun AlbumsTabContent(
     LazyVerticalGrid(
         columns = libraryGridCells(),
         state = gridState,
-        modifier = modifier.fillMaxSize(),
+        // Items dissolve (artwork) and fade (text) into the chips above
+        // instead of being cut at the grid's top edge.
+        modifier = modifier
+            .fillMaxSize()
+            .seamDissolveViewport { gridState.seamScrolledPx() },
         // 16dp page margins to match the home feed; 12dp gutters, and a
         // tighter row gap now that the cards no longer reserve dead space.
         contentPadding = PaddingValues(
             start = 16.dp,
-            top = 12.dp,
+            top = 8.dp,
             end = 16.dp,
             bottom = floatingBottomGroupContentPadding(),
         ),
@@ -1087,7 +1105,8 @@ private fun SongsTabContent(
                 state = listState,
                 modifier = Modifier
                     .weight(1f)
-                    .fillMaxWidth(),
+                    .fillMaxWidth()
+                    .seamDissolveViewport { listState.seamScrolledPx() },
                 contentPadding = PaddingValues(
                     start = 0.dp,
                     top = 8.dp,
@@ -1219,7 +1238,9 @@ private fun PlaylistsTabContent(
         } else {
             LazyColumn(
                 state = listState,
-                modifier = Modifier.fillMaxSize(),
+                modifier = Modifier
+                    .fillMaxSize()
+                    .seamDissolveViewport { listState.seamScrolledPx() },
                 contentPadding = PaddingValues(
                     start = 0.dp,
                     top = 8.dp,
@@ -1350,7 +1371,7 @@ private fun PlaylistListItem(
                 model = coverArtUrl,
                 contentDescription = playlist.name,
                 variant = ExpressiveBackdropVariant.Ghostish,
-                modifier = Modifier.size(48.dp),
+                modifier = Modifier.size(48.dp).seamDissolve(),
                 shape = YoinArtworkShapes.Thumb,
                 fallbackIcon = Icons.AutoMirrored.Filled.QueueMusic,
                 // Full-bleed: the sub-1f fractions were placeholders for the
@@ -1362,7 +1383,7 @@ private fun PlaylistListItem(
 
             Spacer(modifier = Modifier.width(12.dp))
 
-            Column(modifier = Modifier.weight(1f)) {
+            Column(modifier = Modifier.weight(1f).seamFade()) {
                 Text(
                     text = playlist.name,
                     style = MaterialTheme.typography.titleSmall,
@@ -1413,7 +1434,9 @@ private fun FavoritesTabContent(
 
     LazyColumn(
         state = listState,
-        modifier = modifier.fillMaxSize(),
+        modifier = modifier
+            .fillMaxSize()
+            .seamDissolveViewport { listState.seamScrolledPx() },
         contentPadding = PaddingValues(
             start = 0.dp,
             top = 8.dp,
@@ -1546,7 +1569,7 @@ private fun AlbumListItem(
                 // 48dp aligns these covers with the artist avatars beside
                 // them in the Favorites mixed list; full-bleed kills the
                 // ghost margin left by the removed backdrop shape.
-                modifier = Modifier.size(48.dp),
+                modifier = Modifier.size(48.dp).seamDissolve(),
                 shape = YoinArtworkShapes.Thumb,
                 fallbackIcon = Icons.Filled.LibraryMusic,
                 fillFraction = 1f,
@@ -1554,7 +1577,7 @@ private fun AlbumListItem(
                 extractBackdropColors = false,
             )
             Spacer(modifier = Modifier.width(12.dp))
-            Column(modifier = Modifier.weight(1f)) {
+            Column(modifier = Modifier.weight(1f).seamFade()) {
                 Text(
                     text = album.name,
                     style = MaterialTheme.typography.titleSmall,
@@ -1880,7 +1903,9 @@ private fun SectionHeader(
         color = MaterialTheme.colorScheme.onSurfaceVariant,
         // Top-heavy: the header belongs to the group BELOW it, so it pulls
         // away from the previous list and sits close to its own.
-        modifier = modifier.padding(start = 16.dp, end = 16.dp, top = 18.dp, bottom = 6.dp),
+        modifier = modifier
+            .padding(start = 16.dp, end = 16.dp, top = 18.dp, bottom = 6.dp)
+            .seamFade(),
     )
 }
 

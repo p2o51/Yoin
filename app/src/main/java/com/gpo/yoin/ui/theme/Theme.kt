@@ -51,6 +51,7 @@ fun YoinTheme(
     colorSchemeOverride: ColorScheme? = null,
     motionSchemeOverride: MotionScheme? = null,
     coverBitmap: Bitmap? = null,
+    playbackThemeState: PlaybackThemeState? = null,
     darkTheme: Boolean = isSystemInDarkTheme(),
     content: @Composable () -> Unit,
 ) {
@@ -74,7 +75,8 @@ fun YoinTheme(
 
     // Resolve a single seed from cover art, then build a SPEC_2025 expressive scheme.
     var extractedScheme by remember { mutableStateOf<ColorScheme?>(null) }
-    LaunchedEffect(coverBitmap, darkTheme) {
+    LaunchedEffect(coverBitmap, darkTheme, playbackThemeState) {
+        if (playbackThemeState != null) return@LaunchedEffect
         extractedScheme = CoverSeedExtractor.extractSeedArgb(coverBitmap)?.let { seedArgb ->
             ExpressiveColorSchemeFactory.fromSeed(
                 seedArgb = seedArgb,
@@ -83,7 +85,8 @@ fun YoinTheme(
         }
     }
 
-    val targetScheme = extractedScheme ?: defaultScheme
+    val targetScheme = colorSchemeOverride ?: playbackThemeState?.colorScheme(darkTheme)
+        ?: extractedScheme ?: defaultScheme
     val motionScheme = motionSchemeOverride ?: MotionScheme.expressive()
 
     // Animate every token via the current effects motion bucket — zero hard color cuts.
@@ -91,6 +94,7 @@ fun YoinTheme(
         targetColorScheme = targetScheme,
         darkTheme = darkTheme,
         motionScheme = motionScheme,
+        sharedTransition = playbackThemeState?.transition,
     )
 
     CompositionLocalProvider(LocalYoinColors provides colorScheme) {

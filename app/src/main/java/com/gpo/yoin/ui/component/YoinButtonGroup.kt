@@ -4,7 +4,6 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionScope
-import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -42,6 +41,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.lerp
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
@@ -104,42 +104,18 @@ fun YoinButtonGroup(
 ) {
     ProvideYoinMotionRole(role = YoinMotionRole.Standard) {
         val haptics = rememberYoinHaptics()
-        val homeContainerColor by animateColorAsState(
-            targetValue = if (selectedSection == YoinSection.HOME) {
-                MaterialTheme.colorScheme.primaryContainer
-            } else {
-                MaterialTheme.colorScheme.surfaceContainerHighest
-            },
+        // Selection animates independently; palette changes use the shared
+        // theme wash directly so both windows paint the same handoff frame.
+        val homeSelection by animateFloatAsState(
+            targetValue = if (selectedSection == YoinSection.HOME) 1f else 0f,
             animationSpec = YoinMotion.defaultEffectsSpec(),
-            label = "buttonGroupHomeContainer",
+            label = "buttonGroupSelection",
         )
-        val homeContentColor by animateColorAsState(
-            targetValue = if (selectedSection == YoinSection.HOME) {
-                MaterialTheme.colorScheme.onPrimaryContainer
-            } else {
-                MaterialTheme.colorScheme.onSurfaceVariant
-            },
-            animationSpec = YoinMotion.defaultEffectsSpec(),
-            label = "buttonGroupHomeContent",
-        )
-        val libraryContainerColor by animateColorAsState(
-            targetValue = if (selectedSection == YoinSection.LIBRARY) {
-                MaterialTheme.colorScheme.primaryContainer
-            } else {
-                MaterialTheme.colorScheme.surfaceContainerHighest
-            },
-            animationSpec = YoinMotion.defaultEffectsSpec(),
-            label = "buttonGroupLibraryContainer",
-        )
-        val libraryContentColor by animateColorAsState(
-            targetValue = if (selectedSection == YoinSection.LIBRARY) {
-                MaterialTheme.colorScheme.onPrimaryContainer
-            } else {
-                MaterialTheme.colorScheme.onSurfaceVariant
-            },
-            animationSpec = YoinMotion.defaultEffectsSpec(),
-            label = "buttonGroupLibraryContent",
-        )
+        val colors = MaterialTheme.colorScheme
+        val homeContainerColor = lerp(colors.surfaceContainerHighest, colors.primaryContainer, homeSelection)
+        val homeContentColor = lerp(colors.onSurfaceVariant, colors.onPrimaryContainer, homeSelection)
+        val libraryContainerColor = lerp(colors.surfaceContainerHighest, colors.primaryContainer, 1f - homeSelection)
+        val libraryContentColor = lerp(colors.onSurfaceVariant, colors.onPrimaryContainer, 1f - homeSelection)
         var showLibrarySearchHint by remember { mutableStateOf(false) }
 
         FloatingBottomBar(

@@ -29,7 +29,35 @@
             android:exported="true"
             android:theme="@style/Theme.Yoin" />
         <activity
+            android:name=".debug.ShadowHandoffPreviewActivity"
+            android:exported="true"
+            android:theme="@style/Theme.Yoin" />
+        <activity
+            android:name=".debug.ShadowHandoffDetailActivity"
+            android:exported="false"
+            android:theme="@style/Theme.Yoin.DetailTranslucent" />
+        <activity
+            android:name=".debug.ShadowReturnAuditActivity"
+            android:exported="true"
+            android:theme="@style/Theme.Yoin" />
+        <activity
+            android:name=".debug.LyricsMotionPreviewActivity"
+            android:exported="true"
+            android:theme="@style/Theme.Yoin" />
+        <activity
+            android:name=".debug.SettingsPreviewActivity"
+            android:exported="true"
+            android:theme="@style/Theme.Yoin" />
+        <activity
+            android:name=".debug.MemoriesEmptyPreviewActivity"
+            android:exported="true"
+            android:theme="@style/Theme.Yoin" />
+        <activity
             android:name=".debug.BarMorphPreviewActivity"
+            android:exported="true"
+            android:theme="@style/Theme.Yoin" />
+        <activity
+            android:name=".debug.MotionAuditActivity"
             android:exported="true"
             android:theme="@style/Theme.Yoin" />
         <provider

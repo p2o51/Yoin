@@ -1,11 +1,17 @@
 package com.gpo.yoin.ui.settings
 
+import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsFocused
+import androidx.compose.ui.test.hasAnyAncestor
+import androidx.compose.ui.test.hasSetTextAction
+import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
-import com.gpo.yoin.data.profile.ProfileManager
-import com.gpo.yoin.data.profile.ProviderKind
-import com.gpo.yoin.ui.sampleSettingsState
+import androidx.compose.ui.test.onNodeWithText
+import com.gpo.yoin.ui.settings.service.ServiceSetupContent
+import com.gpo.yoin.ui.settings.service.ServiceSetupUiState
+import com.gpo.yoin.ui.settings.service.SetupService
+import com.gpo.yoin.ui.settings.service.SpotifySetupState
 import com.gpo.yoin.ui.theme.YoinTheme
 import org.junit.Rule
 import org.junit.Test
@@ -16,36 +22,44 @@ class SettingsDeepLinkTest {
     val rule = createComposeRule()
 
     @Test
-    fun spotify_focus_section_requests_focus_for_client_id_field() {
+    fun should_focusClientIdField_when_spotifySetupOpenedFromDeepLink() {
         rule.setContent {
             YoinTheme {
-                SettingsContent(
-                    uiState = sampleSettingsState(),
-                    switchingState = ProfileManager.SwitchState.Idle,
-                    profileFormSheet = ProfileFormSheet.Hidden,
-                    providerPickerVisible = false,
-                    deleteConfirmState = DeleteConfirmState.Hidden,
-                    focusSection = "spotify",
+                ServiceSetupContent(
+                    state = ServiceSetupUiState(
+                        service = SetupService.Spotify,
+                        isManaging = true,
+                        existingProfileName = "Jazz Server",
+                        spotify = SpotifySetupState(clientId = "abc"),
+                    ),
+                    focusClientId = true,
                     onBackClick = {},
-                    onSwitchToProfile = {},
-                    onEditProfile = {},
-                    onRequestDeleteProfile = {},
-                    onReconnectProfile = {},
-                    onShowProviderPicker = {},
-                    onHideProviderPicker = {},
-                    onPickProvider = { _: ProviderKind -> },
-                    onCloseFormSheet = {},
-                    onTestConnection = { _, _, _ -> },
-                    onSaveProfile = { _, _, _ -> },
-                    onDismissSwitchError = {},
-                    onDismissDeleteConfirm = {},
-                    onConfirmDeleteProfile = {},
-                    onClearCache = {},
                 )
             }
         }
 
         rule.waitForIdle()
-        rule.onNodeWithTag("spotify_client_id_field", useUnmergedTree = true).assertIsFocused()
+        // The tag belongs to ExpressiveTextField's wrapper; focus belongs to BasicTextField.
+        rule.onNode(
+            hasSetTextAction() and hasAnyAncestor(hasTestTag("spotify_client_id_field")),
+            useUnmergedTree = true,
+        ).assertIsFocused()
+    }
+
+    @Test
+    fun should_pitchServiceBeforeConnecting_when_addingSpotify() {
+        rule.setContent {
+            YoinTheme {
+                ServiceSetupContent(
+                    state = ServiceSetupUiState(service = SetupService.Spotify, isManaging = false),
+                    onBackClick = {},
+                )
+            }
+        }
+
+        rule.onNodeWithText("What you get").assertIsDisplayed()
+        rule.onNodeWithText("Spotify Premium").assertIsDisplayed()
+        // No Client ID yet: the connect button waits for developer setup.
+        rule.onNodeWithTag("spotify_connect").assertExists()
     }
 }

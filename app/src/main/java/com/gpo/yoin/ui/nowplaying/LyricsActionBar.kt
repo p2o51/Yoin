@@ -39,6 +39,7 @@ internal fun LyricsActionBar(
     onApplyClick: () -> Unit,
     onRecenterClick: () -> Unit,
     modifier: Modifier = Modifier,
+    searchModifier: Modifier = Modifier,
 ) {
     val searchInteraction = remember { MutableInteractionSource() }
     val translateInteraction = remember { MutableInteractionSource() }
@@ -61,6 +62,7 @@ internal fun LyricsActionBar(
                         interactionSource = searchInteraction,
                         enabled = actionInFlight == null,
                         onClick = onSearchClick,
+                        modifier = searchModifier,
                     )
                 },
                 menuContent = { _ -> },
@@ -114,11 +116,12 @@ private fun ButtonGroupScope.LyricsActionIcon(
     interactionSource: MutableInteractionSource,
     enabled: Boolean,
     onClick: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     FilledTonalIconButton(
         onClick = onClick,
         enabled = enabled,
-        modifier = Modifier
+        modifier = modifier
             .size(width = 52.dp, height = 52.dp)
             .animateWidth(interactionSource),
         interactionSource = interactionSource,

@@ -36,3 +36,21 @@ local.properties
 # Agent / tooling working dirs
 .claude/
 .commandcode/
+
+# Credentials must never enter the public repository.
+*.p8
+*.pem
+.env
+.env.*
+.dev.vars*
+
+# Local QA artifacts (screenshots, recordings, agent scratch) — never commit.
+/outputs/
+/.workbuddy/
+/docs/temp/**
+!/docs/temp/*.md
+
+# Apple MusicKit SDK binaries: Apple developer download, not redistributable in
+# this public repository. Obtain them per app/libs/README-apple-music.md.
+/app/libs/musickitauth-release-*.aar
+/app/libs/mediaplayback-release-*.aar

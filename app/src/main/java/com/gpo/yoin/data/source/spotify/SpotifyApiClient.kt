@@ -152,25 +152,24 @@ class SpotifyApiClient(
         )
     }
 
-    /** The artist's ~10 most popular tracks in the user's market. One request. */
-    suspend fun getArtistTopTracks(id: String): List<SpotifyTrackObject> = withContext(Dispatchers.IO) {
-        getDecoded(
-            url = apiUrl("v1", "artists", id, "top-tracks")
-                .newBuilder()
-                .addQueryParameter("market", "from_token")
-                .build(),
-            deserializer = SpotifyArtistTopTracksResponse.serializer(),
-        ).tracks
-    }
+    // (GET /artists/{id}/top-tracks was removed for Development Mode apps in
+    // the February 2026 Web API migration — there is no replacement.)
 
+    /**
+     * The artist's own releases. Since the February 2026 migration this
+     * endpoint pages at most 10 items per request (a larger `limit` is
+     * rejected), so the total is capped to keep an artist visit to a handful
+     * of requests. `appears_on` is left out on purpose: other artists'
+     * records inflated the count and aren't this artist's discography.
+     */
     suspend fun getArtistAlbums(
         id: String,
-        limit: Int = DEFAULT_COLLECTION_LIMIT,
+        limit: Int = ARTIST_ALBUMS_LIMIT,
     ): List<SpotifySimplifiedAlbumObject> = collectOffsetPages(
         initialUrl = apiUrl("v1", "artists", id, "albums")
             .newBuilder()
-            .addQueryParameter("limit", PAGE_LIMIT.toString())
-            .addQueryParameter("include_groups", "album,single,compilation,appears_on")
+            .addQueryParameter("limit", ARTIST_ALBUMS_PAGE_LIMIT.toString())
+            .addQueryParameter("include_groups", "album,single,compilation")
             .build(),
         maxItems = limit,
         deserializer = SpotifyPagingObject.serializer(SpotifySimplifiedAlbumObject.serializer()),
@@ -266,27 +265,13 @@ class SpotifyApiClient(
         mutateLibrary(method = "DELETE", uri = uri)
     }
 
-    /** Follow (PUT) / unfollow (DELETE) an artist: `/v1/me/following?type=artist`. */
-    suspend fun setArtistFollowed(artistId: String, followed: Boolean) = withContext(Dispatchers.IO) {
-        val url = apiUrl("v1", "me", "following")
-            .newBuilder()
-            .addQueryParameter("type", "artist")
-            .addQueryParameter("ids", artistId)
-            .build()
-        ensureNotRateLimited(url.toString())
-        executeWithAuthRetry { accessToken ->
-            Request.Builder()
-                .url(url)
-                .header("Authorization", "Bearer $accessToken")
-                .method(if (followed) "PUT" else "DELETE", EMPTY_BODY)
-                .build()
-                .let(httpClient::newCall)
-                .execute()
-        }.use { response ->
-            if (!response.isSuccessful) {
-                throw response.toSpotifyFailure(url.toString())
-            }
-        }
+    /**
+     * Follow (PUT) / unfollow (DELETE) an artist. `PUT/DELETE /me/following`
+     * was removed in the February 2026 migration; following is now a library
+     * write with the artist's URI (`/v1/me/library?uris=spotify:artist:…`).
+     */
+    suspend fun setArtistFollowed(artistId: String, followed: Boolean) {
+        mutateLibrary(method = if (followed) "PUT" else "DELETE", uri = "spotify:artist:$artistId")
     }
 
     // ── Playlist mutation ───────────────────────────────────────────────
@@ -650,6 +635,8 @@ class SpotifyApiClient(
         private const val MAX_RETRY_AFTER_SECONDS = 24L * 60L * 60L
         private const val REFRESH_BUFFER_MS = 60_000L
         private const val PAGE_LIMIT = 50
+        private const val ARTIST_ALBUMS_PAGE_LIMIT = 10
+        private const val ARTIST_ALBUMS_LIMIT = 60
         private const val RECENTLY_PLAYED_LIMIT = 50
         private const val DEFAULT_COLLECTION_LIMIT = 200
         private const val DEFAULT_TRACKS_LIMIT = 300

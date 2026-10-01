@@ -1,5 +1,7 @@
 package com.gpo.yoin.ui.component
 
+import com.gpo.yoin.data.remote.applemusic.AppleMusicApiException
+import com.gpo.yoin.data.remote.applemusic.AppleMusicApiFailure
 import com.gpo.yoin.data.repository.SubsonicException
 import com.gpo.yoin.data.source.spotify.SpotifyAuthException
 import com.gpo.yoin.data.source.spotify.SpotifyRateLimitException
@@ -36,6 +38,14 @@ fun Throwable.toUserMessage(fallback: String): String = when (this) {
         // code 0 = client-side precondition; its message is already
         // user-authored ("Spotify client id is not configured. …").
         code == 0 -> message ?: fallback
+        else -> fallback
+    }
+    // An IOException subtype, but an HTTP answer from Apple — not a connectivity failure.
+    is AppleMusicApiException -> when (failure) {
+        AppleMusicApiFailure.UserAuthorizationRequired -> "Apple Music access expired. Reconnect in Settings."
+        AppleMusicApiFailure.DeveloperTokenRejected -> "Apple Music rejected the developer token. Check the token service."
+        AppleMusicApiFailure.AccessDenied -> "Apple Music denied access. Check your subscription."
+        AppleMusicApiFailure.RateLimited -> "Apple Music is busy right now. Try again in a moment."
         else -> fallback
     }
     is IOException -> "Can't reach the server. Check your connection."

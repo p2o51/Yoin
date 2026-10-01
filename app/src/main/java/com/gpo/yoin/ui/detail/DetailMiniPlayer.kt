@@ -54,28 +54,33 @@ private fun PlaybackState.toDetailMiniPlayerState(
         trackId = track.id.toString(),
         title = track.title.orEmpty(),
         artist = track.artist.orEmpty(),
-        coverArtUrl = container.repository.resolveCoverUrl(track.coverArt, size = 240),
+        // EXACTLY the shell pill's URL (YoinNavHost: no size). This pill is
+        // the pixel twin drawn over the shell's during the hand-off; a sized
+        // URL was a different cache key, so every detail window re-downloaded
+        // the thumbnail and the pill's cover blinked out and faded back in
+        // mid hand-off. Same URL = memory hit = painted on the first frame.
+        coverArtUrl = container.repository.resolveCoverUrl(track.coverArt),
         isPlaying = isPlaying,
     )
 }
 
 /**
- * Track progress fraction for the pill's wave fill. Quantized so the 250ms
- * position ticker only emits when the wave front would visibly move (~1px).
+ * The exact same fraction as the shell's pill. Quantizing only the detail
+ * copy shifts its wave front at the cross-window return handoff.
  */
 @Composable
 fun rememberDetailMiniPlayerProgress(container: AppContainer): State<Float> {
     // Seeded from the live state: a 0% first frame reads as a wave blip.
     val seed = remember(container) {
-        container.playbackManager.playbackState.value.toQuantizedProgress()
+        container.playbackManager.playbackState.value.toPlaybackProgress()
     }
     return remember(container) {
         container.playbackManager.playbackState
-            .map { state -> state.toQuantizedProgress() }
+            .map { state -> state.toPlaybackProgress() }
             .distinctUntilChanged()
     }.collectAsState(initial = seed)
 }
 
-private fun PlaybackState.toQuantizedProgress(): Float =
+private fun PlaybackState.toPlaybackProgress(): Float =
     if (duration <= 0L) 0f
-    else ((position.toFloat() / duration) * 480f).toInt() / 480f
+    else (position.toFloat() / duration).coerceIn(0f, 1f)

@@ -25,6 +25,7 @@ import com.gpo.yoin.data.source.MusicMetadata
 import com.gpo.yoin.data.source.MusicPlayback
 import com.gpo.yoin.data.source.MusicSource
 import com.gpo.yoin.data.source.MusicWriteActions
+import com.gpo.yoin.data.source.ServiceFeatureCatalog
 import kotlin.math.roundToInt
 
 /**
@@ -43,13 +44,7 @@ class SubsonicMusicSource(
 
     override val id: String = MediaId.PROVIDER_SUBSONIC
 
-    override val capabilities: Set<Capability> = setOf(
-        Capability.SEARCH,
-        Capability.RANDOM_SONGS,
-        Capability.PLAYLISTS_READ,
-        Capability.PLAYLISTS_WRITE,
-        Capability.LYRICS,
-    )
+    override val capabilities: Set<Capability> = ServiceFeatureCatalog.subsonic.capabilities
 
     private val library = object : MusicLibrary {
         override suspend fun ping(): Boolean {

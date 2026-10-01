@@ -15,10 +15,14 @@ Launch with `adb shell am start -n com.gpo.yoin/com.gpo.yoin.debug.<Activity>`.
 | Activity | What it shows |
 | --- | --- |
 | `AuroraPreviewActivity` | Both aurora effects with no playback and no server: top half is the Now Playing Gemini-thinking wash pinned active, bottom half the Memories ambient wash. |
+| `MotionAuditActivity` | Real Now Playing → detail → nested player navigation with a silent in-memory track and shared cover scopes. No configured account required; this debug-only fixture does not persist credentials or start playback. |
 | `BarMorphPreviewActivity` | The bottom bar's nav ⇄ Play-split morph in isolation, inside a `SharedTransitionLayout`, so bar poses can be scrubbed without the shell. |
+| `ShadowHandoffPreviewActivity` | Account-free loop of the cross-window bar-shadow hand-off (shell-like window ⇄ translucent detail-like window) with the real registry and window animations. `--ei cycles 2`. |
+| `ShadowReturnAuditActivity` | Shell-like window wired like `YoinNavHost`'s bar, opening the real `AlbumDetailActivity` (fake id → error page) so back runs the shipping commit + shadow hand-back. `--el autoOpenMs 800` auto-opens; `--ez timecode true` draws a per-frame uptime code (logged under `ShadowReturnAudit`) to match screen-recording frames to draw times. |
 | `DetailScreenshotActivity` | `AlbumDetailScreen` against fixed fake data. |
 | `LibraryScreenshotActivity` | The Library page against fixed fake data. Pick the tab with a string extra: `--es tab Albums`. |
 | `MemoriesScreenshotActivity` | The whole redesigned home feed — Activities bento, Jump Back In widget grid, compact Recently Added. |
+| `MemoriesEmptyPreviewActivity` | Prototype of the redesigned Memories empty state. Pick the variant with a string extra: `--es variant fresh` (ghost seal + gates) or `--es variant almost` (near-miss album + CTA). |
 
 Example:
 

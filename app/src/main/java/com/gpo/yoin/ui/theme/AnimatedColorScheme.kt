@@ -1,6 +1,7 @@
 package com.gpo.yoin.ui.theme
 
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FiniteAnimationSpec
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -15,7 +16,8 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -26,6 +28,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
 
 /**
  * Number of discrete steps a color wash is quantized into. Each step emits exactly one
@@ -55,6 +60,7 @@ fun animateColorScheme(
     targetColorScheme: ColorScheme,
     darkTheme: Boolean,
     motionScheme: MotionScheme,
+    sharedTransition: ColorSchemeTransition? = null,
 ): ColorScheme {
     // Same motion bucket the per-token animation used; the spring parameters are
     // identical regardless of the animated type, so driving a single 0→1 progress
@@ -64,65 +70,51 @@ fun animateColorScheme(
         expressiveScheme = motionScheme,
     )
 
-    // The scheme currently on screen. Starts at the target — the first composition
-    // shows it immediately with no wash, matching animateColorAsState's behavior.
-    var displayed by remember { mutableStateOf(targetColorScheme) }
-
-    // Dedup the wash DESTINATION by value, not instance: if the caller rebuilds a
-    // value-equal target mid-wash (each displayed step recomposes the theme), a
-    // fresh instance as the effect key would cancel and restart the spring every
-    // step — a feedback loop that never settles. Only a target that actually
-    // differs from the current destination may re-key the effect.
-    val washHolder = remember { WashTargetHolder(targetColorScheme) }
-    if (washHolder.value !== targetColorScheme &&
-        !sameAnimatedTokens(washHolder.value, targetColorScheme)
-    ) {
-        washHolder.value = targetColorScheme
-    }
-    val washTarget = washHolder.value
-
-    LaunchedEffect(washTarget, darkTheme) {
-        // Skip no-op washes and keep the currently displayed instance: adopting a
-        // value-equal replacement would needlessly invalidate the static locals.
-        if (displayed === washTarget ||
-            sameAnimatedTokens(displayed, washTarget)
-        ) {
-            return@LaunchedEffect
-        }
-        // A mid-flight retarget cancels this effect and restarts the wash from
-        // whatever (possibly mid-lerp) scheme is currently displayed.
-        val from = displayed
-        var lastStep = 0
-        Animatable(0f).animateTo(targetValue = 1f, animationSpec = spec) {
-            val step = (value * COLOR_WASH_STEPS).toInt().coerceIn(0, COLOR_WASH_STEPS)
-            if (step > lastStep) {
-                lastStep = step
-                displayed = if (step == COLOR_WASH_STEPS) {
-                    washTarget
-                } else {
-                    lerpColorScheme(
-                        from = from,
-                        to = washTarget,
-                        fraction = step / COLOR_WASH_STEPS.toFloat(),
-                        darkTheme = darkTheme,
-                    )
-                }
-            }
-        }
-        // The spring settles asymptotically; land exactly on the target instance so
-        // steady-state recompositions of the theme return an identical value.
-        displayed = washTarget
-    }
-
+    val localScope = rememberCoroutineScope()
+    val transition = sharedTransition ?: remember { ColorSchemeTransition(localScope) }
+    val displayed = transition.currentOrInitial(targetColorScheme)
+    SideEffect { transition.animateTo(targetColorScheme, darkTheme, spec) }
     return displayed
 }
 
-/**
- * Plain (non-snapshot) holder for the current wash destination. Mutated during
- * composition — safe because the update is idempotent and deliberately does NOT
- * trigger recomposition; it only feeds [LaunchedEffect]'s key comparison.
- */
-private class WashTargetHolder(var value: ColorScheme)
+/** One displayed palette and effects spring, retained across Activity compositions. */
+class ColorSchemeTransition(private val scope: CoroutineScope) {
+    private var displayed by mutableStateOf<ColorScheme?>(null)
+    private var target: ColorScheme? = null
+    private var animation: Job? = null
+
+    internal fun currentOrInitial(initial: ColorScheme): ColorScheme =
+        displayed ?: initial.also { displayed = it; target = it }
+
+    internal fun animateTo(
+        destination: ColorScheme,
+        darkTheme: Boolean,
+        spec: FiniteAnimationSpec<Float>,
+    ) {
+        // Multiple windows observe the same target. Attaching another window
+        // must neither restart the wash nor jump to its destination.
+        if (target?.let { sameAnimatedTokens(it, destination) } == true) return
+        target = destination
+        animation?.cancel()
+        val from = currentOrInitial(destination)
+        if (sameAnimatedTokens(from, destination)) return
+        animation = scope.launch {
+            var lastStep = 0
+            Animatable(0f).animateTo(targetValue = 1f, animationSpec = spec) {
+                val step = (value * COLOR_WASH_STEPS).toInt().coerceIn(0, COLOR_WASH_STEPS)
+                if (step > lastStep) {
+                    lastStep = step
+                    displayed = if (step == COLOR_WASH_STEPS) {
+                        destination
+                    } else {
+                        lerpColorScheme(from, destination, step / COLOR_WASH_STEPS.toFloat(), darkTheme)
+                    }
+                }
+            }
+            displayed = destination
+        }
+    }
+}
 
 /**
  * True when the 36 wash-animated tokens of [a] and [b] are identical — used to skip

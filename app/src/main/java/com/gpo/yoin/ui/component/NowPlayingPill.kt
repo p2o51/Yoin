@@ -3,14 +3,9 @@ package com.gpo.yoin.ui.component
 import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionScope
-import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.basicMarquee
@@ -39,11 +34,13 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.unit.dp
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
 import com.gpo.yoin.ui.navigation.nowPlayingCoverSharedKey
@@ -79,44 +76,18 @@ fun NowPlayingPill(
     interactionSource: MutableInteractionSource? = null,
 ) {
     val haptics = rememberYoinHaptics()
-    val containerColor by animateColorAsState(
-        targetValue = if (currentTrackTitle != null) {
-            MaterialTheme.colorScheme.primaryContainer
-        } else {
-            MaterialTheme.colorScheme.surfaceContainerHighest
-        },
+    // Theme tokens already share one app-wide wash. Only animate the local
+    // empty/playing state; a second color spring would lag behind a new window.
+    val trackPresence by animateFloatAsState(
+        targetValue = if (currentTrackTitle != null) 1f else 0f,
         animationSpec = YoinMotion.defaultEffectsSpec(),
-        label = "nowPlayingPillContainer",
+        label = "nowPlayingPillTrackPresence",
     )
-    val contentColor by animateColorAsState(
-        targetValue = if (currentTrackTitle != null) {
-            MaterialTheme.colorScheme.onPrimaryContainer
-        } else {
-            MaterialTheme.colorScheme.onSurfaceVariant
-        },
-        animationSpec = YoinMotion.defaultEffectsSpec(),
-        label = "nowPlayingPillContent",
-    )
-    val progressFillColor by animateColorAsState(
-        targetValue = MaterialTheme.colorScheme.primary.copy(alpha = 0.25f),
-        animationSpec = YoinMotion.defaultEffectsSpec(),
-        label = "nowPlayingPillProgressFill",
-    )
-    val waveTransition = rememberInfiniteTransition(label = "nowPlayingPillWave")
-    val wavePhase by waveTransition.animateFloat(
-        initialValue = 0f,
-        targetValue = 2f * Math.PI.toFloat(),
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 3000, easing = LinearEasing),
-            repeatMode = RepeatMode.Restart,
-        ),
-        label = "nowPlayingPillWavePhase",
-    )
-    val waveAmplitude by animateFloatAsState(
-        targetValue = if (isPlaying) 1f else 0f,
-        animationSpec = YoinMotion.defaultSpatialSpec(),
-        label = "nowPlayingPillWaveAmplitude",
-    )
+    val colors = MaterialTheme.colorScheme
+    val containerColor = lerp(colors.surfaceContainerHighest, colors.primaryContainer, trackPresence)
+    val contentColor = lerp(colors.onSurfaceVariant, colors.onPrimaryContainer, trackPresence)
+    val progressFillColor = colors.primary.copy(alpha = 0.25f)
+    val wave = rememberPlaybackWave(isPlaying)
     val sharedBoundsSpec = YoinMotion.defaultSpatialSpec<Rect>(
         role = YoinMotionRole.Standard,
         expressiveScheme = MaterialTheme.motionScheme,
@@ -191,7 +162,7 @@ fun NowPlayingPill(
                             val width = size.width
                             val height = size.height
                             val progressX = width * clampedProgress
-                            val amplitude = 4.dp.toPx() * waveAmplitude
+                            val amplitude = 4.dp.toPx() * wave.amplitude
                             val waveSteps = 20
 
                             val path = Path().apply {
@@ -201,7 +172,7 @@ fun NowPlayingPill(
                                     val fraction = index.toFloat() / waveSteps
                                     val y = fraction * height
                                     val dx = sin(
-                                        wavePhase +
+                                        wave.phase +
                                             fraction * 2f * Math.PI.toFloat(),
                                     ) * amplitude
                                     lineTo(progressX + dx, y)
@@ -367,6 +338,12 @@ private fun NowPlayingPillArtwork(
         baseModifier
     }
 
+    // Fixed request size: Coil then answers a memory hit synchronously, so a
+    // detail window's twin pill (same URL, same size → same cache key) paints
+    // its cover on the first frame of the hand-off instead of blanking until a
+    // layout-sized load returns. Larger than the 34dp slot because the pill
+    // art is scaled up by the Now Playing shared-bounds rise.
+    val requestSizePx = with(LocalDensity.current) { PillArtworkRequestSize.roundToPx() }
     ExpressiveMediaArtwork(
         model = currentTrackCoverArtUrl,
         contentDescription = currentTrackTitle ?: "Current track",
@@ -375,6 +352,7 @@ private fun NowPlayingPillArtwork(
         fallbackIcon = Icons.Filled.MusicNote,
         tonalElevation = 1.dp,
         shadowElevation = 0.dp,
+        requestSizePx = requestSizePx,
     )
 }
 
@@ -385,6 +363,9 @@ private data class PillTrack(
     val artist: String?,
     val cover: String?,
 )
+
+/** Decode size of the pill cover; shared by the shell and detail twins. */
+private val PillArtworkRequestSize = 96.dp
 
 /** Horizontal travel of the track-change push. */
 private val PillPushTravel = 30.dp

@@ -19,6 +19,7 @@ import com.gpo.yoin.data.source.MusicMetadata
 import com.gpo.yoin.data.source.MusicPlayback
 import com.gpo.yoin.data.source.MusicSource
 import com.gpo.yoin.data.source.MusicWriteActions
+import com.gpo.yoin.data.source.ServiceFeatureCatalog
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
@@ -55,13 +56,7 @@ class SpotifyMusicSource(
 
     override val id: String = MediaId.PROVIDER_SPOTIFY
 
-    override val capabilities: Set<Capability> = setOf(
-        Capability.SEARCH,
-        Capability.RANDOM_SONGS,
-        Capability.PLAYLISTS_READ,
-        Capability.PLAYLISTS_WRITE,
-        // No LYRICS: Spotify Web API does not expose lyrics.
-    )
+    override val capabilities: Set<Capability> = ServiceFeatureCatalog.spotify.capabilities
 
     private var savedTracksCache: List<SpotifySavedTrackObject>? = null
     private var savedAlbumsCache: List<SpotifySavedAlbumObject>? = null
@@ -126,18 +121,6 @@ class SpotifyMusicSource(
                 isStarred = rawId in followedArtistIds,
             )
         }
-
-        override suspend fun getArtistTopTracks(id: MediaId): List<Track> =
-            withSpotifyId(id) { rawId ->
-                // Best-effort: a market/region hiccup just hides the Popular
-                // section rather than failing the whole artist page. NOTE: no
-                // savedTrackIds() here — these tracks are a play queue / display
-                // rows that don't read isStarred, so warming the saved-tracks set
-                // (up to a full paginated fetch on a cold cache) would be wasted.
-                runCatching { apiClient.getArtistTopTracks(rawId) }
-                    .getOrDefault(emptyList())
-                    .map { it.toTrack() }
-            }.orEmpty()
 
         override suspend fun getPlaylists(): List<Playlist> {
             val meId = apiClient.getCurrentUserId()

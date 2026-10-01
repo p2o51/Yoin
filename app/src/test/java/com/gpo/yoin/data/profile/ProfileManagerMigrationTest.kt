@@ -131,6 +131,54 @@ class ProfileManagerMigrationTest {
         assertNull(credentialsStore.snapshot("broken"))
     }
 
+    @Test
+    fun should_importLegacyAppleAccountOnce_withoutSwitchingExistingProfile() = runTest {
+        val dao = InMemoryProfileDao()
+        val secrets = InMemoryProfileCredentialsStore()
+        val manager = ProfileManager(dao, InMemoryActiveIdStore(), secrets, PlaintextProfileCredentialsCodec(), backgroundScope)
+        val original = manager.create("Server", ProfileCredentials.Subsonic("https://server.test", "user", "password"))
+        val account = com.gpo.yoin.data.remote.applemusic.AppleMusicValidationAccount("https://tokens.test/token", "music-user-token")
+        var legacy: com.gpo.yoin.data.remote.applemusic.AppleMusicValidationAccount? = account
+        var clearCount = 0
+        val store = object : com.gpo.yoin.data.remote.applemusic.AppleMusicLegacyAccountStore {
+            override fun read() = legacy
+            override fun clear() { legacy = null; clearCount++ }
+        }
+        manager.migrateAppleMusicValidation(store)
+        // Simulate a restart between the Room commit and deleting the legacy file.
+        legacy = account
+        manager.migrateAppleMusicValidation(store)
+        manager.migrateAppleMusicValidation(store)
+        assertEquals(2, dao.count())
+        val apple = dao.getAll().single { it.provider == ProviderKind.APPLE_MUSIC.key }
+        assertEquals(ProfileManager.STORE_MARKER_V1, apple.credentialsJson)
+        assertEquals(ProfileCredentials.AppleMusic(account.endpoint, account.musicUserToken), secrets.snapshot(apple.id))
+        assertEquals(original.id, manager.activeProfileId.value)
+        assertEquals(2, clearCount)
+        assertNull(legacy)
+        // Deleting an imported Profile must not cause resurrection on the next migration.
+        manager.delete(apple.id)
+        manager.migrateAppleMusicValidation(store)
+        assertEquals(1, dao.count())
+    }
+
+    @Test
+    fun should_preserveLegacyAuthorization_when_profileLimitPreventsMigration() = runTest {
+        val dao = InMemoryProfileDao()
+        val manager = ProfileManager(dao, InMemoryActiveIdStore(), InMemoryProfileCredentialsStore(), PlaintextProfileCredentialsCodec(), backgroundScope)
+        repeat(ProfileManager.MAX_PROFILES) {
+            manager.create("Server $it", ProfileCredentials.Subsonic("https://server.test", "user", "password"))
+        }
+        var cleared = false
+        val store = object : com.gpo.yoin.data.remote.applemusic.AppleMusicLegacyAccountStore {
+            override fun read() = com.gpo.yoin.data.remote.applemusic.AppleMusicValidationAccount("https://tokens.test/token", "token")
+            override fun clear() { cleared = true }
+        }
+        val result = runCatching { manager.migrateAppleMusicValidation(store) }
+        assertTrue(result.exceptionOrNull() is ProfileLimitReachedException)
+        assertTrue(!cleared)
+    }
+
     // ── fakes ──────────────────────────────────────────────────────────
 
     private class InMemoryProfileDao : ProfileDao {

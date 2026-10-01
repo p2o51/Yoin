@@ -74,7 +74,9 @@ import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.rememberSearchBarState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.ripple
@@ -94,6 +96,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.composed
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
@@ -658,6 +661,7 @@ private fun PlayingContent(
         // two-column player keys off Medium+. Tabletop keeps its hinge layout.
         LayoutMode.Wide, LayoutMode.Medium -> WidePlayingContent(
             state = state,
+            skipDirection = skipDirection,
             positionMs = positionMs,
             bufferedMs = bufferedMs,
             onTogglePlayPause = onTogglePlayPause,
@@ -713,6 +717,7 @@ private fun PlayingContent(
         )
         LayoutMode.Tabletop -> TabletopPlayingContent(
             state = state,
+            skipDirection = skipDirection,
             positionMs = positionMs,
             bufferedMs = bufferedMs,
             onTogglePlayPause = onTogglePlayPause,
@@ -830,6 +835,7 @@ private fun PlayingContent(
  * This is the original [PlayingContent] body, unchanged; since the Medium flip
  * (isDualPaneNowPlaying) it renders ONLY for [LayoutMode.Compact].
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun CompactPlayingContent(
     state: NowPlayingUiState.Playing,
@@ -893,16 +899,13 @@ private fun CompactPlayingContent(
     animatedVisibilityScope: AnimatedVisibilityScope? = null,
     modifier: Modifier = Modifier,
 ) {
+    val lyricsSearchBarState = rememberSearchBarState()
     val motionProfile = LocalMotionProfile.current
     val heroStretchSpec = if (motionProfile == MotionProfile.Full) {
         YoinMotion.slowSpatialSpec<Float>(role = YoinMotionRole.Expressive)
     } else {
         YoinMotion.fastSpatialSpec<Float>(role = YoinMotionRole.Expressive)
     }
-    val heroBoundsSpec = YoinMotion.slowSpatialSpec<Rect>(
-        role = YoinMotionRole.Expressive,
-        expressiveScheme = MaterialTheme.motionScheme,
-    )
 
     var showQueue by remember { mutableStateOf(false) }
     var showDevicesSheet by remember(state.songId) { mutableStateOf(false) }
@@ -944,19 +947,6 @@ private fun CompactPlayingContent(
     val stageMoving by remember(resolvedStageProgress) {
         derivedStateOf { resolvedStageProgress.isMoving }
     }
-
-    // The Now Playing overlay enters/exits via a shared-element cover morph
-    // (mini <-> full) owned by [animatedVisibilityScope]. The
-    // CoverTransitionOverlay proxy below is drawn LAST (on top) and only owns the
-    // lyrics-stage reshape. If both are live at once — e.g. you expand Lyrics
-    // while the entrance morph is still settling — the proxy paints over the
-    // morphing shared element and visibly "grows up". Gate the proxy on the
-    // entrance/exit transition being settled so exactly one cover is ever in
-    // flight. A null scope (detail-Activity host with no shared element) reads as
-    // settled — there is nothing to collide with there.
-    val entranceSettled = animatedVisibilityScope?.transition?.let { transition ->
-        transition.currentState == transition.targetState
-    } ?: true
 
     val titleStretchScale by animateFloatAsState(
         targetValue = when {
@@ -1077,27 +1067,20 @@ private fun CompactPlayingContent(
             label = "nowPlayingBottomAccessoryHeight",
         )
         val controlsHeight = lerpDp(148.dp, 0.dp, detailProgress)
+        val coverSpacerHeight = lerpDp(16.dp, 8.dp, detailProgress)
+        // Add back the space the surrounding slots will release at Expanded.
+        // Round each slot separately, exactly as their layout modifiers do, so
+        // the lazy list receives identical pixel constraints on every frame.
+        val lyricsViewportGrowthPx = with(LocalDensity.current) {
+            coverRowHeight.roundToPx() + controlsHeight.roundToPx() +
+                coverSpacerHeight.roundToPx() - 8.dp.roundToPx() +
+                tabHeight.roundToPx() - 52.dp.roundToPx() +
+                tabSpacerHeight.roundToPx() - 12.dp.roundToPx()
+        }
         val heroHeight = 86.dp
         val compactCoverSize = (maxWidth - horizontalPadding * 2 - 12.dp - 56.dp)
             .coerceAtLeast(0.dp)
             .coerceAtMost(compactCoverHeight)
-
-        // Track-change cover ride-in (skip direction comes from the ViewModel;
-        // fires only on an actual songId CHANGE, never on first composition).
-        // Slow spatial spring on purpose: the ride must still be travelling
-        // when Coil's replacement image lands (~200-400ms behind the songId
-        // flip), or the eye reads a plain crossfade and no ride at all.
-        val coverRide = remember { Animatable(1f) }
-        val coverRideTravelPx = with(LocalDensity.current) { 28.dp.toPx() }
-        var lastRideSongId by remember { mutableStateOf(state.songId) }
-        val coverRideSpec = YoinMotion.slowSpatialSpec<Float>(role = YoinMotionRole.Expressive)
-        LaunchedEffect(state.songId) {
-            if (lastRideSongId != state.songId) {
-                lastRideSongId = state.songId
-                coverRide.snapTo(0f)
-                coverRide.animateTo(1f, coverRideSpec)
-            }
-        }
 
         Column(
             modifier = Modifier.fillMaxSize(),
@@ -1162,28 +1145,16 @@ private fun CompactPlayingContent(
                             Box(
                                 modifier = Modifier
                                     .weight(1f)
-                                    .fillMaxHeight()
-                                    // Directional ride-in on track change:
-                                    // next arrives from the right, previous
-                                    // from the left (auto-advance reads as
-                                    // next). Coil owns the image crossfade;
-                                    // this moves the whole cover, draw-phase
-                                    // reads only.
-                                    .graphicsLayer {
-                                        val p = coverRide.value
-                                        if (p < 1f) {
-                                            translationX =
-                                                (1f - p) * skipDirection * coverRideTravelPx
-                                            alpha = 0.35f + 0.65f * p
-                                        }
-                                    },
+                                    .fillMaxHeight(),
                                 contentAlignment = Alignment.TopStart,
                             ) {
                                 AlbumCover(
                                     songId = state.songId,
                                     coverArtUrl = state.coverArtUrl,
+                                    revealDirection = skipDirection,
                                     sharedTransitionScope = sharedTransitionScope,
                                     animatedVisibilityScope = animatedVisibilityScope,
+                                    sharedTransitionEnabled = detailProgress <= HiddenLayerVisibilityThreshold,
                                     interactionSource = coverClickSource,
                                     modifier = Modifier
                                         .fillMaxHeight()
@@ -1238,11 +1209,18 @@ private fun CompactPlayingContent(
 
                                     Spacer(modifier = Modifier.height(8.dp))
 
-                                    FavoriteButton(
-                                        isStarred = state.isStarred,
-                                        onClick = onToggleFavorite,
-                                        onLongClick = onAddCurrentToPlaylist,
-                                    )
+                                    if (state.serviceFeatures.supportsFavorites) {
+                                        FavoriteButton(
+                                            isStarred = state.isStarred,
+                                            actionLabel = if (state.isStarred) {
+                                                state.serviceFeatures.removeLabel
+                                            } else {
+                                                state.serviceFeatures.saveLabel
+                                            },
+                                            onClick = onToggleFavorite,
+                                            onLongClick = onAddCurrentToPlaylist,
+                                        )
+                                    }
 
                                     // Room for the heart's tap-bounce (scales to
                                     // 1.25×) so its overflow isn't cut by the
@@ -1253,7 +1231,7 @@ private fun CompactPlayingContent(
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(lerpDp(16.dp, 8.dp, detailProgress)))
+                    Spacer(modifier = Modifier.height(coverSpacerHeight))
 
                     StageTabs(
                         selected = NowPlayingDetailPage.entries[pagerState.targetPage],
@@ -1317,6 +1295,7 @@ private fun CompactPlayingContent(
                                         notes = notesState,
                                         noteSortMode = noteSortMode,
                                         onNoteSortModeChange = onNoteSortModeChange,
+                                        lyricsViewportGrowthPx = lyricsViewportGrowthPx,
                                         lyricsAutoScroll = lyricsAutoScroll,
                                         lyricsRecenterTick = lyricsRecenterTick,
                                         onLyricsUserScroll = { lyricsAutoScroll = false },
@@ -1390,13 +1369,16 @@ private fun CompactPlayingContent(
 
                     CompactBottomHero(
                         state = state,
-                        heroBoundsSpec = heroBoundsSpec,
+                        heroBoundsSpec = YoinMotion.slowSpatialSpec<Rect>(
+                            role = YoinMotionRole.Expressive,
+                            expressiveScheme = MaterialTheme.motionScheme,
+                        ),
+                        sharedTransitionScope = sharedTransitionScope,
+                        animatedVisibilityScope = animatedVisibilityScope,
                         titleStretchScale = titleStretchScale,
                         artistStretchScale = artistStretchScale,
                         titleRouteInteraction = titleRouteInteraction,
                         artistRouteInteraction = artistRouteInteraction,
-                        sharedTransitionScope = sharedTransitionScope,
-                        animatedVisibilityScope = animatedVisibilityScope,
                         height = heroHeight,
                         alpha = 1f,
                         modifier = Modifier.padding(horizontal = horizontalPadding),
@@ -1422,6 +1404,7 @@ private fun CompactPlayingContent(
                             contentAlignment = Alignment.BottomStart,
                         ) {
                             BottomPills(
+                                supportsYoinCast = state.serviceFeatures.supportsYoinCast,
                                 onQueueClick = { showQueue = true },
                                 onDevicesClick = { showDevicesSheet = true },
                                 onWriteClick = { showWriteSheet = true },
@@ -1471,6 +1454,9 @@ private fun CompactPlayingContent(
                                     ) {
                                         when (NowPlayingDetailPage.entries[page]) {
                                             NowPlayingDetailPage.Lyrics -> LyricsActionBar(
+                                                searchModifier = Modifier.onGloballyPositioned {
+                                                    lyricsSearchBarState.collapsedCoords = it
+                                                },
                                                 actionInFlight = state.lyricsActionInFlight,
                                                 canTranslate = state.lyrics.isNotEmpty(),
                                                 canRecenter = !lyricsAutoScroll && hasSyncedLyrics,
@@ -1500,20 +1486,22 @@ private fun CompactPlayingContent(
             }
         }
 
-        if (entranceSettled) {
-            CoverTransitionOverlay(
-                coverArtUrl = state.coverArtUrl,
-                progress = detailProgress,
-                startX = horizontalPadding,
-                startY = 56.dp,
-                startSize = compactCoverSize,
-                endX = horizontalPadding + 56.dp,
-                endY = 0.dp,
-                endSize = 44.dp,
-            )
-        }
+        // Lyrics takes ownership as soon as its stage starts moving. Keeping
+        // the opening shared cover enabled would bypass the hero's alpha/clip
+        // and leave a full-size cover in the shared overlay until it settles.
+        CoverTransitionOverlay(
+            coverArtUrl = state.coverArtUrl,
+            progress = detailProgress,
+            startX = horizontalPadding,
+            startY = 56.dp,
+            startSize = compactCoverSize,
+            endX = horizontalPadding + 56.dp,
+            endY = 0.dp,
+            endSize = 44.dp,
+        )
 
         LyricsSearchSheet(
+            searchBarState = lyricsSearchBarState,
             state = lyricsSearchState,
             onQueryChange = lyricsActions.onLyricsSearchQueryChange,
             onSearch = lyricsActions.onSearchLyrics,
@@ -1588,9 +1576,11 @@ private fun CompactPlayingContent(
  * two-column bodies are mutually exclusive in the dispatcher, so each owns its
  * copies.
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun WidePlayingContent(
     state: NowPlayingUiState.Playing,
+    skipDirection: Int,
     // 4Hz playhead readers; invoked only by TickingPlaybackControls / lyrics leaves.
     positionMs: () -> Long,
     bufferedMs: () -> Long,
@@ -1645,6 +1635,7 @@ private fun WidePlayingContent(
     animatedVisibilityScope: AnimatedVisibilityScope? = null,
     modifier: Modifier = Modifier,
 ) {
+    val lyricsSearchBarState = rememberSearchBarState()
     val albumId = state.albumId
     val artistId = state.artistId
 
@@ -1796,6 +1787,7 @@ private fun WidePlayingContent(
                             AlbumCover(
                                 songId = state.songId,
                                 coverArtUrl = state.coverArtUrl,
+                                revealDirection = skipDirection,
                                 // NO shared element in Wide. A fillMaxWidth shared cover
                                 // resolves to an UNBOUNDED width in the shared-transition
                                 // lookahead and propagates Constraints.Infinity into the
@@ -1849,11 +1841,18 @@ private fun WidePlayingContent(
                                         )
                                     }
                                     Spacer(modifier = Modifier.width(12.dp))
-                                    FavoriteButton(
-                                        isStarred = state.isStarred,
-                                        onClick = onToggleFavorite,
-                                        onLongClick = onAddCurrentToPlaylist,
-                                    )
+                                    if (state.serviceFeatures.supportsFavorites) {
+                                        FavoriteButton(
+                                            isStarred = state.isStarred,
+                                            actionLabel = if (state.isStarred) {
+                                                state.serviceFeatures.removeLabel
+                                            } else {
+                                                state.serviceFeatures.saveLabel
+                                            },
+                                            onClick = onToggleFavorite,
+                                            onLongClick = onAddCurrentToPlaylist,
+                                        )
+                                    }
                                     // Room for the heart's tap-bounce (scales to 1.25×):
                                     // it's pinned at the trailing edge, so its right
                                     // overflow would be cut by the Column's clipToBounds.
@@ -1933,6 +1932,7 @@ private fun WidePlayingContent(
                     )
                     Spacer(modifier = Modifier.weight(1f))
                     BottomPills(
+                        supportsYoinCast = state.serviceFeatures.supportsYoinCast,
                         onQueueClick = { showQueue = true },
                         onDevicesClick = { showDevicesSheet = true },
                         onWriteClick = { showWriteSheet = true },
@@ -2040,6 +2040,9 @@ private fun WidePlayingContent(
                                 ) {
                                     when (NowPlayingDetailPage.entries[page]) {
                                         NowPlayingDetailPage.Lyrics -> LyricsActionBar(
+                                            searchModifier = Modifier.onGloballyPositioned {
+                                                lyricsSearchBarState.collapsedCoords = it
+                                            },
                                             actionInFlight = state.lyricsActionInFlight,
                                             canTranslate = state.lyrics.isNotEmpty(),
                                             canRecenter = !lyricsAutoScroll && hasSyncedLyrics,
@@ -2071,6 +2074,7 @@ private fun WidePlayingContent(
     }
 
     LyricsSearchSheet(
+        searchBarState = lyricsSearchBarState,
         state = lyricsSearchState,
         onQueryChange = onLyricsSearchQueryChange,
         onSearch = onSearchLyrics,
@@ -2145,6 +2149,7 @@ private fun WidePlayingContent(
 @Composable
 private fun TabletopPlayingContent(
     state: NowPlayingUiState.Playing,
+    skipDirection: Int,
     // 4Hz playhead readers; invoked only by TickingPlaybackControls / lyrics leaves.
     positionMs: () -> Long,
     bufferedMs: () -> Long,
@@ -2269,6 +2274,7 @@ private fun TabletopPlayingContent(
                     AlbumCover(
                         songId = state.songId,
                         coverArtUrl = state.coverArtUrl,
+                        revealDirection = skipDirection,
                         // No shared element in Tabletop (same crash-avoidance reason
                         // as Wide — see WidePlayingContent).
                         sharedTransitionScope = null,
@@ -2375,6 +2381,8 @@ private fun TabletopPlayingContent(
                                 lyrics = state.lyrics,
                                 positionMs = positionMs,
                                 loading = state.lyricsLoading,
+                                trackKey = state.songId,
+                                queueIndex = state.currentQueueIndex,
                                 fontScale = 0.95f + 0.75f * lyricsEmphasis,
                                 modifier = Modifier
                                     .height(lyricsHeight)
@@ -2442,6 +2450,7 @@ private fun TabletopPlayingContent(
                 )
                 Spacer(modifier = Modifier.height(20.dp))
                 BottomPills(
+                    supportsYoinCast = state.serviceFeatures.supportsYoinCast,
                     onQueueClick = { showQueue = true },
                     onDevicesClick = { showDevicesSheet = true },
                     onWriteClick = {},
@@ -2829,6 +2838,8 @@ private fun CompactDetailPage(
                 lyrics = state.lyrics,
                 positionMs = positionMs,
                 loading = state.lyricsLoading,
+                trackKey = state.songId,
+                queueIndex = state.currentQueueIndex,
                 modifier = Modifier
                     .fillMaxSize()
                     .graphicsLayer {
@@ -2920,9 +2931,17 @@ private fun ExpandedDetailPage(
     onSaveNote: (String, Long?) -> Unit,
     onDeleteNote: (String) -> Unit,
     modifier: Modifier = Modifier,
+    lyricsViewportGrowthPx: Int = 0,
 ) {
     when (page) {
         NowPlayingDetailPage.Lyrics -> LyricsFullscreenPane(
+            viewportGrowthPx = lyricsViewportGrowthPx,
+            trackKey = state.songId,
+            queueIndex = state.currentQueueIndex,
+            songTitle = state.songTitle,
+            artist = state.artist,
+            upNext = state.upNextLyrics,
+            durationMs = state.durationMs,
             lyrics = state.lyrics,
             positionMs = positionMs,
             loading = state.lyricsLoading,
@@ -3426,6 +3445,7 @@ internal fun FavoriteButton(
     isStarred: Boolean,
     onClick: () -> Unit,
     onLongClick: (() -> Unit)? = null,
+    actionLabel: String = if (isStarred) "Remove from favorites" else "Add to favorites",
     modifier: Modifier = Modifier,
 ) {
     ProvideYoinMotionRole(role = YoinMotionRole.Standard) {
@@ -3501,7 +3521,7 @@ internal fun FavoriteButton(
         ) {
             Icon(
                 imageVector = if (isStarred) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder,
-                contentDescription = if (isStarred) "Remove from favorites" else "Add to favorites",
+                contentDescription = actionLabel,
                 tint = heartColor,
                 modifier = Modifier.size(24.dp),
             )
@@ -3517,6 +3537,8 @@ internal fun AlbumCover(
     sharedTransitionScope: SharedTransitionScope? = null,
     animatedVisibilityScope: AnimatedVisibilityScope? = null,
     modifier: Modifier = Modifier,
+    sharedTransitionEnabled: Boolean = true,
+    revealDirection: Int = 1,
     // Press dip: the biggest tap target on the screen shouldn't be the only
     // silent one — forwarded to ExpressiveMediaArtwork's elasticPress.
     interactionSource: MutableInteractionSource? = null,
@@ -3533,7 +3555,10 @@ internal fun AlbumCover(
         animatedVisibilityScope != null
     ) {
         val sharedContentConfig =
-            rememberActiveOnlySharedContentConfig(animatedVisibilityScope = animatedVisibilityScope)
+            rememberActiveOnlySharedContentConfig(
+                animatedVisibilityScope = animatedVisibilityScope,
+                enabled = sharedTransitionEnabled,
+            )
         with(sharedTransitionScope) {
             baseModifier.sharedBounds(
                 sharedContentState = rememberSharedContentState(
@@ -3550,6 +3575,8 @@ internal fun AlbumCover(
 
     ExpressiveMediaArtwork(
         model = coverArtUrl,
+        reveal = com.gpo.yoin.ui.component.ArtworkReveal.DotDissolve,
+        revealDirection = revealDirection,
         contentDescription = "Album cover",
         modifier = finalModifier,
         shape = YoinArtworkShapes.NowPlayingCover,

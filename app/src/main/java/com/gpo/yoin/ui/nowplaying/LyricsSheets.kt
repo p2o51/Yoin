@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.requiredHeight
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -35,6 +36,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.SearchBarDefaults
+import androidx.compose.material3.SearchBarState
 import androidx.compose.material3.SearchBarValue
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -64,7 +66,9 @@ import kotlinx.coroutines.launch
  * the existing provider search via [onQueryChange]/[onSearch].
  *
  * Always composed by the caller (no `if (isOpen)` gate): when collapsed the search
- * bar renders nothing, so the morph in/out is the official animation.
+ * bar renders nothing, so the morph in/out is the official animation. The caller
+ * binds [SearchBarState.collapsedCoords] to the actual search button, just as
+ * Material SearchBar does, so opening/closing uses that button as its anchor.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -75,9 +79,9 @@ internal fun LyricsSearchSheet(
     onSelect: (LyricsSearchResultUi) -> Unit,
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
+    searchBarState: SearchBarState = rememberSearchBarState(),
 ) {
     val scope = rememberCoroutineScope()
-    val searchBarState = rememberSearchBarState()
     val textFieldState = rememberTextFieldState(state.query)
 
     // Field text → existing provider search (the VM debounces / fans out).
@@ -108,6 +112,10 @@ internal fun LyricsSearchSheet(
 
     val inputField: @Composable () -> Unit = {
         SearchBarDefaults.InputField(
+            // FullScreenSearchBar also uses the anchor height to constrain its
+            // input slot. Our 52 dp icon is shorter than a standard search
+            // field; retain the official field height so text is not clipped.
+            modifier = Modifier.requiredHeight(SearchBarDefaults.InputFieldHeight),
             textFieldState = textFieldState,
             searchBarState = searchBarState,
             onSearch = { onSearch(it) },

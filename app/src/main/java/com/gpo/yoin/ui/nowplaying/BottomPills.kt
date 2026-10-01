@@ -55,6 +55,7 @@ internal fun BottomPills(
     castState: CastState = CastState.NotAvailable,
     onCastClick: () -> Unit = {},
     showWrite: Boolean = true,
+    supportsYoinCast: Boolean = true,
     pillHeight: Dp = 44.dp,
     forceCapsule: Boolean = false,
     modifier: Modifier = Modifier,
@@ -80,7 +81,7 @@ internal fun BottomPills(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             CastButton(
-                castState = castState,
+                castState = if (supportsYoinCast) castState else CastState.NotAvailable,
                 onClick = onCastClick,
             )
 

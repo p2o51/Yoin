@@ -16,6 +16,7 @@ enum class ProviderKind(
 ) {
     SUBSONIC(MediaId.PROVIDER_SUBSONIC, "Subsonic", isAvailable = true),
     SPOTIFY(MediaId.PROVIDER_SPOTIFY, "Spotify", isAvailable = true),
+    APPLE_MUSIC(MediaId.PROVIDER_APPLE_MUSIC, "Apple Music", isAvailable = true),
     LOCAL(MediaId.PROVIDER_LOCAL, "Local", isAvailable = false),
     ;
 

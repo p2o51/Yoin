@@ -5,25 +5,25 @@ import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.collectAsState
-import androidx.compose.foundation.layout.Box
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
-import com.gpo.yoin.ui.nowplaying.NowPlayingAccessories
-import com.gpo.yoin.ui.nowplaying.NowPlayingOverlayHost
-import com.gpo.yoin.ui.nowplaying.NowPlayingViewModel
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.gpo.yoin.YoinActivityRoot
 import com.gpo.yoin.YoinApplication
 import com.gpo.yoin.data.repository.ActivityContext
 import com.gpo.yoin.enableYoinEdgeToEdge
+import com.gpo.yoin.ui.nowplaying.NowPlayingAccessories
+import com.gpo.yoin.ui.nowplaying.NowPlayingOverlayHost
+import com.gpo.yoin.ui.nowplaying.NowPlayingViewModel
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 
@@ -43,10 +43,10 @@ class AlbumDetailActivity : ComponentActivity() {
         detailLaunchGate.release()
     }
 
-    private fun launchChildDetail(intent: Intent) {
+    private fun launchChildDetail(intent: Intent, fromNowPlaying: Boolean = false) {
         if (!detailLaunchGate.tryAcquire(lifecycle.currentState == Lifecycle.State.RESUMED)) return
         try {
-            startActivity(intent)
+            launchDetailFromDetail(this, intent, fromNowPlaying)
         } catch (error: RuntimeException) {
             detailLaunchGate.release()
             throw error
@@ -63,7 +63,7 @@ class AlbumDetailActivity : ComponentActivity() {
             return
         }
         setContent {
-            YoinActivityRoot {
+            YoinActivityRoot(deferBottomBarShadow = true) {
                 val context = LocalContext.current
                 val app = context.applicationContext as YoinApplication
                 val viewModel: AlbumDetailViewModel = viewModel(
@@ -119,6 +119,7 @@ class AlbumDetailActivity : ComponentActivity() {
                     factory = NowPlayingViewModel.Factory(app.container),
                 )
                 var nowPlayingOpen by rememberSaveable { mutableStateOf(false) }
+
                 val miniPlayerState by rememberDetailMiniPlayerState(app.container)
                 val miniPlayerProgress by rememberDetailMiniPlayerProgress(app.container)
 
@@ -142,7 +143,7 @@ class AlbumDetailActivity : ComponentActivity() {
                     morphBarOnBack = intent.getBooleanExtra(DETAIL_EXTRA_FROM_SHELL, false),
                     navSection = intent.detailOriginSection(),
                     enterBarHandoff = intent.getBooleanExtra(DETAIL_EXTRA_BAR_HANDOFF, false),
-                    barExitsOnBack = intent.getBooleanExtra(DETAIL_EXTRA_FROM_NOW_PLAYING, false),
+                    barExitsOnBack = intent.detailBarExitsOnBack(),
                     onSongClick = { songId ->
                         val index = viewModel.getAlbumSongs()
                             .indexOfFirst { it.id.toString() == songId }
@@ -182,24 +183,26 @@ class AlbumDetailActivity : ComponentActivity() {
                     playbackSignal = if (playbackState.isPlaying) playbackSignal else 0f,
                     onOpenNowPlaying = { nowPlayingOpen = true },
                     nowPlayingOpen = nowPlayingOpen,
+
                     miniPlayerState = miniPlayerState,
                     playbackProgress = miniPlayerProgress,
                     modifier = Modifier.fillMaxSize(),
                 )
 
                 NowPlayingOverlayHost(
+
                     viewModel = nowPlayingViewModel,
                     container = app.container,
                     expanded = nowPlayingOpen,
                     onExpandedChange = { nowPlayingOpen = it },
                     onAlbumClick = { id ->
-                        launchChildDetail(AlbumDetailActivity.intent(this@AlbumDetailActivity, id))
+                        launchChildDetail(AlbumDetailActivity.intent(this@AlbumDetailActivity, id), fromNowPlaying = true)
                     },
                     onArtistClick = { id ->
-                        launchChildDetail(ArtistDetailActivity.intent(this@AlbumDetailActivity, id))
+                        launchChildDetail(ArtistDetailActivity.intent(this@AlbumDetailActivity, id), fromNowPlaying = true)
                     },
                     onPlaylistClick = { id ->
-                        launchChildDetail(PlaylistDetailActivity.intent(this@AlbumDetailActivity, id))
+                        launchChildDetail(PlaylistDetailActivity.intent(this@AlbumDetailActivity, id), fromNowPlaying = true)
                     },
                 )
                 NowPlayingAccessories(

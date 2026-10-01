@@ -3,24 +3,20 @@ package com.gpo.yoin.ui.detail
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.togetherWith
-import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -29,79 +25,85 @@ import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Album
-import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Launch
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material.icons.rounded.IosShare
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
-import androidx.compose.material3.MediumFlexibleTopAppBar
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialShapes
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.carousel.HorizontalMultiBrowseCarousel
-import androidx.compose.material3.carousel.rememberCarouselState
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.toShape
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.RectangleShape
-import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.gpo.yoin.data.model.MediaId
-import com.gpo.yoin.ui.component.AlbumCard
+import com.gpo.yoin.data.model.ReleaseType
+import com.gpo.yoin.data.source.ServiceFeatureCatalog
 import com.gpo.yoin.ui.component.DetailErrorState
 import com.gpo.yoin.ui.component.ExpressiveMediaArtwork
 import com.gpo.yoin.ui.component.ExpressivePageBackground
-import com.gpo.yoin.ui.component.PlaySplitButton
-import com.gpo.yoin.ui.component.YoinDropdownMenu
+import com.gpo.yoin.ui.component.ExpressiveSegmentedTabs
 import com.gpo.yoin.ui.component.YoinDropdownMenuItem
 import com.gpo.yoin.ui.component.YoinLoadingIndicator
-import com.gpo.yoin.ui.component.elasticPress
 import com.gpo.yoin.ui.component.formatTrackDuration
-import com.gpo.yoin.ui.component.minimumTouchTarget
+import com.gpo.yoin.ui.component.yoinPageContentWidth
 import com.gpo.yoin.ui.experience.LayoutMode
+import com.gpo.yoin.ui.experience.LocalMotionProfile
 import com.gpo.yoin.ui.experience.LocalYoinWindowInfo
+import com.gpo.yoin.ui.experience.MotionProfile
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
 import com.gpo.yoin.ui.navigation.YoinSection
 import com.gpo.yoin.ui.theme.ProvideYoinMotionRole
-import com.gpo.yoin.ui.theme.YoinMotion
-import com.gpo.yoin.ui.theme.YoinMotionRole
 import com.gpo.yoin.ui.theme.YoinArtworkShapes
 import com.gpo.yoin.ui.theme.YoinContainerShapes
+import com.gpo.yoin.ui.theme.YoinMotion
+import com.gpo.yoin.ui.theme.YoinMotionRole
 import com.gpo.yoin.ui.theme.YoinTheme
 import com.gpo.yoin.ui.theme.rememberCoverColorScheme
 import com.gpo.yoin.ui.theme.withTabularFigures
+
+/*
+ * Artist page, rebuilt 2026-09 around what every provider can actually supply.
+ *
+ * Provider data is thin and shrinking (Spotify's Feb 2026 Web API migration
+ * removed artist top tracks, related artists, followers and popularity for
+ * Development Mode apps; Subsonic and Apple Music library artists never had
+ * them). What remains everywhere: name, portrait, releases. So the page leans
+ * on the user's OWN layer instead, like the Album page does:
+ *
+ *   header      back · name / "Artist · 2016 – 2025" · follow star
+ *   hero        pinwheel mark around the portrait
+ *   meta        Last Play | Avg. of your album ratings (Album hero anatomy)
+ *   Most Played your own most-played songs (local play history)
+ *   Discography release timeline: year column, type, your rating per release
+ */
 
 @Composable
 fun ArtistDetailScreen(
@@ -118,12 +120,13 @@ fun ArtistDetailScreen(
     onPlay: () -> Unit = {},
     onShuffle: () -> Unit = {},
     onOpenInSpotify: () -> Unit = {},
-    onTopTrackClick: (index: Int) -> Unit = {},
+    onMostPlayedClick: (index: Int) -> Unit = {},
     onShare: () -> Unit = {},
     isPlaying: Boolean = false,
     playbackSignal: Float = 0f,
     onOpenNowPlaying: () -> Unit = {},
     nowPlayingOpen: Boolean = false,
+
     // True when this window sits directly over the shell: predictive back
     // scrubs the bar toward nav chrome (matching the reveal underneath).
     morphBarOnBack: Boolean = false,
@@ -140,9 +143,28 @@ fun ArtistDetailScreen(
     modifier: Modifier = Modifier,
 ) {
     val content = uiState as? ArtistDetailUiState.Content
-    val pageAccent = rememberDetailPageAccent(
-        content?.heroCoverArtUrl ?: content?.albums?.firstOrNull()?.coverArtUrl,
+    // Portrait → first album cover fallback (older Subsonic has no artist.jpg).
+    val heroUrl = content?.heroCoverArtUrl ?: content?.albums?.firstOrNull()?.coverArtUrl
+    val pageAccent = rememberDetailPageAccent(heroUrl)
+
+    // Material roles seeded from the portrait (same MCU path as Album/Playlist),
+    // animated so the resolve doesn't pop.
+    val scheme = rememberCoverColorScheme(heroUrl) ?: MaterialTheme.colorScheme
+    val titleColor by animateColorAsState(scheme.primary, YoinMotion.effectsSpring(), label = "artistTitleColor")
+    val accentText = scheme.secondary
+    val armLowerLeft by animateColorAsState(scheme.tertiary, YoinMotion.effectsSpring(), label = "artistArmLowerLeft")
+    val armUpper by animateColorAsState(scheme.primary, YoinMotion.effectsSpring(), label = "artistArmUpper")
+    val armLowerRight by animateColorAsState(scheme.secondary, YoinMotion.effectsSpring(), label = "artistArmLowerRight")
+    val colors = ArtistPageColors(
+        // Pinwheel arms in mark order: lower-left, upper, lower-right.
+        arms = listOf(armLowerLeft, armUpper, armLowerRight),
+        accent = titleColor,
+        bunContainer = scheme.primaryContainer,
+        bunContent = scheme.onPrimaryContainer,
     )
+
+    val provider = content?.artistId?.let { MediaId.parseOrNull(it)?.provider }
+    val supportsFollow = content != null && ServiceFeatureCatalog.forProvider(provider).supportsFavorites
 
     ProvideYoinMotionRole(role = YoinMotionRole.Expressive) {
         // In-window predictive back (AOSP cross-activity math): the whole
@@ -150,9 +172,12 @@ fun ArtistDetailScreen(
         // window beneath (the Activity turns translucent for the gesture);
         // the bar is a sibling on top and never transforms — it scrubs its
         // own morph off the same progress.
-        val backCollapse = rememberDetailBackCollapse(onBack = onLeavePage)
+        val backCollapse = rememberDetailBackCollapse(
+            onBack = onLeavePage,
+            bridgeToShell = morphBarOnBack,
+        )
         val enterIntro = rememberDetailEnterIntro(
-            barHandoff = enterBarHandoff,
+            barHandoff = enterBarHandoff && morphBarOnBack,
             visualReady = uiState !is ArtistDetailUiState.Loading,
             back = backCollapse,
         )
@@ -172,693 +197,569 @@ fun ArtistDetailScreen(
                         .detailBackCollapseTransform(backCollapse)
                         .detailEnterIntroTransform(enterIntro),
                 ) {
-                    AnimatedContent(
-                        targetState = uiState,
-                        transitionSpec = {
-                            YoinMotion.fadeIn(role = YoinMotionRole.Standard) togetherWith
-                                YoinMotion.fadeOut(role = YoinMotionRole.Standard)
-                        },
-                        // Class-keyed so Content→Content data updates (topTracks
-                        // arriving, follow toggles) don't re-trigger the fade.
-                        contentKey = { it::class },
-                        label = "artistDetailState",
-                        modifier = Modifier.fillMaxSize(),
-                    ) { state ->
-                        when (state) {
-                            is ArtistDetailUiState.Loading ->
-                                Box(
-                                    Modifier
-                                        .fillMaxSize()
-                                        .statusBarsPadding(),
-                                    contentAlignment = Alignment.Center,
-                                ) {
-                                    YoinLoadingIndicator()
-                                    DetailBackButton(
-                                        onClick = onBackClick,
+                    Column(modifier = Modifier.fillMaxSize()) {
+                        // The Album / Playlist compact header; persists across
+                        // Loading/Error/Content (it carries the back affordance).
+                        ArtistTopHeader(
+                            artistName = content?.artistName.orEmpty(),
+                            activeSpan = content?.let { artistActiveSpan(it.albums) },
+                            titleColor = titleColor,
+                            accentText = accentText,
+                            showFollow = supportsFollow,
+                            following = content?.isStarred == true,
+                            followLabels = artistFollowLabels(provider),
+                            onBackClick = onBackClick,
+                            onToggleFollow = onToggleFollow,
+                        )
+                        AnimatedContent(
+                            targetState = uiState,
+                            transitionSpec = {
+                                YoinMotion.fadeIn(role = YoinMotionRole.Standard) togetherWith
+                                    YoinMotion.fadeOut(role = YoinMotionRole.Standard)
+                            },
+                            // Class-keyed so Content→Content updates (the personal
+                            // layer arriving, follow toggles) don't re-trigger the fade.
+                            contentKey = { it::class },
+                            label = "artistDetailState",
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .weight(1f),
+                        ) { state ->
+                            when (state) {
+                                is ArtistDetailUiState.Loading ->
+                                    Box(
                                         modifier = Modifier
-                                            .align(Alignment.TopStart)
-                                            .padding(start = 4.dp, top = 12.dp),
+                                            .fillMaxSize()
+                                            .navigationBarsPadding(),
+                                        contentAlignment = Alignment.Center,
+                                    ) {
+                                        YoinLoadingIndicator()
+                                    }
+
+                                // No onBack: the persistent header carries it.
+                                is ArtistDetailUiState.Error ->
+                                    DetailErrorState(
+                                        message = state.message,
+                                        onRetry = onRetry,
                                     )
-                                }
 
-                            is ArtistDetailUiState.Error ->
-                                DetailErrorState(
-                                    message = state.message,
-                                    onRetry = onRetry,
-                                    onBack = onBackClick,
-                                    backPadding = PaddingValues(start = 4.dp, top = 12.dp),
-                                )
-
-                            is ArtistDetailUiState.Content ->
-                                ArtistDetailContent(
-                                    content = state,
-                                    onBackClick = onBackClick,
-                                    onAlbumClick = onAlbumClick,
-                                    onToggleFollow = onToggleFollow,
-                                    onPlay = onPlay,
-                                    onShuffle = onShuffle,
-                                    onTopTrackClick = onTopTrackClick,
-                                )
+                                is ArtistDetailUiState.Content ->
+                                    ArtistBody(
+                                        content = state,
+                                        heroUrl = state.heroCoverArtUrl
+                                            ?: state.albums.firstOrNull()?.coverArtUrl,
+                                        colors = colors,
+                                        onAlbumClick = onAlbumClick,
+                                        onMostPlayedClick = onMostPlayedClick,
+                                    )
+                            }
                         }
                     }
                 }
             }
 
-            run {
-                // Persistent bottom bar — rendered in ALL states; Play/menu
-                // act on Content and no-op during Loading/Error.
-                val barHeroUrl = content?.heroCoverArtUrl
-                    ?: content?.albums?.firstOrNull()?.coverArtUrl
-                val barScheme = rememberCoverColorScheme(barHeroUrl)
-                    ?: MaterialTheme.colorScheme
-                val barPlayContainer by animateColorAsState(
-                    barScheme.primary,
-                    YoinMotion.effectsSpring(),
-                    label = "artistBarPlayContainer",
-                )
-                val showOpenInSpotify = content != null &&
-                    MediaId.parseOrNull(content.artistId)?.provider == MediaId.PROVIDER_SPOTIFY
+            // Persistent bottom bar — rendered in ALL states; Play/menu act on
+            // Content and no-op during Loading/Error.
+            val showOpenInSpotify = provider == MediaId.PROVIDER_SPOTIFY
             DetailBottomBar(
-                    playContainer = barPlayContainer,
-                    playContent = barScheme.onPrimary,
-                    onPlay = onPlay,
-                    onShuffle = onShuffle,
-                    onOpenNowPlaying = onOpenNowPlaying,
-                    miniPlayer = miniPlayerState,
-                    playbackProgress = playbackProgress,
+                playContainer = titleColor,
+                playContent = scheme.onPrimary,
+                onPlay = onPlay,
+                onShuffle = onShuffle,
+                onOpenNowPlaying = onOpenNowPlaying,
+                miniPlayer = miniPlayerState,
+                playbackProgress = playbackProgress,
                 nowPlayingOpen = nowPlayingOpen,
+
                 interactionsEnabled = enterIntro.pageVisible,
-                    backMorphProgress = if (morphBarOnBack) {
-                        { backCollapse.progress }
-                    } else {
-                        { 0f }
-                    },
-                    navSection = navSection,
-                    backExitProgress = if (barExitsOnBack) {
-                        { backCollapse.progress }
-                    } else {
-                        { 0f }
-                    },
-                    modifier = Modifier.align(Alignment.BottomCenter),
-                ) { dismissMenu ->
-                    if (showOpenInSpotify) {
-                        // Saved/liked tracks live in Spotify now — the ▾ menu
-                        // deep-links out (Spotify only; no in-app mirror).
-                        YoinDropdownMenuItem(
-                            text = "Open in Spotify",
-                            onClick = {
-                                dismissMenu()
-                                onOpenInSpotify()
-                            },
-                            leadingIcon = {
-                                Icon(Icons.Filled.Launch, contentDescription = null, modifier = Modifier.size(22.dp))
-                            },
-                            textStyle = MaterialTheme.typography.titleMedium,
-                            contentPadding = PaddingValues(horizontal = 20.dp, vertical = 14.dp),
-                        )
-                    }
+                enterChromeProgress = rememberDetailBarEnterProgress(
+                    followShell = enterBarHandoff && morphBarOnBack,
+                    back = backCollapse,
+                ),
+                backMorphProgress = if (morphBarOnBack) {
+                    { backCollapse.progress }
+                } else {
+                    { 0f }
+                },
+                navSection = navSection,
+                backExitProgress = if (barExitsOnBack) {
+                    { detailBarExitProgress(enterIntro, backCollapse) }
+                } else {
+                    { 0f }
+                },
+                modifier = Modifier.align(Alignment.BottomCenter),
+            ) { dismissMenu ->
+                if (showOpenInSpotify) {
+                    // Saved/liked tracks live in Spotify — the ▾ menu deep-links
+                    // out (Spotify only; no in-app mirror).
                     YoinDropdownMenuItem(
-                        text = "Share",
+                        text = "Open in Spotify",
                         onClick = {
                             dismissMenu()
-                            onShare()
+                            onOpenInSpotify()
                         },
                         leadingIcon = {
-                            Icon(
-                                Icons.Rounded.IosShare,
-                                contentDescription = null,
-                                modifier = Modifier.size(22.dp),
-                            )
+                            Icon(Icons.Filled.Launch, contentDescription = null, modifier = Modifier.size(22.dp))
                         },
                         textStyle = MaterialTheme.typography.titleMedium,
                         contentPadding = PaddingValues(horizontal = 20.dp, vertical = 14.dp),
                     )
                 }
+                YoinDropdownMenuItem(
+                    text = "Share",
+                    onClick = {
+                        dismissMenu()
+                        onShare()
+                    },
+                    leadingIcon = {
+                        Icon(Icons.Rounded.IosShare, contentDescription = null, modifier = Modifier.size(22.dp))
+                    },
+                    textStyle = MaterialTheme.typography.titleMedium,
+                    contentPadding = PaddingValues(horizontal = 20.dp, vertical = 14.dp),
+                )
             }
         }
     }
 }
 
-@OptIn(ExperimentalMaterial3ExpressiveApi::class, ExperimentalMaterial3Api::class)
+/** Cover-seeded colours the page body needs, resolved once at the screen level. */
+private class ArtistPageColors(
+    val arms: List<Color>,
+    val accent: Color,
+    val bunContainer: Color,
+    val bunContent: Color,
+)
+
+// ---------------------------------------------------------------------------
+// Header
+// ---------------------------------------------------------------------------
+
+/**
+ * The Album / Playlist compact header in artist terms: back · name over
+ * "Artist · 2016 – 2025", and the follow star on the right (where Apple Music
+ * keeps "favorite artist"). Hidden for providers without follow/favorite.
+ */
 @Composable
-private fun ArtistDetailContent(
-    content: ArtistDetailUiState.Content,
+private fun ArtistTopHeader(
+    artistName: String,
+    activeSpan: String?,
+    titleColor: Color,
+    accentText: Color,
+    showFollow: Boolean,
+    following: Boolean,
+    followLabels: Pair<String, String>,
     onBackClick: () -> Unit,
-    onAlbumClick: (albumId: String) -> Unit,
     onToggleFollow: () -> Unit,
-    onPlay: () -> Unit,
-    onShuffle: () -> Unit,
-    onTopTrackClick: (index: Int) -> Unit,
+    modifier: Modifier = Modifier,
 ) {
-    // Portrait → first album cover fallback (older Subsonic has no artist.jpg).
-    val heroUrl = content.heroCoverArtUrl ?: content.albums.firstOrNull()?.coverArtUrl
-
-    // Material roles seeded from the artist portrait (same path as the album page).
-    val coverScheme = rememberCoverColorScheme(heroUrl)
-    val s = coverScheme ?: MaterialTheme.colorScheme
-    val primaryBlock by animateColorAsState(s.primary, YoinMotion.effectsSpring(), label = "artistPrimaryBlock")
-    val secondaryBlock by animateColorAsState(s.secondary, YoinMotion.effectsSpring(), label = "artistSecondaryBlock")
-    val titleColor by animateColorAsState(s.primary, YoinMotion.effectsSpring(), label = "artistTitleColor")
-    val accentText = s.secondary
-
-    // M3 medium-flexible top bar: large on arrival, collapses to a small bar as
-    // the page scrolls and stays small until scrolled back to the top.
-    val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
-
-    Box(modifier = Modifier.fillMaxSize()) {
-        Scaffold(
-            modifier = Modifier
-                .fillMaxSize()
-                .nestedScroll(scrollBehavior.nestedScrollConnection),
-            containerColor = Color.Transparent,
-            contentWindowInsets = WindowInsets(0, 0, 0, 0),
-            topBar = {
-                MediumFlexibleTopAppBar(
-                    title = {
-                        Text(
-                            text = content.artistName,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            color = titleColor,
-                        )
-                    },
-                    subtitle = {
-                        Text(
-                            text = buildString {
-                                append("Artist")
-                                content.albums.size.takeIf { it > 0 }?.let {
-                                    append(if (it == 1) "  ·  1 album" else "  ·  $it albums")
-                                }
-                            },
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            color = accentText,
-                        )
-                    },
-                    navigationIcon = {
-                        // end padding widens the nav slot so the COLLAPSED
-                        // title clears the button halo; the expanded title is
-                        // placed from the bar edge and stays at 16dp.
-                        DetailBackButton(
-                            onClick = onBackClick,
-                            modifier = Modifier.padding(end = 14.dp),
-                        )
-                    },
-                    // Default 136dp packs the title right under the back
-                    // button; extra height = breathing room between them.
-                    expandedHeight = 156.dp,
-                    // Transparent both ends so the bar blends with the gradient
-                    // page background (no surface band, no collapse colour flash).
-                    colors = TopAppBarDefaults.topAppBarColors(
-                        containerColor = Color.Transparent,
-                        scrolledContainerColor = Color.Transparent,
-                        titleContentColor = titleColor,
-                        navigationIconContentColor = MaterialTheme.colorScheme.onSurface,
-                    ),
-                    scrollBehavior = scrollBehavior,
-                )
-            },
-        ) { innerPadding ->
-            // Single flat page — no pager. (Bio / About is a future destination,
-            // not an empty placeholder behind a promising dot indicator.)
-            ArtistOverviewPage(
-                content = content,
-                heroUrl = heroUrl,
-                primaryBlock = primaryBlock,
-                secondaryBlock = secondaryBlock,
-                accent = primaryBlock,
-                accentOn = s.onPrimary,
-                onAlbumClick = onAlbumClick,
-                onToggleFollow = onToggleFollow,
-                onPlay = onPlay,
-                onShuffle = onShuffle,
-                onTopTrackClick = onTopTrackClick,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(innerPadding),
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .statusBarsPadding()
+            .padding(start = 8.dp, end = 4.dp, top = 4.dp, bottom = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        DetailBackButton(onClick = onBackClick)
+        // Air between the button's touch halo and the title cluster (Album parity).
+        Spacer(modifier = Modifier.width(14.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = artistName,
+                style = MaterialTheme.typography.headlineSmall,
+                color = titleColor,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                text = if (activeSpan != null) "Artist  ·  $activeSpan" else "Artist",
+                style = MaterialTheme.typography.bodyMedium,
+                color = accentText,
+                maxLines = 1,
+            )
+        }
+        if (showFollow) {
+            ArtistFollowStar(
+                following = following,
+                labels = followLabels,
+                activeTint = titleColor,
+                onToggle = onToggleFollow,
             )
         }
     }
 }
 
+/**
+ * Follow toggle: an outlined star that fills in the page accent, with the
+ * same short pop as the track hearts when it changes.
+ */
 @Composable
-private fun ArtistOverviewPage(
+private fun ArtistFollowStar(
+    following: Boolean,
+    labels: Pair<String, String>,
+    activeTint: Color,
+    onToggle: () -> Unit,
+) {
+    val haptics = rememberYoinHaptics()
+    val tint by animateColorAsState(
+        targetValue = if (following) activeTint else MaterialTheme.colorScheme.onSurfaceVariant,
+        animationSpec = YoinMotion.effectsSpring(),
+        label = "artistFollowTint",
+    )
+    var tapPulse by remember { mutableIntStateOf(0) }
+    val bounce = remember { Animatable(1f) }
+    val bounceSpec = YoinMotion.defaultSpatialSpec<Float>(role = YoinMotionRole.Standard)
+    LaunchedEffect(tapPulse) {
+        if (tapPulse == 0) return@LaunchedEffect
+        bounce.animateTo(if (following) 1.25f else 1.15f, tween(durationMillis = 90))
+        bounce.animateTo(1f, bounceSpec)
+    }
+    IconButton(
+        onClick = {
+            tapPulse++
+            if (following) haptics.performTick() else haptics.performConfirm()
+            onToggle()
+        },
+    ) {
+        Icon(
+            imageVector = if (following) Icons.Filled.Star else Icons.Filled.StarBorder,
+            contentDescription = if (following) labels.second else labels.first,
+            tint = tint,
+            modifier = Modifier.graphicsLayer {
+                scaleX = bounce.value
+                scaleY = bounce.value
+            },
+        )
+    }
+}
+
+/**
+ * (idle, active) labels for the follow star, by provider. Spotify has a real
+ * "Follow"; Subsonic only stars, so it reads "Favorite".
+ */
+private fun artistFollowLabels(provider: String?): Pair<String, String> =
+    when (provider) {
+        MediaId.PROVIDER_SPOTIFY -> "Follow" to "Following"
+        else -> "Favorite" to "Favorited"
+    }
+
+/** "2016 – 2025" from the releases' years; one year alone; null when none carry a year. */
+private fun artistActiveSpan(albums: List<ArtistAlbum>): String? {
+    val years = albums.mapNotNull { it.year }.filter { it > 0 }
+    val first = years.minOrNull() ?: return null
+    val last = years.max()
+    return if (first == last) "$first" else "$first – $last"
+}
+
+// ---------------------------------------------------------------------------
+// Body
+// ---------------------------------------------------------------------------
+
+@Composable
+private fun ArtistBody(
     content: ArtistDetailUiState.Content,
     heroUrl: String?,
-    primaryBlock: Color,
-    secondaryBlock: Color,
-    accent: Color,
-    accentOn: Color,
+    colors: ArtistPageColors,
     onAlbumClick: (String) -> Unit,
-    onToggleFollow: () -> Unit,
-    onPlay: () -> Unit,
-    onShuffle: () -> Unit,
-    onTopTrackClick: (index: Int) -> Unit,
-    modifier: Modifier = Modifier,
+    onMostPlayedClick: (Int) -> Unit,
 ) {
-    BoxWithConstraints(modifier = modifier.fillMaxSize()) {
+    BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
         val maxW = maxWidth
-        // PANE-relative (an embedded activity sees its own container), so a
-        // shell↔detail split on an 840dp window still renders the Compact
-        // hero/carousel in its ~460dp pane — exactly as intended.
+        // PANE-relative (an embedded activity sees its own container).
         val layoutMode = LocalYoinWindowInfo.current.layoutMode
-        // Smaller portrait so the Albums / Follow stats can flank it and use the
-        // space that's otherwise empty beside a circle.
-        val portraitSize = minOf(maxW * 0.44f, 188.dp)
+        val wide = layoutMode != LayoutMode.Compact && layoutMode != LayoutMode.Tabletop
         val navBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
-        // Per-section inset (NOT on the scroll Column) so the carousel can go
-        // edge-to-edge while text content stays inset.
-        val sidePad = Modifier.padding(horizontal = 16.dp)
+        val scrollState = rememberScrollState()
+        // The pinwheel turns with the page as it scrolls (read at draw time —
+        // no recomposition per scroll frame); still under reduced motion.
+        val turnWithScroll = LocalMotionProfile.current != MotionProfile.AdaptiveReduced
+        val pinwheelTurn: () -> Float = {
+            ArtistPinwheelRestDegrees +
+                if (turnWithScroll) scrollState.value * ArtistPinwheelDegreesPerPx else 0f
+        }
 
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .verticalScroll(rememberScrollState())
-                .padding(top = 8.dp, bottom = 110.dp + navBottom),
+                .verticalScroll(scrollState)
+                .padding(bottom = 120.dp + navBottom),
+            horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            val (followIdle, followActive) = artistFollowLabels(content.artistId)
-            val followLabel = if (content.isStarred) followActive else followIdle
-
-            if (layoutMode != LayoutMode.Compact) {
-                // >= Medium hero — the centred circle can't carry a wide pane
-                // alone: portrait (200dp) left; name, meta, Follow ★ and Play
-                // in a right column. Same arrow background, same blocks.
+            if (wide) {
                 ArtistWideHero(
                     content = content,
                     heroUrl = heroUrl,
-                    primaryBlock = primaryBlock,
-                    secondaryBlock = secondaryBlock,
-                    accent = accent,
-                    accentOn = accentOn,
-                    followLabel = followLabel,
-                    onToggleFollow = onToggleFollow,
-                    onPlay = onPlay,
-                    onShuffle = onShuffle,
+                    colors = colors,
+                    pinwheelTurn = pinwheelTurn,
+                    modifier = Modifier.yoinPageContentWidth(),
                 )
             } else {
-            // Hero — Albums (left) · portrait (center) · Follow (right).
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp),
-            ) {
-                AlbumArrowBackground(
-                    primaryBlock = primaryBlock,
-                    secondaryBlock = secondaryBlock,
-                    lineColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.22f),
-                    markHeight = portraitSize + 48.dp,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(portraitSize + 64.dp)
-                        .align(Alignment.TopCenter),
+                // Portrait on the pinwheel's hub; the meta row below takes the
+                // Album hero's cover-block width so the two pages line up.
+                val portraitSize = minOf(maxW * 0.52f, 216.dp)
+                ArtistPinwheelHero(
+                    heroUrl = heroUrl,
+                    artistName = content.artistName,
+                    colors = colors,
+                    portraitSize = portraitSize,
+                    pinwheelTurn = pinwheelTurn,
                 )
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                Column(
-                    modifier = Modifier.weight(1f),
-                    horizontalAlignment = Alignment.Start,
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
-                ) {
-                    AlbumSectionLabel(text = "Albums")
-                    // albums.size, NOT the provider albumCount (Spotify inflates it).
-                    Text(
-                        text = content.albums.size.toString(),
-                        style = MaterialTheme.typography.headlineSmall
-                            .copy(fontFamily = FontFamily.Monospace),
-                        color = MaterialTheme.colorScheme.onSurface,
-                    )
-                }
-                ExpressiveMediaArtwork(
-                    model = heroUrl,
-                    contentDescription = content.artistName,
-                    modifier = Modifier.size(portraitSize),
-                    shape = CircleShape,
-                    fallbackIcon = Icons.Filled.Person,
-                    border = null,
-                    shadowElevation = 0.dp,
-                    tonalElevation = 3.dp,
-                    requestSizePx = 600,
+                Spacer(modifier = Modifier.height(8.dp))
+                ArtistHeroMeta(
+                    content = content,
+                    colors = colors,
+                    modifier = Modifier.width(minOf(maxW * 0.74f, 300.dp)),
                 )
-                Column(
-                    modifier = Modifier.weight(1f),
-                    horizontalAlignment = Alignment.End,
-                    verticalArrangement = Arrangement.spacedBy(6.dp),
-                ) {
-                    // Per-provider wording: Spotify "Follow"; Subsonic "Favorite".
-                    AlbumSectionLabel(text = followLabel)
-                    ArtistFollowBun(
-                        following = content.isStarred,
-                        label = followLabel,
-                        accent = accent,
-                        accentOn = accentOn,
-                        onToggle = onToggleFollow,
-                    )
-                }
-            }
-            }
             }
 
-            Spacer(modifier = Modifier.height(24.dp))
+            Spacer(modifier = Modifier.height(32.dp))
 
-            // Popular — top tracks (Spotify only; hidden if empty). The marquee.
-            // Arrives on a second emission after the hero paints, so the
-            // section grows in and pushes Discography down instead of popping.
+            val sections = Modifier
+                .yoinPageContentWidth()
+                .padding(horizontal = 16.dp)
+            // Arrives with the personal layer; grows in instead of popping.
             AnimatedVisibility(
-                visible = content.topTracks.isNotEmpty(),
+                visible = content.listening?.mostPlayed?.isNotEmpty() == true,
                 enter = YoinMotion.fadeIn(role = YoinMotionRole.Expressive) +
                     expandVertically(animationSpec = YoinMotion.spatialSpring()),
                 exit = YoinMotion.fadeOut(role = YoinMotionRole.Expressive) +
                     shrinkVertically(animationSpec = YoinMotion.spatialSpring()),
             ) {
-                Column {
-                    Column(modifier = sidePad) {
-                        AlbumSectionLabel(text = "Popular")
-                        Spacer(modifier = Modifier.height(8.dp))
-                        content.topTracks.forEachIndexed { index, track ->
-                            ArtistTopTrackRow(
-                                rank = index + 1,
-                                track = track,
-                                pageArtistName = content.artistName,
-                                onClick = { onTopTrackClick(index) },
-                            )
-                        }
-                    }
-                    Spacer(modifier = Modifier.height(22.dp))
-                }
-            }
-
-            AlbumSectionLabel(text = "Discography", modifier = sidePad)
-            Spacer(modifier = Modifier.height(12.dp))
-
-            if (content.albums.isEmpty()) {
-                Text(
-                    text = "No albums",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(horizontal = 20.dp),
-                )
-            } else if (layoutMode != LayoutMode.Compact) {
-                // >= Medium: the one-row carousel wastes a tall pane — the same
-                // albums flow as rows of the shared AlbumCard instead.
-                ArtistDiscographyGrid(
-                    albums = content.albums,
-                    onAlbumClick = onAlbumClick,
-                    modifier = sidePad,
-                )
-            } else {
-                // Official M3 carousel, edge-to-edge: items scroll freely off both
-                // screen edges, no white side gutters.
-                ArtistDiscographyCarousel(
-                    albums = content.albums,
-                    onAlbumClick = onAlbumClick,
+                ArtistMostPlayed(
+                    listening = content.listening,
+                    onClick = onMostPlayedClick,
+                    modifier = sections.padding(bottom = 32.dp),
                 )
             }
+
+            ArtistDiscography(
+                albums = content.albums,
+                accent = colors.accent,
+                onAlbumClick = onAlbumClick,
+                modifier = sections,
+            )
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Hero
+// ---------------------------------------------------------------------------
+
+@Composable
+private fun ArtistPinwheelHero(
+    heroUrl: String?,
+    artistName: String,
+    colors: ArtistPageColors,
+    portraitSize: Dp,
+    pinwheelTurn: () -> Float,
+    modifier: Modifier = Modifier,
+) {
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(portraitSize + ArtistPinwheelBandExtra),
+        contentAlignment = Alignment.Center,
+    ) {
+        // Width = the page (no side padding): the arms bleed off the screen
+        // edges only; the band is tall enough that they clear the meta row
+        // below at the resting turn.
+        ArtistPinwheelBackground(
+            colors = colors.arms,
+            lineColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.65f),
+            portraitSize = portraitSize,
+            rotationDegrees = pinwheelTurn,
+            modifier = Modifier.fillMaxSize(),
+        )
+        ArtistPortrait(heroUrl = heroUrl, artistName = artistName, modifier = Modifier.size(portraitSize))
+    }
+}
+
+@Composable
+private fun ArtistPortrait(heroUrl: String?, artistName: String, modifier: Modifier = Modifier) {
+    ExpressiveMediaArtwork(
+        model = heroUrl,
+        contentDescription = artistName,
+        modifier = modifier,
+        shape = CircleShape,
+        fallbackIcon = Icons.Filled.Person,
+        border = null,
+        shadowElevation = 0.dp,
+        tonalElevation = 3.dp,
+        requestSizePx = 720,
+    )
+}
+
+/**
+ * The Album hero's meta row, in artist terms — Last Play (your latest play of
+ * anything by them, day over time in mono) | Avg. (the mean of your album
+ * ratings for their releases, "Based on X/N").
+ */
+@Composable
+private fun ArtistHeroMeta(
+    content: ArtistDetailUiState.Content,
+    colors: ArtistPageColors,
+    modifier: Modifier = Modifier,
+) {
+    val mono = FontFamily.Monospace
+    val listening = content.listening
+    val average = content.averageAlbumRating
+    val score = if (average != null) {
+        AlbumScore(AlbumScoreKind.Average, average)
+    } else {
+        AlbumScore(AlbumScoreKind.None, 0f)
+    }
+    Row(
+        modifier = modifier,
+        horizontalArrangement = Arrangement.SpaceBetween,
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            AlbumSectionLabel(text = "Last Play")
+            val labels = listening?.lastPlayedAt?.let { albumLastPlayLabels(it) }
+            Text(
+                text = labels?.first ?: "—",
+                style = MaterialTheme.typography.bodyLarge.copy(fontFamily = mono),
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            Text(
+                // null listening = still loading: keep the line quiet instead of
+                // flashing "Never" before the history read lands.
+                text = when {
+                    labels != null -> labels.second
+                    listening == null -> " "
+                    else -> "Never"
+                },
+                style = MaterialTheme.typography.bodyMedium.copy(fontFamily = mono),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            AlbumSectionLabel(text = "Avg.")
+            AlbumScoreBun(
+                score = score,
+                ratedCount = content.ratedAlbumCount,
+                total = content.albums.size,
+                containerColor = colors.bunContainer,
+                contentColor = colors.bunContent,
+                // Album ratings are given on each album page; the artist Bun
+                // only reports them.
+                enabled = false,
+                onClick = {},
+            )
         }
     }
 }
 
 /**
- * Hero at >= Medium: the Compact triptych (stat · circle · star) leaves a wide
- * pane mostly empty, so the portrait moves left and an identity column — name,
- * meta line, Follow ★ Bun and the Play split — fills the freed width. Same
- * arrow background and the same building blocks as Compact, only rearranged.
+ * >= Medium hero: the pinwheel portrait on the left, the identity column —
+ * name, meta line and the same Last Play | Avg. row — on the right.
  */
 @Composable
 private fun ArtistWideHero(
     content: ArtistDetailUiState.Content,
     heroUrl: String?,
-    primaryBlock: Color,
-    secondaryBlock: Color,
-    accent: Color,
-    accentOn: Color,
-    followLabel: String,
-    onToggleFollow: () -> Unit,
-    onPlay: () -> Unit,
-    onShuffle: () -> Unit,
+    colors: ArtistPageColors,
+    pinwheelTurn: () -> Float,
     modifier: Modifier = Modifier,
 ) {
     val portraitSize = 200.dp
-    Box(
+    Row(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp),
+            .padding(horizontal = 16.dp, vertical = ArtistWideHeroGap),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(ArtistWideHeroGap),
     ) {
-        AlbumArrowBackground(
-            primaryBlock = primaryBlock,
-            secondaryBlock = secondaryBlock,
-            lineColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.22f),
-            markHeight = portraitSize + 48.dp,
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(portraitSize + 64.dp)
-                .align(Alignment.TopCenter),
-        )
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(28.dp),
-        ) {
-            ExpressiveMediaArtwork(
-                model = heroUrl,
-                contentDescription = content.artistName,
-                modifier = Modifier.size(portraitSize),
-                shape = CircleShape,
-                fallbackIcon = Icons.Filled.Person,
-                border = null,
-                shadowElevation = 0.dp,
-                tonalElevation = 3.dp,
-                requestSizePx = 600,
-            )
-            Column(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                Text(
-                    text = content.artistName,
-                    style = MaterialTheme.typography.headlineMedium,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                // Same meta voice as the top-bar subtitle, in the page's mono.
-                // albums.size, NOT the provider albumCount (Spotify inflates it).
-                Text(
-                    text = buildString {
-                        append("Artist")
-                        content.albums.size.takeIf { it > 0 }?.let {
-                            append(if (it == 1) "  ·  1 album" else "  ·  $it albums")
-                        }
-                    },
-                    style = MaterialTheme.typography.titleSmall
-                        .copy(fontFamily = FontFamily.Monospace),
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Spacer(modifier = Modifier.height(10.dp))
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(14.dp),
-                ) {
-                    ArtistFollowBun(
-                        following = content.isStarred,
-                        label = followLabel,
-                        accent = accent,
-                        accentOn = accentOn,
-                        onToggle = onToggleFollow,
-                    )
-                    PlaySplitButton(
-                        playContainer = accent,
-                        playContent = accentOn,
-                        onPlay = onPlay,
-                        onShuffle = onShuffle,
-                    )
-                }
-            }
-        }
-    }
-}
-
-/**
- * Discography at >= Medium: rows of the shared [AlbumCard] (its default 156dp
- * fixed width — 3-up at typical split-pane widths, 4-up from ~692dp of pane
- * width with these 12dp gutters). A plain [FlowRow] inside the page's single
- * verticalScroll Column — NOT a LazyVerticalGrid, which would need its own
- * bounded height inside this already-scrollable parent.
- */
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-private fun ArtistDiscographyGrid(
-    albums: List<ArtistAlbum>,
-    onAlbumClick: (String) -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    // 12dp gutters / 16dp row gap — the Library albums grid rhythm.
-    FlowRow(
-        modifier = modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
-    ) {
-        albums.forEach { album ->
-            AlbumCard(
-                coverArtUrl = album.coverArtUrl,
-                title = album.name,
-                subtitle = album.songCount?.let { if (it == 1) "1 song" else "$it songs" },
-                metaLabel = album.year?.toString(),
-                onClick = { onAlbumClick(album.id) },
-                // Palette extraction across a whole grid drops frames — same
-                // @palette-perf story as the Library albums grid.
-                extractBackdropColors = false,
-            )
-        }
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun ArtistDiscographyCarousel(
-    albums: List<ArtistAlbum>,
-    onAlbumClick: (String) -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    val carouselState = rememberCarouselState { albums.size }
-    HorizontalMultiBrowseCarousel(
-        state = carouselState,
-        preferredItemWidth = 200.dp,
-        itemSpacing = 8.dp,
-        // A small lead-in so the first item doesn't jam the screen edge, while
-        // items still mask/peek freely off both sides (not boxed-in white gutters).
-        contentPadding = PaddingValues(horizontal = 16.dp),
-        modifier = modifier
-            .fillMaxWidth()
-            .height(220.dp),
-    ) { index ->
-        val album = albums[index]
-        // Same press language as AlbumCard: one interaction source shared by
-        // the clickable and the artwork so its built-in elasticPress engages.
-        val interactionSource = remember { MutableInteractionSource() }
-        Box(
-            modifier = Modifier
-                .height(220.dp)
-                .maskClip(YoinArtworkShapes.HeroAnimated)
-                .clickable(
-                    interactionSource = interactionSource,
-                    indication = null,
-                    role = Role.Button,
-                    onClick = { onAlbumClick(album.id) },
-                ),
-        ) {
-            ExpressiveMediaArtwork(
-                model = album.coverArtUrl,
-                contentDescription = album.name,
+        Box(modifier = Modifier.size(portraitSize)) {
+            // Drawn around the portrait's own box (the Canvas does not clip),
+            // so the hub stays under the circle wherever the row puts it.
+            ArtistPinwheelBackground(
+                colors = colors.arms,
+                lineColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.65f),
+                portraitSize = portraitSize,
+                rotationDegrees = pinwheelTurn,
                 modifier = Modifier.fillMaxSize(),
-                shape = RectangleShape,
-                fallbackIcon = Icons.Filled.Album,
-                interactionSource = interactionSource,
-                border = null,
-                shadowElevation = 0.dp,
-                requestSizePx = 480,
+                markScale = ArtistPinwheelWideScale,
             )
-            Column(
+            ArtistPortrait(heroUrl = heroUrl, artistName = content.artistName, modifier = Modifier.fillMaxSize())
+        }
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Text(
+                text = content.artistName,
+                style = MaterialTheme.typography.headlineMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                text = artistReleaseCountLabel(content.albums.size),
+                style = MaterialTheme.typography.titleSmall.copy(fontFamily = FontFamily.Monospace),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(modifier = Modifier.height(10.dp))
+            ArtistHeroMeta(
+                content = content,
+                colors = colors,
+                // Capped, then filled: the SpaceBetween row needs a real width
+                // or Last Play and Avg. collapse onto each other.
                 modifier = Modifier
-                    .align(Alignment.BottomStart)
-                    .fillMaxWidth()
-                    .background(
-                        Brush.verticalGradient(
-                            listOf(Color.Transparent, Color.Black.copy(alpha = 0.62f)),
-                        ),
-                    )
-                    .padding(horizontal = 12.dp, vertical = 10.dp),
-                verticalArrangement = Arrangement.spacedBy(1.dp),
-            ) {
-                Text(
-                    text = album.name,
-                    style = MaterialTheme.typography.titleSmall,
-                    color = Color.White,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Text(
-                    text = buildString {
-                        album.year?.let { append(it) }
-                        album.songCount?.let {
-                            if (isNotEmpty()) append("  ·  ")
-                            append(if (it == 1) "1 song" else "$it songs")
-                        }
-                    },
-                    style = MaterialTheme.typography.labelSmall,
-                    color = Color.White.copy(alpha = 0.82f),
-                    maxLines = 1,
-                )
-            }
+                    .widthIn(max = 320.dp)
+                    .fillMaxWidth(),
+            )
         }
     }
 }
+
+// Height the band adds around the portrait so the pinwheel's lower arm clears
+// the meta row at the resting turn.
+private val ArtistPinwheelBandExtra = 150.dp
+
+// Scroll-linked turn of the pinwheel, degrees per px scrolled (~18° per 100dp at 3×).
+private const val ArtistPinwheelDegreesPerPx = 0.06f
+
+// >= Medium: the pinwheel sits behind a side portrait with the name column to
+// its right; the arms reach ≈0.78 × portrait from the hub, so the row's gap
+// and vertical room keep them clear of that text.
+private const val ArtistPinwheelWideScale = 1.7f
+private val ArtistWideHeroGap = 56.dp
+
+private fun artistReleaseCountLabel(count: Int): String =
+    if (count == 1) "1 release" else "$count releases"
+
+// ---------------------------------------------------------------------------
+// Most Played
+// ---------------------------------------------------------------------------
 
 /**
- * (idle, active) labels for the star/follow toggle, by provider. Spotify uses
- * the real "Follow" concept (`/me/following`); Subsonic has no follow, only
- * starring, so it reads "Favorite".
+ * The user's own most-played songs by this artist (local play history, so it
+ * exists for every provider — it stands in for the "Popular" list Spotify no
+ * longer exposes). Rank · thumb · title/album · ×plays.
  */
-private fun artistFollowLabels(artistId: String): Pair<String, String> =
-    when (MediaId.parseOrNull(artistId)?.provider) {
-        MediaId.PROVIDER_SPOTIFY -> "Follow" to "Following"
-        else -> "Favorite" to "Favorited"
-    }
-
-@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
-private fun ArtistFollowBun(
-    following: Boolean,
-    label: String,
-    accent: Color,
-    accentOn: Color,
-    onToggle: () -> Unit,
+private fun ArtistMostPlayed(
+    listening: ArtistListeningSummary?,
+    onClick: (Int) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val haptics = rememberYoinHaptics()
-    val interaction = remember { MutableInteractionSource() }
-    val container by animateColorAsState(
-        targetValue = if (following) accent else Color.Transparent,
-        animationSpec = YoinMotion.effectsSpring(),
-        label = "followBunContainer",
-    )
-    Surface(
-        onClick = {
-            if (following) haptics.performTick() else haptics.performConfirm()
-            onToggle()
-        },
-        modifier = modifier
-            .size(width = 60.dp, height = 60.dp)
-            .elasticPress(interaction),
-        interactionSource = interaction,
-        shape = MaterialShapes.Bun.toShape(),
-        color = container,
-        border = if (!following) {
-            BorderStroke(1.5.dp, accent.copy(alpha = 0.55f))
-        } else {
-            null
-        },
-    ) {
-        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Icon(
-                imageVector = if (following) Icons.Filled.Star else Icons.Filled.StarBorder,
-                contentDescription = label,
-                tint = if (following) accentOn else accent,
-                modifier = Modifier.size(24.dp),
-            )
+    val songs = listening?.mostPlayed.orEmpty()
+    Column(modifier = modifier.fillMaxWidth()) {
+        ArtistSectionHeader(
+            title = "Most Played",
+            trailing = listening?.playCount?.takeIf { it > 0 }?.let { if (it == 1) "1 play" else "$it plays" },
+        )
+        Spacer(modifier = Modifier.height(6.dp))
+        songs.forEachIndexed { index, song ->
+            ArtistPlayedRow(rank = index + 1, song = song, onClick = { onClick(index) })
         }
     }
 }
 
-/** One row in the "Popular" list: rank · thumbnail · title/artist · duration. */
 @Composable
-private fun ArtistTopTrackRow(
+private fun ArtistPlayedRow(
     rank: Int,
-    track: ArtistTopTrack,
-    pageArtistName: String,
+    song: ArtistPlayedSong,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -871,21 +772,21 @@ private fun ArtistTopTrackRow(
                 haptics.performClick()
                 onClick()
             }
-            .padding(horizontal = 8.dp, vertical = 10.dp),
+            .padding(horizontal = 8.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Text(
             text = rank.toString(),
-            style = MaterialTheme.typography.labelMedium.withTabularFigures(),
+            style = MaterialTheme.typography.labelLarge.copy(fontFamily = FontFamily.Monospace),
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.End,
-            modifier = Modifier.widthIn(min = 18.dp),
+            modifier = Modifier.widthIn(min = 16.dp),
         )
         ExpressiveMediaArtwork(
-            model = track.coverArtUrl,
+            model = song.coverArtUrl,
             contentDescription = null,
-            modifier = Modifier.size(46.dp),
+            modifier = Modifier.size(44.dp),
             shape = YoinArtworkShapes.Thumb,
             fallbackIcon = Icons.Filled.MusicNote,
             border = null,
@@ -897,18 +798,235 @@ private fun ArtistTopTrackRow(
             verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
             Text(
-                text = track.title,
+                text = song.title,
                 style = MaterialTheme.typography.titleMedium,
                 color = MaterialTheme.colorScheme.onSurface,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
-            // The mapper keeps only the primary artist, so on this page the
-            // subtitle is almost always the page's own name — show it only
-            // for genuine collaborator credits.
-            if (track.artist.isNotBlank() && track.artist != pageArtistName) {
+            Text(
+                text = listOfNotNull(
+                    song.album.takeIf { it.isNotBlank() },
+                    song.durationSec?.let(::formatTrackDuration),
+                ).joinToString("  ·  "),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        Text(
+            text = "×${song.playCount}",
+            style = MaterialTheme.typography.labelLarge.copy(fontFamily = FontFamily.Monospace)
+                .withTabularFigures(),
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+/** Mono underlined section label (the Album page's) with an optional mono count on the right. */
+@Composable
+private fun ArtistSectionHeader(title: String, trailing: String?, modifier: Modifier = Modifier) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        AlbumSectionLabel(text = title, modifier = Modifier.weight(1f))
+        trailing?.let {
+            Text(
+                text = it,
+                style = MaterialTheme.typography.labelMedium.copy(fontFamily = FontFamily.Monospace),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Discography — a release timeline
+// ---------------------------------------------------------------------------
+
+private enum class DiscographyFilter(val label: String) {
+    All("All"),
+    Albums("Albums"),
+    SinglesAndEps("Singles & EPs"),
+    Compilations("Compilations"),
+    ;
+
+    fun accepts(type: ReleaseType?): Boolean = when (this) {
+        All -> true
+        Albums -> type == ReleaseType.Album
+        SinglesAndEps -> type == ReleaseType.Single || type == ReleaseType.EP
+        Compilations -> type == ReleaseType.Compilation
+    }
+}
+
+/**
+ * Every release, newest first, as a timeline: a mono year column marks where a
+ * year begins, each row carries the release kind and track count, the newest
+ * one is tagged "Latest", and your own rating sits on the right where you gave
+ * one. Kind filters appear only when the provider reports at least two kinds.
+ * The first [DiscographyCollapsedCount] rows show; the rest expand in place.
+ */
+@Composable
+private fun ArtistDiscography(
+    albums: List<ArtistAlbum>,
+    accent: Color,
+    onAlbumClick: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val filters = remember(albums) {
+        val kinds = DiscographyFilter.entries.drop(1).filter { f -> albums.any { f.accepts(it.releaseType) } }
+        if (kinds.size >= 2) listOf(DiscographyFilter.All) + kinds else emptyList()
+    }
+    var filter by rememberSaveable { mutableStateOf(DiscographyFilter.All) }
+    var showAll by rememberSaveable { mutableStateOf(false) }
+    val shown = albums.filter { filter.accepts(it.releaseType) }
+    val newestId = albums.firstOrNull()?.id
+
+    Column(modifier = modifier.fillMaxWidth()) {
+        ArtistSectionHeader(title = "Discography", trailing = artistReleaseCountLabel(albums.size))
+        if (filters.isNotEmpty()) {
+            Spacer(modifier = Modifier.height(12.dp))
+            ExpressiveSegmentedTabs(
+                items = filters,
+                selectedItem = filter,
+                label = { it.label },
+                onSelectedChange = { filter = it },
+            )
+        }
+        Spacer(modifier = Modifier.height(8.dp))
+        if (albums.isEmpty()) {
+            Text(
+                text = "No releases",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 8.dp, vertical = 8.dp),
+            )
+            return@Column
+        }
+        val head = shown.take(DiscographyCollapsedCount)
+        val tail = shown.drop(DiscographyCollapsedCount)
+        head.forEachIndexed { index, album ->
+            ArtistReleaseRow(
+                album = album,
+                showYear = index == 0 || head[index - 1].year != album.year,
+                isLatest = album.id == newestId,
+                accent = accent,
+                onClick = { onAlbumClick(album.id) },
+            )
+        }
+        AnimatedVisibility(
+            visible = showAll && tail.isNotEmpty(),
+            enter = YoinMotion.fadeIn(role = YoinMotionRole.Expressive) +
+                expandVertically(animationSpec = YoinMotion.spatialSpring()),
+            exit = YoinMotion.fadeOut(role = YoinMotionRole.Expressive) +
+                shrinkVertically(animationSpec = YoinMotion.spatialSpring()),
+        ) {
+            Column {
+                tail.forEachIndexed { index, album ->
+                    val previous = if (index == 0) head.lastOrNull() else tail[index - 1]
+                    ArtistReleaseRow(
+                        album = album,
+                        showYear = previous?.year != album.year,
+                        isLatest = false,
+                        accent = accent,
+                        onClick = { onAlbumClick(album.id) },
+                    )
+                }
+            }
+        }
+        if (tail.isNotEmpty()) {
+            TextButton(
+                onClick = { showAll = !showAll },
+                modifier = Modifier.padding(start = ArtistReleaseYearColumn),
+            ) {
                 Text(
-                    text = track.artist,
+                    text = if (showAll) "Show fewer" else "Show all ${shown.size}",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = accent,
+                )
+            }
+        }
+    }
+}
+
+// Rows visible before "Show all".
+private const val DiscographyCollapsedCount = 8
+
+// Width of the timeline's year column (fits "2025" in mono labelLarge).
+private val ArtistReleaseYearColumn = 48.dp
+
+@Composable
+private fun ArtistReleaseRow(
+    album: ArtistAlbum,
+    showYear: Boolean,
+    isLatest: Boolean,
+    accent: Color,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val haptics = rememberYoinHaptics()
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(YoinContainerShapes.ListRow)
+            .clickable {
+                haptics.performClick()
+                onClick()
+            }
+            .padding(end = 8.dp, top = 8.dp, bottom = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
+            modifier = Modifier
+                .width(ArtistReleaseYearColumn)
+                .padding(start = 8.dp),
+        ) {
+            if (showYear) {
+                Text(
+                    text = album.year?.toString() ?: "—",
+                    style = MaterialTheme.typography.labelLarge.copy(fontFamily = FontFamily.Monospace)
+                        .withTabularFigures(),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+        ExpressiveMediaArtwork(
+            model = album.coverArtUrl,
+            contentDescription = album.name,
+            modifier = Modifier.size(56.dp),
+            shape = YoinArtworkShapes.Cover,
+            fallbackIcon = Icons.Filled.Album,
+            border = null,
+            shadowElevation = 0.dp,
+            requestSizePx = 168,
+        )
+        Spacer(modifier = Modifier.width(12.dp))
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
+            Text(
+                text = album.name,
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Row {
+                if (isLatest) {
+                    Text(
+                        text = "Latest  ·  ",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = accent,
+                        maxLines = 1,
+                    )
+                }
+                Text(
+                    text = releaseMetaLine(album),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
@@ -916,14 +1034,28 @@ private fun ArtistTopTrackRow(
                 )
             }
         }
-        track.durationSec?.let { secs ->
+        album.userRating?.let { rating ->
             Text(
-                text = formatTrackDuration(secs),
-                style = MaterialTheme.typography.labelLarge.withTabularFigures(),
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                text = formatAlbumScore(rating),
+                style = MaterialTheme.typography.titleSmall.copy(fontFamily = FontFamily.Monospace),
+                color = accent,
+                modifier = Modifier.padding(start = 12.dp),
             )
         }
     }
+}
+
+/** "Album · 11 songs", "EP · 4 songs", or just "11 songs" when the kind is unknown. */
+private fun releaseMetaLine(album: ArtistAlbum): String {
+    val kind = when (album.releaseType) {
+        ReleaseType.Album -> "Album"
+        ReleaseType.EP -> "EP"
+        ReleaseType.Single -> "Single"
+        ReleaseType.Compilation -> "Compilation"
+        null -> null
+    }
+    val songs = album.songCount?.let { if (it == 1) "1 song" else "$it songs" }
+    return listOfNotNull(kind, songs).joinToString("  ·  ")
 }
 
 @Preview(showBackground = true, backgroundColor = 0xFF1C1B1F)
@@ -934,13 +1066,20 @@ private fun ArtistDetailScreenContentPreview() {
             uiState = ArtistDetailUiState.Content(
                 artistId = "artist-1",
                 artistName = "Hannah Jadagu",
-                albumCount = 3,
                 heroCoverArtUrl = null,
                 isStarred = true,
                 albums = listOf(
-                    ArtistAlbum("1", "Aperture", null, 2023, 11),
-                    ArtistAlbum("2", "What Is Going On?", null, 2021, 6),
-                    ArtistAlbum("3", "Describe", null, 2025, 8),
+                    ArtistAlbum("3", "Describe", null, 2025, 8, ReleaseType.Album, userRating = 8.5f),
+                    ArtistAlbum("1", "Aperture", null, 2023, 11, ReleaseType.Album),
+                    ArtistAlbum("2", "What Is Going On?", null, 2021, 6, ReleaseType.EP),
+                ),
+                listening = ArtistListeningSummary(
+                    playCount = 42,
+                    lastPlayedAt = System.currentTimeMillis() - 86_400_000L,
+                    mostPlayed = listOf(
+                        ArtistPlayedSong("s1", "Describe", "Describe", null, 231, 12),
+                        ArtistPlayedSong("s2", "Warning Sign", "Aperture", null, 205, 7),
+                    ),
                 ),
             ),
             onBackClick = {},

@@ -1406,15 +1406,16 @@ internal fun selectHomeHeroActivity(
  *   2. 拼 `"${activity.provider}:$entityId"` 时如果 entityId 已经含前缀，
  *      就会得到 `"spotify:spotify:xxx"` 被 Spotify API 当成 rawId 塞进
  *      `/v1/albums/...` 返回 400
+ * 只剥本 provider 的前缀：Apple Music 资料库 rawId 自带冒号（`library:l.xxx`）。
  */
-private fun activityEntityRawId(raw: String): String =
-    if (raw.contains(':')) raw.substringAfter(':') else raw
+private fun activityEntityRawId(activity: ActivityEvent, raw: String): String =
+    MediaId.storedRawId(activity.provider, raw)
 
 private fun homeActivityDedupKey(activity: ActivityEvent): String {
     val canonicalEntityId = when (activity.entityType) {
         ActivityEntityType.SONG.name ->
-            activityEntityRawId(activity.songId ?: activity.entityId)
-        else -> activityEntityRawId(activity.entityId)
+            activityEntityRawId(activity, activity.songId ?: activity.entityId)
+        else -> activityEntityRawId(activity, activity.entityId)
     }
     return "${activity.entityType}:$canonicalEntityId"
 }
@@ -1429,7 +1430,7 @@ private fun buildActivityEntries(
     limit: Int = 6,
 ): List<HomeMomentEntry> = selectHomeActivities(activities).take(limit).map { activity ->
     val stableId = "activity:${activity.id}:${activity.entityType}:${activity.entityId}:${activity.actionType}"
-    val rawEntityId = activityEntityRawId(activity.entityId)
+    val rawEntityId = activityEntityRawId(activity, activity.entityId)
     val entityMediaId = "${activity.provider}:$rawEntityId"
     val target: HomeEntryTarget = when (activity.entityType) {
         ActivityEntityType.ALBUM.name -> HomeEntryTarget.Album(entityMediaId, stableId)

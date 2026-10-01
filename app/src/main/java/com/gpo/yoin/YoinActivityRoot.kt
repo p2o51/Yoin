@@ -18,16 +18,15 @@ import coil3.request.SuccessResult
 import coil3.request.allowHardware
 import coil3.size.Size
 import coil3.toBitmap
+import com.gpo.yoin.ui.component.ProvideBottomBarShadowHost
+import com.gpo.yoin.ui.component.LocalPlaybackWaveState
 import com.gpo.yoin.ui.experience.LocalMotionCapabilityProvider
 import com.gpo.yoin.ui.experience.LocalMotionProfile
 import com.gpo.yoin.ui.experience.LocalYoinWindowInfo
 import com.gpo.yoin.ui.experience.MotionCapabilityProvider
 import com.gpo.yoin.ui.experience.MotionProfile
 import com.gpo.yoin.ui.experience.rememberYoinWindowInfo
-import com.gpo.yoin.ui.theme.CoverColorState
-import com.gpo.yoin.ui.theme.LocalCoverColorState
 import com.gpo.yoin.ui.theme.YoinTheme
-import kotlinx.coroutines.delay
 
 /**
  * Transparent edge-to-edge for every Yoin Activity. Call before `setContent`
@@ -73,15 +72,19 @@ private fun ComponentActivity.requestPeakRefreshRate() {
  * current playback cover, the cover-color extraction, and the motion-profile
  * locals — so a detail Activity looks and animates exactly like the shell.
  *
- * Detail Activities reuse this and simply pass their screen as [content];
- * they deliberately do NOT host the Now Playing overlay or mini player (that
- * lives only in [MainActivity], by design).
+ * Detail Activities read the same resolved palette and in-flight color wash
+ * from their first frame. Opening a window never resets playback colors.
  */
 @Composable
-fun YoinActivityRoot(content: @Composable () -> Unit) {
-    val coverColorState = remember { CoverColorState() }
-    CompositionLocalProvider(LocalCoverColorState provides coverColorState) {
-        YoinTheme(coverBitmap = coverColorState.coverBitmap) {
+fun YoinActivityRoot(
+    // Detail windows open showing only their bar over the previous window's
+    // bar; their shadow waits for the page (see BottomBarShadowPageCoverEffect).
+    deferBottomBarShadow: Boolean = false,
+    content: @Composable () -> Unit,
+) {
+    val app = LocalContext.current.applicationContext as? YoinApplication
+    ProvideBottomBarShadowHost(app?.container?.bottomBarShadows, deferUntilPageCover = deferBottomBarShadow) {
+        YoinTheme(playbackThemeState = app?.container?.playbackThemeState) {
             YoinAppEnvironment(content = content)
         }
     }
@@ -90,33 +93,29 @@ fun YoinActivityRoot(content: @Composable () -> Unit) {
 @Composable
 private fun YoinAppEnvironment(content: @Composable () -> Unit) {
     val app = LocalContext.current.applicationContext as? YoinApplication
-    val coverColorState = LocalCoverColorState.current
     val fallbackMotionCapabilityProvider = remember { MotionCapabilityProvider(lowRamDevice = false) }
     val motionCapabilityProvider = app?.container?.motionCapabilityProvider ?: fallbackMotionCapabilityProvider
     val motionProfile by motionCapabilityProvider.profile.collectAsState(initial = MotionProfile.Full)
 
     if (app != null) {
-        val context = LocalContext.current
+        val context = app.applicationContext
         val imageLoader = remember(context) { SingletonImageLoader.get(context) }
         val playbackState by app.container.playbackManager.playbackState.collectAsState()
         val coverArt = playbackState.currentTrack?.coverArt
 
-        LaunchedEffect(coverArt, playbackState.queue.size) {
-            if (coverArt != null) {
-                val url = app.container.repository.resolveCoverUrl(coverArt)
+        val configurationRevision by app.container.musicConfigurationRevision.collectAsState()
+        LaunchedEffect(coverArt, playbackState.queue.isEmpty(), configurationRevision) {
+            val model = coverArt?.let { app.container.repository.resolveCoverUrl(it) }
+            app.container.playbackThemeState.updateArtwork(
+                model = model,
+                clearWhenMissing = playbackState.queue.isEmpty(),
+            ) { url ->
                 val request = ImageRequest.Builder(context)
                     .data(url)
                     .size(Size(200, 200))
                     .allowHardware(false)
                     .build()
-                val result = imageLoader.execute(request)
-                if (result is SuccessResult) {
-                    coverColorState.updateCover(result.image.toBitmap())
-                }
-            } else if (playbackState.queue.isEmpty()) {
-                // Keep the previous palette during track handoff so nothing flashes.
-                delay(220)
-                coverColorState.clearCover()
+                (imageLoader.execute(request) as? SuccessResult)?.image?.toBitmap()
             }
         }
     }
@@ -126,6 +125,7 @@ private fun YoinAppEnvironment(content: @Composable () -> Unit) {
     val windowInfo = rememberYoinWindowInfo()
 
     CompositionLocalProvider(
+        LocalPlaybackWaveState provides app?.container?.experienceSessionStore?.playbackWave,
         LocalMotionCapabilityProvider provides motionCapabilityProvider,
         LocalMotionProfile provides motionProfile,
         LocalYoinWindowInfo provides windowInfo,

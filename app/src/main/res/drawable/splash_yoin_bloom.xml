@@ -5,11 +5,23 @@
   but settle at slightly different durations for an organic feel without the
   staggered-start flicker an AnimatedVectorDrawable would otherwise show. Plays
   once as the SplashScreen animated icon, then holds the assembled mark until
-  the first app frame is ready. See splash_yoin_mark.xml for the artwork.
+  the first app frame is ready. The navy glow behind the mark (the launcher
+  icon's background radial) fades in underneath the arms over the same window.
+  See splash_yoin_mark.xml for the artwork.
 -->
 <animated-vector xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:aapt="http://schemas.android.com/aapt"
     android:drawable="@drawable/splash_yoin_mark">
+    <target android:name="glow">
+        <aapt:attr name="android:animation">
+            <objectAnimator
+                android:propertyName="fillAlpha"
+                android:valueFrom="0"
+                android:valueTo="1"
+                android:duration="760"
+                android:interpolator="@android:interpolator/decelerate_cubic" />
+        </aapt:attr>
+    </target>
     <target android:name="armT">
         <aapt:attr name="android:animation">
             <set>

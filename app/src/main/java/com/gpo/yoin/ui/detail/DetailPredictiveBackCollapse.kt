@@ -3,7 +3,6 @@ package com.gpo.yoin.ui.detail
 import androidx.activity.BackEventCompat
 import androidx.activity.compose.PredictiveBackHandler
 import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Stable
@@ -19,6 +18,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import com.gpo.yoin.YoinApplication
+import com.gpo.yoin.ui.component.rememberBottomBarShadowHandBack
 import com.gpo.yoin.ui.experience.DetailBackPhase
 import com.gpo.yoin.ui.experience.voteHighFrameRate
 import com.gpo.yoin.ui.navigation.back.BackMotionTokens
@@ -31,6 +31,7 @@ import kotlin.math.min
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
@@ -49,9 +50,10 @@ import kotlinx.coroutines.launch
  *    screen edge; RIGHT-edge swipes stay centered (AOSP asymmetry)
  *  - vertical follow: deceleration-interpolated touch-Y delta, capped at half
  *    a screen of travel, scaled to the slack before the 8dp display margin
- *  - post-commit: fast alpha-out (AOSP fades in the first fifth of its 450ms
- *    post-commit) with a slight continued drift, then the activity finishes
- *    into its in-place window dissolve.
+ *  - post-commit: effects-spring dissolve with a slight continued drift;
+ *    the activity finishes only after both it and the bar's spatial spring
+ *    have settled — and the bar's shadow has been handed back to the bar
+ *    beneath — preserving the final hand-off pose.
  *
  * The whole gesture is CONSUMED, so the system's window-level animation —
  * which would scale the bar too — never engages. Activities stay Activities.
@@ -126,6 +128,18 @@ internal class DetailBackOperationGuard {
         committed = true
     }
 
+    fun launchCommit(
+        scope: CoroutineScope,
+        settle: suspend () -> Unit,
+        onFinish: () -> Unit,
+    ): Job = scope.launch {
+        try {
+            settle()
+        } finally {
+            dispatchFinishOnce(onFinish)
+        }
+    }
+
     fun dispatchFinishOnce(onFinish: () -> Unit) {
         if (finishDispatched) return
         finishDispatched = true
@@ -141,12 +155,17 @@ internal class DetailBackOperationGuard {
 }
 
 @Composable
-fun rememberDetailBackCollapse(onBack: () -> Unit): DetailBackCollapseState {
+fun rememberDetailBackCollapse(
+    onBack: () -> Unit,
+    bridgeToShell: Boolean = false,
+): DetailBackCollapseState {
     val state = remember { DetailBackCollapseState() }
     val operationGuard = remember { DetailBackOperationGuard() }
     val scope = rememberCoroutineScope()
     val settleSpec = YoinMotion.predictiveBackSettleSpring<Float>()
     val commitSpec = YoinMotion.defaultSpatialSpec<Float>(role = YoinMotionRole.Standard)
+    val exitSpec = YoinMotion.defaultEffectsSpec<Float>(role = YoinMotionRole.Standard)
+    val handBackBarShadow = rememberBottomBarShadowHandBack()
     val context = LocalContext.current
     val store = remember(context) {
         (context.applicationContext as YoinApplication).container.experienceSessionStore
@@ -162,6 +181,10 @@ fun rememberDetailBackCollapse(onBack: () -> Unit): DetailBackCollapseState {
     // preserves both the destination preview and direct finger tracking.
 
     PredictiveBackHandler { events ->
+        if (state.committed) {
+            events.collect { }
+            return@PredictiveBackHandler
+        }
         var initialTouchY = Float.NaN
         var sawGesture = false
         var operationOwner: Long? = null
@@ -175,7 +198,7 @@ fun rememberDetailBackCollapse(onBack: () -> Unit): DetailBackCollapseState {
                 if (!sawGesture) {
                     sawGesture = true
                     state.gestureActive = true
-                    store.detailBackPhase.value = DetailBackPhase.Gesture
+                    if (bridgeToShell) store.detailBackPhase.value = DetailBackPhase.Gesture
                 }
                 if (initialTouchY.isNaN()) initialTouchY = event.touchY
                 state.swipeEdge = event.swipeEdge
@@ -185,44 +208,48 @@ fun rememberDetailBackCollapse(onBack: () -> Unit): DetailBackCollapseState {
                 state.chased.snapTo(
                     YoinMotion.backGestureEasing.transform(event.progress),
                 )
-                store.detailBackProgress.floatValue = state.chased.value
-                store.detailBackTouchYDelta.floatValue = state.touchYDelta
+                if (bridgeToShell) {
+                    store.detailBackProgress.floatValue = state.chased.value
+                    store.detailBackTouchYDelta.floatValue = state.touchYDelta
+                }
             }
-            // COMMIT. Button-backs emit no progress events — skip straight to
-            // the window dissolve. Gesture commits play the AOSP post-commit
-            // content exit (the fade lands within ~90ms) first, while the
-            // window beneath runs its own entering settle off the phase flip.
-            //
-            // The detail Activity stays translucent, so the shell surface is
-            // already live before either a gesture or button commit reveals
-            // it. No resume/readiness handshake is needed here.
+            // Button and gesture commits share the same settle. The detail
+            // stays translucent, so its actual source window is already live.
             operationGuard.markCommitted()
             state.committed = true
             state.gestureActive = false
-            store.detailBackPhase.value = DetailBackPhase.Committed
-            if (sawGesture && state.chased.value > 0.02f) {
-                // Finish the bar's scrub to full nav — the SAME spec the shell
-                // bar uses for its commit settle beneath the dissolve, so the
-                // two bars ride near-identical trajectories and the crossfade
-                // shows no pose jump (a long drag froze the top bar near nav
-                // while the bottom one started from split — the pill flash).
-                scope.launch { state.chased.animateTo(1f, commitSpec) }
-                state.exit.animateTo(1f, tween(durationMillis = 140))
-            } else if (!sawGesture) {
-                // Button-back: play the same commit motion from rest — the
-                // card collapse + bar scrub (morph or slide-down) + content
-                // fade. The live shell is already underneath the first frame.
-                scope.launch { state.chased.animateTo(1f, commitSpec) }
-                state.exit.animateTo(1f, tween(durationMillis = 140))
+            if (bridgeToShell) {
+                store.detailBackPhase.value = DetailBackPhase.Committed
+                store.setDetailChromeActive(false)
             }
-            operationGuard.dispatchFinishOnce(onBack)
+            // Finish both the content dissolve and the bar's spatial motion
+            // before handing the window back. A 140 ms timer used to dispose
+            // the bar mid-spring; multiplying its alpha by five made the page
+            // disappear in just a few frames.
+            operationGuard.launchCommit(
+                scope = scope,
+                settle = {
+                    coroutineScope {
+                        launch { state.chased.animateTo(1f, commitSpec) }
+                        launch {
+                            state.exit.animateTo(1f, exitSpec)
+                            // Page gone: only the bar is left, over its twin
+                            // beneath. Hand the shadow back while both windows
+                            // are still ours, so the system dissolve after
+                            // finish() carries a bare bar, not a shadow whose
+                            // fade another process times.
+                            handBackBarShadow(exitSpec)
+                        }
+                    }
+                },
+                onFinish = onBack,
+            ).join()
         } catch (e: CancellationException) {
             operationGuard.recoverCancellation(
                 onCommittedCancellation = {
-                    // A commit is terminal. Lifecycle/second-back cancellation
-                    // may interrupt its cosmetic fade, but must neither reset
-                    // the shared phase to Idle nor swallow the requested finish.
-                    operationGuard.dispatchFinishOnce(onBack)
+                    // A second back may cancel this handler's wait, but must
+                    // not cut the visible settle short. The host-owned commit
+                    // job finishes exactly once, including on host disposal.
                 },
                 onGestureCancellation = {
                     val owner = operationOwner
@@ -236,14 +263,14 @@ fun rememberDetailBackCollapse(onBack: () -> Unit): DetailBackCollapseState {
                             owner = owner,
                             settle = {
                                 state.chased.animateTo(0f, settleSpec) {
-                                    store.detailBackProgress.floatValue = value
+                                    if (bridgeToShell) store.detailBackProgress.floatValue = value
                                 }
                             },
                             onSettled = {
                                 state.touchYDelta = 0f
-                                store.detailBackTouchYDelta.floatValue = 0f
+                                if (bridgeToShell) store.detailBackTouchYDelta.floatValue = 0f
                                 state.gestureActive = false
-                                if (store.detailBackPhase.value == DetailBackPhase.Gesture) {
+                                if (bridgeToShell && store.detailBackPhase.value == DetailBackPhase.Gesture) {
                                     store.detailBackPhase.value = DetailBackPhase.Idle
                                 }
                             },
@@ -318,8 +345,7 @@ fun Modifier.detailBackCollapseTransform(state: DetailBackCollapseState): Modifi
             translationY = maxShift * decelerated * (if (rawDy < 0f) -1f else 1f)
         }
 
-        // AOSP post-commit: alpha = max(1 − 5·t, 0) — gone in the first fifth.
-        alpha = max(1f - exit * 5f, 0f)
+        alpha = (1f - exit).coerceIn(0f, 1f)
 
         shape = RoundedCornerShape(BackMotionTokens.PopPageCornerRadius * p)
         clip = p > 0f

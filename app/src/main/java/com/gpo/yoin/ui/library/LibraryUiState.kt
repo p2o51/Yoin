@@ -35,6 +35,7 @@ sealed interface LibraryUiState {
         val searchError: String? = null,
         val searchScope: LibrarySearchScope = LibrarySearchScope.CurrentLibrary,
         val canSearchSpotifyCatalog: Boolean = false,
+        val searchesAppleMusicCatalog: Boolean = false,
         val searchFocusRequestId: Long = 0L,
         /**
          * Tabs the active source supports. When the provider lacks

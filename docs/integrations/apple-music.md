@@ -1,0 +1,52 @@
+# Apple Music integration
+
+Status (2026-09-26): Apple Music is a formal Profile provider. Existing encrypted validation authorization migrates once into the encrypted per-profile store without changing the active account. Authorization now creates or reconnects a Profile. Library albums/artists/playlists, catalog search, detail pages and the MusicKit-backed main playback session are implemented. 2026-09-29: real-account playback verified on the Pixel Tablet (Android 17 beta) — see Validation.
+
+## Implemented
+
+`data/remote/applemusic/` contains a dedicated API client with per-profile token suppliers, user storefront, song search, library-song pagination and an add-to-library request. Catalog requests omit the Music User Token. Personal requests require it. Redirects and pagination outside the expected API collection are rejected. Error messages exclude response bodies and credentials. A 403 is access denied, not proof that authorization was revoked.
+
+Library additions return `AcceptedPendingConfirmation`, never a successful checkmark. Membership confirmation and UI binding remain to be implemented. No removal request is provided.
+
+Song mapping uses catalog IDs only when Apple supplies them. Library-only imports retain their library ID and cannot be assumed to support subscription playback. A supplied catalog relationship joins the library and catalog identities; no title matching is used. Library membership does not set the favorite-heart field.
+
+## Developer token service contract
+
+Configure an HTTPS endpoint returning HTTP 200 JSON:
+
+```json
+{"developerToken":"<signed ES256 developer JWT>"}
+```
+
+`AppleMusicDeveloperTokenProvider` caches the token in memory until 60 seconds before its JWT expiry. It checks shape and freshness; Apple verifies the signature. The endpoint must be supplied by the app operator. The app does not receive or generate an Apple private key. No service URL, JWT or private key is committed. Settings → Add account → Apple Music accepts this endpoint. The endpoint and Music User Token are encrypted using the existing Android Keystore cipher and saved atomically under noBackupFilesDir. They are never placed in an Intent, saved UI state, or ordinary preferences. On upgrade, ProfileManager moves the legacy validation account into the regular encrypted credentials store. The old file is cleared only after persistence succeeds. Retrying after a partial migration does not create a duplicate; migration at the profile limit preserves the old authorization.
+
+## Provider and playback boundaries
+
+- `AppleMusicSource` keeps library IDs namespaced as `library:<id>`. Catalog-backed songs share a canonical track identity; album tracks retain their parent album and artist navigation targets. Paginated detail relationships are followed to completion with same-origin and same-path validation.
+- `AppleMusicPlaybackService` owns the formal MediaSession. PlaybackManager connects its existing MediaController to this service for Apple Music; direct streams continue through PlaybackService/ExoPlayer and Spotify through App Remote. No Apple preview URL enters ExoPlayer or the audio cache.
+- The MusicKit adapter exposes queue metadata, current item, pause/play, skipping/seeking, repeat/shuffle, appending/clearing, errors and preparation timeout. Developer tokens refresh through the source while the service lives. Account switch/delete stops the outgoing audio; reauthorization replaces that account's encrypted credentials. The service releases its session when a profile switch starts or `activeSource` stops being its source (System UI keeps it bound, so `stopService` alone would leave a media-button target that resumes Apple Music under another profile).
+- MusicKit queue semantics: `getQueueItems()` returns only the items *after* the current one; `playbackQueueIndex` is the current item's index in play order (0 after enabling shuffle). `AppleMusicMedia3Player` publishes played + current + upcoming in that order, with MusicKit `playbackQueueId`s as uids, and maps seeks to `skipToQueueItemWithId` / `skipToPreviousItem`.
+- The session callback accepts URI-less items carrying `appleMusicCatalogId`; Media3's default `onAddMediaItems` rejects items without a `localConfiguration`.
+- Library membership is not a favorite. Apple Music currently has no FAVORITES, RANDOM_SONGS or PLAYLISTS_WRITE capability in Yoin. Unsupported hearts, random-song and favorite tabs, and playlist creation/edit affordances are gated. Library imports without a catalog playback ID fail with a clear message. Library/favorite mutation, offline downloads, Cast and quality claims are not enabled.
+
+## Validation for the Profile integration
+
+- Full JVM suite: 297 tests, no failures. New cases cover idempotent migration, preserving authorization at the account limit, credential serialization, catalog navigation IDs, complete playlist pagination, cross-origin pagination rejection, read-only playlist semantics and rejecting unmatched imports.
+- Native ARM64 Android 16 (API 36) instrumentation: `AppleMusicSessionSmokeTest` passed. It initializes the official SDK, sets a queue starting at its second item, preserves metadata, appends and clears, then releases. It deliberately does **not** claim subscription/audio playback proof.
+- Debug and minified debug-signed builds compile. Apple SDK stack-map warnings remain the vendor warnings described below.
+- Pixel Tablet, 2026-09-29, subscribed account: library/catalog load, full-length audio (past the 30 s preview), NP open/collapse, pause/resume/seek, next/previous and queue jumps in order, shuffle on/off without changing the current song, background + media-button control, end of queue, account switch stops audio and releases the session as soon as the switch starts, lock-screen media card (play/pause/next/previous/seek). Reconnect could not be verified: the SDK deep-links into the installed Apple Music app, which on this tablet shows "Error Loading Library" and returns RESULT_CANCELED at once, surfaced as USER_CANCELLED. Still pending: reconnect with a signed-in Apple Music app, delete, Bluetooth hardware. The SDK logs the developer token in the `deeplinkAppleMusic` logcat line.
+- Android 17 flags the SDK's `libappleMusicSDK.so` and bundled `libc++_shared.so` as RELRO-misaligned for 16 KB pages (PageSizeMismatchDialog); Yoin's own LOAD/zip alignment passes.
+
+## Sources checked 2026-09-06
+
+- [Official Android SDK and overview](https://developer.apple.com/musickit/)
+- [User storefront](https://developer.apple.com/documentation/applemusicapi/get-a-user's-storefront)
+- [Catalog search](https://developer.apple.com/documentation/applemusicapi/search-for-catalog-resources-(by-type))
+- [Library songs](https://developer.apple.com/documentation/applemusicapi/get-all-library-songs)
+- [Add a resource to a library](https://developer.apple.com/documentation/applemusicapi/add-a-resource-to-a-library)
+
+SDK was downloaded by the user from the authenticated official Apple Developer download entry on 2026-09-06. Archive SHA-256: `02b36be75a63e0c630fcb297b3367d8350a07bf37fc5e613ec26d24344e7f72b`. AAR hashes and source are in `app/libs/README-apple-music.md`.
+
+The playback AAR supplies ARM64 and ARMv7 libraries only. Both ARM64 ELF files have 64 KB LOAD alignment; that static check does not replace a 16 KB device test. D8/R8 report stack-map warnings for Apple's prebuilt Java bytecode. The minified build passes with four narrow exclusions for JavaCPP desktop Maven annotations and optional SLF4J classes; the shipped consumer rules otherwise keep JNI code. No SDK binaries have been patched.
+
+Mock HTTP tests verify request semantics, not live Apple account integration. A device smoke test initializes/releases the real native controller without starting playback. The no-credential Settings UI and system back were checked on Android 16 with large text in dark mode. Evidence is in `outputs/apple-music-sdk/`.

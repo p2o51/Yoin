@@ -46,3 +46,12 @@
 -keep class com.spotify.android.appremote.api.LocalConnector { *; }
 -keep class com.spotify.android.appremote.internal.SdkRemoteClientConnectorFactory { *; }
 -keep class com.spotify.android.appremote.internal.SpotifyLocator { *; }
+
+# MusicKit 1.1.1 bundles and keeps JavaCPP's desktop build tools.
+# Maven plugin annotations are build-time only. SLF4J is an optional logger
+# selected only by org.bytedeco.javacpp.logger=slf4j, which Yoin never sets.
+# Keep these narrow: missing MusicKit/JNI runtime classes must still fail R8.
+-dontwarn org.apache.maven.plugins.annotations.LifecyclePhase
+-dontwarn org.apache.maven.plugins.annotations.Mojo
+-dontwarn org.slf4j.Logger
+-dontwarn org.slf4j.LoggerFactory

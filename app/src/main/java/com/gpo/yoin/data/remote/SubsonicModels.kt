@@ -74,6 +74,8 @@ data class Album(
     val genre: String? = null,
     val starred: String? = null,
     val song: List<Song> = emptyList(),
+    /** OpenSubsonic (Navidrome ≥0.53): e.g. ["Album"], ["EP"], ["Single"], ["Compilation"]. */
+    val releaseTypes: List<String> = emptyList(),
 )
 
 @Serializable

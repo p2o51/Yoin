@@ -51,13 +51,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
-import androidx.compose.ui.geometry.CornerRadius
-import androidx.compose.ui.geometry.RoundRect
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Outline
-import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.text.LinkAnnotation
@@ -72,9 +66,7 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.tooling.preview.Preview
-import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.Dp
-import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
 import com.gpo.yoin.ui.component.YoinArmTransform
@@ -94,10 +86,8 @@ import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.time.temporal.ChronoUnit
-import kotlin.math.PI
 import kotlin.math.absoluteValue
 import kotlin.math.roundToInt
-import kotlin.math.sin
 
 // ---------------------------------------------------------------------------
 // Arrow-mark background — the two enlarged, off-edge-bled color blocks.
@@ -203,64 +193,6 @@ internal fun AlbumPageDots(
 }
 
 // ---------------------------------------------------------------------------
-// Docked-cover "wavy band" — the thin rectangle the hero cover morphs into when
-// the track list is pulled up (replaces the old right-docked capsule).
-// ---------------------------------------------------------------------------
-
-/**
- * A rectangle whose top & bottom edges are sine waves run HALF a wavelength out
- * of phase ([bottomPhase]) — so the two edges stagger (错落) and the band pinches
- * & bulges instead of undulating as a constant-thickness ribbon. [expand] gates
- * the wave amplitude in from 0 → full and relaxes the corner radius, so the album
- * cover morphs from a plain rounded square (expand 0, hero) into a thin wavy band
- * (expand 1, docked) along the reshape — one continuous [Shape], no crossfade.
- */
-internal class WavyBandShape(
-    private val expand: Float,
-    private val amplitude: Dp = 3.5.dp,
-    private val waveLength: Dp = 48.dp,
-    private val heroCorner: Dp = 8.dp,
-    private val bottomPhase: Float = PI.toFloat(),
-) : Shape {
-    override fun createOutline(
-        size: Size,
-        layoutDirection: LayoutDirection,
-        density: Density,
-    ): Outline {
-        val e = expand.coerceIn(0f, 1f)
-        val amp = with(density) { amplitude.toPx() } * e
-        // Near the hero end the waves are sub-pixel — fall back to a rounded rect
-        // whose corner relaxes toward 0 as it docks.
-        if (amp < 0.75f) {
-            val r = with(density) { heroCorner.toPx() } * (1f - e)
-            return Outline.Rounded(
-                RoundRect(0f, 0f, size.width, size.height, CornerRadius(r, r)),
-            )
-        }
-        val w = size.width
-        val h = size.height
-        val wl = with(density) { waveLength.toPx() }.coerceAtLeast(1f)
-        val k = (2f * PI.toFloat()) / wl
-        val segments = (w / 3f).toInt().coerceIn(24, 400)
-        val path = Path()
-        // Top edge L→R, baseline at `amp`, oscillating in [0, 2·amp].
-        path.moveTo(0f, amp)
-        for (i in 1..segments) {
-            val x = w * i / segments
-            path.lineTo(x, amp + amp * sin(k * x))
-        }
-        // Bottom edge R→L, run out of phase with the top (bottomPhase) so the two
-        // edges stagger — the band pinches & bulges rather than moving in parallel.
-        for (i in segments downTo 0) {
-            val x = w * i / segments
-            path.lineTo(x, (h - amp) + amp * sin(k * x + bottomPhase))
-        }
-        path.close()
-        return Outline.Generic(path)
-    }
-}
-
-// ---------------------------------------------------------------------------
 // "Avg." Bun score chip (MaterialShapes.Bun).
 // ---------------------------------------------------------------------------
 
@@ -358,7 +290,7 @@ internal fun AlbumSectionLabel(
 
 // ---------------------------------------------------------------------------
 // Total track-count label — used in both the hero (above flowing titles)
-// and the pulled-up list (below the wavy band).
+// and the pulled-up list (below the docked band).
 // ---------------------------------------------------------------------------
 
 @Composable
@@ -392,6 +324,43 @@ private val AlbumTitleLinkStyles = TextLinkStyles(
     pressedStyle = SpanStyle(textDecoration = TextDecoration.Underline),
 )
 
+/**
+ * Separator between flowing titles. The two NBSPs bind the bullet to the title
+ * BEFORE it, so a line may end on "•" but never starts with one; the plain
+ * spaces after it are the only break opportunity (trailing spaces hang).
+ */
+internal const val FlowingTitleSeparator = "\u00A0\u00A0•  "
+
+// Titles up to about 60% of a headlineMedium line (CJK counts double) are kept
+// whole; longer ones stay breakable so they can never force an overflow.
+private const val FlowingTitleGlueUnits = 16
+
+/**
+ * A title as it should sit in the flowing list: a short one wraps as ONE unit
+ * ("Old Photographs", 「一个人的海」) instead of splitting mid-title —
+ * spaces become NBSPs and wide (CJK) characters get WORD JOINERs between them.
+ */
+internal fun flowingTitle(title: String): String {
+    var units = 0
+    for (c in title) units += if (c.isWideGlyph()) 2 else 1
+    if (units > FlowingTitleGlueUnits) return title
+    return buildString(title.length * 2) {
+        title.forEachIndexed { i, c ->
+            if (i > 0 && (c.isWideGlyph() || title[i - 1].isWideGlyph())) append('\u2060')
+            append(if (c == ' ') '\u00A0' else c)
+        }
+    }
+}
+
+private fun Char.isWideGlyph(): Boolean {
+    val code = code
+    return code in 0x1100..0x11FF || // Hangul Jamo
+        code in 0x2E80..0x9FFF || // CJK radicals, kana, CJK punctuation, ideographs
+        code in 0xAC00..0xD7AF || // Hangul syllables
+        code in 0xF900..0xFAFF || // CJK compatibility ideographs
+        code in 0xFF00..0xFFEF // full-width forms
+}
+
 internal fun buildAlbumTrackTitles(
     songs: List<AlbumSong>,
     separatorColor: Color,
@@ -399,16 +368,17 @@ internal fun buildAlbumTrackTitles(
     onSongClick: ((String) -> Unit)?,
 ) = buildAnnotatedString {
     fun appendTitle(song: AlbumSong) {
-        append(song.title)
+        append(flowingTitle(song.title))
         song.featArtist?.let { feat ->
             withStyle(SpanStyle(fontSize = 0.6.em, color = featColor)) {
-                append(" (feat. $feat)")
+                // NBSP: the small credit never wraps away from its title.
+                append("\u00A0(feat. $feat)")
             }
         }
     }
     songs.forEachIndexed { index, song ->
         if (index > 0) {
-            withStyle(SpanStyle(color = separatorColor)) { append("  •  ") }
+            withStyle(SpanStyle(color = separatorColor)) { append(FlowingTitleSeparator) }
         }
         if (onSongClick != null) {
             // Each title is its OWN clickable link → plays just that song,
@@ -442,6 +412,10 @@ internal fun AlbumTrackRow(
     onLongClick: () -> Unit,
     onToggleStar: () -> Unit,
     modifier: Modifier = Modifier,
+    // False when the track's artist is just the album artist again — the
+    // credit line then only repeats the header on every row, so the row
+    // collapses to one 56dp line. Compilations / feat. credits keep it.
+    showArtist: Boolean = true,
 ) {
     val haptics = rememberYoinHaptics()
     Row(
@@ -507,13 +481,15 @@ internal fun AlbumTrackRow(
                     )
                 }
             }
-            Text(
-                text = song.artist,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
+            if (showArtist) {
+                Text(
+                    text = song.artist,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
         }
         song.duration?.let { duration ->
             Text(
@@ -522,11 +498,15 @@ internal fun AlbumTrackRow(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
-        AlbumCircleToggle(
-            active = song.isStarred,
-            accent = accent,
-            onToggle = onToggleStar,
-        )
+        if (com.gpo.yoin.data.source.ServiceFeatureCatalog.forProvider(
+                com.gpo.yoin.data.model.MediaId.parseOrNull(song.id)?.provider
+            ).supportsFavorites) {
+            AlbumCircleToggle(
+                active = song.isStarred,
+                accent = accent,
+                onToggle = onToggleStar,
+            )
+        }
     }
 }
 

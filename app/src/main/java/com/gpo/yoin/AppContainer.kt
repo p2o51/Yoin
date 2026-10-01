@@ -1,6 +1,7 @@
 package com.gpo.yoin
 
 import android.content.Context
+import androidx.compose.ui.platform.AndroidUiDispatcher
 import androidx.room.Room
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
@@ -31,9 +32,11 @@ import com.gpo.yoin.player.CastManager
 import com.gpo.yoin.player.PlaybackEvent
 import com.gpo.yoin.player.PlaybackManager
 import com.gpo.yoin.player.SpotifyConnectFailure
+import com.gpo.yoin.ui.component.BottomBarShadowRegistry
 import com.gpo.yoin.ui.experience.ExperienceSessionStore
 import com.gpo.yoin.ui.experience.MotionCapabilityProvider
 import com.gpo.yoin.ui.memories.MemoriesDeckCoordinator
+import com.gpo.yoin.ui.theme.PlaybackThemeState
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -307,6 +310,11 @@ class AppContainer(private val context: Context) {
                 // One-shot carry-forward: pre-3D inline credentialsJson
                 // blobs → encrypted file store + marker rows.
                 manager.runStartupMigrations()
+                runCatching {
+                    manager.migrateAppleMusicValidation(
+                        com.gpo.yoin.data.remote.applemusic.AppleMusicValidationStore(context)
+                    )
+                }
             }
         }
     }
@@ -327,6 +335,15 @@ class AppContainer(private val context: Context) {
     val audioVisualizerManager: AudioVisualizerManager by lazy {
         AudioVisualizerManager()
     }
+
+    // The Compose UI frame clock keeps one color wash alive across window handoffs.
+    val playbackThemeState: PlaybackThemeState by lazy {
+        PlaybackThemeState(
+            CoroutineScope(SupervisorJob() + AndroidUiDispatcher.Main),
+        )
+    }
+
+    val bottomBarShadows = BottomBarShadowRegistry()
 
     val experienceSessionStore: ExperienceSessionStore by lazy {
         ExperienceSessionStore()

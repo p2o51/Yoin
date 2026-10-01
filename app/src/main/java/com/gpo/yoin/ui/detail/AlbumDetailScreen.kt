@@ -1,13 +1,11 @@
 package com.gpo.yoin.ui.detail
 
+
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.Orientation
-import androidx.compose.foundation.gestures.draggable
-import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -49,23 +47,18 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.BiasAlignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
-import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.buildAnnotatedString
@@ -73,7 +66,6 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Dp
-import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.lerp
 import com.gpo.yoin.ui.component.DetailErrorState
@@ -84,6 +76,9 @@ import com.gpo.yoin.ui.component.YoinDropdownMenuItem
 import com.gpo.yoin.ui.component.YoinLoadingIndicator
 import com.gpo.yoin.ui.component.minimumTouchTarget
 import com.gpo.yoin.ui.component.rememberStagedReveal
+import com.gpo.yoin.ui.component.seamScrolledPx
+import com.gpo.yoin.ui.component.seamFade
+import com.gpo.yoin.ui.component.seamDissolveViewport
 import com.gpo.yoin.ui.component.stagedBeat
 import com.gpo.yoin.ui.component.yoinPageContentWidth
 import com.gpo.yoin.ui.experience.LayoutMode
@@ -99,28 +94,13 @@ import com.gpo.yoin.ui.theme.YoinMotionRole
 import com.gpo.yoin.ui.theme.YoinTheme
 
 // At or below this track count the cover docks to a big rounded "capsule"; above
-// it, to the thin full-bleed wavy band (a long list needs the band's vertical room).
-private const val AlbumManyTracksThreshold = 5
+// it, to the thin full-bleed band (a long list needs the band's vertical room).
+internal const val DetailManyTracksThreshold = 5
 
 // Page 1 of the pager ("Scores & About", AlbumSecondaryPage) is not built yet —
 // keep the pager single-page and the indicator dots hidden until it ships.
 // Flipping this back to true re-enables the page and the dots together.
 private const val ALBUM_SECONDARY_PAGE_ENABLED = false
-
-// Velocity-or-position settle decision for the hero<->tracklist reshape,
-// mirroring RevealState.chooseTarget but WITHOUT animating (the single
-// reconcile effect owns the animation). Returns true = expanded (track list).
-// rawVelocity is the finger velocity in px/s; up (negative) expands.
-private fun chooseExpandedTarget(fraction: Float, rawVelocity: Float, travelPx: Float): Boolean {
-    val velocityFraction = if (travelPx > 0f) rawVelocity / travelPx else 0f
-    val target = when {
-        velocityFraction <= -1.6f -> 0f
-        velocityFraction >= 1.6f -> 1f
-        fraction < 0.5f -> 0f
-        else -> 1f
-    }
-    return target <= 0f
-}
 
 @Composable
 fun AlbumDetailScreen(
@@ -150,6 +130,7 @@ fun AlbumDetailScreen(
     playbackSignal: Float = 0f,
     onOpenNowPlaying: () -> Unit = {},
     nowPlayingOpen: Boolean = false,
+
     // True when this window sits directly over the shell: predictive back
     // scrubs the bar toward nav chrome (matching the reveal underneath).
     morphBarOnBack: Boolean = false,
@@ -174,9 +155,12 @@ fun AlbumDetailScreen(
         // window beneath (the Activity turns translucent for the gesture);
         // the bar is a sibling on top and never transforms — it scrubs its
         // own morph off the same progress.
-        val backCollapse = rememberDetailBackCollapse(onBack = onLeavePage)
+        val backCollapse = rememberDetailBackCollapse(
+            onBack = onLeavePage,
+            bridgeToShell = morphBarOnBack,
+        )
         val enterIntro = rememberDetailEnterIntro(
-            barHandoff = enterBarHandoff,
+            barHandoff = enterBarHandoff && morphBarOnBack,
             visualReady = uiState !is AlbumDetailUiState.Loading,
             back = backCollapse,
         )
@@ -264,7 +248,12 @@ fun AlbumDetailScreen(
                     miniPlayer = miniPlayerState,
                     playbackProgress = playbackProgress,
                 nowPlayingOpen = nowPlayingOpen,
+
                 interactionsEnabled = enterIntro.pageVisible,
+                enterChromeProgress = rememberDetailBarEnterProgress(
+                    followShell = enterBarHandoff && morphBarOnBack,
+                    back = backCollapse,
+                ),
                     backMorphProgress = if (morphBarOnBack) {
                         { backCollapse.progress }
                     } else {
@@ -272,7 +261,7 @@ fun AlbumDetailScreen(
                     },
                     navSection = navSection,
                     backExitProgress = if (barExitsOnBack) {
-                        { backCollapse.progress }
+                        { detailBarExitProgress(enterIntro, backCollapse) }
                     } else {
                         { 0f }
                     },
@@ -334,8 +323,6 @@ private fun AlbumDetailContent(
     onReviewDraftChange: (String) -> Unit,
     onSaveReview: () -> Unit,
 ) {
-    val scope = rememberCoroutineScope()
-
     // Material color roles seeded from the album's OWN cover (MCU
     // SchemeExpressive) — not raw Palette swatches, which read "off" used as
     // theme color. Falls back to the app theme while the cover loads / if it
@@ -364,13 +351,8 @@ private fun AlbumDetailContent(
     if (revealState != null) {
         // SINGLE settle owner (cf. the NowPlaying "ONE settle driver" rule):
         // `expanded` is the durable source of truth; this one effect drives the
-        // reveal fraction to match it — and re-asserts after a cancelled gesture or
-        // a process-death/config-change restore, so the two can never wedge apart.
-        // Gestures only commit the bool. launchAnimateTo is settleJob-tracked, so a
-        // fresh drag (dragBy) cancels it — there is no concurrent-animator race.
-        LaunchedEffect(expanded) {
-            revealState.launchAnimateTo(scope, if (expanded) 0f else 1f)
-        }
+        // reveal fraction to match it — see DetailPullUpReshape.
+        DetailPullUpReconcile(revealState, expanded)
     }
 
     // Horizontal pager: page 0 = this overview, page 1 = scores/About sample.
@@ -551,73 +533,39 @@ private fun AlbumOverviewPage(
     onEditComment: () -> Unit,
 ) {
     val density = LocalDensity.current
-    val reshapeScope = rememberCoroutineScope()
     val listState = rememberLazyListState()
     // Staged "启幕" for this album: cover lands first (grow-in), the hero meta
     // rises a beat later. Once per album per page instance — rotation never
     // replays, and the reveal compose stays out of the pull-up reshape math.
     val stagedReveal = rememberStagedReveal("album-${content.albumId}")
-    val isMany = content.songs.size > AlbumManyTracksThreshold
+    val isMany = content.songs.size > DetailManyTracksThreshold
     // The reshape only traverses the upper region, not the full page height, so
     // scale the drag against a fraction of it for a closer-to-1:1 finger feel.
     // Held in state so the remembered draggable / connection read the latest.
     val travelPx = remember { mutableFloatStateOf(1f) }
 
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
-        travelPx.floatValue = with(density) { maxHeight.toPx() } * 0.55f
+        travelPx.floatValue = with(density) { maxHeight.toPx() } * DetailPullUpTravelFraction
         val maxW = maxWidth
 
-        // ---- Gesture wiring ----------------------------------------------
-        // Hero → tracks: a vertical draggable on the page (disabled once
-        // expanded, so the list owns its own scroll). Tracks → hero: a
-        // nested-scroll connection that intercepts pull-down at list top.
-        val dragState = rememberDraggableState { delta ->
-            revealState.dragBy(-delta, travelPx.floatValue)
-        }
-        val collapseConnection = remember(revealState, listState, reshapeScope) {
-            object : NestedScrollConnection {
-                override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
-                    if (source != NestedScrollSource.UserInput) return Offset.Zero
-                    val atTop = listState.firstVisibleItemIndex == 0 &&
-                        listState.firstVisibleItemScrollOffset == 0
-                    val pullingDownAtTop = available.y > 0f && atTop && revealState.fraction < 1f
-                    val pullingUpStillCollapsing = available.y < 0f && revealState.fraction > 0f
-                    if (pullingDownAtTop || pullingUpStillCollapsing) {
-                        revealState.dragBy(-available.y, travelPx.floatValue)
-                        return Offset(0f, available.y)
-                    }
-                    return Offset.Zero
-                }
-
-                override suspend fun onPreFling(available: Velocity): Velocity {
-                    if (revealState.fraction <= 0f || revealState.fraction >= 1f) {
-                        return Velocity.Zero
-                    }
-                    val target = chooseExpandedTarget(
-                        revealState.fraction, available.y, travelPx.floatValue,
-                    )
-                    onExpandedCommit(target)
-                    // Settle to the chosen endpoint even when the committed mode
-                    // is unchanged (a partial pull that snaps back) — the reconcile
-                    // effect only fires on a CHANGE, so the gesture owns this throw.
-                    // launchAnimateTo is settleJob-tracked, so it stays coordinated
-                    // with dragBy / the effect (no concurrent animator).
-                    revealState.launchAnimateTo(reshapeScope, if (target) 0f else 1f)
-                    return available
-                }
-            }
-        }
+        // ---- Gesture wiring (shared with Playlist, see DetailPullUpReshape) ----
+        val gestures = rememberDetailPullUpGestures(
+            revealState = revealState,
+            listState = listState,
+            travelPx = travelPx,
+            onExpandedCommit = onExpandedCommit,
+        )
 
         // Reveal fraction read HERE (not in the parent scope) so only this page —
         // not the whole screen, header, pager and toolbar — recomposes per frame
         // during the reshape settle. 1 = hero, 0 = track list; expand 0→1.
         val expand = 1f - revealState.fraction
 
-        // Cover geometry: hero square → a thin, full-width "wavy band" docked just
-        // under the page dots (replaces the old right-docked capsule). The square
-        // morphs into the band via WavyBandShape; everything else lerps on `expand`.
+        // Cover geometry: hero square → a thin, full-width straight band docked
+        // under the header (the list's rows dissolve into its lower edge via the
+        // seam halftone, so the edge itself stays plain); everything lerps on `expand`.
         val heroCoverSide = minOf(maxW * 0.74f, 300.dp)
-        // Many tracks → thin full-bleed wavy band (the long list needs the room).
+        // Many tracks → thin full-bleed band (the long list needs the room).
         // Few tracks → a big, centered rounded "capsule" inset from the edges.
         val state2CoverHeight = if (isMany) 56.dp else minOf(maxHeight * 0.26f, 220.dp)
         val state2CoverWidth = if (isMany) maxW else maxW - 32.dp
@@ -625,6 +573,8 @@ private fun AlbumOverviewPage(
         val coverWidth = lerp(heroCoverSide, state2CoverWidth, expand)
         // Capsule corner (few-tracks only): 8dp hero → ~stadium as it docks.
         val coverCorner = lerp(8.dp, 100.dp, expand.coerceIn(0f, 1f))
+        // Band corner (many-tracks only): 8dp hero → square, full-bleed.
+        val bandCorner = lerp(8.dp, 0.dp, expand.coerceIn(0f, 1f))
         // Band behind the cover for the arrow mark; collapses as the cover docks.
         val arrowBand = lerp(56.dp, 0.dp, expand.coerceIn(0f, 1f))
         // Centered in both states — no right-dock.
@@ -645,23 +595,7 @@ private fun AlbumOverviewPage(
             Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .then(
-                        if (!expanded) {
-                            Modifier.draggable(
-                                state = dragState,
-                                orientation = Orientation.Vertical,
-                                onDragStopped = { velocity ->
-                                    val target = chooseExpandedTarget(
-                                        revealState.fraction, velocity, travelPx.floatValue,
-                                    )
-                                    onExpandedCommit(target)
-                                    revealState.launchAnimateTo(reshapeScope, if (target) 0f else 1f)
-                                },
-                            )
-                        } else {
-                            Modifier
-                        },
-                    ),
+                    .then(gestures.heroDrag(enabled = !expanded)),
                 // NOTE: no horizontal padding here — the cover/band is full-bleed;
                 // the 16dp inset lives on the content Box below instead.
             ) {
@@ -683,12 +617,9 @@ private fun AlbumOverviewPage(
                         modifier = Modifier
                             .width(coverWidth)
                             .height(coverHeight),
-                        // Long lists dock to the wavy band; short ones to a capsule.
-                        shape = if (isMany) {
-                            WavyBandShape(expand = expand)
-                        } else {
-                            RoundedCornerShape(coverCorner)
-                        },
+                        // Long lists dock to the straight band (8dp hero corner
+                        // relaxing to square); short ones to a capsule.
+                        shape = RoundedCornerShape(if (isMany) bandCorner else coverCorner),
                         fallbackIcon = Icons.Filled.LibraryMusic,
                         border = null,
                         shadowElevation = 0.dp,
@@ -717,7 +648,33 @@ private fun AlbumOverviewPage(
                             modifier = Modifier
                                 .fillMaxSize()
                                 .graphicsLayer { alpha = expand.coerceIn(0f, 1f) }
-                                .nestedScroll(collapseConnection),
+                                .nestedScroll(gestures.listConnection),
+                            footer = {
+                                // 封面 → 封底: the hero is the front cover, the
+                                // pulled-up list reads like the back sleeve —
+                                // tracklist first, then the same Last Play /
+                                // score Bun / Comment blocks as liner notes.
+                                AlbumHeroMetaBlocks(
+                                    content = content,
+                                    bunContainer = bunContainer,
+                                    bunContent = bunContent,
+                                    // Mirror of the hero gate: live only while
+                                    // the list is the dominant layer.
+                                    interactive = expand >= 0.5f,
+                                    onEditComment = onEditComment,
+                                    onTapBun = onEditComment,
+                                    modifier = Modifier
+                                        .padding(start = 8.dp, end = 8.dp, top = 28.dp)
+                                        // Late fade-in (last 40% of the reshape):
+                                        // mid-drag the hero's own copy of these
+                                        // blocks is still fading out elsewhere,
+                                        // so the two never read as a double.
+                                        .graphicsLayer {
+                                            val listExpand = 1f - revealState.fraction
+                                            alpha = ((listExpand - 0.6f) / 0.4f).coerceIn(0f, 1f)
+                                        },
+                                )
+                            },
                         )
                     }
                     if (expand < 0.999f) {
@@ -917,25 +874,33 @@ private fun AlbumTrackList(
     listState: androidx.compose.foundation.lazy.LazyListState,
     modifier: Modifier = Modifier,
     // >=Medium overview only: a leading item (the hero row) that scrolls away
-    // with the list. Compact never passes one — its list stays byte-identical.
+    // with the list. Compact never passes one.
     header: (@Composable () -> Unit)? = null,
+    // Compact pulled-up state only: a trailing "liner notes" item after the
+    // last track (the hero's meta blocks), so the list keeps the album's
+    // score / last play / comment instead of ending on a bare row.
+    footer: (@Composable () -> Unit)? = null,
 ) {
     val navBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
     LazyColumn(
         state = listState,
-        modifier = modifier,
+        // The seam is the list's top edge (the docked band's lower edge in the
+        // Compact pull-up): rows fade into it instead of being cut.
+        modifier = modifier.seamDissolveViewport { listState.seamScrolledPx() },
         contentPadding = PaddingValues(top = 4.dp, bottom = 112.dp + navBottom),
     ) {
         if (header != null) {
             item(key = "album-medium-hero") { header() }
         }
-        // Track count + runtime sits just below the wavy band, above row 1.
+        // Track count + runtime sits just below the docked band, above row 1.
         if (content.songs.isNotEmpty()) {
             item {
                 AlbumTrackCountLabel(
                     count = content.trackTotal,
                     totalDurationSeconds = content.totalDuration,
-                    modifier = Modifier.padding(start = 8.dp, top = 2.dp, bottom = 10.dp),
+                    modifier = Modifier
+                        .padding(start = 8.dp, top = 2.dp, bottom = 10.dp)
+                        .seamFade(),
                 )
             }
         }
@@ -950,6 +915,8 @@ private fun AlbumTrackList(
                     onClick = { onSongClick(song.id) },
                     onLongClick = { onToggleExpandedSong(song.id) },
                     onToggleStar = { onToggleStar(song.id) },
+                    showArtist = song.artist.isNotBlank() && song.artist != content.artistName,
+                    modifier = Modifier.seamFade(),
                 )
                 AnimatedVisibility(visible = expandedSongId == song.id) {
                     AlbumSongNotes(
@@ -957,6 +924,11 @@ private fun AlbumTrackList(
                         modifier = Modifier.padding(start = 38.dp, end = 14.dp, bottom = 10.dp),
                     )
                 }
+            }
+        }
+        if (footer != null) {
+            item(key = "album-liner-notes") {
+                Box(modifier = Modifier.seamFade()) { footer() }
             }
         }
     }
@@ -970,7 +942,7 @@ private val AlbumMediumHeroCoverSide = 240.dp
 // on top — cover left, the hero's metadata blocks right — and the same track
 // list Compact uses permanently below, all in ONE plain vertically scrolling
 // surface (the hero is a leading list item, so it scrolls away with the page).
-// Deliberately absent: RevealState, the pull-up draggable, WavyBandShape and
+// Deliberately absent: RevealState, the pull-up draggable, the docked band and
 // the hero<->list crossfade — none of that machinery is composed here. The
 // predictive-back collapse and the persistent bottom bar wrap the whole page
 // upstream and are untouched by this fork.

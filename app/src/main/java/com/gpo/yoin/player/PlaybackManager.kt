@@ -7,6 +7,7 @@ import android.os.Bundle
 import android.util.Log
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
+import androidx.media3.common.C
 import androidx.media3.common.Player
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
@@ -51,6 +52,8 @@ class PlaybackManager(
     }
 
     private var controller: MediaController? = null
+    private var controllerUsesMusicKit = false
+    private var requestedMedia3Source: MusicSource? = null
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private var positionUpdateJob: Job? = null
     // True while any Yoin Activity is started (driven by YoinApplication's
@@ -148,7 +151,7 @@ class PlaybackManager(
                 val built = buildController()
                 controller = built
                 built.addListener(playerListener)
-                castManager?.setLocalPlayerProvider { controller }
+                castManager?.setLocalPlayerProvider { if (controllerUsesMusicKit) null else controller }
                 syncState()
                 startPositionUpdates()
                 flushPendingCommands(built)
@@ -157,6 +160,7 @@ class PlaybackManager(
                 // connection failure — don't flash an Error phase.
                 throw cancellation
             } catch (error: Throwable) {
+                pendingCommands.clear()
                 _playbackState.value = _playbackState.value.copy(
                     connectionPhase = ConnectionPhase.Error,
                     connectionErrorMessage = error.message ?: "Unable to initialize playback",
@@ -194,8 +198,10 @@ class PlaybackManager(
     }
 
     fun disconnect() {
+        com.gpo.yoin.player.applemusic.AppleMusicValidationService.stop(context)
         spotifyRemotePlayer.disconnect(resetState = false)
         activeBackend = ActiveBackend.NONE
+        requestedMedia3Source = null
         pendingSpotifyHandoff = false
         preserveLocalUiDuringSpotifyHandoff = false
         pendingCommands.clear()
@@ -203,9 +209,11 @@ class PlaybackManager(
         connectJob = null
         positionUpdateJob?.cancel()
         positionUpdateJob = null
+        controller?.stop()
         controller?.removeListener(playerListener)
         controller?.release()
         controller = null
+        context.stopService(android.content.Intent(context, com.gpo.yoin.player.applemusic.AppleMusicPlaybackService::class.java))
         _playbackState.value = PlaybackState(connectionPhase = ConnectionPhase.Idle)
     }
 
@@ -218,6 +226,7 @@ class PlaybackManager(
         activityContext: ActivityContext = ActivityContext.None,
     ) {
         if (tracks.isEmpty() || startIndex !in tracks.indices) return
+        com.gpo.yoin.player.applemusic.AppleMusicValidationService.stop(context)
         lastRecordedTrackId = null
         _currentActivityContext.value = activityContext
         lastKnownDurationSecById = tracks
@@ -227,7 +236,8 @@ class PlaybackManager(
             // Guarded: handleFor / buildMediaItem are provider calls that can
             // throw, and the scope has no CoroutineExceptionHandler.
             runCatching {
-                when (source.playback().handleFor(tracks[startIndex])) {
+                if (source.id != MediaId.PROVIDER_SPOTIFY) selectMedia3Source(source)
+                when (val handle = source.playback().handleFor(tracks[startIndex])) {
                     is PlaybackHandle.DirectStream -> {
                         pendingSpotifyHandoff = false
                         preserveLocalUiDuringSpotifyHandoff = false
@@ -242,6 +252,19 @@ class PlaybackManager(
                     }
 
                     is PlaybackHandle.ExternalController -> {
+                        if (handle.type == PlaybackHandle.ControllerType.APPLE_MUSIC_KIT) {
+                            pendingSpotifyHandoff = false
+                            preserveLocalUiDuringSpotifyHandoff = false
+                            activeBackend = ActiveBackend.LOCAL
+                            spotifyRemotePlayer.disconnect(resetState = false)
+                            val items = tracks.map { buildMediaItem(it, source) }
+                            executeOrQueue { player ->
+                                player.setMediaItems(items, startIndex, 0L)
+                                player.playWhenReady = true
+                                player.prepare()
+                            }
+                            return@runCatching
+                        }
                         pendingSpotifyHandoff = true
                         preserveLocalUiDuringSpotifyHandoff =
                             activeBackend == ActiveBackend.LOCAL &&
@@ -266,6 +289,11 @@ class PlaybackManager(
                     }
                 }
             }.onFailure { error ->
+                if (error is CancellationException) throw error
+                _playbackState.value = _playbackState.value.copy(
+                    connectionPhase = ConnectionPhase.Error,
+                    connectionErrorMessage = error.message ?: "Unable to play this song"
+                )
                 Log.w(TAG, "play failed for ${tracks[startIndex].id}", error)
             }
         }
@@ -287,6 +315,7 @@ class PlaybackManager(
     }
 
     fun resume() {
+        com.gpo.yoin.player.applemusic.AppleMusicValidationService.stop(context)
         when (activeBackend) {
             ActiveBackend.SPOTIFY_REMOTE -> spotifyRemotePlayer.resume()
             else -> executeOrQueue { it.play() }
@@ -344,7 +373,7 @@ class PlaybackManager(
         scope.launch {
             // Guarded for the same reason as [play] above.
             runCatching {
-                when (source.playback().handleFor(track)) {
+                when (val handle = source.playback().handleFor(track)) {
                     is PlaybackHandle.DirectStream -> {
                         pendingSpotifyHandoff = false
                         preserveLocalUiDuringSpotifyHandoff = false
@@ -353,6 +382,13 @@ class PlaybackManager(
                     }
 
                     is PlaybackHandle.ExternalController -> {
+                        if (handle.type == PlaybackHandle.ControllerType.APPLE_MUSIC_KIT) {
+                            selectMedia3Source(source)
+                            activeBackend = ActiveBackend.LOCAL
+                            val item = buildMediaItem(track, source)
+                            executeOrQueue { it.addMediaItem(item) }
+                            return@runCatching
+                        }
                         activeBackend = ActiveBackend.SPOTIFY_REMOTE
                         disconnectLocalController(resetState = false)
                         spotifyRemotePlayer.addToQueue(track)
@@ -386,6 +422,8 @@ class PlaybackManager(
     // ── Internal ──────────────────────────────────────────────────────
 
     private val playerListener = object : Player.Listener {
+        override fun onPlayerError(error: androidx.media3.common.PlaybackException) { syncState() }
+
         override fun onIsPlayingChanged(isPlaying: Boolean) {
             syncState()
             if (isPlaying) startPositionUpdates() else stopPositionUpdates()
@@ -442,13 +480,20 @@ class PlaybackManager(
                 bufferedPosition = player.bufferedPosition.coerceAtLeast(0L),
                 queue = queue,
                 currentIndex = currentIndex,
+                nextTrack = player.nextMediaItemIndex
+                    .takeIf { it != C.INDEX_UNSET && it != currentIndex }
+                    ?.let(queue::getOrNull),
                 repeatMode = player.repeatMode,
                 shuffleEnabled = player.shuffleModeEnabled,
                 audioSessionId = PlaybackService.audioSessionId.value,
                 isCasting = _playbackState.value.isCasting,
                 castDeviceName = _playbackState.value.castDeviceName,
-                connectionPhase = ConnectionPhase.Ready,
-                connectionErrorMessage = null,
+                connectionPhase = when {
+                    player.playerError != null -> ConnectionPhase.Error
+                    player.playbackState == Player.STATE_BUFFERING -> ConnectionPhase.Connecting
+                    else -> ConnectionPhase.Ready
+                },
+                connectionErrorMessage = player.playerError?.message,
             ),
         )
     }
@@ -683,16 +728,19 @@ class PlaybackManager(
         val handle = source.playback().handleFor(track)
         val streamUrl = when (handle) {
             is PlaybackHandle.DirectStream -> handle.uri
-            is PlaybackHandle.ExternalController ->
-                throw UnsupportedOperationException(
-                    "ExternalController playback lands in phase 3 (Spotify App Remote)",
-                )
+            is PlaybackHandle.ExternalController -> {
+                require(handle.type == PlaybackHandle.ControllerType.APPLE_MUSIC_KIT)
+                null // DRM streams never become URLs or enter ExoPlayer's cache.
+            }
         }
         val artworkUri = track.coverArt
             ?.let { ref -> source.resolveCoverUrl(ref) }
             ?.let(Uri::parse)
 
         val extras = Bundle().apply {
+            if (handle is PlaybackHandle.ExternalController && handle.type == PlaybackHandle.ControllerType.APPLE_MUSIC_KIT) {
+                putString("appleMusicCatalogId", handle.payload as String)
+            }
             putString(EXTRA_MEDIA_ID, track.id.toString())
             putString(EXTRA_PROVIDER, track.id.provider)
             putString(EXTRA_ARTIST_ID, track.artistId?.toString())
@@ -852,11 +900,27 @@ class PlaybackManager(
         }
     }
 
+    private fun selectMedia3Source(source: MusicSource) {
+        requestedMedia3Source = source
+        val usesMusicKit = source.id == MediaId.PROVIDER_APPLE_MUSIC
+        if ((controller != null || connectJob?.isActive == true) && controllerUsesMusicKit != usesMusicKit) {
+            controller?.stop()
+            disconnectLocalController(resetState = true)
+        }
+    }
+
     private suspend fun buildController(): MediaController {
-        val sessionToken = SessionToken(
-            context,
-            ComponentName(context, PlaybackService::class.java),
-        )
+        val source = requestedMedia3Source
+            ?: (context.applicationContext as com.gpo.yoin.YoinApplication).container.profileManager.activeSource.value
+        val apple = source as? com.gpo.yoin.data.source.applemusic.AppleMusicSource
+        controllerUsesMusicKit = apple != null
+        apple?.refreshPlaybackToken()
+        val serviceClass = if (apple != null) {
+            com.gpo.yoin.player.applemusic.AppleMusicPlaybackService::class.java
+        } else {
+            PlaybackService::class.java
+        }
+        val sessionToken = SessionToken(context, ComponentName(context, serviceClass))
         val future = MediaController.Builder(context, sessionToken).buildAsync()
         return suspendCancellableCoroutine { continuation ->
             // If connectJob is cancelled (profile switch / Spotify handoff)

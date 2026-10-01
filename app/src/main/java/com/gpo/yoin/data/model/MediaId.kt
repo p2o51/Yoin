@@ -22,6 +22,7 @@ data class MediaId(val provider: String, val rawId: String) {
         const val PROVIDER_SUBSONIC = "subsonic"
         const val PROVIDER_SPOTIFY = "spotify"
         const val PROVIDER_LOCAL = "local"
+        const val PROVIDER_APPLE_MUSIC = "applemusic"
 
         fun subsonic(rawId: String): MediaId = MediaId(PROVIDER_SUBSONIC, rawId)
         fun spotify(rawId: String): MediaId = MediaId(PROVIDER_SPOTIFY, rawId)
@@ -39,5 +40,14 @@ data class MediaId(val provider: String, val rawId: String) {
             ?.takeIf { it.isNotEmpty() }
             ?.runCatching { parse(this) }
             ?.getOrNull()
+
+        /**
+         * rawId of a stored id column, which holds either the bare rawId or a
+         * legacy `provider:rawId` string. Only the owning provider's prefix is
+         * stripped: Apple Music library rawIds contain a colon themselves
+         * (`library:l.abc`), so cutting at the first ':' would turn them into
+         * catalog ids.
+         */
+        fun storedRawId(provider: String, stored: String): String = stored.removePrefix("$provider:")
     }
 }

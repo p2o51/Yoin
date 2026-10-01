@@ -6,27 +6,28 @@ import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.collectAsState
-import androidx.compose.foundation.layout.Box
-import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
-import com.gpo.yoin.ui.nowplaying.NowPlayingAccessories
-import com.gpo.yoin.ui.nowplaying.NowPlayingOverlayHost
-import com.gpo.yoin.ui.nowplaying.NowPlayingViewModel
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.lifecycle.compose.LifecycleEventEffect
 import com.gpo.yoin.YoinActivityRoot
 import com.gpo.yoin.YoinApplication
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.repository.ActivityContext
 import com.gpo.yoin.enableYoinEdgeToEdge
+import com.gpo.yoin.ui.nowplaying.NowPlayingAccessories
+import com.gpo.yoin.ui.nowplaying.NowPlayingOverlayHost
+import com.gpo.yoin.ui.nowplaying.NowPlayingViewModel
 import kotlinx.coroutines.launch
 
 /**
@@ -42,10 +43,10 @@ class ArtistDetailActivity : ComponentActivity() {
         detailLaunchGate.release()
     }
 
-    private fun launchChildDetail(intent: Intent) {
+    private fun launchChildDetail(intent: Intent, fromNowPlaying: Boolean = false) {
         if (!detailLaunchGate.tryAcquire(lifecycle.currentState == Lifecycle.State.RESUMED)) return
         try {
-            startActivity(intent)
+            launchDetailFromDetail(this, intent, fromNowPlaying)
         } catch (error: RuntimeException) {
             detailLaunchGate.release()
             throw error
@@ -62,7 +63,7 @@ class ArtistDetailActivity : ComponentActivity() {
             return
         }
         setContent {
-            YoinActivityRoot {
+            YoinActivityRoot(deferBottomBarShadow = true) {
                 val context = LocalContext.current
                 val app = context.applicationContext as YoinApplication
                 val scope = rememberCoroutineScope()
@@ -100,26 +101,24 @@ class ArtistDetailActivity : ComponentActivity() {
                     runCatching { context.startActivity(intent) }
                 }
 
-                fun playTopTracks(startIndex: Int) {
-                    scope.launch {
-                        // Awaits the in-flight top-tracks load, so an early tap still
-                        // plays Popular instead of dumping the whole discography.
-                        val tracks = viewModel.getTopTracks()
-                        if (tracks.isEmpty()) {
-                            // Genuinely none (Subsonic / artist has none) → discography.
-                            playArtist(shuffle = false)
-                            return@launch
-                        }
-                        app.container.profileManager.activeSource.value?.let { source ->
-                            app.container.playbackManager.play(
-                                tracks = tracks,
-                                startIndex = startIndex,
-                                source = source,
-                                activityContext = ActivityContext.None,
-                            )
-                        }
+                // A "Most Played" row plays the user's own most-played songs
+                // from that row on (the list the page shows, in its order).
+                fun playMostPlayed(startIndex: Int) {
+                    val tracks = viewModel.getMostPlayedTracks()
+                    if (tracks.isEmpty()) return
+                    app.container.profileManager.activeSource.value?.let { source ->
+                        app.container.playbackManager.play(
+                            tracks = tracks,
+                            startIndex = startIndex.coerceIn(0, tracks.lastIndex),
+                            source = source,
+                            activityContext = ActivityContext.None,
+                        )
                     }
                 }
+
+                // Ratings given on an album page (or plays made) while this page
+                // was covered show up when the user comes back to it.
+                LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { viewModel.refreshPersonal() }
 
                 // Now Playing is hosted IN THIS window: the pill opens it in
                 // place and back collapses it back onto this page — no shell
@@ -128,6 +127,7 @@ class ArtistDetailActivity : ComponentActivity() {
                     factory = NowPlayingViewModel.Factory(app.container),
                 )
                 var nowPlayingOpen by rememberSaveable { mutableStateOf(false) }
+
                 val miniPlayerState by rememberDetailMiniPlayerState(app.container)
                 val miniPlayerProgress by rememberDetailMiniPlayerProgress(app.container)
 
@@ -151,7 +151,7 @@ class ArtistDetailActivity : ComponentActivity() {
                     morphBarOnBack = intent.getBooleanExtra(DETAIL_EXTRA_FROM_SHELL, false),
                     navSection = intent.detailOriginSection(),
                     enterBarHandoff = intent.getBooleanExtra(DETAIL_EXTRA_BAR_HANDOFF, false),
-                    barExitsOnBack = intent.getBooleanExtra(DETAIL_EXTRA_FROM_NOW_PLAYING, false),
+                    barExitsOnBack = intent.detailBarExitsOnBack(),
                     onAlbumClick = { albumId ->
                         launchChildDetail(
                             AlbumDetailActivity.intent(this@ArtistDetailActivity, albumId),
@@ -159,10 +159,10 @@ class ArtistDetailActivity : ComponentActivity() {
                     },
                     onRetry = viewModel::retry,
                     onToggleFollow = viewModel::toggleFollow,
-                    onPlay = { playTopTracks(0) },
+                    onPlay = { playArtist(shuffle = false) },
                     onShuffle = { playArtist(shuffle = true) },
                     onOpenInSpotify = { openInSpotify() },
-                    onTopTrackClick = { index -> playTopTracks(index) },
+                    onMostPlayedClick = { index -> playMostPlayed(index) },
                     onShare = {
                         val text = (uiState as? ArtistDetailUiState.Content)?.artistName
                             ?: "Check out this artist"
@@ -176,24 +176,26 @@ class ArtistDetailActivity : ComponentActivity() {
                     playbackSignal = if (playbackState.isPlaying) playbackSignal else 0f,
                     onOpenNowPlaying = { nowPlayingOpen = true },
                     nowPlayingOpen = nowPlayingOpen,
+
                     miniPlayerState = miniPlayerState,
                     playbackProgress = miniPlayerProgress,
                     modifier = Modifier.fillMaxSize(),
                 )
 
                 NowPlayingOverlayHost(
+
                     viewModel = nowPlayingViewModel,
                     container = app.container,
                     expanded = nowPlayingOpen,
                     onExpandedChange = { nowPlayingOpen = it },
                     onAlbumClick = { id ->
-                        launchChildDetail(AlbumDetailActivity.intent(this@ArtistDetailActivity, id))
+                        launchChildDetail(AlbumDetailActivity.intent(this@ArtistDetailActivity, id), fromNowPlaying = true)
                     },
                     onArtistClick = { id ->
-                        launchChildDetail(ArtistDetailActivity.intent(this@ArtistDetailActivity, id))
+                        launchChildDetail(ArtistDetailActivity.intent(this@ArtistDetailActivity, id), fromNowPlaying = true)
                     },
                     onPlaylistClick = { id ->
-                        launchChildDetail(PlaylistDetailActivity.intent(this@ArtistDetailActivity, id))
+                        launchChildDetail(PlaylistDetailActivity.intent(this@ArtistDetailActivity, id), fromNowPlaying = true)
                     },
                 )
                 NowPlayingAccessories(

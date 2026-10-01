@@ -522,10 +522,6 @@ class YoinRepository(
         fetch = { requireSource().library().getArtist(id) },
     )
 
-    /** The artist's most-popular tracks (Spotify "Popular"; empty for providers without it). */
-    suspend fun getArtistTopTracks(id: MediaId): List<Track> =
-        requireSource().library().getArtistTopTracks(id)
-
     // ── Search ─────────────────────────────────────────────────────────
 
     suspend fun search(query: String): SearchResults =
@@ -2311,6 +2307,38 @@ class YoinRepository(
         activeProfileId.value?.let { profileId ->
             database.playHistoryDao().getAlbumLastPlayed(albumId.rawId, albumId.provider, profileId)
         }
+
+    /**
+     * This profile's own listening for an artist (local play history, so it
+     * works for every provider): total plays, last play, and the most-played
+     * songs. Plays match by the artist's release ids or their exact name.
+     */
+    suspend fun getArtistListening(
+        artistId: MediaId,
+        artistName: String,
+        albumIds: List<MediaId>,
+        topLimit: Int = 5,
+    ): ArtistListening? {
+        val profileId = activeProfileId.value ?: return null
+        val dao = database.playHistoryDao()
+        val rawAlbumIds = albumIds.filter { it.provider == artistId.provider }.map { it.rawId }
+        val stats = dao.getArtistPlayStats(profileId, artistId.provider, rawAlbumIds, artistName)
+        val top = if (stats.playCount > 0) {
+            dao.getArtistTopSongs(profileId, artistId.provider, rawAlbumIds, artistName, topLimit)
+        } else {
+            emptyList()
+        }
+        return ArtistListening(stats.playCount, stats.lastPlayedAt, top)
+    }
+
+    /** The user's own album ratings (album_ratings) for [albumIds], keyed by raw album id. */
+    suspend fun getAlbumRatings(albumIds: List<MediaId>): Map<String, Float> {
+        val profileId = activeProfileId.value ?: return emptyMap()
+        return albumIds.groupBy { it.provider }.flatMap { (provider, ids) ->
+            albumRatingDao.getAll(ids.map { it.rawId }, provider, profileId)
+                .map { it.albumId to it.rating }
+        }.toMap()
+    }
 
     suspend fun recordAlbumVisit(album: Album) {
         val profileId = activeProfileId.value ?: return

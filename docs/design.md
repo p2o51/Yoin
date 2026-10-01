@@ -65,7 +65,9 @@ MD3 Expressive 不是 M4，而是 M3 的扩展进化。
 1. 全部使用 **MD3 Color Tokens**（Primary、Secondary、Tertiary、Surface 等语义色）
 2. **默认 = 系统 Dynamic Color** — 深浅色跟随系统设置（`isSystemInDarkTheme()`），API 31+ 通过 `dynamicDarkColorScheme()` / `dynamicLightColorScheme()` 跟随系统壁纸/主题色
 3. **播放态 = 封面提取色** — 有内容播放时，用 Palette API 从专辑封面提取主色，替换 color tokens，实现全局色调切换
-4. **颜色过渡** — 使用 Effects Spring 做平滑过渡，不生硬跳变
+4. **颜色过渡** — 使用 Effects Spring 做平滑过渡，不生硬跳变。播放封面取色与当前过渡进度由 app session 共享，首页与子页面首帧使用同一色板；底部 NP 和底栏直接读取这套已动画的 tokens，不再叠加按窗口重启的颜色动画。
+
+浮动底栏的 12dp 阴影由最上层、同位置的底栏窗口绘制；透明页面交接与预测性返回期间不叠加下层阴影。分栏中不重叠的底栏各自保留阴影。“最上层”以真正上屏为准：新窗口首帧提交后才接管阴影，窗口开始 finish（关闭淡出）时立即交还；下层阴影随之按效果弹簧淡出 / 淡入，不做硬切，避免进场时阴影先消失、返回时阴影闪回。
 
 ### 实验性 API 策略
 
@@ -133,7 +135,7 @@ Memory 卡片必须解释「为什么这张专辑成为 memory」：至少表达
 
 - **宋体只属于 AI 拟题（memoryTitle）**：那一枚生成的标题（JBI memory 卡与 Memories 卡印章旁两处），衬线（`FontFamily.Serif`，Pixel 上即 Noto Serif CJK / 思源宋体同源字形），SemiBold 17–18sp。token：`YoinSerifTitle`（Type.kt）。
 - **其它标题维持 GSF，只加大字号**：专辑名照旧；歌名（笔记卡头行、JBI 卡片标题）升到 16sp SemiBold。
-- **黑体 = 用户正文**：乐评正文、笔记正文用系统默认字面（`FontFamily.Default`）。
+- **用户正文**：Memories 卡的乐评正文、笔记正文用系统默认字面（`FontFamily.Default`）；首页 Jump Back In 的 note 正文改用 Google Sans Flex，继承 `bodyMedium`（2026-09-19 调整）。
 - **GSF = 其余一切**：Yoin 代笔文案（必须带「Written by Yoin」署名）、评分数字、标签、按钮、证据句。
 - `HomeWidgetCard.commentIsHeadline` 区分拟题（宋体标题）与笔记原文（黑体正文）。
 
@@ -169,6 +171,8 @@ NeoDB 同步以 album 为边界。第一阶段只有同时具备 album rating �
 - Library 内普通搜索：默认 scope 为 Current Library，只搜索当前 profile 已保存内容
 - 长按底部 Library：Spotify profile 下打开搜索框并默认 scope 为 Spotify Global（占位文案 `Search Spotify`，chips 为 Spotify / Library）；非 Spotify provider 下打开 Current Library 搜索
 - 右上角 ⚙️ 设置入口
+- 筛选胶囊与下方网格 / 列表的交界用“逐项溶解”软衔接（2026-09-29，取代硬截断）：交界处不盖任何渐变、模糊或色带，遮罩在每个 item 里。图形（封面、头像、缩略图）在滑到交界时碎成跟随自身的错列波点，越往上越小，到交界线正好消失；文字只渐隐、不拆成点。因此胶囊下的固定间距只留 4dp，网格顶部内边距 8dp
+- 这对遮罩是通用语言：任何“滚动内容撞上固定 chrome”的交界都应复用（`seamDissolveViewport` 标记滚动容器，图形用 `seamDissolve`、文字用 `seamFade`；不在 viewport 内时为空操作，共享组件可以常驻挂载）
 
 ### ⚙️ 设置（从主页或 Library 进入）
 
@@ -176,6 +180,15 @@ NeoDB 同步以 album 为边界。第一阶段只有同时具备 album rating �
 - 缓存管理（容量限制、清除）
 - 主题偏好
 - 关于 / 版本信息
+
+#### 账号与服务二级页（2026-09-26，取代 2026-09-06 版）
+
+- Settings 主页只做「列出 / 切换 / 移除」：Accounts 横向卡片（名称 + 一行状态：问题徽标 > In use > 服务器/账号），其余设置按 Features / Storage / About 分组，行内折叠展开（空间弹簧 + 效果弹簧），不再平铺说明段落。
+- 服务能做什么，只在用户表达兴趣时讲：Add → 选择面板（每项名称 + 一句话）→ 服务二级页 `ServiceSetupActivity`。二级页 = 服务标识 + 一句定位 + What you get（≤4 条亮点）+ You'll need（前置条件）+ 连接表单。不做支持矩阵、不罗列“不能做什么”；做不了的操作照旧隐藏，失败时给简短可处理的错误。
+- 管理已有账号（编辑 Subsonic、Spotify 重新登录、凭据缺失恢复）复用同一二级页的 manage 模式：跳过介绍，直接给表单/操作。Spotify Client ID 属于一次性开发者配置，收进二级页的 Developer setup 折叠行，仅在缺失时自动展开；「No Client ID」深链打开该页并聚焦输入框。
+- 返回：二级页是无共享 chrome 的全屏目的地 → Pattern A 原生跨 Activity 预测性返回，零 back 代码；新账号的切换由 Settings 在自己的 scope 里执行（二级页经 ActivityResult 回传 id）。
+- Apple Music 尚未注册为可切换的 provider：选择面板里标 Preview，二级页的 Connection test 组承载开发者 Token 服务、MusicKit 授权、搜索与整曲播放测试。只有真实账号验证后才开放常规 Profile；SDK 初始化不代表授权或整曲已跑通。未来 + 加入资料库必须查询确认完成后才显示稳定的勾选状态，不能将 HTTP 202 当成已完成。
+- Apple Music 能力依据：[MusicKit](https://developer.apple.com/musickit/)、[添加资料库](https://developer.apple.com/documentation/applemusicapi/add-a-resource-to-a-library)、[喜爱限制](https://support.apple.com/en-us/111118)。接入时重新核验。
 
 ---
 
@@ -187,7 +200,21 @@ NeoDB 同步以 album 为边界。第一阶段只有同时具备 album rating �
 | 点击中间按钮展开 Now Playing | 封面 Shared Element 扩展 + Button Group 容器 Spatial Spring 扩展为全屏 + 背景 fade in |
 | 下滑 / 返回收回 Now Playing | 反向 Spring 动画，封面缩回缩略图，全屏收回 Button Group |
 | Predictive Back | 跟手进度驱动的收回预览，松手后 Spring 完成或回弹 |
-| 切歌 | 封面 crossfade + 背景色 Effects Spring 过渡 |
+| Now Playing → 专辑 / 歌手 / 歌单 | 保留原播放器及其 stage；详情正文准备好后不透明推入，详情底栏同步从下方进入，不等待主页底栏变形 |
+| 详情 → 原 Now Playing | 返回手势同时驱动页面收回和底栏向下退出；取消回到详情，提交等空间 / 透明度弹簧收尾后再关闭窗口 |
+| Memories → Go to album → 返回 | 保留原 Memories 卡片与滚动位置；专辑详情底栏随正文进入和退出，不与隐藏的首页底栏交接或变形 |
+| 多层详情 / 播放器返回 | 返回当前窗口的真实来源；内层详情不改写主页的返回进度和底栏状态 |
+| 歌词搜索 | 从实际搜索按钮展开，收起回到该按钮；复用官方 SearchBarState 与全屏 Search 的动效、键盘处理和预测性返回 |
+| 切歌 | 大封面在新图加载成功后用封面专用低刚度、临界阻尼 Effects Spring 驱动细密错列的波点溶解，约 700ms 显影完成后自然收尾：波前本身持续起伏，圆点轻微漂移、柔和浮现后合拢，边缘带低强度 Primary → Tertiary 渐变光晕；下一首从右、上一首从左接管。点距约 6dp，旧图始终不透明兜底，新图随溶解逐步显影。缩略图保留轻量 crossfade，背景色继续原有 Effects Spring 过渡 |
+| Library 列表滚到筛选胶囊下 | 静止时不出现；滚动开始后过渡带随前 40dp 滚动从 0 长到 36dp。图形在带内按每颗点到交界的距离缩小（交界处为 0，约 1.34 倍带高处合成实色），点距 6dp 与切歌溶解同一网屏，前沿每个 item 各有起伏，点沿同一流场轻微打旋；旋转相位跟随滚动，但带一点惯性：流动落后内容的量与滚动速度成正比（上限半个过渡带），内容停下后以停前的速度继续漂一小段，约 0.5 秒指数衰减到静止，不回弹；静止时完全不动，省电模式和“移除动画”下关闭余韵。文字在带内 80% 高度渐隐。API 33+ 走 AGSL `RenderEffect`，以下用 Path 裁剪兜底；只有进入带内的 item 才重绘 |
+| 歌词翻译开关 | 每行译文从行下沿按空间弹簧展开 / 收起（间距在动画块内，收起即单行高）；焦点行全程钉在 38% 锚点，上下行向两侧让开 |
+| 打开歌词时切歌 | 歌词流“继续滚动”：旧歌冻结在最后播放位置，向上漂移并慢速淡出；新歌从下方升入（上一首则方向相反）。加载完成时歌词短距离升入、加载指示淡出。新歌前奏期间焦点位是歌名卡片。**自然播完且下一首歌词已预取时**改为预告式接续：最后一句唱完、离结束约 10 秒起，下一首的歌名卡片和前几句在最后一句下方以半强度浮现、上升；结束前约 1.4 秒整页上滑，把下一首歌名推到它自己列表的起始位置，同时当前歌词淡出；真正切歌时两份画面在歌名以下完全一致，原地替换、不再播放滑入滑出。提前跳歌、手动滚动过、没有下一首或歌词无时间轴时仍走上述滑动过渡 |
+
+Now Playing 恢复原有的封面、标题、歌手名 Shared Bounds：整页使用 Expressive 上滑与 Standard 淡入，封面和文字各自使用原来的空间弹簧。本次回退保留播放器和底栏各自原生 AnimatedVisibility 时钟，移除新加的统一 seek 时间轴及时间轴弹簧。原有预测性返回与下滑交互保持原实现，后续修改必须同时对比完整展开、关闭和取消手势。
+
+底部 Now Playing 胶囊的波浪相位和播放 / 暂停振幅属于 app session，首页、详情页和返回时重建的胶囊读取同一个状态；两端使用相同精度的播放进度。帧更新由可见窗口提供，不新建后台动画时钟。封面过渡保留已解码的图片而非只记 URL，缓存失效或连续切歌不能露出浅色底；中断点阵溶解时保留当前混合画面。
+
+展开尚未结束时切入歌词，封面立即退出 mini → full Shared Bounds，由歌词 stage 的缩小转场接管；不得等待整页展开弹簧结束，也不得让旧共享封面绕过 stage 的隐藏和裁剪继续漂浮。歌词展开时，完整歌词列表保持最终视口的测量尺寸，通过位移和裁剪跟随可见区域；避免每帧改变 LazyColumn 高度并反复滚动校正当前句。
 
 ---
 
@@ -288,3 +315,8 @@ Podcast、Internet Radio、Chat、User Management、Jukebox、Bookmarks、Shares
 ![image.png](attachment:eba9a990-ab35-4304-ad5d-b5327f351346:image.png)
 
 ![image.png](attachment:86d59aea-0f12-414a-8b61-a3508223cd37:image.png)
+
+
+### Apple Music profiles (2026-09-26)
+
+Apple Music connection now creates a regular encrypted Profile; the previous validation authorization migrates once without automatically switching the active account. Its MusicSource supports library albums, artists and read-only playlists plus catalog search. MusicKit supplies DRM audio through a Media3 session shared by Now Playing and system controls. Unsupported favorite/library writes, playlist editing, Cast and offline caching remain hidden; adding to the Apple Music library must never be represented as a favorite heart. Imported tracks without a catalog playback ID require an explicit unavailable message. Physical subscribed-account QA is still pending for this integration.

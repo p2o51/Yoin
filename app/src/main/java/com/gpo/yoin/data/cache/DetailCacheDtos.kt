@@ -4,6 +4,7 @@ import com.gpo.yoin.data.model.Album
 import com.gpo.yoin.data.model.ArtistDetail
 import com.gpo.yoin.data.model.CoverRef
 import com.gpo.yoin.data.model.MediaId
+import com.gpo.yoin.data.model.ReleaseType
 import com.gpo.yoin.data.model.Playlist
 import com.gpo.yoin.data.model.Track
 import kotlinx.serialization.Serializable
@@ -86,6 +87,7 @@ internal data class AlbumDto(
     val isStarred: Boolean = false,
     val tracks: List<TrackDto> = emptyList(),
     val addedAt: String? = null,
+    val releaseType: String? = null,
 ) {
     fun toDomain(): Album = Album(
         id = MediaId.parse(id),
@@ -100,6 +102,7 @@ internal data class AlbumDto(
         isStarred = isStarred,
         tracks = tracks.map(TrackDto::toDomain),
         addedAt = addedAt,
+        releaseType = releaseType?.let { name -> ReleaseType.entries.firstOrNull { it.name == name } },
     )
 
     companion object {
@@ -116,6 +119,7 @@ internal data class AlbumDto(
             isStarred = a.isStarred,
             tracks = a.tracks.map(TrackDto::from),
             addedAt = a.addedAt,
+            releaseType = a.releaseType?.name,
         )
     }
 }

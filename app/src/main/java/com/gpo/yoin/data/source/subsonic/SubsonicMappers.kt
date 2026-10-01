@@ -8,6 +8,7 @@ import com.gpo.yoin.data.model.CoverRef
 import com.gpo.yoin.data.model.LyricLine
 import com.gpo.yoin.data.model.Lyrics
 import com.gpo.yoin.data.model.MediaId
+import com.gpo.yoin.data.model.ReleaseType
 import com.gpo.yoin.data.model.SearchResults
 import com.gpo.yoin.data.model.Starred
 import com.gpo.yoin.data.model.Track
@@ -67,7 +68,20 @@ internal fun SubsonicAlbum.toAlbum(): Album = Album(
     // carry it as addedAt so starred albums feed the home "Recently Added"
     // albums shelf, mirroring the track mapper above.
     addedAt = starred,
+    releaseType = subsonicReleaseType(releaseTypes),
 )
+
+/** OpenSubsonic `releaseTypes` → [ReleaseType]; the first recognised value wins. */
+internal fun subsonicReleaseType(releaseTypes: List<String>): ReleaseType? =
+    releaseTypes.firstNotNullOfOrNull { type ->
+        when (type.trim().lowercase()) {
+            "album" -> ReleaseType.Album
+            "ep" -> ReleaseType.EP
+            "single" -> ReleaseType.Single
+            "compilation" -> ReleaseType.Compilation
+            else -> null
+        }
+    }
 
 internal fun SubsonicArtist.toArtist(): Artist = Artist(
     id = MediaId.subsonic(id),

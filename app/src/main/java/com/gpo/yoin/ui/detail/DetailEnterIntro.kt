@@ -22,6 +22,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalInspectionMode
 import androidx.compose.ui.platform.LocalView
 import com.gpo.yoin.YoinApplication
+import com.gpo.yoin.ui.component.BottomBarShadowPageCoverEffect
 import com.gpo.yoin.ui.navigation.back.BackMotionTokens
 import kotlin.coroutines.resume
 import kotlinx.coroutines.delay
@@ -48,7 +49,7 @@ import kotlinx.coroutines.withTimeoutOrNull
  * (rememberDetailBackEnteringModifier's covered rest), so open and
  * predictive-back are the same trajectory run in both directions.
  *
- * [barHandoff] launches (from shell / Now Playing) hold the slide for 200ms
+ * [barHandoff] launches from a root section hold the slide for 200ms
  * so the shell bar's nav→split morph reads as the tap feedback before the
  * incoming window covers it. Until Content/Error is ready, the page subtree is
  * not mounted at all: the translucent window contributes only the pixel-aligned
@@ -60,7 +61,7 @@ import kotlinx.coroutines.withTimeoutOrNull
  * The tick that releases the shell's recede fires only after the first mounted,
  * fully opaque page buffer has COMMITTED to the swap chain. A frame-clock
  * callback alone proves neither that the target content was mounted nor that a
- * buffer reached SurfaceFlinger. Detail→detail pushes use the same readiness
+ * buffer reached SurfaceFlinger. Now Playing and detail→detail pushes use the same readiness
  * boundary without the shell's 200ms bar hold. Plays once per Activity
  * (rememberSaveable), so rotation doesn't replay it.
  */
@@ -68,6 +69,8 @@ import kotlinx.coroutines.withTimeoutOrNull
 class DetailEnterIntroState internal constructor(alreadyPlayed: Boolean) {
     internal val slide = Animatable(if (alreadyPlayed) 0f else 1f)
     var pageVisible by mutableStateOf(alreadyPlayed)
+        internal set
+    internal var slideReleased by mutableStateOf(alreadyPlayed)
         internal set
     internal var pageMounted by mutableStateOf(alreadyPlayed)
         private set
@@ -81,6 +84,9 @@ class DetailEnterIntroState internal constructor(alreadyPlayed: Boolean) {
 @Composable
 internal fun DetailEnterPageMountEffect(state: DetailEnterIntroState) {
     SideEffect { state.notePageMounted() }
+    // The opaque page is up: this window's bar takes the shadow over in the
+    // same frame (the bar-hold kept it bare over the shell's shadow).
+    BottomBarShadowPageCoverEffect()
 }
 
 @Composable
@@ -138,9 +144,18 @@ fun rememberDetailEnterIntro(
                     // opaquely instead of exposing a 96dp gap.
                     state.slide.snapTo(0f)
                 },
-                noteSlideStarted = store::noteDetailEnterSlideStarted,
+                noteSlideStarted = {
+                    if (barHandoff) store.noteDetailEnterSlideStarted()
+                },
             )
-            if (!started) return@LaunchedEffect
+            if (started) state.slideReleased = true
+        }
+    }
+    // A back gesture can interrupt an unfinished entrance. Freeze its current
+    // pose while back owns the surface; cancellation resumes the same entrance
+    // path instead of letting entry and back move the page in opposite directions.
+    LaunchedEffect(state.slideReleased, back.gestureActive, back.committed) {
+        if (state.slideReleased && !back.gestureActive && !back.committed && !played) {
             state.slide.animateTo(
                 targetValue = 0f,
                 animationSpec = tween(
@@ -260,7 +275,7 @@ fun Modifier.detailEnterIntroTransform(state: DetailEnterIntroState): Modifier =
 /** Mirror of the back gesture's entering start offset (AOSP 96dp). */
 private const val ENTER_START_OFFSET_DP = 96f
 
-/** AOSP cross-activity open duration, same as the back post-commit settle. */
+/** AOSP cross-activity open duration. Back completion uses shared springs. */
 private const val ENTER_DURATION_MS = 450
 
 /** The bar-morph hold — the tap feedback beat before the slide covers it. */

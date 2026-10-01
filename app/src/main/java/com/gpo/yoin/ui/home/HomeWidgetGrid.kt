@@ -32,7 +32,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -285,8 +284,7 @@ private fun WidgetCard12(
                 }
             }
             card.comment?.let { comment ->
-                // 字体规范 2026-07-26：拟题是标题 → 宋体加大；笔记原文是
-                // 用户正文 → 系统黑体。
+                // AI 拟题保留宋体；首页笔记正文继承主题的 Google Sans Flex。
                 Text(
                     text = comment,
                     style = if (card.commentIsHeadline) {
@@ -297,7 +295,7 @@ private fun WidgetCard12(
                             lineHeight = 24.sp,
                         )
                     } else {
-                        MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Default)
+                        MaterialTheme.typography.bodyMedium
                     },
                     color = MaterialTheme.colorScheme.onSurface,
                     maxLines = 3,

@@ -1,0 +1,13 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "yoin-apple-music-token",
+  "main": "worker.mjs",
+  "compatibility_date": "2026-09-06",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": true,
+  "observability": {"enabled": true, "head_sampling_rate": 0.1},
+  "ratelimits": [{
+    "name": "TOKEN_LIMITER", "namespace_id": "2026090601",
+    "simple": {"limit": 300, "period": 60}
+  }]
+}

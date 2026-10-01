@@ -1,5 +1,9 @@
 package com.gpo.yoin.ui.detail
 
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.fadeIn
 import android.app.Activity
 import android.app.ActivityOptions
 import android.content.Context
@@ -9,7 +13,7 @@ import android.os.Build
 import androidx.window.embedding.ActivityEmbeddingController
 import androidx.window.embedding.SplitController
 import androidx.window.layout.WindowMetricsCalculator
-import androidx.compose.animation.AnimatedVisibility
+import com.gpo.yoin.ui.navigation.back.OverlayChromeVisibility
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.semantics.clearAndSetSemantics
@@ -17,6 +21,8 @@ import com.gpo.yoin.ui.theme.YoinMotionRole
 import com.gpo.yoin.ui.theme.YoinMotion
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
@@ -31,8 +37,8 @@ import com.gpo.yoin.ui.navigation.YoinSection
  *
  * Same [FloatingBottomBar] scaffold and [NowPlayingPill] as the shell, with
  * the nav buttons swapped for the Play split button: the shell bar morphs
- * into exactly this composition during the shell→detail hand-off, so the
- * incoming window's delayed crossfade lands on identical pixels. Present in
+ * into exactly this composition during the shell→detail hand-off. Both
+ * windows read the same forward pose until predictive back takes over. Present in
  * ALL page states (Loading/Error too) — the bar never waits for page data;
  * Play simply no-ops until the tracks arrive.
  *
@@ -50,12 +56,16 @@ fun DetailBottomBar(
     playbackProgress: Float,
     modifier: Modifier = Modifier,
     nowPlayingOpen: Boolean = false,
+
     interactionsEnabled: Boolean = true,
     // Predictive-back scrub (0 = resting detail chrome, 1 = fully nav): the
     // gesture drives the split⇄nav morph interactively when this page will
     // reveal the shell. Pages stacked over another detail keep 0 — the bar
     // beneath is identical, so the correct read is "the bar doesn't move".
     backMorphProgress: () -> Float = { 0f },
+    // Reads the shell's live pose during a forward hand-off. The local back
+    // controller takes over on gesture/commit, including its cancel settle.
+    enterChromeProgress: () -> Float = { 1f },
     // The shell tab the back scrub reveals — carried from the launch (the
     // shell's selectedSection at tap time) so a Library-origin back doesn't
     // preview a Home-selected bar.
@@ -69,8 +79,9 @@ fun DetailBottomBar(
 ) {
     // Same choreography as the shell bar when NP expands over it: the bar
     // slides down out of the way while the player rises.
-    AnimatedVisibility(
-        visible = !nowPlayingOpen,
+    OverlayChromeVisibility(
+        expanded = nowPlayingOpen,
+
         enter = YoinMotion.fadeIn(role = YoinMotionRole.Standard) +
             YoinMotion.slideInVertically(role = YoinMotionRole.Standard) { it },
         exit = YoinMotion.fadeOut(role = YoinMotionRole.Standard) +
@@ -118,7 +129,7 @@ fun DetailBottomBar(
             playbackProgress = playbackProgress,
             isPlaying = miniPlayer?.isPlaying == true,
             chromeProgress = {
-                (1f - backMorphProgress()).coerceIn(0f, 1f)
+                (enterChromeProgress() * (1f - backMorphProgress())).coerceIn(0f, 1f)
             },
             playSplitActions = BarPlaySplitActions(
                 playContainer = playContainer,
@@ -134,11 +145,57 @@ fun DetailBottomBar(
     }
 }
 
+@Composable
+internal fun rememberDetailBarEnterProgress(
+    followShell: Boolean,
+    back: DetailBackCollapseState,
+): () -> Float {
+    val context = LocalContext.current
+    val store = remember(context) {
+        (context.applicationContext as YoinApplication).container.experienceSessionStore
+    }
+    // A restored detail after process death has no live shell hand-off. Nested
+    // details, rail/split layouts and Now Playing origins also start settled.
+    val hasShellHandoff = remember(store, followShell) {
+        followShell && store.state.value.detailChromeActive
+    }
+    return remember(store, hasShellHandoff, back) {
+        {
+            if (hasShellHandoff && !back.gestureActive && !back.committed) {
+                store.shellBarChromeMorph.value
+            } else {
+                1f
+            }
+        }
+    }
+}
+
+/** Bars over Now Playing or Memories enter and retreat with the detail page. */
+internal fun detailBarExitProgress(
+    intro: DetailEnterIntroState,
+    back: DetailBackCollapseState,
+): Float {
+    val entering = if (intro.pageVisible) intro.slide.value.coerceIn(0f, 1f) else 1f
+    return entering + (1f - entering) * back.progress.coerceIn(0f, 1f)
+}
+
+/** Nested pushes retain the actual source surface and use only Compose motion. */
+internal fun launchDetailFromDetail(context: Context, intent: Intent, fromNowPlaying: Boolean) {
+    intent.putExtra(DETAIL_EXTRA_FROM_NOW_PLAYING, fromNowPlaying)
+    val options = ActivityOptions.makeCustomAnimation(
+        context,
+        R.anim.detail_bar_handoff_enter,
+        R.anim.detail_bar_handoff_exit,
+    )
+    context.startActivity(intent, options.toBundle())
+}
+
 /**
  * Launch a detail Activity from the shell with the bar hand-off animation:
  * the incoming window holds transparent while the shell bar morphs, then
  * slides in opaque (see res/anim/detail_bar_handoff_enter.xml). The shell arms its
- * bar morph (detailChromeActive) before calling this.
+ * bar morph (detailChromeActive) before calling this; the detail bar follows
+ * that same progress from its first frame instead of covering it at rest.
  *
  * Reads the session store at launch time to stamp the intent with the true
  * origin: with Now Playing expanded the page opens OVER the player, so the
@@ -198,10 +255,9 @@ enum class DetailLaunchMode {
     FullChoreography,
 
     /**
-     * Medium+ 全窗 shell（左侧 rail，屏上没有底部 bar）：只带
-     * originSection、普通 startActivity、无自定义动画。不带 fromShell /
-     * barHandoff —— detail 的返回 scrub 不许朝一根不存在的 bar 做 morph
-     * （fromShell 缺位已保证这点，backMorphProgress 恒 0）。
+     * Medium+ full-window shell: no nav-bar morph or bar hold. Preserve an
+     * expanded Now Playing origin and let Compose own the page slide, just
+     * as on compact windows (no second platform translation).
      */
     PlainPush,
 
@@ -221,22 +277,26 @@ fun launchDetailFromShell(
     val session = (context.applicationContext as YoinApplication)
         .container.experienceSessionStore.state.value
     when (mode) {
-        // 两个无编舞模式的机械动作相同（originSection-only、普通启动）；
-        // 枚举仍分开 —— 语义不同（分栏接住 vs Medium+ 全窗推入），留给
-        // 调用侧与日后分叉。
-        DetailLaunchMode.Embedded, DetailLaunchMode.PlainPush -> {
+        DetailLaunchMode.Embedded -> {
             intent.putExtra(DETAIL_EXTRA_ORIGIN_SECTION, session.selectedSection.name)
             context.startActivity(intent)
         }
 
+        DetailLaunchMode.PlainPush -> {
+            intent.putExtra(DETAIL_EXTRA_ORIGIN_SECTION, session.selectedSection.name)
+            launchDetailFromDetail(context, intent, fromNowPlaying = session.nowPlayingExpanded)
+        }
+
         DetailLaunchMode.FullChoreography -> {
-            if (!session.nowPlayingExpanded) {
+            if (!session.hasOverlayHidingBottomBar) {
                 intent.putExtra(DETAIL_EXTRA_FROM_SHELL, true)
                 intent.putExtra(DETAIL_EXTRA_ORIGIN_SECTION, session.selectedSection.name)
-            } else {
+            } else if (session.nowPlayingExpanded) {
                 intent.putExtra(DETAIL_EXTRA_FROM_NOW_PLAYING, true)
+            } else {
+                intent.putExtra(DETAIL_EXTRA_FROM_MEMORIES, true)
             }
-            intent.putExtra(DETAIL_EXTRA_BAR_HANDOFF, true)
+            intent.putExtra(DETAIL_EXTRA_BAR_HANDOFF, !session.hasOverlayHidingBottomBar)
             val options = ActivityOptions.makeCustomAnimation(
                 context,
                 R.anim.detail_bar_handoff_enter,
@@ -294,3 +354,10 @@ const val DETAIL_EXTRA_FROM_NOW_PLAYING = "fromNowPlaying"
  * detail→detail pushes, whose window appears immediately.
  */
 const val DETAIL_EXTRA_BAR_HANDOFF = "barHandoff"
+
+/** Memories remains mounted underneath; its hidden bar is not a morph target. */
+const val DETAIL_EXTRA_FROM_MEMORIES = "fromMemories"
+
+internal fun Intent.detailBarExitsOnBack(): Boolean =
+    getBooleanExtra(DETAIL_EXTRA_FROM_NOW_PLAYING, false) ||
+        getBooleanExtra(DETAIL_EXTRA_FROM_MEMORIES, false)

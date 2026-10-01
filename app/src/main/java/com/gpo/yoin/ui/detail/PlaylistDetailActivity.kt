@@ -14,25 +14,25 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
-import com.gpo.yoin.ui.nowplaying.NowPlayingAccessories
-import com.gpo.yoin.ui.nowplaying.NowPlayingOverlayHost
-import com.gpo.yoin.ui.nowplaying.NowPlayingViewModel
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.gpo.yoin.YoinActivityRoot
 import com.gpo.yoin.YoinApplication
-import com.gpo.yoin.enableYoinEdgeToEdge
 import com.gpo.yoin.data.repository.ActivityContext
+import com.gpo.yoin.enableYoinEdgeToEdge
 import com.gpo.yoin.ui.navigation.trackCoverArtId
+import com.gpo.yoin.ui.nowplaying.NowPlayingAccessories
+import com.gpo.yoin.ui.nowplaying.NowPlayingOverlayHost
+import com.gpo.yoin.ui.nowplaying.NowPlayingViewModel
 
 /**
  * Standalone Activity for a playlist detail page. Unlike the shell-hosted
@@ -48,10 +48,10 @@ class PlaylistDetailActivity : ComponentActivity() {
         detailLaunchGate.release()
     }
 
-    private fun launchChildDetail(intent: Intent) {
+    private fun launchChildDetail(intent: Intent, fromNowPlaying: Boolean = false) {
         if (!detailLaunchGate.tryAcquire(lifecycle.currentState == Lifecycle.State.RESUMED)) return
         try {
-            startActivity(intent)
+            launchDetailFromDetail(this, intent, fromNowPlaying)
         } catch (error: RuntimeException) {
             detailLaunchGate.release()
             throw error
@@ -68,7 +68,7 @@ class PlaylistDetailActivity : ComponentActivity() {
             return
         }
         setContent {
-            YoinActivityRoot {
+            YoinActivityRoot(deferBottomBarShadow = true) {
                 val context = LocalContext.current
                 val app = context.applicationContext as YoinApplication
                 val viewModel: PlaylistDetailViewModel = viewModel(
@@ -124,6 +124,7 @@ class PlaylistDetailActivity : ComponentActivity() {
                     factory = NowPlayingViewModel.Factory(app.container),
                 )
                 var nowPlayingOpen by rememberSaveable { mutableStateOf(false) }
+
                 val miniPlayerState by rememberDetailMiniPlayerState(app.container)
                 val miniPlayerProgress by rememberDetailMiniPlayerProgress(app.container)
 
@@ -147,7 +148,7 @@ class PlaylistDetailActivity : ComponentActivity() {
                         morphBarOnBack = intent.getBooleanExtra(DETAIL_EXTRA_FROM_SHELL, false),
                         navSection = intent.detailOriginSection(),
                         enterBarHandoff = intent.getBooleanExtra(DETAIL_EXTRA_BAR_HANDOFF, false),
-                        barExitsOnBack = intent.getBooleanExtra(DETAIL_EXTRA_FROM_NOW_PLAYING, false),
+                        barExitsOnBack = intent.detailBarExitsOnBack(),
                         onPlayAllClick = { playFrom(startIndex = 0, shuffle = false) },
                         onShufflePlay = { playFrom(startIndex = 0, shuffle = true) },
                         onSongClick = { songId ->
@@ -161,11 +162,9 @@ class PlaylistDetailActivity : ComponentActivity() {
                         onDelete = viewModel::delete,
                         isPlaying = playbackState.isPlaying,
                         playbackSignal = if (playbackState.isPlaying) playbackSignal else 0f,
-                        sharedTransitionKey = null,
-                        sharedTransitionScope = null,
-                        animatedVisibilityScope = null,
                         onOpenNowPlaying = { nowPlayingOpen = true },
                         nowPlayingOpen = nowPlayingOpen,
+
                         miniPlayerState = miniPlayerState,
                         playbackProgress = miniPlayerProgress,
                         modifier = Modifier.fillMaxSize(),
@@ -173,18 +172,19 @@ class PlaylistDetailActivity : ComponentActivity() {
 
 
                 NowPlayingOverlayHost(
+
                     viewModel = nowPlayingViewModel,
                     container = app.container,
                     expanded = nowPlayingOpen,
                     onExpandedChange = { nowPlayingOpen = it },
                     onAlbumClick = { id ->
-                        launchChildDetail(AlbumDetailActivity.intent(this@PlaylistDetailActivity, id))
+                        launchChildDetail(AlbumDetailActivity.intent(this@PlaylistDetailActivity, id), fromNowPlaying = true)
                     },
                     onArtistClick = { id ->
-                        launchChildDetail(ArtistDetailActivity.intent(this@PlaylistDetailActivity, id))
+                        launchChildDetail(ArtistDetailActivity.intent(this@PlaylistDetailActivity, id), fromNowPlaying = true)
                     },
                     onPlaylistClick = { id ->
-                        launchChildDetail(PlaylistDetailActivity.intent(this@PlaylistDetailActivity, id))
+                        launchChildDetail(PlaylistDetailActivity.intent(this@PlaylistDetailActivity, id), fromNowPlaying = true)
                     },
                 )
                 NowPlayingAccessories(

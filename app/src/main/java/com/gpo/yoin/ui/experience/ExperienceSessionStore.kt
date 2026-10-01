@@ -1,7 +1,9 @@
 package com.gpo.yoin.ui.experience
 
+import androidx.compose.animation.core.Animatable
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
+import com.gpo.yoin.ui.component.PlaybackWaveState
 import com.gpo.yoin.ui.navigation.YoinSection
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -47,6 +49,13 @@ data class ExperienceSessionState(
 enum class DetailBackPhase { Idle, Gesture, Committed }
 
 class ExperienceSessionStore {
+    val playbackWave = PlaybackWaveState()
+
+    // One forward bar pose for both translucent windows. The shell owns its
+    // animation; the incoming detail reads it until its back controller takes
+    // over. Keeping the Animatable here avoids a delayed per-frame copy.
+    internal val shellBarChromeMorph = Animatable(0f)
+
     // ── Detail predictive-back pose bridge ─────────────────────────────────
     // Snapshot states, NOT part of [state]: written per gesture FRAME by the
     // top detail window and read inside graphicsLayer lambdas by the window

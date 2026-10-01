@@ -1,6 +1,9 @@
 package com.gpo.yoin.ui.nowplaying
 
+
 import com.gpo.yoin.data.repository.ActivityContext
+import com.gpo.yoin.data.source.ServiceFeatureCatalog
+import com.gpo.yoin.data.source.ServiceFeatures
 
 sealed interface NowPlayingUiState {
 
@@ -67,8 +70,25 @@ sealed interface NowPlayingUiState {
         val albumId: String?,
         val artistId: String?,
         val activityContext: ActivityContext,
+        val serviceFeatures: ServiceFeatures = ServiceFeatureCatalog.subsonic,
+        /** The next song's timed lyrics, fetched ahead for the outro hand-over. */
+        val upNextLyrics: UpNextLyrics? = null,
     ) : NowPlayingUiState
 }
+
+/**
+ * The song that plays next, with its timed lyrics, prefetched during the
+ * current song so the lyrics view can reveal it in the outro and hand over
+ * without a loading state.
+ */
+data class UpNextLyrics(
+    val songId: String,
+    val title: String,
+    val artist: String,
+    val lines: List<LyricLine>,
+    val providerName: String? = null,
+    val providerSongId: String? = null,
+)
 
 data class LyricLine(
     val startMs: Long?,

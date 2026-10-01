@@ -19,5 +19,6 @@ sealed interface PlaybackHandle {
 
     enum class ControllerType {
         SPOTIFY_APP_REMOTE,
+        APPLE_MUSIC_KIT,
     }
 }

@@ -1,95 +1,105 @@
 package com.gpo.yoin.ui.detail
+
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.asPaddingValues
-import androidx.compose.foundation.layout.navigationBars
-import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.wrapContentHeight
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.LibraryMusic
 import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Shuffle
+import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import com.gpo.yoin.ui.component.YoinDropdownMenu
-import com.gpo.yoin.ui.component.YoinDropdownMenuItem
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.MediumFlexibleTopAppBar
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
-import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.AnimatedVisibilityScope
-import androidx.compose.animation.ExperimentalSharedTransitionApi
-import androidx.compose.animation.SharedTransitionScope
-import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.togetherWith
-import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.input.nestedscroll.nestedScroll
-import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
-import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.LinkAnnotation
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextLinkStyles
 import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withLink
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.lerp
 import com.gpo.yoin.ui.component.DetailErrorState
 import com.gpo.yoin.ui.component.ExpressiveMediaArtwork
 import com.gpo.yoin.ui.component.ExpressivePageBackground
+import com.gpo.yoin.ui.component.YoinDropdownMenu
+import com.gpo.yoin.ui.component.YoinDropdownMenuItem
 import com.gpo.yoin.ui.component.YoinLoadingIndicator
+import com.gpo.yoin.ui.component.formatTotalDuration
+import com.gpo.yoin.ui.component.formatTrackDuration
+import com.gpo.yoin.ui.component.rememberStagedReveal
+import com.gpo.yoin.ui.component.seamDissolve
+import com.gpo.yoin.ui.component.seamDissolveViewport
+import com.gpo.yoin.ui.component.seamFade
+import com.gpo.yoin.ui.component.seamScrolledPx
+import com.gpo.yoin.ui.component.stagedBeat
+import com.gpo.yoin.ui.component.yoinPageContentWidth
+import com.gpo.yoin.ui.experience.LayoutMode
+import com.gpo.yoin.ui.experience.LocalYoinWindowInfo
+import com.gpo.yoin.ui.experience.rememberRevealState
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
-import com.gpo.yoin.ui.navigation.playlistCoverSharedKey
-import com.gpo.yoin.ui.navigation.rememberActiveOnlySharedContentConfig
 import com.gpo.yoin.ui.navigation.YoinSection
 import com.gpo.yoin.ui.theme.ProvideYoinMotionRole
+import com.gpo.yoin.ui.theme.YoinArtworkShapes
+import com.gpo.yoin.ui.theme.YoinContainerShapes
 import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinMotionRole
-import com.gpo.yoin.ui.theme.YoinArtworkShapes
 import com.gpo.yoin.ui.theme.YoinTheme
 import com.gpo.yoin.ui.theme.rememberCoverColorScheme
+import com.gpo.yoin.ui.theme.withTabularFigures
 
-@OptIn(
-    ExperimentalMaterial3Api::class,
-    ExperimentalMaterial3ExpressiveApi::class,
-    ExperimentalSharedTransitionApi::class,
-)
 @Composable
 fun PlaylistDetailScreen(
     uiState: PlaylistDetailUiState,
@@ -105,13 +115,11 @@ fun PlaylistDetailScreen(
     onRetry: () -> Unit,
     onRename: (name: String) -> Unit = {},
     onDelete: () -> Unit = {},
-    sharedTransitionKey: String? = null,
-    sharedTransitionScope: SharedTransitionScope? = null,
-    animatedVisibilityScope: AnimatedVisibilityScope? = null,
     isPlaying: Boolean = false,
     playbackSignal: Float = 0f,
     onOpenNowPlaying: () -> Unit = {},
     nowPlayingOpen: Boolean = false,
+
     // True when this window sits directly over the shell: predictive back
     // scrubs the bar toward nav chrome (matching the reveal underneath).
     morphBarOnBack: Boolean = false,
@@ -127,35 +135,37 @@ fun PlaylistDetailScreen(
     playbackProgress: Float = 0f,
     modifier: Modifier = Modifier,
 ) {
-    val haptics = rememberYoinHaptics()
-    // Overflow menu state + dialog states lifted here so they survive
-    // child recomposition (e.g. after a rename refreshes the Content).
-
-    var showOverflow by remember { mutableStateOf(false) }
+    // Dialog states lifted here so they survive child recomposition (e.g.
+    // after a rename refreshes the Content).
     var showRenameDialog by remember { mutableStateOf(false) }
     var showDeleteConfirm by remember { mutableStateOf(false) }
     val content = uiState as? PlaylistDetailUiState.Content
 
-    // Header title/subtitle colors seeded from the cover (same MCU path as the
-    // Album & Artist pages); animated so the resolve doesn't pop on load.
+    // Header title/subtitle + backdrop colours seeded from the cover (same MCU
+    // path as the Album & Artist pages); animated so the resolve doesn't pop.
     val coverScheme = rememberCoverColorScheme(content?.coverArtUrl)
     val headerScheme = coverScheme ?: MaterialTheme.colorScheme
     val titleColor by animateColorAsState(headerScheme.primary, YoinMotion.effectsSpring(), label = "playlistTitleColor")
     val accentText = headerScheme.secondary
-
-    // Medium-flexible bar: large on arrival, collapses to a small bar on scroll —
-    // same height/behaviour as the Artist page's top bar.
-    val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
+    // Stacked-V layers, back to front.
+    val stackBack by animateColorAsState(headerScheme.tertiary, YoinMotion.effectsSpring(), label = "playlistStackBack")
+    val stackMiddle by animateColorAsState(headerScheme.secondary, YoinMotion.effectsSpring(), label = "playlistStackMiddle")
+    val stackFront by animateColorAsState(headerScheme.primary, YoinMotion.effectsSpring(), label = "playlistStackFront")
+    val stackColors = listOf(stackBack, stackMiddle, stackFront)
 
     val accentColor = rememberDetailPageAccent(content?.coverArtUrl)
     ProvideYoinMotionRole(role = YoinMotionRole.Expressive) {
         // In-window predictive back (AOSP cross-activity math): the whole page
         // — background included — collapses as one card over the LIVE window
         // beneath (the Activity turns translucent for the gesture); the bar is a
-        // sibling on top and never transforms.
-        val backCollapse = rememberDetailBackCollapse(onBack = onLeavePage)
+        // sibling on top and never transforms. The pulled-up track list is
+        // in-page state, not a back stop.
+        val backCollapse = rememberDetailBackCollapse(
+            onBack = onLeavePage,
+            bridgeToShell = morphBarOnBack,
+        )
         val enterIntro = rememberDetailEnterIntro(
-            barHandoff = enterBarHandoff,
+            barHandoff = enterBarHandoff && morphBarOnBack,
             visualReady = uiState !is PlaylistDetailUiState.Loading,
             back = backCollapse,
         )
@@ -165,168 +175,73 @@ fun PlaylistDetailScreen(
             ),
         ) {
             if (enterIntro.pageVisible) {
-            DetailEnterPageMountEffect(enterIntro)
-            ExpressivePageBackground(
-                accentColor = accentColor,
-                isPlaying = isPlaying,
-                playbackSignal = playbackSignal,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .detailBackCollapseTransform(backCollapse)
-                    .detailEnterIntroTransform(enterIntro),
-            ) {
-            Scaffold(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .nestedScroll(scrollBehavior.nestedScrollConnection),
-                containerColor = Color.Transparent,
-                contentColor = MaterialTheme.colorScheme.onSurface,
-                contentWindowInsets = WindowInsets(0, 0, 0, 0),
-                topBar = {
-                    MediumFlexibleTopAppBar(
-                        title = {
-                            Text(
-                                text = content?.playlistName.orEmpty(),
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                color = titleColor,
-                            )
-                        },
-                        subtitle = {
-                            // Mirrors the Album credit ("Artist  ·  Album 2025"), but
-                            // the playlist owner is parenthesised: "(gpo)  ·  Playlist".
-                            Text(
-                                text = buildString {
-                                    content?.owner?.takeIf { it.isNotBlank() }?.let { append("($it)  ·  ") }
-                                    append("Playlist")
-                                },
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                color = accentText,
-                            )
-                        },
-                        navigationIcon = {
-                            // end padding widens the nav slot so the COLLAPSED
-                            // title clears the button halo; the expanded title is
-                            // placed from the bar edge and stays at 16dp.
-                            DetailBackButton(
-                                onClick = onBackClick,
-                                modifier = Modifier.padding(end = 14.dp),
-                            )
-                        },
-                        // Default 136dp packs the title right under the back
-                        // button; extra height = breathing room between them.
-                        expandedHeight = 156.dp,
-                        actions = {
-                            // Overflow only renders when the current profile can
-                            // actually write this playlist. For Spotify followed-
-                            // but-not-owned playlists, canWrite = false and the
-                            // menu stays hidden entirely rather than showing
-                            // disabled items.
-                            if (content?.canWrite == true) {
-                                Box {
-                                    IconButton(
-                                        onClick = {
-                                            haptics.performTick()
-                                            showOverflow = true
-                                        },
+                DetailEnterPageMountEffect(enterIntro)
+                ExpressivePageBackground(
+                    accentColor = accentColor,
+                    isPlaying = isPlaying,
+                    playbackSignal = playbackSignal,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .detailBackCollapseTransform(backCollapse)
+                        .detailEnterIntroTransform(enterIntro),
+                ) {
+                    Column(modifier = Modifier.fillMaxSize()) {
+                        // The header persists across Loading/Error/Content (it
+                        // carries the back affordance); only the body crossfades.
+                        PlaylistTopHeader(
+                            playlistName = content?.playlistName.orEmpty(),
+                            owner = content?.owner,
+                            titleColor = titleColor,
+                            accentText = accentText,
+                            canWrite = content?.canWrite == true,
+                            onBackClick = onBackClick,
+                            onRename = { showRenameDialog = true },
+                            onDelete = { showDeleteConfirm = true },
+                        )
+                        AnimatedContent(
+                            targetState = uiState,
+                            transitionSpec = {
+                                YoinMotion.fadeIn(role = YoinMotionRole.Standard) togetherWith
+                                    YoinMotion.fadeOut(role = YoinMotionRole.Standard)
+                            },
+                            // Keyed on the state class: Content→Content refreshes
+                            // (rename, remove-track) update in place, no re-fade.
+                            contentKey = { it::class },
+                            label = "playlistDetailState",
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .weight(1f),
+                        ) { state ->
+                            when (state) {
+                                is PlaylistDetailUiState.Loading -> {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .navigationBarsPadding(),
+                                        contentAlignment = Alignment.Center,
                                     ) {
-                                        Icon(
-                                            imageVector = Icons.Filled.MoreVert,
-                                            contentDescription = "More actions",
-                                        )
-                                    }
-                                    YoinDropdownMenu(
-                                        expanded = showOverflow,
-                                        onDismissRequest = { showOverflow = false },
-                                    ) {
-                                        YoinDropdownMenuItem(
-                                            text = "Rename",
-                                            leadingIcon = {
-                                                Icon(Icons.Filled.Edit, contentDescription = null)
-                                            },
-                                            onClick = {
-                                                showOverflow = false
-                                                showRenameDialog = true
-                                            },
-                                        )
-                                        YoinDropdownMenuItem(
-                                            text = "Delete",
-                                            leadingIcon = {
-                                                Icon(Icons.Filled.Delete, contentDescription = null)
-                                            },
-                                            onClick = {
-                                                showOverflow = false
-                                                showDeleteConfirm = true
-                                            },
-                                        )
+                                        YoinLoadingIndicator()
                                     }
                                 }
-                            }
-                        },
-                        // Transparent both ends so the bar blends with the gradient
-                        // page background (no surface band, no collapse colour flash).
-                        colors = TopAppBarDefaults.topAppBarColors(
-                            containerColor = Color.Transparent,
-                            scrolledContainerColor = Color.Transparent,
-                            titleContentColor = titleColor,
-                            navigationIconContentColor = MaterialTheme.colorScheme.onSurface,
-                        ),
-                        scrollBehavior = scrollBehavior,
-                    )
-                },
-            ) { innerPadding ->
-                // Only the body crossfades between states — the top bar and
-                // the bottom bar persist across Loading/Error/Content.
-                AnimatedContent(
-                    targetState = uiState,
-                    transitionSpec = {
-                        YoinMotion.fadeIn(role = YoinMotionRole.Standard) togetherWith
-                            YoinMotion.fadeOut(role = YoinMotionRole.Standard)
-                    },
-                    // Keyed on the state class: Content→Content refreshes
-                    // (rename, remove-track) update in place, no re-fade.
-                    contentKey = { it::class },
-                    label = "playlistDetailState",
-                    modifier = Modifier.fillMaxSize(),
-                ) { state ->
-                    when (state) {
-                        is PlaylistDetailUiState.Loading -> {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .padding(innerPadding)
-                                    .navigationBarsPadding(),
-                                contentAlignment = Alignment.Center,
-                            ) {
-                                YoinLoadingIndicator()
-                            }
-                        }
 
-                        is PlaylistDetailUiState.Error -> {
-                            // No onBack: the persistent top bar above already
-                            // carries the back affordance on this page.
-                            DetailErrorState(
-                                message = state.message,
-                                onRetry = onRetry,
-                                modifier = Modifier.padding(innerPadding),
-                            )
-                        }
+                                // No onBack: the persistent header above already
+                                // carries the back affordance on this page.
+                                is PlaylistDetailUiState.Error ->
+                                    DetailErrorState(
+                                        message = state.message,
+                                        onRetry = onRetry,
+                                    )
 
-                        is PlaylistDetailUiState.Content -> {
-                            PlaylistDetailContent(
-                                content = state,
-                                onSongClick = onSongClick,
-                                sharedTransitionKey = sharedTransitionKey,
-                                sharedTransitionScope = sharedTransitionScope,
-                                animatedVisibilityScope = animatedVisibilityScope,
-                                modifier = Modifier.padding(innerPadding),
-                            )
+                                is PlaylistDetailUiState.Content ->
+                                    PlaylistDetailContent(
+                                        content = state,
+                                        stackColors = stackColors,
+                                        onSongClick = onSongClick,
+                                    )
+                            }
                         }
                     }
                 }
-            }
-            }
             }
 
             // Persistent bottom bar — rendered in ALL states (the bar never
@@ -342,7 +257,12 @@ fun PlaylistDetailScreen(
                 miniPlayer = miniPlayerState,
                 playbackProgress = playbackProgress,
                 nowPlayingOpen = nowPlayingOpen,
+
                 interactionsEnabled = enterIntro.pageVisible,
+                enterChromeProgress = rememberDetailBarEnterProgress(
+                    followShell = enterBarHandoff && morphBarOnBack,
+                    back = backCollapse,
+                ),
                 backMorphProgress = if (morphBarOnBack) {
                     { backCollapse.progress }
                 } else {
@@ -350,7 +270,7 @@ fun PlaylistDetailScreen(
                 },
                 navSection = navSection,
                 backExitProgress = if (barExitsOnBack) {
-                    { backCollapse.progress }
+                    { detailBarExitProgress(enterIntro, backCollapse) }
                 } else {
                     { 0f }
                 },
@@ -371,6 +291,7 @@ fun PlaylistDetailScreen(
     }
 
     if (showDeleteConfirm && content != null) {
+        val haptics = rememberYoinHaptics()
         AlertDialog(
             onDismissRequest = { showDeleteConfirm = false },
             title = { Text("Delete playlist?") },
@@ -396,6 +317,103 @@ fun PlaylistDetailScreen(
                 TextButton(onClick = { showDeleteConfirm = false }) { Text("Cancel") }
             },
         )
+    }
+}
+
+/**
+ * The Album page's compact header, in playlist terms: back · title over
+ * "(owner) · Playlist", plus the Rename/Delete overflow when the current
+ * profile can write this playlist (Spotify followed-but-not-owned playlists
+ * hide it entirely rather than showing disabled items).
+ */
+@Composable
+private fun PlaylistTopHeader(
+    playlistName: String,
+    owner: String?,
+    titleColor: Color,
+    accentText: Color,
+    canWrite: Boolean,
+    onBackClick: () -> Unit,
+    onRename: () -> Unit,
+    onDelete: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val haptics = rememberYoinHaptics()
+    var showOverflow by remember { mutableStateOf(false) }
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .statusBarsPadding()
+            .padding(start = 8.dp, end = 4.dp, top = 4.dp, bottom = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        DetailBackButton(onClick = onBackClick)
+        // Air between the button's touch halo and the title cluster (Album parity).
+        Spacer(modifier = Modifier.width(14.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = playlistName,
+                style = MaterialTheme.typography.headlineSmall,
+                color = titleColor,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Row {
+                // The owner is parenthesised: "(gpo)  ·  Playlist".
+                owner?.takeIf { it.isNotBlank() }?.let {
+                    Text(
+                        text = "($it)",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false),
+                    )
+                }
+                Text(
+                    text = if (owner.isNullOrBlank()) "Playlist" else "  ·  Playlist",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = accentText,
+                    maxLines = 1,
+                )
+            }
+        }
+        if (canWrite) {
+            Box {
+                IconButton(
+                    onClick = {
+                        haptics.performTick()
+                        showOverflow = true
+                    },
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.MoreVert,
+                        contentDescription = "More actions",
+                    )
+                }
+                YoinDropdownMenu(
+                    expanded = showOverflow,
+                    onDismissRequest = { showOverflow = false },
+                ) {
+                    YoinDropdownMenuItem(
+                        text = "Rename",
+                        leadingIcon = { Icon(Icons.Filled.Edit, contentDescription = null) },
+                        onClick = {
+                            showOverflow = false
+                            onRename()
+                        },
+                    )
+                    YoinDropdownMenuItem(
+                        text = "Delete",
+                        leadingIcon = { Icon(Icons.Filled.Delete, contentDescription = null) },
+                        onClick = {
+                            showOverflow = false
+                            onDelete()
+                        },
+                    )
+                }
+            }
+        }
     }
 }
 
@@ -430,99 +448,459 @@ private fun RenamePlaylistDialog(
     )
 }
 
-@OptIn(ExperimentalSharedTransitionApi::class)
+/**
+ * Compact: the Album page's two-state pull-up — hero (stacked-V backdrop,
+ * cover, meta, flowing titles) ⇄ track list, the cover docking to a straight
+ * full-bleed band (or a capsule for short playlists). >= Medium (Tabletop
+ * stays Compact): one plain scrolling list with a hero row on top, like the
+ * Album's Medium overview.
+ */
 @Composable
 private fun PlaylistDetailContent(
     content: PlaylistDetailUiState.Content,
+    stackColors: List<Color>,
     onSongClick: (songId: String) -> Unit,
-    sharedTransitionKey: String? = null,
-    sharedTransitionScope: SharedTransitionScope? = null,
-    animatedVisibilityScope: AnimatedVisibilityScope? = null,
-    modifier: Modifier = Modifier,
 ) {
-    val navBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
-    Column(
-        modifier = modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(
-                start = 16.dp,
-                top = 16.dp,
-                end = 16.dp,
-                // Room for the flowing titles to clear the floating toolbar.
-                bottom = 120.dp + navBottom,
-            ),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(16.dp),
-    ) {
-        // Centered album-sized cover (name/owner credit now live in the
-        // top app bar, like the Album & Artist pages). Match the Album hero
-        // cover footprint (0.74 × width, capped at 300dp) pane-relatively —
-        // split panes and freeform windows are narrower than the screen.
-        BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
-            PlaylistHeroArtwork(
-                playlistId = content.playlistId,
-                sharedTransitionKey = sharedTransitionKey,
-                coverArtUrl = content.coverArtUrl,
-                playlistName = content.playlistName,
-                sharedTransitionScope = sharedTransitionScope,
-                animatedVisibilityScope = animatedVisibilityScope,
+    val layoutMode = LocalYoinWindowInfo.current.layoutMode
+    if (layoutMode != LayoutMode.Compact && layoutMode != LayoutMode.Tabletop) {
+        PlaylistMediumOverview(content = content, onSongClick = onSongClick)
+    } else {
+        PlaylistPullUpOverview(
+            content = content,
+            stackColors = stackColors,
+            onSongClick = onSongClick,
+        )
+    }
+}
+
+@Composable
+private fun PlaylistPullUpOverview(
+    content: PlaylistDetailUiState.Content,
+    stackColors: List<Color>,
+    onSongClick: (songId: String) -> Unit,
+) {
+    val density = LocalDensity.current
+    // fraction 1 = hero, 0 = track list; `expanded` is the durable truth and
+    // DetailPullUpReconcile its only settle driver (see DetailPullUpReshape).
+    val revealState = rememberRevealState(initialFraction = 1f)
+    var expanded by rememberSaveable(content.playlistId) { mutableStateOf(false) }
+    DetailPullUpReconcile(revealState, expanded)
+    val listState = rememberLazyListState()
+    val travelPx = remember { mutableFloatStateOf(1f) }
+    val gestures = rememberDetailPullUpGestures(
+        revealState = revealState,
+        listState = listState,
+        travelPx = travelPx,
+        onExpandedCommit = { expanded = it },
+    )
+    // Staged "启幕": the cover lands first, the meta + titles rise a beat later.
+    val stagedReveal = rememberStagedReveal("playlist-${content.playlistId}")
+    val isMany = content.songs.size > DetailManyTracksThreshold
+
+    BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+        travelPx.floatValue = with(density) { maxHeight.toPx() } * DetailPullUpTravelFraction
+        val maxW = maxWidth
+        // Read HERE so only this page recomposes per reshape frame.
+        val expand = 1f - revealState.fraction
+
+        // Pane-relative: the Album hero's cover footprint (0.74 × width, ≤ 300dp).
+        val heroCoverSide = minOf(maxW * 0.74f, 300.dp)
+        val dockedHeight = if (isMany) 56.dp else minOf(maxHeight * 0.26f, 220.dp)
+        val dockedWidth = if (isMany) maxW else maxW - 32.dp
+        val coverHeight = lerp(heroCoverSide, dockedHeight, expand)
+        val coverWidth = lerp(heroCoverSide, dockedWidth, expand)
+        val e = expand.coerceIn(0f, 1f)
+        // Straight band (8dp hero corner → square) or capsule (8dp → stadium).
+        val coverCorner = if (isMany) lerp(8.dp, 0.dp, e) else lerp(8.dp, 100.dp, e)
+        // Room around the cover for the stacked V; collapses as the cover docks.
+        val stackBand = lerp(PlaylistHeroStackBand, 0.dp, e)
+
+        // Clipped to the page body: the backdrop Canvas doesn't clip itself,
+        // and nothing here may paint over the header above.
+        Box(modifier = Modifier.fillMaxSize().clipToBounds()) {
+            PlaylistStackBackground(
+                colors = stackColors,
+                lineColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.65f),
+                coverSide = coverHeight,
                 modifier = Modifier
-                    .align(Alignment.Center)
-                    .size(minOf(maxWidth * 0.74f, 300.dp)),
+                    .fillMaxWidth()
+                    .height(coverHeight + stackBand)
+                    .graphicsLayer { alpha = (1f - expand).coerceIn(0f, 1f) },
             )
-        }
-        content.comment?.takeIf { it.isNotBlank() }?.let { description ->
-            Text(
-                text = description,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                textAlign = TextAlign.Center,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.fillMaxWidth(),
-            )
-        }
-        if (content.songs.isNotEmpty()) {
             Column(
-                modifier = Modifier.fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(6.dp),
+                modifier = Modifier
+                    .fillMaxSize()
+                    .then(gestures.heroDrag(enabled = !expanded)),
             ) {
-                // "N tracks · 38m" — same label style as the Album page.
-                AlbumTrackCountLabel(
-                    count = content.songCount ?: content.songs.size,
-                    totalDurationSeconds = content.totalDuration,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                // Flowing track titles — each title is its own clickable link that
-                // plays just that song. Intentionally NOT truncated: it flows down
-                // behind the toolbar and past the bottom safe area (Album page parity).
-                Text(
-                    text = buildPlaylistTrackTitles(
-                        songs = content.songs,
-                        separatorColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-                        onSongClick = onSongClick,
-                    ),
-                    style = MaterialTheme.typography.headlineMedium,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    overflow = TextOverflow.Visible,
+                Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .wrapContentHeight(align = Alignment.Top, unbounded = true),
-                )
+                        .height(coverHeight + stackBand)
+                        .stagedBeat(
+                            progress = { stagedReveal.hero },
+                            rise = 20.dp,
+                            scaleFrom = 0.94f,
+                        ),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    ExpressiveMediaArtwork(
+                        model = content.coverArtUrl,
+                        contentDescription = content.playlistName,
+                        modifier = Modifier
+                            .width(coverWidth)
+                            .height(coverHeight),
+                        shape = RoundedCornerShape(coverCorner),
+                        fallbackIcon = Icons.Filled.LibraryMusic,
+                        // No shadow / border — flat, exactly like the Album cover.
+                        border = null,
+                        shadowElevation = 0.dp,
+                        tonalElevation = 3.dp,
+                        requestSizePx = 640,
+                    )
+                }
+
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(horizontal = 16.dp),
+                ) {
+                    if (expand > 0.001f) {
+                        PlaylistTrackList(
+                            content = content,
+                            listState = listState,
+                            onSongClick = onSongClick,
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .graphicsLayer { alpha = expand.coerceIn(0f, 1f) }
+                                .nestedScroll(gestures.listConnection),
+                            footer = {
+                                // The hero's meta block again at the end of the
+                                // list (the Album's "liner notes"), fading in only
+                                // over the last 40% of the reshape so it never
+                                // doubles the hero's fading copy mid-drag.
+                                PlaylistHeroMeta(
+                                    content = content,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(start = 8.dp, end = 8.dp, top = 28.dp)
+                                        .graphicsLayer {
+                                            val listExpand = 1f - revealState.fraction
+                                            alpha = ((listExpand - 0.6f) / 0.4f).coerceIn(0f, 1f)
+                                        },
+                                )
+                            },
+                        )
+                    }
+                    if (expand < 0.999f) {
+                        PlaylistHeroDetails(
+                            content = content,
+                            contentWidth = heroCoverSide,
+                            // Stop interacting with the fading-out hero once the
+                            // list is the dominant layer, so its (still-composed,
+                            // alpha≈0) title links can't intercept taps over the list.
+                            interactive = expand < 0.5f,
+                            onSongClick = onSongClick,
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .graphicsLayer {
+                                    alpha = (1f - expand).coerceIn(0f, 1f)
+                                    translationY = -expand * 40f
+                                }
+                                .stagedBeat(
+                                    progress = { stagedReveal.meta },
+                                    rise = 14.dp,
+                                ),
+                        )
+                    }
+                }
             }
+        }
+    }
+}
+
+// Room the hero band adds around the cover for the stacked-V backdrop.
+private val PlaylistHeroStackBand = 56.dp
+
+@Composable
+private fun PlaylistHeroDetails(
+    content: PlaylistDetailUiState.Content,
+    contentWidth: Dp,
+    interactive: Boolean,
+    onSongClick: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier = modifier.padding(top = 8.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        PlaylistHeroMeta(content = content, modifier = Modifier.width(contentWidth))
+        Spacer(modifier = Modifier.height(28.dp))
+        if (content.songs.isNotEmpty()) {
+            // Flowing track titles — each title is its own clickable link that
+            // plays just that song. Intentionally NOT truncated: it flows down
+            // behind the toolbar and past the bottom safe area (Album parity);
+            // pull up for the full list.
+            Text(
+                text = buildPlaylistTrackTitles(
+                    songs = content.songs,
+                    separatorColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                    onSongClick = if (interactive) onSongClick else null,
+                ),
+                style = MaterialTheme.typography.headlineMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+                overflow = TextOverflow.Visible,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .wrapContentHeight(align = Alignment.Top, unbounded = true),
+            )
         } else {
-            // Quiet empty state — same voice as the description line above.
-            // The always-armed bottom bar stays; Play just no-ops here.
+            // Quiet empty state. The always-armed bottom bar stays; Play just
+            // no-ops here.
             Text(
                 text = "This playlist is empty.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
+    }
+}
+
+@Composable
+private fun PlaylistTrackList(
+    content: PlaylistDetailUiState.Content,
+    listState: LazyListState,
+    onSongClick: (songId: String) -> Unit,
+    modifier: Modifier = Modifier,
+    // >= Medium overview only: a leading hero item that scrolls away with the list.
+    header: (@Composable () -> Unit)? = null,
+    // Compact pulled-up state only: the trailing liner-notes item.
+    footer: (@Composable () -> Unit)? = null,
+) {
+    val navBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+    LazyColumn(
+        state = listState,
+        // The seam is the list's top edge (the docked band's lower edge in the
+        // Compact pull-up): rows break into the halftone instead of being cut.
+        modifier = modifier.seamDissolveViewport { listState.seamScrolledPx() },
+        contentPadding = PaddingValues(top = 4.dp, bottom = 112.dp + navBottom),
+    ) {
+        if (header != null) {
+            item(key = "playlist-medium-hero") { header() }
+        }
+        if (content.songs.isNotEmpty()) {
+            item(key = "playlist-count") {
+                AlbumTrackCountLabel(
+                    count = content.songCount ?: content.songs.size,
+                    totalDurationSeconds = content.totalDuration,
+                    modifier = Modifier
+                        .padding(start = 8.dp, top = 2.dp, bottom = 10.dp)
+                        .seamFade(),
+                )
+            }
+        } else {
+            item(key = "playlist-empty") {
+                Text(
+                    text = "This playlist is empty.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(start = 8.dp, top = 8.dp),
+                )
+            }
+        }
+        // A playlist may hold the same song twice — position + index keep keys unique.
+        itemsIndexed(
+            items = content.songs,
+            key = { index, song -> "${song.position}-$index-${song.id}" },
+        ) { _, song ->
+            PlaylistTrackRow(
+                song = song,
+                onClick = { onSongClick(song.id) },
+            )
+        }
+        if (footer != null) {
+            item(key = "playlist-liner-notes") {
+                Box(modifier = Modifier.seamFade()) { footer() }
+            }
+        }
+    }
+}
+
+/**
+ * One playlist row: tracks come from different albums, so the row leads with
+ * the album thumbnail (not a track number) and credits "artist · album".
+ */
+@Composable
+private fun PlaylistTrackRow(
+    song: PlaylistSong,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val haptics = rememberYoinHaptics()
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(YoinContainerShapes.ListRow)
+            .clickable {
+                haptics.performClick()
+                onClick()
+            }
+            .padding(horizontal = 8.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        ExpressiveMediaArtwork(
+            model = song.coverArtUrl,
+            contentDescription = null,
+            modifier = Modifier
+                .size(44.dp)
+                .seamDissolve(),
+            shape = YoinArtworkShapes.Thumb,
+            fallbackIcon = Icons.Filled.MusicNote,
+            border = null,
+            shadowElevation = 0.dp,
+            requestSizePx = 120,
+        )
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .seamFade(),
+            verticalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
+            Text(
+                text = song.title,
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                text = listOf(song.artist, song.album).filter { it.isNotBlank() }.joinToString("  ·  "),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        song.duration?.let { duration ->
+            Text(
+                text = formatTrackDuration(duration),
+                style = MaterialTheme.typography.labelLarge.withTabularFigures(),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.seamFade(),
+            )
+        }
+    }
+}
+
+// >= Medium hero cover: a fixed side (no reshape to travel), like the Album's.
+private val PlaylistMediumHeroCoverSide = 240.dp
+
+@Composable
+private fun PlaylistMediumOverview(
+    content: PlaylistDetailUiState.Content,
+    onSongClick: (songId: String) -> Unit,
+) {
+    val listState = rememberLazyListState()
+    PlaylistTrackList(
+        content = content,
+        listState = listState,
+        onSongClick = onSongClick,
+        // Content container carries the width cap; backgrounds stay full-bleed upstream.
+        modifier = Modifier
+            .fillMaxSize()
+            .yoinPageContentWidth()
+            .padding(horizontal = 16.dp),
+        header = {
+            Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(top = 24.dp),
-            )
+                    .padding(top = 8.dp, bottom = 24.dp),
+                horizontalArrangement = Arrangement.spacedBy(24.dp),
+            ) {
+                ExpressiveMediaArtwork(
+                    model = content.coverArtUrl,
+                    contentDescription = content.playlistName,
+                    modifier = Modifier.size(PlaylistMediumHeroCoverSide),
+                    shape = YoinArtworkShapes.Hero,
+                    fallbackIcon = Icons.Filled.LibraryMusic,
+                    border = null,
+                    shadowElevation = 0.dp,
+                    tonalElevation = 3.dp,
+                    requestSizePx = 640,
+                )
+                PlaylistHeroMeta(content = content, modifier = Modifier.weight(1f))
+            }
+        },
+    )
+}
+
+/**
+ * The Album hero's cover-width meta block, in playlist terms: "Length" (track
+ * count + runtime, two mono lines like Last Play) and "Owner" (name +
+ * visibility), then the description under a mono label like the album
+ * Comment.
+ */
+@Composable
+private fun PlaylistHeroMeta(
+    content: PlaylistDetailUiState.Content,
+    modifier: Modifier = Modifier,
+) {
+    val mono = FontFamily.Monospace
+    val count = content.songCount ?: content.songs.size
+    Column(
+        modifier = modifier,
+        verticalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                AlbumSectionLabel(text = "Length")
+                Text(
+                    text = if (count == 1) "1 track" else "$count tracks",
+                    style = MaterialTheme.typography.bodyLarge.copy(fontFamily = mono),
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+                Text(
+                    text = content.totalDuration?.takeIf { it > 0 }?.let(::formatTotalDuration) ?: "—",
+                    style = MaterialTheme.typography.bodyMedium.copy(fontFamily = mono),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            if (content.owner.isNotBlank()) {
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    AlbumSectionLabel(text = "Owner")
+                    Text(
+                        text = content.owner,
+                        style = MaterialTheme.typography.bodyLarge.copy(fontFamily = mono),
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    content.isPublic?.let { public ->
+                        Text(
+                            text = if (public) "Public" else "Private",
+                            style = MaterialTheme.typography.bodyMedium.copy(fontFamily = mono),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            }
+        }
+        content.comment?.takeIf { it.isNotBlank() }?.let { description ->
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                AlbumSectionLabel(text = "Description")
+                Text(
+                    text = description,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 3,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
         }
     }
 }
@@ -541,7 +919,9 @@ private fun buildPlaylistTrackTitles(
 ) = buildAnnotatedString {
     songs.forEachIndexed { index, song ->
         if (index > 0) {
-            withStyle(SpanStyle(color = separatorColor)) { append("  •  ") }
+            // Same typography as the Album hero: bullet bound to the title
+            // before it, short titles wrap whole (see flowingTitle).
+            withStyle(SpanStyle(color = separatorColor)) { append(FlowingTitleSeparator) }
         }
         if (onSongClick != null) {
             withLink(
@@ -550,66 +930,10 @@ private fun buildPlaylistTrackTitles(
                     styles = PlaylistTitleLinkStyles,
                     linkInteractionListener = { onSongClick(song.id) },
                 ),
-            ) { append(song.title) }
+            ) { append(flowingTitle(song.title)) }
         } else {
-            append(song.title)
+            append(flowingTitle(song.title))
         }
-    }
-}
-
-@OptIn(ExperimentalSharedTransitionApi::class)
-@Composable
-private fun PlaylistHeroArtwork(
-    playlistId: String,
-    sharedTransitionKey: String?,
-    coverArtUrl: String?,
-    playlistName: String,
-    sharedTransitionScope: SharedTransitionScope?,
-    animatedVisibilityScope: AnimatedVisibilityScope?,
-    modifier: Modifier = Modifier,
-) {
-    val shape = YoinArtworkShapes.Hero
-    val artworkBoundsSpec = YoinMotion.defaultSpatialSpec<Rect>(
-        role = YoinMotionRole.Expressive,
-        expressiveScheme = MaterialTheme.motionScheme,
-    )
-    val sharedArtworkModifier = if (
-        sharedTransitionScope != null &&
-        animatedVisibilityScope != null
-    ) {
-        val sharedContentConfig =
-            rememberActiveOnlySharedContentConfig(
-                animatedVisibilityScope = animatedVisibilityScope,
-            )
-        with(sharedTransitionScope) {
-            modifier
-                .sharedElement(
-                    sharedContentState = rememberSharedContentState(
-                        key = playlistCoverSharedKey(playlistId, sharedTransitionKey),
-                        config = sharedContentConfig,
-                    ),
-                    animatedVisibilityScope = animatedVisibilityScope,
-                    boundsTransform = { _, _ -> artworkBoundsSpec },
-                    zIndexInOverlay = 1f,
-                )
-                .clip(shape)
-        }
-    } else {
-        modifier
-    }
-
-    Box(modifier = sharedArtworkModifier) {
-        ExpressiveMediaArtwork(
-            model = coverArtUrl,
-            contentDescription = playlistName,
-            modifier = Modifier.fillMaxSize(),
-            shape = shape,
-            fallbackIcon = Icons.Filled.LibraryMusic,
-            // No shadow / border — flat, exactly like the Album hero cover.
-            border = null,
-            shadowElevation = 0.dp,
-            tonalElevation = 3.dp,
-        )
     }
 }
 

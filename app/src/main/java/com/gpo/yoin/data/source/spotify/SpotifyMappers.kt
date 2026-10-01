@@ -6,6 +6,7 @@ import com.gpo.yoin.data.model.ArtistDetail
 import com.gpo.yoin.data.model.ArtistIndex
 import com.gpo.yoin.data.model.CoverRef
 import com.gpo.yoin.data.model.MediaId
+import com.gpo.yoin.data.model.ReleaseType
 import com.gpo.yoin.data.model.Playlist
 import com.gpo.yoin.data.model.SearchResults
 import com.gpo.yoin.data.model.Starred
@@ -72,7 +73,20 @@ internal fun SpotifySimplifiedAlbumObject.toAlbum(
     year = releaseYear(),
     genre = null,
     isStarred = id in savedAlbumIds,
+    releaseType = spotifyReleaseType(albumType, totalTracks),
 )
+
+/**
+ * Spotify `album_type` → [ReleaseType]. Spotify files EPs under "single"; its
+ * own clients show a "single" with 4+ tracks as an EP, so this does too.
+ */
+internal fun spotifyReleaseType(albumType: String?, totalTracks: Int?): ReleaseType? =
+    when (albumType?.lowercase()) {
+        "album" -> ReleaseType.Album
+        "compilation" -> ReleaseType.Compilation
+        "single" -> if ((totalTracks ?: 0) >= 4) ReleaseType.EP else ReleaseType.Single
+        else -> null
+    }
 
 internal fun SpotifyArtistObject.toArtist(
     isStarred: Boolean = false,

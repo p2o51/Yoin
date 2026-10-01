@@ -5,7 +5,7 @@
   w21/w26) are subtracted so they punch as true transparent holes. The system
   tints the opaque area; the holes show the themed background, restoring the
   three-fin read. Single even-odd path (generated: gen_mono_grooves.py from
-  Figma Icon-MONOCHOME). Same full-bleed geometry as ic_launcher_foreground.
+  Figma Icon-MONOCHOME). Same full-bleed geometry as ic_yoin_launcher_foreground.
 -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"

@@ -61,12 +61,6 @@ data class SpotifyTrackObject(
     @SerialName("track_number") val trackNumber: Int? = null,
 )
 
-/** Response of GET /v1/artists/{id}/top-tracks. */
-@Serializable
-data class SpotifyArtistTopTracksResponse(
-    val tracks: List<SpotifyTrackObject> = emptyList(),
-)
-
 @Serializable
 data class SpotifyAlbumObject(
     val id: String,

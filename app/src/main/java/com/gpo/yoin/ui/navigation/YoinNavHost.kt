@@ -1,5 +1,11 @@
 package com.gpo.yoin.ui.navigation
 
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.fadeIn
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.PredictiveBackHandler
 import androidx.compose.animation.AnimatedContent
@@ -65,6 +71,7 @@ import com.gpo.yoin.data.repository.ActivityContext
 import com.gpo.yoin.data.source.Capability
 import com.gpo.yoin.ui.component.AddToPlaylistSheet
 import com.gpo.yoin.ui.component.YoinButtonGroup
+import com.gpo.yoin.ui.detail.hasOverlayHidingBottomBar
 import com.gpo.yoin.ui.detail.AlbumDetailActivity
 import com.gpo.yoin.ui.detail.ArtistDetailActivity
 import com.gpo.yoin.ui.detail.DetailLaunchMode
@@ -88,6 +95,7 @@ import com.gpo.yoin.ui.memories.MemoryEntityType
 import com.gpo.yoin.ui.memories.MemoryEntry
 import com.gpo.yoin.ui.memories.MemoriesScreen
 import com.gpo.yoin.ui.memories.MemoriesViewModel
+import com.gpo.yoin.ui.navigation.back.OverlayChromeVisibility
 import com.gpo.yoin.ui.navigation.back.ShellBackOwner
 import com.gpo.yoin.ui.navigation.back.rememberShellBarChromeMorph
 import com.gpo.yoin.ui.navigation.back.rememberDetailBackEnteringModifier
@@ -278,6 +286,7 @@ private fun YoinShell(
     val selectedSection = experienceSession.selectedSection
     val homeSurface = experienceSession.homeSurface
     val showNowPlaying = experienceSession.nowPlayingExpanded
+
     val musicConfigurationRevision by app.container.musicConfigurationRevision.collectAsState()
     val playlistMutationRevision by app.container.playlistMutationRevision.collectAsState()
     val playbackManager = app.container.playbackManager
@@ -367,8 +376,8 @@ private fun YoinShell(
     // on its own identical bar (see detail_bar_handoff_enter.xml). The flag
     // stays up while the detail stack is on top so the predictive-back
     // preview reveals a matching bar; the restore effect below flips it back.
-    // With Now Playing expanded the shell bar is hidden and the back reveal
-    // is NP itself — arming chrome would only queue a phantom morph (and a
+    // With Now Playing or Memories open the shell bar is hidden and the back reveal
+    // is the overlay itself — arming chrome would only queue a phantom morph (and a
     // wrong split→nav scrub on the detail's back), so skip it.
     // 分栏接住 detail 时 shell 永远不会被覆盖：onStop 的恢复 tick 不会来，
     // morph 一旦 arm 就卡死（首点卡死、后续点击伪 morph 抖动）。判定必须用
@@ -428,7 +437,7 @@ private fun YoinShell(
         // shows the rail（没有 bar 可 morph → PlainPush），分栏永远盖不住
         // shell（→ Embedded）—— 两者都绝不许 arm，与 detailLaunchMode 的三值
         // 选择一一对应。
-        if (!experienceSessionStore.state.value.nowPlayingExpanded &&
+        if (!experienceSessionStore.state.value.hasOverlayHidingBottomBar &&
             !splitTakesIt &&
             layoutMode == LayoutMode.Compact
         ) {
@@ -662,7 +671,7 @@ private fun YoinShell(
                                     revealState = memoriesReveal,
                                     onDismissed = closeMemories,
                                     // 印章卡唯一的导航出口：走 shell 的标准
-                                    // detail 前进推入（含 bar morph 交接）。
+                                    // detail 前进推入（隐藏底栏不参与 morph 交接）。
                                     // 不 dismiss —— Memories 留在原地，back
                                     // 从专辑页回来时它还在。
                                     onOpenAlbum = { memory ->
@@ -675,9 +684,8 @@ private fun YoinShell(
                                         if (canLaunchDetail()) {
                                             detailLaunchPending = true
                                             try {
-                                                // Memories stays mounted for the return,
-                                                // but uses the same chrome and stale-input
-                                                // gate as every other shell entrypoint.
+                                                // Keep the deck mounted. Its hidden bottom bar must
+                                                // not participate in a shell chrome hand-off.
                                                 armDetailChrome()
                                                 onNavigateToAlbum(
                                                     "${memory.entityProvider}:${memory.entityId}",
@@ -771,6 +779,7 @@ private fun YoinShell(
 
         // ── Now Playing overlay (scrim + slide-up + back layering) ───────
         NowPlayingOverlayHost(
+
             viewModel = nowPlayingViewModel,
             container = app.container,
             expanded = showNowPlaying,
@@ -805,8 +814,9 @@ private fun YoinShell(
                 // rises inside the shifted content pane (the rail stays
                 // visible beside it) and snackbars anchor to the full
                 // window, overlapping the rail area.
-                AnimatedVisibility(
-                    visible = !showNowPlaying,
+                OverlayChromeVisibility(
+                    expanded = showNowPlaying,
+
                     enter = YoinMotion.fadeIn(role = YoinMotionRole.Standard) +
                         YoinMotion.slideInHorizontally(role = YoinMotionRole.Standard) { -it },
                     exit = YoinMotion.fadeOut(role = YoinMotionRole.Standard) +
@@ -884,8 +894,10 @@ private fun YoinShell(
                 // app open — the bar rises in instead of just being there.
                 var barEntered by remember { mutableStateOf(false) }
                 LaunchedEffect(Unit) { barEntered = true }
-                AnimatedVisibility(
-                    visible = barEntered && !showNowPlaying,
+                OverlayChromeVisibility(
+                    expanded = showNowPlaying,
+
+                    enabled = barEntered,
                     enter = YoinMotion.fadeIn(role = YoinMotionRole.Standard) +
                         YoinMotion.slideInVertically(role = YoinMotionRole.Standard) { it + navBarBottomPx },
                     exit = YoinMotion.fadeOut(role = YoinMotionRole.Standard) +

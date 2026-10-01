@@ -53,7 +53,60 @@ interface PlayHistoryDao {
         provider: String,
         limit: Int,
     ): List<AlbumPlayHistoryAggregate>
+
+    /**
+     * An artist's most-played songs for this profile. A play belongs to the
+     * artist when it came from one of their releases OR carries their exact
+     * name (features, releases outside the fetched discography).
+     */
+    @Query(
+        "SELECT songId, provider, title, album, albumId, coverArtId, " +
+            "MAX(durationMs) AS durationMs, COUNT(*) AS playCount, MAX(playedAt) AS lastPlayedAt " +
+            "FROM play_history " +
+            "WHERE profileId = :profileId AND provider = :provider " +
+            "AND (albumId IN (:albumIds) OR artist = :artistName) " +
+            "GROUP BY songId " +
+            "ORDER BY playCount DESC, lastPlayedAt DESC LIMIT :limit",
+    )
+    suspend fun getArtistTopSongs(
+        profileId: String,
+        provider: String,
+        albumIds: List<String>,
+        artistName: String,
+        limit: Int,
+    ): List<ArtistSongPlayAggregate>
+
+    /** Total plays + the most recent play across the same artist match as [getArtistTopSongs]. */
+    @Query(
+        "SELECT COUNT(*) AS playCount, MAX(playedAt) AS lastPlayedAt " +
+            "FROM play_history " +
+            "WHERE profileId = :profileId AND provider = :provider " +
+            "AND (albumId IN (:albumIds) OR artist = :artistName)",
+    )
+    suspend fun getArtistPlayStats(
+        profileId: String,
+        provider: String,
+        albumIds: List<String>,
+        artistName: String,
+    ): ArtistPlayStats
 }
+
+data class ArtistSongPlayAggregate(
+    val songId: String,
+    val provider: String,
+    val title: String,
+    val album: String,
+    val albumId: String,
+    val coverArtId: String?,
+    val durationMs: Long,
+    val playCount: Int,
+    val lastPlayedAt: Long,
+)
+
+data class ArtistPlayStats(
+    val playCount: Int,
+    val lastPlayedAt: Long?,
+)
 
 data class AlbumPlayHistoryAggregate(
     val albumId: String,

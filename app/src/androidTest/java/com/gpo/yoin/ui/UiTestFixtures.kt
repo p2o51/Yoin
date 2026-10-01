@@ -98,6 +98,4 @@ internal fun sampleSettingsState(): SettingsUiState.Content = SettingsUiState.Co
     canAddProfile = true,
     cacheSizeBytes = 0L,
     geminiApiKey = "",
-    spotifyClientId = "",
-    spotifyClientIdUsesFallback = false,
 )

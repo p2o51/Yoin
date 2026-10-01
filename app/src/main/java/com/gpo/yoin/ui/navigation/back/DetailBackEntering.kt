@@ -202,7 +202,7 @@ fun rememberShellBarChromeMorph(
     store: ExperienceSessionStore,
     detailChromeActive: Boolean,
 ): () -> Float {
-    val morph = remember { Animatable(if (detailChromeActive) 1f else 0f) }
+    val morph = store.shellBarChromeMorph
     val phase by store.detailBackPhase
     val committed = phase == DetailBackPhase.Committed
     val spec = YoinMotion.defaultSpatialSpec<Float>(role = YoinMotionRole.Standard)

@@ -61,6 +61,14 @@ object YoinMotion {
     // makes the post-gesture release read as a continuation, not a slow snap.
     private const val StageSettleDamping = 0.85f
     private const val StageSettleStiffness = 700f
+    // Artwork needs time for its fine texture to emerge before it joins up.
+    // Critical damping keeps the reveal moving forward without reopening holes.
+    private const val ArtworkDissolveStiffness = 45f
+
+    // The seam halftone's flow trails the scroll and coasts to rest after the
+    // content stops. Stiffness of the equivalent critically damped spring
+    // (decay rate ω = √stiffness): it never swings back, ~0.5s to settle.
+    const val SeamFlowSettleStiffness = 90f
 
     private val expressiveMotionScheme = MotionScheme.expressive()
     private val standardMotionScheme = MotionScheme.standard()
@@ -212,6 +220,12 @@ object YoinMotion {
 
     @Composable
     fun <T> effectsSpring(): FiniteAnimationSpec<T> = defaultEffectsSpec()
+
+    fun artworkDissolveSpring(): FiniteAnimationSpec<Float> = spring(
+        dampingRatio = Spring.DampingRatioNoBouncy,
+        stiffness = ArtworkDissolveStiffness,
+        visibilityThreshold = .005f,
+    )
 
     @Composable
     fun <T> slowSpatialSpring(): FiniteAnimationSpec<T> = slowSpatialSpec()

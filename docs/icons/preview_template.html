@@ -1,0 +1,1089 @@
+<title>Yoin 图标</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Google+Sans+Flex:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Roboto+Flex:wght@400;500;600&display=swap">
+<style>
+:root{
+  --bg:#F3F6F4; --surface:#FFFFFF; --surface-2:#E7EEEA; --surface-3:#DCE5E1;
+  --ink:#131B18; --ink-2:#43504B; --ink-3:#6C7974; --line:#D3DDD8;
+  --pc:#A6F0CD; --on-pc:#00513A; --primary:#006C4E; --on-primary:#FFFFFF; --err:#B3261E;
+  --sw:1.5;
+  --font:"Google Sans Flex","Roboto Flex",system-ui,-apple-system,"PingFang SC","Hiragino Sans GB","Noto Sans SC","Microsoft YaHei",sans-serif;
+  --mono:ui-monospace,"SF Mono","JetBrains Mono",Menlo,Consolas,monospace;
+  --radius-l:28px; --radius-m:18px; --radius-s:12px;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#0C1110; --surface:#131A18; --surface-2:#1A2320; --surface-3:#24302C;
+    --ink:#DFE8E4; --ink-2:#A1AFA9; --ink-3:#72807A; --line:#27322E;
+    --pc:#00513A; --on-pc:#A6F0CD; --primary:#7ED9B2; --on-primary:#003826; --err:#F2B8B5;
+    color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0C1110; --surface:#131A18; --surface-2:#1A2320; --surface-3:#24302C;
+  --ink:#DFE8E4; --ink-2:#A1AFA9; --ink-3:#72807A; --line:#27322E;
+  --pc:#00513A; --on-pc:#A6F0CD; --primary:#7ED9B2; --on-primary:#003826; --err:#F2B8B5;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font-family:var(--font);font-size:15px;line-height:1.55;-webkit-font-smoothing:antialiased}
+h1,h2,h3{text-wrap:balance;margin:0;font-weight:560}
+p{margin:0}
+button,input,select{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--primary);outline-offset:2px}
+.wrap{max-width:1200px;margin:0 auto;padding-inline:20px}
+@media (max-width:520px){.wrap{padding-inline:16px}}
+
+/* ---------- top bar */
+.bar{position:sticky;top:env(safe-area-inset-top,0px);z-index:20;background:color-mix(in srgb,var(--bg) 86%,transparent);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border-bottom:1px solid var(--line)}
+.bar .wrap{display:flex;flex-wrap:wrap;align-items:center;gap:10px 18px;padding-block:10px}
+.brand{display:flex;align-items:baseline;gap:8px;margin-right:auto}
+.brand b{font-size:19px;font-weight:600;letter-spacing:.01em}
+.brand span.sub{font-size:13px;color:var(--ink-3)}
+.ctrls{display:flex;flex-wrap:wrap;align-items:center;gap:8px 14px}
+.ctrl{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--ink-3)}
+.seg{display:inline-flex;background:var(--surface-2);border-radius:999px;padding:3px;gap:2px}
+.seg button{border:0;background:transparent;padding:4px 10px;border-radius:999px;font-size:12.5px;color:var(--ink-2);cursor:pointer;font-variant-numeric:tabular-nums}
+.seg button[aria-pressed="true"]{background:var(--surface);color:var(--ink);box-shadow:0 1px 2px rgba(0,0,0,.12)}
+.sw{display:inline-flex;gap:6px}
+.sw button{width:22px;height:22px;border-radius:50%;border:2px solid transparent;cursor:pointer;padding:0;background:var(--c)}
+.sw button[aria-pressed="true"]{border-color:var(--ink)}
+.tog{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line);background:var(--surface);border-radius:999px;padding:4px 10px 4px 8px;font-size:12.5px;color:var(--ink-2);cursor:pointer}
+.tog i{width:14px;height:14px;border-radius:50%;border:1.5px solid var(--ink-3);display:inline-block}
+.tog[aria-pressed="true"]{border-color:var(--primary);color:var(--ink)}
+.tog[aria-pressed="true"] i{background:var(--primary);border-color:var(--primary)}
+
+/* ---------- hero */
+.hero{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.08fr);gap:28px;padding-block:40px 32px;align-items:start}
+@media (max-width:900px){.hero{grid-template-columns:1fr;padding-block:28px 20px}}
+.eyebrow{font-size:12.5px;letter-spacing:.06em;color:var(--ink-3);text-transform:uppercase}
+.hero h1{font-size:44px;line-height:1.1;margin:10px 0 14px;letter-spacing:-.01em}
+@media (max-width:520px){.hero h1{font-size:34px}}
+.lede{font-size:16.5px;color:var(--ink-2);max-width:34em}
+.specs{display:flex;flex-wrap:wrap;gap:8px;margin:20px 0 0;padding:0;list-style:none}
+.specs li{font-size:12.5px;padding:5px 11px;border-radius:999px;background:var(--surface-2);color:var(--ink-2);font-variant-numeric:tabular-nums}
+.hero-note{margin-top:22px;font-size:13.5px;color:var(--ink-3);max-width:36em}
+.hero-note code{font-family:var(--mono);font-size:12.5px;color:var(--ink-2)}
+
+.feature{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius-l);padding:18px;display:grid;gap:14px}
+.feature h2{font-size:17px}
+.feature .sub{font-size:13px;color:var(--ink-3)}
+.np{border-radius:22px;background:linear-gradient(180deg,color-mix(in srgb,var(--pc) 40%,var(--surface)) 0%,color-mix(in srgb,var(--pc) 16%,var(--surface)) 100%);padding:18px 18px 16px;display:grid;gap:12px}
+.lyr{display:grid;gap:12px;align-content:start;min-height:196px}
+.lyr .ln{font-size:19px;line-height:1.3;color:color-mix(in srgb,var(--on-pc) 45%,transparent);font-weight:500}
+.lyr .ln.cur{color:var(--on-pc)}
+.lyr .tr{display:block;overflow:hidden;height:0;font-size:14.5px;font-weight:400;color:color-mix(in srgb,var(--on-pc) 70%,transparent)}
+.lyr .tr span{display:block;padding-top:3px}
+.abar{display:flex;gap:8px}
+.abtn{width:52px;height:52px;border-radius:16px;border:0;display:grid;place-items:center;background:var(--pc);color:var(--on-pc);cursor:pointer;padding:0;transition:opacity .2s}
+.abtn[disabled]{cursor:default}
+.abtn svg{width:24px;height:24px;overflow:visible}
+.fctl{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.status{font-size:13px;color:var(--ink-2);min-height:1.5em;font-variant-numeric:tabular-nums}
+.status b{font-weight:560;color:var(--ink)}
+.chip{border:1px solid var(--line);background:var(--surface);border-radius:999px;padding:6px 12px;font-size:13px;cursor:pointer;color:var(--ink)}
+.chip.primary{background:var(--primary);color:var(--on-primary);border-color:var(--primary)}
+.chip:disabled{opacity:.45;cursor:default}
+.range{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--ink-3)}
+.range input{accent-color:var(--primary);width:120px}
+
+/* ---------- sections */
+section.sec{padding-block:44px 8px;border-top:1px solid var(--line)}
+.sec-head{display:grid;gap:8px;margin-bottom:22px;max-width:760px}
+.sec-head h2{font-size:28px}
+.sec-head p{color:var(--ink-2)}
+
+/* ---------- library */
+.lib{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:24px;align-items:start}
+@media (max-width:960px){.lib{grid-template-columns:1fr}.inspector{order:-1}}
+.toolbar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:14px}
+.filters{display:flex;flex-wrap:wrap;gap:6px}
+.filters button{border:1px solid var(--line);background:var(--surface);border-radius:999px;padding:5px 12px;font-size:13px;cursor:pointer;color:var(--ink-2)}
+.filters button[aria-pressed="true"]{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+.search{flex:1 1 180px;min-width:0;display:flex;align-items:center;gap:8px;border:1px solid var(--line);background:var(--surface);border-radius:999px;padding:5px 12px}
+.search input{border:0;outline:0;background:transparent;width:100%;font-size:13.5px}
+.search svg{width:18px;height:18px;color:var(--ink-3);flex:none}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(104px,1fr));gap:8px}
+.tile{display:grid;justify-items:center;gap:8px;padding:16px 6px 10px;border-radius:var(--radius-m);border:1px solid transparent;background:var(--surface);cursor:pointer;text-align:center;color:var(--ink)}
+.tile:hover{border-color:var(--line)}
+.tile[aria-pressed="true"]{border-color:var(--primary);box-shadow:0 0 0 1px var(--primary) inset}
+.tile svg{width:var(--gs,32px);height:var(--gs,32px)}
+.tile .nm{font-family:var(--mono);font-size:10.5px;color:var(--ink-2);line-height:1.3;overflow-wrap:anywhere}
+.tile .zh{font-size:11.5px;color:var(--ink-3);line-height:1.25}
+.count{font-size:12.5px;color:var(--ink-3);margin:10px 2px 0}
+.ico{stroke-width:var(--sw)}
+
+.inspector{position:sticky;top:calc(env(safe-area-inset-top,0px) + 76px);background:var(--surface);border:1px solid var(--line);border-radius:var(--radius-l);padding:18px;display:grid;gap:14px}
+@media (max-width:960px){.inspector{position:static}}
+.inspector h3{font-size:19px;display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}
+.inspector h3 code{font-family:var(--mono);font-size:13px;color:var(--ink-3);font-weight:400}
+.big{position:relative;aspect-ratio:1;max-width:100%;border-radius:var(--radius-m);background:var(--surface-2);color:var(--ink)}
+.big svg{position:absolute;inset:8%;width:84%;height:84%}
+.big .kl{color:var(--ink-3);opacity:.55}
+.big .kl .c{stroke:var(--primary)}
+.sizes{display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap}
+.sizes .w{display:grid;place-items:center;border-radius:14px;background:var(--pc);color:var(--on-pc)}
+.sizes .w.plain{background:var(--surface-2);color:var(--ink)}
+.kv{display:grid;gap:6px;font-size:13px}
+.kv div{display:grid;grid-template-columns:72px minmax(0,1fr);gap:8px}
+.kv dt{color:var(--ink-3)}
+.kv dd{margin:0;color:var(--ink-2);word-break:break-word}
+.kv code{font-family:var(--mono);font-size:12px}
+.row{display:flex;flex-wrap:wrap;gap:8px}
+
+/* ---------- motion */
+.principles{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin:0 0 26px;padding:0;list-style:none}
+.principles li{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius-m);padding:14px 16px;font-size:13.5px;color:var(--ink-2)}
+.principles b{display:block;color:var(--ink);font-size:14.5px;font-weight:560;margin-bottom:4px}
+.mgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(310px,1fr));gap:14px}
+@media (max-width:400px){.mgrid{grid-template-columns:1fr}}
+.mcard{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius-l);overflow:hidden;display:flex;flex-direction:column}
+.mcard.wide{grid-column:1/-1}
+.stage{display:flex;flex-wrap:wrap;justify-content:center;align-items:center;gap:14px;padding:22px 12px;background:var(--surface-2);min-height:156px}
+.well{position:relative;width:104px;height:104px;border-radius:30px;background:var(--pc);color:var(--on-pc);display:grid;place-items:center;flex:none}
+.well svg{width:60px;height:60px;overflow:visible}
+.well.plain{background:var(--surface);color:var(--ink)}
+.well .cap{position:absolute;bottom:-22px;left:0;right:0;text-align:center;font-size:11.5px;color:var(--ink-3);white-space:nowrap}
+.stage.caps{padding-bottom:38px}
+.mbody{padding:16px 18px 18px;display:grid;gap:8px;align-content:start;flex:1}
+.mbody h3{font-size:16.5px}
+.where{font-size:12.5px;color:var(--primary);font-weight:500}
+.desc{font-size:13.5px;color:var(--ink-2)}
+.ctl{display:flex;flex-wrap:wrap;gap:6px;margin-top:4px}
+.spec{display:grid;gap:4px;margin:6px 0 0;font-size:12.5px;border-top:1px dashed var(--line);padding-top:10px}
+.spec div{display:grid;grid-template-columns:64px minmax(0,1fr);gap:8px}
+.spec dt{color:var(--ink-3)}
+.spec dd{margin:0;color:var(--ink-2)}
+.pill-group{display:flex;gap:6px;padding:6px;border-radius:999px;background:var(--surface);box-shadow:0 1px 3px rgba(0,0,0,.08)}
+.pill{height:56px;border-radius:999px;border:0;display:grid;place-items:center;cursor:pointer;color:var(--on-pc);padding:0}
+.pill svg{width:26px;height:26px;overflow:visible}
+.slider{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--ink-3);width:100%}
+.slider input{flex:1;accent-color:var(--primary);min-width:0}
+
+/* ---------- language */
+.lang{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,1fr);gap:24px;align-items:start}
+@media (max-width:900px){.lang{grid-template-columns:1fr}}
+.tbl-wrap{overflow-x:auto;border:1px solid var(--line);border-radius:var(--radius-m);background:var(--surface)}
+table{border-collapse:collapse;width:100%;font-size:13.5px}
+th,td{text-align:left;padding:10px 14px;border-bottom:1px solid var(--line);vertical-align:top}
+tr:last-child td{border-bottom:0}
+th{font-weight:560;color:var(--ink-3);font-size:12.5px;background:var(--surface-2)}
+td code{font-family:var(--mono);font-size:12.5px}
+td.num{font-variant-numeric:tabular-nums;white-space:nowrap}
+.figs{display:grid;gap:14px}
+.fig{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius-m);padding:14px;display:grid;gap:10px}
+.fig svg{width:100%;height:auto;max-width:100%}
+.fig p{font-size:13px;color:var(--ink-2)}
+.fig .lgd{display:flex;gap:14px;font-size:12px;color:var(--ink-3);flex-wrap:wrap}
+.fig .lgd i{display:inline-block;width:18px;height:0;border-top:2px solid;vertical-align:middle;margin-right:5px}
+
+/* ---------- mapping */
+.map td .yi{display:flex;align-items:center;gap:8px}
+.map td .yi svg{width:22px;height:22px;flex:none}
+.map td.use{color:var(--ink-3);font-size:12.5px}
+footer{padding-block:36px 48px;color:var(--ink-3);font-size:12.5px}
+
+@media (max-width:640px){.bar{position:static}.ctrls{gap:8px 10px}}
+@media (max-width:960px){.big{width:100%;max-width:280px}}
+@media (prefers-reduced-motion: reduce){ *{scroll-behavior:auto} }
+</style>
+<!--BODY-->
+<header class="bar">
+  <div class="wrap">
+    <div class="brand"><b>Yoin</b><span class="sub">图标 · Luminous 版</span></div>
+    <div class="ctrls" role="group" aria-label="显示设置">
+      <div class="ctrl">主题<span class="seg" id="theme"><button data-v="system" aria-pressed="true">系统</button><button data-v="light" aria-pressed="false">浅</button><button data-v="dark" aria-pressed="false">深</button></span></div>
+      <div class="ctrl">封面取色<span class="sw" id="palette"></span></div>
+      <div class="ctrl">描边<span class="seg" id="weight"><button data-v="1.25" aria-pressed="false">1.25</button><button data-v="1.5" aria-pressed="true">1.5</button><button data-v="1.75" aria-pressed="false">1.75</button></span></div>
+      <button class="tog" id="slow" aria-pressed="false"><i></i>慢放 ×0.25</button>
+      <button class="tog" id="reduce" aria-pressed="false"><i></i>减弱动效</button>
+    </div>
+  </div>
+</header>
+
+<main class="wrap">
+  <section class="hero">
+    <div>
+      <p class="eyebrow" id="eyebrow">Luminous 语言 · 图标 · 动效原型</p>
+      <h1>Yoin 图标</h1>
+      <p class="lede">参照 Gemini 的 Luminous Symbols 从零重画：更细的线、更大的留白、连续曲率的容器和带点手写感的曲线。每个有状态的图标都按“同一组线条变形”来画，方便用 spring 驱动。</p>
+      <ul class="specs">
+        <li>24 × 24 dp</li><li>描边 1.5</li><li>圆端点 · 圆转角</li><li>连续曲率容器</li><li>下层线条自动留缝</li><li>currentColor · tint</li>
+      </ul>
+      <p class="hero-note">右边是你提的翻译等待：文 和 A 沿同一圆周各走半圈交换位置，走完停一下再换回来。结果到达时不会半路刹住，而是走完当前这半圈；如果停在交换后的位置，就再补半圈回到 文A，然后按钮进入“已翻译”状态、译文逐行展开。原型的所有参数都来自 <code>YoinMotion</code> 的 spring token。</p>
+    </div>
+
+    <div class="feature" id="feature">
+      <div><h2>翻译等待 · 文 / A 轨道交换</h2><p class="sub">点下方歌词操作栏里的翻译按钮试试。</p></div>
+      <div class="np">
+        <div class="lyr" id="lyr">
+          <div class="ln">Lanterns hum along the river<span class="tr"><span>灯笼沿着河流轻声哼唱</span></span></div>
+          <div class="ln cur">We kept the chorus for the ride home<span class="tr"><span>我们把副歌留给回家的路</span></span></div>
+          <div class="ln">Still ringing when the lights go down<span class="tr"><span>灯灭之后，余音仍在</span></span></div>
+        </div>
+        <div class="abar" id="abar" role="toolbar" aria-label="歌词操作（示意）"></div>
+      </div>
+      <div class="fctl">
+        <span class="range"><label for="dur">等待</label><input id="dur" type="range" min="1" max="6" step="0.5" value="2.5"><span id="durv">2.5 s</span></span>
+        <span class="seg" id="trtok" aria-label="spring"><button data-v="E.default" aria-pressed="true">E·default</button><button data-v="E.fast" aria-pressed="false">E·fast</button><button data-v="S.default" aria-pressed="false">S·default</button></span>
+        <button class="tog" id="failnext" aria-pressed="false"><i></i>下次失败</button>
+      </div>
+      <p class="status" id="trstatus" aria-live="polite">空闲 · 点翻译按钮开始</p>
+    </div>
+  </section>
+
+  <section class="sec" id="icons">
+    <div class="sec-head">
+      <h2>图标库</h2>
+      <p>覆盖代码里现在用到的全部 Material 图标，以及旧版 52 个文件名。点任意图标看细节、所替代的 Compose 图标和文件名。</p>
+    </div>
+    <div class="lib">
+      <div>
+        <div class="toolbar">
+          <div class="filters" id="filters"></div>
+          <label class="search"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="10.6" cy="10.6" r="6.1"/><path d="M14.9 14.9 L19.5 19.5"/></svg><input id="q" type="search" placeholder="搜索名称、中文或 Compose 图标" aria-label="搜索图标"></label>
+          <span class="seg" id="gsize"><button data-v="24" aria-pressed="false">24</button><button data-v="32" aria-pressed="true">32</button><button data-v="48" aria-pressed="false">48</button></span>
+        </div>
+        <div class="grid" id="grid"></div>
+        <p class="count" id="count"></p>
+      </div>
+      <aside class="inspector" id="inspector" aria-live="polite"></aside>
+    </div>
+  </section>
+
+  <section class="sec" id="motion">
+    <div class="sec-head">
+      <h2>动效</h2>
+      <p>下面每张卡片都能点，spring 参数与 Yoin 的 <code>MotionScheme</code> 档位一一对应。顶栏可以切到慢放或“减弱动效”，看看每个动效的降级版本。</p>
+    </div>
+    <ul class="principles">
+      <li><b>状态是同一组线条的变形</b>三角变成暂停条、箭头变成对勾，都是点对点插值，不在两张图之间淡入淡出。</li>
+      <li><b>等待时让图标自己干活</b>翻译、搜索、投屏、生成这类等待不把按钮换成转圈，按钮尺寸不变，图标做和含义有关的动作。</li>
+      <li><b>循环要有停顿</b>每一轮是一次 spring 加 0.2–0.4 秒停顿，只在停顿点检查“完成了吗”，所以结束总落在整齐的姿态。</li>
+      <li><b>位移走空间 spring，颜色走效果 spring</b>图标级位移用 fast 档；透明度、填充、颜色用 effects 档，永不过冲。</li>
+      <li><b>余韵收尾</b>暂停、断开、取消都用低刚度衰减结束，不做硬切。这是名字 Yoin 的意思，也是整套动效的签名。</li>
+    </ul>
+    <div class="mgrid" id="mgrid"></div>
+  </section>
+
+  <section class="sec" id="language">
+    <div class="sec-head">
+      <h2>设计语言</h2>
+      <p>从参考 SVG 量出来的数字，以及落到 Yoin 时的取值。路径全部按描边中线重画，没有复用参考文件的字形轮廓。</p>
+    </div>
+    <div class="lang">
+      <div class="tbl-wrap">
+        <table>
+          <thead><tr><th>项目</th><th>参考（Luminous）</th><th>Yoin 取值</th></tr></thead>
+          <tbody>
+            <tr><td>画板</td><td class="num">960 单位 = 24 dp</td><td>24 × 24，关键区 20 × 20</td></tr>
+            <tr><td>描边</td><td class="num">60 单位 ≈ 1.5 dp（wght 300）</td><td>1.5；可整体换 1.25 / 1.75</td></tr>
+            <tr><td>端点 / 转角</td><td>全部圆头、圆角</td><td><code>round</code> / <code>round</code></td></tr>
+            <tr><td>圆形外沿</td><td class="num">直径 18.4 dp</td><td>中线 r = 8.5，外沿 18.5</td></tr>
+            <tr><td>方形容器</td><td>连续曲率，直边只剩约 3 dp</td><td>squircle：r 3.2–4.0，平滑度 0.6，影响长度 1.6 r</td></tr>
+            <tr><td>小圆点</td><td class="num">直径 1.5 dp（= 描边宽）</td><td>信息点 r 0.95；“更多” r 1.4</td></tr>
+            <tr><td>V 形箭头</td><td class="num">约 9 × 4.5 dp，45° 臂</td><td>9 × 4.5，所有方向共用一条路径旋转</td></tr>
+            <tr><td>交叉处理</td><td>下层线条断开</td><td>缝宽每侧 1.05（中线到中线 3.6）</td></tr>
+            <tr><td>实心态</td><td>—</td><td>填充 + 同宽描边，外沿与线框版重合；镂空用 evenodd</td></tr>
+            <tr><td>颜色</td><td><code>currentColor</code></td><td>SVG <code>currentColor</code>；Android 黑色 + <code>Icon</code> tint</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="figs" id="figs"></div>
+    </div>
+  </section>
+
+  <section class="sec" id="mapping">
+    <div class="sec-head">
+      <h2>替换对照</h2>
+      <p>现在代码里的 Compose 图标 → 新图标。VectorDrawable 已生成在 <code>res/drawable/ic_yoin_*.xml</code>，用 <code>painterResource(R.drawable.ic_yoin_名称)</code> 引用。</p>
+    </div>
+    <div class="tbl-wrap"><table class="map"><thead><tr><th>Yoin 图标</th><th>替代</th><th>当前使用位置</th></tr></thead><tbody id="maprows"></tbody></table></div>
+  </section>
+</main>
+<footer class="wrap">Yoin · docs/icons · 由 build.py 生成的图标与本页数据同源</footer>
+
+<script>
+const DATA = /*__DATA__*/null;
+const G = DATA.geom;
+const NS = 'http://www.w3.org/2000/svg';
+const $ = (s, r = document) => r.querySelector(s);
+const $$ = (s, r = document) => Array.from(r.querySelectorAll(s));
+
+/* ---------------------------------------------------------------- store (per-viewer conveniences only) */
+const store = {
+  get(k, d) { try { const v = localStorage.getItem('yoin-icons:' + k); return v === null ? d : JSON.parse(v); } catch (e) { return d; } },
+  set(k, v) { try { localStorage.setItem('yoin-icons:' + k, JSON.stringify(v)); } catch (e) {} }
+};
+
+/* ---------------------------------------------------------------- theme & palette */
+const PALETTES = [
+  { id: 'mint', name: '薄荷', src: '歌词页绿', light: null, dark: null, swatch: '#58C79A' },
+  { id: 'indigo', name: '靛蓝', src: '深蓝封面', swatch: '#4E5FC4',
+    light: { pc: '#DEE1FF', 'on-pc': '#26358A', primary: '#4556B8', 'on-primary': '#FFFFFF' },
+    dark: { pc: '#2C3C8F', 'on-pc': '#DEE1FF', primary: '#BAC3FF', 'on-primary': '#0F1F6B' } },
+  { id: 'lilac', name: '丁香', src: '紫色封面', swatch: '#8B63C9',
+    light: { pc: '#EEDCFF', 'on-pc': '#4B2B7D', primary: '#6D4DA2', 'on-primary': '#FFFFFF' },
+    dark: { pc: '#523687', 'on-pc': '#EEDCFF', primary: '#D7BAFF', 'on-primary': '#3A1D6B' } },
+  { id: 'coral', name: '珊瑚', src: '暖红封面', swatch: '#C4604F',
+    light: { pc: '#FFDAD4', 'on-pc': '#6F2A20', primary: '#8F4A3F', 'on-primary': '#FFFFFF' },
+    dark: { pc: '#733329', 'on-pc': '#FFDAD4', primary: '#FFB4A7', 'on-primary': '#561F16' } },
+];
+const root = document.documentElement;
+const mqDark = window.matchMedia('(prefers-color-scheme: dark)');
+let themePref = store.get('theme', 'system');
+let paletteId = store.get('palette', 'mint');
+function isDark() { return themePref === 'dark' || (themePref === 'system' && mqDark.matches); }
+function applyTheme() {
+  if (themePref === 'system') root.removeAttribute('data-theme'); else root.setAttribute('data-theme', themePref);
+  const p = PALETTES.find(x => x.id === paletteId) || PALETTES[0];
+  const set = p.light ? (isDark() ? p.dark : p.light) : null;
+  ['pc', 'on-pc', 'primary', 'on-primary'].forEach(k => {
+    if (set) root.style.setProperty('--' + k, set[k]); else root.style.removeProperty('--' + k);
+  });
+  $$('#theme button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.v === themePref)));
+  $$('#palette button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.v === paletteId)));
+}
+mqDark.addEventListener && mqDark.addEventListener('change', applyTheme);
+$('#palette').innerHTML = PALETTES.map(p => `<button data-v="${p.id}" style="--c:${p.swatch}" aria-pressed="false" title="${p.name}（${p.src}）" aria-label="${p.name}"></button>`).join('');
+$('#palette').addEventListener('click', e => { const b = e.target.closest('button'); if (!b) return; paletteId = b.dataset.v; store.set('palette', paletteId); applyTheme(); });
+$('#theme').addEventListener('click', e => { const b = e.target.closest('button'); if (!b) return; themePref = b.dataset.v; store.set('theme', themePref); applyTheme(); });
+applyTheme();
+
+let strokeW = store.get('sw', 1.5);
+function applyWeight() { root.style.setProperty('--sw', strokeW); $$('#weight button').forEach(b => b.setAttribute('aria-pressed', String(Number(b.dataset.v) === strokeW))); }
+$('#weight').addEventListener('click', e => { const b = e.target.closest('button'); if (!b) return; strokeW = Number(b.dataset.v); store.set('sw', strokeW); applyWeight(); });
+applyWeight();
+
+/* ---------------------------------------------------------------- springs */
+const TOK = {
+  'E.fast': { z: .6, k: 800, name: 'Expressive · fastSpatial（ζ0.6 · k800）' },
+  'E.default': { z: .8, k: 380, name: 'Expressive · defaultSpatial（ζ0.8 · k380）' },
+  'E.slow': { z: .8, k: 200, name: 'Expressive · slowSpatial（ζ0.8 · k200）' },
+  'S.fast': { z: .9, k: 1400, name: 'Standard · fastSpatial（ζ0.9 · k1400）' },
+  'S.default': { z: .9, k: 700, name: 'Standard · defaultSpatial（ζ0.9 · k700）' },
+  'fx.fast': { z: 1, k: 3800, name: 'fastEffects（ζ1 · k3800）' },
+  'fx.default': { z: 1, k: 1600, name: 'defaultEffects（ζ1 · k1600）' },
+  'fx.slow': { z: 1, k: 800, name: 'slowEffects（ζ1 · k800）' },
+  'resonance': { z: 1, k: 60, name: '余韵衰减（ζ1 · k60，自定义）' },
+  'shake': { z: .28, k: 900, name: '抖动（ζ0.28 · k900，自定义）' },
+};
+class Spring {
+  constructor(x, tok, eps) { this.x = x; this.t = x; this.v = 0; this.tok = tok; this.eps = eps || 0.002; }
+  to(t, tok) { this.t = t; if (tok) this.tok = tok; return this; }
+  snap(x) { this.x = this.t = x; this.v = 0; return this; }
+  kick(v) { this.v += v; return this; }
+  step(dt) {
+    if (this.x === this.t && this.v === 0) return;
+    const s = TOK[this.tok] || this.tok, k = s.k, c = 2 * s.z * Math.sqrt(k);
+    const n = Math.max(1, Math.ceil(dt * 900)), h = dt / n;
+    for (let i = 0; i < n; i++) { const a = -k * (this.x - this.t) - c * this.v; this.v += a * h; this.x += this.v * h; }
+    if (Math.abs(this.x - this.t) < this.eps && Math.abs(this.v) < this.eps * 25) { this.x = this.t; this.v = 0; }
+  }
+  get rest() { return this.x === this.t && this.v === 0; }
+}
+const Engine = { actors: [], speed: 1, reduced: false, last: 0 };
+function frame(now) {
+  const raw = Engine.last ? Math.min(0.05, (now - Engine.last) / 1000) : 1 / 60;
+  Engine.last = now;
+  const dt = raw * Engine.speed;
+  for (const a of Engine.actors) { if (a.visible !== false) { try { a.update(dt); } catch (e) { console.error(e); } } }
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+const io = 'IntersectionObserver' in window ? new IntersectionObserver(es => es.forEach(en => { if (en.target._actor) en.target._actor.visible = en.isIntersecting; }), { rootMargin: '120px' }) : null;
+function register(actor, el) { Engine.actors.push(actor); if (io && el) { el._actor = actor; io.observe(el); } return actor; }
+Engine.reduced = store.get('reduced', window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+function setToggle(el, on) { el.setAttribute('aria-pressed', String(on)); }
+setToggle($('#reduce'), Engine.reduced);
+$('#reduce').addEventListener('click', () => { Engine.reduced = !Engine.reduced; store.set('reduced', Engine.reduced); setToggle($('#reduce'), Engine.reduced); });
+$('#slow').addEventListener('click', () => { Engine.speed = Engine.speed === 1 ? 0.25 : 1; setToggle($('#slow'), Engine.speed !== 1); });
+
+/* ---------------------------------------------------------------- svg helpers */
+function S(tag, attrs, parent) { const e = document.createElementNS(NS, tag); if (attrs) for (const k in attrs) e.setAttribute(k, attrs[k]); if (parent) parent.appendChild(e); return e; }
+function icon(parent, cls) { return S('svg', { viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': '1.5', 'stroke-linecap': 'round', 'stroke-linejoin': 'round', class: 'ico' + (cls ? ' ' + cls : ''), 'aria-hidden': 'true' }, parent); }
+function P(parent, d, extra) { return S('path', Object.assign({ d: d || '' }, extra || {}), parent); }
+const f3 = v => (Math.round(v * 1000) / 1000).toString();
+const poly = (pts, closed) => 'M' + pts.map(p => f3(p[0]) + ' ' + f3(p[1])).join(' L') + (closed ? ' Z' : '');
+const cubicD = p => `M${f3(p[0][0])} ${f3(p[0][1])} C${f3(p[1][0])} ${f3(p[1][1])} ${f3(p[2][0])} ${f3(p[2][1])} ${f3(p[3][0])} ${f3(p[3][1])}`;
+const lerp = (a, b, t) => a + (b - a) * t;
+const lerpP = (A, B, t) => A.map((p, i) => [lerp(p[0], B[i][0], t), lerp(p[1], B[i][1], t)]);
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+function arrowHead(end, dir, size) {
+  const l = Math.hypot(dir[0], dir[1]), dx = -dir[0] / l, dy = -dir[1] / l, out = [];
+  for (const s of [45, -45]) { const a = s * Math.PI / 180; out.push([end[0] + (dx * Math.cos(a) - dy * Math.sin(a)) * size, end[1] + (dx * Math.sin(a) + dy * Math.cos(a)) * size]); }
+  return poly([out[0], end, out[1]]);
+}
+let uid = 0;
+const nextId = p => p + '-' + (++uid);
+function around(cx, cy, s, sx, sy) { return `translate(${f3(cx)} ${f3(cy)}) scale(${f3(sx == null ? s : sx)} ${f3(sy == null ? s : sy)}) translate(${f3(-cx)} ${f3(-cy)})`; }
+function h(tag, attrs, html) { const e = document.createElement(tag); if (attrs) for (const k in attrs) e.setAttribute(k, attrs[k]); if (html != null) e.innerHTML = html; return e; }
+function randIn(a, b) { return a + Math.random() * (b - a); }
+
+/* ---------------------------------------------------------------- hero: translate orbit swap */
+const TR = (() => {
+  const bar = $('#abar');
+  const mk = (label, d, extra) => { const b = h('button', { class: 'abtn', 'aria-label': label }); const svg = icon(b); if (d) d.forEach(x => P(svg, x)); bar.appendChild(b); return { b, svg }; };
+  const search = mk('搜索歌词');
+  search.svg.innerHTML = DATA.icons.find(i => i.name === 'search').svg.replace(/^<svg[^>]*>|<\/svg>$/g, '');
+  const trBtn = mk('翻译歌词');
+  const applyBtn = mk('应用歌词'); applyBtn.svg.innerHTML = DATA.icons.find(i => i.name === 'check').svg.replace(/^<svg[^>]*>|<\/svg>$/g, '');
+  const recBtn = mk('回到当前句'); recBtn.svg.innerHTML = DATA.icons.find(i => i.name === 'recenter').svg.replace(/^<svg[^>]*>|<\/svg>$/g, '');
+  return { bar, trBtn, others: [search, applyBtn, recBtn] };
+})();
+
+class OrbitSwap {
+  /* 文 and A travel the same circle half a turn at a time, staying upright. */
+  constructor(svg, opts) {
+    this.svg = svg; this.opts = opts || {};
+    const g = G.translate;
+    this.gW = S('g', null, svg); g.wen.forEach(d => P(this.gW, d));
+    this.gA = S('g', null, svg); g.latin.forEach(d => P(this.gA, d));
+    this.cW = g.wenC; this.cA = g.latinC;
+    this.vW = [g.wenC[0] - 12, g.wenC[1] - 12]; this.vA = [g.latinC[0] - 12, g.latinC[1] - 12];
+    this.theta = new Spring(0, this.opts.tok || 'E.default', 0.05);
+    this.pulse = new Spring(1, 'fx.slow', 0.002);
+    this.shake = new Spring(0, 'shake', 0.01);
+    this.hold = 0; this.state = 'idle'; this.swaps = 0; this.onRest = null;
+  }
+  place(g, c, v, th, reduced, alpha) {
+    const a = th * Math.PI / 180, ca = Math.cos(a), sa = Math.sin(a);
+    const px = v[0] * ca - v[1] * sa, py = v[0] * sa + v[1] * ca;
+    const r = Math.hypot(v[0], v[1]) || 1;
+    const depth = (px - py) / (r * Math.SQRT2);
+    const s = 1 + (depth > 0 ? 0.08 : 0.14) * depth;
+    const op = (1 - 0.42 * Math.max(0, -depth)) * alpha;
+    const nx = 12 + px, ny = 12 + py;
+    g.setAttribute('transform', `translate(${f3(nx - c[0] + this.shake.x)} ${f3(ny - c[1])}) ` + around(c[0], c[1], s));
+    g.setAttribute('opacity', f3(op));
+    return depth;
+  }
+  start() { this.state = 'loading'; this.hold = 0; this.swaps = 0; this.returned = false; this.swap(); }
+  finish(ok) { if (this.state === 'loading') this.state = ok ? 'finishing' : 'failing'; }
+  swap() { if (Engine.reduced) { this.hold = 0; return; } this.theta.to(this.theta.t + 180); this.swaps++; }
+  update(dt) {
+    const reduced = Engine.reduced;
+    if (this.opts.tokGetter) this.theta.tok = this.opts.tokGetter();
+    this.theta.step(dt); this.pulse.step(dt); this.shake.step(dt);
+    const atRest = this.theta.rest || (Math.abs(this.theta.x - this.theta.t) < 0.6 && Math.abs(this.theta.v) < 8);
+    if (this.state === 'loading' || this.state === 'finishing' || this.state === 'failing') {
+      if (reduced) {
+        if (this.theta.t % 360 !== 0) { this.theta.snap(Math.round(this.theta.t / 360) * 360); }
+        if (this.pulse.rest) {
+          if (this.state !== 'loading' && this.pulse.t === 1) this.land();
+          else this.pulse.to(this.pulse.t > 0.7 ? 0.42 : 1);
+        }
+      } else if (atRest) {
+        if (this.state === 'loading') { this.hold += dt; if (this.hold >= (this.opts.hold || 0.32)) { this.hold = 0; this.swap(); } }
+        else if (((this.theta.t % 360) + 360) % 360 !== 0) { this.theta.to(this.theta.t + 180); this.swaps++; this.returned = true; }
+        else if (this.theta.rest) this.land();
+      }
+    } else if (this.pulse.t !== 1) this.pulse.to(1);
+    const alpha = reduced ? this.pulse.x : 1;
+    this.place(this.gW, this.cW, this.vW, this.theta.x, reduced, alpha);
+    this.place(this.gA, this.cA, this.vA, this.theta.x, reduced, alpha);
+  }
+  land() {
+    const failed = this.state === 'failing';
+    this.state = 'idle'; this.pulse.to(1);
+    if (failed) this.shake.kick(Engine.reduced ? 0 : 60);
+    if (this.onRest) this.onRest(!failed);
+  }
+}
+
+const hero = (() => {
+  const svg = TR.trBtn.svg;
+  const orbit = new OrbitSwap(svg, { tokGetter: () => trTok, hold: 0.32 });
+  let trTok = 'E.default', on = false, wait = 2.5, clock = 0, busy = false, failNext = false;
+  const onMix = new Spring(0, 'fx.default');
+  const lines = $$('#lyr .tr').map(el => ({ el, s: new Spring(0, 'E.default', 0.01), inner: el.firstElementChild }));
+  const status = $('#trstatus');
+  const setStatus = t => { status.innerHTML = t; };
+  const setOthers = dis => TR.others.forEach(o => { o.b.disabled = dis; o.b.style.opacity = dis ? .38 : 1; });
+  TR.trBtn.b.addEventListener('click', () => {
+    if (busy) return;
+    if (on) { on = false; onMix.to(0); lines.forEach(l => l.s.to(0)); setStatus('译文已收起 · 再点一次重新显示'); TR.trBtn.b.setAttribute('aria-pressed', 'false'); return; }
+    busy = true; clock = 0; setOthers(true); orbit.start();
+    TR.trBtn.b.setAttribute('aria-label', '正在翻译');
+    setStatus('<b>正在翻译</b> · 文 / A 每半圈交换一次');
+  });
+  orbit.onRest = ok => {
+    busy = false; setOthers(false); TR.trBtn.b.setAttribute('aria-label', '翻译歌词');
+    if (ok) {
+      on = true; onMix.to(1); lines.forEach((l, i) => { l.delay = i * 0.07; });
+      const how = orbit.swaps === 0 ? '减弱动效下只做了透明度呼吸' : (orbit.returned ? `共交换 ${orbit.swaps} 次，最后补了半圈回到 文A` : `共交换 ${orbit.swaps} 次，正好停在 文A`);
+      setStatus(`<b>译文已展开</b> · ${how}`); TR.trBtn.b.setAttribute('aria-pressed', 'true');
+    }
+    else setStatus('<b>翻译失败</b> · 图标回到原位后摇两下（配 REJECT 震动）');
+  };
+  $('#dur').addEventListener('input', e => { wait = Number(e.target.value); $('#durv').textContent = wait.toFixed(1) + ' s'; });
+  $('#trtok').addEventListener('click', e => { const b = e.target.closest('button'); if (!b) return; trTok = b.dataset.v; $$('#trtok button').forEach(x => x.setAttribute('aria-pressed', String(x === b))); });
+  $('#failnext').addEventListener('click', () => { failNext = !failNext; setToggle($('#failnext'), failNext); });
+  const actor = {
+    update(dt) {
+      if (busy && orbit.state === 'loading') {
+        clock += dt;
+        if (clock >= wait) { orbit.finish(!failNext); if (failNext) { failNext = false; setToggle($('#failnext'), false); } setStatus('<b>结果已到</b> · 走完当前半圈再落位'); }
+      }
+      orbit.update(dt); onMix.step(dt);
+      const m = onMix.x;
+      TR.trBtn.b.style.background = `color-mix(in srgb, var(--primary) ${f3(m * 100)}%, var(--pc))`;
+      TR.trBtn.b.style.color = `color-mix(in srgb, var(--on-primary) ${f3(m * 100)}%, var(--on-pc))`;
+      lines.forEach(l => {
+        if (l.delay != null) { l.delay -= dt; if (l.delay <= 0) { l.delay = null; l.s.to(1); } }
+        if (l.s.rest && l.drawn === l.s.x) return;
+        l.s.step(dt); l.drawn = l.s.x;
+        const hgt = l.inner.offsetHeight; l.el.style.height = f3(Math.max(0, l.s.x) * hgt) + 'px'; l.el.style.opacity = f3(clamp(l.s.x, 0, 1));
+      });
+    }
+  };
+  register(actor, $('#feature'));
+  return actor;
+})();
+
+/* ---------------------------------------------------------------- icon library */
+const ICONS = DATA.icons;
+const GROUPS = [['all', '全部'], ['nav', '导航与通用'], ['music', '播放与音乐'], ['content', '内容与笔记'], ['device', '设备与服务']];
+let fGroup = 'all', fQuery = '', selected = store.get('selected', 'translate'), gsize = 32;
+
+$('#filters').innerHTML = GROUPS.map(([v, l]) => `<button data-v="${v}" aria-pressed="${v === 'all'}">${l}</button>`).join('');
+$('#filters').addEventListener('click', e => { const b = e.target.closest('button'); if (!b) return; fGroup = b.dataset.v; $$('#filters button').forEach(x => x.setAttribute('aria-pressed', String(x === b))); renderGrid(); });
+$('#q').addEventListener('input', e => { fQuery = e.target.value.trim().toLowerCase(); renderGrid(); });
+$('#gsize').addEventListener('click', e => { const b = e.target.closest('button'); if (!b) return; gsize = Number(b.dataset.v); $('#grid').style.setProperty('--gs', gsize + 'px'); $$('#gsize button').forEach(x => x.setAttribute('aria-pressed', String(x === b))); });
+const withClass = svg => svg.replace('<svg ', '<svg class="ico" aria-hidden="true" ');
+function renderGrid() {
+  const list = ICONS.filter(i => (fGroup === 'all' || i.group === fGroup) && (!fQuery || (i.name + ' ' + i.zh + ' ' + i.replaces.join(' ')).toLowerCase().includes(fQuery)));
+  $('#grid').innerHTML = list.map(i => `<button class="tile" data-n="${i.name}" aria-pressed="${i.name === selected}">${withClass(i.svg)}<span class="nm">${i.name.replace(/_/g, '_<wbr>')}</span><span class="zh">${i.zh}</span></button>`).join('');
+  $('#count').textContent = list.length === ICONS.length ? `共 ${ICONS.length} 个` : `显示 ${list.length} / ${ICONS.length}`;
+}
+$('#grid').addEventListener('click', e => { const b = e.target.closest('.tile'); if (!b) return; selected = b.dataset.n; store.set('selected', selected); $$('#grid .tile').forEach(t => t.setAttribute('aria-pressed', String(t === b))); renderInspector(); if (window.innerWidth < 960) $('#inspector').scrollIntoView({ block: 'nearest', behavior: Engine.reduced ? 'auto' : 'smooth' }); });
+const KEYLINES = (() => {
+  let s = '<svg class="kl" viewBox="0 0 24 24" fill="none" aria-hidden="true" style="position:absolute;inset:8%;width:84%;height:84%">';
+  for (let i = 0; i <= 24; i++) s += `<path d="M${i} 0 V24 M0 ${i} H24" stroke="currentColor" stroke-width="0.03" opacity=".5"/>`;
+  s += '<rect x="2" y="2" width="20" height="20" stroke="currentColor" stroke-width="0.05" stroke-dasharray=".4 .3"/><circle class="c" cx="12" cy="12" r="8.5" stroke-width="0.06" stroke-dasharray=".5 .3"/></svg>';
+  return s;
+})();
+function copyText(text, btn) {
+  const done = ok => { const o = btn.textContent; btn.textContent = ok ? '已复制' : '已选中，按 ⌘C'; setTimeout(() => btn.textContent = o, 1400); };
+  try { navigator.clipboard.writeText(text).then(() => done(true), () => fallback()); } catch (e) { fallback(); }
+  function fallback() { const ta = h('textarea'); ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0'; document.body.appendChild(ta); ta.select(); try { document.execCommand('copy'); done(true); } catch (e) { done(false); } setTimeout(() => ta.remove(), 2000); }
+}
+function renderInspector() {
+  const i = ICONS.find(x => x.name === selected) || ICONS[0];
+  const sizes = [20, 24, 32, 48].map((s, k) => `<span class="w ${k % 2 ? 'plain' : ''}" style="width:${s + 24}px;height:${s + 24}px">${withClass(i.svg).replace('width="24" height="24"', `width="${s}" height="${s}"`)}</span>`).join('');
+  const rep = i.replaces.length ? i.replaces.map(r => `<code>${r}</code>`).join('<br>') : '<span>新增，旧代码里没有对应</span>';
+  const use = i.usage.length ? i.usage.join('；') : '—';
+  $('#inspector').innerHTML = `
+    <h3>${i.zh}<code>${i.name}</code></h3>
+    <div class="big">${KEYLINES}${withClass(i.svg)}</div>
+    <div class="sizes">${sizes}</div>
+    <dl class="kv">
+      <div><dt>分组</dt><dd>${i.groupZh}</dd></div>
+      <div><dt>替代</dt><dd>${rep}</dd></div>
+      <div><dt>使用处</dt><dd>${use}</dd></div>
+      <div><dt>文件</dt><dd><code>docs/icons/svg/yoin_${i.name}.svg</code><br><code>res/drawable/ic_yoin_${i.name}.xml</code></dd></div>
+      ${i.note ? `<div><dt>备注</dt><dd>${i.note}</dd></div>` : ''}
+    </dl>
+    <div class="row"><button class="chip" id="cp-svg">复制 SVG</button><button class="chip" id="cp-kt">复制 Compose 引用</button></div>`;
+  $('#cp-svg').addEventListener('click', e => copyText(i.svg.replace('<svg ', '<svg xmlns="http://www.w3.org/2000/svg" '), e.currentTarget));
+  $('#cp-kt').addEventListener('click', e => copyText(`Icon(painterResource(R.drawable.ic_yoin_${i.name}), contentDescription = "${i.zh}")`, e.currentTarget));
+}
+renderGrid(); renderInspector();
+
+/* ---------------------------------------------------------------- motion lab */
+const DEMOS = [];
+function demo(spec) { DEMOS.push(spec); }
+function buildCard(spec) {
+  const art = h('article', { class: 'mcard' + (spec.wide ? ' wide' : ''), id: 'm-' + spec.id });
+  art.innerHTML = `<div class="stage${spec.caps ? ' caps' : ''}"></div><div class="mbody"><h3>${spec.title}</h3><p class="where">${spec.where}</p><p class="desc">${spec.desc}</p><div class="ctl"></div><dl class="spec"><div><dt>Spring</dt><dd>${spec.token}</dd></div><div><dt>减弱动效</dt><dd>${spec.reduced}</dd></div></dl></div>`;
+  $('#mgrid').appendChild(art);
+  const stage = $('.stage', art), ctl = $('.ctl', art);
+  const well = (cls, cap) => { const w = h('div', { class: 'well' + (cls ? ' ' + cls : '') }); stage.appendChild(w); if (cap) w.appendChild(h('span', { class: 'cap' }, cap)); return icon(w); };
+  const btn = (label, fn, primary) => { const b = h('button', { class: 'chip' + (primary ? ' primary' : '') }, label); b.addEventListener('click', fn); ctl.appendChild(b); return b; };
+  const actor = spec.build({ stage, well, btn, art, ctl });
+  register(actor, art);
+}
+
+/* 1. translate · three feels */
+demo({ id: 'translate', title: '翻译等待 · 三种手感对比', where: 'LyricsActionBar · 翻译按钮', caps: true,
+  desc: '同一套轨道交换只换 spring。推荐 E·default：落位干脆、只有一点点过冲；E·fast 更俏皮，但连续循环会显得忙；S·default 最稳。另外建议：翻译进行中，翻译按钮本身保持满强调，只把另外三个按钮降为不可用（现在的代码四个都会变灰）。',
+  token: '推荐 ' + TOK['E.default'].name + '；停顿 0.32 s', reduced: '字形不动，只做 0.42 ↔ 1 的透明度呼吸；完成时停在 1。',
+  build({ well, btn }) {
+    const toks = [['E.default', 'E·default'], ['E.fast', 'E·fast'], ['S.default', 'S·default']];
+    const orbits = toks.map(([t, cap]) => new OrbitSwap(well('', cap), { tok: t, hold: 0.32 }));
+    let running = true; orbits.forEach(o => o.start());
+    const b = btn('暂停循环', () => { running = !running; b.textContent = running ? '暂停循环' : '继续循环'; orbits.forEach(o => running ? o.start() : o.finish(true)); }, true);
+    return { update(dt) { orbits.forEach(o => o.update(dt)); } };
+  } });
+
+/* 2. add to library: + -> pending -> check */
+demo({ id: 'library-add', title: '加入资料库 · 等待确认', where: 'Apple Music 的「+」（design.md：HTTP 202 不算完成）',
+  desc: '点按后竖线收起、横线缩成圆心，卡片里出现一段转动的弧；服务器确认后弧收拢，横线从圆心展开成对勾并回弹一下；失败则回到「+」并左右摇两下。',
+  token: '变形 ' + TOK['E.fast'].name + '；弧 fastEffects / slowEffects', reduced: '弧不转，只做透明度呼吸；确认时直接出现对勾。',
+  build({ well, btn }) {
+    const g = G.libraryAdd, [cx, cy] = g.c, hl = g.half, svg = well();
+    const root = S('g', null, svg);
+    P(root, g.front); P(root, g.back);
+    const vbar = P(root), hbar = P(root);
+    const ring = S('circle', { cx, cy, r: 3.2 }, root);
+    const C = 2 * Math.PI * 3.2;
+    const plus = [[cx - hl, cy], [cx, cy], [cx + hl, cy]], chk = g.check, ctr = [[cx, cy], [cx, cy], [cx, cy]];
+    const vlen = new Spring(1, 'E.fast'), morph = new Spring(0, 'E.fast'), col = new Spring(0, 'S.fast'), ringOn = new Spring(0, 'fx.default'), arc = new Spring(.18, 'fx.slow'), shake = new Spring(0, 'shake', .01), pop = new Spring(1, 'E.fast');
+    let state = 'plus', rot = 0, t = 0;
+    const b1 = btn('加入资料库', () => { if (state !== 'plus') return; state = 'pending'; vlen.to(0); col.to(1); ringOn.to(1); morph.to(0); t = 0; }, true);
+    btn('服务器确认', () => { if (state !== 'pending') return; state = 'done'; ringOn.to(0, 'fx.fast'); col.to(0, 'E.fast'); morph.snap(1); pop.snap(.86).to(1); });
+    btn('请求失败', () => { if (state !== 'pending') return; state = 'plus'; ringOn.to(0, 'fx.fast'); col.to(0); vlen.to(1); morph.to(0); if (!Engine.reduced) shake.kick(55); });
+    btn('重置', () => { state = 'plus'; ringOn.to(0); col.to(0); vlen.to(1); morph.to(0); });
+    return { update(dt) {
+      [vlen, morph, col, ringOn, arc, shake, pop].forEach(s => s.step(dt));
+      if (state === 'pending') { t += dt; if (!Engine.reduced) rot += 330 * dt; if (arc.rest) arc.to(arc.t > .3 ? .16 : .62); }
+      const pts = lerpP(lerpP(plus, chk, morph.x), ctr, clamp(col.x, 0, 1));
+      hbar.setAttribute('d', poly(pts)); hbar.setAttribute('opacity', col.x > .97 ? 0 : 1);
+      const L = hl * clamp(vlen.x, 0, 1.2);
+      vbar.setAttribute('d', `M${f3(cx)} ${f3(cy - L)} L${f3(cx)} ${f3(cy + L)}`); vbar.setAttribute('opacity', vlen.x < .03 ? 0 : 1);
+      const reducedPulse = Engine.reduced ? (0.55 + 0.45 * Math.abs(Math.cos(t * 2.4))) : 1;
+      ring.setAttribute('stroke-dasharray', `${f3(C * (Engine.reduced ? .7 : arc.x) * clamp(ringOn.x, 0, 1))} ${f3(C)}`);
+      ring.setAttribute('transform', `rotate(${f3(rot - 90)} ${cx} ${cy})`);
+      ring.setAttribute('opacity', f3(clamp(ringOn.x, 0, 1) * reducedPulse));
+      root.setAttribute('transform', `translate(${f3(shake.x)} 0) ` + around(12, 12, pop.x));
+    } };
+  } });
+
+/* 3. AI sparkle */
+demo({ id: 'sparkle', title: 'AI 生成 · Gemini', where: 'AskGeminiBar · Memory AI 拟题 · About',
+  desc: '大星每次转 90° 后停一下，小星错拍闪一下；生成完成时两颗星填实，并轻微放大回落。等待期间按钮不换成转圈，尺寸不变。',
+  token: '旋转 ' + TOK['E.default'].name + '；填充 defaultEffects', reduced: '星不转，只做透明度呼吸；完成时直接填实。',
+  build({ well, btn }) {
+    const g = G.sparkle, svg = well();
+    const gm = S('g', null, svg), gn = S('g', null, svg);
+    const mOut = P(gm, g.main), mFill = P(gm, g.main, { fill: 'currentColor', opacity: 0 });
+    const nOut = P(gn, g.mini), nFill = P(gn, g.mini, { fill: 'currentColor', opacity: 0 });
+    const rot = new Spring(0, 'E.default', .05), mini = new Spring(1, 'E.fast'), fill = new Spring(0, 'fx.default'), pop = new Spring(1, 'E.fast'), pulse = new Spring(1, 'fx.slow');
+    let state = 'idle', hold = 0;
+    btn('开始生成', () => { state = 'gen'; fill.to(0); hold = 0; step(); }, true);
+    btn('生成完成', () => { if (state === 'gen') state = 'finishing'; });
+    btn('重置', () => { state = 'idle'; fill.to(0); rot.to(Math.round(rot.t / 360) * 360); });
+    function step() { if (Engine.reduced) return; rot.to(rot.t + 90); mini.snap(1).to(.35); }
+    return { update(dt) {
+      [rot, mini, fill, pop, pulse].forEach(s => s.step(dt));
+      if (mini.rest && mini.t < 1) mini.to(1);
+      if (state === 'gen') {
+        if (Engine.reduced) { if (pulse.rest) pulse.to(pulse.t > .7 ? .45 : 1); }
+        else if (rot.rest) { hold += dt; if (hold > .3) { hold = 0; step(); } }
+      } else if (state === 'finishing' && (rot.rest || Engine.reduced)) { state = 'done'; fill.to(1); pop.snap(Engine.reduced ? 1 : 1.16).to(1); pulse.to(1); }
+      else if (state !== 'gen' && pulse.t !== 1) pulse.to(1);
+      const [mx, my] = g.mainC, [nx, ny] = g.miniC;
+      gm.setAttribute('transform', `rotate(${f3(rot.x)} ${mx} ${my}) ` + around(mx, my, pop.x));
+      gn.setAttribute('transform', around(nx, ny, mini.x * pop.x));
+      mFill.setAttribute('opacity', f3(fill.x)); nFill.setAttribute('opacity', f3(fill.x));
+      svg.setAttribute('opacity', f3(pulse.x));
+    } };
+  } });
+
+/* 4. cast connecting */
+demo({ id: 'cast', title: '投屏 · 连接中', where: 'Devices 胶囊 · CastButton · Spotify App Remote',
+  desc: '圆点、内弧、外弧依次点亮并向外弹一下，像信号一圈圈发出去；连上后屏幕里的面板从左下角长出来，变成 cast_connected。断开时面板缩回，不闪烁。',
+  token: '点亮 defaultEffects；外弹 ' + TOK['E.fast'].name + '；面板 ' + TOK['E.default'].name, reduced: '只有透明度依次变化，面板直接淡入。',
+  build({ well, btn }) {
+    const g = G.cast, svg = well();
+    P(svg, g.screen);
+    const waves = [P(svg, g.dot, { fill: 'currentColor', stroke: 'none' }), P(svg, g.w1), P(svg, g.w2)];
+    const panel = P(svg, g.panel, { fill: 'currentColor', stroke: 'none' });
+    const op = waves.map(() => new Spring(1, 'fx.default')), off = waves.map(() => new Spring(0, 'E.fast', .005)), pan = new Spring(0, 'E.default');
+    let state = 'idle', idx = -1, clock = 0;
+    btn('连接设备', () => { state = 'connecting'; pan.to(0); idx = -1; clock = 0; op.forEach(s => s.to(.28)); }, true);
+    btn('连接成功', () => { if (state !== 'connecting') return; state = 'connected'; op.forEach(s => s.to(1)); pan.to(1); });
+    btn('断开', () => { state = 'idle'; op.forEach(s => s.to(1)); pan.to(0, 'S.default'); });
+    return { update(dt) {
+      op.forEach(s => s.step(dt)); off.forEach(s => s.step(dt)); pan.step(dt);
+      if (state === 'connecting') {
+        clock += dt;
+        const beat = idx < 2 ? .24 : .5;
+        if (clock > beat) { clock = 0; idx++; if (idx > 2) { idx = -1; op.forEach(s => s.to(.28)); } else { op[idx].to(1); if (!Engine.reduced) off[idx].kick(30); } }
+      }
+      const [ox, oy] = g.o;
+      waves.forEach((w, i) => { w.setAttribute('opacity', f3(op[i].x)); const d = off[i].x * .7; w.setAttribute('transform', `translate(${f3(d)} ${f3(-d)})`); });
+      const s = Engine.reduced ? (pan.x > .01 ? 1 : 0) : Math.max(0, pan.x);
+      panel.setAttribute('transform', around(ox, oy, s)); panel.setAttribute('opacity', f3(clamp(pan.x, 0, 1)));
+    } };
+  } });
+
+/* 5. lyrics search */
+demo({ id: 'search', title: '歌词搜索中', where: 'LyricsSheets 搜索面板',
+  desc: '放大镜在原地“张望”：在左、右上、下三个位置之间跳，每次停一下；找到结果回到原位并放大一下，像对准了目标。',
+  token: TOK['E.default'].name + '；停顿 0.16 s', reduced: '不移动，只做透明度呼吸。',
+  build({ well, btn }) {
+    const svg = well(), grp = S('g', null, svg); G.search.layers.forEach(d => P(grp, d));
+    const dx = new Spring(0, 'E.default', .01), dy = new Spring(0, 'E.default', .01), pop = new Spring(1, 'E.fast'), pulse = new Spring(1, 'fx.slow');
+    const spots = [[-1.7, .2], [1.3, -1.5], [.4, 1.7]];
+    let state = 'idle', i = 0, hold = 0;
+    btn('搜索歌词', () => { state = 'search'; i = 0; hold = 1; }, true);
+    btn('找到结果', () => { if (state !== 'search') return; state = 'idle'; dx.to(0); dy.to(0); pop.snap(Engine.reduced ? 1 : 1.14).to(1); pulse.to(1); });
+    return { update(dt) {
+      [dx, dy, pop, pulse].forEach(s => s.step(dt));
+      if (state === 'search') {
+        if (Engine.reduced) { if (pulse.rest) pulse.to(pulse.t > .7 ? .45 : 1); }
+        else if (dx.rest && dy.rest) { hold += dt; if (hold > .16) { hold = 0; const s = spots[i++ % spots.length]; dx.to(s[0]); dy.to(s[1]); } }
+      }
+      grp.setAttribute('transform', `translate(${f3(dx.x)} ${f3(dy.x)}) ` + around(10.6, 10.6, pop.x));
+      svg.setAttribute('opacity', f3(pulse.x));
+    } };
+  } });
+
+/* 6. refresh */
+demo({ id: 'refresh', title: '重新扫描设备', where: 'DevicesSheet · 刷新',
+  desc: '每轮转一整圈后停顿；扫描结束时停在整圈位置，箭头永远回到原来的朝向，不会停在奇怪的角度。',
+  token: TOK['E.default'].name + '；停顿 0.22 s', reduced: '不旋转，只做透明度呼吸。',
+  build({ well, btn }) {
+    const svg = well(), grp = S('g', null, svg); G.refresh.layers.forEach(d => P(grp, d));
+    const [cx, cy] = G.refresh.c, rot = new Spring(0, 'E.default', .05), pulse = new Spring(1, 'fx.slow');
+    let state = 'idle', hold = 0;
+    btn('重新扫描', () => { state = 'scan'; hold = 1; }, true);
+    btn('扫描结束', () => { state = 'idle'; pulse.to(1); });
+    return { update(dt) {
+      rot.step(dt); pulse.step(dt);
+      if (state === 'scan') { if (Engine.reduced) { if (pulse.rest) pulse.to(pulse.t > .7 ? .45 : 1); } else if (rot.rest) { hold += dt; if (hold > .22) { hold = 0; rot.to(rot.t + 360); } } }
+      grp.setAttribute('transform', `rotate(${f3(rot.x)} ${cx} ${cy})`); svg.setAttribute('opacity', f3(pulse.x));
+    } };
+  } });
+
+/* 7. download -> done */
+demo({ id: 'download', title: '下载 → 已下载', where: '离线下载（二期）· 缓存',
+  desc: '下载中箭头轻轻点头；完成时箭杆缩进箭头里，箭头的三个点直接变形成对勾（点对点插值，不做淡入淡出）。',
+  token: TOK['E.fast'].name, reduced: '不点头，完成时直接换成对勾。',
+  build({ well, btn }) {
+    const g = G.download, svg = well(); P(svg, g.tray);
+    const shaft = P(svg), head = P(svg);
+    const bob = new Spring(0, 'E.fast', .005), m = new Spring(0, 'E.fast'), len = new Spring(1, 'S.fast');
+    let state = 'idle', hold = 0;
+    btn('开始下载', () => { state = 'dl'; m.to(0); len.to(1); }, true);
+    btn('下载完成', () => { if (state !== 'dl') return; state = 'done'; bob.to(0); if (Engine.reduced) { m.snap(1); len.snap(0); } else { m.to(1); len.to(0); } });
+    btn('重置', () => { state = 'idle'; m.to(0); len.to(1); bob.to(0); });
+    return { update(dt) {
+      [bob, m, len].forEach(s => s.step(dt));
+      if (state === 'dl' && !Engine.reduced && bob.rest) { hold += dt; if (hold > .12) { hold = 0; bob.to(bob.t > .5 ? 0 : 1.9); } }
+      const pts = lerpP(g.head, g.check, clamp(m.x, -0.2, 1.2)).map(p => [p[0], p[1] + bob.x * (1 - m.x)]);
+      head.setAttribute('d', poly(pts));
+      const tip = pts[1], top = lerp(tip[1], g.shaft[0][1] + bob.x, clamp(len.x, 0, 1));
+      shaft.setAttribute('d', `M${f3(tip[0])} ${f3(top)} L${f3(tip[0])} ${f3(tip[1])}`); shaft.setAttribute('opacity', len.x < .04 ? 0 : 1);
+    } };
+  } });
+
+/* 8. equalizer with resonance decay */
+demo({ id: 'eq', title: '正在播放律动 · 余韵衰减', where: '歌曲列表当前行 · Now Playing 胶囊',
+  desc: '播放时五根柱子各自追随随机目标（接通 AudioVisualizer 后换成真实能量）；暂停时从两边到中间依次以低刚度 spring 缩成圆点，像声音慢慢散去。',
+  token: '跳动 ' + TOK['E.fast'].name + '；衰减 ' + TOK['resonance'].name, reduced: '柱子静止在默认高度，暂停时整体降到 45% 不透明度。',
+  build({ well, btn }) {
+    const g = G.eq, svg = well();
+    const bars = g.xs.map(x => P(svg)), hs = g.hs.map(v => new Spring(v, 'E.fast', .01)), timers = g.xs.map(() => 0), delays = [0, .08, .16, .08, 0];
+    let playing = true, since = 0; const op = new Spring(1, 'fx.default');
+    const b = btn('暂停', () => { playing = !playing; b.textContent = playing ? '暂停' : '播放'; since = 0; op.to(playing || !Engine.reduced ? 1 : .45); if (playing) hs.forEach(s => s.tok = 'E.fast'); }, true);
+    return { update(dt) {
+      since += dt; op.step(dt);
+      hs.forEach((s, i) => {
+        if (Engine.reduced) { s.to(playing ? g.hs[i] : g.hs[i]); }
+        else if (playing) { timers[i] -= dt; if (timers[i] <= 0) { timers[i] = randIn(.12, .26); s.to(randIn(.28, 1) * Math.max(g.hs[i], 7) * 1.12, 'E.fast'); } }
+        else if (since >= delays[i] && s.t !== 0) s.to(0, 'resonance');
+        s.step(dt);
+        const hh = Math.max(0, s.x) / 2;
+        bars[i].setAttribute('d', `M${g.xs[i]} ${f3(12 - hh)} L${g.xs[i]} ${f3(12 + hh)}`);
+      });
+      svg.setAttribute('opacity', f3(op.x));
+    } };
+  } });
+
+/* 9. play <-> pause */
+demo({ id: 'playpause', title: '播放 ↔ 暂停', where: 'PlaySplitButton · Now Playing 胶囊',
+  desc: '三角被竖着切成两半，两半各自变形成一根暂停条。不旋转、不淡入淡出；控件类动效用 Standard，不回弹。',
+  token: TOK['S.fast'].name, reduced: '同一变形，位移本身很小，不需要降级。',
+  build({ well, btn }) {
+    const g = G.playPause, svg = well();
+    const halves = [0, 1].map(() => P(svg, '', { fill: 'currentColor' }));
+    const m = new Spring(0, 'S.fast');
+    let paused = false;
+    btn('播放 / 暂停', () => { paused = !paused; m.to(paused ? 1 : 0); }, true);
+    return { update(dt) { m.step(dt); halves.forEach((p, i) => p.setAttribute('d', poly(lerpP(g.play[i], g.pause[i], m.x), true))); } };
+  } });
+
+/* 10. favorite */
+demo({ id: 'favorite', title: '收藏', where: 'Now Playing 心形 · 专辑曲目',
+  desc: '收藏时描边先收缩再弹回（一次心跳），实心从中心长出，六个小点向外散开；取消收藏时实心直接收回，不做心跳，对应 docs/haptic-feedback.md 的 CONFIRM / REJECT 轻重之分。',
+  token: '心跳与填充 ' + TOK['E.fast'].name + '；散点 slowEffects', reduced: '实心淡入淡出，没有心跳和散点。',
+  build({ well, btn }) {
+    const svg = well(), grp = S('g', null, svg);
+    const out = P(grp, G.heart), fillP = P(grp, G.heart, { fill: 'currentColor' });
+    const dots = [...Array(6)].map((_, i) => S('circle', { r: .9, fill: 'currentColor', stroke: 'none' }, svg));
+    const beat = new Spring(1, 'E.fast'), fl = new Spring(0, 'E.fast'), burst = new Spring(1, 'fx.slow');
+    let on = false;
+    btn('收藏 / 取消', () => { on = !on; if (on) { fl.to(1, 'E.fast'); if (!Engine.reduced) { beat.snap(.8).to(1); burst.snap(0).to(1); } } else fl.to(0, 'S.fast'); }, true);
+    return { update(dt) {
+      beat.step(dt); fl.step(dt); burst.step(dt);
+      grp.setAttribute('transform', around(12, 12.2, beat.x));
+      if (Engine.reduced) { fillP.setAttribute('transform', ''); fillP.setAttribute('opacity', f3(clamp(fl.x, 0, 1))); }
+      else { fillP.setAttribute('transform', around(12, 12.2, Math.max(0, fl.x))); fillP.setAttribute('opacity', fl.x > .01 ? 1 : 0); }
+      dots.forEach((c, i) => { const a = (-90 + i * 60) * Math.PI / 180, r = 8.6 + 3.6 * burst.x; c.setAttribute('cx', f3(12 + r * Math.cos(a))); c.setAttribute('cy', f3(12.2 + r * Math.sin(a))); c.setAttribute('opacity', f3(burst.x < 1 ? (1 - burst.x) : 0)); });
+    } };
+  } });
+
+/* 11. shuffle */
+demo({ id: 'shuffle', title: '随机播放', where: 'PlaybackControls · 随机按钮',
+  desc: '关闭时是两条平行线（顺序播放），打开时两股交叉（随机）。下层那股在交叉处自动留缝，缝会跟着交叉点移动。',
+  token: TOK['E.default'].name, reduced: '改用 Standard fastSpatial，不回弹。',
+  build({ well, btn }) {
+    const g = G.shuffle, svg = well(), mid = nextId('shuf');
+    const mask = S('mask', { id: mid, maskUnits: 'userSpaceOnUse', x: -2, y: -2, width: 28, height: 28 }, S('defs', null, svg));
+    S('rect', { x: -2, y: -2, width: 28, height: 28, fill: '#fff', stroke: 'none' }, mask);
+    const halo = P(mask, '', { stroke: '#000', 'stroke-width': 3.6 });
+    const B = P(svg, '', { mask: `url(#${mid})` }), headB = P(svg), A = P(svg), headA = P(svg);
+    const m = new Spring(1, 'E.default');
+    let on = true;
+    btn('随机 开 / 关', () => { on = !on; m.to(on ? 1 : 0, Engine.reduced ? 'S.fast' : 'E.default'); }, true);
+    return { update(dt) {
+      m.step(dt);
+      const a = lerpP(g.parA, g.crossA, m.x), b = lerpP(g.parB, g.crossB, m.x);
+      const da = cubicD(a), db = cubicD(b);
+      A.setAttribute('d', da); halo.setAttribute('d', da); B.setAttribute('d', db);
+      headA.setAttribute('d', arrowHead(a[3], [a[3][0] - a[2][0], a[3][1] - a[2][1]], g.head));
+      headB.setAttribute('d', arrowHead(b[3], [b[3][0] - b[2][0], b[3][1] - b[2][1]], g.head));
+    } };
+  } });
+
+/* 12. repeat */
+demo({ id: 'repeat', title: '循环：关 → 列表 → 单曲', where: '播放控制 · 队列',
+  desc: '关闭时降为 40% 不透明度；每次切换两个箭头沿各自方向推一下；进入单曲循环时「1」从中心弹出，退出时缩回。',
+  token: '推动与弹出 ' + TOK['E.fast'].name + '；透明度 defaultEffects', reduced: '没有推动，「1」直接淡入淡出。',
+  build({ well, btn }) {
+    const g = G.repeat, svg = well();
+    P(svg, g.loop); const hA = P(svg, g.headA), hB = P(svg, g.headB), one = P(svg, g.one);
+    const op = new Spring(.4, 'fx.default'), nudge = new Spring(0, 'E.fast', .005), os = new Spring(0, 'E.fast');
+    let st = 0; const labels = ['关', '列表循环', '单曲循环'];
+    const b = btn('当前：关', () => { st = (st + 1) % 3; b.textContent = '当前：' + labels[st]; op.to(st ? 1 : .4); os.to(st === 2 ? 1 : 0); if (!Engine.reduced) nudge.kick(34); }, true);
+    return { update(dt) {
+      op.step(dt); nudge.step(dt); os.step(dt);
+      svg.setAttribute('opacity', f3(op.x));
+      hA.setAttribute('transform', `translate(${f3(nudge.x)} 0)`); hB.setAttribute('transform', `translate(${f3(-nudge.x)} 0)`);
+      if (Engine.reduced) { one.setAttribute('transform', ''); one.setAttribute('opacity', f3(clamp(os.x, 0, 1))); }
+      else { one.setAttribute('transform', around(11.65, 12.1, Math.max(0, os.x))); one.setAttribute('opacity', os.x > .01 ? 1 : 0); }
+    } };
+  } });
+
+/* 13. chevron flip vs rotate */
+demo({ id: 'chevron', title: '展开 / 收起', where: '设置折叠行 · PlaySplitButton 下拉 · Memories', caps: true,
+  desc: '左：箭头先压平再翻折，像合页；右：整体旋转 180°。推荐左边——细描边旋转时会扫过一大片面积，压平翻折更安静，也更像 Luminous。',
+  token: TOK['E.default'].name, reduced: '改用 Standard fastSpatial。',
+  build({ well, btn }) {
+    const g = G.chevron, a = P(well('', '压平翻折')), bsvg = well('plain', '旋转 180°'), b = P(bsvg, poly(g.down));
+    const m = new Spring(0, 'E.default');
+    let open = false;
+    btn('展开 / 收起', () => { open = !open; m.to(open ? 1 : 0, Engine.reduced ? 'S.fast' : 'E.default'); }, true);
+    return { update(dt) { m.step(dt); a.setAttribute('d', poly(lerpP(g.down, g.up, m.x))); b.setAttribute('transform', `rotate(${f3(m.x * 180)} 12 12)`); } };
+  } });
+
+/* 14. nav selection fill */
+demo({ id: 'nav', title: '导航选中', where: '底部 Button Group · Nav Rail',
+  desc: '选中时实心从底部涨上来，按钮同时变宽、图标轻压回弹；取消选中时实心回落。和按钮组的形状变形发生在同一帧。',
+  token: '涨满 ' + TOK['S.fast'].name + '；回弹 ' + TOK['E.fast'].name + '；变宽 ' + TOK['S.default'].name, reduced: '实心直接淡入淡出，宽度照常变化。',
+  build({ stage, btn }) {
+    const grpEl = h('div', { class: 'pill-group' }); stage.appendChild(grpEl);
+    const items = [['home', '主页'], ['library', '资料库']].map(([k, label], i) => {
+      const p = h('button', { class: 'pill', 'aria-label': label }); grpEl.appendChild(p);
+      const svg = icon(p), cid = nextId('clip');
+      const clip = S('clipPath', { id: cid }, S('defs', null, svg)); const rect = S('rect', { x: -2, width: 28, y: 24, height: 0 }, clip);
+      const outline = S('g', null, svg), filled = S('g', { 'clip-path': `url(#${cid})` }, svg);
+      if (k === 'home') { P(outline, G.home); P(filled, G.home, { fill: 'currentColor' }); }
+      else { G.library.outline.forEach(d => P(outline, d)); G.library.filled.forEach(l => P(filled, l.d, l.mode === 'fill' ? { fill: 'currentColor', stroke: 'none', 'fill-rule': l.rule } : {})); }
+      const it = { p, svg, rect, outline, fill: new Spring(i === 0 ? 1 : 0, 'S.fast'), pop: new Spring(1, 'E.fast'), w: new Spring(i === 0 ? 92 : 64, 'S.default', .05) };
+      p.addEventListener('click', () => select(i));
+      return it;
+    });
+    let sel = 0;
+    function select(i) { if (i === sel) return; sel = i; items.forEach((it, j) => { it.fill.to(j === i ? 1 : 0); it.w.to(j === i ? 92 : 64); if (j === i && !Engine.reduced) it.pop.snap(.84).to(1); }); }
+    btn('切换', () => select(1 - sel), true);
+    return { update(dt) {
+      items.forEach((it, j) => {
+        it.fill.step(dt); it.pop.step(dt); it.w.step(dt);
+        const f = clamp(it.fill.x, 0, 1);
+        if (Engine.reduced) { it.rect.setAttribute('y', -2); it.rect.setAttribute('height', 28); it.svg.lastChild.setAttribute('opacity', f3(f)); it.outline.setAttribute('opacity', f3(1 - f)); }
+        else { it.rect.setAttribute('y', f3(22.5 - 21.5 * f)); it.rect.setAttribute('height', f3(1.5 + 21.5 * f + 2)); it.svg.lastChild.setAttribute('opacity', f > .005 ? 1 : 0); it.outline.setAttribute('opacity', 1); }
+        it.svg.style.transform = `scale(${f3(it.pop.x)})`;
+        it.p.style.width = f3(it.w.x) + 'px';
+        it.p.style.background = `color-mix(in srgb, var(--pc) ${f3(f * 100)}%, transparent)`;
+        it.p.style.color = f > .5 ? 'var(--on-pc)' : 'var(--ink-2)';
+      });
+    } };
+  } });
+
+/* 15. predictive back */
+demo({ id: 'back', title: '预测性返回', where: '所有带返回箭头的页面',
+  desc: '拖动滑块模拟系统返回手势：进度先经过 backGestureEasing（0.1, 0.1, 0, 1）映射，再缩短箭杆、箭头左移；松手返回时箭头滑出，取消时弹回原位。箭头和页面收回读同一个进度。',
+  token: '手势直驱；提交 ' + TOK['E.fast'].name + '；取消 ' + TOK['S.default'].name, reduced: '只缩短箭杆，不左移、不滑出。',
+  build({ stage, well, btn }) {
+    const g = G.back, svg = well(), grp = S('g', null, svg), shaft = P(grp), head = P(grp, poly(g.head));
+    const sl = h('div', { class: 'slider' }, '<label>手势进度</label><input type="range" min="0" max="100" value="0" aria-label="返回手势进度">');
+    stage.appendChild(sl); const input = $('input', sl);
+    const prog = new Spring(0, 'S.default', .001), out = new Spring(0, 'E.fast', .01), op = new Spring(1, 'fx.fast');
+    let dragging = false;
+    input.addEventListener('input', () => { dragging = true; prog.snap(input.value / 100); });
+    input.addEventListener('change', () => { dragging = false; });
+    btn('松手 · 返回', () => { if (Engine.reduced) { prog.to(0); return; } out.to(-11); op.to(0); }, true);
+    btn('松手 · 取消', () => { prog.to(0); });
+    const ease = bez(.1, .1, 0, 1);
+    return { update(dt) {
+      prog.step(dt); out.step(dt); op.step(dt);
+      if (op.x < .03 && op.t === 0) { out.snap(0); prog.snap(0); input.value = 0; op.snap(0).to(1, 'fx.default'); }
+      if (!dragging) input.value = Math.round(prog.x * 100);
+      const e = ease(clamp(prog.x, 0, 1));
+      const shift = Engine.reduced ? 0 : -1.5 * e;
+      shaft.setAttribute('d', `M${f3(19.5 - 5.4 * e)} 12 L${f3(g.shaft[1][0] + shift)} 12`);
+      head.setAttribute('transform', `translate(${f3(shift)} 0)`);
+      grp.setAttribute('transform', `translate(${f3(out.x)} 0)`); grp.setAttribute('opacity', f3(op.x));
+    } };
+  } });
+
+/* 16. skip nudge */
+demo({ id: 'skip', title: '上一首 / 下一首', where: 'PlaybackControls · Now Playing 胶囊',
+  desc: '点按时三角朝切歌方向推一下再回弹，方向与胶囊里新歌推入的方向一致（下一首从右边进，所以向右推）。竖条不动，像被三角顶了一下。',
+  token: TOK['E.fast'].name + '（冲量）', reduced: '没有位移。',
+  build({ well, btn }) {
+    const g = G.skip;
+    const mk = mirror => { const svg = well(); const grp = S('g', mirror ? { transform: 'matrix(-1 0 0 1 24 0)' } : null, svg); const t = P(grp, g.tri); P(grp, g.bar); return t; };
+    const prev = mk(true), next = mk(false);
+    const dp = new Spring(0, 'E.fast', .005), dn = new Spring(0, 'E.fast', .005);
+    btn('上一首', () => { if (!Engine.reduced) dp.kick(60); });
+    btn('下一首', () => { if (!Engine.reduced) dn.kick(60); }, true);
+    return { update(dt) { dp.step(dt); dn.step(dt); prev.setAttribute('transform', `translate(${f3(dp.x)} 0)`); next.setAttribute('transform', `translate(${f3(dn.x)} 0)`); } };
+  } });
+
+/* 17. visibility */
+demo({ id: 'visibility', title: '显示 / 隐藏', where: '设置里的 Token、Client ID 输入框',
+  desc: '斜线从左上画到右下，眼睛同时眯起一点；斜线经过的地方，眼睛轮廓自动断开（遮罩跟着斜线一起画）。',
+  token: TOK['S.default'].name, reduced: '斜线直接出现。',
+  build({ well, btn }) {
+    const g = G.visibility, svg = well(), mid = nextId('vis');
+    const mask = S('mask', { id: mid, maskUnits: 'userSpaceOnUse', x: -2, y: -2, width: 28, height: 28 }, S('defs', null, svg));
+    S('rect', { x: -2, y: -2, width: 28, height: 28, fill: '#fff', stroke: 'none' }, mask);
+    const halo = P(mask, poly(g.slash), { stroke: '#000', 'stroke-width': 3.7, pathLength: 1 });
+    const eye = S('g', { mask: `url(#${mid})` }, svg); P(eye, g.eye); P(eye, g.pupil);
+    const slash = P(svg, poly(g.slash), { pathLength: 1 });
+    const m = new Spring(0, 'S.default');
+    let hidden = false;
+    btn('显示 / 隐藏', () => { hidden = !hidden; if (Engine.reduced) m.snap(hidden ? 1 : 0); else m.to(hidden ? 1 : 0); }, true);
+    return { update(dt) {
+      m.step(dt); const v = clamp(m.x, 0, 1);
+      slash.setAttribute('stroke-dasharray', `${f3(v)} 2`); halo.setAttribute('stroke-dasharray', `${f3(v)} 2`); slash.setAttribute('opacity', v > .005 ? 1 : 0); halo.setAttribute('opacity', v > .005 ? 1 : 0);
+      eye.setAttribute('transform', around(12, 12, 1, 1, 1 - .13 * v));
+    } };
+  } });
+
+/* 18. recenter */
+demo({ id: 'recenter', title: '回到当前句', where: 'LyricsActionBar · 第四个按钮',
+  desc: '点按时上下两个箭头向中线合拢再弹开，中线闪一下，提示“已对齐到当前句”。按钮出现（用户滚走以后）时，两个箭头从上下两端滑入。',
+  token: TOK['E.fast'].name + '（冲量）；中线 slowEffects', reduced: '只闪中线。',
+  build({ well, btn }) {
+    const L = G.recenter.layers, svg = well();
+    const line = P(svg, L[0]), top = S('g', null, svg), bot = S('g', null, svg);
+    P(top, L[1]); P(top, L[2]); P(bot, L[3]); P(bot, L[4]);
+    const dt_ = new Spring(0, 'E.fast', .005), db = new Spring(0, 'E.fast', .005), lo = new Spring(1, 'fx.slow');
+    btn('回到当前句', () => { if (!Engine.reduced) { dt_.kick(40); db.kick(-40); } lo.snap(.25).to(1); }, true);
+    return { update(dt) { dt_.step(dt); db.step(dt); lo.step(dt); top.setAttribute('transform', `translate(0 ${f3(dt_.x)})`); bot.setAttribute('transform', `translate(0 ${f3(db.x)})`); line.setAttribute('opacity', f3(lo.x)); } };
+  } });
+
+/* 19. error */
+demo({ id: 'error', title: '错误', where: '设置 · 账号问题徽标 · 连接失败',
+  desc: '感叹号左右摇两下后停住，配合 REJECT 震动。只在“刚刚失败”那一刻摇，常驻的错误徽标保持静止。',
+  token: TOK['shake'].name, reduced: '不摇，只把颜色切到 error。',
+  build({ well, btn }) {
+    const svg = well(), grp = S('g', null, svg); G.error.layers.forEach((d, i) => P(grp, d, i === 2 ? { fill: 'currentColor', stroke: 'none' } : {}));
+    const x = new Spring(0, 'shake', .01), c = new Spring(0, 'fx.default');
+    btn('模拟失败', () => { if (Engine.reduced) { c.snap(1).to(0, 'fx.slow'); } else x.kick(60); }, true);
+    return { update(dt) { x.step(dt); c.step(dt); grp.setAttribute('transform', `translate(${f3(x.x)} 0)`); svg.style.color = c.x > .01 ? `color-mix(in srgb, var(--err) ${f3(c.x * 100)}%, currentColor)` : ''; } };
+  } });
+
+/* 20. send */
+demo({ id: 'send', title: '发送笔记', where: 'NoteContent · 发送',
+  desc: '纸飞机向右上飞出并淡出，再从左下飞回原位。发送成功才飞；失败时留在原地摇一下。',
+  token: '飞出 ' + TOK['E.fast'].name + '；飞回 ' + TOK['E.default'].name, reduced: '原地淡出再淡入。',
+  build({ well, btn }) {
+    const svg = well(), grp = S('g', null, svg); G.send.layers.forEach(d => P(grp, d));
+    const dx = new Spring(0, 'E.fast', .01), dy = new Spring(0, 'E.fast', .01), op = new Spring(1, 'fx.fast');
+    let phase = 'idle';
+    btn('发送', () => { if (phase !== 'idle') return; phase = 'out'; if (!Engine.reduced) { dx.to(10, 'E.fast'); dy.to(-10, 'E.fast'); } op.to(0, 'fx.default'); }, true);
+    return { update(dt) {
+      dx.step(dt); dy.step(dt); op.step(dt);
+      if (phase === 'out' && op.x < .04) { phase = 'back'; if (!Engine.reduced) { dx.snap(-9).to(0, 'E.default'); dy.snap(9).to(0, 'E.default'); } op.to(1, 'fx.default'); }
+      if (phase === 'back' && op.rest && dx.rest) phase = 'idle';
+      grp.setAttribute('transform', `translate(${f3(dx.x)} ${f3(dy.x)})`); grp.setAttribute('opacity', f3(op.x));
+    } };
+  } });
+
+/* 21. memory seal */
+demo({ id: 'memory', title: '记忆印章（提案）', where: 'Memories 生成完成 · Jump Back In',
+  desc: '一张专辑成为 memory 的那一刻：印章转回正位并“盖”下去（放大后落下），心形随后弹出。形状用 MD3 Expressive 的 cookie，和封面背后的装饰形状同源。',
+  token: TOK['E.fast'].name, reduced: '印章和心形直接出现。',
+  build({ well, btn }) {
+    const svg = well(), grp = S('g', null, svg), cookie = P(grp, G.memory.cookie), heart = P(grp, G.memory.heart);
+    const rot = new Spring(0, 'E.fast', .05), sc = new Spring(1, 'E.fast'), hs = new Spring(1, 'E.fast');
+    let t = -1;
+    btn('生成记忆', () => { if (Engine.reduced) return; rot.snap(-30).to(0); sc.snap(1.32).to(1); hs.snap(0); t = 0; }, true);
+    return { update(dt) {
+      rot.step(dt); sc.step(dt); hs.step(dt);
+      if (t >= 0) { t += dt; if (t > .12) { hs.to(1); t = -1; } }
+      grp.setAttribute('transform', `rotate(${f3(rot.x)} 12 12) ` + around(12, 12, sc.x));
+      heart.setAttribute('transform', around(12, 12.2, Math.max(0, hs.x)));
+    } };
+  } });
+
+/* 22. settings gear */
+demo({ id: 'settings', title: '设置齿轮', where: '首页 / Library 右上角',
+  desc: '每次点按转过一个齿（45°）并停在齿位上。只在点按时转，不做常驻旋转。',
+  token: TOK['E.default'].name, reduced: '不旋转。',
+  build({ well, btn }) {
+    const svg = well(), grp = S('g', null, svg); G.settings.layers.forEach(d => P(grp, d));
+    const rot = new Spring(0, 'E.default', .05);
+    btn('点按', () => { if (!Engine.reduced) rot.to(rot.t + 45); }, true);
+    return { update(dt) { rot.step(dt); grp.setAttribute('transform', `rotate(${f3(rot.x)} 12 12)`); } };
+  } });
+
+function bez(x1, y1, x2, y2) {
+  const cx = 3 * x1, bx = 3 * (x2 - x1) - cx, ax = 1 - cx - bx, cy = 3 * y1, by = 3 * (y2 - y1) - cy, ay = 1 - cy - by;
+  const sx = t => ((ax * t + bx) * t + cx) * t, sy = t => ((ay * t + by) * t + cy) * t, dx = t => (3 * ax * t + 2 * bx) * t + cx;
+  return x => { let t = x; for (let i = 0; i < 8; i++) { const e = sx(t) - x, d = dx(t); if (Math.abs(e) < 1e-5 || Math.abs(d) < 1e-6) break; t -= e / d; } return sy(clamp(t, 0, 1)); };
+}
+DEMOS.forEach(buildCard);
+$('#eyebrow').textContent = `Luminous 语言 · ${ICONS.length} 个图标 · ${DEMOS.length} 个动效原型`;
+
+/* ---------------------------------------------------------------- language figures */
+(() => {
+  const F = DATA.geom.lang;
+  $('#figs').innerHTML = `
+    <div class="fig">
+      <svg viewBox="0 0 240 132" role="img" aria-label="连续曲率容器与普通圆角矩形的对比">
+        <g transform="translate(6 6) scale(5)" fill="none" stroke-linecap="round" stroke-linejoin="round">
+          <path d="${F.rrect}" stroke="var(--primary)" stroke-width=".22" stroke-dasharray=".6 .45"/>
+          <path d="${F.squircle}" stroke="var(--ink)" stroke-width=".3"/>
+        </g>
+        <g transform="translate(128 6) scale(5)" fill="none" stroke-linecap="round" stroke-linejoin="round">
+          <path d="${F.squircleIcon}" stroke="currentColor" stroke-width="1.5" style="color:var(--ink)"/>
+        </g>
+      </svg>
+      <div class="lgd"><span><i style="border-color:var(--ink)"></i>Yoin squircle（平滑度 0.6）</span><span><i style="border-color:var(--primary);border-top-style:dashed"></i>普通圆角矩形（同半径）</span></div>
+      <p>连续曲率容器的弯曲从直边上更早开始、更慢收紧，转角处没有圆角矩形那道看得见的“折痕”。放到 1.5 描边下（右），它就是 Luminous 容器的气质。</p>
+    </div>
+    <div class="fig">
+      <svg viewBox="0 0 240 110" role="img" aria-label="交叉处的留缝">
+        <g transform="translate(10 -5) scale(5)" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="color:var(--ink)">${F.shuffleIcon}</g>
+        <g transform="translate(130 -5) scale(5)" fill="none" stroke-linecap="round">
+          <path d="${F.shufA}" stroke="var(--ink)" stroke-width="1.5"/>
+          <path d="${F.shufGap}" stroke="var(--primary)" stroke-width=".18" stroke-dasharray=".5 .35"/>
+          <path d="${F.shufB}" stroke="var(--ink)" stroke-width="1.5" opacity=".35"/>
+        </g>
+      </svg>
+      <p>两条线交叉时，下层那条在交叉点两侧各断开 1.05（虚线是切口范围）。静态文件里是真正断开的路径；动效里用遮罩实现，缝会跟着交叉点走。</p>
+    </div>`;
+})();
+
+/* ---------------------------------------------------------------- mapping table */
+$('#maprows').innerHTML = ICONS.filter(i => i.replaces.length).map(i => `<tr><td><span class="yi">${withClass(i.svg)}<code>${i.name}</code></span></td><td>${i.replaces.map(r => `<code>${r.replace('Icons.', '')}</code>`).join('<br>')}</td><td class="use">${i.usage.join('<br>') || '—'}</td></tr>`).join('');
+</script>

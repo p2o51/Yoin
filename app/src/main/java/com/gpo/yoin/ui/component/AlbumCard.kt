@@ -84,7 +84,8 @@ fun AlbumCard(
                 variant = ExpressiveBackdropVariant.Bun,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .aspectRatio(1f),
+                    .aspectRatio(1f)
+                    .seamDissolve(),
                 shape = YoinArtworkShapes.Cover,
                 fallbackIcon = Icons.Filled.LibraryMusic,
                 interactionSource = interactionSource,
@@ -94,7 +95,7 @@ fun AlbumCard(
             )
             Spacer(modifier = Modifier.height(5.dp))
             if (!metaLabel.isNullOrBlank()) {
-                ExpressiveMetaPill(text = metaLabel)
+                ExpressiveMetaPill(text = metaLabel, modifier = Modifier.seamFade())
                 Spacer(modifier = Modifier.height(3.dp))
             }
             // One line only — overflow scrolls (marquee) instead of wrapping,
@@ -103,7 +104,7 @@ fun AlbumCard(
                 text = title,
                 style = MaterialTheme.typography.titleSmall,
                 color = MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth().seamFade(),
             )
             if (!subtitle.isNullOrBlank()) {
                 Text(
@@ -112,6 +113,7 @@ fun AlbumCard(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.seamFade(),
                 )
             }
         }

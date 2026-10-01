@@ -4,6 +4,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.gpo.yoin.AppContainer
+import com.gpo.yoin.data.model.ArtistDetail
+import com.gpo.yoin.data.model.CoverRef
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.Track
 import com.gpo.yoin.data.repository.YoinRepository
@@ -11,7 +13,6 @@ import com.gpo.yoin.ui.component.toUserMessage
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -26,13 +27,14 @@ class ArtistDetailViewModel(
     private val _uiState = MutableStateFlow<ArtistDetailUiState>(ArtistDetailUiState.Loading)
     val uiState: StateFlow<ArtistDetailUiState> = _uiState.asStateFlow()
 
+    /** The loaded artist, kept so the personal layer can be re-read on resume. */
+    private var loadedArtist: ArtistDetail? = null
+
     /**
-     * In-flight load of the artist's most-popular tracks. A Deferred (not a plain
-     * list) so Play can AWAIT it — tapping Play in the instant before the load
-     * resolves must still play the top tracks, not silently fall back to the
-     * whole discography.
+     * The "Most Played" rows as playable tracks (same order), rebuilt from the
+     * play-history rows each time the personal layer loads.
      */
-    private var topTracksDeferred: Deferred<List<Track>>? = null
+    private var mostPlayedTracks: List<Track> = emptyList()
 
     init {
         loadArtist()
@@ -52,13 +54,13 @@ class ArtistDetailViewModel(
                     _uiState.value = ArtistDetailUiState.Error("Artist not found")
                     return@launch
                 }
+                loadedArtist = artist
                 repository.recordArtistVisit(artist)
-                // Preload the first albums so tapping the carousel opens instantly.
+                // Preload the newest releases so tapping a row opens instantly.
                 artist.albums.take(6).forEach { album -> repository.prefetchAlbum(album.id) }
                 _uiState.value = ArtistDetailUiState.Content(
                     artistId = artist.id.toString(),
                     artistName = artist.name,
-                    albumCount = artist.albumCount,
                     heroCoverArtUrl = artist.coverArt?.let { repository.resolveCoverUrl(it) },
                     isStarred = artist.isStarred,
                     albums = artist.albums.map { album ->
@@ -68,10 +70,11 @@ class ArtistDetailViewModel(
                             coverArtUrl = album.coverArt?.let { repository.resolveCoverUrl(it) },
                             year = album.year,
                             songCount = album.songCount,
+                            releaseType = album.releaseType,
                         )
                     },
                 )
-                loadSecondaryContent(artist.id)
+                loadPersonal(artist)
             } catch (e: Exception) {
                 _uiState.value = ArtistDetailUiState.Error(
                     e.toUserMessage("Couldn't load this artist."),
@@ -81,38 +84,71 @@ class ArtistDetailViewModel(
     }
 
     /**
-     * After the main content paints, load the artist's Popular tracks and merge
-     * them in. Kept off the main load so it never blocks the hero/carousel.
-     * Best-effort: a failure just leaves the section empty.
+     * Re-read the personal layer (ratings + listening) — the Activity calls this
+     * on resume, so a rating given on an album page or a play made meanwhile
+     * shows up when the user comes back.
      */
-    private fun loadSecondaryContent(artistId: MediaId) {
-        val deferred = viewModelScope.async {
-            runCatching { repository.getArtistTopTracks(artistId) }.getOrDefault(emptyList())
-        }
-        topTracksDeferred = deferred
-        viewModelScope.launch {
-            val top = deferred.await()
-            val topRows = top.map { track ->
-                ArtistTopTrack(
-                    id = track.id.toString(),
-                    title = track.title.orEmpty(),
-                    artist = track.artist.orEmpty(),
-                    coverArtUrl = track.coverArt?.let { repository.resolveCoverUrl(it) },
-                    durationSec = track.durationSec,
-                )
-            }
-            (_uiState.value as? ArtistDetailUiState.Content)?.let { current ->
-                _uiState.value = current.copy(topTracks = topRows)
-            }
-        }
+    fun refreshPersonal() {
+        val artist = loadedArtist ?: return
+        viewModelScope.launch { loadPersonal(artist) }
     }
 
     /**
-     * The artist's Popular tracks, for default Play / a Popular row tap. Awaits
-     * the in-flight load so an early Play uses the real list (or empty when the
-     * artist genuinely has none / a non-Spotify source), never a stale snapshot.
+     * The user's own layer, merged in after the page paints: album ratings and
+     * local listening (plays, last play, most-played songs). Best-effort — a
+     * failed read leaves the page as the provider data alone.
      */
-    suspend fun getTopTracks(): List<Track> = topTracksDeferred?.await() ?: emptyList()
+    private suspend fun loadPersonal(artist: ArtistDetail) {
+        val albumIds = artist.albums.map { it.id }
+        val ratings = runCatching { repository.getAlbumRatings(albumIds) }.getOrDefault(emptyMap())
+        val listening = runCatching {
+            repository.getArtistListening(artist.id, artist.name, albumIds)
+        }.getOrNull()
+        mostPlayedTracks = listening?.topSongs.orEmpty().map { row ->
+            Track(
+                id = MediaId(row.provider, row.songId),
+                title = row.title,
+                artist = artist.name,
+                artistId = artist.id,
+                album = row.album,
+                albumId = row.albumId.takeIf { it.isNotBlank() }?.let { MediaId(row.provider, it) },
+                coverArt = CoverRef.fromStorageKey(row.coverArtId),
+                durationSec = (row.durationMs / 1000).toInt().takeIf { it > 0 },
+                trackNumber = null,
+                year = null,
+                genre = null,
+                userRating = null,
+            )
+        }
+        val summary = listening?.let {
+            ArtistListeningSummary(
+                playCount = it.playCount,
+                lastPlayedAt = it.lastPlayedAt,
+                mostPlayed = it.topSongs.map { row ->
+                    ArtistPlayedSong(
+                        id = MediaId(row.provider, row.songId).toString(),
+                        title = row.title,
+                        album = row.album,
+                        coverArtUrl = CoverRef.fromStorageKey(row.coverArtId)
+                            ?.let { ref -> repository.resolveCoverUrl(ref) },
+                        durationSec = (row.durationMs / 1000).toInt().takeIf { secs -> secs > 0 },
+                        playCount = row.playCount,
+                    )
+                },
+            )
+        } ?: ArtistListeningSummary(playCount = 0, lastPlayedAt = null, mostPlayed = emptyList())
+        (_uiState.value as? ArtistDetailUiState.Content)?.let { current ->
+            _uiState.value = current.copy(
+                albums = current.albums.map { album ->
+                    album.copy(userRating = ratings[MediaId.parse(album.id).rawId])
+                },
+                listening = summary,
+            )
+        }
+    }
+
+    /** The "Most Played" rows as a play queue, in row order. */
+    fun getMostPlayedTracks(): List<Track> = mostPlayedTracks
 
     /**
      * Follow / unfollow the artist via the real follow endpoint (NOT setFavorite,

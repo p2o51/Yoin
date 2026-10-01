@@ -8,6 +8,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.graphics.vector.PathParser
@@ -45,7 +46,7 @@ private val PIVOT = Offset(512f, 500f)
 /**
  * Exact vectors of the real Yoin app mark (the three abstract "arrows"),
  * exported from Figma (Design System / Icon) and matching
- * `res/drawable/ic_launcher_foreground.xml`. Arm order is fixed and indexes
+ * `res/drawable/ic_yoin_launcher_foreground.xml`. Arm order is fixed and indexes
  * into the [YoinMark] `colors` / `transforms` lists:
  *
  *   0 → "first" arm  (role: tertiary), white centre line is an 8-wide stroke
@@ -90,16 +91,7 @@ fun YoinMark(
     groupScaleX: Float = 1f,
     groupScaleY: Float = 1f,
 ) {
-    val arms = remember {
-        ARM_DEFS.map { (fillD, lineD, width) ->
-            MarkArm(
-                fill = PathParser().parsePathString(fillD).toPath(),
-                line = PathParser().parsePathString(lineD).toPath(),
-                lineStroke = width > 0f,
-                lineWidth = width,
-            )
-        }
-    }
+    val arms = remember { YoinMarkArms }
     Canvas(modifier) {
         val s = size.minDimension / VIEWBOX
         val ox = (size.width - VIEWBOX * s) / 2f
@@ -117,19 +109,51 @@ fun YoinMark(
                     rotate(t.rotationDeg, pivot = PIVOT)
                     scale(t.scale, t.scale, pivot = PIVOT)
                 }) {
-                    drawPath(arm.fill, color = color, alpha = t.alpha)
-                    if (arm.lineStroke) {
-                        drawPath(
-                            arm.line,
-                            color = lineColor,
-                            alpha = t.alpha,
-                            style = Stroke(width = arm.lineWidth, cap = StrokeCap.Round),
-                        )
-                    } else {
-                        drawPath(arm.line, color = lineColor, alpha = t.alpha)
-                    }
+                    drawMarkArm(arm, color, lineColor, t.alpha)
                 }
             }
         }
     }
+}
+
+// Parsed once per process; drawing never mutates the paths.
+private val YoinMarkArms: List<MarkArm> by lazy {
+    ARM_DEFS.map { (fillD, lineD, width) ->
+        MarkArm(
+            fill = PathParser().parsePathString(fillD).toPath(),
+            line = PathParser().parsePathString(lineD).toPath(),
+            lineStroke = width > 0f,
+            lineWidth = width,
+        )
+    }
+}
+
+private fun DrawScope.drawMarkArm(arm: MarkArm, color: Color, lineColor: Color, alpha: Float) {
+    drawPath(arm.fill, color = color, alpha = alpha)
+    if (arm.lineStroke) {
+        drawPath(
+            arm.line,
+            color = lineColor,
+            alpha = alpha,
+            style = Stroke(width = arm.lineWidth, cap = StrokeCap.Round),
+        )
+    } else {
+        drawPath(arm.line, color = lineColor, alpha = alpha)
+    }
+}
+
+/** The mark's native view-space size (the arm paths live in a 1024×1024 box). */
+internal const val YoinMarkViewBox = VIEWBOX
+
+/** Where the three arms meet, in view space — the hub the mark rotates around. */
+internal val YoinMarkHub: Offset get() = PIVOT
+
+/**
+ * Draws ONE arm of the mark ([arm] in [YoinMark] order: 0 lower-left, 1 upper,
+ * 2 lower-right) — fill plus its white centre line — in the mark's native
+ * 1024 view space. The caller owns the transform (the detail-page backdrops
+ * compose single arms into their own arrangements).
+ */
+internal fun DrawScope.drawYoinArm(arm: Int, color: Color, lineColor: Color, alpha: Float = 1f) {
+    drawMarkArm(YoinMarkArms[arm], color, lineColor, alpha)
 }

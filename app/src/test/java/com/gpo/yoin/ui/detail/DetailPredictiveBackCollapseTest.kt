@@ -4,6 +4,7 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.async
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.yield
@@ -102,4 +103,22 @@ class DetailPredictiveBackCollapseTest {
         assertTrue(nextOperation.isCompleted)
         assertFalse(idleReset)
     }
+    @Test
+    fun should_finishSettle_whenSecondBackCancelsOnlyTheHandlerWait() = runTest {
+        val guard = DetailBackOperationGuard()
+        val release = CompletableDeferred<Unit>()
+        var finishes = 0
+        guard.markCommitted()
+        val commit = guard.launchCommit(this, settle = { release.await() }, onFinish = { finishes++ })
+        val handler = launch { commit.join() }
+        yield()
+        handler.cancel()
+        handler.join()
+        assertEquals(0, finishes)
+        assertFalse(commit.isCancelled)
+        release.complete(Unit)
+        commit.join()
+        assertEquals(1, finishes)
+    }
+
 }

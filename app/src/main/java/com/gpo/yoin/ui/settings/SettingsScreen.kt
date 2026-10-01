@@ -1,5 +1,6 @@
 package com.gpo.yoin.ui.settings
 
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
@@ -12,38 +13,37 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.layout.onGloballyPositioned
-import androidx.compose.ui.layout.positionInParent
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.CloudQueue
-import androidx.compose.material.icons.filled.Error
-import androidx.compose.material.icons.filled.Folder
-import androidx.compose.material.icons.filled.Headphones
-import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.filled.Visibility
-import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
+import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.AutoAwesome
+import androidx.compose.material.icons.rounded.CloudQueue
+import androidx.compose.material.icons.rounded.Error
+import androidx.compose.material.icons.rounded.Folder
+import androidx.compose.material.icons.rounded.Headphones
+import androidx.compose.material.icons.rounded.Info
+import androidx.compose.material.icons.rounded.MoreVert
+import androidx.compose.material.icons.rounded.MusicNote
+import androidx.compose.material.icons.rounded.Reviews
+import androidx.compose.material.icons.rounded.Storage
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -51,20 +51,20 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Snackbar
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.compose.material3.Snackbar
-import androidx.compose.material3.SnackbarHost
-import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -73,13 +73,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.text.input.PasswordVisualTransformation
-import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInParent
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -88,27 +87,36 @@ import com.gpo.yoin.data.integration.neodb.NeoDBOAuthContract
 import com.gpo.yoin.data.local.GeminiConfig
 import com.gpo.yoin.data.profile.ProfileManager
 import com.gpo.yoin.data.profile.ProviderKind
-import com.gpo.yoin.data.source.spotify.SpotifyOAuthContract
-import com.gpo.yoin.ui.component.ExpressiveHeaderBlock
-import com.gpo.yoin.ui.component.horizontalEdgeFadeOnScroll
-import com.gpo.yoin.ui.component.ignoreParentHorizontalPadding
 import com.gpo.yoin.ui.component.ExpressivePageBackground
-import com.gpo.yoin.ui.component.ExpressiveSectionPanel
 import com.gpo.yoin.ui.component.ExpressiveTextField
 import com.gpo.yoin.ui.component.YoinDropdownMenu
 import com.gpo.yoin.ui.component.YoinDropdownMenuItem
 import com.gpo.yoin.ui.component.YoinLoadingIndicator
 import com.gpo.yoin.ui.component.YoinPageWidths
+import com.gpo.yoin.ui.component.horizontalEdgeFadeOnScroll
+import com.gpo.yoin.ui.component.ignoreParentHorizontalPadding
 import com.gpo.yoin.ui.component.minimumTouchTarget
 import com.gpo.yoin.ui.component.yoinPageContentWidth
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
+import com.gpo.yoin.ui.settings.service.ServiceSetupContract
+import com.gpo.yoin.ui.settings.service.ServiceSetupRequest
+import com.gpo.yoin.ui.settings.service.SetupService
 import com.gpo.yoin.ui.theme.ProvideYoinMotionRole
+import com.gpo.yoin.ui.theme.YoinContainerShapes
 import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinMotionRole
 import com.gpo.yoin.ui.theme.YoinShapeTokens
-import com.gpo.yoin.ui.theme.YoinContainerShapes
 import com.gpo.yoin.ui.theme.YoinTheme
 import kotlinx.coroutines.launch
+
+/** Deep-link targets for [SettingsActivity]'s `focusSection` extra. */
+object SettingsFocus {
+    /** Opens the Spotify setup page with its Client ID field focused. */
+    const val SPOTIFY = "spotify"
+
+    /** Scrolls to and expands the NeoDB row. */
+    const val NEODB = "neodb"
+}
 
 @Composable
 fun SettingsScreen(
@@ -119,57 +127,68 @@ fun SettingsScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val switchingState by viewModel.switchingState.collectAsState()
-    val profileFormSheet by viewModel.profileFormSheet.collectAsState()
     val providerPicker by viewModel.providerPickerState.collectAsState()
     val deleteConfirm by viewModel.deleteConfirmState.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
 
-    val spotifyOAuthLauncher = rememberLauncherForActivityResult(SpotifyOAuthContract()) { result ->
-        viewModel.commitSpotifyProfile(result)
-    }
     val neoDbOAuthLauncher = rememberLauncherForActivityResult(NeoDBOAuthContract()) { result ->
         viewModel.commitNeoDbOAuth(result)
     }
+    // The setup page hands back the id of a newly added account; the switch
+    // runs here so it survives that page finishing.
+    val serviceSetupLauncher = rememberLauncherForActivityResult(ServiceSetupContract()) { activateId ->
+        activateId?.let(viewModel::switchToProfile)
+    }
+    val openService: (ServiceSetupRequest) -> Unit = { serviceSetupLauncher.launch(it) }
 
     LaunchedEffect(viewModel) {
         viewModel.events.collect { event ->
             when (event) {
-                is SettingsOneShotEvent.LaunchSpotifyOAuth ->
-                    spotifyOAuthLauncher.launch(event.targetProfileId)
-                is SettingsOneShotEvent.LaunchNeoDbOAuth ->
-                    neoDbOAuthLauncher.launch(event.instance)
+                is SettingsOneShotEvent.LaunchNeoDbOAuth -> neoDbOAuthLauncher.launch(event.instance)
                 is SettingsOneShotEvent.ShowError ->
                     scope.launch { snackbarHostState.showSnackbar(event.message) }
             }
         }
     }
 
+    // "No Client ID" deep link lands on the Spotify page itself; Settings
+    // stays underneath so back reads Spotify → Settings → origin.
+    var spotifyDeepLinkHandled by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(focusSection, uiState) {
+        val content = uiState as? SettingsUiState.Content ?: return@LaunchedEffect
+        if (focusSection != SettingsFocus.SPOTIFY || spotifyDeepLinkHandled) return@LaunchedEffect
+        spotifyDeepLinkHandled = true
+        val spotifyProfile = content.profileCards
+            .filter { it.provider == ProviderKind.SPOTIFY }
+            .let { cards -> cards.firstOrNull { it.isActive } ?: cards.firstOrNull() }
+        openService(
+            ServiceSetupRequest(
+                service = SetupService.Spotify,
+                profileId = spotifyProfile?.id,
+                focusClientId = true,
+            ),
+        )
+    }
+
     SettingsContent(
         uiState = uiState,
         switchingState = switchingState,
-        profileFormSheet = profileFormSheet,
         providerPickerVisible = providerPicker.visible,
         deleteConfirmState = deleteConfirm,
         snackbarHostState = snackbarHostState,
         focusSection = focusSection,
         onBackClick = onBackClick,
         onSwitchToProfile = viewModel::switchToProfile,
-        onEditProfile = viewModel::openEditProfile,
+        onOpenService = openService,
         onRequestDeleteProfile = viewModel::requestDeleteProfile,
-        onReconnectProfile = viewModel::reconnectSpotifyProfile,
         onShowProviderPicker = viewModel::showProviderPicker,
         onHideProviderPicker = viewModel::hideProviderPicker,
-        onPickProvider = viewModel::pickProviderForNewProfile,
-        onCloseFormSheet = viewModel::closeProfileFormSheet,
-        onTestConnection = viewModel::testConnection,
-        onSaveProfile = viewModel::saveSubsonicProfile,
         onDismissSwitchError = viewModel::dismissSwitchError,
         onDismissDeleteConfirm = viewModel::dismissDeleteConfirm,
         onConfirmDeleteProfile = viewModel::confirmDeleteProfile,
         onSaveGeminiApiKey = viewModel::saveGeminiApiKey,
         onSaveGeminiTargetLanguage = viewModel::saveGeminiTargetLanguage,
-        onSaveSpotifyClientId = viewModel::saveSpotifyClientId,
         onOpenNeoDbSignIn = viewModel::openNeoDbSignIn,
         onSaveNeoDbConfig = viewModel::saveNeoDbConfig,
         onClearNeoDbToken = viewModel::clearNeoDbToken,
@@ -183,33 +202,26 @@ fun SettingsScreen(
 fun SettingsContent(
     uiState: SettingsUiState,
     switchingState: ProfileManager.SwitchState,
-    profileFormSheet: ProfileFormSheet,
     providerPickerVisible: Boolean,
     deleteConfirmState: DeleteConfirmState,
-    snackbarHostState: SnackbarHostState = remember { SnackbarHostState() },
-    focusSection: String? = null,
     onBackClick: () -> Unit,
     onSwitchToProfile: (String) -> Unit,
-    onEditProfile: (String) -> Unit,
+    onOpenService: (ServiceSetupRequest) -> Unit,
     onRequestDeleteProfile: (String) -> Unit,
-    onReconnectProfile: (String) -> Unit,
     onShowProviderPicker: () -> Unit,
     onHideProviderPicker: () -> Unit,
-    onPickProvider: (ProviderKind) -> Unit,
-    onCloseFormSheet: () -> Unit,
-    onTestConnection: (String, String, String) -> Unit,
-    onSaveProfile: (String, String, String) -> Unit,
     onDismissSwitchError: () -> Unit,
     onDismissDeleteConfirm: () -> Unit,
     onConfirmDeleteProfile: () -> Unit,
+    onClearCache: () -> Unit,
+    modifier: Modifier = Modifier,
+    snackbarHostState: SnackbarHostState = remember { SnackbarHostState() },
+    focusSection: String? = null,
     onSaveGeminiApiKey: (String) -> Unit = {},
     onSaveGeminiTargetLanguage: (String) -> Unit = {},
-    onSaveSpotifyClientId: (String) -> Unit = {},
     onOpenNeoDbSignIn: (String) -> Unit = {},
     onSaveNeoDbConfig: (String, String) -> Unit = { _, _ -> },
     onClearNeoDbToken: () -> Unit = {},
-    onClearCache: () -> Unit,
-    modifier: Modifier = Modifier,
 ) {
     ProvideYoinMotionRole(role = YoinMotionRole.Standard) {
         val haptics = rememberYoinHaptics()
@@ -230,10 +242,7 @@ fun SettingsContent(
                                         onBackClick()
                                     },
                                 ) {
-                                    Icon(
-                                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                                        contentDescription = "Back",
-                                    )
+                                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                                 }
                             },
                             colors = TopAppBarDefaults.topAppBarColors(
@@ -243,27 +252,14 @@ fun SettingsContent(
                             ),
                         )
                     },
-                    snackbarHost = {
-                        SnackbarHost(hostState = snackbarHostState) { data ->
-                            Snackbar(snackbarData = data)
-                        }
-                    },
+                    snackbarHost = { SnackbarHost(snackbarHostState) { Snackbar(it) } },
                 ) { innerPadding ->
-                    val navBottom = WindowInsets.navigationBars.asPaddingValues()
-                        .calculateBottomPadding()
+                    val navBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
                     val scrollState = rememberScrollState()
-                    var spotifySectionTopPx by remember { mutableIntStateOf(-1) }
-                    var neoDbSectionTopPx by remember { mutableIntStateOf(-1) }
-                    val spotifyClientIdFocusRequester = remember { FocusRequester() }
-                    LaunchedEffect(focusSection, spotifySectionTopPx, neoDbSectionTopPx) {
-                        when (focusSection) {
-                            "spotify" -> if (spotifySectionTopPx >= 0) {
-                                scrollState.animateScrollTo(spotifySectionTopPx)
-                                runCatching { spotifyClientIdFocusRequester.requestFocus() }
-                            }
-                            "neodb" -> if (neoDbSectionTopPx >= 0) {
-                                scrollState.animateScrollTo(neoDbSectionTopPx)
-                            }
+                    var neoDbTopPx by remember { mutableIntStateOf(-1) }
+                    LaunchedEffect(focusSection, neoDbTopPx) {
+                        if (focusSection == SettingsFocus.NEODB && neoDbTopPx >= 0) {
+                            scrollState.animateScrollTo(neoDbTopPx)
                         }
                     }
                     Column(
@@ -272,19 +268,12 @@ fun SettingsContent(
                             // Reading/form surface: cap + center on Medium+
                             // windows; no-op on phones.
                             .yoinPageContentWidth(YoinPageWidths.Prose)
-                            // Lift the scroll container above the IME so a
-                            // low-on-page field (tokens / API keys) isn't covered
-                            // by the keyboard (Scaffold contentWindowInsets is 0).
+                            // Keep low-on-page fields (API key / token) above
+                            // the IME (Scaffold contentWindowInsets is 0).
                             .imePadding()
-                            .verticalScroll(scrollState)
                             .padding(innerPadding)
-                            .padding(
-                                start = 16.dp,
-                                top = 16.dp,
-                                end = 16.dp,
-                                bottom = 16.dp + navBottom,
-                            ),
-                        verticalArrangement = Arrangement.spacedBy(16.dp),
+                            .verticalScroll(scrollState)
+                            .padding(start = 16.dp, top = 8.dp, end = 16.dp, bottom = 24.dp + navBottom),
                     ) {
                         AnimatedContent(
                             targetState = uiState,
@@ -299,62 +288,55 @@ fun SettingsContent(
                             modifier = Modifier.fillMaxWidth(),
                         ) { state ->
                             when (state) {
-                                is SettingsUiState.Loading -> {
-                                    Box(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        contentAlignment = Alignment.Center,
-                                    ) {
-                                        YoinLoadingIndicator()
-                                    }
-                                }
+                                is SettingsUiState.Loading -> Box(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    contentAlignment = Alignment.Center,
+                                ) { YoinLoadingIndicator() }
 
                                 is SettingsUiState.Content -> Column(
-                                    verticalArrangement = Arrangement.spacedBy(16.dp),
+                                    verticalArrangement = Arrangement.spacedBy(28.dp),
                                 ) {
-                                    ProfileSwitcherSection(
+                                    AccountsSection(
                                         profileCards = state.profileCards,
                                         canAddProfile = state.canAddProfile,
                                         maxProfiles = state.maxProfiles,
                                         onSwitchToProfile = onSwitchToProfile,
-                                        onEditProfile = onEditProfile,
+                                        onOpenService = onOpenService,
                                         onRequestDeleteProfile = onRequestDeleteProfile,
-                                        onReconnectProfile = onReconnectProfile,
-                                        onShowProviderPicker = onShowProviderPicker,
+                                        onAddAccount = onShowProviderPicker,
                                     )
-                                    GeminiSection(
-                                        initialApiKey = state.geminiApiKey,
-                                        initialTargetLanguage = state.geminiTargetLanguage,
-                                        onSaveApiKey = onSaveGeminiApiKey,
-                                        onSaveTargetLanguage = onSaveGeminiTargetLanguage,
-                                    )
-                                    SpotifySection(
-                                        initialClientId = state.spotifyClientId,
-                                        usesFallback = state.spotifyClientIdUsesFallback,
-                                        onSaveClientId = onSaveSpotifyClientId,
-                                        clientIdFocusRequester = spotifyClientIdFocusRequester,
+                                    SettingsGroup(
+                                        title = "Features",
                                         modifier = Modifier.onGloballyPositioned { coords ->
-                                            spotifySectionTopPx = coords.positionInParent().y
-                                                .toInt()
-                                                .coerceAtLeast(0)
+                                            neoDbTopPx = coords.positionInParent().y.toInt().coerceAtLeast(0)
                                         },
-                                    )
-                                    NeoDbSection(
-                                        initialInstance = state.neoDbInstance,
-                                        initialAccessToken = state.neoDbAccessToken,
-                                        onOpenSignIn = onOpenNeoDbSignIn,
-                                        onSaveConfig = onSaveNeoDbConfig,
-                                        onClearToken = onClearNeoDbToken,
-                                        modifier = Modifier.onGloballyPositioned { coords ->
-                                            neoDbSectionTopPx = coords.positionInParent().y
-                                                .toInt()
-                                                .coerceAtLeast(0)
-                                        },
-                                    )
-                                    CacheSection(
-                                        cacheSizeBytes = state.cacheSizeBytes,
-                                        onClearCache = onClearCache,
-                                    )
-                                    AboutSection()
+                                    ) {
+                                        GeminiItem(
+                                            apiKey = state.geminiApiKey,
+                                            targetLanguage = state.geminiTargetLanguage,
+                                            onSaveApiKey = onSaveGeminiApiKey,
+                                            onSaveTargetLanguage = onSaveGeminiTargetLanguage,
+                                        )
+                                        SettingsRowDivider()
+                                        NeoDbItem(
+                                            instance = state.neoDbInstance,
+                                            accessToken = state.neoDbAccessToken,
+                                            initiallyExpanded = focusSection == SettingsFocus.NEODB,
+                                            onOpenSignIn = onOpenNeoDbSignIn,
+                                            onSaveConfig = onSaveNeoDbConfig,
+                                            onClearToken = onClearNeoDbToken,
+                                        )
+                                    }
+                                    SettingsGroup(title = "Storage") {
+                                        CacheItem(state.cacheSizeBytes, onClearCache)
+                                    }
+                                    SettingsGroup(title = "About") {
+                                        SettingsItem(
+                                            icon = Icons.Rounded.Info,
+                                            title = "Yoin",
+                                            summary = "Version ${BuildConfig.VERSION_NAME}",
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -366,8 +348,7 @@ fun SettingsContent(
                     activeName = (uiState as? SettingsUiState.Content)
                         ?.profileCards
                         ?.firstOrNull { card ->
-                            card.id ==
-                                (switchingState as? ProfileManager.SwitchState.Switching)?.profileId
+                            card.id == (switchingState as? ProfileManager.SwitchState.Switching)?.profileId
                         }
                         ?.displayName,
                     onDismissError = onDismissSwitchError,
@@ -377,18 +358,9 @@ fun SettingsContent(
     }
 
     if (providerPickerVisible) {
-        ProviderPickerSheet(
+        AddAccountSheet(
             onDismiss = onHideProviderPicker,
-            onPickProvider = onPickProvider,
-        )
-    }
-
-    (profileFormSheet as? ProfileFormSheet.Visible)?.let { sheet ->
-        ProfileFormBottomSheet(
-            state = sheet,
-            onDismiss = onCloseFormSheet,
-            onTestConnection = onTestConnection,
-            onSave = onSaveProfile,
+            onPick = { service -> onOpenService(ServiceSetupRequest(service)) },
         )
     }
 
@@ -401,107 +373,98 @@ fun SettingsContent(
     }
 }
 
-// ── Profile switcher section (horizontal cards + "+" tile) ────────────
+// ── Accounts ──────────────────────────────────────────────────────────
 
 @Composable
-private fun ProfileSwitcherSection(
+private fun AccountsSection(
     profileCards: List<ProfileCard>,
     canAddProfile: Boolean,
     maxProfiles: Int,
     onSwitchToProfile: (String) -> Unit,
-    onEditProfile: (String) -> Unit,
+    onOpenService: (ServiceSetupRequest) -> Unit,
     onRequestDeleteProfile: (String) -> Unit,
-    onReconnectProfile: (String) -> Unit,
-    onShowProviderPicker: () -> Unit,
-    modifier: Modifier = Modifier,
+    onAddAccount: () -> Unit,
 ) {
-    ExpressiveSectionPanel(
-        modifier = modifier.fillMaxWidth(),
-        containerColor = MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.96f),
-        tonalElevation = 1.dp,
-        shadowElevation = 0.dp,
-    ) {
-        Column(
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        SettingsGroupLabel(
+            title = "Accounts",
+            trailingLabel = if (profileCards.isEmpty()) null else "${profileCards.size} of $maxProfiles",
+        )
+        if (profileCards.isEmpty()) {
+            EmptyAccountsCard(onAddAccount)
+            return@Column
+        }
+        val rowState = rememberLazyListState()
+        LazyRow(
+            state = rowState,
+            // Full-bleed past the page padding: cards scroll under the screen
+            // edges with a fade instead of being chopped at the padding line.
+            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 18.dp),
+                .height(IntrinsicCardHeight)
+                .ignoreParentHorizontalPadding(16.dp)
+                .horizontalEdgeFadeOnScroll(rowState),
+        ) {
+            items(items = profileCards, key = { it.id }) { card ->
+                val manage = {
+                    SetupService.forProvider(card.provider)?.let { service ->
+                        onOpenService(ServiceSetupRequest(service, profileId = card.id))
+                    }
+                    Unit
+                }
+                ProfileCardTile(
+                    card = card,
+                    // Anything that needs attention — or the account you're
+                    // already on — opens its page; any other card switches.
+                    onTap = {
+                        if (card.isActive || card.requiresReconnect || card.requiresCredentialsReentry) {
+                            manage()
+                        } else {
+                            onSwitchToProfile(card.id)
+                        }
+                    },
+                    onManage = manage,
+                    onRemove = { onRequestDeleteProfile(card.id) },
+                )
+            }
+            if (canAddProfile) {
+                item(key = "add") { AddAccountTile(onClick = onAddAccount) }
+            }
+        }
+    }
+}
+
+private val IntrinsicCardHeight = 172.dp
+
+@Composable
+private fun EmptyAccountsCard(onAddAccount: () -> Unit) {
+    val haptics = rememberYoinHaptics()
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = YoinContainerShapes.Panel,
+        color = MaterialTheme.colorScheme.primaryContainer,
+        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+    ) {
+        Column(
+            modifier = Modifier.padding(20.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
+            Text("Bring your music", style = MaterialTheme.typography.titleLarge)
+            Text(
+                "Connect a server or a streaming account to start listening.",
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            Button(
+                onClick = {
+                    haptics.performClick()
+                    onAddAccount()
+                },
             ) {
-                ExpressiveHeaderBlock(title = "Profiles")
-                Text(
-                    text = "${profileCards.size} / $maxProfiles",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-
-            if (profileCards.isEmpty()) {
-                Text(
-                    text = "No profiles yet. Tap + to add one.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-
-            val profileRowState = rememberLazyListState()
-            LazyRow(
-                state = profileRowState,
-                // Full-bleed past the page's 18dp padding — scrolled cards run
-                // under the screen edges with a soft fade instead of being
-                // chopped at the padding line.
-                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .ignoreParentHorizontalPadding(16.dp)
-                    .horizontalEdgeFadeOnScroll(profileRowState),
-            ) {
-                items(
-                    items = profileCards,
-                    key = { it.id },
-                ) { card ->
-                    ProfileCardTile(
-                        card = card,
-                        onTap = {
-                            when {
-                                card.requiresReconnect ->
-                                    onReconnectProfile(card.id)
-                                // Subsonic missing-credentials recovery: edit
-                                // form regardless of active state so the user
-                                // can re-enter URL + username + password
-                                // without first activating a broken profile.
-                                card.requiresCredentialsReentry ->
-                                    onEditProfile(card.id)
-                                card.isActive ->
-                                    onEditProfile(card.id)
-                                else ->
-                                    onSwitchToProfile(card.id)
-                            }
-                        },
-                        onReconnect = { onReconnectProfile(card.id) },
-                        onEdit = { onEditProfile(card.id) },
-                        onDelete = { onRequestDeleteProfile(card.id) },
-                    )
-                }
-                item(key = "add") {
-                    AddProfileCardTile(
-                        enabled = canAddProfile,
-                        onClick = onShowProviderPicker,
-                    )
-                }
-            }
-
-            if (!canAddProfile) {
-                Text(
-                    text = "Profile limit reached ($maxProfiles). Delete one to add another.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                Icon(Icons.Rounded.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(8.dp))
+                Text("Add account")
             }
         }
     }
@@ -511,9 +474,8 @@ private fun ProfileSwitcherSection(
 private fun ProfileCardTile(
     card: ProfileCard,
     onTap: () -> Unit,
-    onReconnect: () -> Unit,
-    onEdit: () -> Unit,
-    onDelete: () -> Unit,
+    onManage: () -> Unit,
+    onRemove: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val haptics = rememberYoinHaptics()
@@ -521,30 +483,36 @@ private fun ProfileCardTile(
         targetValue = if (card.isActive) {
             MaterialTheme.colorScheme.primaryContainer
         } else {
-            MaterialTheme.colorScheme.surfaceContainerHighest
+            MaterialTheme.colorScheme.surfaceContainerHigh
         },
         animationSpec = YoinMotion.defaultEffectsSpec(),
-        label = "cardContainerColor",
+        label = "accountCardContainer",
     )
-    val contentColor = if (card.isActive) {
-        MaterialTheme.colorScheme.onPrimaryContainer
-    } else {
-        MaterialTheme.colorScheme.onSurface
-    }
+    val contentColor by animateColorAsState(
+        targetValue = if (card.isActive) {
+            MaterialTheme.colorScheme.onPrimaryContainer
+        } else {
+            MaterialTheme.colorScheme.onSurface
+        },
+        animationSpec = YoinMotion.defaultEffectsSpec(),
+        label = "accountCardContent",
+    )
     val scale by animateFloatAsState(
-        targetValue = if (card.isActive) 1.04f else 1f,
+        targetValue = if (card.isActive) 1f else 0.96f,
         animationSpec = YoinMotion.spatialSpring(),
-        label = "cardScale",
+        label = "accountCardScale",
     )
     var menuOpen by remember { mutableStateOf(false) }
 
     Surface(
         modifier = modifier
-            .width(168.dp)
+            .width(200.dp)
+            .fillMaxHeight()
             .graphicsLayer {
                 scaleX = scale
                 scaleY = scale
-            },
+            }
+            .testTag("account_card_${card.id}"),
         shape = YoinContainerShapes.Card,
         color = containerColor,
         contentColor = contentColor,
@@ -552,29 +520,17 @@ private fun ProfileCardTile(
             haptics.performClick()
             onTap()
         },
-        tonalElevation = if (card.isActive) 2.dp else 0.dp,
-        shadowElevation = 0.dp,
     ) {
         Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                // Reduced top padding offsets the ⋮ button's full-size touch
-                // target (48dp row vs the old 32dp) so the provider icon keeps
-                // the same visual inset from the card's top edge.
-                .padding(start = 14.dp, top = 6.dp, end = 14.dp, bottom = 14.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.padding(start = 16.dp, top = 6.dp, end = 4.dp, bottom = 16.dp),
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(
                     imageVector = providerIcon(card.provider),
-                    contentDescription = null,
-                    tint = contentColor,
-                    modifier = Modifier.size(26.dp),
+                    contentDescription = card.provider.displayLabel,
+                    modifier = Modifier.size(24.dp),
                 )
+                Spacer(Modifier.weight(1f))
                 Box {
                     IconButton(
                         onClick = {
@@ -584,484 +540,398 @@ private fun ProfileCardTile(
                         modifier = Modifier.minimumTouchTarget(),
                     ) {
                         Icon(
-                            imageVector = Icons.Filled.MoreVert,
-                            contentDescription = "Profile options",
+                            imageVector = Icons.Rounded.MoreVert,
+                            contentDescription = "Account options",
                             tint = contentColor.copy(alpha = 0.72f),
-                            modifier = Modifier.size(18.dp),
+                            modifier = Modifier.size(20.dp),
                         )
                     }
-                    YoinDropdownMenu(
-                        expanded = menuOpen,
-                        onDismissRequest = { menuOpen = false },
-                    ) {
-                        if (card.requiresReconnect) {
-                            YoinDropdownMenuItem(
-                                text = "Reconnect",
-                                onClick = {
-                                    haptics.performContextClick()
-                                    menuOpen = false
-                                    onReconnect()
-                                },
-                            )
-                        }
+                    YoinDropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
                         YoinDropdownMenuItem(
-                            text = "Edit",
+                            text = "Manage",
                             onClick = {
                                 haptics.performContextClick()
                                 menuOpen = false
-                                onEdit()
+                                onManage()
                             },
                         )
                         YoinDropdownMenuItem(
-                            text = "Delete",
+                            text = "Remove",
                             onClick = {
                                 haptics.performReject()
                                 menuOpen = false
-                                onDelete()
+                                onRemove()
                             },
                         )
                     }
                 }
             }
-
-            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Text(
-                    text = card.displayName,
-                    style = MaterialTheme.typography.titleMedium,
-                    color = contentColor,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Text(
-                    text = card.subtitle ?: card.provider.displayLabel,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = contentColor.copy(alpha = 0.72f),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    text = card.provider.displayLabel,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = contentColor.copy(alpha = 0.66f),
-                )
-                when {
-                    card.unavailableReason != null -> Surface(
-                        shape = YoinShapeTokens.Small,
-                        color = MaterialTheme.colorScheme.errorContainer,
-                        contentColor = MaterialTheme.colorScheme.onErrorContainer,
-                    ) {
-                        Text(
-                            text = card.unavailableReason,
-                            style = MaterialTheme.typography.labelSmall,
-                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                        )
-                    }
-                    card.isActive -> Text(
-                        text = "Active",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = contentColor,
-                    )
-                }
-            }
+            Spacer(Modifier.weight(1f))
+            Text(
+                text = card.displayName,
+                style = MaterialTheme.typography.titleMedium,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(end = 12.dp),
+            )
+            Spacer(Modifier.height(6.dp))
+            AccountStatus(card = card, contentColor = contentColor)
         }
     }
 }
 
+/** One line under the name: a problem if there is one, else "In use", else where it lives. */
 @Composable
-private fun AddProfileCardTile(
-    enabled: Boolean,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    val alpha by animateFloatAsState(
-        targetValue = if (enabled) 1f else 0.4f,
-        animationSpec = YoinMotion.defaultEffectsSpec(),
-        label = "addCardAlpha",
-    )
+private fun AccountStatus(card: ProfileCard, contentColor: Color) {
+    val issue = card.unavailableReason
+    when {
+        issue != null -> Surface(
+            shape = YoinShapeTokens.Full,
+            color = MaterialTheme.colorScheme.errorContainer,
+            contentColor = MaterialTheme.colorScheme.onErrorContainer,
+        ) {
+            Text(
+                text = issue,
+                style = MaterialTheme.typography.labelMedium,
+                maxLines = 1,
+                modifier = Modifier.padding(horizontal = 10.dp, vertical = 3.dp),
+            )
+        }
+        card.isActive -> Surface(
+            shape = YoinShapeTokens.Full,
+            color = MaterialTheme.colorScheme.primary,
+            contentColor = MaterialTheme.colorScheme.onPrimary,
+        ) {
+            Text(
+                text = "In use",
+                style = MaterialTheme.typography.labelMedium,
+                modifier = Modifier.padding(horizontal = 10.dp, vertical = 3.dp),
+            )
+        }
+        else -> Text(
+            text = card.subtitle ?: card.provider.displayLabel,
+            style = MaterialTheme.typography.bodySmall,
+            color = contentColor.copy(alpha = 0.72f),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.padding(end = 12.dp),
+        )
+    }
+}
+
+@Composable
+private fun AddAccountTile(onClick: () -> Unit) {
+    val haptics = rememberYoinHaptics()
     Surface(
-        modifier = modifier
-            .width(120.dp)
-            .alpha(alpha),
+        modifier = Modifier
+            .width(112.dp)
+            .fillMaxHeight()
+            .testTag("add_account"),
         shape = YoinContainerShapes.Card,
-        color = MaterialTheme.colorScheme.surfaceContainerHigh,
-        contentColor = MaterialTheme.colorScheme.onSurface,
-        onClick = onClick,
-        enabled = enabled,
-        tonalElevation = 0.dp,
-        shadowElevation = 0.dp,
+        color = MaterialTheme.colorScheme.surfaceContainer,
+        contentColor = MaterialTheme.colorScheme.primary,
+        onClick = {
+            haptics.performClick()
+            onClick()
+        },
     ) {
         Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(vertical = 24.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterVertically),
         ) {
-            Icon(
-                imageVector = Icons.Filled.Add,
-                contentDescription = "Add profile",
-                modifier = Modifier.size(28.dp),
-            )
-            Text(
-                text = "Add",
-                style = MaterialTheme.typography.labelLarge,
-            )
+            Icon(Icons.Rounded.Add, contentDescription = null, modifier = Modifier.size(28.dp))
+            Text("Add", style = MaterialTheme.typography.labelLarge)
         }
     }
 }
 
 private fun providerIcon(kind: ProviderKind): ImageVector = when (kind) {
-    ProviderKind.SUBSONIC -> Icons.Filled.CloudQueue
-    ProviderKind.SPOTIFY -> Icons.Filled.Headphones
-    ProviderKind.LOCAL -> Icons.Filled.Folder
+    ProviderKind.SUBSONIC -> Icons.Rounded.CloudQueue
+    ProviderKind.SPOTIFY -> Icons.Rounded.Headphones
+    ProviderKind.APPLE_MUSIC -> Icons.Rounded.MusicNote
+    ProviderKind.LOCAL -> Icons.Rounded.Folder
 }
 
-// ── Provider picker bottom sheet ──────────────────────────────────────
+// ── Add account sheet ────────────────────────────────────────────────
 
+/**
+ * Just the choice: name + one short line each. What a service can do is
+ * told on its own page, after the user shows interest by tapping it.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun ProviderPickerSheet(
+private fun AddAccountSheet(
     onDismiss: () -> Unit,
-    onPickProvider: (ProviderKind) -> Unit,
+    onPick: (SetupService) -> Unit,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val scope = rememberCoroutineScope()
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        sheetState = sheetState,
-    ) {
+    val pick: (SetupService) -> Unit = { service ->
+        scope.launch {
+            sheetState.hide()
+            onDismiss()
+            onPick(service)
+        }
+    }
+    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 24.dp, vertical = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
+                .verticalScroll(rememberScrollState())
+                .padding(bottom = 16.dp),
         ) {
             Text(
-                text = "Choose a source",
-                style = MaterialTheme.typography.titleLarge,
+                text = "Add an account",
+                style = MaterialTheme.typography.headlineSmall,
                 color = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.padding(start = 24.dp, end = 24.dp, bottom = 12.dp),
             )
-            Text(
-                text = "Yoin will save a new profile with the credentials you provide for the source.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            ServiceChoiceRow(
+                icon = Icons.Rounded.CloudQueue,
+                title = "Subsonic",
+                summary = "Navidrome, Airsonic and other servers",
+                onClick = { pick(SetupService.Subsonic) },
             )
-            ProviderKind.entries.forEach { provider ->
-                ProviderOption(
-                    provider = provider,
-                    onClick = {
-                        scope.launch {
-                            sheetState.hide()
-                            onPickProvider(provider)
-                        }
-                    },
-                )
-            }
-            Spacer(modifier = Modifier.height(8.dp))
+            ServiceChoiceRow(
+                icon = Icons.Rounded.Headphones,
+                title = "Spotify",
+                summary = "Your Spotify library",
+                onClick = { pick(SetupService.Spotify) },
+            )
+            ServiceChoiceRow(
+                icon = Icons.Rounded.MusicNote,
+                title = "Apple Music",
+                summary = "Your Apple Music library and catalog",
+                badge = "Preview",
+                onClick = { pick(SetupService.AppleMusic) },
+            )
+            ServiceChoiceRow(
+                icon = Icons.Rounded.Folder,
+                title = "Files on this device",
+                summary = "Coming later",
+                onClick = null,
+            )
         }
     }
 }
 
 @Composable
-private fun ProviderOption(
-    provider: ProviderKind,
-    onClick: () -> Unit,
+private fun ServiceChoiceRow(
+    icon: ImageVector,
+    title: String,
+    summary: String,
+    onClick: (() -> Unit)?,
+    badge: String? = null,
 ) {
-    val enabled = provider.isAvailable
+    val haptics = rememberYoinHaptics()
+    val enabled = onClick != null
     Surface(
-        modifier = Modifier.fillMaxWidth(),
-        onClick = onClick,
-        enabled = enabled,
-        shape = YoinShapeTokens.Large,
-        color = if (enabled) {
-            MaterialTheme.colorScheme.surfaceContainerHigh
-        } else {
-            MaterialTheme.colorScheme.surfaceContainer
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp)
+            .alpha(if (enabled) 1f else 0.5f),
+        onClick = {
+            haptics.performClick()
+            onClick?.invoke()
         },
-        tonalElevation = 0.dp,
-        shadowElevation = 0.dp,
+        enabled = enabled,
+        shape = YoinContainerShapes.Card,
+        color = Color.Transparent,
     ) {
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 14.dp),
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 12.dp),
             horizontalArrangement = Arrangement.spacedBy(16.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Icon(
-                imageVector = providerIcon(provider),
-                contentDescription = null,
-                tint = if (enabled) {
-                    MaterialTheme.colorScheme.onSurface
-                } else {
-                    MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
-                },
-                modifier = Modifier.size(28.dp),
-            )
-            Column(modifier = Modifier.fillMaxWidth()) {
-                Text(
-                    text = provider.displayLabel,
-                    style = MaterialTheme.typography.titleMedium,
-                    color = if (enabled) {
-                        MaterialTheme.colorScheme.onSurface
-                    } else {
-                        MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
-                    },
-                )
-                Text(
-                    text = if (enabled) {
-                        when (provider) {
-                            ProviderKind.SUBSONIC -> "Connect an OpenSubsonic / Navidrome / Airsonic server"
-                            ProviderKind.SPOTIFY -> "Connect via the Spotify app (Spotify Premium)"
-                            ProviderKind.LOCAL -> "Play files from this device"
+            SettingsRowIcon(icon)
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text(title, style = MaterialTheme.typography.titleMedium)
+                    if (badge != null) {
+                        Surface(
+                            shape = YoinShapeTokens.Full,
+                            color = MaterialTheme.colorScheme.tertiaryContainer,
+                            contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
+                        ) {
+                            Text(
+                                badge,
+                                style = MaterialTheme.typography.labelSmall,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                            )
                         }
-                    } else {
-                        "Coming soon"
-                    },
-                    style = MaterialTheme.typography.bodySmall,
+                    }
+                }
+                Text(
+                    summary,
+                    style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-        }
-    }
-}
-
-// ── Profile form bottom sheet (Subsonic create / edit) ────────────────
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun ProfileFormBottomSheet(
-    state: ProfileFormSheet.Visible,
-    onDismiss: () -> Unit,
-    onTestConnection: (String, String, String) -> Unit,
-    onSave: (String, String, String) -> Unit,
-) {
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        sheetState = sheetState,
-    ) {
-        when (state.provider) {
-            ProviderKind.SUBSONIC -> SubsonicProfileForm(
-                state = state,
-                onTestConnection = onTestConnection,
-                onSave = onSave,
-            )
-            else -> {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(24.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    Text(
-                        text = "${state.provider.displayLabel} support is coming soon.",
-                        style = MaterialTheme.typography.titleMedium,
-                    )
-                    Button(
-                        onClick = onDismiss,
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        Text("Close")
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun SubsonicProfileForm(
-    state: ProfileFormSheet.Visible,
-    onTestConnection: (String, String, String) -> Unit,
-    onSave: (String, String, String) -> Unit,
-) {
-    val formIdentity = when (val mode = state.mode) {
-        is ProfileFormSheet.Visible.Mode.Create -> "create:${state.provider.key}"
-        is ProfileFormSheet.Visible.Mode.Edit -> "edit:${state.provider.key}:${mode.profileId}"
-    }
-    var serverUrl by rememberSaveable(formIdentity) { mutableStateOf(state.initialUrl) }
-    var username by rememberSaveable(formIdentity) { mutableStateOf(state.initialUsername) }
-    var password by rememberSaveable(formIdentity) { mutableStateOf(state.initialPassword) }
-
-    val canSubmit = serverUrl.isNotBlank() &&
-        username.isNotBlank() &&
-        password.isNotBlank() &&
-        !state.isTesting
-
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 24.dp, vertical = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
-    ) {
-        Text(
-            text = when (state.mode) {
-                is ProfileFormSheet.Visible.Mode.Create -> "Add Subsonic profile"
-                is ProfileFormSheet.Visible.Mode.Edit -> "Edit profile"
-            },
-            style = MaterialTheme.typography.titleLarge,
-        )
-
-        ExpressiveTextField(
-            value = serverUrl,
-            onValueChange = { serverUrl = it },
-            label = "Server URL",
-            placeholder = "https://your-server.com",
-            modifier = Modifier.fillMaxWidth(),
-        )
-        ExpressiveTextField(
-            value = username,
-            onValueChange = { username = it },
-            label = "Username",
-            placeholder = "music-admin",
-            modifier = Modifier.fillMaxWidth(),
-        )
-        SecretTextField(
-            value = password,
-            onValueChange = { password = it },
-            label = "Password",
-            placeholder = "App password",
-            modifier = Modifier.fillMaxWidth(),
-        )
-
-        ConnectionStatusIndicator(
-            testResult = state.testResult,
-            isTesting = state.isTesting,
-            saveError = state.saveError,
-        )
-
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            OutlinedButton(
-                onClick = { onTestConnection(serverUrl, username, password) },
-                enabled = canSubmit,
-                modifier = Modifier.weight(1f),
-            ) {
-                Text("Test")
-            }
-            Button(
-                onClick = { onSave(serverUrl, username, password) },
-                enabled = canSubmit,
-                modifier = Modifier.weight(1f),
-            ) {
-                Text(
-                    text = when (state.mode) {
-                        is ProfileFormSheet.Visible.Mode.Create -> "Save & Switch"
-                        is ProfileFormSheet.Visible.Mode.Edit -> "Save"
-                    },
+            if (enabled) {
+                Icon(
+                    Icons.AutoMirrored.Rounded.KeyboardArrowRight,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
         }
-        Spacer(modifier = Modifier.height(8.dp))
+    }
+}
+
+// ── Features ─────────────────────────────────────────────────────────
+
+@Composable
+private fun GeminiItem(
+    apiKey: String,
+    targetLanguage: String,
+    onSaveApiKey: (String) -> Unit,
+    onSaveTargetLanguage: (String) -> Unit,
+) {
+    var expanded by rememberSaveable { mutableStateOf(false) }
+    var draftKey by rememberSaveable(apiKey) { mutableStateOf(apiKey) }
+    var languageMenuOpen by remember { mutableStateOf(false) }
+    val language = GeminiConfig.normalizeTargetLanguage(targetLanguage)
+    val haptics = rememberYoinHaptics()
+
+    SettingsExpandableItem(
+        icon = Icons.Rounded.AutoAwesome,
+        title = "AI features",
+        summary = if (apiKey.isBlank()) "Song info, Ask Gemini and translation" else "Gemini · $language",
+        expanded = expanded,
+        onExpandedChange = { expanded = it },
+    ) {
+        SecretTextField(
+            value = draftKey,
+            onValueChange = { draftKey = it },
+            label = "Gemini API key",
+            placeholder = "AIza…",
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Box {
+            OutlinedButton(
+                onClick = {
+                    haptics.performTick()
+                    languageMenuOpen = true
+                },
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text("Answer in $language", modifier = Modifier.weight(1f))
+            }
+            YoinDropdownMenu(expanded = languageMenuOpen, onDismissRequest = { languageMenuOpen = false }) {
+                GeminiConfig.SUPPORTED_TARGET_LANGUAGES.forEach { option ->
+                    YoinDropdownMenuItem(
+                        text = option,
+                        onClick = {
+                            haptics.performContextClick()
+                            languageMenuOpen = false
+                            onSaveTargetLanguage(option)
+                        },
+                    )
+                }
+            }
+        }
+        Button(
+            onClick = { onSaveApiKey(draftKey) },
+            enabled = draftKey.isNotBlank() && draftKey.trim() != apiKey,
+        ) { Text("Save key") }
     }
 }
 
 @Composable
-private fun ConnectionStatusIndicator(
-    testResult: ConnectionResult?,
-    isTesting: Boolean,
-    saveError: String?,
-    modifier: Modifier = Modifier,
+private fun NeoDbItem(
+    instance: String,
+    accessToken: String,
+    initiallyExpanded: Boolean,
+    onOpenSignIn: (String) -> Unit,
+    onSaveConfig: (String, String) -> Unit,
+    onClearToken: () -> Unit,
 ) {
-    val statusColor by animateColorAsState(
-        targetValue = when {
-            saveError != null -> MaterialTheme.colorScheme.error
-            testResult is ConnectionResult.Success -> MaterialTheme.colorScheme.primary
-            testResult is ConnectionResult.Failure -> MaterialTheme.colorScheme.error
-            else -> MaterialTheme.colorScheme.onSurfaceVariant
-        },
-        animationSpec = YoinMotion.defaultEffectsSpec(),
-        label = "statusColor",
-    )
-    Surface(
-        modifier = modifier.fillMaxWidth(),
-        shape = YoinShapeTokens.Large,
-        color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.64f),
+    var expanded by rememberSaveable { mutableStateOf(initiallyExpanded) }
+    var draftInstance by rememberSaveable(instance) { mutableStateOf(instance) }
+    var draftToken by rememberSaveable(accessToken) { mutableStateOf(accessToken) }
+    var showManualToken by rememberSaveable { mutableStateOf(false) }
+    val signedIn = accessToken.isNotBlank()
+
+    SettingsExpandableItem(
+        icon = Icons.Rounded.Reviews,
+        title = "NeoDB",
+        summary = if (signedIn) "Album ratings and reviews sync" else "Sync album ratings and reviews",
+        expanded = expanded,
+        onExpandedChange = { expanded = it },
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 14.dp, vertical = 12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            when {
-                isTesting -> {
-                    YoinLoadingIndicator(
-                        modifier = Modifier.size(20.dp),
-                        size = 20.dp,
+        ExpressiveTextField(
+            value = draftInstance,
+            onValueChange = { draftInstance = it },
+            label = "Instance",
+            placeholder = "https://neodb.social",
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Button(onClick = { onOpenSignIn(draftInstance) }) {
+                Text(if (signedIn) "Sign in again" else "Sign in")
+            }
+            if (signedIn) {
+                TextButton(
+                    onClick = {
+                        draftToken = ""
+                        onClearToken()
+                    },
+                ) { Text("Sign out") }
+            }
+        }
+        // Manual token is an escape hatch, not a step — hidden until asked for.
+        AnimatedContent(
+            targetState = showManualToken,
+            transitionSpec = {
+                YoinMotion.fadeIn(role = YoinMotionRole.Standard) togetherWith
+                    YoinMotion.fadeOut(role = YoinMotionRole.Standard)
+            },
+            contentAlignment = Alignment.TopStart,
+            label = "neoDbManualToken",
+        ) { manual ->
+            if (!manual) {
+                TextButton(onClick = { showManualToken = true }) { Text("Use an access token instead") }
+            } else {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    SecretTextField(
+                        value = draftToken,
+                        onValueChange = { draftToken = it },
+                        label = "Access token",
+                        placeholder = "Paste token",
+                        modifier = Modifier.fillMaxWidth(),
                     )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = "Testing connection…",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                saveError != null -> {
-                    Icon(
-                        imageVector = Icons.Filled.Error,
-                        contentDescription = null,
-                        tint = statusColor,
-                        modifier = Modifier.size(20.dp),
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = saveError,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = statusColor,
-                    )
-                }
-                testResult is ConnectionResult.Success -> {
-                    Icon(
-                        imageVector = Icons.Filled.CheckCircle,
-                        contentDescription = null,
-                        tint = statusColor,
-                        modifier = Modifier.size(20.dp),
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = "Connection successful",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = statusColor,
-                    )
-                }
-                testResult is ConnectionResult.Failure -> {
-                    Icon(
-                        imageVector = Icons.Filled.Error,
-                        contentDescription = null,
-                        tint = statusColor,
-                        modifier = Modifier.size(20.dp),
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = testResult.message,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = statusColor,
-                    )
-                }
-                else -> {
-                    Text(
-                        text = "Enter server details and test the connection before saving.",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+                    OutlinedButton(
+                        onClick = { onSaveConfig(draftInstance, draftToken) },
+                        enabled = draftToken.isNotBlank() && draftToken.trim() != accessToken.trim(),
+                    ) { Text("Save token") }
                 }
             }
         }
     }
 }
 
-// ── Profile switch blocking overlay ──────────────────────────────────
+// ── Storage ──────────────────────────────────────────────────────────
+
+@Composable
+private fun CacheItem(cacheSizeBytes: Long, onClearCache: () -> Unit) {
+    val haptics = rememberYoinHaptics()
+    SettingsItem(
+        icon = Icons.Rounded.Storage,
+        title = "Playback cache",
+        summary = formatBytes(cacheSizeBytes),
+        trailing = {
+            TextButton(
+                onClick = {
+                    haptics.performReject()
+                    onClearCache()
+                },
+                enabled = cacheSizeBytes > 0,
+            ) { Text("Clear") }
+        },
+    )
+}
+
+// ── Account switch blocking overlay ──────────────────────────────────
 
 @Composable
 private fun ProfileSwitchOverlay(
@@ -1084,11 +954,7 @@ private fun ProfileSwitchOverlay(
             .alpha(alpha),
         contentAlignment = Alignment.Center,
     ) {
-        Surface(
-            color = Color.Black.copy(alpha = 0.42f),
-            modifier = Modifier.fillMaxSize(),
-        ) {}
-
+        Surface(color = Color.Black.copy(alpha = 0.42f), modifier = Modifier.fillMaxSize()) {}
         Surface(
             shape = YoinShapeTokens.ExtraLarge,
             color = MaterialTheme.colorScheme.surfaceContainerHighest,
@@ -1107,7 +973,7 @@ private fun ProfileSwitchOverlay(
                     is ProfileManager.SwitchState.Switching -> {
                         YoinLoadingIndicator(size = 36.dp)
                         Text(
-                            text = "Switching profile",
+                            text = "Switching account",
                             style = MaterialTheme.typography.titleMedium,
                             color = MaterialTheme.colorScheme.onSurface,
                         )
@@ -1119,23 +985,18 @@ private fun ProfileSwitchOverlay(
                     }
                     is ProfileManager.SwitchState.Error -> {
                         Icon(
-                            imageVector = Icons.Filled.Error,
+                            imageVector = Icons.Rounded.Error,
                             contentDescription = null,
                             tint = MaterialTheme.colorScheme.error,
                             modifier = Modifier.size(36.dp),
                         )
-                        Text(
-                            text = "Couldn't switch profile",
-                            style = MaterialTheme.typography.titleMedium,
-                        )
+                        Text(text = "Couldn't switch account", style = MaterialTheme.typography.titleMedium)
                         Text(
                             text = switchingState.message,
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
-                        Button(onClick = onDismissError) {
-                            Text("Dismiss")
-                        }
+                        Button(onClick = onDismissError) { Text("OK") }
                     }
                     ProfileManager.SwitchState.Idle -> Unit
                 }
@@ -1145,7 +1006,7 @@ private fun ProfileSwitchOverlay(
 }
 
 private fun stageLabel(stage: ProfileManager.SwitchState.Stage, activeName: String?): String {
-    val name = activeName.orEmpty().ifBlank { "the new server" }
+    val name = activeName.orEmpty().ifBlank { "the new account" }
     return when (stage) {
         ProfileManager.SwitchState.Stage.Preparing -> "Closing the current session…"
         ProfileManager.SwitchState.Stage.Connecting -> "Connecting to $name…"
@@ -1153,7 +1014,7 @@ private fun stageLabel(stage: ProfileManager.SwitchState.Stage, activeName: Stri
     }
 }
 
-// ── Delete profile confirmation ──────────────────────────────────────
+// ── Remove account confirmation ──────────────────────────────────────
 
 @Composable
 private fun DeleteProfileDialog(
@@ -1164,390 +1025,23 @@ private fun DeleteProfileDialog(
     val haptics = rememberYoinHaptics()
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Delete this profile?") },
-        text = {
-            Text(
-                "\u201C$displayName\u201D will be removed. Local ratings and history stay.",
-            )
-        },
+        title = { Text("Remove this account?") },
+        text = { Text("“$displayName” will be removed from Yoin. Your ratings, notes and history stay.") },
         confirmButton = {
             TextButton(
                 onClick = {
                     haptics.performReject()
                     onConfirm()
                 },
-                colors = androidx.compose.material3.ButtonDefaults.textButtonColors(
-                    contentColor = MaterialTheme.colorScheme.error,
-                ),
-            ) {
-                Text("Delete")
-            }
+                colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
+            ) { Text("Remove") }
         },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Cancel") }
-        },
-    )
-}
-
-// ── Preserved sections (Gemini / Cache / About) ──────────────────────
-
-@Composable
-private fun GeminiSection(
-    initialApiKey: String,
-    initialTargetLanguage: String,
-    onSaveApiKey: (String) -> Unit,
-    onSaveTargetLanguage: (String) -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    var apiKey by rememberSaveable { mutableStateOf(initialApiKey) }
-    var languageMenuOpen by rememberSaveable { mutableStateOf(false) }
-    var targetLanguage by rememberSaveable {
-        mutableStateOf(GeminiConfig.normalizeTargetLanguage(initialTargetLanguage))
-    }
-    val haptics = rememberYoinHaptics()
-    LaunchedEffect(initialApiKey) { apiKey = initialApiKey }
-    LaunchedEffect(initialTargetLanguage) {
-        targetLanguage = GeminiConfig.normalizeTargetLanguage(initialTargetLanguage)
-    }
-
-    ExpressiveSectionPanel(
-        modifier = modifier.fillMaxWidth(),
-        containerColor = MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.95f),
-        tonalElevation = 1.dp,
-        shadowElevation = 0.dp,
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(18.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
-        ) {
-            ExpressiveHeaderBlock(title = "AI Features")
-            Text(
-                text = "Enter your Gemini API key to enable AI-powered song info. Target language is used for song info, Ask Gemini, and lyric translation.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Box(modifier = Modifier.fillMaxWidth()) {
-                OutlinedButton(
-                    onClick = {
-                        haptics.performTick()
-                        languageMenuOpen = true
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Text(
-                        text = "Target language: $targetLanguage",
-                        modifier = Modifier.weight(1f),
-                    )
-                }
-                YoinDropdownMenu(
-                    expanded = languageMenuOpen,
-                    onDismissRequest = { languageMenuOpen = false },
-                ) {
-                    GeminiConfig.SUPPORTED_TARGET_LANGUAGES.forEach { language ->
-                        YoinDropdownMenuItem(
-                            text = language,
-                            onClick = {
-                                haptics.performContextClick()
-                                languageMenuOpen = false
-                                targetLanguage = language
-                                onSaveTargetLanguage(language)
-                            },
-                        )
-                    }
-                }
-            }
-            SecretTextField(
-                value = apiKey,
-                onValueChange = { apiKey = it },
-                label = "Gemini API Key",
-                placeholder = "AIza…",
-                modifier = Modifier.fillMaxWidth(),
-            )
-            Button(
-                onClick = { onSaveApiKey(apiKey) },
-                enabled = apiKey.isNotBlank(),
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Text("Save API Key")
-            }
-        }
-    }
-}
-
-@Composable
-private fun NeoDbSection(
-    initialInstance: String,
-    initialAccessToken: String,
-    onOpenSignIn: (String) -> Unit,
-    onSaveConfig: (String, String) -> Unit,
-    onClearToken: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    var instance by rememberSaveable { mutableStateOf(initialInstance) }
-    var accessToken by rememberSaveable { mutableStateOf(initialAccessToken) }
-    LaunchedEffect(initialInstance) { instance = initialInstance }
-    LaunchedEffect(initialAccessToken) { accessToken = initialAccessToken }
-
-    // 交互拆成两段：
-    //  1. 先根据 instance 打开 NeoDB 网页登录 / Developer 页
-    //  2. 再把复制回来的 token 单独保存进本地加密存储
-    val hasUnsavedEdits = instance.trim() != initialInstance.trim() ||
-        accessToken.trim() != initialAccessToken.trim()
-    val isLoggedIn = initialAccessToken.isNotBlank()
-
-    ExpressiveSectionPanel(
-        modifier = modifier.fillMaxWidth(),
-        containerColor = MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.95f),
-        tonalElevation = 1.dp,
-        shadowElevation = 0.dp,
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(18.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
-        ) {
-            ExpressiveHeaderBlock(
-                title = "NeoDB",
-                supporting = if (isLoggedIn) {
-                    "Signed in · album ratings & reviews sync both ways from Memory"
-                } else {
-                    "Enter an instance URL, then sign in on the NeoDB web page"
-                },
-            )
-            Text(
-                text = "Sign in opens that instance's NeoDB OAuth page in browser and returns to Yoin automatically after approval. The token field below is only for manual override if you really need it.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            ExpressiveTextField(
-                value = instance,
-                onValueChange = { instance = it },
-                label = "Instance",
-                placeholder = "https://neodb.social",
-                modifier = Modifier.fillMaxWidth(),
-            )
-            OutlinedButton(
-                onClick = { onOpenSignIn(instance) },
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Text(if (isLoggedIn) "Re-auth with NeoDB web sign-in" else "Sign in with NeoDB web")
-            }
-            SecretTextField(
-                value = accessToken,
-                onValueChange = { accessToken = it },
-                label = "Access Token",
-                placeholder = "Paste token here",
-                modifier = Modifier.fillMaxWidth(),
-            )
-            Button(
-                onClick = { onSaveConfig(instance, accessToken) },
-                enabled = hasUnsavedEdits && accessToken.isNotBlank(),
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Text(if (isLoggedIn) "Save token manually" else "Use pasted token")
-            }
-            if (isLoggedIn) {
-                TextButton(
-                    onClick = {
-                        accessToken = ""
-                        onClearToken()
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Text("Sign out of NeoDB")
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun SpotifySection(
-    initialClientId: String,
-    usesFallback: Boolean,
-    onSaveClientId: (String) -> Unit,
-    clientIdFocusRequester: FocusRequester? = null,
-    modifier: Modifier = Modifier,
-) {
-    var clientId by rememberSaveable { mutableStateOf(initialClientId) }
-    LaunchedEffect(initialClientId) { clientId = initialClientId }
-
-    ExpressiveSectionPanel(
-        modifier = modifier.fillMaxWidth(),
-        containerColor = MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.95f),
-        tonalElevation = 1.dp,
-        shadowElevation = 0.dp,
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(18.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
-        ) {
-            ExpressiveHeaderBlock(title = "Spotify")
-            Text(
-                text = "Paste the Client ID from your Spotify Developer app. " +
-                    "Redirect URIs to register: " +
-                    "yoin://auth/spotify/callback and yoin://auth/spotify/app-remote",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            if (usesFallback) {
-                Text(
-                    text = "Currently using the build-time fallback client ID from this APK. Saving here will override it.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            // Reconnect lives on the per-profile card's overflow menu now —
-            // that's where users expect "this profile needs attention"
-            // affordances. Settings → Spotify is for global settings only
-            // (Client ID), not per-profile actions.
-            ExpressiveTextField(
-                value = clientId,
-                onValueChange = { clientId = it },
-                label = "Spotify Client ID",
-                placeholder = "32-char hex from developer.spotify.com",
-                modifier = Modifier
-                    .testTag("spotify_client_id_field")
-                    .fillMaxWidth()
-                    .then(
-                        if (clientIdFocusRequester != null) {
-                            Modifier.focusRequester(clientIdFocusRequester)
-                        } else {
-                            Modifier
-                        },
-                    ),
-            )
-            Button(
-                onClick = { onSaveClientId(clientId) },
-                enabled = clientId.trim() != initialClientId,
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Text("Save Client ID")
-            }
-        }
-    }
-}
-
-@Composable
-private fun CacheSection(
-    cacheSizeBytes: Long,
-    onClearCache: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    val haptics = rememberYoinHaptics()
-    ExpressiveSectionPanel(
-        modifier = modifier.fillMaxWidth(),
-        containerColor = MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.94f),
-    ) {
-        Column(
-            modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            ExpressiveHeaderBlock(title = "Cache")
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    text = "Cache size: ${formatBytes(cacheSizeBytes)}",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                OutlinedButton(
-                    onClick = {
-                        haptics.performReject()
-                        onClearCache()
-                    },
-                ) { Text("Clear Cache") }
-            }
-        }
-    }
-}
-
-@Composable
-private fun AboutSection(modifier: Modifier = Modifier) {
-    ExpressiveSectionPanel(
-        modifier = modifier.fillMaxWidth(),
-        containerColor = MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.92f),
-    ) {
-        Column(
-            modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            ExpressiveHeaderBlock(title = "About")
-            Text(
-                text = "Version ${BuildConfig.VERSION_NAME}",
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-    }
-}
-
-// ── Secret field (masked input + visibility toggle) ─────────────────
-
-@Composable
-private fun SecretTextField(
-    value: String,
-    onValueChange: (String) -> Unit,
-    label: String,
-    placeholder: String,
-    modifier: Modifier = Modifier,
-) {
-    val haptics = rememberYoinHaptics()
-    var visible by remember { mutableStateOf(false) }
-    ExpressiveTextField(
-        value = value,
-        onValueChange = onValueChange,
-        label = label,
-        placeholder = placeholder,
-        visualTransformation = if (visible) {
-            VisualTransformation.None
-        } else {
-            PasswordVisualTransformation()
-        },
-        trailingContent = {
-            // The trailing slot sits inline with the ~24dp text row, so a
-            // plain 44dp minimumTouchTarget would stretch the whole field.
-            // Pin the slot to icon size and let the 44dp touch floor
-            // (minimumTouchTarget's default — sizeIn can't break the pinned
-            // constraints, requiredSize can) overflow into the field's 14dp
-            // padding; hit testing extends past the unclipped parent bounds.
-            Box(
-                modifier = Modifier.size(24.dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                IconButton(
-                    onClick = {
-                        haptics.performTick()
-                        visible = !visible
-                    },
-                    modifier = Modifier.requiredSize(44.dp),
-                ) {
-                    Icon(
-                        imageVector = if (visible) {
-                            Icons.Filled.VisibilityOff
-                        } else {
-                            Icons.Filled.Visibility
-                        },
-                        contentDescription = if (visible) "Hide $label" else "Show $label",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(18.dp),
-                    )
-                }
-            }
-        },
-        modifier = modifier,
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
 }
 
 private fun formatBytes(bytes: Long): String = when {
+    bytes <= 0L -> "Empty"
     bytes < 1_024L -> "$bytes B"
     bytes < 1_048_576L -> "%.1f KB".format(bytes / 1_024.0)
     bytes < 1_073_741_824L -> "%.1f MB".format(bytes / 1_048_576.0)
@@ -1566,46 +1060,32 @@ private val previewCards = listOf(
     ),
     ProfileCard(
         id = "b",
-        displayName = "alt · backup server",
-        subtitle = "backup.example",
-        provider = ProviderKind.SUBSONIC,
+        displayName = "Chen's Spotify",
+        subtitle = "Spotify account",
+        provider = ProviderKind.SPOTIFY,
         isActive = false,
+        unavailableReason = "Reconnect",
+        requiresReconnect = true,
     ),
 )
 
-@Preview(showBackground = true, backgroundColor = 0xFF1C1B1F)
 @Composable
-fun SettingsContentPreview() {
+private fun SettingsPreviewHost(uiState: SettingsUiState) {
     YoinTheme {
         SettingsContent(
-            uiState = SettingsUiState.Content(
-                profileCards = previewCards,
-                activeProfileId = "a",
-                canAddProfile = true,
-                cacheSizeBytes = 52_428_800L,
-                geminiApiKey = "",
-                geminiTargetLanguage = GeminiConfig.DEFAULT_TARGET_LANGUAGE,
-            ),
+            uiState = uiState,
             switchingState = ProfileManager.SwitchState.Idle,
-            profileFormSheet = ProfileFormSheet.Hidden,
             providerPickerVisible = false,
             deleteConfirmState = DeleteConfirmState.Hidden,
             onBackClick = {},
             onSwitchToProfile = {},
-            onEditProfile = {},
+            onOpenService = {},
             onRequestDeleteProfile = {},
-            onReconnectProfile = {},
             onShowProviderPicker = {},
             onHideProviderPicker = {},
-            onPickProvider = {},
-            onCloseFormSheet = {},
-            onTestConnection = { _, _, _ -> },
-            onSaveProfile = { _, _, _ -> },
             onDismissSwitchError = {},
             onDismissDeleteConfirm = {},
             onConfirmDeleteProfile = {},
-            onSaveGeminiApiKey = {},
-            onSaveGeminiTargetLanguage = {},
             onClearCache = {},
         )
     }
@@ -1613,30 +1093,28 @@ fun SettingsContentPreview() {
 
 @Preview(showBackground = true, backgroundColor = 0xFF1C1B1F)
 @Composable
+fun SettingsContentPreview() {
+    SettingsPreviewHost(
+        SettingsUiState.Content(
+            profileCards = previewCards,
+            activeProfileId = "a",
+            canAddProfile = true,
+            cacheSizeBytes = 52_428_800L,
+            geminiTargetLanguage = GeminiConfig.DEFAULT_TARGET_LANGUAGE,
+        ),
+    )
+}
+
+@Preview(showBackground = true, backgroundColor = 0xFF1C1B1F)
+@Composable
+fun SettingsContentEmptyPreview() {
+    SettingsPreviewHost(
+        SettingsUiState.Content(profileCards = emptyList(), activeProfileId = null, canAddProfile = true),
+    )
+}
+
+@Preview(showBackground = true, backgroundColor = 0xFF1C1B1F)
+@Composable
 fun SettingsContentLoadingPreview() {
-    YoinTheme {
-        SettingsContent(
-            uiState = SettingsUiState.Loading,
-            switchingState = ProfileManager.SwitchState.Idle,
-            profileFormSheet = ProfileFormSheet.Hidden,
-            providerPickerVisible = false,
-            deleteConfirmState = DeleteConfirmState.Hidden,
-            onBackClick = {},
-            onSwitchToProfile = {},
-            onEditProfile = {},
-            onRequestDeleteProfile = {},
-            onReconnectProfile = {},
-            onShowProviderPicker = {},
-            onHideProviderPicker = {},
-            onPickProvider = {},
-            onCloseFormSheet = {},
-            onTestConnection = { _, _, _ -> },
-            onSaveProfile = { _, _, _ -> },
-            onDismissSwitchError = {},
-            onDismissDeleteConfirm = {},
-            onConfirmDeleteProfile = {},
-            onSaveGeminiApiKey = {},
-            onClearCache = {},
-        )
-    }
+    SettingsPreviewHost(SettingsUiState.Loading)
 }

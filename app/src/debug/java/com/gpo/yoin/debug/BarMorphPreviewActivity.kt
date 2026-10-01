@@ -12,10 +12,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -27,6 +25,8 @@ import com.gpo.yoin.enableYoinEdgeToEdge
 import com.gpo.yoin.ui.component.YoinButtonGroup
 import com.gpo.yoin.ui.detail.AlbumDetailActivity
 import com.gpo.yoin.ui.detail.launchDetailFromShell
+import com.gpo.yoin.ui.detail.rememberDetailMiniPlayerState
+import com.gpo.yoin.ui.detail.rememberDetailMiniPlayerProgress
 import com.gpo.yoin.ui.navigation.YoinSection
 import com.gpo.yoin.ui.navigation.back.rememberShellBarChromeMorph
 import com.gpo.yoin.ui.theme.YoinTheme
@@ -47,20 +47,23 @@ class BarMorphPreviewActivity : ComponentActivity() {
             YoinTheme {
                 val context = LocalContext.current
                 val app = context.applicationContext as YoinApplication
-                var detailChrome by remember { mutableStateOf(false) }
+                val store = app.container.experienceSessionStore
+                val session by store.state.collectAsState()
+                val miniPlayer by rememberDetailMiniPlayerState(app.container)
+                val playbackProgress by rememberDetailMiniPlayerProgress(app.container)
                 val lifecycleOwner = LocalLifecycleOwner.current
                 LaunchedEffect(lifecycleOwner) {
                     lifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
                         app.container.experienceSessionStore.detailWindowSettledTick
                             .drop(1)
-                            .collect { detailChrome = false }
+                            .collect { store.setDetailChromeActive(false) }
                     }
                 }
                 // Mirror the real shell's single-owner bar pose (open morph +
                 // commit settle seeded from the back gesture's frozen scrub).
                 val chromeMorph = rememberShellBarChromeMorph(
                     app.container.experienceSessionStore,
-                    detailChrome,
+                    session.detailChromeActive,
                 )
                 SharedTransitionLayout {
                     Surface(
@@ -70,7 +73,8 @@ class BarMorphPreviewActivity : ComponentActivity() {
                         Box(modifier = Modifier.fillMaxSize()) {
                             Button(
                                 onClick = {
-                                    detailChrome = true
+                                    store.prepareDetailEnterSlide()
+                                    store.setDetailChromeActive(true)
                                     launchDetailFromShell(
                                         context,
                                         AlbumDetailActivity.intent(context, "debug:album:missing"),
@@ -93,14 +97,14 @@ class BarMorphPreviewActivity : ComponentActivity() {
                                 YoinButtonGroup(
                                     selectedSection = YoinSection.HOME,
                                     chromeProgress = chromeMorph,
-                                    currentTrackId = null,
-                                    currentTrackTitle = "Cherries & Cream",
-                                    currentTrackArtist = "Hannah Jadagu",
-                                    currentTrackCoverArtUrl = null,
+                                    currentTrackId = miniPlayer?.trackId,
+                                    currentTrackTitle = miniPlayer?.title,
+                                    currentTrackArtist = miniPlayer?.artist,
+                                    currentTrackCoverArtUrl = miniPlayer?.coverArtUrl,
                                     isPlaybackReady = true,
                                     connectionErrorMessage = null,
-                                    playbackProgress = 0.37f,
-                                    isPlaying = true,
+                                    playbackProgress = playbackProgress,
+                                    isPlaying = miniPlayer?.isPlaying == true,
                                     onHomeClick = {},
                                     onNowPlayingClick = {},
                                     onLibraryClick = {},

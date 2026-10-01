@@ -191,12 +191,11 @@ class MemoriesDeckCoordinator(
         return memory
     }
 
-    private fun rawEntityId(raw: String): String =
-        if (':' in raw) raw.substringAfter(':') else raw
+    private fun rawEntityId(provider: String, raw: String): String = MediaId.storedRawId(provider, raw)
 
     private suspend fun resolveSongMemory(activity: ActivityEvent): MemoryEntry {
         val provider = activity.provider
-        val rawSongId = rawEntityId(activity.songId ?: activity.entityId)
+        val rawSongId = rawEntityId(provider, activity.songId ?: activity.entityId)
         val trackId = MediaId(provider, rawSongId)
         val rating = repository.getRating(trackId).first()?.rating
         val mostRecentPlay = repository.getMostRecentPlay(trackId)
@@ -264,7 +263,7 @@ class MemoriesDeckCoordinator(
     }
 
     private suspend fun resolveAlbumMemory(candidate: AlbumMemoryCandidate): MemoryEntry {
-        val rawAlbumId = rawEntityId(candidate.albumId)
+        val rawAlbumId = rawEntityId(candidate.provider, candidate.albumId)
         val albumId = MediaId(candidate.provider, rawAlbumId)
         val album = runCatching { repository.getAlbum(albumId) }.getOrNull()
         val songs = album?.tracks.orEmpty()
@@ -400,7 +399,7 @@ class MemoriesDeckCoordinator(
     }
 
     private suspend fun resolvePlaylistMemory(activity: ActivityEvent): MemoryEntry {
-        val rawPlaylistId = rawEntityId(activity.entityId)
+        val rawPlaylistId = rawEntityId(activity.provider, activity.entityId)
         val playlistId = MediaId(activity.provider, rawPlaylistId)
         val playlist = runCatching { repository.getPlaylist(playlistId) }.getOrNull()
         val songs = playlist?.tracks.orEmpty()

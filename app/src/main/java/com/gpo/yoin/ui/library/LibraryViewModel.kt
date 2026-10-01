@@ -150,6 +150,7 @@ class LibraryViewModel(
                     isSearching = false,
                     searchScope = pendingScope,
                     canSearchSpotifyCatalog = canSearchSpotifyCatalog,
+                    searchesAppleMusicCatalog = repository.currentProviderId() == MediaId.PROVIDER_APPLE_MUSIC,
                     searchFocusRequestId = if (hasPendingSearchShortcut) nextSearchFocusRequestId() else 0L,
                     availableTabs = visibleTabs(capabilities),
                     canCreatePlaylists = Capability.PLAYLISTS_WRITE in capabilities,
@@ -210,6 +211,8 @@ class LibraryViewModel(
         LibraryTab.entries.filter { tab ->
             when (tab) {
                 LibraryTab.Playlists -> Capability.PLAYLISTS_READ in capabilities
+                LibraryTab.Favorites -> Capability.FAVORITES in capabilities
+                LibraryTab.Songs -> Capability.RANDOM_SONGS in capabilities
                 else -> true
             }
         }
@@ -326,6 +329,9 @@ class LibraryViewModel(
                 searchResults = null,
                 isSearching = false,
                 searchError = null,
+                // The shortcut id is a one-shot UI trigger. Leaving it set
+                // would reopen Search when Library remounts after Home.
+                searchFocusRequestId = 0L,
             )
         }
     }
@@ -533,6 +539,7 @@ class LibraryViewModel(
                     val scopeChanged = nextScope != current.searchScope
                     _uiState.value = current.copy(
                         canSearchSpotifyCatalog = canSearchSpotifyCatalog,
+                        searchesAppleMusicCatalog = providerId == MediaId.PROVIDER_APPLE_MUSIC,
                         searchScope = nextScope,
                         searchResults = current.searchResults.takeUnless { scopeChanged },
                         isSearching = if (scopeChanged) false else current.isSearching,

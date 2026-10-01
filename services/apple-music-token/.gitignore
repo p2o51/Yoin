@@ -1,0 +1,8 @@
+*.p8
+*.pem
+.env
+.env.*
+node_modules/
+.wrangler/
+.dev.vars*
+worker-configuration.d.ts

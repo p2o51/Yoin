@@ -143,6 +143,8 @@ ktlint {
 }
 
 dependencies {
+    implementation(files("libs/musickitauth-release-1.1.2.aar"))
+    implementation(files("libs/mediaplayback-release-1.1.1.aar"))
     // Compose BOM
     val composeBom = platform(libs.compose.bom)
     implementation(composeBom)
