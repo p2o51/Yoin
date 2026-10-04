@@ -7,6 +7,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -32,28 +33,59 @@ import kotlinx.coroutines.launch
  * through it; at slop it picks ONE axis and, for a vertical drag, ONE controller — never two:
  *
  *  · horizontal → the deck's HorizontalPager (the router only pauses the award's beats);
- *  · top bar, either way → q, the retreat to Home, on the bar rule (56dp / 450dp/s);
+ *  · top bar, up (either state) → q, the retreat to Home, on the bar rule (56dp / 450dp/s);
+ *  · top bar, down, diary open → p, the diary's handle: 1:1, the scroll frozen where it is;
  *  · card body, up → q on the body rule (112dp / 600dp/s);
- *  · card body, down → p's rubber band below the card (0.3×, −90dp), capped at the card.
+ *  · card body, down → p's rubber band below the card (0.3×, −90dp), capped at the card;
+ *  · diary body → the diary's own scroll (pull past its top feeds p through [MemoriesDiaryDeck]'s nested
+ *    scroll), except a NEW upward drag that starts with the diary already resting at its end: that one is
+ *    q on the body rule, 1:1 with the rubber band. A fling that reaches the end only stops there.
  *
- * q is [RevealState] and p is [MemoriesDiaryState] (P2): the router only feeds them, it owns no displacement
- * of its own. A vertical drag consumes its moves in the Initial pass, so the pager and every button under the
- * finger stand down for that gesture.
+ * q is [RevealState] and p is [MemoriesDiaryState]: the router only feeds them, it owns no displacement of
+ * its own. A routed drag consumes its moves in the Initial pass, so the pager, the diary scroll and every
+ * button under the finger stand down for that gesture; the diary-scroll route consumes nothing.
+ *
+ * Thresholds count from finger-down (56 / 112dp of FINGER travel commit), but the page only follows the
+ * finger from the moment the axis locks: the slop travel is never applied as a jump. The release rule is
+ * shortened by the travel the slop ate instead.
  */
 
-/** Where a vertical drag started. The diary zone arrives with the diary (P5b). */
-enum class MemoriesDragZone { Bar, Card }
+/** Where a vertical drag started. */
+enum class MemoriesDragZone { Bar, Card, Diary }
 
 /** The axis a drag locks to once it has travelled the touch slop (prototype: 8dp, |dx| > |dy| = page). */
 enum class MemoriesDragAxis { Horizontal, Vertical }
 
 /** Which controller a vertical drag feeds, decided once at slop. */
 sealed interface MemoriesVerticalRoute {
+    /** Whether the router takes the drag's moves (false: the diary's own scroll handles them). */
+    val consumes: Boolean get() = true
+
     /** The outer q: retreat to Home. [fromBar] picks the bar rule, else the card body's. */
     data class Dismiss(val fromBar: Boolean) : MemoriesVerticalRoute
 
     /** The card's own pull-down: p below 0 on its rubber band, never past the card. */
     data object CardRubberBand : MemoriesVerticalRoute
+
+    /** The diary's handle: a pull down on the top bar scrubs p 1:1 (no band, the scroll frozen). */
+    data object DiaryHandle : MemoriesVerticalRoute
+
+    /** The diary's text scrolls; its nested scroll hands an overflow past the top to p. */
+    data object DiaryScroll : MemoriesVerticalRoute {
+        override val consumes: Boolean get() = false
+    }
+}
+
+/**
+ * The live diary as the router sees it at finger-down (implemented by [MemoriesDiaryDeck]). Read in the
+ * Initial pass, before the diary's scroll stops a running fling: a fling still running is never "at the end".
+ */
+interface MemoriesDiaryProbe {
+    /** A finger went down: a new gesture (resets the diary's pull bookkeeping). */
+    fun onFingerDown()
+
+    /** The open diary rests at its very end (no fling running, p fully open). */
+    fun atEnd(): Boolean
 }
 
 /** Null until the drag has travelled [slopPx]; then the axis, ties going vertical (prototype). */
@@ -65,20 +97,37 @@ internal fun decideDragAxis(dx: Float, dy: Float, slopPx: Float): MemoriesDragAx
 
 /**
  * The controller for a vertical drag from [zone] whose travel at slop is [deltaY] (negative = up).
- * The bar always means Home (a pull down there is the diary's handle in P5b; on the card q is hard-clamped
- * at open, so it is a no-op). Without a card face ([cardPresent] false: loading, empty, error) the whole
- * page is the body and every vertical drag is q.
+ * - Bar: Home, except a pull down while the diary is open ([diaryLevel]), which is the diary's handle (on the
+ *   card q is hard-clamped at open, so a bar pull down there is a no-op).
+ * - Diary: its own scroll, except an upward drag that started at the end ([diaryAtEnd]): Home, body rule.
+ * - Card: up = Home; down = the card's rubber band. Without a card face ([cardPresent] false: loading, empty,
+ *   error) the whole page is the body and every vertical drag is q.
  */
-internal fun routeVerticalDrag(zone: MemoriesDragZone, deltaY: Float, cardPresent: Boolean): MemoriesVerticalRoute =
-    when {
-        zone == MemoriesDragZone.Bar -> MemoriesVerticalRoute.Dismiss(fromBar = true)
-        deltaY < 0f || !cardPresent -> MemoriesVerticalRoute.Dismiss(fromBar = false)
-        else -> MemoriesVerticalRoute.CardRubberBand
-    }
+internal fun routeVerticalDrag(
+    zone: MemoriesDragZone,
+    deltaY: Float,
+    cardPresent: Boolean,
+    diaryLevel: Boolean = false,
+    diaryAtEnd: Boolean = false,
+): MemoriesVerticalRoute = when {
+    zone == MemoriesDragZone.Bar && diaryLevel && deltaY > 0f -> MemoriesVerticalRoute.DiaryHandle
+    zone == MemoriesDragZone.Bar -> MemoriesVerticalRoute.Dismiss(fromBar = true)
+    zone == MemoriesDragZone.Diary && diaryAtEnd && deltaY < 0f -> MemoriesVerticalRoute.Dismiss(fromBar = false)
+    zone == MemoriesDragZone.Diary -> MemoriesVerticalRoute.DiaryScroll
+    deltaY < 0f || !cardPresent -> MemoriesVerticalRoute.Dismiss(fromBar = false)
+    else -> MemoriesVerticalRoute.CardRubberBand
+}
 
 /** The release rule of a dismiss route. */
 internal fun MemoriesDismissRules.ruleFor(route: MemoriesVerticalRoute.Dismiss): DismissRule =
     if (route.fromBar) bar else body
+
+/**
+ * [rule] for a drag whose page started following the finger only after [slopUpPx] of upward travel (the
+ * lock): the commit distance stays a finger distance from touch-down, so the page needs that much less.
+ */
+internal fun DismissRule.afterSlop(slopUpPx: Float): DismissRule =
+    copy(commitPx = (commitPx - slopUpPx).coerceAtLeast(0f))
 
 /**
  * The router's state: the page geometry it reads at gesture time (plain fields, written from placement and
@@ -105,6 +154,9 @@ class MemoriesGestureRouter internal constructor(
     /** The award lifecycle of this open, told about presses, lifts and drags; null in previews. */
     var awards: MemoriesAwardLifecycle? = null
 
+    /** The live diary (the deck's current page); null without a deck. */
+    var diaryProbe: MemoriesDiaryProbe? = null
+
     /** Runs once a release commits the retreat, after the spring lands (the host closes Memories). */
     var onDismissed: () -> Unit = {}
 
@@ -119,11 +171,25 @@ class MemoriesGestureRouter internal constructor(
     /** A committed retreat rides out untouched: drags are ignored until it lands. */
     private var committing = false
 
+    /** The diary rested at its end when the current finger went down. */
+    private var diaryAtEndAtDown = false
+
+    /** Upward travel the slop ate before the current drag locked (negative = it locked going down). */
+    private var slopUpPx = 0f
+
     /**
-     * The commit distance of whatever drives q now (56dp bar, 112dp body and back); the retreating page's
-     * bottom corners are full exactly there. Read only in the corner layer.
+     * The commit distance of whatever drives q now, as page travel (56dp bar, 112dp body and back, less the
+     * slop the lock ate); the retreating page's bottom corners are full exactly there. Read only in the
+     * corner layer.
      */
     var cornerThresholdPx by mutableFloatStateOf(rules.body.commitPx)
+        private set
+
+    /**
+     * A card-level system back is previewing (prototype `busyQ`): from its first frame until it commits, or
+     * its cancel spring lands. The award holds while it is true. Snapshot state.
+     */
+    var backBusy by mutableStateOf(false)
         private set
 
     fun onRootPlaced(coordinates: LayoutCoordinates) {
@@ -147,13 +213,25 @@ class MemoriesGestureRouter internal constructor(
     /** System back drives q on the body rule's corner (MemoriesPredictiveBack's onCardBackStarted). */
     fun onBackStarted() {
         cornerThresholdPx = rules.body.commitPx
+        backBusy = true
     }
 
-    internal fun zoneAt(y: Float): MemoriesDragZone =
-        if (y < barBottomPx) MemoriesDragZone.Bar else MemoriesDragZone.Card
+    /** The card-level back committed, or its cancel spring is over (onCardBackFinished). */
+    fun onBackFinished() {
+        backBusy = false
+    }
+
+    internal fun zoneAt(y: Float): MemoriesDragZone = when {
+        y < barBottomPx -> MemoriesDragZone.Bar
+        cardPresent && diary.isDiaryLevel -> MemoriesDragZone.Diary
+        else -> MemoriesDragZone.Card
+    }
 
     internal fun press() {
         awards?.onFingerDown()
+        val probe = diaryProbe
+        diaryAtEndAtDown = probe?.atEnd() ?: false
+        probe?.onFingerDown()
     }
 
     internal fun lift() {
@@ -164,11 +242,25 @@ class MemoriesGestureRouter internal constructor(
         awards?.onDragStart()
     }
 
+    /**
+     * The drag locked vertical from [zone] with [deltaY] of travel since touch-down. That travel is not
+     * applied (the page follows from here on), but q's commit distance still counts it.
+     */
     internal fun begin(zone: MemoriesDragZone, deltaY: Float): MemoriesVerticalRoute {
-        val route = routeVerticalDrag(zone, deltaY, cardPresent)
+        val route = routeVerticalDrag(
+            zone = zone,
+            deltaY = deltaY,
+            cardPresent = cardPresent,
+            diaryLevel = diary.isDiaryLevel,
+            diaryAtEnd = diaryAtEndAtDown,
+        )
+        slopUpPx = -deltaY
         when (route) {
-            is MemoriesVerticalRoute.Dismiss -> cornerThresholdPx = rules.ruleFor(route).commitPx
+            is MemoriesVerticalRoute.Dismiss ->
+                cornerThresholdPx = rules.ruleFor(route).afterSlop(slopUpPx).commitPx
             MemoriesVerticalRoute.CardRubberBand -> diary.startPull(banded = false, fromScrolled = false, ceiling = 0f)
+            MemoriesVerticalRoute.DiaryHandle -> diary.startPull(banded = false, fromScrolled = false)
+            MemoriesVerticalRoute.DiaryScroll -> Unit
         }
         awards?.onDragStart()
         debugLog?.invoke("lock $route from $zone")
@@ -179,7 +271,8 @@ class MemoriesGestureRouter internal constructor(
     internal fun drag(route: MemoriesVerticalRoute, deltaY: Float) {
         when (route) {
             is MemoriesVerticalRoute.Dismiss -> if (!committing) reveal.dragBy(deltaY, heightPx)
-            MemoriesVerticalRoute.CardRubberBand -> diary.pullBy(deltaY)
+            MemoriesVerticalRoute.CardRubberBand, MemoriesVerticalRoute.DiaryHandle -> diary.pullBy(deltaY)
+            MemoriesVerticalRoute.DiaryScroll -> Unit
         }
     }
 
@@ -187,17 +280,20 @@ class MemoriesGestureRouter internal constructor(
     internal fun release(route: MemoriesVerticalRoute, velocityY: Float) {
         debugLog?.let { log ->
             val q = (reveal.fraction * heightPx).toInt()
-            log("release $route · q ${q}px · p ${diary.fraction} · v ${velocityY.toInt()}px/s")
+            val slop = slopUpPx.toInt()
+            log("release $route · q ${q}px (+slop $slop) · p ${diary.fraction} · v ${velocityY.toInt()}px/s")
         }
         when (route) {
             is MemoriesVerticalRoute.Dismiss -> {
-                if (committing || reveal.fraction <= 0f) return
+                // q may still be 0 when the lock came on the last move (a flick): its speed decides
+                if (committing) return
+                val rule = rules.ruleFor(route).afterSlop(slopUpPx)
                 scope.launch {
                     try {
                         val target = reveal.settleDismiss(
                             velocityPxPerSec = velocityY,
                             containerPx = heightPx,
-                            rule = rules.ruleFor(route),
+                            rule = rule,
                             onCommit = {
                                 committing = true
                                 awards?.onDismissCommitted()
@@ -210,7 +306,9 @@ class MemoriesGestureRouter internal constructor(
                     }
                 }
             }
-            MemoriesVerticalRoute.CardRubberBand -> scope.launch { diary.releasePull(velocityY) }
+            MemoriesVerticalRoute.CardRubberBand, MemoriesVerticalRoute.DiaryHandle ->
+                scope.launch { diary.releasePull(velocityY) }
+            MemoriesVerticalRoute.DiaryScroll -> Unit
         }
     }
 }
@@ -227,10 +325,10 @@ internal fun rememberMemoriesGestureRouter(
 
 /**
  * The page's one gesture input (put it on the Memories root). It watches every touch in the Initial pass,
- * locks the axis at slop, and from then on consumes a vertical drag's moves so nothing under the finger
- * (the pager, a button) acts on it; a horizontal drag is left to the pager. Velocity is sampled for the
- * release. On the frame the axis locks the whole travel since touch-down is applied (as the prototype's
- * `q0 − dy/H`), so the page stays under the finger and the dp commit distances are finger distances.
+ * locks the axis at slop, and from then on consumes a routed vertical drag's moves so nothing under the
+ * finger (the pager, the diary scroll, a button) acts on it; a horizontal drag is left to the pager and a
+ * diary-scroll drag to the diary. Velocity is sampled for the release. The page follows the finger from the
+ * lock on — the slop travel is never applied as a jump (the release rule counts it instead).
  */
 internal fun Modifier.memoriesGestures(router: MemoriesGestureRouter): Modifier = pointerInput(router) {
     awaitEachGesture {
@@ -252,7 +350,7 @@ internal fun Modifier.memoriesGestures(router: MemoriesGestureRouter): Modifier 
                     ?: break
                 tracker.addPointerInputChange(change)
                 if (!change.pressed) {
-                    if (route != null) change.consume()
+                    if (route?.consumes == true) change.consume()
                     break
                 }
                 val delta = change.positionChange()
@@ -260,7 +358,7 @@ internal fun Modifier.memoriesGestures(router: MemoriesGestureRouter): Modifier 
                 when {
                     locked != null -> {
                         router.drag(locked, delta.y)
-                        change.consume()
+                        if (locked.consumes) change.consume()
                     }
                     horizontal -> Unit
                     else -> {
@@ -271,12 +369,11 @@ internal fun Modifier.memoriesGestures(router: MemoriesGestureRouter): Modifier 
                                 router.beginHorizontal()
                             }
                             MemoriesDragAxis.Vertical -> {
+                                // the travel so far is not applied: the page follows from the lock on,
+                                // and the commit distance counts it (begin)
                                 val started = router.begin(zone, total.y)
                                 route = started
-                                // the whole travel since touch-down, slop included (prototype q0 − dy/H):
-                                // the page sits under the finger and 56 / 112dp of finger is the commit
-                                router.drag(started, total.y)
-                                change.consume()
+                                if (started.consumes) change.consume()
                             }
                             null -> Unit
                         }

@@ -2,20 +2,27 @@ package com.gpo.yoin.ui.memories
 
 import app.cash.turbine.test
 import com.gpo.yoin.data.memory.AlbumMemoryCandidate
+import com.gpo.yoin.data.model.MediaId
+import com.gpo.yoin.data.model.Track
 import com.gpo.yoin.data.repository.YoinRepository
+import com.gpo.yoin.player.PlaybackState
 import com.gpo.yoin.testutil.MainDispatcherRule
 import com.gpo.yoin.ui.experience.ExperienceSessionStore
 import io.mockk.coEvery
+import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
 import java.io.IOException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.advanceUntilIdle
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -129,7 +136,190 @@ class MemoriesViewModelTest {
         assertTrue(viewModel.syncingEntityIds.value.isEmpty())
     }
 
-    private fun buildViewModel(): MemoriesViewModel {
+    @Test
+    fun should_keep_draft_and_report_when_album_unavailable_on_save() = runTest {
+        stubCandidates(buildAlbumCandidates(count = 4))
+        val viewModel = buildViewModel()
+        advanceUntilIdle()
+        val memory = (viewModel.uiState.value as MemoriesUiState.Content).memories.first()
+        assertNull(memory.review)
+        // offline, the album not cached: getAlbum gives nothing to write the review against
+        coEvery { repository.getAlbum(any()) } returns null
+
+        viewModel.events.test {
+            viewModel.saveReview(memory, "  好听。 ")
+            // optimistic: the blank page is the review at once, and the draft is held
+            val optimistic = (viewModel.uiState.value as MemoriesUiState.Content).memories.first()
+            assertEquals("好听。", optimistic.review?.text)
+            assertEquals("好听。", viewModel.reviewDrafts.value[memory.stableId])
+            advanceUntilIdle()
+
+            val event = awaitItem() as MemoriesOneShotEvent.ReviewSaveFailed
+            assertEquals(memory.stableId, event.memoryStableId)
+            expectNoEvents()
+        }
+        // rolled back, the draft kept for the blank page to reopen with
+        val after = (viewModel.uiState.value as MemoriesUiState.Content).memories.first()
+        assertNull(after.review)
+        assertFalse(after.hasAlbumReview)
+        assertEquals("好听。", viewModel.reviewDrafts.value[memory.stableId])
+        coVerify(exactly = 0) { repository.setAlbumReview(any(), any()) }
+    }
+
+    @Test
+    fun should_light_latest_anchored_note_at_or_before_playhead() {
+        val notes = listOf(
+            songNote("n-late", "t2", 102_000L),
+            songNote("n-early", "t2", 8_000L),
+            songNote("n-none", "t2", null),
+            songNote("n-other", "t3", 1_000L),
+        )
+        assertNull(memoryLitNoteId(notes, "t2", 7_999L))
+        assertEquals("n-early", memoryLitNoteId(notes, "t2", 8_000L))
+        assertEquals("n-early", memoryLitNoteId(notes, "t2", 101_999L))
+        assertEquals("n-late", memoryLitNoteId(notes, "t2", 102_000L))
+        assertEquals("n-late", memoryLitNoteId(notes, "t2", 900_000L))
+        // another track's notes, or nothing playing, light nothing
+        assertEquals("n-other", memoryLitNoteId(notes, "t3", 2_000L))
+        assertNull(memoryLitNoteId(notes, null, 2_000L))
+        // a tie goes to the later one (NP's rule)
+        val tie = listOf(songNote("a", "t2", 5_000L), songNote("b", "t2", 5_000L))
+        assertEquals("b", memoryLitNoteId(tie, "t2", 6_000L))
+
+        // over the deck: only the same provider's notes count
+        val deck = listOf(noteDeckEntry())
+        assertEquals(MemoriesPlayhead("t2", "n-early"), memoriesPlayhead(playing("t2", 9_000L), deck))
+        assertEquals(MemoriesPlayhead("t2", null), memoriesPlayhead(playing("t2", 9_000L, provider = "spotify"), deck))
+        assertEquals(MemoriesPlayhead(null, null), memoriesPlayhead(PlaybackState(), deck))
+    }
+
+    @Test
+    fun should_seek_once_when_target_track_becomes_current() = runTest {
+        stubCandidates(emptyList())
+        val player = FakePlayback(playing("t1", 30_000L))
+        val viewModel = buildViewModel(player)
+        advanceUntilIdle()
+
+        // the note's track is not playing yet: wait for it (runCurrent: virtual time must not reach the 4s cap)
+        viewModel.requestSeek("t2", 125_000L)
+        runCurrent()
+        assertTrue(player.seeks.isEmpty())
+        // current, but not prepared (duration 0): still waiting
+        player.state.value = playing("t2", 0L, duration = 0L)
+        advanceTimeBy(1_000L)
+        runCurrent()
+        assertTrue(player.seeks.isEmpty())
+        // prepared: one seek
+        player.state.value = playing("t2", 0L)
+        runCurrent()
+        player.state.value = playing("t2", 250L)
+        player.state.value = playing("t2", 500L)
+        advanceUntilIdle()
+        assertEquals(listOf(125_000L), player.seeks)
+
+        // a track that never comes: given up after 4s
+        viewModel.requestSeek("t9", 5_000L)
+        advanceTimeBy(MemoriesViewModel.SEEK_TIMEOUT_MS + 1)
+        player.state.value = playing("t9", 0L)
+        advanceUntilIdle()
+        assertEquals(listOf(125_000L), player.seeks)
+
+        // already playing (paused) the note's track: seek now and resume, no restart needed
+        player.state.value = playing("t2", 60_000L, isPlaying = false)
+        viewModel.requestSeek("t2", 8_000L)
+        assertEquals(listOf(125_000L, 8_000L), player.seeks)
+        assertEquals(1, player.resumes)
+    }
+
+    @Test
+    fun should_not_emit_when_position_ticks_within_same_note() = runTest {
+        val state = MutableStateFlow(PlaybackState())
+        val deck = MutableStateFlow(listOf(noteDeckEntry()))
+        memoriesPlayheadFlow(state, deck).test {
+            assertEquals(MemoriesPlayhead(null, null), awaitItem())
+            state.value = playing("t2", 9_000L)
+            assertEquals(MemoriesPlayhead("t2", "n-early"), awaitItem())
+            // 250ms ticks inside n-early's stretch: nothing reaches the diary
+            for (at in 9_250L..101_750L step 250L) state.value = playing("t2", at)
+            expectNoEvents()
+            state.value = playing("t2", 102_000L)
+            assertEquals(MemoriesPlayhead("t2", "n-late"), awaitItem())
+            state.value = playing("t2", 102_250L)
+            expectNoEvents()
+        }
+    }
+
+    private class FakePlayback(initial: PlaybackState) : MemoriesPlayback {
+        override val state = MutableStateFlow(initial)
+        val seeks = mutableListOf<Long>()
+        var resumes = 0
+
+        override fun seekTo(positionMs: Long) {
+            seeks += positionMs
+        }
+
+        override fun resume() {
+            resumes++
+        }
+    }
+
+    private fun playing(
+        track: String,
+        at: Long,
+        duration: Long = 212_000L,
+        provider: String = "subsonic",
+        isPlaying: Boolean = true,
+    ) = PlaybackState(
+        currentTrack = Track(
+            id = MediaId(provider, track),
+            title = track,
+            artist = null,
+            artistId = null,
+            album = null,
+            albumId = null,
+            coverArt = null,
+            durationSec = (duration / 1000).toInt(),
+            trackNumber = null,
+            year = null,
+            genre = null,
+            userRating = null,
+        ),
+        isPlaying = isPlaying,
+        position = at,
+        duration = duration,
+    )
+
+    private fun songNote(id: String, track: String, positionMs: Long?) = MemoryWriting(
+        kind = MemoryWriting.Kind.SONG_NOTE,
+        text = id,
+        writtenAt = 0L,
+        trackId = track,
+        positionMs = positionMs,
+        noteId = id,
+    )
+
+    private fun noteDeckEntry(): MemoryEntry {
+        val track = MemoryTrack(
+            stableId = "s2",
+            title = "Thin Ice",
+            artist = "",
+            durationSeconds = 212,
+            rating = 8.5f,
+            number = 2,
+            trackId = "t2",
+            playbackIndex = 1,
+        )
+        return buildMemoryEntry().copy(
+            diaryTracks = listOf(
+                MemoryDiaryTrack(
+                    track = track,
+                    notes = listOf(songNote("n-early", "t2", 8_000L), songNote("n-late", "t2", 102_000L)),
+                ),
+            ),
+        )
+    }
+
+    private fun buildViewModel(playback: MemoriesPlayback? = null): MemoriesViewModel {
         every { repository.observeMemorySignalStamp() } returns memorySignal
         return MemoriesViewModel(
             deckCoordinator = MemoriesDeckCoordinator(
@@ -141,6 +331,7 @@ class MemoriesViewModelTest {
             repository = repository,
             activeProfileId = activeProfileId,
             activeSourceId = activeSourceId,
+            playback = playback,
         )
     }
 

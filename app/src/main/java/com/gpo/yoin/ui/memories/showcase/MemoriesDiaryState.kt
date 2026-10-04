@@ -6,6 +6,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -18,6 +19,7 @@ import com.gpo.yoin.ui.theme.YoinMotionRole
 import kotlin.coroutines.coroutineContext
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 
@@ -41,10 +43,11 @@ import kotlinx.coroutines.launch
  * open, close, release, back commit, back cancel — rides the same [morphSpec]
  * (AGENTS: cancel and commit share one token family).
  *
- * P2 ships the controller and its pure rules ([diaryPullToMorph],
- * [diaryMorphToPull], [chooseDiaryReleaseTarget]). P5a feeds it the card's
- * pull-down (rubber band only, capped at the card); the diary UI wires the
- * rest in P5b.
+ * Inputs: the Diary button and the bar cover / ⌄ (launchAnimateTo), the
+ * card's pull-down (rubber band, capped at the card), the bar as the diary's
+ * handle (1:1), a pull past the top of the diary text (MemoriesDiaryDeck's
+ * nested scroll, banded) and system back at the diary level (stop + snapTo,
+ * then launchAnimateTo). [isSettling] tells the award when p has landed.
  */
 @Stable
 class MemoriesDiaryState internal constructor(
@@ -54,9 +57,19 @@ class MemoriesDiaryState internal constructor(
     private val flickPxPerSec: Float,
     private val rubberBand: Float,
     private val rubberBandFloorPx: Float,
-    private val morphSpec: AnimationSpec<Float>,
+    morphSpec: AnimationSpec<Float>,
 ) {
     private var _fraction by mutableFloatStateOf(initialFraction.coerceIn(0f, 1f))
+
+    /**
+     * The one spring every p move rides. Swapped (not re-keyed) when reduced motion toggles, so a live
+     * diary never resets: under reduced motion it is the critically damped effects spring (alpha only).
+     */
+    internal var morphSpec: AnimationSpec<Float> = morphSpec
+
+    /** A spring is moving p (open, close, release, back commit / cancel). Snapshot state: award gates read it. */
+    var isSettling: Boolean by mutableStateOf(false)
+        private set
 
     private var settleJob: Job? = null
 
@@ -79,6 +92,7 @@ class MemoriesDiaryState internal constructor(
     fun stop(): Float {
         settleJob?.cancel()
         settleJob = null
+        isSettling = false
         return _fraction
     }
 
@@ -122,6 +136,7 @@ class MemoriesDiaryState internal constructor(
     fun pullBy(deltaPx: Float): Float {
         settleJob?.cancel()
         settleJob = null
+        isSettling = false
         val maxTravel = diaryMorphToPull(
             morphPx = pullCeiling * morphDistancePx,
             distancePx = morphDistancePx,
@@ -189,7 +204,10 @@ class MemoriesDiaryState internal constructor(
      */
     fun launchAnimateTo(scope: CoroutineScope, target: Float) {
         settleJob?.cancel()
-        settleJob = scope.launch {
+        isSettling = true
+        // Lazy, so settleJob already names this job when its first frame runs.
+        val job = scope.launch(start = CoroutineStart.LAZY) {
+            val self = coroutineContext[Job]
             try {
                 animate(
                     initialValue = _fraction,
@@ -199,14 +217,22 @@ class MemoriesDiaryState internal constructor(
                 ) { value, _ -> _fraction = value }
             } catch (_: CancellationException) {
                 // A finger or a newer settle took p; leave it where it is.
+            } finally {
+                if (settleJob === self) {
+                    settleJob = null
+                    isSettling = false
+                }
             }
         }
+        settleJob = job
+        job.start()
     }
 
     private suspend fun animateInternal(target: Float, initialVelocity: Float) {
         settleJob?.cancel()
         val owner = coroutineContext[Job]
         settleJob = owner
+        isSettling = true
         try {
             animate(
                 initialValue = _fraction,
@@ -215,7 +241,10 @@ class MemoriesDiaryState internal constructor(
                 animationSpec = morphSpec,
             ) { value, _ -> _fraction = value }
         } finally {
-            if (settleJob === owner) settleJob = null
+            if (settleJob === owner) {
+                settleJob = null
+                isSettling = false
+            }
         }
     }
 }
@@ -293,16 +322,21 @@ internal const val DiaryRubberBand = 0.3f
 private val DiaryRubberBandFloor: Dp = 90.dp
 
 @Composable
-fun rememberMemoriesDiaryState(initialFraction: Float = 0f): MemoriesDiaryState {
+fun rememberMemoriesDiaryState(initialFraction: Float = 0f, reducedMotion: Boolean = false): MemoriesDiaryState {
     val density = LocalDensity.current
     val morphDistancePx = with(density) { BackMotionTokens.MemoriesDiaryMorphDistance.toPx() }
     val pullBandPx = with(density) { BackMotionTokens.MemoriesDiaryPullBand.toPx() }
     val flickPxPerSec = with(density) { BackMotionTokens.MemoriesFlickBack.toPx() }
     val floorPx = with(density) { DiaryRubberBandFloor.toPx() }
     // The prototype's morph spring (340 / .82) maps to the expressive default
-    // spatial spring (PLAN Q12); every p move uses it.
-    val morphSpec: AnimationSpec<Float> = YoinMotion.defaultSpatialSpec(role = YoinMotionRole.Expressive)
-    return rememberSaveable(
+    // spatial spring (PLAN Q12); every p move uses it. Reduced motion: the
+    // prototype's EFFECTS spring (200 / 1) → slowEffectsSpec, alpha only.
+    val morphSpec: AnimationSpec<Float> = if (reducedMotion) {
+        YoinMotion.slowEffectsSpec(role = YoinMotionRole.Expressive)
+    } else {
+        YoinMotion.defaultSpatialSpec(role = YoinMotionRole.Expressive)
+    }
+    val state = rememberSaveable(
         morphDistancePx,
         pullBandPx,
         flickPxPerSec,
@@ -332,4 +366,6 @@ fun rememberMemoriesDiaryState(initialFraction: Float = 0f): MemoriesDiaryState 
             morphSpec = morphSpec,
         )
     }
+    state.morphSpec = morphSpec
+    return state
 }

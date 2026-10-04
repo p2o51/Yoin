@@ -29,6 +29,7 @@ import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -55,6 +56,8 @@ import com.gpo.yoin.ui.experience.rememberYoinHaptics
 import com.gpo.yoin.ui.experience.voteHighFrameRate
 import com.gpo.yoin.ui.memories.award.MemoriesAwardLifecycle
 import com.gpo.yoin.ui.memories.award.rememberMemoriesAwardLifecycle
+import com.gpo.yoin.ui.memories.emblem.rememberGrooveReducedMotion
+import com.gpo.yoin.ui.memories.showcase.MemoriesDiaryHost
 import com.gpo.yoin.ui.memories.showcase.MemoriesDiaryState
 import com.gpo.yoin.ui.memories.showcase.MemoriesGestureRouter
 import com.gpo.yoin.ui.memories.showcase.MemoriesShowcase
@@ -102,9 +105,11 @@ fun MemoriesScreen(
     // q: one vertical drag on the whole page, judged in dp — from the top bar
     // 56dp / 450dp/s, from the card body 112dp / 600dp/s; a 350dp/s flick back
     // returns even past the threshold. System back scrubs the same q.
-    // p: the card's pull-down rubber band (P5a); the diary drives it in P5b.
+    // p: card ⇄ diary — the Diary button, the diary's pull past its top, the
+    // bar as its handle, the bar cover / ⌄, and back at the diary level.
     val dismissRules = rememberMemoriesDismissRules()
-    val diaryState = rememberMemoriesDiaryState()
+    val reducedMotion = rememberGrooveReducedMotion()
+    val diaryState = rememberMemoriesDiaryState(reducedMotion = reducedMotion)
     // One award lifecycle per open: Memories unmounts when it closes.
     val awards = rememberMemoriesAwardLifecycle()
     val router = rememberMemoriesGestureRouter(revealState, diaryState, dismissRules)
@@ -131,7 +136,48 @@ fun MemoriesScreen(
         },
         diary = diaryState,
         onCardBackStarted = router::onBackStarted,
+        onCardBackFinished = router::onBackFinished,
     )
+
+    // The diary's window on the ViewModel: the playhead (narrowed, distinct), drafts, NeoDB.
+    val litNoteId = viewModel.litNoteId.collectAsStateWithLifecycle()
+    val playingTrackId = viewModel.playingTrackId.collectAsStateWithLifecycle()
+    val reviewDrafts = viewModel.reviewDrafts.collectAsStateWithLifecycle()
+    val neoDbConfigured = viewModel.neoDbConfigured.collectAsStateWithLifecycle()
+    val syncingIds = viewModel.syncingEntityIds.collectAsStateWithLifecycle()
+    val playMemoryTrack by rememberUpdatedState(onPlayMemoryTrack)
+    val diaryHost = remember(viewModel) {
+        object : MemoriesDiaryHost {
+            override val litNoteId: String? get() = litNoteId.value
+            override val playingTrackId: String? get() = playingTrackId.value
+
+            override fun reviewDraft(memory: MemoryEntry): String? = reviewDrafts.value[memory.stableId]
+
+            override fun saveReview(memory: MemoryEntry, text: String) = viewModel.saveReview(memory, text)
+
+            override fun playTrack(memory: MemoryEntry, track: MemoryTrack) {
+                track.playbackIndex?.let { index -> playMemoryTrack(memory, index) }
+            }
+
+            override fun playNote(memory: MemoryEntry, track: MemoryTrack, note: MemoryWriting) {
+                val trackId = track.trackId ?: return
+                val at = note.positionMs ?: 0L
+                // already playing this song: seek there; otherwise start it, then seek once it is current
+                if (playingTrackId.value != trackId) {
+                    val index = track.playbackIndex ?: return
+                    playMemoryTrack(memory, index)
+                }
+                viewModel.requestSeek(trackId, at)
+            }
+
+            override val neoDbConfigured: Boolean get() = neoDbConfigured.value
+
+            override fun neoDbSyncing(memory: MemoryEntry): Boolean =
+                "${memory.entityProvider}:${memory.entityId}" in syncingIds.value
+
+            override fun pushNeoDb(memory: MemoryEntry) = viewModel.pushToNeoDb(memory)
+        }
+    }
 
     LaunchedEffect(viewModel) {
         viewModel.ensureLoaded()
@@ -139,7 +185,8 @@ fun MemoriesScreen(
 
     // One-shot NeoDB 同步事件 → snackbar。未登录事件带一个 "Sign in" action，
     // 点击后通过 [onNavigateToNeoDbSettings] 退出 Memory 层、跳 Settings。
-    // (The push entry itself moves to the diary's end in P5b.)
+    // The push entry is the quiet line at the diary's end; a diary review that
+    // didn't save reports here too (its draft is kept).
     LaunchedEffect(viewModel) {
         viewModel.events.collect { event ->
             when (event) {
@@ -165,6 +212,13 @@ fun MemoriesScreen(
                     snackbarHostState.showSnackbar(
                         message = event.message,
                         duration = SnackbarDuration.Short,
+                    )
+                }
+
+                is MemoriesOneShotEvent.ReviewSaveFailed -> {
+                    snackbarHostState.showSnackbar(
+                        message = event.message,
+                        duration = SnackbarDuration.Long,
                     )
                 }
             }
@@ -237,6 +291,8 @@ fun MemoriesScreen(
                             onOpenAlbum = onOpenAlbum,
                             onAdvanceDeck = viewModel::advanceDeck,
                             onCurrentPageChange = viewModel::setCurrentPage,
+                            diaryHost = diaryHost,
+                            reducedMotion = reducedMotion,
                         )
                     }
                 }
@@ -320,6 +376,8 @@ private fun MemoriesContent(
     onOpenAlbum: (MemoryEntry) -> Unit,
     onAdvanceDeck: (MemoryDeckDirection) -> Unit,
     onCurrentPageChange: (Int) -> Unit,
+    diaryHost: MemoriesDiaryHost,
+    reducedMotion: Boolean,
 ) {
     // Derived: the deck's pull frames flip this once, not per frame.
     val auroraVisible by remember(revealState) { derivedStateOf { revealState.fraction < 0.999f } }
@@ -445,6 +503,10 @@ private fun MemoriesContent(
                 pagerConnection = pagerEdgeConnection,
                 edgeHint = edgeHint,
                 auroraVisible = auroraVisible,
+                reducedMotion = reducedMotion,
+                diaryHost = diaryHost,
+                router = router,
+                awardBlocked = { router.backBusy },
             )
         }
 

@@ -172,6 +172,85 @@ class MemoriesAwardLifecycleTest {
         assertFalse(pInCardState(-0.05f))
     }
 
+    private class FakeDiaryEmblem(override val hasAward: Boolean = true) : MemoriesDiaryEmblemTarget {
+        val poses = mutableListOf<String>()
+
+        override fun showWaiting(small: Boolean) {
+            poses += if (small) "small" else "uncut"
+        }
+
+        override fun nod() {
+            poses += "nod"
+        }
+
+        override fun showRest() {
+            poses += "rest"
+        }
+    }
+
+    private fun inDiary(key: String, fingerDown: Boolean = false, nearCard: Boolean = true) =
+        MemoriesAwardInputs(key, fingerDown, nearCard, revealIn = true, cardState = false, diaryState = true)
+
+    @Test
+    fun should_nod_once_when_card_is_met_in_the_diary() {
+        val open = MemoriesAwardLifecycle()
+        open.register("m2", FakeTarget())
+        val dem = FakeDiaryEmblem()
+        open.registerDiary("m2", dem)
+        // not yet awarded, not nodded: the 48 waits small
+        assertEquals(listOf("small"), dem.poses)
+        // in the diary a card is never awarded ...
+        assertNull(open.startDelayMs(inDiary("m2"), nowMs = 0))
+        // ... it nods, once the page has settled with the finger off
+        assertFalse(open.nod(inDiary("m2", fingerDown = true)))
+        assertFalse(open.nod(inDiary("m2", nearCard = false)))
+        assertTrue(open.nod(inDiary("m2")))
+        assertEquals(listOf("small", "nod"), dem.poses)
+        assertFalse(open.nod(inDiary("m2")))
+        // back on the card it earns its full award; the 48 stops waiting with it
+        assertTrue(open.start(onCard("m2")))
+        assertEquals("rest", dem.poses.last())
+        assertTrue(pInDiaryState(0.99f, settling = false))
+        assertFalse(pInDiaryState(0.99f, settling = true))
+        assertFalse(pInDiaryState(0.9f, settling = false))
+    }
+
+    @Test
+    fun should_land_uncut_without_a_nod_when_diary_opens_before_the_award() {
+        val open = MemoriesAwardLifecycle()
+        val m1 = FakeTarget()
+        open.register("m1", m1)
+        val dem = FakeDiaryEmblem()
+        open.registerDiary("m1", dem)
+        // the Diary button beat the award: the card was seen, so no nod; the 48 lands full size, uncut
+        open.onDiaryOpening("m1")
+        assertEquals(listOf("small", "uncut"), dem.poses)
+        assertTrue(open.isNodded("m1"))
+        assertFalse(open.nod(inDiary("m1")))
+        // the award waits for the card
+        assertFalse(open.isAwarded("m1"))
+        assertTrue(open.start(onCard("m1")))
+
+        // a running award is interrupted by the diary opening and still counts
+        val m3 = FakeTarget()
+        open.register("m3", m3)
+        open.start(onCard("m3"))
+        open.onDiaryOpening("m3")
+        assertEquals(1, m3.runs.single().interrupts)
+        assertTrue(open.isAwarded("m3"))
+    }
+
+    @Test
+    fun should_hold_award_while_back_preview_runs() {
+        val open = MemoriesAwardLifecycle()
+        open.register("m1", FakeTarget())
+        // the back preview parks q under the open gate: the award must not start under it (prototype busyQ)
+        val blocked = MemoriesAwardInputs("m1", false, true, true, true, blocked = true)
+        assertNull(open.startDelayMs(blocked, nowMs = 0))
+        assertFalse(open.start(blocked))
+        assertTrue(open.start(onCard("m1")))
+    }
+
     @Test
     fun should_never_wait_or_award_when_card_is_unrated() {
         val open = MemoriesAwardLifecycle()

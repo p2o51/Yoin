@@ -24,11 +24,13 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -42,6 +44,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.onPlaced
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
@@ -65,7 +68,10 @@ import com.gpo.yoin.ui.memories.emblem.LocalHapticTrace
 import com.gpo.yoin.ui.memories.emblem.rememberGrooveReducedMotion
 import com.gpo.yoin.ui.memories.formatScore
 import com.gpo.yoin.ui.memories.memoryCopyInput
+import com.gpo.yoin.ui.memories.memoryLitNoteId
 import com.gpo.yoin.ui.memories.memoryPlayHistory
+import com.gpo.yoin.ui.memories.showcase.MemoriesDiaryDeck
+import com.gpo.yoin.ui.memories.showcase.MemoriesDiaryHost
 import com.gpo.yoin.ui.memories.showcase.MemoriesShowcase
 import com.gpo.yoin.ui.memories.showcase.MemoriesShowcaseFixtures
 import com.gpo.yoin.ui.memories.showcase.MemoryPalette
@@ -80,19 +86,26 @@ import com.gpo.yoin.ui.navigation.back.rememberMemoriesDismissRules
 import com.gpo.yoin.ui.theme.YoinTheme
 import java.time.LocalDate
 import java.time.ZoneId
+import kotlin.math.roundToInt
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /*
- * Debug-only harness for the Memories showcase (P5a card state), with no ViewModel: the five memories of the
+ * Debug-only harness for the Memories showcase (card and diary), with no ViewModel: the five memories of the
  * approved prototype (data.js m1–m4, twostate4's m5) built through the coordinator's own copy pipeline, drawn
  * covers and the prototype's palettes and theme tokens. Launched through MemoryCardScreenshotActivity:
  *
  *   adb shell am start -n com.gpo.yoin/.debug.MemoryCardScreenshotActivity --es mode showcase \
- *       [--ei page 0..4] [--ez dark true] [--ez reduced true] [--ez trace true]
+ *       [--ei page 0..4] [--ez diary true] [--ef p 0.5] [--es play 2:125] [--ez long true] \
+ *       [--ez dark true] [--ez reduced true] [--ez trace true] [--ez failsave true]
  *
  * The page opens like Memories does (q 1 → 0, so the first card earns its award on open), swipes up / the
  * Home pill / back close it, and it re-opens 0.9s later as a new open (every card earns its award again).
+ *  · diary: opens on the diary (p = 1). p: freezes the morph at that p (no spring; a frame for screenshots).
+ *  · play track:pos: a simulated playhead on the page's memory (track number : seconds), +1s a second into
+ *    the next track, lighting notes by NP's rule; tapping a track or note row restarts it there.
+ *  · long: twostate4's long start — m5, the diary open and scrolled 600dp, Thin Ice playing at 2:05.
+ *  · failsave: a diary review never saves (the draft is kept, as offline without the album cached).
  * trace: a rolling 4s haptic log at the bottom (the tablet has no vibrator) plus the lifecycle's steps; every
  * line also goes to logcat under "GrooveTrace".
  */
@@ -102,14 +115,32 @@ internal data class ShowcaseHarnessOptions(
     val dark: Boolean,
     val reduced: Boolean?,
     val trace: Boolean,
+    val diary: Boolean = false,
+    val frame: Float? = null,
+    val play: Pair<Int, Int>? = null,
+    val scrollDp: Int = 0,
+    val failSave: Boolean = false,
 ) {
     companion object {
-        fun from(intent: Intent): ShowcaseHarnessOptions = ShowcaseHarnessOptions(
-            page = intent.getIntExtra("page", 0),
-            dark = intent.getBooleanExtra("dark", false),
-            reduced = if (intent.hasExtra("reduced")) intent.getBooleanExtra("reduced", false) else null,
-            trace = intent.getBooleanExtra("trace", false),
-        )
+        fun from(intent: Intent): ShowcaseHarnessOptions {
+            val long = intent.getBooleanExtra("long", false)
+            val play = intent.getStringExtra("play")?.split(':')?.let { parts ->
+                val track = parts.getOrNull(0)?.toIntOrNull()
+                val at = parts.getOrNull(1)?.toIntOrNull()
+                if (track != null && at != null) track to at else null
+            }
+            return ShowcaseHarnessOptions(
+                page = if (long) 4 else intent.getIntExtra("page", 0),
+                dark = intent.getBooleanExtra("dark", false),
+                reduced = if (intent.hasExtra("reduced")) intent.getBooleanExtra("reduced", false) else null,
+                trace = intent.getBooleanExtra("trace", false),
+                diary = long || intent.getBooleanExtra("diary", false),
+                frame = if (intent.hasExtra("p")) intent.getFloatExtra("p", 0f) else null,
+                play = play ?: if (long) 2 to 125 else null,
+                scrollDp = if (long) 600 else intent.getIntExtra("scroll", 0),
+                failSave = intent.getBooleanExtra("failsave", false),
+            )
+        }
     }
 }
 
@@ -137,7 +168,9 @@ internal fun MemoriesShowcaseHarness(options: ShowcaseHarnessOptions) {
                     HarnessDeck(
                         memories = fixtures.first,
                         fixtures = fixtures.second,
-                        options = options,
+                        // a re-open starts plain: on the card, nothing frozen, at the top
+                        options = options.takeIf { opens == 0 }
+                            ?: options.copy(diary = false, frame = null, scrollDp = 0),
                         trace = trace,
                         onClosed = { opens++ },
                     )
@@ -165,12 +198,35 @@ private fun HarnessDeck(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    // the host's reveal q: an open is q 1 → 0, as Home's pull-down settles it
-    val reveal = rememberRevealState(initialFraction = 1f)
-    val diary = rememberMemoriesDiaryState()
+    val reduced = options.reduced ?: rememberGrooveReducedMotion()
+    // the host's reveal q: an open is q 1 → 0, as Home's pull-down settles it (a frozen frame starts open)
+    val reveal = rememberRevealState(initialFraction = if (options.frame != null) 0f else 1f)
+    val diary = rememberMemoriesDiaryState(
+        initialFraction = if (options.diary) 1f else 0f,
+        reducedMotion = reduced,
+    )
     val awards = rememberMemoriesAwardLifecycle()
     val router = rememberMemoriesGestureRouter(reveal, diary, rememberMemoriesDismissRules())
     val pagerState = rememberPagerState(initialPage = options.page.coerceIn(0, memories.lastIndex)) { memories.size }
+    var deckMemories by remember { mutableStateOf(memories) }
+    val playhead = remember { HarnessPlayhead() }
+    val host = remember(playhead) { HarnessDiaryHost(playhead, options.failSave, trace) }
+    SideEffect {
+        host.onSaved = { saved -> deckMemories = deckMemories.map { if (it.stableId == saved.stableId) saved else it } }
+    }
+    LaunchedEffect(playhead) { playhead.advance() }
+    LaunchedEffect(options.play) {
+        val (n, at) = options.play ?: return@LaunchedEffect
+        val memory = deckMemories.getOrNull(pagerState.currentPage) ?: return@LaunchedEffect
+        val track = memory.tracks.firstOrNull { it.number == n } ?: return@LaunchedEffect
+        playhead.start(memory, track, at * 1000L)
+    }
+    // a frozen morph frame: p held where asked (any spring is stopped first)
+    LaunchedEffect(options.frame) {
+        val frame = options.frame ?: return@LaunchedEffect
+        diary.snapTo(frame)
+    }
+    val diaryLevel by remember(diary) { derivedStateOf { diary.isDiaryLevel } }
     val reopen = {
         scope.launch {
             delay(ReopenDelayMs)
@@ -190,7 +246,7 @@ private fun HarnessDeck(
     }
     MemoriesPredictiveBack(
         enabled = true,
-        level = MemoriesBackLevel.Card,
+        level = if (diaryLevel) MemoriesBackLevel.Diary else MemoriesBackLevel.Card,
         reveal = reveal,
         containerHeightPx = { router.heightPx },
         onDismiss = {
@@ -200,7 +256,9 @@ private fun HarnessDeck(
                 reopen()
             }
         },
+        diary = diary,
         onCardBackStarted = router::onBackStarted,
+        onCardBackFinished = router::onBackFinished,
     )
     Box(
         Modifier
@@ -216,7 +274,7 @@ private fun HarnessDeck(
                 .memoriesGestures(router),
         ) {
             MemoriesShowcase(
-                memories = memories,
+                memories = deckMemories,
                 pagerState = pagerState,
                 reveal = reveal,
                 diary = diary,
@@ -231,14 +289,116 @@ private fun HarnessDeck(
                 onOpenAlbum = { memory ->
                     Toast.makeText(context, "Opening ${memory.title}", Toast.LENGTH_SHORT).show()
                 },
-                onOpenDiary = { trace.lifecycle("Diary tapped (P5b)") },
+                onOpenDiary = { trace.lifecycle("diary opened") },
                 onBarPlaced = router::onBarPlaced,
                 today = FixtureToday,
-                reducedMotion = options.reduced ?: rememberGrooveReducedMotion(),
+                reducedMotion = reduced,
                 fixtures = fixtures,
+                diaryHost = host,
+                router = router,
+                awardBlocked = { router.backBusy },
             )
+            // the long start: the diary scrolled (once its page has laid out)
+            if (options.scrollDp > 0) {
+                val density = LocalDensity.current
+                LaunchedEffect(Unit) {
+                    delay(LongStartDelayMs)
+                    trace.lifecycle("scroll ${options.scrollDp}dp")
+                    val px = with(density) { options.scrollDp.dp.toPx() }
+                    (router.diaryProbe as? MemoriesDiaryDeck)?.current()?.scroll?.scrollTo(px.roundToInt())
+                }
+            }
         }
     }
+}
+
+private const val LongStartDelayMs = 450L
+
+// ---------------------------------------------------------------- the diary's host (playhead, writing)
+
+/** twostate4's simulated playhead: +1s a second, into the next track by number; notes light by NP's rule. */
+private class HarnessPlayhead {
+    var memory by mutableStateOf<MemoryEntry?>(null)
+    var trackId by mutableStateOf<String?>(null)
+    var positionMs by mutableLongStateOf(0L)
+    private var number = 0
+
+    fun start(memory: MemoryEntry, track: MemoryTrack, atMs: Long) {
+        this.memory = memory
+        number = track.number ?: 0
+        trackId = track.trackId
+        positionMs = atMs
+    }
+
+    suspend fun advance() {
+        while (true) {
+            delay(1_000L)
+            val m = memory ?: continue
+            val current = m.tracks.firstOrNull { it.number == number } ?: continue
+            positionMs += 1_000L
+            if (positionMs >= (current.durationSeconds ?: Int.MAX_VALUE) * 1000L) {
+                val next = m.tracks.firstOrNull { it.number == number + 1 }
+                if (next == null) {
+                    trackId = null
+                    memory = null
+                } else {
+                    number = next.number ?: (number + 1)
+                    trackId = next.trackId
+                    positionMs = 0L
+                }
+            }
+        }
+    }
+}
+
+private class HarnessDiaryHost(
+    private val playhead: HarnessPlayhead,
+    private val failSave: Boolean,
+    private val trace: ShowcaseTrace,
+) : MemoriesDiaryHost {
+    var onSaved: (MemoryEntry) -> Unit = {}
+    private val drafts = mutableStateMapOf<String, String>()
+
+    override val litNoteId: String?
+        get() {
+            val m = playhead.memory ?: return null
+            val notes = m.diaryTracks.flatMap { it.notes }
+            return memoryLitNoteId(notes, playhead.trackId, playhead.positionMs)
+        }
+
+    override val playingTrackId: String? get() = playhead.trackId
+
+    override fun reviewDraft(memory: MemoryEntry): String? = drafts[memory.stableId]
+
+    override fun saveReview(memory: MemoryEntry, text: String) {
+        if (failSave) {
+            drafts[memory.stableId] = text
+            trace.lifecycle("review save failed (draft kept)")
+            return
+        }
+        drafts.remove(memory.stableId)
+        val now = LocalDate.of(2026, 10, 4).atTime(12, 0).atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
+        onSaved(
+            memory.copy(
+                review = MemoryWriting(kind = MemoryWriting.Kind.REVIEW, text = text, writtenAt = now),
+                hasAlbumReview = true,
+            ),
+        )
+        trace.lifecycle("review saved")
+    }
+
+    override fun playTrack(memory: MemoryEntry, track: MemoryTrack) {
+        playhead.start(memory, track, 0L)
+        trace.lifecycle("play ${track.title} from 0:00")
+    }
+
+    override fun playNote(memory: MemoryEntry, track: MemoryTrack, note: MemoryWriting) {
+        val at = note.positionMs ?: 0L
+        playhead.start(memory, track, at)
+        trace.lifecycle("play ${track.title} from ${at / 1000}s")
+    }
+
+    override val neoDbConfigured: Boolean get() = true
 }
 
 private const val ReopenDelayMs = 900L

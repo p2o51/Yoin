@@ -7,6 +7,7 @@ import androidx.lifecycle.viewModelScope
 import com.gpo.yoin.AppContainer
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.repository.YoinRepository
+import com.gpo.yoin.player.PlaybackState
 import com.gpo.yoin.ui.experience.ExperienceSessionStore
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.FlowPreview
@@ -19,13 +20,16 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 
 class MemoriesViewModel(
     private val deckCoordinator: MemoriesDeckCoordinator,
@@ -34,6 +38,9 @@ class MemoriesViewModel(
     private val activeProfileId: StateFlow<String?>,
     // The active MusicSource's provider id (null until the source is built).
     private val activeSourceId: Flow<String?>,
+    // The player, for the diary's playback highlight and "play from this note" (null in tests that don't care).
+    private val playback: MemoriesPlayback? = null,
+    private val clock: () -> Long = System::currentTimeMillis,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow<MemoriesUiState>(MemoriesUiState.Loading)
@@ -60,6 +67,38 @@ class MemoriesViewModel(
     private var initialLoadJob: Job? = null
     private var adjacentDeckJob: Job? = null
     private var refreshJob: Job? = null
+    private var seekJob: Job? = null
+
+    /**
+     * Reviews being saved from a diary's blank page, by [MemoryEntry.stableId]. A draft stays here until the
+     * write lands, and stays after a failed one, so the blank page reopens with it.
+     */
+    private val _reviewDrafts = MutableStateFlow<Map<String, String>>(emptyMap())
+    val reviewDrafts: StateFlow<Map<String, String>> = _reviewDrafts.asStateFlow()
+
+    /** NeoDB is configured: the diary's quiet push entry shows only then. */
+    private val _neoDbConfigured = MutableStateFlow(false)
+    val neoDbConfigured: StateFlow<Boolean> = _neoDbConfigured.asStateFlow()
+
+    /**
+     * The playhead, narrowed to what the diary shows: the playing track's raw id and the note it is "inside"
+     * (NP's rule, [memoryLitNoteId]). Both distinct: a position tick inside one note's stretch emits nothing
+     * (the NP position-dedup invariant — no per-tick field reaches any UI state).
+     */
+    private val playhead: Flow<MemoriesPlayhead> = memoriesPlayheadFlow(
+        state = playback?.state ?: flowOf(PlaybackState()),
+        deck = _uiState.map { ui -> (ui as? MemoriesUiState.Content)?.memories.orEmpty() },
+    )
+
+    val playingTrackId: StateFlow<String?> = playhead
+        .map { head -> head.trackId }
+        .distinctUntilChanged()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(PLAYHEAD_STOP_MS), null)
+
+    val litNoteId: StateFlow<String?> = playhead
+        .map { head -> head.noteId }
+        .distinctUntilChanged()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(PLAYHEAD_STOP_MS), null)
 
     init {
         viewModelScope.launch {
@@ -68,6 +107,7 @@ class MemoriesViewModel(
                     deckCoordinator.invalidate()
                     sessionStore.clearMemories()
                     ensureLoaded(force = true)
+                    refreshNeoDbConfigured()
                 }
         }
         // Cold start: the profile id is restored synchronously but its source is
@@ -244,6 +284,97 @@ class MemoriesViewModel(
         }
     }
 
+    private suspend fun refreshNeoDbConfigured() {
+        _neoDbConfigured.value = try {
+            repository.isNeoDBConfigured()
+        } catch (cancellation: CancellationException) {
+            throw cancellation
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    /**
+     * Today's blank diary page was saved. Optimistic: the entry becomes the review at once (the diary turns
+     * the page into the review entry in place) and the draft is held until the write lands. The album comes
+     * from the detail cache ([YoinRepository.getAlbum]); without it (offline, no cache) — or if the write
+     * throws — the optimistic review is rolled back, the draft is KEPT and [MemoriesOneShotEvent.ReviewSaveFailed]
+     * reports it. A landed write moves the memory signal, and the in-place refresh re-resolves the card.
+     */
+    fun saveReview(memory: MemoryEntry, text: String) {
+        val trimmed = text.trim()
+        if (trimmed.isEmpty() || memory.entityType != MemoryEntityType.ALBUM) return
+        val key = memory.stableId
+        _reviewDrafts.value = _reviewDrafts.value + (key to trimmed)
+        val before = (_uiState.value as? MemoriesUiState.Content)?.memories?.firstOrNull { it.stableId == key }
+        val optimistic = MemoryWriting(kind = MemoryWriting.Kind.REVIEW, text = trimmed, writtenAt = clock())
+        patchMemory(key) { entry -> entry.copy(review = optimistic, hasAlbumReview = true) }
+        viewModelScope.launch {
+            val saved = try {
+                val album = repository.getAlbum(MediaId(memory.entityProvider, memory.entityId))
+                if (album != null) {
+                    repository.setAlbumReview(album, trimmed)
+                    true
+                } else {
+                    false
+                }
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (error: Exception) {
+                Log.w(TAG, "saveReview failed for $key", error)
+                false
+            }
+            if (saved) {
+                _reviewDrafts.value = _reviewDrafts.value - key
+            } else {
+                patchMemory(key) { entry ->
+                    if (entry.review?.text == trimmed) {
+                        entry.copy(review = before?.review, hasAlbumReview = before?.hasAlbumReview ?: false)
+                    } else {
+                        entry
+                    }
+                }
+                _events.tryEmit(
+                    MemoriesOneShotEvent.ReviewSaveFailed(
+                        memoryStableId = key,
+                        message = "Couldn't save the review. Your draft is kept.",
+                    ),
+                )
+            }
+        }
+    }
+
+    private fun patchMemory(stableId: String, transform: (MemoryEntry) -> MemoryEntry) {
+        val content = _uiState.value as? MemoriesUiState.Content ?: return
+        if (content.memories.none { it.stableId == stableId }) return
+        _uiState.value = content.copy(
+            memories = content.memories.map { entry -> if (entry.stableId == stableId) transform(entry) else entry },
+        )
+    }
+
+    /**
+     * Play-from-a-note's second half: the caller has asked for [trackId] to play (onPlayMemoryTrack, which
+     * always starts at 0); once that track really is current — and prepared (duration > 0) — seek to
+     * [positionMs], once. Gives up after [SEEK_TIMEOUT_MS] (a provider that never reports it). When the track
+     * is already current, seek now (resuming it if paused) instead of restarting it.
+     */
+    fun requestSeek(trackId: String, positionMs: Long) {
+        val player = playback ?: return
+        seekJob?.cancel()
+        val now = player.state.value
+        if (now.currentTrack?.id?.rawId == trackId && now.duration > 0L) {
+            player.seekTo(positionMs)
+            if (!now.isPlaying) player.resume()
+            return
+        }
+        seekJob = viewModelScope.launch {
+            val ready = withTimeoutOrNull(SEEK_TIMEOUT_MS) {
+                player.state.first { state -> state.currentTrack?.id?.rawId == trackId && state.duration > 0L }
+            }
+            if (ready != null && positionMs > 0L) player.seekTo(positionMs)
+        }
+    }
+
     fun setCurrentPage(page: Int) {
         val currentPage = sessionState.value.currentPage
         if (currentPage == page) return
@@ -407,6 +538,14 @@ class MemoriesViewModel(
     class Factory(
         private val container: AppContainer,
     ) : ViewModelProvider.Factory {
+        private val playback = object : MemoriesPlayback {
+            override val state: StateFlow<PlaybackState> get() = container.playbackManager.playbackState
+
+            override fun seekTo(positionMs: Long) = container.playbackManager.seekTo(positionMs)
+
+            override fun resume() = container.playbackManager.resume()
+        }
+
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T =
             MemoriesViewModel(
@@ -424,13 +563,66 @@ class MemoriesViewModel(
                 repository = container.repository,
                 activeProfileId = container.profileManager.activeProfileId,
                 activeSourceId = container.profileManager.activeSource.map { source -> source?.id },
+                playback = playback,
             ) as T
     }
 
     companion object {
         private const val TAG = "MemoriesViewModel"
         private const val MEMORY_SIGNAL_DEBOUNCE_MS = 250L
+
+        /** Play-from-a-note gives up on its seek if the track isn't current and prepared by then. */
+        const val SEEK_TIMEOUT_MS = 4_000L
+
+        private const val PLAYHEAD_STOP_MS = 2_000L
     }
+}
+
+/** What the diary needs from the player: its state (position ticks included) and two commands. */
+interface MemoriesPlayback {
+    val state: StateFlow<PlaybackState>
+
+    fun seekTo(positionMs: Long)
+
+    fun resume()
+}
+
+/** The playhead as the diary reads it: the playing track's raw id and the lit note's id. */
+internal data class MemoriesPlayhead(val trackId: String?, val noteId: String?)
+
+/** The player's state (ticking) narrowed to [MemoriesPlayhead] over the deck: emits only when it changes. */
+internal fun memoriesPlayheadFlow(state: Flow<PlaybackState>, deck: Flow<List<MemoryEntry>>): Flow<MemoriesPlayhead> =
+    combine(state, deck, ::memoriesPlayhead).distinctUntilChanged()
+
+/**
+ * The playhead over [deck]: the current track's raw id, and among the notes of that track in the deck (the
+ * same provider only), the one the playhead is inside ([memoryLitNoteId]).
+ */
+internal fun memoriesPlayhead(state: PlaybackState, deck: List<MemoryEntry>): MemoriesPlayhead {
+    val track = state.currentTrack ?: return MemoriesPlayhead(null, null)
+    val raw = track.id.rawId
+    val notes = deck.asSequence()
+        .filter { entry -> entry.entityProvider == track.id.provider }
+        .flatMap { entry -> entry.diaryTracks.asSequence() }
+        .filter { row -> row.track.trackId == raw }
+        .flatMap { row -> row.notes.asSequence() }
+        .toList()
+    return MemoriesPlayhead(raw, memoryLitNoteId(notes, raw, state.position))
+}
+
+/**
+ * NP's rule (currentAnchoredNoteId) on diary notes: of [trackId]'s anchored notes, the latest whose anchor is
+ * at or before [positionMs] (a tie goes to the later one in the list). Null when none is reached yet.
+ */
+internal fun memoryLitNoteId(notes: List<MemoryWriting>, trackId: String?, positionMs: Long): String? {
+    if (trackId == null) return null
+    var best: MemoryWriting? = null
+    for (note in notes) {
+        if (note.trackId != trackId) continue
+        val anchor = note.positionMs ?: continue
+        if (anchor <= positionMs && (best?.positionMs ?: -1L) <= anchor) best = note
+    }
+    return best?.noteId
 }
 
 /**
@@ -446,6 +638,12 @@ sealed interface MemoriesOneShotEvent {
     data class NeoDBSyncResult(
         val memoryStableId: String,
         val success: Boolean,
+        val message: String,
+    ) : MemoriesOneShotEvent
+
+    /** A diary review didn't save; its draft is kept ([MemoriesViewModel.reviewDrafts]). */
+    data class ReviewSaveFailed(
+        val memoryStableId: String,
         val message: String,
     ) : MemoriesOneShotEvent
 }

@@ -208,6 +208,22 @@ class GrooveAwardState internal constructor(
     /** Stops everything and shows the finished emblem at once (e.g. once the card is off screen). */
     fun reset() = setPending(false)
 
+    /**
+     * The diary emblem landed by the morph on a card still due its award (prototype `barPending(false)` with
+     * `barCut` kept): full size and upright, grooves uncut (reduced motion: undeveloped) until the card's award.
+     */
+    fun setUncut() {
+        stopAll()
+        rest.copyInto(values)
+        if (script != null) {
+            values[TintAlpha] = 0f
+            for (j in 0 until orders) {
+                if (reducedMotion) values[cutAlphaAt(j)] = 0f else values[cutProgressAt(j)] = 0f
+            }
+        }
+        bump()
+    }
+
     // ------------------------------------------------------------------ the award
 
     /** Plays the card award (tier-scaled), from frame 0. A run already playing is replaced. */

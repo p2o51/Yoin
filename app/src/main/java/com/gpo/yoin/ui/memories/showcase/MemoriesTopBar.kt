@@ -36,9 +36,14 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.PointerEvent
+import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.layout.layout
+import androidx.compose.ui.node.ModifierNodeElement
+import androidx.compose.ui.node.PointerInputModifierNode
+import androidx.compose.ui.platform.InspectorInfo
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
@@ -52,6 +57,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.lerp
 import androidx.compose.ui.unit.sp
@@ -71,7 +77,12 @@ import kotlin.math.roundToInt
  *    dots — each dot a 32×48 hit box on the 18dp pitch, a tap resolved to the nearest dot centre by x, so
  *    every dot's area is symmetric about it;
  *  · per page ([MemoryPageBarSlots]): slot A ("Memories" / "Last heard …"), and the diary's 40dp cover and
- *    slot B (album name marquee + ⌄), composed only once the diary morph starts (P5b drives it).
+ *    slot B (album name marquee + ⌄), composed once the diary morph starts. The bar cover rides the card
+ *    cover's flight ([MemoryPageMorph.barCover]) and takes over from it by alpha; a tap on it, on slot B or
+ *    on the ⌄ closes the diary.
+ *
+ * The shared bar shares its touches with the pager beneath, so a horizontal drag that starts on the pill or
+ * the dots still pages (a tap still lands on them: the pager never consumes one).
  *
  * Per-page slots ride the pager with a parallax (x = 0.6·W·rel, so they move at 40% of the page) and fade by
  * 1 − |rel|·2.2; a neighbour's invisible controls take no taps and carry no semantics. Every per-frame value
@@ -129,8 +140,9 @@ internal fun slotEndInset(dotCount: Int): Dp = with(MemoriesTopBarTokens) {
 }
 
 /**
- * The shared bar: Home pill + dots. [diaryProgress] (p, 0 card … 1 diary) narrows the pill 88 → 36 in the
- * layout phase and fades its label. [position] is the pager's continuous page. [modifier] should place it
+ * The shared bar: Home pill + dots. [diaryProgress] (the current page's cover flight fp, 0 card … 1 diary)
+ * narrows the pill 88 → 36 in the layout phase and fades its label: the pill makes room for the bar cover,
+ * so it follows the cover (which waits in the bar during a frozen collapse). [position] is the pager's continuous page. [modifier] should place it
  * under the status bar, [MemoriesTopBarTokens.Height] tall.
  */
 @Composable
@@ -144,7 +156,7 @@ internal fun MemoriesTopBar(
     modifier: Modifier = Modifier,
     edgeHint: DeckIndicatorTransitionState? = null,
 ) {
-    Box(modifier = modifier.fillMaxWidth().height(MemoriesTopBarTokens.Height)) {
+    Box(modifier = modifier.fillMaxWidth().height(MemoriesTopBarTokens.Height).shareTouchesWithSiblings()) {
         HomePill(
             diaryProgress = diaryProgress,
             onClick = onHome,
@@ -180,7 +192,7 @@ private fun HomePill(diaryProgress: () -> Float, onClick: () -> Unit, modifier: 
         modifier = modifier
             // 88 → 36 as the diary opens: a layout-phase read of p, never a recomposition
             .layout { measurable, _ ->
-                val pp = smoothstep(0f, 0.6f, diaryProgress().coerceIn(0f, 1f))
+                val pp = smoothstep(0f, MemoriesMorphTokens.PillNarrowTo, diaryProgress().coerceIn(0f, 1f))
                 val pill = lerp(MemoriesTopBarTokens.PillWidth, MemoriesTopBarTokens.PillWidthDiary, pp)
                 val w = (pill + MemoriesTopBarTokens.PillHitMargin * 2).roundToPx()
                 val h = MemoriesTopBarTokens.HitHeight.roundToPx()
@@ -224,7 +236,7 @@ private fun HomePill(diaryProgress: () -> Float, onClick: () -> Unit, modifier: 
                 maxLines = 1,
                 softWrap = false,
                 modifier = Modifier.graphicsLayer {
-                    alpha = 1f - smoothstep(0f, 0.4f, diaryProgress().coerceIn(0f, 1f))
+                    alpha = 1f - smoothstep(0f, MemoriesMorphTokens.PillLabelFadeTo, diaryProgress().coerceIn(0f, 1f))
                 },
             )
         }
@@ -290,7 +302,9 @@ private fun PageDots(
 /**
  * One page's share of the bar. [relative] is rel = pager position − this page; [diaryProgress] is p.
  * Slot A ("Memories" / "Last heard …") leaves as the diary opens; the diary's cover and slot B only exist
- * from the morph's first frame (P5b drives p; in P5a they are never composed).
+ * from the morph's first frame. [morph] flies the bar cover with the card's ([MemoryPageMorph.barCover]);
+ * without one (previews) it simply fades in. [reducedMotion]: alpha only, slot A gone by p .5 and slot B's
+ * text from p .5. [settled]: the page is at rest (the marquees only run then, with the diary fully open).
  */
 @Composable
 internal fun MemoryPageBarSlots(
@@ -304,12 +318,16 @@ internal fun MemoryPageBarSlots(
     onCloseDiary: () -> Unit,
     cover: @Composable (Modifier) -> Unit,
     modifier: Modifier = Modifier,
+    morph: MemoryPageMorph? = null,
+    reducedMotion: Boolean = false,
+    settled: () -> Boolean = { true },
 ) {
     val slotEnd = slotEndInset(dotCount)
     val inDiaryMorph by remember { derivedStateOf { diaryProgress() > 0.001f } }
     // a neighbour's controls (parked over this bar by the parallax, invisible) take no taps
     val onShow by remember { derivedStateOf { barVisibility(relative()) >= 0.5f } }
     val diaryOpen by remember { derivedStateOf { diaryProgress() >= 0.5f } }
+    val marqueeRunning by remember { derivedStateOf { diaryProgress() >= 1f && settled() } }
     val shown = onShow
     Box(
         modifier = modifier
@@ -332,8 +350,13 @@ internal fun MemoryPageBarSlots(
                 }
                 .graphicsLayer {
                     val p = diaryProgress().coerceIn(0f, 1f)
-                    translationY = -6.dp.toPx() * p
-                    alpha = 1f - smoothstep(0f, 0.45f, p)
+                    if (reducedMotion) {
+                        translationY = 0f
+                        alpha = reducedCardAlpha(p)
+                    } else {
+                        translationY = -MemoriesMorphTokens.SlotALift.toPx() * p
+                        alpha = 1f - smoothstep(0f, MemoriesMorphTokens.SlotAFadeTo, p)
+                    }
                 },
             verticalArrangement = Arrangement.Center,
         ) {
@@ -366,11 +389,24 @@ internal fun MemoryPageBarSlots(
                     .align(Alignment.CenterStart)
                     .offset(x = MemoriesTopBarTokens.BarCoverStart - BarCoverHitMargin)
                     .size(MemoriesTopBarTokens.HitHeight)
-                    .then(tapToCard)
-                    .graphicsLayer { alpha = smoothstep(0.62f, 0.9f, diaryProgress()) },
+                    .then(tapToCard),
                 contentAlignment = Alignment.Center,
             ) {
-                cover(Modifier.size(MemoriesTopBarTokens.BarCover).clip(YoinArtworkShapes.ThumbAnimated))
+                // no border, 4dp corners; in flight it is the card's cover's twin (same path, same size)
+                val layer = if (morph != null) {
+                    Modifier.graphicsLayer { with(morph) { barCover() } }
+                } else {
+                    Modifier
+                        .graphicsLayer {
+                            alpha = smoothstep(
+                                MemoriesMorphTokens.CoverSwapFrom,
+                                MemoriesMorphTokens.CoverSwapTo,
+                                diaryProgress(),
+                            )
+                        }
+                        .clip(YoinArtworkShapes.ThumbAnimated)
+                }
+                cover(Modifier.size(MemoriesTopBarTokens.BarCover).then(layer))
             }
             Row(
                 modifier = Modifier
@@ -379,9 +415,18 @@ internal fun MemoryPageBarSlots(
                     .padding(start = MemoriesTopBarTokens.SlotBStart, end = slotEnd)
                     .then(tapToCard)
                     .graphicsLayer {
-                        val a = smoothstep(0.55f, 0.92f, diaryProgress())
-                        translationY = (1f - a) * 10.dp.toPx()
-                        alpha = a
+                        if (reducedMotion) {
+                            translationY = 0f
+                            alpha = reducedDiaryAlpha(diaryProgress().coerceIn(0f, 1f))
+                        } else {
+                            val a = smoothstep(
+                                MemoriesMorphTokens.SlotBFadeFrom,
+                                MemoriesMorphTokens.SlotBFadeTo,
+                                diaryProgress(),
+                            )
+                            translationY = (1f - a) * MemoriesMorphTokens.SlotBDrop.toPx()
+                            alpha = a
+                        }
                     },
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -390,8 +435,9 @@ internal fun MemoryPageBarSlots(
                         text = album,
                         style = barTextStyle(15, FontWeight.SemiBold, lineHeight = 1.3f),
                         color = MaterialTheme.colorScheme.onSurface,
+                        running = marqueeRunning,
                     )
-                    BarArtistLine(full = artistLine, short = artistShort)
+                    BarArtistLine(full = artistLine, short = artistShort, running = marqueeRunning)
                 }
                 Spacer(Modifier.width(6.dp))
                 Icon(
@@ -410,7 +456,7 @@ private val BarCoverHitMargin: Dp = (MemoriesTopBarTokens.HitHeight - MemoriesTo
 
 /** The artist line first drops " · year"; only the artist alone still overflowing scrolls. */
 @Composable
-private fun BarArtistLine(full: String, short: String) {
+private fun BarArtistLine(full: String, short: String, running: Boolean) {
     val style = barTextStyle(12, FontWeight.Medium, lineHeight = 1.35f)
     BoxWithConstraints {
         val measurer = rememberTextMeasurer()
@@ -419,8 +465,37 @@ private fun BarArtistLine(full: String, short: String) {
             val fits = measurer.measure(full, style, softWrap = false, maxLines = 1).size.width <= maxPx
             if (fits) full else short
         }
-        MarqueeText(text = text, style = style, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        MarqueeText(text = text, style = style, color = MaterialTheme.colorScheme.onSurfaceVariant, running = running)
     }
+}
+
+/** The bar's album-name style (fallback A's title flies to it). */
+@Composable
+internal fun barTitleStyle(): TextStyle = barTextStyle(15, FontWeight.SemiBold, lineHeight = 1.3f)
+
+/**
+ * Lets a touch on the shared bar also reach its siblings beneath — the pager — so a horizontal drag that
+ * starts on the pill or the dots still pages. Compose stops hit-testing siblings at the first one hit; this
+ * node (it takes no events itself) asks it to go on.
+ */
+private fun Modifier.shareTouchesWithSiblings(): Modifier = this then ShareTouchesElement
+
+private data object ShareTouchesElement : ModifierNodeElement<ShareTouchesNode>() {
+    override fun create() = ShareTouchesNode()
+
+    override fun update(node: ShareTouchesNode) = Unit
+
+    override fun InspectorInfo.inspectableProperties() {
+        name = "shareTouchesWithSiblings"
+    }
+}
+
+private class ShareTouchesNode : Modifier.Node(), PointerInputModifierNode {
+    override fun onPointerEvent(pointerEvent: PointerEvent, pass: PointerEventPass, bounds: IntSize) = Unit
+
+    override fun onCancelPointerInput() = Unit
+
+    override fun sharePointerInputWithSiblings(): Boolean = true
 }
 
 /** A page's bar visibility at rel (prototype `vis`). */

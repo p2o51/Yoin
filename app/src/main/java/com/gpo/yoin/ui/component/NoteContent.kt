@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
@@ -45,10 +46,14 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.gpo.yoin.data.local.SongNote
 import com.gpo.yoin.symbols.YoinSymbols
@@ -372,13 +377,12 @@ fun NoteComposer(
                     .padding(start = 14.dp, end = 16.dp, top = 14.dp, bottom = 14.dp),
                 verticalAlignment = Alignment.Top,
             ) {
-                Box(
+                JournalRail(
+                    color = railColor,
+                    width = 3.dp,
                     modifier = Modifier
                         .padding(top = 2.dp, bottom = 2.dp, end = 14.dp)
-                        .width(3.dp)
-                        .fillMaxHeight()
-                        .clip(CircleShape)
-                        .background(railColor),
+                        .fillMaxHeight(),
                 )
                 Box(modifier = Modifier.weight(1f)) {
                     if (draft.isEmpty()) {
@@ -497,32 +501,81 @@ private fun NoteSavePill(
     } else {
         MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
     }
+    JournalSavePill(
+        label = "记下",
+        containerColor = container,
+        contentColor = content,
+        enabled = enabled,
+        onClick = onClick,
+        icon = YoinSymbols.Send,
+    )
+}
+
+/**
+ * The journal's accent rail — the vertical stroke down a written note's
+ * leading edge, shared by [NoteCard]-family writers ([NoteComposer]) and the
+ * Memories diary's blank page. [width] is the stroke; the caller sizes its
+ * height (usually `fillMaxHeight()` beside the text) and its insets.
+ */
+@Composable
+internal fun JournalRail(color: Color, width: Dp, modifier: Modifier = Modifier) {
+    Box(
+        modifier = modifier
+            .width(width)
+            .clip(CircleShape)
+            .background(color),
+    )
+}
+
+/**
+ * The journal's capsule save pill (no outline, no tonal box): [NoteComposer]'s
+ * 记下 and the Memories diary's Save. [onClick] null leaves the press to a
+ * larger hit area around it (the diary's 48dp row).
+ */
+@Composable
+internal fun JournalSavePill(
+    label: String,
+    containerColor: Color,
+    contentColor: Color,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    onClick: (() -> Unit)? = null,
+    icon: ImageVector? = null,
+    textStyle: TextStyle = MaterialTheme.typography.labelMedium,
+    contentPadding: PaddingValues = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+) {
     val interaction = remember { MutableInteractionSource() }
     Surface(
-        modifier = Modifier.noRippleClickable(
-            interactionSource = interaction,
-            enabled = enabled,
-            onClick = onClick,
-        ),
+        modifier = if (onClick != null) {
+            modifier.noRippleClickable(
+                interactionSource = interaction,
+                enabled = enabled,
+                onClick = onClick,
+            )
+        } else {
+            modifier
+        },
         shape = YoinShapeTokens.Full,
-        color = container,
+        color = containerColor,
         tonalElevation = 0.dp,
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+            modifier = Modifier.padding(contentPadding),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            Icon(
-                imageVector = YoinSymbols.Send,
-                contentDescription = null,
-                tint = content,
-                modifier = Modifier.size(16.dp),
-            )
+            if (icon != null) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    tint = contentColor,
+                    modifier = Modifier.size(16.dp),
+                )
+            }
             Text(
-                text = "记下",
-                style = MaterialTheme.typography.labelMedium,
-                color = content,
+                text = label,
+                style = textStyle,
+                color = contentColor,
             )
         }
     }

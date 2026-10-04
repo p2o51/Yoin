@@ -9,9 +9,11 @@ import com.gpo.yoin.enableYoinEdgeToEdge
  * Debug-only visual QA for Memories, on fixed fake data (no ViewModel). Launch:
  *   adb shell am start -n com.gpo.yoin/com.gpo.yoin.debug.MemoryCardScreenshotActivity --es mode showcase
  *
- * `--es mode showcase` (the default): the whole showcase deck from the prototype's m1–m5 fixtures, with the
- * real gesture router, award lifecycle and a stand-in host q; options in MemoriesShowcaseHarness.kt
- * (`--ei page`, `--ez dark`, `--ez reduced`, `--ez trace`).
+ * `--es mode showcase` (the default): the whole showcase deck (card and diary) from the prototype's m1–m5
+ * fixtures, with the real gesture router, both back levels, the award lifecycle, a stand-in host q and a
+ * simulated playhead; options in MemoriesShowcaseHarness.kt (`--ei page`, `--ez diary`, `--ef p` (a frozen
+ * morph frame), `--es play track:pos`, `--ez long` (m5's long diary start), `--ez dark`, `--ez reduced`,
+ * `--ez trace`, `--ez failsave`).
  * `--es mode emblem`: the groove emblem harness (gallery, award replays with a haptic trace; options in
  * GrooveEmblemHarness.kt).
  */

@@ -16,44 +16,52 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.PagerState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.onPlaced
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.max
 import com.gpo.yoin.symbols.YoinSymbols
 import com.gpo.yoin.ui.component.ExpressiveMediaArtwork
+import com.gpo.yoin.ui.component.YoinPageWidths
 import com.gpo.yoin.ui.component.rememberExpressiveBackdropColors
 import com.gpo.yoin.ui.experience.DeckIndicatorTransitionState
 import com.gpo.yoin.ui.experience.RevealState
 import com.gpo.yoin.ui.memories.MemoryEntry
 import com.gpo.yoin.ui.memories.MemoryScoreKind
 import com.gpo.yoin.ui.memories.award.GrooveAwardTarget
+import com.gpo.yoin.ui.memories.award.GrooveDiaryEmblemTarget
 import com.gpo.yoin.ui.memories.award.MemoriesAwardEffects
 import com.gpo.yoin.ui.memories.award.MemoriesAwardInputs
 import com.gpo.yoin.ui.memories.award.MemoriesAwardLifecycle
 import com.gpo.yoin.ui.memories.award.pInCardState
+import com.gpo.yoin.ui.memories.award.pInDiaryState
 import com.gpo.yoin.ui.memories.award.pagerNearCard
 import com.gpo.yoin.ui.memories.award.revealInForAward
 import com.gpo.yoin.ui.memories.copy.MemoryDates
+import com.gpo.yoin.ui.memories.copy.MemoryTitleKind
 import com.gpo.yoin.ui.memories.emblem.GrooveEmblem
 import com.gpo.yoin.ui.memories.emblem.GrooveKind
 import com.gpo.yoin.ui.memories.emblem.GrooveModel
@@ -69,14 +77,19 @@ import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinMotionRole
 import java.time.LocalDate
 import java.time.ZoneId
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 
 /*
- * Memories showcase v4, the card state (P5a): a HorizontalPager deck of memory cards under one shared top
- * bar. ShellOverlayUp; the page's back, its retreat to Home (q, RevealState) and its gesture router live on
- * the Memories root (MemoriesScreen / MemoriesGestures). Here: the cards, the bar, the award lifecycle's
- * inputs and the tilt. The diary layer and the card ⇄ diary morph arrive in P5b; p (MemoriesDiaryState) is
- * already read where the morph will read it (pill width, bar slots, the card's rubber band).
+ * Memories showcase v4: a HorizontalPager deck of memories under one shared top bar, each page two states —
+ * the card ([MemoryCardFace]) and, beneath it, the diary ([MemoryDiary]) — joined by the shared-element
+ * morph ([MemoriesMorph], driven by p = MemoriesDiaryState). ShellOverlayUp; the page's back (both levels),
+ * its retreat to Home (q, RevealState) and its gesture router live on the Memories root (MemoriesScreen /
+ * MemoriesGestures). Here: the cards, the diaries, the bar, the deck-level diary controller (frozen collapse,
+ * the pull past the top, the router's probe), the award lifecycle's inputs and the tilt.
+ *
+ * p is one value for the deck: a page swipe with the diary open lands on the next card's diary, read from
+ * its top (each page keeps its own scroll, reset when it stops being the settled page).
  */
 
 /** Debug / preview stand-ins: fixed palettes and drawn covers instead of extraction and network art. */
@@ -91,6 +104,11 @@ class MemoriesShowcaseFixtures(
  * The deck. [pagerState] belongs to the caller (deck advance hangs its edge pull on [pagerConnection]).
  * [onBarPlaced] reports the bar so the gesture router can split the bar zone from the card body.
  * [today] fixes the date grammar (the harness pins the prototype's day); null = today in the system zone.
+ */
+/**
+ * [router] gets the deck's diary probe (at-end, the pull's finger-down) for the diary zone; [awardBlocked]
+ * holds the award while a system-back preview drives q. [diaryHost] is the diary's playback highlight,
+ * writing and NeoDB (the ViewModel in the app, a fixture in the harness).
  */
 @Composable
 internal fun MemoriesShowcase(
@@ -110,6 +128,9 @@ internal fun MemoriesShowcase(
     today: LocalDate? = null,
     reducedMotion: Boolean = rememberGrooveReducedMotion(),
     fixtures: MemoriesShowcaseFixtures? = null,
+    diaryHost: MemoriesDiaryHost = NoDiaryHost,
+    router: MemoriesGestureRouter? = null,
+    awardBlocked: () -> Boolean = { false },
 ) {
     if (memories.isEmpty()) return
     val zone = remember { ZoneId.systemDefault() }
@@ -120,6 +141,36 @@ internal fun MemoriesShowcase(
         key(memory.stableId) { rememberMemoryPalette(memory, fixtures?.palettes?.get(memory.stableId)) }
     }
     val morphPx = with(LocalDensity.current) { BackMotionTokens.MemoriesDiaryMorphDistance.toPx() }
+    val deck = rememberMemoriesDiaryDeck(diary, scope)
+    val diaryHaptics = rememberDiaryHaptics()
+    SideEffect {
+        deck.reduced = reducedMotion
+        deck.morphDistancePx = morphPx
+        deck.currentPage = { pagerState.currentPage }
+    }
+    DisposableEffect(router, deck) {
+        router?.diaryProbe = deck
+        onDispose { if (router?.diaryProbe === deck) router.diaryProbe = null }
+    }
+    // Frozen collapse: once the sunk text is invisible (p < .05) the scroll returns to its top, unseen; the
+    // frozen timing holds until p reaches 0 or 1, so the emblem's flight never jumps when the scroll resets.
+    LaunchedEffect(deck) {
+        snapshotFlow { deck.p }.collect { p ->
+            val current = deck.current()
+            if (p < MemoriesMorphTokens.FrozenResetBelow && current != null && current.scroll.value > 0) {
+                deck.frozenHold = deck.frozen
+                current.scroll.scrollTo(0)
+            }
+            if (p <= 0f || p >= 1f) deck.frozenHold = false
+        }
+    }
+    // The bar cover's alpha chases its hand-over target on the fast effects spring (prototype barFollow).
+    val chaseSpec = YoinMotion.fastEffectsSpec<Float>(role = YoinMotionRole.Expressive)
+    LaunchedEffect(deck, reducedMotion, chaseSpec) {
+        if (reducedMotion) return@LaunchedEffect
+        snapshotFlow { barCoverTarget(deck.fp) }
+            .collectLatest { target -> deck.barChase.animateTo(target, chaseSpec) }
+    }
 
     // One sensor for the deck, read only by the current card's emblem, and only at rest in the card state.
     val tiltActive by remember(reveal, diary, pagerState) {
@@ -141,7 +192,9 @@ internal fun MemoriesShowcase(
                 fingerDown = down,
                 nearCard = pagerNearCard(pagerState.currentPage + pagerState.currentPageOffsetFraction, card),
                 revealIn = revealInForAward(reveal.fraction),
-                cardState = pInCardState(diary.fraction),
+                cardState = pInCardState(diary.fraction) && !diary.isSettling,
+                diaryState = pInDiaryState(diary.fraction, diary.isSettling),
+                blocked = awardBlocked(),
             )
         },
         settledKey = {
@@ -177,15 +230,24 @@ internal fun MemoriesShowcase(
                 dotCount = memories.size,
                 pagerState = pagerState,
                 diary = diary,
+                deck = deck,
                 awards = awards,
                 tilt = tilt,
                 reducedMotion = reducedMotion,
                 lastHeard = memory.lastHeardAt?.let { heard ->
                     MemoryDates.lastHeard(MemoryDates.localDate(heard, zone), day)
                 },
-                morphPx = morphPx,
+                today = day,
+                zone = zone,
+                host = diaryHost,
+                haptics = diaryHaptics,
                 fixtures = fixtures,
-                onOpenDiary = { onOpenDiary(memory) },
+                onOpenDiary = {
+                    // the award stops (and counts); a card still due it skips its nod: the 48 lands uncut
+                    awards.onDiaryOpening(memory.stableId)
+                    diary.launchAnimateTo(scope, 1f)
+                    onOpenDiary(memory)
+                },
                 onOpenAlbum = { onOpenAlbum(memory) },
                 onCloseDiary = { diary.launchAnimateTo(scope, 0f) },
             )
@@ -194,7 +256,8 @@ internal fun MemoriesShowcase(
             dotColors = palettes.map { it.tones(dark).dot },
             dotLabels = memories.mapIndexed { i, memory -> "Memory ${i + 1}: ${memory.title}" },
             position = { pagerState.currentPage + pagerState.currentPageOffsetFraction },
-            diaryProgress = { diary.fraction },
+            // the pill makes room for the bar cover: it follows the current page's cover flight
+            diaryProgress = { deck.fp },
             onHome = onHome,
             onDot = { i -> scope.launch { pagerState.animateScrollToPage(i) } },
             edgeHint = edgeHint,
@@ -228,11 +291,15 @@ private fun ShowcasePage(
     dotCount: Int,
     pagerState: PagerState,
     diary: MemoriesDiaryState,
+    deck: MemoriesDiaryDeck,
     awards: MemoriesAwardLifecycle,
     tilt: GrooveTiltState,
     reducedMotion: Boolean,
     lastHeard: String?,
-    morphPx: Float,
+    today: LocalDate,
+    zone: ZoneId,
+    host: MemoriesDiaryHost,
+    haptics: DiaryHaptics,
     fixtures: MemoriesShowcaseFixtures?,
     onOpenDiary: () -> Unit,
     onOpenAlbum: () -> Unit,
@@ -240,6 +307,38 @@ private fun ShowcasePage(
 ) {
     val tones = remember(palette, dark) { palette.tones(dark) }
     val isCurrent by remember(pagerState, page) { derivedStateOf { pagerState.settledPage == page } }
+    // each flips once per crossing, never per frame
+    val diaryOpen by remember(diary) { derivedStateOf { diary.fraction >= 0.5f } }
+    val diaryAtRest by remember(pagerState, diary, page) {
+        derivedStateOf { pagerState.settledPage == page && !pagerState.isScrollInProgress && diary.fraction >= 1f }
+    }
+    val density = LocalDensity.current
+    val scroll = rememberScrollState()
+    val morph = rememberMemoryPageMorph(page, deck, scroll, density)
+    val titleKind = memory.cardTitleKind()
+    val barTitleStyle = barTitleStyle()
+    val measurer = rememberTextMeasurer()
+    val barTitleWidth = remember(memory.title, barTitleStyle, measurer) {
+        measurer.measure(memory.title, barTitleStyle, softWrap = false, maxLines = 1).size.width.toFloat()
+    }
+    SideEffect {
+        with(density) {
+            morph.relative = { pagerState.currentPage - page + pagerState.currentPageOffsetFraction }
+            morph.titleKind = titleKind
+            morph.cardTitleFontPx = cardTitleSize(titleKind, metrics.short).toPx()
+            val diaryTitleSize = if (titleKind == MemoryTitleKind.AI) DiaryTitleSizeAi else DiaryTitleSizeMotif
+            morph.diaryTitleFontPx = diaryTitleSize.toPx()
+            morph.statusTopPx = statusTop.toPx()
+            morph.barTitleWidthPx = barTitleWidth
+            morph.barTitleFontPx = barTitleStyle.fontSize.toPx()
+        }
+    }
+    // a page that is no longer the settled one goes back to the top of its diary (the next visit reads from it)
+    LaunchedEffect(pagerState, page, scroll) {
+        snapshotFlow { pagerState.settledPage }.collect { settled ->
+            if (settled != page && scroll.value != 0) scroll.scrollTo(0)
+        }
+    }
     val cover: @Composable (Modifier) -> Unit = { m ->
         if (fixtures != null) {
             fixtures.cover(memory, m)
@@ -255,18 +354,35 @@ private fun ShowcasePage(
             )
         }
     }
-    Box(Modifier.fillMaxSize()) {
-        MemoryPageBarSlots(
-            album = memory.title,
-            artistLine = memory.supportingText,
-            artistShort = memory.supportingText.artistOnly(),
-            lastHeard = lastHeard,
-            dotCount = dotCount,
-            relative = { pagerState.currentPage - page + pagerState.currentPageOffsetFraction },
-            diaryProgress = { diary.fraction },
-            onCloseDiary = onCloseDiary,
-            cover = cover,
-            modifier = Modifier.padding(top = statusTop),
+    Box(Modifier.fillMaxSize().onPlaced(morph::onPage)) {
+        // the diary lies under the card; the card's pieces fly over it into the bar
+        MemoryDiary(
+            memory = memory,
+            tones = tones,
+            morph = morph,
+            deck = deck,
+            scroll = scroll,
+            today = today,
+            zone = zone,
+            interactive = diaryOpen && isCurrent,
+            settled = diaryAtRest,
+            host = host,
+            haptics = haptics,
+            navBottom = navBottom,
+            emblem = { m ->
+                DiaryEmblem(
+                    memory = memory,
+                    palette = palette,
+                    awards = awards,
+                    reducedMotion = reducedMotion,
+                    modifier = m,
+                )
+            },
+            onOpenAlbum = onOpenAlbum,
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .then(if (metrics.wide) Modifier.widthIn(max = YoinPageWidths.Prose) else Modifier)
+                .padding(top = statusTop + MemoriesTopBarTokens.Height),
         )
         MemoryCardFace(
             memory = memory,
@@ -284,18 +400,34 @@ private fun ShowcasePage(
                     tilt = tilt,
                     isCurrent = isCurrent,
                     reducedMotion = reducedMotion,
+                    captionAlpha = { morph.sealCaptionAlpha() },
                     modifier = m,
                 )
             },
+            morph = morph,
+            interactive = !diaryOpen,
             modifier = Modifier
                 .align(Alignment.TopCenter)
                 .then(if (metrics.wide) Modifier.widthIn(max = MemoryCardTokens.Column) else Modifier)
                 .padding(
                     top = statusTop + MemoriesTopBarTokens.Height,
                     bottom = max(metrics.bottomPadding, navBottom),
-                )
-                // the card's own pull-down: p below 0 moves the card face, nothing else
-                .graphicsLayer { translationY = cardRubberBandPx(diary.fraction, morphPx) },
+                ),
+        )
+        MemoryPageBarSlots(
+            album = memory.title,
+            artistLine = memory.supportingText,
+            artistShort = memory.supportingText.artistOnly(),
+            lastHeard = lastHeard,
+            dotCount = dotCount,
+            relative = { pagerState.currentPage - page + pagerState.currentPageOffsetFraction },
+            diaryProgress = { diary.fraction },
+            onCloseDiary = onCloseDiary,
+            cover = cover,
+            morph = morph,
+            reducedMotion = reducedMotion,
+            settled = { pagerState.settledPage == page && !pagerState.isScrollInProgress },
+            modifier = Modifier.padding(top = statusTop),
         )
     }
 }
@@ -312,6 +444,7 @@ private fun CardEmblem(
     tilt: GrooveTiltState,
     isCurrent: Boolean,
     reducedMotion: Boolean,
+    captionAlpha: () -> Float,
     modifier: Modifier,
 ) {
     // The award keys on everything but the palette (which springs in once the cover resolves): a palette
@@ -348,8 +481,58 @@ private fun CardEmblem(
         award = award,
         ambientMotion = isCurrent,
         reducedMotion = reducedMotion,
+        captionAlpha = captionAlpha,
     )
 }
+
+/**
+ * The diary title's emblem: the groove drawn natively at 48dp (score only), not the 96 scaled down. Its tilt
+ * colour is frozen at rest (no motion in the reader's peripheral vision); it waits uncut for its card's award
+ * and only nods in the diary ([MemoriesAwardLifecycle.registerDiary]). An exhibit, not a control.
+ */
+@Composable
+private fun DiaryEmblem(
+    memory: MemoryEntry,
+    palette: MemoryPalette,
+    awards: MemoriesAwardLifecycle,
+    reducedMotion: Boolean,
+    modifier: Modifier,
+) {
+    val base = remember(
+        memory.scoreKind,
+        memory.scoreText,
+        memory.tracks,
+        memory.ratedTrackCount,
+        memory.totalTrackCount,
+    ) {
+        memory.grooveModel(MemoryPaletteSamples.M1)
+    }
+    val model = remember(base, palette) { base.copy(palette = palette) }
+    val award = rememberGrooveAwardState(
+        model = base,
+        size = DiaryEmblemSize,
+        surface = GrooveSurface.Bar,
+        reducedMotion = reducedMotion,
+        tag = "${memory.title} · diary",
+    )
+    DisposableEffect(awards, memory.stableId, award) {
+        val target = GrooveDiaryEmblemTarget(award)
+        awards.registerDiary(memory.stableId, target)
+        onDispose { awards.unregisterDiary(memory.stableId, target) }
+    }
+    GrooveEmblem(
+        model = model,
+        size = DiaryEmblemSize,
+        surface = GrooveSurface.Bar,
+        modifier = modifier,
+        award = award,
+        ambientMotion = false,
+        reducedMotion = reducedMotion,
+    )
+}
+
+/** No playback, no writing, no NeoDB (previews). */
+private object NoDiaryHost : MemoriesDiaryHost
 
 /**
  * The emblem's model: the label's kind and score (the card's own one-decimal text, so the emblem and the

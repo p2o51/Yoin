@@ -17,6 +17,7 @@ import com.gpo.yoin.ui.experience.RevealState
 import com.gpo.yoin.ui.memories.showcase.MemoriesDiaryState
 import com.gpo.yoin.ui.theme.YoinMotion
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.launch
 
 /**
  * Memories' back infrastructure (ShellOverlayUp, Pattern C). Two levels, two
@@ -47,9 +48,12 @@ enum class MemoriesBackLevel { Card, Diary }
 /**
  * Memories' system back, both levels. [containerHeightPx] is read when a gesture starts.
  * [onCardBackStarted] runs once per card-level gesture, before the first
- * preview frame (the page uses it to key its corner rule to the back driver).
- * [diary] may stay null until the diary exists; [MemoriesBackLevel.Diary]
- * without it falls back to the card level.
+ * preview frame (the page uses it to key its corner rule to the back driver);
+ * [onCardBackFinished] runs once it is over — at the commit, or when the
+ * cancel spring has landed (or a finger caught it). Between the two the page
+ * holds its award (prototype `busyQ`): the preview parks q under the award's
+ * open gate. [diary] may stay null until the diary exists;
+ * [MemoriesBackLevel.Diary] without it falls back to the card level.
  */
 @Composable
 fun MemoriesPredictiveBack(
@@ -60,11 +64,13 @@ fun MemoriesPredictiveBack(
     onDismiss: () -> Unit,
     diary: MemoriesDiaryState? = null,
     onCardBackStarted: () -> Unit = {},
+    onCardBackFinished: () -> Unit = {},
 ) {
     val scope = rememberCoroutineScope()
     val triggerPx = with(LocalDensity.current) { BackMotionTokens.MemoriesDismissTrigger.toPx() }
     val currentOnDismiss by rememberUpdatedState(onDismiss)
     val currentOnCardBackStarted by rememberUpdatedState(onCardBackStarted)
+    val currentOnCardBackFinished by rememberUpdatedState(onCardBackFinished)
     PredictiveBackHandler(enabled = enabled) { events ->
         // Captured once per gesture: a level never changes under a live back.
         val diaryState = diary?.takeIf { level == MemoriesBackLevel.Diary }
@@ -96,8 +102,18 @@ fun MemoriesPredictiveBack(
                 // Commit (also the button path with no events): the host's
                 // surface effect is the one owner of the close spring.
                 currentOnDismiss()
+                currentOnCardBackFinished()
             } catch (e: CancellationException) {
-                reveal.launchAnimateTo(scope, 0f)
+                // The same settle owner as launchAnimateTo (animateTo registers its
+                // job, a finger cancels it); suspending here only so the page
+                // learns when the preview is really over.
+                scope.launch {
+                    try {
+                        reveal.animateTo(0f)
+                    } finally {
+                        currentOnCardBackFinished()
+                    }
+                }
                 throw e
             }
         }

@@ -24,8 +24,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.Placeable
 import androidx.compose.ui.layout.SubcomposeLayout
+import androidx.compose.ui.layout.onPlaced
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.text.ExperimentalTextApi
@@ -171,6 +173,11 @@ internal fun pickExcerpt(candidates: List<MemoryExcerptCandidate>, slotPx: Int, 
     return candidates.indices.lastOrNull()
 }
 
+/**
+ * [morph] moves the card's pieces through the card ⇄ diary morph (null: a still card, e.g. previews); it
+ * also measures the anchors the morph flies between. [interactive] = false (the diary is open) takes the
+ * buttons out of hit testing altogether, so the hidden card never shadows the diary beneath it.
+ */
 @Composable
 internal fun MemoryCardFace(
     memory: MemoryEntry,
@@ -181,14 +188,24 @@ internal fun MemoryCardFace(
     cover: @Composable (Modifier) -> Unit,
     emblem: @Composable (Modifier) -> Unit,
     modifier: Modifier = Modifier,
+    morph: MemoryPageMorph? = null,
+    interactive: Boolean = true,
 ) {
     val excerpts = if (metrics.wide) memory.excerptCandidatesMedium else memory.excerptCandidates
-    SubcomposeLayout(modifier = modifier.fillMaxSize()) { constraints ->
+    val face = if (morph != null) {
+        Modifier
+            .onPlaced(morph::onCardOuter)
+            .graphicsLayer { with(morph) { cardFace() } }
+            .onPlaced(morph::onCardInner)
+    } else {
+        Modifier
+    }
+    SubcomposeLayout(modifier = modifier.then(face).fillMaxSize()) { constraints ->
         val width = constraints.maxWidth
         val height = constraints.maxHeight
         val inner = Constraints(maxWidth = (width - MemoryCardTokens.SidePadding.roundToPx() * 2).coerceAtLeast(0))
         val top = subcompose(CardSlot.Exhibit) {
-            CardExhibit(memory = memory, metrics = metrics, cover = cover, emblem = emblem)
+            CardExhibit(memory = memory, metrics = metrics, cover = cover, emblem = emblem, morph = morph)
         }.map { it.measure(inner) }
         // the button row may use the side padding on a narrow phone: it never wraps
         val bottom = subcompose(CardSlot.Teaser) {
@@ -198,6 +215,8 @@ internal fun MemoryCardFace(
                 metrics = metrics,
                 onOpenDiary = onOpenDiary,
                 onOpenAlbum = onOpenAlbum,
+                interactive = interactive,
+                modifier = morph?.let { m -> Modifier.graphicsLayer { with(m) { teaser() } } } ?: Modifier,
             )
         }.map { it.measure(Constraints(maxWidth = width)) }
         val topHeight = top.maxOfOrNull { it.height } ?: 0
@@ -208,7 +227,11 @@ internal fun MemoryCardFace(
         val measure = { index: Int ->
             measured.getOrPut(index) {
                 subcompose(CardSlot.Excerpt(index)) {
-                    CardExcerpt(candidate = excerpts[index], maxWidth = metrics.excerptMaxWidth)
+                    CardExcerpt(
+                        candidate = excerpts[index],
+                        maxWidth = metrics.excerptMaxWidth,
+                        modifier = morph?.let { m -> Modifier.graphicsLayer { with(m) { excerpt() } } } ?: Modifier,
+                    )
                 }.first().measure(inner)
             }
         }
@@ -235,24 +258,30 @@ private fun CardExhibit(
     metrics: MemoryCardMetrics,
     cover: @Composable (Modifier) -> Unit,
     emblem: @Composable (Modifier) -> Unit,
+    morph: MemoryPageMorph?,
 ) {
-    val titleKind = if (memory.memoryTitle.isNullOrBlank()) MemoryTitleKind.ALBUM else memory.memoryTitleKind
+    val titleKind = memory.cardTitleKind()
     val title = memory.memoryTitle?.takeIf(String::isNotBlank) ?: memory.title
+    // each morphing piece: its anchor measured before its own layer, so its flight never feeds back
+    val coverLayer = morph?.let { m -> Modifier.onPlaced(m::onCover).graphicsLayer { with(m) { cardCover() } } }
+    val sealLayer = morph?.let { m -> Modifier.onPlaced(m::onSeal).graphicsLayer { with(m) { cardSeal() } } }
+    val titleLayer = morph?.let { m -> Modifier.onPlaced(m::onCardTitle).graphicsLayer { with(m) { cardTitle() } } }
+    val rowLayer = morph?.let { m -> Modifier.graphicsLayer { with(m) { albumRow() } } } ?: Modifier
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Spacer(Modifier.height(metrics.air1))
         val (sealX, sealY) = sealOffset(metrics.cover, metrics.seal)
         val exhibitHeight = metrics.cover + metrics.seal * MemoryCardTokens.SealOverhangBottom
         Box(Modifier.size(width = metrics.cover, height = exhibitHeight)) {
-            // bare art: the Hero corner, no border, no shadow
-            cover(Modifier.size(metrics.cover).clip(YoinArtworkShapes.Hero))
-            emblem(Modifier.offset(x = sealX, y = sealY).size(metrics.seal))
+            // bare art: the Hero corner, no border, no shadow (in flight, its circular twin per frame)
+            cover(Modifier.size(metrics.cover).then(coverLayer ?: Modifier.clip(YoinArtworkShapes.Hero)))
+            emblem(Modifier.offset(x = sealX, y = sealY).size(metrics.seal).then(sealLayer ?: Modifier))
         }
         Spacer(Modifier.height(metrics.titleTop))
         Text(
             text = title,
             style = cardTitleStyle(titleKind, metrics.short),
             color = MaterialTheme.colorScheme.onSurface,
-            modifier = Modifier.widthIn(max = metrics.titleMaxWidth),
+            modifier = Modifier.widthIn(max = metrics.titleMaxWidth).then(titleLayer ?: Modifier),
         )
         if (titleKind == MemoryTitleKind.ALBUM) {
             // fallback A: the title already is the album name; the row keeps only the artist line
@@ -265,7 +294,7 @@ private fun CardExhibit(
                 color = MaterialTheme.colorScheme.onSurface,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.widthIn(max = metrics.titleMaxWidth),
+                modifier = Modifier.widthIn(max = metrics.titleMaxWidth).then(rowLayer),
             )
             Spacer(Modifier.height(2.dp))
         }
@@ -273,15 +302,15 @@ private fun CardExhibit(
             text = memory.supportingText,
             style = cardText(GoogleSansFlex, FontWeight.Medium, 13.sp, 1.35f),
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.widthIn(max = metrics.titleMaxWidth),
+            modifier = Modifier.widthIn(max = metrics.titleMaxWidth).then(rowLayer),
         )
     }
 }
 
 @Composable
-private fun CardExcerpt(candidate: MemoryExcerptCandidate, maxWidth: Dp) {
+private fun CardExcerpt(candidate: MemoryExcerptCandidate, maxWidth: Dp, modifier: Modifier = Modifier) {
     Column(
-        modifier = Modifier.widthIn(max = maxWidth),
+        modifier = modifier.widthIn(max = maxWidth),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         val text = candidate.text
@@ -309,20 +338,28 @@ private fun CardTeaser(
     metrics: MemoryCardMetrics,
     onOpenDiary: () -> Unit,
     onOpenAlbum: () -> Unit,
+    interactive: Boolean,
+    modifier: Modifier = Modifier,
 ) {
     val haptics = rememberYoinHaptics()
     val pill = RoundedCornerShape(percent = 50)
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+    Column(modifier = modifier, horizontalAlignment = Alignment.CenterHorizontally) {
         Row(horizontalArrangement = Arrangement.spacedBy(MemoryCardTokens.ButtonGap)) {
             Row(
                 modifier = Modifier
                     .height(MemoryCardTokens.ButtonHeight)
                     .clip(pill)
                     .background(tones.ink.copy(alpha = MemoryCardTokens.DiaryTonalAlpha))
-                    .clickable(role = Role.Button, onClickLabel = "Open the diary") {
-                        haptics.performClick()
-                        onOpenDiary()
-                    }
+                    .then(
+                        if (interactive) {
+                            Modifier.clickable(role = Role.Button, onClickLabel = "Open the diary") {
+                                haptics.performClick()
+                                onOpenDiary()
+                            }
+                        } else {
+                            Modifier
+                        },
+                    )
                     .padding(start = 16.dp, end = 20.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -356,10 +393,16 @@ private fun CardTeaser(
                         .height(MemoryCardTokens.ButtonHeight)
                         .clip(pill)
                         .background(tones.button)
-                        .clickable(role = Role.Button) {
-                            haptics.performClick()
-                            onOpenAlbum()
-                        }
+                        .then(
+                            if (interactive) {
+                                Modifier.clickable(role = Role.Button) {
+                                    haptics.performClick()
+                                    onOpenAlbum()
+                                }
+                            } else {
+                                Modifier
+                            },
+                        )
                         .padding(horizontal = 24.dp),
                     contentAlignment = Alignment.Center,
                 ) {
@@ -395,6 +438,16 @@ private fun CardTeaser(
             }
         }
     }
+}
+
+/** The card title's kind: the album name when there is no Yoin title. */
+internal fun MemoryEntry.cardTitleKind(): MemoryTitleKind =
+    if (memoryTitle.isNullOrBlank()) MemoryTitleKind.ALBUM else memoryTitleKind
+
+/** The card title's font size (the morph scales it to the diary title by this ratio). */
+internal fun cardTitleSize(kind: MemoryTitleKind, short: Boolean): TextUnit = when (kind) {
+    MemoryTitleKind.AI -> if (short) 24.sp else 26.sp
+    MemoryTitleKind.MOTIF, MemoryTitleKind.ALBUM -> 24.sp
 }
 
 /** The title: the AI title in the serif (the only serif on the card), the motif in GSF ROND 60. */
@@ -441,18 +494,19 @@ private fun cardText(
 
 /** Google Sans Flex instances the showcase needs beyond Type.kt (ROND 60: the motif title, Yoin's prose). */
 internal object ShowcaseType {
-    private val cache = HashMap<Int, FontFamily>()
+    private val cache = HashMap<Pair<Int, Float>, FontFamily>()
 
+    /** GSF at [weight] with ROND [rond] (60: the motif title and Yoin's prose; 40: the diary's numerals). */
     @OptIn(ExperimentalTextApi::class)
-    fun rounded(weight: Int): FontFamily = synchronized(cache) {
-        cache.getOrPut(weight) {
+    fun rounded(weight: Int, rond: Float = 60f): FontFamily = synchronized(cache) {
+        cache.getOrPut(weight to rond) {
             FontFamily(
                 Font(
                     R.font.google_sans_flex_variable,
                     weight = FontWeight(weight),
                     variationSettings = FontVariation.Settings(
                         FontVariation.weight(weight),
-                        FontVariation.Setting("ROND", 60f),
+                        FontVariation.Setting("ROND", rond),
                     ),
                 ),
             )

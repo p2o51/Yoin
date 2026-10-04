@@ -76,12 +76,14 @@ class MemoriesGestureRouterTest {
         assertEquals(fromBody, routeVerticalDrag(MemoriesDragZone.Card, -8f, true))
         assertEquals(rules.bar, rules.ruleFor(MemoriesVerticalRoute.Dismiss(fromBar = true)))
 
-        // 60dp up from the bar: past its 56dp, so the release commits to Home
+        // 60dp up from the bar (68 of finger with the slop): past its 56dp, so the release commits to Home.
+        // The page follows from the lock only (no slop jump); the 8dp the slop ate still count.
         val bar = fixture()
         val barDrag = bar.router.begin(MemoriesDragZone.Bar, -8f)
+        assertEquals(0f, bar.reveal.fraction)
         bar.router.drag(barDrag, -60f)
         assertEquals(60f / height, bar.reveal.fraction, 1e-5f)
-        assertEquals(56f, bar.router.cornerThresholdPx)
+        assertEquals(56f - 8f, bar.router.cornerThresholdPx)
         bar.router.release(barDrag, velocityY = 0f)
         advanceUntilIdle()
         assertEquals(1f, bar.reveal.fraction, 1e-3f)
@@ -92,7 +94,7 @@ class MemoriesGestureRouterTest {
         val body = fixture()
         val bodyDrag = body.router.begin(MemoriesDragZone.Card, -8f)
         body.router.drag(bodyDrag, -60f)
-        assertEquals(112f, body.router.cornerThresholdPx)
+        assertEquals(112f - 8f, body.router.cornerThresholdPx)
         body.router.release(bodyDrag, velocityY = 0f)
         advanceUntilIdle()
         assertEquals(0f, body.reveal.fraction, 1e-3f)
@@ -132,6 +134,64 @@ class MemoriesGestureRouterTest {
         f.router.release(route, velocityY = 0f)
         advanceUntilIdle()
         assertEquals(0f, f.diary.fraction, 1e-3f)
+    }
+
+    @Test
+    fun should_measure_commit_distance_from_finger_down_without_jumping() = runTest {
+        // 105dp of page travel after an 8dp slop is 113dp of finger: commits on the body's 112dp
+        val f = fixture()
+        val drag = f.router.begin(MemoriesDragZone.Card, -8f)
+        f.router.drag(drag, -105f)
+        assertEquals(105f / height, f.reveal.fraction, 1e-5f)
+        f.router.release(drag, velocityY = 0f)
+        advanceUntilIdle()
+        assertEquals(1, f.dismissed)
+        assertEquals(112f, rules.body.afterSlop(0f).commitPx)
+        assertEquals(104f, rules.body.afterSlop(8f).commitPx)
+    }
+
+    @Test
+    fun should_route_diary_drags_to_its_scroll_unless_pushing_up_from_its_end() {
+        // the open diary's text scrolls itself (the router takes nothing) ...
+        assertEquals(
+            MemoriesVerticalRoute.DiaryScroll,
+            routeVerticalDrag(MemoriesDragZone.Diary, -8f, true, diaryLevel = true, diaryAtEnd = false),
+        )
+        assertFalse(MemoriesVerticalRoute.DiaryScroll.consumes)
+        // ... a pull down, even at the end, too (its top hands the overflow to p) ...
+        assertEquals(
+            MemoriesVerticalRoute.DiaryScroll,
+            routeVerticalDrag(MemoriesDragZone.Diary, 8f, true, diaryLevel = true, diaryAtEnd = true),
+        )
+        // ... but a new push up that starts at its end is Home, on the body rule
+        assertEquals(
+            MemoriesVerticalRoute.Dismiss(fromBar = false),
+            routeVerticalDrag(MemoriesDragZone.Diary, -8f, true, diaryLevel = true, diaryAtEnd = true),
+        )
+    }
+
+    @Test
+    fun should_route_bar_pull_down_in_diary_to_its_handle() = runTest {
+        // in the diary the bar is the handle: down scrubs p 1:1, up is still Home on the bar rule
+        assertEquals(
+            MemoriesVerticalRoute.DiaryHandle,
+            routeVerticalDrag(MemoriesDragZone.Bar, 8f, true, diaryLevel = true),
+        )
+        assertEquals(
+            MemoriesVerticalRoute.Dismiss(fromBar = true),
+            routeVerticalDrag(MemoriesDragZone.Bar, -8f, true, diaryLevel = true),
+        )
+        val f = fixture()
+        f.diary.snapTo(1f)
+        val route = f.router.begin(MemoriesDragZone.Bar, 8f)
+        assertEquals(MemoriesVerticalRoute.DiaryHandle, route)
+        // 1:1, no band: 200dp of finger is 200dp of morph
+        f.router.drag(route, 200f)
+        assertEquals(120f, f.diary.fraction * 320f, 1e-3f)
+        f.router.release(route, velocityY = 0f)
+        advanceUntilIdle()
+        assertEquals(0f, f.diary.fraction, 1e-3f)
+        assertEquals(0f, f.reveal.fraction)
     }
 
     @Test

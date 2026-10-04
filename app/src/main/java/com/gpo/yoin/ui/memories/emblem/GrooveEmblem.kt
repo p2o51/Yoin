@@ -91,6 +91,8 @@ private val RippleEasing = CubicBezierEasing(0.16f, 0.8f, 0.3f, 1f)
  * @param tilt the device tilt in −1…1 screen axes (see [rememberGrooveTilt]); read only in draw.
  * @param award a running award's channels (see [rememberGrooveAwardState]); null draws the resting emblem.
  * @param ambientMotion lets the unrated mould's slow ripple run (turn off when the emblem is off screen).
+ * @param captionAlpha the caption's own alpha (the card ⇄ diary morph fades it first, so it never shrinks
+ *   into noise); read only in draw.
  */
 @Composable
 fun GrooveEmblem(
@@ -102,6 +104,7 @@ fun GrooveEmblem(
     award: GrooveAwardChannels? = null,
     ambientMotion: Boolean = true,
     reducedMotion: Boolean = rememberGrooveReducedMotion(),
+    captionAlpha: () -> Float = { 1f },
 ) {
     val neutrals = GrooveNeutrals.current
     val geometry = remember(model.trackRated, model.kind, size, surface) {
@@ -132,7 +135,7 @@ fun GrooveEmblem(
             .then(layer)
             .drawWithCache {
                 val art = GrooveArt(this.size, density, geometry, colors, model, textMeasurer)
-                onDrawBehind { art.draw(this, tilt(), award, ripple?.value) }
+                onDrawBehind { art.draw(this, tilt(), award, ripple?.value, captionAlpha()) }
             },
     )
 }
@@ -149,6 +152,9 @@ private class GrooveArt(
     /** px per dp, from the actual drawing size (so it matches layout exactly). */
     private val k: Float
     private val center: Offset
+
+    /** The caption's alpha this frame (set by [draw]). */
+    private var captionAlpha = 1f
     private val kind = model.kind
     private val dots: List<List<Offset>>
     private val labelPath: Path?
@@ -257,7 +263,14 @@ private class GrooveArt(
         return (per - bestD % per) % per
     }
 
-    fun draw(scope: DrawScope, tiltNow: Offset, award: GrooveAwardChannels?, ripplePhase: Float?) = with(scope) {
+    fun draw(
+        scope: DrawScope,
+        tiltNow: Offset,
+        award: GrooveAwardChannels?,
+        ripplePhase: Float?,
+        captionAlpha: Float = 1f,
+    ) = with(scope) {
+        this@GrooveArt.captionAlpha = captionAlpha.coerceIn(0f, 1f)
         val disc = award?.discDegrees ?: 0f
         val tv = grooveTiltVars(tiltNow.x.toDouble(), tiltNow.y.toDouble())
         val tintAlpha = award?.tintAlpha ?: 1f
@@ -483,13 +496,13 @@ private class GrooveArt(
                 topLeft = Offset(center.x - score.size.width / 2f, lineBox(score, scoreTop, f)),
                 alpha = alpha,
             )
-            if (cap != null) {
+            if (cap != null && captionAlpha > 0f) {
                 val capTop = top + scoreMargin + f + s * 0.012f
                 drawText(
                     cap,
                     color = c.caption,
                     topLeft = Offset(center.x - cap.size.width / 2f, lineBox(cap, capTop, capF)),
-                    alpha = alpha,
+                    alpha = alpha * captionAlpha,
                 )
             }
         }
