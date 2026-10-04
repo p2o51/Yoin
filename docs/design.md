@@ -66,22 +66,25 @@ MD3 Expressive 不是 M4，而是 M3 的扩展进化。
 2. **默认 = 系统 Dynamic Color** — 深浅色跟随系统设置（`isSystemInDarkTheme()`），API 31+ 通过 `dynamicDarkColorScheme()` / `dynamicLightColorScheme()` 跟随系统壁纸/主题色
 3. **播放态 = 封面提取色** — 有内容播放时，用 Palette API 从专辑封面提取主色，替换 color tokens，实现全局色调切换
 4. **颜色过渡** — 使用 Effects Spring 做平滑过渡，不生硬跳变。播放封面取色与当前过渡进度由 app session 共享，首页与子页面首帧使用同一色板；底部 NP 和底栏直接读取这套已动画的 tokens，不再叠加按窗口重启的颜色动画。
+5. **服务色（2026-10-03，唯一的非 token 颜色）** — Settings 家族里每个音乐服务固定一个色族（Subsonic 蓝 H256 / Spotify 绿 H148 / Apple Music 玫红 H10 / 本地文件 琥珀 H60），是 M3「自定义色」：MCU HCT 按色调取值，并向**壁纸（系统 dynamic）primary** 协调最多 10°（MCU 原版 15°，收紧是为了让任意壁纸下服务色两两 ≥ 30°；壁纸近灰（chroma < 6）时不转）。不向封面色协调，否则服务色会随歌漂移。只给"服务"上色：账号头像 / 角标、在用卡片、添加账号面板、服务二级页的服务标记；普通设置行一律单色线条图标。实现在 `ui/settings/SettingsColors.kt`。
 
 浮动底栏（含短窗的左缘分离胶囊）不投阴影（2026-10-01，取代 12dp 阴影及其跨窗口交接）：栏和内容靠下面「溶解」的底部网点场分开，不靠阴影。两个窗口的栏在交接时完全同形同色，叠在一起也没有可见差异。
 
-### 溶解（Dissolve）：滚动内容撞上 chrome（2026-10-01 定稿）
+### 溶解（Dissolve）：滚动内容撞上 chrome（2026-10-01 定稿，2026-10-04 顶部默认潮线、可在设置里换）
 
-滚动内容碰到固定 chrome 时，交界上不盖任何东西，遮罩做进每个 item：图形碎成锚定在自身上的错列网点（约 6dp，与切歌溶解同一网屏），文字只淡出。实现：`SeamDissolve.kt`（`seamDissolveViewport` 标记滚动容器，图形 `seamDissolve`、文字 `seamFade`，不在 viewport 内时为空操作）、`SeamHalftone.kt`（AGSL 与 Path 兜底共用的几何）、`SeamBarField.kt`（栏的几何）、`SeamTide.kt`（潮线）。
+滚动内容碰到固定 chrome 时，交界上不盖任何东西。上面默认用潮线（用户可换，见下文“顶部样式可选”），下面用网点：顶部交界和状态栏是两道波浪，内容沉进水线；底部浮动栏周围，图形碎成锚定在自身上的错列网点（约 6dp，与切歌溶解同一网屏）。文字只淡出。实现：`SeamDissolve.kt`（`seamDissolveViewport` 标记滚动容器，默认 `SeamTop.Chrome`；图形 `seamDissolve`、文字 `seamFade`，不在 viewport 内时为空操作）、`SeamHalftone.kt`（底部网点场和顶部网点样式的 AGSL 与 Path 兜底共用的几何）、`SeamCookie.kt`（曲奇浪口）、`SeamTopStyle.kt`（用户选的顶部样式）、`SeamBarField.kt`（栏的几何）、`SeamTide.kt`（潮线，状态栏与 chrome 顶部交界共用一套波浪）。
 
-1. **适用边界**：竖向滚动的内容碰到 Yoin 自己的 chrome 时用网点：Library 的筛选胶囊、详情页的固定顶栏、底部浮动栏。状态栏属于系统，用潮线。横向列表和胶囊行的两端保持现状。
+1. **适用边界**：竖向滚动的内容碰到 Yoin 自己的 chrome 时，顶部交界（Library 的筛选胶囊、详情页的固定顶栏）和状态栏一样用潮线；底部浮动栏用网点场。横向列表和胶囊行的两端保持现状。
 2. **图形和文字**：封面、头像、缩略图、带底色的卡片、评分异形徽章是图形；文字、图标、数字是文字，从不变成点。顶部交界处文字淡出，长度取 max(文字带, 0.75 × 字号)；底部不淡出，照常从栏下穿过。
 3. **底部**：图形不在栏前停下：到栏上方 20dp 才开始碎，其余的过渡藏在栏后面完成，栏下面已经是纯网点，一直铺到屏幕底边。栏两侧越过页边距的内容也一样。栏去掉阴影。
-4. **状态栏**：用潮线：两道页面底色的波浪，内容沉进水线里，状态栏永远干净。
-5. **尺寸**：顶部交界静止时，离交界 11dp 以内才出缝，文字只在最后 10dp 淡出。底部静止时，只在栏上方 20dp 开始碎，其余 28dp 藏在不透明的栏后面。滚动时两处都随速度放宽，停下后收回。
+4. **潮线（顶部交界与状态栏）**：两道页面底色的波浪，内容沉进水线里。状态栏的潮线画在页面之上，状态栏永远干净；chrome 下的潮线是遮罩：viewport 把波浪从自己的内容里挖掉（后层半透明），露出真正在后面的底色，所以在带强调色的详情页上颜色也对。文字在水线以下淡完。（2026-10-04 取代顶部曲线 C 网点成为默认：快速滑动时网点挤成密排的圆盘和针孔，有密恐感。网点仍可在设置里选回。）
+5. **尺寸**：顶部潮线静止在交界下 2dp 再让出一个波峰，文字在水线以下 10dp 内淡完。底部静止时，只在栏上方 20dp 开始碎，其余 28dp 藏在不透明的栏后面。滚动时两处都随速度放宽（波浪变高、网点场上移），停下后收回。
 6. **颜色**：网点只用内容自己的像素，只允许向底色靠拢，不引入新颜色、不加光晕。栏和内容不靠阴影分开：亮度和栏接近的点在栏边让位，其余照常。
-7. **动效**：溶解程度只由位置、滚动速度和余韵决定。滚动时网点被搅乱，停下后在余韵的半秒里回到格点；静止时每个点都在格点上，完全不动。栏下面的点阵始终不流动。省电模式和“移除动画”下，关掉余韵、随速度伸缩和无序。
-8. **性能**：只有碰到交界或在栏周围的 item 重绘，静止时零开销。按亮度让位每个像素多一次采样，只在栏边 8.5dp 以内执行。潮线是一条路径，几乎没有成本。
+7. **动效**：溶解程度只由位置、滚动速度和余韵决定。滚动时网点被搅乱，停下后在余韵的半秒里回到格点；静止时每个点都在格点上，完全不动。栏下面的点阵始终不流动。潮线的相位跟随滚动和余韵，停下即静止。省电模式和“移除动画”下，关掉余韵、随速度伸缩和无序。
+8. **性能**：只有栏周围的图形和交界处的文字重绘，静止时零开销。按亮度让位每个像素多一次采样，只在栏边 8.5dp 以内执行。潮线是两条路径，chrome 下的潮线多一个只有波浪高度的离屏层，几乎没有成本。
 
+- **顶部样式可选（2026-10-04）**：默认潮线；用户可在 设置 › Motion › Scroll edge 换成原版网点（曲线 C，与 36909fad 数值一致）或曲奇浪口。只换 chrome 下的顶部交界，底部网点场、Home 状态栏潮线和文字淡出都不变。选择存在本机（`SeamTopPreference`，认不出的值回到潮线），切换后已打开的页面立即重画。网点和曲奇浪口下文字按曲线 C 的文字带在交界处淡出。
+- **曲奇浪口**：每张图形的顶缘是一道和 Now Playing 胶囊同源的波（每瓣约 30dp，至少两瓣，静止振幅 4dp），形状随这张图自己的离开进度 q 从 Cookie 圆齿、经正弦、到 SoftBurst 软尖，离开途中横滚四分之一圈；进出两端波是平的。尖端曲率半径不小于 4dp，尖端向页面底色退 50%。它是高度场，所以没有孔洞也没有孤岛；静止时只取决于 q，同一行完全对齐。快滑只放宽波带（12→22dp）和振幅（4→6dp），再加一道整排相干的涟漪，随余韵收回；省电模式和“移除动画”下不横滚、不放宽，形变和包络保留。方形图形两端有圆肩，圆形头像没有（API 33 以下 Path 兜底读不到像素，圆形头像也按方形加圆肩；方形框一律按椭圆做底边保护，所以圆形也不留孤岛）。
 - 回退开关：`YoinMotion.SeamSettleAtRest`（默认 `true` = 静整动乱；`false` = 上一版，无序度 D 恒为 1，静止时也打旋、前沿也起伏）。D 只在 `seamDisorder()` 一处计算。
 - 带底色的卡片内的文字从点阵里抬出、整块画在点阵之上（`seamFade` 自动处理）；嵌在另一个 `seamDissolve` 里的元素交给外层统一拆点。
 - Now Playing 升起时底部网点场随栏的显隐目标淡出（点长回整图），收起后长回来。
@@ -175,7 +178,8 @@ MD3 Expressive 不是 M4，而是 M3 的扩展进化。
 - **同一个 Button Group，三种形态**（2026-09-30 断点适配，判定源 `ShellChromeForm`，先判高度再判宽度）：
   - **竖屏底栏**（宽 < 600 且高 ≥ 480，以及 Tabletop）：上面这条，不变
   - **手机横屏 · 分离式挖孔带**（高 < 480，不管宽度）：两段 64dp 胶囊贴左边、住进挖孔那条 inset 带——挖孔上面是导航 / 详情页的竖向 Play 分体键，下面是竖版正在播放 pill（封面在底、进度从下往上涨、歌名从下往上读）；挖孔位置读 `displayCutout.boundingRects`，90° ↔ 270° 翻转只跟 insets 走。左边没有挖孔时两段之间只留 8dp，多出的一格放「随机播放」。内容从 8 + 64 + 12 = 84dp 开始
-  - **Medium 及以上 · 居中底栏**（宽 ≥ 600 且高 ≥ 480）：竖屏那条本身，水平居中、限宽 600，下边距 24（Wide 28）；详情形态把 ▾ 里的动作拿出来单独放（随机播放 / 前往歌手 / 分享）+ 定宽 200 的正在播放 pill。原左侧 Navigation Rail 已删除
+  - **Medium 及以上 · 居中底栏**（宽 ≥ 600 且高 ≥ 480）：竖屏那条本身，水平居中、限宽 600，下边距 24（Wide 28），**高 60（按钮 44 + 8 × 2；2026-10-02 owner 嫌 68 在平板上像块板）**；详情形态把 ▾ 里的动作拿出来单独放（随机播放 / 前往歌手 / 分享）+ 定宽 200 的正在播放 pill。原左侧 Navigation Rail 已删除
+  - **合体形态**（2026-10-02，Wide 整窗开着详情列时，适配原则 2「一窗一栏」）：同一条栏横跨两列、上限放宽到 720 —— [Home][Library][正在播放 pill 伸缩][Play ▾][随机播放]，导航在 shell 列那侧、页面的 Play 在详情列那侧、pill 跨过分隔线；前往歌手 / 分享收进 ▾。列开合的 spring 同时驱动栏的姿态；NP 侧栏打开时 pill 折起、栏缩到正好包住剩下的键
 - 页面用 `LocalShellChromeInsets` 给 Button Group 让位（底部两种形态留栏高，分离式留左侧 84dp + 右侧挖孔）
 - 被拿出来单独放的动作一律从 ▾ 菜单里去掉，不重复
 
@@ -225,12 +229,15 @@ NeoDB 同步以 album 为边界。第一阶段只有同时具备 album rating �
 - **背景**：两个暗色调的微妙渐变（渐变过渡极其平滑，几乎感觉是纯色）+ 实时音频可视化（与背景融为一体，有呼吸感）
 - **退出**：下滑手势 / 系统返回键（适配 Android 14+ Predictive Back，缩回时有连贯的预览动画）
 - **断点**（2026-09-30，`NowPlayingPresentation`）：
-  - **16:9 矮屏**（歌词区放不下 2 行）：Lyrics / About / Note 那一行 + 歌词窗口收成**一行当前歌词**（bold、primary、单行省略），整行就是展开按钮，没有单独的展开键；同一句停 ≥ 8 秒时这一行交叉淡入成「展开符号动画 + Tap to expand」，**一天最多一次**（按本地日期记在 `yoin_ui_hints`）；动画缩放为 0 时符号不动、字停约 2 秒。歌词展开页 tabs 保持文字，4 个歌词工具键挪到 tabs 同一行右侧，底部只剩标题
+  - **16:9 矮屏**（先用完上下两层间距仍放不下两句完整歌词，适配原则 6）：Lyrics / About / Note 那一行 + 歌词窗口收成**一行当前歌词**（bold、primary、单行省略），整行就是展开按钮，没有单独的展开键；同一句停 ≥ 8 秒时这一行交叉淡入成「展开符号动画 + Tap to expand」，**一天最多一次**（按本地日期记在 `yoin_ui_hints`）；动画缩放为 0 时符号不动、字停约 2 秒。歌词展开页 tabs 保持文字，4 个歌词工具键挪到 tabs 同一行右侧，底部只剩标题
   - **自动沉浸**（所有尺寸）：播放中 + Lyrics 页 + 有同步歌词 + 5 秒无操作 → 只有 4 个歌词工具键隐藏；在底部时淡出并塌缩槽位（标题下沉、歌词往下长），在顶部时原地淡出；手动滚过歌词、触摸、暂停都会恢复
   - **控件永远排得下**：胶囊组先按真实宽度量，放不下整组收成纯图标（按下时展开标签），三个都在；控制行先收 PLAY 的内边距、再把控件从 56 降到 48，播放模式键永远完整
   - **Medium 整窗（折叠屏内屏、平板竖屏）· Spotify 式**：点 pill 先从右边推出手机宽的**侧栏**（clamp(窗宽 × 0.5, 360, 420)，左侧圆角 28，就是手机那一页、歌词吃满剩余高度）；旁边的内容让出这块宽度继续可用、读成 Compact；底栏折成 [Home][Library] 居中。侧栏右上角「全屏」→ **放大的手机**（列宽 ≤ 640 居中，封面随高度收，评分列 / 控件随列放大；右上角「收回侧栏」）。返回一级一级退：全屏 → 侧栏 → 关闭，左上角 ▾ 直接关闭；侧栏往右滑也能关，三者共用一个 dismiss 控制器。展开折叠屏（Compact → Medium）时直接进全屏态，其它进入 Medium 默认侧栏；「侧栏 / 全屏」状态在 NP 的 ViewModel 里。窗宽 − 侧栏 < 320 时不开侧栏，直接全屏态
-  - **分栏窗格里**（开着详情时）：NP 占满本窗格，不开侧栏也没有全屏键——< 600 手机 NP、600–840 放大的手机、≥ 840 双栏；没开详情时 shell 独占整窗，平板横屏从首页打开就是整屏双栏
-  - **双栏只留给 Wide**（≥ 840 的整窗或窗格，且够高）：左栏按控件定宽 312（= 封面边长），右栏歌词吃剩下的；点封面放大时左栏最多 1.5 倍、右栏不小于 320
+  - **侧栏被手势带走时旁边的内容跟着补位**（2026-10-02）：返回预览 / 右滑关闭把侧栏往右带多少，宿主内容就 1:1 收回多少宽度（`NowPlayingPanelMotion` → `rememberNowPlayingPanelInset`），提交后冻结最后的位移随开合 spring 收完——侧栏和内容之间不再露出一条光秃秃的窗口底色
+  - **Wide 整窗（平板横屏、桌面窗口）也是同一条链**（2026-10-02，适配原则 4）：点 pill 先开侧栏（宽同上），右上角「全屏」→ **双栏 TabletNP**（左栏的控件、评分、标题、胶囊恒按 312 排，封面吃剩下的高度、最大 312——矮窗先收间距、再把标题收成一行跑马灯，不再让控件跟着封面变窄；右栏歌词吃剩下的；点封面 = 共享的「看封面」，评分和标题让位、封面最多 1.5 倍、左栏跟着封面加宽、右栏不小于 320），右上角同一位置「收回侧栏」。返回：双栏 → 侧栏 → 关闭。横竖屏切换保留用户的侧栏 / 全屏选择。开着详情列时侧栏照开，两列整体让位（1280 → 剩 860 仍分两列，各读 Compact）；侧栏旁放不下两列（窗宽 − 侧栏 < 744，即 < 1164 的 Wide 窗）时 NP 直接全屏双栏。在双栏里点「前往专辑」：侧栏放得下就先退回侧栏再开列，放不下就收起 NP 再开列——页面永远可见。旧裁决「分栏窗格里 NP 占满本窗格、无侧栏无全屏键」随 Activity Embedding 分栏一起废止
+  - **放大的手机的高度预算**（适配原则 6）：歌词窗口至少可见 4 行（165dp，按 `LyricsDisplay` 真实几何）、封面最小 168，先收间距再缩封面，再不够才退到一行歌词
+  - **手机横屏**（2026-10-03 owner）：静止时右栏不显示 Lyrics / About / Note，只有一行可点的当前歌词（同 16:9 规则，点开进展开页才出 tabs + 工具）；标题和歌手并一行；右栏整列避开远端挖孔（播放模式键在行尾）。16:9 矮屏的单列同样把标题和歌手并一行（高度梯子里排在歌词换形之前）
+  - **点封面 = 看封面**（2026-10-03，适配原则 6）：手机 / 侧栏 / 放大 / 双栏 / 手机横屏共用 Immersive；评分、tabs、歌词窗口、间距让给封面，封面至多 1.5 倍，**当前那一行歌词始终保留**；长不大 max(40dp, 12%) 的窗口里封面是纯图片、不可点。平板竖屏侧栏和放大态在焦点里保留歌词列表（放得下可见 4 行时）
 
 ### 🔊 后台播放与系统集成
 
@@ -245,9 +252,9 @@ NeoDB 同步以 album 为边界。第一阶段只有同时具备 album rating �
 - 播放列表浏览在第二期加入（依赖播放列表 CRUD）
 - 普通点击底部 Library：进入当前 profile 的 Library，展示 saved artists / albums / playlists / songs
 - Library 内普通搜索：默认 scope 为 Current Library，只搜索当前 profile 已保存内容
-- 长按底部 Library：Spotify profile 下打开搜索框并默认 scope 为 Spotify Global（占位文案 `Search Spotify`，chips 为 Spotify / Library）；非 Spotify provider 下打开 Current Library 搜索
+- 长按底部 Library：支持目录搜索的 profile 打开搜索框并默认 scope 为该服务目录（Spotify：`Search Spotify`、Spotify / Library；Apple Music：`Search Apple Music`、Apple Music / Library）；Subsonic 打开 Current Library 搜索。Apple Music 的 Library scope 调用个人资料库搜索接口，歌曲标签读取已加入资料库的歌曲，不用随机歌曲代替
 - 右上角 ⚙️ 设置入口
-- 筛选胶囊与下方网格 / 列表的交界用“逐项溶解”软衔接（2026-09-29 取代硬截断，2026-10-01 定稿为曲线 C）：交界处不盖任何渐变、模糊或色带，遮罩在每个 item 里。图形（封面、头像、缩略图）在滑到交界时碎成跟随自身的错列波点，越往上越小，到交界线正好消失；静止时离交界 11dp 以内才出缝，胶囊下只有两行整齐的小点和中点，前沿是直的；文字只在最后 10dp 渐隐、不拆成点。因此胶囊下的固定间距只留 4dp，网格顶部内边距 8dp
+- 筛选胶囊与下方网格 / 列表的交界用潮线（2026-10-04 取代 10-01 的曲线 C 网点；2026-09-29 起已取代硬截断）：交界处不盖任何渐变、模糊或色带；两道页面底色的波浪以遮罩形式把内容从交界处挖掉，图形沉进水线，文字在水线以下 10dp 内淡完、不拆成点。曲线 C 的顶部网点在快速滑动时挤成密排圆盘和针孔，有密恐感，所以上面默认用潮线，下面保留网点场；用户可在 设置 › Motion › Scroll edge 换成原版网点或曲奇浪口（见「溶解」一节）。胶囊下的固定间距只留 4dp，网格顶部内边距 8dp
 - 五个标签的底部都接底部网点场：封面到栏上方 20dp 才开始碎，栏下和栏两侧是纯网点；文字照常从栏下穿过
 - 这对遮罩是通用语言：任何“滚动内容撞上固定 chrome”的交界都应复用（规则见「溶解（Dissolve）」一节）
 
@@ -260,12 +267,17 @@ NeoDB 同步以 album 为边界。第一阶段只有同时具备 album rating �
 
 #### 账号与服务二级页（2026-09-26，取代 2026-09-06 版）
 
-- **大屏 list-detail**（2026-09-30，SettingsTablet）：窗口 ≥ 840 时 Settings 与二级页走原生 Activity Embedding 分栏（`tag="settings-*"` 的 SplitPairRule + SplitPlaceholderRule，约 420 | 860，叠在 shell 分栏之上，两个 Activity 不合并）。左栏账号卡改为竖排行、右栏打开的那个高亮（⋮ 里保留 Use / Remove）；Features 里的 AI features / NeoDB 也在右栏打开（`SettingsFeatureActivity`），窄窗仍是行内展开。二级页手机横屏：左栏固定（hero + You'll need，不随输入法滚走），右栏滚动、表单在前、What you get 在后
-- Settings 主页只做「列出 / 切换 / 移除」：Accounts 横向卡片（名称 + 一行状态：问题徽标 > In use > 服务器/账号），其余设置按 Features / Storage / About 分组，行内折叠展开（空间弹簧 + 效果弹簧），不再平铺说明段落。
+- **大屏 list-detail**（2026-09-30，SettingsTablet）：窗口 ≥ 840 时 Settings 与二级页走原生 Activity Embedding 分栏（`tag="settings-*"` 的 SplitPairRule + SplitPlaceholderRule，约 420 | 860，两个 Activity 不合并；这是 app 里唯一还在用 Activity Embedding 的地方）。左栏账号卡改为竖排行、右栏打开的那个高亮（⋮ 里保留 Use / Remove）；Features 里的 AI features / NeoDB 也在右栏打开（`SettingsFeatureActivity`），窄窗仍是行内展开。二级页手机横屏：左栏固定（hero + You'll need，不随输入法滚走），右栏滚动、表单在前、What you get 在后
+- Settings 主页只做「列出 / 切换 / 移除」：Accounts 横向卡片，其余设置按 Features / Storage / About 分组，行内折叠展开（空间弹簧 + 效果弹簧），不再平铺说明段落。
+- **Settings 视觉系统（2026-10-03，参照 Pixel Settings 子页面，取代此前的渐变底 + 整块面板 + 分隔线）**：
+  - 页面平铺 `surfaceContainer`，行用 `surfaceBright`（深浅同一规则，行永远比页面亮）；每行是 M3 Expressive 分段列表的一段（`ListItemDefaults.segmentedShapes` 位置圆角 + `SegmentedGap` 2dp 间隙，无分隔线），行位置变化时圆角走空间弹簧。行高 ≥ 72dp：16dp 内边距 + 40dp 图标列（24dp 单色线条图标，onSurfaceVariant）+ 12dp + 文字。分类标签 primary、内缩 8dp。
+  - 页头：浅色圆底返回键（`DetailBackButton`，surfaceContainerHighest）+ 大号页标题（displaySmall），返回键左缘、页标题、分类标签同在 24dp 线上；标题滚入顶栏时交接为小标题（与服务二级页同一套交接）。Settings 家族（主页、功能子页、服务二级页）**全宽**，不套 640dp 阅读宽度（用户 2026-10-04：居中的内容列配上铺满的卡片行像两套布局）。
+  - 大屏 list-detail：左栏底色降为 `surfaceDim`，打开的那一行换成右栏的 `surfaceContainer` 并四角全圆（M3 selectedShape），脱离相邻行；颜色效果弹簧、圆角空间弹簧。
+- **账号卡片（2026-10-03，头像 2026-10-04 改版）**：头像两层——**后面大的是服务**：账号专属 MaterialShapes 形状（8 种轮廓互不相像；按创建顺序 + id 哈希探测分配，同屏不重复，形状变化时 Morph 过去）填服务强调色，上面是 Yoin Symbols 手法重画的服务标志（`ServiceMarks`：Spotify 三道弧、Apple Music 双连音符；Subsonic 用 Cloud）；**右下角小圆是本人**：有服务头像就用（Spotify `/me` 的头像，存在 `ProfileAvatarStore`，只存公开图片地址，登录时写入、打开设置时为当前 Spotify 账号刷新），否则是昵称首字（跳过开头的服务名；dp 定字号）。是否在用由卡片本身表达：在用卡片填服务 container 色、比例 1，其余 `surfaceBright`、0.96。卡片文字 = 账号名（Subsonic 用用户名）+ 服务行（"Subsonic · host" / "Spotify"；标题已含服务名则省略）+ 状态胶囊（问题 > In use；在用账号有问题时写成 "问题 · In use"）。卡片行越过 16dp 页边铺到屏幕两缘，静止时首卡对齐页边，**不加边缘渐隐**（用户 2026-10-03 明确要求去掉，同 Home Recently Added 例外）；卡片高度按字号逐行计算，大字号不截断。打开管理页时把账号的"脸"（名称 / 位置 / 形状序号 / 头像地址，不含凭据）随 Intent 带过去，首帧即正确。
 - 服务能做什么，只在用户表达兴趣时讲：Add → 选择面板（每项名称 + 一句话）→ 服务二级页 `ServiceSetupActivity`。二级页 = 服务标识 + 一句定位 + What you get（≤4 条亮点）+ You'll need（前置条件）+ 连接表单。不做支持矩阵、不罗列“不能做什么”；做不了的操作照旧隐藏，失败时给简短可处理的错误。
 - 管理已有账号（编辑 Subsonic、Spotify 重新登录、凭据缺失恢复）复用同一二级页的 manage 模式：跳过介绍，直接给表单/操作。Spotify Client ID 属于一次性开发者配置，收进二级页的 Developer setup 折叠行，仅在缺失时自动展开；「No Client ID」深链打开该页并聚焦输入框。
 - 返回：二级页是无共享 chrome 的全屏目的地 → Pattern A 原生跨 Activity 预测性返回，零 back 代码；新账号的切换由 Settings 在自己的 scope 里执行（二级页经 ActivityResult 回传 id）。
-- Apple Music 尚未注册为可切换的 provider：选择面板里标 Preview，二级页的 Connection test 组承载开发者 Token 服务、MusicKit 授权、搜索与整曲播放测试。只有真实账号验证后才开放常规 Profile；SDK 初始化不代表授权或整曲已跑通。未来 + 加入资料库必须查询确认完成后才显示稳定的勾选状态，不能将 HTTP 202 当成已完成。
+- Apple Music 是可切换的正式 Profile：二级页通过开发者 Token 服务和 MusicKit 授权创建或重新连接加密账号。2026-09-29 已在 Pixel Tablet 订阅账号验证整曲与系统媒体控制；重新授权、删除和蓝牙硬件仍须分别验证。2026-10-01 的目录 / 资料库搜索和 + 加入资料库实现复用现有页面；+ 与喜爱心形分开，必须通过个人资料库关系查询确认后才显示稳定勾选。HTTP 202 只显示待确认，不能当成完成，新加入流程的真机验证须单独记录。
 - Apple Music 能力依据：[MusicKit](https://developer.apple.com/musickit/)、[添加资料库](https://developer.apple.com/documentation/applemusicapi/add-a-resource-to-a-library)、[喜爱限制](https://support.apple.com/en-us/111118)。接入时重新核验。
 
 ---
@@ -284,8 +296,8 @@ NeoDB 同步以 album 为边界。第一阶段只有同时具备 album rating �
 | 多层详情 / 播放器返回 | 返回当前窗口的真实来源；内层详情不改写主页的返回进度和底栏状态 |
 | 歌词搜索 | 从实际搜索按钮展开，收起回到该按钮；复用官方 SearchBarState 与全屏 Search 的动效、键盘处理和预测性返回 |
 | 切歌 | 大封面在新图加载成功后用封面专用低刚度、临界阻尼 Effects Spring 驱动细密错列的波点溶解，约 700ms 显影完成后自然收尾：波前本身持续起伏，圆点轻微漂移、柔和浮现后合拢，边缘带低强度 Primary → Tertiary 渐变光晕；下一首从右、上一首从左接管。点距约 6dp，旧图始终不透明兜底，新图随溶解逐步显影。缩略图保留轻量 crossfade，背景色继续原有 Effects Spring 过渡 |
-| Library 列表滚到筛选胶囊下 | 曲线 C（2026-10-01）：静止在顶部时不出现；前 40dp 滚动里过渡带从 0 长满。带高 G 静止 12dp、前沿起伏 F 3dp、文字带 T 10dp，随滚动速度放宽（150dp/s 起，1450dp/s 时 G 34 / F 8 / T 26），停下约 0.5 秒收回。点半径 = 0.64 格距 × t^0.8（t = 到交界的距离 / G），交界处为 0，G + F 以下是实色；点距 6dp 与切歌溶解同一网屏。滚动时前沿每个 item 各有起伏、点沿同一流场打旋，二者都乘无序度 D = 1 − e^(−速度/200dp/s)；停下后 D 与余韵按同一个 e^(−ωt)（ω = √90）衰减，约 0.45 秒回到格点，静止时点阵完全规整。余韵：流动落后内容的量与速度成正比（上限 G/2），停下后以停前速度继续漂一小段再停，不回弹。文字淡出 alpha = 1 − (1 − x′)²，长度 max(T, 0.75 × 字号)。省电模式和“移除动画”下无余韵、不放宽、D = 0。API 33+ 走 AGSL `RenderEffect`，以下用 Path 裁剪兜底；只有进入带内的 item 才重绘 |
-| 内容滚到底部浮动栏 | 底部网点场（2026-10-01）：以屏幕坐标计，过渡段从栏上方 20dp 开始，其余 28dp 藏在栏后，快速滚动时起点最多再上移 20dp；栏上沿 28dp 以下是覆盖率 40% 的静止点阵，越往下略细，一直铺到屏幕底边，栏两侧同样。点的颜色越往下越靠近页面底色（栏上沿 16%、屏幕底 32%），只作用在图形上。亮度（L*，含退色）与栏容器色相差 ≤ 6 的点在离栏 1.5dp 内消失、8.5dp 外恢复，≥ 18 不让，每个点只判断一次；还没开始碎的实色内容贴着栏时也参加。列表最后 40dp 滚动里过渡段收成 0，最后一项完整停在栏上方。过渡段的起伏和打旋同样乘 D，栏下点阵不流动。栏无阴影；Now Playing 升起时网点场按效果弹簧淡出、收起后长回 |
+| Library 列表滚到筛选胶囊下 | 潮线（2026-10-04 取代 10-01 的曲线 C 网点；与 Home 状态栏同一种线，详情页固定顶栏下相同）：静止在顶部时不出现；前 40dp 滚动里从交界上方降下，静止在交界下 2dp 再让出一个波峰。前层不透明（波长 72dp），后层低 6dp、55% 不透明（波长 116dp）；振幅 2.4dp，随滚动速度最多再加 3.2dp（150dp/s 起，1450dp/s 满），相位跟随滚动和余韵，停下即静止。不画底色而是遮罩：`seamDissolveViewport` 把波浪从内容层里挖掉，露出真正的背景（Library 的渐变、详情页的强调色底）。文字在水线以下淡出，alpha = 1 − (1 − x′)²，长度 max(T, 0.75 × 字号)，T 静止 10dp、快滑 26dp。省电模式和“移除动画”下相位固定、振幅 2.4dp。原因：顶部网点在快速滑动时挤成密排圆盘和针孔，有密恐感。这是默认样式，用户可在设置里换成原版网点或曲奇浪口（见「溶解」一节）。底部浮动栏的网点场不变 |
+| 内容滚到底部浮动栏 | 底部网点场（2026-10-01）：以屏幕坐标计，过渡段从栏上方 20dp 开始，其余 28dp 藏在栏后，快速滚动时起点最多再上移 20dp；栏上沿 28dp 以下是覆盖率 40% 的静止点阵，越往下略细，一直铺到屏幕底边，栏两侧同样。点的颜色越往下越靠近页面底色（栏上沿 16%、屏幕底 32%），只作用在图形上。亮度（L*，含退色）与栏容器色相差 ≤ 6 的点在离栏 1.5dp 内消失、8.5dp 外恢复，≥ 18 不让，每个点只判断一次；还没开始碎的实色内容贴着栏时也参加。列表最后 40dp 滚动里过渡段收成 0，最后一项完整停在栏上方。过渡段的起伏和打旋都乘无序度 D = 1 − e^(−速度/200dp/s)；停下后 D 与余韵按同一个 e^(−ωt)（ω = √90）衰减，约 0.45 秒回到格点，静止时点阵完全规整。余韵：流动落后内容的量与速度成正比（上限 6dp，快滑 17dp），停下后以停前速度继续漂一小段再停，不回弹。省电模式和“移除动画”下无余韵、D = 0。栏下点阵不流动。栏无阴影；Now Playing 升起时网点场按效果弹簧淡出、收起后长回 |
 | Home 内容滚进状态栏 | 潮线（2026-10-01）：两道页面底色的波浪从屏幕上沿盖到状态栏 + 2dp，前 40dp 滚动里从屏幕外降下来；前层不透明（波长 72dp），后层低 6dp、55% 不透明（波长 116dp）。振幅 2.4dp，随滚动速度最多再加 3.2dp；相位跟随滚动和余韵，停下即静止。内容沉进水线，图形顶部不再用网点；文字（含 32sp 大标题，淡出约 24dp）在状态栏 + 2dp 处淡完。省电和“移除动画”下相位固定、振幅 2.4dp。与 Now Playing 胶囊里的波浪是同一种线 |
 | 歌词翻译开关 | 每行译文从行下沿按空间弹簧展开 / 收起（间距在动画块内，收起即单行高）；焦点行全程钉在 38% 锚点，上下行向两侧让开 |
 | 打开歌词时切歌 | 歌词流“继续滚动”：旧歌冻结在最后播放位置，向上漂移并慢速淡出；新歌从下方升入（上一首则方向相反）。加载完成时歌词短距离升入、加载指示淡出。新歌前奏期间焦点位是歌名卡片。**自然播完且下一首歌词已预取时**改为预告式接续：最后一句唱完、离结束约 10 秒起，下一首的歌名卡片和前几句在最后一句下方以半强度浮现、上升；结束前约 1.4 秒整页上滑，把下一首歌名推到它自己列表的起始位置，同时当前歌词淡出；真正切歌时两份画面在歌名以下完全一致，原地替换、不再播放滑入滑出。提前跳歌、手动滚动过、没有下一首或歌词无时间轴时仍走上述滑动过渡 |
@@ -337,12 +349,14 @@ Now Playing 恢复原有的封面、标题、歌手名 Shared Bounds：整页使
 
 Podcast、Internet Radio、Chat、User Management、Jukebox、Bookmarks、Shares、Video
 
-### 📱 大屏幕适配 / 响应式设计（2026-07 落地，2026-09-30 断点适配重订）
+### 📱 大屏幕适配 / 响应式设计（2026-07 落地，2026-09-30 断点适配重订，2026-10-02 同窗分列）
 
-- 宽度三档 LayoutMode（Compact < 600 / Medium 600–840 / Wide ≥ 840）+ Tabletop 折叠姿态，**高度另读**：高 < 480 是手机横屏（`isCompactHeight`），页面先判高度再判宽度——844 宽的手机横屏不会落到桌面档。判定源都在 `ui/experience/WindowAdaptiveRuntime.kt`，由 M3 adaptive 的 window size class + 铰链姿态驱动，LayoutMode 按窗格相对（分栏里每个窗格读自己的宽度）
+> 规则本体在 `docs/adaptive-principles.md`（八条原则 + 各窗口一览），这里只记决定。
+
+- 宽度三档 LayoutMode（Compact < 600 / Medium 600–840 / Wide ≥ 840）+ Tabletop 折叠姿态，**高度另读**：高 < 480 是手机横屏（`isCompactHeight`），页面先判高度再判宽度——844 宽的手机横屏不会落到桌面档。判定源都在 `ui/experience/WindowAdaptiveRuntime.kt`，由 M3 adaptive 的 window size class + 铰链姿态驱动，LayoutMode 按**列**相对：任何让出宽度的容器（NP 侧栏、详情列）用 `forPaneWidth(列宽)` 给子树重新提供 `LocalYoinWindowInfo`，600 宽的 shell 列就是 Medium
 - Button Group 三种形态（竖屏底栏 / 手机横屏分离式挖孔带 / Medium+ 底栏居中限宽 600）见「导航结构」；`LocalShellChromeInsets` 给页面让位；原 Navigation Rail 已删除
-- 跨窗口 bar 交接（`DetailLaunchMode.FullChoreography`）在竖屏底栏与分离式挖孔带下都做（两个窗口的组逐像素同位）；居中底栏的详情形态换了排布，纯推入；分栏交给系统默认
-- Activity Embedding（`res/xml/main_split_config.xml`）：**按需分栏**（2026-10-01）——任务窗 ≥ 840 时 shell 平时独占整窗（平板横屏读 Wide，首页 / 资料库走桌面档），打开第一个详情才分成 shell | detail，关掉最后一个详情分栏解散、shell 回到整窗；不再有右栏占位页。分栏开合、栏内推入的动画全交给系统（不叠我们的 96dp 内容滑入），动画露出的底色由 calculator 设成 app 背景色（深浅色各自取 dynamic scheme 的 background）。分栏里的详情没有底栏，返回走系统原生（predictive-back Pattern A：窗口不透明、不注册返回回调、用系统关闭动画），右栏最后一张关掉时系统直接收起分栏。宽窄切换时首页 / 资料库的 tab 和滚动位置保留（资料库网格记住用户滚到的那一格，列数变了也回到那一行）。比例由 `SplitAttributesCalculator` 按窗宽算：≥ 1080 时 shell = max(600, 0.45 × 窗宽)（扣掉分隔条后仍 ≥ 600，1280 宽约 0.48），详情 ≥ 480；更窄照旧 0.45。分隔条用平台的可拖动 `DraggableDividerAttributes`（extension < 6 没有，不自己画），颜色设成 `surfaceContainerHigh`（比页面底深一档，同 TabletSplit 的色带；库默认是黑色），深浅色切换时主动刷新分栏让它跟着变。分栏里详情窗格没有底栏，[分享][Play 分体键] 放进 hero，正在播放只在 shell 那条出现
+- 跨窗口 bar 交接（`DetailLaunchMode.FullChoreography`）在竖屏底栏与分离式挖孔带下都做（两个窗口的组逐像素同位）；居中底栏（Medium 整窗）是纯推入，但栏仍然有动画——**窗口内 morph**（2026-10-03，`DETAIL_EXTRA_BAR_MORPH`）：详情窗口的栏从和 shell 底栏像素相同的导航姿态出发，页面滑入的那一拍 morph 成详情姿态；返回手势把它 scrub 回导航姿态，溶解落在 shell 的导航栏上。不桥接 shell 的任何状态（`bridgeBackToShell=false`）。Wide 整窗没有跨窗口交接——详情根本不是另一个窗口
+- **详情列（2026-10-02，适配原则 3「分栏是同一窗口里的列」）**：Wide 且高 ≥ 480 的整窗（`YoinWindowInfo.hasDetailPane`）里，Album / Artist / Playlist 不再启动 Activity，而是作为 shell 窗口的**右列**打开（`ui/navigation/pane/`：Navigation 3 子栈，同一批页面 composable，`LocalDetailHostMode = Pane`）。shell 平时独占整窗，开第一个详情才分列、关最后一个解散，开合走 `defaultSpatialSpec`（列从右缘滑入、shell 列同步让位，`DetailPaneState.openFraction` 是唯一驱动）。列宽 = 一个纯函数 `resolvePaneBudget`：窗宽 − 24dp 槽，shell 份额默认 0.45、≥ 1080 时保证 shell ≥ 600（1280 → 600 ｜ 24 ｜ 656），两列都 ≥ 360；槽里是 M3 `VerticalDragHandle`，整条槽可拖、1:1、只钳制（session 内记住）。两列和槽共用 shell 的中性页面底色（列里的详情页不再画封面色顶部渐变），中间没有分隔线，只有把手。列里每页读自己的列宽（Medium / Compact 布局照页面规则）。列内推入 / 弹出 = AOSP 96dp + EMPHASIZED 450ms；预测返回：栈内由 NavDisplay 的 predictive pop 做整体缩放预览，最后一页的返回缩放到 0.9 + 28dp 圆角、提交后列滑出、shell 变宽；返回归属 NowPlaying > DetailPane > Memories（`ShellBackResolver`），列的两个返回处理器挂在只在它拥有返回时才启用的子 dispatcher 上（处理器按注册先后排，后挂载的列否则会压过 NP）。列宽、侧栏让位、栏槽宽都在 layout 阶段算，手势 / 弹簧帧不重组 shell。换档永远不落在弹簧中途：开列时 shell 在点击那一帧换档，等帧率平稳后列才滑入（空白页面），页面在列落定后构建并淡入；关列时等弹簧落定后 shell 才换回 Wide。Wide → 窄（平板转竖屏）时列顶层页自动变成推入页。**Activity Embedding 的 shell ↔ detail 规则、`SplitAttributesCalculator` 的 shell 比例和平台分隔条全部删除**（两个 Activity 窗口物理上无法共享一条栏；平台分隔条拖后 calculator 会把比例改回去、颜色退成库默认黑色），只剩 Settings 的 list-detail
 - 页面：Home / Library 手机横屏有单独一档（Home 28sp 标题、Activities 单行三卡；Library 单行头部 [搜索 208][chips][设置]、~100dp 格子 6 列）；详情页手机横屏把竖屏 hero 横过来（封面左、竖屏里封面下面的东西在右，上拉照旧），背景图形做成贴着封面的闭合形状、不伸到左边的组下面；Medium 歌手是宽 hero（名字只出现一次，Follow 进 hero，Play 只在底栏）；Wide 整窗专辑 / 歌单是 400 身份栏 + 完整曲目表，歌手是横顶 hero + Most Played 480 | Discography；Memories 16:9 印章 112、提问与 Write a review 并行，手机横屏一张卡拆两栏，Wide 整窗对开（大印章 190、笔记回到卡面）
 - 页面内容宽度有 clamp 基线（`yoinPageContentWidth`，Feed=720 / Prose=640 / Card=480）
 
@@ -397,6 +411,6 @@ Podcast、Internet Radio、Chat、User Management、Jukebox、Bookmarks、Shares
 ![image.png](attachment:86d59aea-0f12-414a-8b61-a3508223cd37:image.png)
 
 
-### Apple Music profiles (2026-09-26)
+### Apple Music profiles (2026-10-01)
 
-Apple Music connection now creates a regular encrypted Profile; the previous validation authorization migrates once without automatically switching the active account. Its MusicSource supports library albums, artists and read-only playlists plus catalog search. MusicKit supplies DRM audio through a Media3 session shared by Now Playing and system controls. Unsupported favorite/library writes, playlist editing, Cast and offline caching remain hidden; adding to the Apple Music library must never be represented as a favorite heart. Imported tracks without a catalog playback ID require an explicit unavailable message. Physical subscribed-account QA is still pending for this integration.
+Apple Music connection creates a regular encrypted Profile; the previous validation authorization migrates once without automatically switching the active account. Its MusicSource supports library songs, albums, artists and read-only playlists, with distinct catalog and personal-library search scopes. MusicKit supplies DRM audio through a Media3 session shared by Now Playing and system controls. The separate library-add control uses the exact authenticated catalog-song → library relationship; it displays a stable checkmark only after membership is confirmed and preserves an unconfirmed HTTP 202 as pending. Membership never becomes a favorite heart. Unsupported favorite mutation, library removal, playlist editing, Cast and offline caching remain hidden. Imported tracks without a catalog playback ID are dimmed with a "?" badge on the cover whose tap expands the reason inline; they never enter the MusicKit queue. Since 2026-10-02 a library album opens as its full catalog album (Spotify parity): every catalog track is listed and the ones already in the user's library carry the check from `TrackLibraryButton`, which replaces the heart slot for Apple Music; tapping an unchecked row control adds that song. Library albums Apple cannot match to the catalog keep their library tracklist. Subscribed playback was verified on Pixel Tablet on 2026-09-29; these new search/library writes require their own current device verification, and reauthorization, deletion and Bluetooth hardware remain open.
