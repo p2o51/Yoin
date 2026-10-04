@@ -43,7 +43,9 @@ import com.gpo.yoin.ui.experience.EdgeSplitGroupWidth
 import com.gpo.yoin.ui.experience.EdgeSplitSegments
 import com.gpo.yoin.ui.experience.computeEdgeSplitSegments
 import com.gpo.yoin.ui.experience.rememberEdgeSplitSegments
-import com.gpo.yoin.ui.experience.rememberEdgeSplitStartShift
+import com.gpo.yoin.ui.experience.EdgeSplitSide
+import com.gpo.yoin.ui.experience.rememberEdgeSplitEdgeShift
+import com.gpo.yoin.ui.experience.rememberEdgeSplitSide
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
 import com.gpo.yoin.ui.navigation.YoinSection
 import com.gpo.yoin.ui.theme.ProvideYoinMotionRole
@@ -91,13 +93,21 @@ fun YoinEdgeSplitGroup(
     animatedVisibilityScope: AnimatedVisibilityScope? = null,
     // Explicit geometry for previews/tests; the live window otherwise.
     segmentsOverride: EdgeSplitSegments? = null,
+    // The cutout's edge; the live window otherwise.
+    sideOverride: EdgeSplitSide? = null,
     modifier: Modifier = Modifier,
 ) {
     ProvideYoinMotionRole(role = YoinMotionRole.Standard) {
         BoxWithConstraints(modifier = modifier.fillMaxSize()) {
             val segments = segmentsOverride ?: rememberEdgeSplitSegments(windowHeight = maxHeight)
-            val startShift = rememberEdgeSplitStartShift()
-            val x = EdgeSplitGroupInset + startShift
+            val side = sideOverride ?: rememberEdgeSplitSide()
+            val edgeShift = rememberEdgeSplitEdgeShift(side)
+            // The capsules sit in the cutout's band, on whichever edge that is.
+            val x = if (side == EdgeSplitSide.Right) {
+                maxWidth - EdgeSplitGroupInset - edgeShift - EdgeSplitGroupWidth
+            } else {
+                EdgeSplitGroupInset + edgeShift
+            }
             val idle = currentTrackTitle == null && connectionErrorMessage == null
             val idleProgress by animateFloatAsState(
                 targetValue = if (idle) 1f else 0f,
@@ -112,6 +122,7 @@ fun YoinEdgeSplitGroup(
             ) { innerHeight ->
                 UpperCapsuleContent(
                     innerHeight = innerHeight,
+                    side = side,
                     roomy = segments.roomy,
                     selectedSection = selectedSection,
                     chromeProgress = chromeProgress,
@@ -133,7 +144,12 @@ fun YoinEdgeSplitGroup(
                     modifier = Modifier.graphicsLayer {
                         val hide = if (morph > 0.005f) 0f else idleProgress
                         alpha = 1f - hide
-                        translationX = -(EdgeSplitGroupWidth + x).toPx() * hide
+                        // Steps out over its own edge.
+                        translationX = if (side == EdgeSplitSide.Right) {
+                            (maxWidth - x).toPx() * hide
+                        } else {
+                            -(EdgeSplitGroupWidth + x).toPx() * hide
+                        }
                     },
                 ) { innerHeight ->
                     NowPlayingPillVertical(
@@ -191,6 +207,7 @@ private fun EdgeCapsule(
 @Composable
 private fun UpperCapsuleContent(
     innerHeight: Dp,
+    side: EdgeSplitSide,
     roomy: Boolean,
     selectedSection: YoinSection,
     chromeProgress: () -> Float,
@@ -297,11 +314,18 @@ private fun UpperCapsuleContent(
                     }
                 }
             }
+            // The hint opens toward the content, away from the edge.
             LibrarySearchShortcutHint(
                 visible = showLibrarySearchHint,
-                modifier = Modifier
-                    .align(Alignment.BottomStart)
-                    .offset(x = EdgeSplitGroupWidth + 4.dp),
+                modifier = if (side == EdgeSplitSide.Right) {
+                    Modifier
+                        .align(Alignment.BottomEnd)
+                        .offset(x = -(EdgeSplitGroupWidth + 4.dp))
+                } else {
+                    Modifier
+                        .align(Alignment.BottomStart)
+                        .offset(x = EdgeSplitGroupWidth + 4.dp)
+                },
             )
         }
         if (morph > 0.01f) {

@@ -1,5 +1,13 @@
 # Yoin 断点适配 · 实现交接（Claude Cowork → Claude Code）
 
+> **2026-10-02 补记**：以下部分已被推翻——shell ↔ 详情 Activity Embedding 分栏（§2.3 平板分栏 /
+> shell 窗格宽度两条、§7、§13、§14.1、§11 平板横屏与桌面两行）；「Wide 直接双栏、无侧栏无全屏键」
+> （§3.4、§3.5）；侧栏旁内容一律读 Compact（§3.4 侧栏条、§14.3——现为按自身宽度 `forPaneWidth`，
+> 平板横屏侧栏旁 860 仍读 Wide）；`isDualPaneNowPlaying`（§1、§3.4、§14.7——已删除，由
+> `NowPlayingPresentation` + `hasDetailPane` 取代）；居中底栏尺寸（§2.3「高 72 / 按钮 56」→ 现为
+> 高 60 / 按钮 44）。§14.2 的结论仍成立，但几何改为同窗列（1440 → 637 ｜ 24 ｜ 779，两列都读
+> Medium）。现行规则见 `docs/adaptive-principles.md`，决定见 `docs/design.md`。
+
 > 2026-09-30，由 Claude Cowork 写。用户用中文交流，会用 ultracode 一次跑完。
 > 设计来源：claude.ai Design 画布「Yoin 断点原型」（私有链接，Claude Code 打不开）。每块画板的渲染图和源文件已经放在本地，见 §10。
 > 仓库规则照旧：`AGENTS.md`（动效必须 spring、MD3 Expressive、back surface 分类、public Composable 要 `@Preview`、ktlint）。`docs/design.md` 是 UI 决策的最终来源，这次的决定要同步写进去（WS7）。

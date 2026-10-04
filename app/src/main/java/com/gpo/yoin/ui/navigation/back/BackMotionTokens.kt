@@ -26,4 +26,14 @@ object BackMotionTokens {
      * pose (DetailBackEntering) so the mirrored trajectories can't drift.
      */
     val EmphasizedEasing = CubicBezierEasing(0.05f, 0.7f, 0.1f, 1f)
+
+    /**
+     * AOSP `cross_activity_back_entering_start_offset`: where an entering
+     * page starts (push) and where the revealed page waits (back). Shared by
+     * the detail column's push/pop and the window pages' mirrors.
+     */
+    val EnteringStartOffset = 96.dp
+
+    /** AOSP `DefaultCrossActivityBackAnimation.POST_COMMIT_DURATION`, the EMPHASIZED ride's length. */
+    const val PostCommitDurationMs = 450
 }

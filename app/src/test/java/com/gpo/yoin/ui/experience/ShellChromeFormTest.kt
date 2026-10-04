@@ -46,21 +46,6 @@ class ShellChromeFormTest {
     }
 
     @Test
-    fun should_renderDualPaneNowPlaying_only_when_wideAndTall() {
-        fun info(mode: LayoutMode, tall: Boolean) = YoinWindowInfo(
-            layoutMode = mode,
-            isWidthAtLeastMedium = mode != LayoutMode.Compact,
-            isHeightAtLeastMedium = tall,
-            hingeBounds = null,
-        )
-        assertTrue(info(LayoutMode.Wide, tall = true).isDualPaneNowPlaying)
-        assertFalse(info(LayoutMode.Wide, tall = false).isDualPaneNowPlaying)
-        // Medium became the panel → enlarged-phone pair (§3.4).
-        assertFalse(info(LayoutMode.Medium, tall = true).isDualPaneNowPlaying)
-        assertFalse(info(LayoutMode.Tabletop, tall = true).isDualPaneNowPlaying)
-    }
-
-    @Test
     fun should_splitAroundACentredLeftCutout_when_matchingTheBoard() {
         // LandscapeHome: 390 tall, cutout 176..212 → two 154dp capsules.
         val segments = computeEdgeSplitSegments(
@@ -120,5 +105,19 @@ class ShellChromeFormTest {
             leftCutoutBottom = 223.dp,
         )
         assertEquals(32.dp, segments.upperTop)
+    }
+
+    @Test
+    fun should_putTheCapsulesOnTheCutoutsEdge_when_thePhoneTurnsEitherWay() {
+        assertEquals(EdgeSplitSide.Left, resolveEdgeSplitSide(hasLeftCutout = true, hasRightCutout = false))
+        assertEquals(EdgeSplitSide.Right, resolveEdgeSplitSide(hasLeftCutout = false, hasRightCutout = true))
+        // No cutout, or one on both edges: the designed left.
+        assertEquals(EdgeSplitSide.Left, resolveEdgeSplitSide(hasLeftCutout = false, hasRightCutout = false))
+        assertEquals(EdgeSplitSide.Left, resolveEdgeSplitSide(hasLeftCutout = true, hasRightCutout = true))
+        // The capsules split around the cutout on THEIR edge.
+        val turned = EdgeCutouts(leftTop = null, leftBottom = null, rightInset = 32.dp, rightTop = 170.dp, rightBottom = 210.dp)
+        assertEquals(EdgeSplitSide.Right, turned.side)
+        assertEquals(170.dp, turned.sideTop)
+        assertEquals(210.dp, turned.sideBottom)
     }
 }

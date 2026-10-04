@@ -77,7 +77,6 @@ import com.gpo.yoin.ui.experience.LocalMotionProfile
 import com.gpo.yoin.ui.experience.LocalYoinWindowInfo
 import com.gpo.yoin.ui.experience.ProvidePreviewWindow
 import com.gpo.yoin.ui.experience.MotionProfile
-import com.gpo.yoin.ui.experience.rememberIsActivityEmbedded
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
 import com.gpo.yoin.ui.navigation.YoinSection
 import com.gpo.yoin.ui.theme.ProvideYoinMotionRole
@@ -127,9 +126,14 @@ fun ArtistDetailScreen(
     onOpenNowPlaying: () -> Unit = {},
     nowPlayingOpen: Boolean = false,
 
-    // True when this window sits directly over the shell: predictive back
-    // scrubs the bar toward nav chrome (matching the reveal underneath).
+    // True when a nav-pose bar sits beneath this window: predictive back
+    // scrubs the bar toward nav chrome (matching the reveal underneath), and
+    // without a shell hand-off the bar morphs nav→detail in-window on reveal.
     morphBarOnBack: Boolean = false,
+    // FullChoreography only: the back pose is bridged to the shell (its content
+    // plays the entering side, its bar morphs in lockstep). Plain pushes keep
+    // the morph inside this window.
+    bridgeBackToShell: Boolean = morphBarOnBack,
     // Shell tab at launch time (the back scrub's revealed selection) and
     // whether the launch used the bar hand-off window animation (delays the
     // content slide-in to match the transparent hold).
@@ -167,12 +171,11 @@ fun ArtistDetailScreen(
     val supportsFollow = content != null && ServiceFeatureCatalog.forProvider(provider).supportsFavorites
     // Breakpoints (断点交接 §5): height first, then width. From Medium up the
     // hero carries the name and Follow, so the header keeps only back — the
-    // name appears once. A split pane gets Play / Share in the hero.
+    // name appears once.
     val windowInfo = LocalYoinWindowInfo.current
     val landscape = windowInfo.isCompactHeight
     val heroCarriesIdentity = !landscape &&
         windowInfo.layoutMode != LayoutMode.Compact && windowInfo.layoutMode != LayoutMode.Tabletop
-    val embedded = rememberIsActivityEmbedded()
 
     ProvideYoinMotionRole(role = YoinMotionRole.Expressive) {
         // In-window predictive back (AOSP cross-activity math): the whole
@@ -182,10 +185,20 @@ fun ArtistDetailScreen(
         // own morph off the same progress.
         val backCollapse = rememberDetailBackCollapse(
             onBack = onLeavePage,
-            bridgeToShell = morphBarOnBack,
+            bridgeToShell = bridgeBackToShell,
         )
+        // The header arrow leaves THIS page through its commit choreography —
+        // never via the window's back dispatcher, where an open Now Playing
+        // side panel ranks first and would take the tap. In the shell's
+        // detail column it pops the column's stack, as before.
+        @Suppress("NAME_SHADOWING")
+        val onBackClick: () -> Unit = if (LocalDetailHostMode.current == DetailHostMode.Pane) {
+            onBackClick
+        } else {
+            backCollapse::requestBack
+        }
         val enterIntro = rememberDetailEnterIntro(
-            barHandoff = enterBarHandoff && morphBarOnBack,
+            barHandoff = enterBarHandoff && bridgeBackToShell,
             visualReady = uiState !is ArtistDetailUiState.Loading,
             back = backCollapse,
         )
@@ -277,19 +290,6 @@ fun ArtistDetailScreen(
                                         } else {
                                             null
                                         },
-                                        heroActions = if (embedded) {
-                                            {
-                                                DetailHeroActions(
-                                                    playContainer = titleColor,
-                                                    playContent = scheme.onPrimary,
-                                                    onPlay = onPlay,
-                                                    onShuffle = onShuffle,
-                                                    onShare = onShare,
-                                                )
-                                            }
-                                        } else {
-                                            null
-                                        },
                                     )
                             }
                         }
@@ -301,7 +301,7 @@ fun ArtistDetailScreen(
             // Content and no-op during Loading/Error.
             val showOpenInSpotify = provider == MediaId.PROVIDER_SPOTIFY
             DetailBottomBar(
-                playContainer = titleColor,
+                playContainer = scheme.primary,
                 playContent = scheme.onPrimary,
                 onPlay = onPlay,
                 onShuffle = onShuffle,
@@ -312,8 +312,10 @@ fun ArtistDetailScreen(
 
                 interactionsEnabled = enterIntro.pageVisible,
                 enterChromeProgress = rememberDetailBarEnterProgress(
-                    followShell = enterBarHandoff && morphBarOnBack,
+                    followShell = enterBarHandoff && bridgeBackToShell,
                     back = backCollapse,
+                    inWindowMorph = morphBarOnBack && !bridgeBackToShell,
+                    intro = enterIntro,
                 ),
                 backMorphProgress = if (morphBarOnBack) {
                     { backCollapse.progress }
@@ -508,7 +510,6 @@ private fun ArtistBody(
     onAlbumClick: (String) -> Unit,
     onMostPlayedClick: (Int) -> Unit,
     follow: (@Composable () -> Unit)? = null,
-    heroActions: (@Composable () -> Unit)? = null,
 ) {
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
         val maxW = maxWidth
@@ -533,7 +534,7 @@ private fun ArtistBody(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                // Scrolls under the fixed header (curve C seam at the column's
+                // Scrolls under the fixed header (tide line at the column's
                 // top edge) and on under the bar (the bottom field).
                 .seamDissolveViewport(
                     background = expressivePageSeamBackground(),
@@ -560,7 +561,6 @@ private fun ArtistBody(
                     pinwheelTurn = pinwheelTurn,
                     desktop = desktop,
                     follow = follow,
-                    heroActions = heroActions,
                     modifier = if (desktop) Modifier else Modifier.yoinPageContentWidth(),
                 )
                 else -> {
@@ -580,10 +580,6 @@ private fun ArtistBody(
                         colors = colors,
                         modifier = Modifier.width(minOf(maxW * 0.74f, 300.dp)),
                     )
-                    if (heroActions != null) {
-                        Spacer(modifier = Modifier.height(16.dp))
-                        heroActions()
-                    }
                 }
             }
 
@@ -821,7 +817,7 @@ private fun ArtistHeroMeta(
  * left (180 Medium, 220 Wide), the identity column on the right — the ONLY
  * place the name appears here (the header keeps just back), the meta line,
  * Follow, and the Last Play | Avg. row. Play lives in the bottom bar, not
- * here; a split pane (no bar) adds [heroActions].
+ * here.
  */
 @Composable
 private fun ArtistWideHero(
@@ -832,7 +828,6 @@ private fun ArtistWideHero(
     modifier: Modifier = Modifier,
     desktop: Boolean = false,
     follow: (@Composable () -> Unit)? = null,
-    heroActions: (@Composable () -> Unit)? = null,
 ) {
     val portraitSize = if (desktop) 220.dp else 180.dp
     Row(
@@ -896,10 +891,6 @@ private fun ArtistWideHero(
                     .widthIn(max = 320.dp)
                     .fillMaxWidth(),
             )
-            if (heroActions != null) {
-                Spacer(modifier = Modifier.height(12.dp))
-                heroActions()
-            }
         }
     }
 }

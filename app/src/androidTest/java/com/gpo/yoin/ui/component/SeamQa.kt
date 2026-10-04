@@ -190,7 +190,7 @@ internal fun SeamQaWindow(
                     FloatingBottomBar(
                         modifier = Modifier.align(Alignment.BottomCenter),
                         centered = windowInfo.chromeForm == ShellChromeForm.CenteredBar,
-                    ) { innerWidth ->
+                    ) { innerWidth, _ ->
                         val half = (innerWidth - FloatingBarItemGap) / 2
                         Box(
                             modifier = Modifier

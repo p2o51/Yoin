@@ -7,6 +7,7 @@ import androidx.compose.animation.core.FiniteAnimationSpec
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.keyframes
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandHorizontally as composeExpandHorizontally
 import androidx.compose.animation.fadeIn as composeFadeIn
 import androidx.compose.animation.fadeOut as composeFadeOut
@@ -385,10 +386,31 @@ object YoinMotion {
         ),
     )
 
-    // Inert NavDisplay specs — the only remaining route (Shell) never
-    // pushes/pops within the NavDisplay; detail pages are separate Activities
-    // with the device-native cross-Activity back. The hand-rolled simplePush*
-    // imitation was removed with the in-NavDisplay detail entries.
+    // Inert NavDisplay specs — the shell's own NavDisplay holds the single
+    // Shell route and never pushes/pops; detail pages are Activities or, on a
+    // Wide window, the detail column's own NavDisplay (crossActivity* below).
     val navHostStableEnter: EnterTransition = EnterTransition.None
     val navHostStableExit: ExitTransition = ExitTransition.None
+
+    /**
+     * The AOSP cross-activity open/close ride as Compose transitions (the
+     * detail column's pushes and pops, predictive-back skill Pattern D): a
+     * horizontal slide of [offsetPx] on the platform's EMPHASIZED curve over
+     * [BackMotionTokens.PostCommitDurationMs]. Platform mimicry beats house
+     * springs here on purpose — the window pages run the same tween.
+     */
+    fun crossActivitySlideIn(offsetPx: Int): EnterTransition = composeSlideInHorizontally(
+        animationSpec = crossActivityRide(),
+        initialOffsetX = { offsetPx },
+    )
+
+    fun crossActivitySlideOut(offsetPx: Int): ExitTransition = composeSlideOutHorizontally(
+        animationSpec = crossActivityRide(),
+        targetOffsetX = { offsetPx },
+    )
+
+    private fun <T> crossActivityRide(): FiniteAnimationSpec<T> = tween(
+        durationMillis = BackMotionTokens.PostCommitDurationMs,
+        easing = BackMotionTokens.EmphasizedEasing,
+    )
 }

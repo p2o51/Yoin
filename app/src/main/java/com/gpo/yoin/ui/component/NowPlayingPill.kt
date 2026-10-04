@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.FilledTonalButton
@@ -193,7 +194,10 @@ fun NowPlayingPill(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 10.dp, vertical = 4.dp)
+                    // No vertical padding: the row is centred in the pill and
+                    // the 44dp centred bar has no height to spare for the two
+                    // text lines at a large font scale.
+                    .padding(horizontal = 10.dp)
                     .graphicsLayer {
                         // push 0→1 carries the OLD track out left; after the
                         // swap it runs -1→0, the NEW track riding in from
@@ -212,7 +216,7 @@ fun NowPlayingPill(
                     animatedVisibilityScope = animatedVisibilityScope,
                 )
                 Spacer(modifier = Modifier.width(10.dp))
-                Column(modifier = Modifier.weight(1f)) {
+                Column(modifier = Modifier.weight(1f).wrapContentHeight(unbounded = true)) {
                     val titleText = shown.title ?: when {
                         connectionErrorMessage != null -> "Playback unavailable"
                         else -> "Nothing playing"

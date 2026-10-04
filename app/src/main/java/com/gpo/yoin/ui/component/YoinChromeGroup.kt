@@ -1,5 +1,10 @@
 package com.gpo.yoin.ui.component
 
+import com.gpo.yoin.ui.theme.YoinMotion
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.getValue
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionScope
@@ -9,6 +14,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
 import com.gpo.yoin.symbols.YoinSymbols
 import com.gpo.yoin.ui.experience.EdgeSplitContentStart
+import com.gpo.yoin.ui.experience.EdgeSplitSide
+import com.gpo.yoin.ui.experience.rememberEdgeSplitSide
 import com.gpo.yoin.ui.experience.ShellChromeForm
 import com.gpo.yoin.ui.navigation.YoinSection
 
@@ -21,6 +28,8 @@ import com.gpo.yoin.ui.navigation.YoinSection
  *
  * [exitProgress] rides the whole group off-screen 1:1 — down for the bar
  * forms, left for the capsules (detail pages opened over Now Playing).
+ * [paneProgress] is the Wide shell's merged pose while its detail column is
+ * open (adaptive principle 2: one window, one bar).
  */
 @OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
@@ -39,6 +48,9 @@ fun YoinChromeGroup(
     modifier: Modifier = Modifier,
     wide: Boolean = false,
     navOnly: Boolean = false,
+    // Wide shell with its detail column open: the one bar spans both columns,
+    // [Home][Library][pill][Play ▾][Shuffle] (0 = nav pose, 1 = merged).
+    paneProgress: () -> Float = { 0f },
     playbackProgress: Float = 0f,
     isPlaying: Boolean = false,
     chromeProgress: () -> Float = { 0f },
@@ -48,8 +60,36 @@ fun YoinChromeGroup(
     sharedTransitionScope: SharedTransitionScope? = null,
     animatedVisibilityScope: AnimatedVisibilityScope? = null,
 ) {
+    // The Play split's colours arrive as TARGETS (a page's cover palette, the
+    // theme stand-in while a column page is still building): they animate
+    // here, once, for every form — a palette landing never snaps the button.
+    val playContainer by animateColorAsState(
+        targetValue = playSplitActions?.playContainer ?: MaterialTheme.colorScheme.primary,
+        animationSpec = YoinMotion.defaultEffectsSpec(),
+        label = "barPlayContainer",
+    )
+    val playContent by animateColorAsState(
+        targetValue = playSplitActions?.playContent ?: MaterialTheme.colorScheme.onPrimary,
+        animationSpec = YoinMotion.defaultEffectsSpec(),
+        label = "barPlayContent",
+    )
+    val animatedPlaySplitActions = playSplitActions?.let { actions ->
+        remember(actions, playContainer, playContent) {
+            BarPlaySplitActions(
+                playContainer = playContainer,
+                playContent = playContent,
+                onPlay = actions.onPlay,
+                onShuffle = actions.onShuffle,
+                menuItems = actions.menuItems,
+                promotable = actions.promotable,
+            )
+        }
+    }
     when (form) {
-        ShellChromeForm.EdgeSplit -> YoinEdgeSplitGroup(
+        ShellChromeForm.EdgeSplit -> {
+        // The capsules leave over their own edge (the cutout's).
+        val edgeOut = if (rememberEdgeSplitSide() == EdgeSplitSide.Right) 1f else -1f
+        YoinEdgeSplitGroup(
             selectedSection = selectedSection,
             currentTrackId = currentTrackId,
             currentTrackTitle = currentTrackTitle,
@@ -59,7 +99,7 @@ fun YoinChromeGroup(
             playbackProgress = playbackProgress,
             isPlaying = isPlaying,
             chromeProgress = chromeProgress,
-            playSplitActions = playSplitActions,
+            playSplitActions = animatedPlaySplitActions,
             onHomeClick = onHomeClick,
             onNowPlayingClick = onNowPlayingClick,
             onLibraryClick = onLibraryClick,
@@ -69,10 +109,12 @@ fun YoinChromeGroup(
             modifier = modifier
                 .fillMaxSize()
                 .graphicsLayer {
-                    translationX = -EdgeSplitContentStart.toPx() * 1.15f *
+                    translationX = edgeOut * EdgeSplitContentStart.toPx() * 1.15f *
                         exitProgress().coerceIn(0f, 1f)
                 },
         )
+
+        }
 
         ShellChromeForm.PortraitBar,
         ShellChromeForm.CenteredBar,
@@ -87,7 +129,7 @@ fun YoinChromeGroup(
             playbackProgress = playbackProgress,
             isPlaying = isPlaying,
             chromeProgress = chromeProgress,
-            playSplitActions = playSplitActions,
+            playSplitActions = animatedPlaySplitActions,
             onHomeClick = onHomeClick,
             onNowPlayingClick = onNowPlayingClick,
             onLibraryClick = onLibraryClick,
@@ -97,6 +139,7 @@ fun YoinChromeGroup(
             centered = form == ShellChromeForm.CenteredBar,
             wideMargin = wide,
             navOnly = navOnly,
+            paneProgress = paneProgress,
             // Its own height plus spare covers the nav-bar inset the scaffold
             // carries internally.
             modifier = modifier.graphicsLayer {

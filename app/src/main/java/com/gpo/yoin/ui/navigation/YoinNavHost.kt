@@ -1,15 +1,9 @@
 package com.gpo.yoin.ui.navigation
 
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInHorizontally
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutVertically
-import androidx.compose.animation.slideOutHorizontally
-import androidx.compose.animation.fadeIn
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.LocalActivity
 import androidx.activity.compose.PredictiveBackHandler
 import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.ExperimentalSharedTransitionApi
@@ -17,19 +11,25 @@ import androidx.compose.animation.SharedTransitionLayout
 import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.Orientation
-import androidx.compose.foundation.gestures.draggable
-import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.calculateEndPadding
 import androidx.compose.foundation.layout.calculateStartPadding
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Snackbar
 import androidx.compose.material3.SnackbarDuration
@@ -37,12 +37,16 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SnackbarResult
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -59,78 +63,107 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
+import androidx.lifecycle.viewmodel.compose.LocalViewModelStoreOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.navigation3.rememberViewModelStoreNavEntryDecorator
+import androidx.lifecycle.withResumed
 import androidx.navigation3.runtime.entryProvider
 import androidx.navigation3.runtime.rememberNavBackStack
 import androidx.navigation3.runtime.rememberSaveableStateHolderNavEntryDecorator
 import androidx.navigation3.ui.LocalNavAnimatedContentScope
 import androidx.navigation3.ui.NavDisplay
+import androidx.navigationevent.compose.LocalNavigationEventDispatcherOwner
+import androidx.navigationevent.compose.rememberNavigationEventDispatcherOwner
 import com.gpo.yoin.YoinApplication
 import com.gpo.yoin.data.model.CoverRef
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.Track
 import com.gpo.yoin.data.repository.ActivityContext
 import com.gpo.yoin.data.source.Capability
+import com.gpo.yoin.player.PlaybackEvent
+import com.gpo.yoin.player.SpotifyConnectFailure
 import com.gpo.yoin.ui.component.AddToPlaylistSheet
+import com.gpo.yoin.ui.component.BarPlaySplitActions
+import com.gpo.yoin.ui.component.ExpressivePageBackground
+import com.gpo.yoin.ui.component.LocalSharedPageBackground
 import com.gpo.yoin.ui.component.YoinChromeGroup
-import com.gpo.yoin.ui.detail.hasOverlayHidingBottomBar
 import com.gpo.yoin.ui.detail.AlbumDetailActivity
 import com.gpo.yoin.ui.detail.ArtistDetailActivity
 import com.gpo.yoin.ui.detail.DetailLaunchMode
 import com.gpo.yoin.ui.detail.PlaylistDetailActivity
 import com.gpo.yoin.ui.detail.findActivityOrNull
-import com.gpo.yoin.ui.detail.isDetailSplitEligible
+import com.gpo.yoin.ui.detail.hasOverlayHidingBottomBar
 import com.gpo.yoin.ui.detail.launchDetailFromShell
-import com.gpo.yoin.ui.settings.SettingsActivity
+import com.gpo.yoin.ui.experience.DetailBackPhase
+import com.gpo.yoin.ui.experience.EdgeSplitSide
+import com.gpo.yoin.ui.experience.HomeSurface
+import com.gpo.yoin.ui.experience.LayoutMode
+import com.gpo.yoin.ui.experience.LocalShellChromeInsets
+import com.gpo.yoin.ui.experience.LocalPaneWidthInMotion
+import com.gpo.yoin.ui.experience.LocalYoinWindowInfo
+import com.gpo.yoin.ui.experience.ShellChromeForm
+import com.gpo.yoin.ui.experience.hasChromeHandoff
+import com.gpo.yoin.ui.experience.hasDetailPane
+import com.gpo.yoin.ui.experience.rememberEdgeSplitSide
+import com.gpo.yoin.ui.experience.rememberRevealState
+import com.gpo.yoin.ui.experience.voteHighFrameRate
 import com.gpo.yoin.ui.home.HomeScreen
 import com.gpo.yoin.ui.home.HomeViewModel
 import com.gpo.yoin.ui.library.LibraryScreen
 import com.gpo.yoin.ui.library.LibrarySearchScope
 import com.gpo.yoin.ui.library.LibraryViewModel
-import com.gpo.yoin.ui.experience.DetailBackPhase
-import com.gpo.yoin.ui.experience.HomeSurface
-import com.gpo.yoin.ui.experience.LayoutMode
-import com.gpo.yoin.ui.experience.LocalShellChromeInsets
-import com.gpo.yoin.ui.experience.LocalYoinWindowInfo
-import com.gpo.yoin.ui.experience.ShellChromeForm
-import com.gpo.yoin.ui.experience.hasChromeHandoff
-import com.gpo.yoin.ui.experience.isDualPaneNowPlaying
-import com.gpo.yoin.ui.experience.rememberRevealState
-import com.gpo.yoin.ui.memories.MemoryEntityType
-import com.gpo.yoin.ui.memories.MemoryEntry
 import com.gpo.yoin.ui.memories.MemoriesScreen
 import com.gpo.yoin.ui.memories.MemoriesViewModel
+import com.gpo.yoin.ui.memories.MemoryEntityType
+import com.gpo.yoin.ui.memories.MemoryEntry
 import com.gpo.yoin.ui.navigation.back.OverlayChromeVisibility
 import com.gpo.yoin.ui.navigation.back.ShellBackOwner
-import com.gpo.yoin.ui.navigation.back.rememberShellBarChromeMorph
 import com.gpo.yoin.ui.navigation.back.rememberDetailBackEnteringModifier
+import com.gpo.yoin.ui.navigation.back.rememberShellBarChromeMorph
 import com.gpo.yoin.ui.navigation.back.resolveShellBackOwner
-import com.gpo.yoin.player.PlaybackEvent
-import com.gpo.yoin.player.SpotifyConnectFailure
-import com.gpo.yoin.ui.nowplaying.NowPlayingStageMode
-import com.gpo.yoin.ui.nowplaying.NowPlayingScreen
+import com.gpo.yoin.ui.navigation.pane.DetailColumnsLayout
+import com.gpo.yoin.ui.navigation.pane.DetailPaneCloseHandler
+import com.gpo.yoin.ui.navigation.pane.DetailPaneDivider
+import com.gpo.yoin.ui.navigation.pane.DetailPaneHost
+import com.gpo.yoin.ui.navigation.pane.DetailPaneRoute
+import com.gpo.yoin.ui.navigation.pane.DetailPaneViewModelStoreOwner
+import com.gpo.yoin.ui.navigation.pane.PaneBarRegistry
+import com.gpo.yoin.ui.navigation.pane.TwoColumnsMinWidth
+import com.gpo.yoin.ui.navigation.pane.animateOpen
+import com.gpo.yoin.ui.navigation.pane.awaitPrewarm
+import com.gpo.yoin.ui.navigation.pane.detailPaneClosePreview
+import com.gpo.yoin.ui.navigation.pane.rememberColumnWindowInfos
+import com.gpo.yoin.ui.navigation.pane.rememberDetailPaneState
+import com.gpo.yoin.ui.navigation.pane.rememberPaneSplitState
+import com.gpo.yoin.ui.navigation.pane.requestColumn
+import com.gpo.yoin.ui.navigation.pane.snapClosed
 import com.gpo.yoin.ui.nowplaying.NowPlayingAccessories
 import com.gpo.yoin.ui.nowplaying.NowPlayingOverlayHost
+import com.gpo.yoin.ui.nowplaying.NowPlayingPanelMinContentWidth
 import com.gpo.yoin.ui.nowplaying.NowPlayingPresentation
-import com.gpo.yoin.ui.nowplaying.ProvideBesidePanelWindowInfo
+import com.gpo.yoin.ui.nowplaying.NowPlayingScreen
+import com.gpo.yoin.ui.nowplaying.NowPlayingStageMode
+import com.gpo.yoin.ui.nowplaying.NowPlayingViewModel
 import com.gpo.yoin.ui.nowplaying.besideNowPlayingPanel
+import com.gpo.yoin.ui.nowplaying.canOpenNowPlayingPanel
 import com.gpo.yoin.ui.nowplaying.rememberNowPlayingFrame
 import com.gpo.yoin.ui.nowplaying.rememberNowPlayingPanelInset
-import com.gpo.yoin.ui.nowplaying.NowPlayingViewModel
+import com.gpo.yoin.ui.nowplaying.rememberNowPlayingPanelMotion
 import com.gpo.yoin.ui.nowplaying.rememberNowPlayingStageProgress
+import com.gpo.yoin.ui.nowplaying.rememberWindowWidthDp
+import com.gpo.yoin.ui.settings.SettingsActivity
 import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinMotionRole
 import com.gpo.yoin.ui.theme.YoinTheme
+import kotlin.math.roundToInt
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.drop
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
-import kotlin.math.roundToInt
 
 @OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
@@ -141,23 +174,17 @@ fun YoinNavHost(
         val sharedTransitionScope = this
         val context = LocalContext.current
         val app = context.applicationContext as YoinApplication
-        // P0 修正案：embedding 判定不能读 LocalYoinWindowInfo —— 分栏激活后
-        // Activity 读到的是自己的窗格宽（576dp 级，判成 Compact），会把编舞
-        // 错误地放行。isDetailSplitEligible 走「已嵌入 || 任务窗 >= 840」。
-        val hostActivity = remember(context) { context.findActivityOrNull() }
-        val detailSplitEligible = { hostActivity?.let(::isDetailSplitEligible) == true }
-        // 三值启动签名（方案 §2③）。INVARIANT: cross-window bar choreography
+        // Activity launches serve every window WITHOUT a detail column (Wide +
+        // tall windows host details as a column inside YoinShell instead —
+        // adaptive principle 3). INVARIANT: cross-window bar choreography
         // exists ONLY when the shell is Compact, has a bottom bar, and will
         // be fully covered — every other configuration launches without the
-        // hand-off. PANE-relative LayoutMode 在这里读是对的：它描述用户此刻
-        // 看到的 shell 窗格；分栏里的窗格读 Compact，但 detailSplitEligible()
-        // 先命中 Embedded，轮不到它。
+        // hand-off.
         val shellWindowInfo = LocalYoinWindowInfo.current
         val detailLaunchMode = {
             when {
-                detailSplitEligible() -> DetailLaunchMode.Embedded
                 // 竖屏底栏（Compact、非 Tabletop）与手机横屏的分离式组：两个
-                // 窗口的 Button Group 逐像素同位，完整交接。居中底栏（Medium+
+                // 窗口的 Button Group 逐像素同位，完整交接。居中底栏（Medium
                 // 整窗）的详情形态换了排布（外提动作 + 定宽 pill），不做跨窗口
                 // morph → 纯推入；Tabletop 照旧纯推入。
                 shellWindowInfo.hasChromeHandoff -> DetailLaunchMode.FullChoreography
@@ -334,12 +361,12 @@ private fun YoinShell(
     // Now Playing overlay only derives a Boolean spectrum-presence from it.
     val playbackSignal by app.container.audioVisualizerManager.playbackSignal.collectAsState()
     val windowInfo = LocalYoinWindowInfo.current
-    val dualPaneNowPlaying = windowInfo.isDualPaneNowPlaying
     // One Button Group, three forms (断点交接 §1): portrait bar, edge-split
     // capsules for short windows, centred capped bar from Medium up. The old
     // Medium+ left rail is gone — tall windows no longer ration height.
     val chromeForm = windowInfo.chromeForm
     val edgeSplit = chromeForm == ShellChromeForm.EdgeSplit
+    val edgeSplitSide = rememberEdgeSplitSide()
     val shellChromeInsets = LocalShellChromeInsets.current
     val shellLayoutDirection = LocalLayoutDirection.current
     val edgeContentPadding = if (edgeSplit) {
@@ -350,17 +377,38 @@ private fun YoinShell(
     } else {
         Modifier
     }
-    // Now Playing's frame in this window: on a Medium full window the pill
-    // opens a phone-width side panel and the shell content keeps working
-    // beside it, narrower and read as a handset (断点交接 §3.4 / §14.3).
-    val npFrame = rememberNowPlayingFrame(nowPlayingViewModel)
-    val npPanel = rememberNowPlayingPanelInset(npFrame, showNowPlaying)
+    // The detail COLUMN (adaptive principle 3): on a Wide + tall window the
+    // detail pages open as a second column of THIS window — a Navigation 3
+    // stack beside the shell content — instead of as Activities. One bar then
+    // spans both columns and the Now Playing panel slides in beside both.
+    val hasDetailPane = windowInfo.hasDetailPane
+    val paneState = rememberDetailPaneState()
+    val paneSplit = rememberPaneSplitState()
+    val paneStack = rememberNavBackStack()
+    val paneViewModels: DetailPaneViewModelStoreOwner = viewModel()
+    val paneRegistry = remember { PaneBarRegistry() }
+    val paneSpring = YoinMotion.defaultSpatialSpec<Float>()
+    val paneHasEntries = paneStack.isNotEmpty()
+    val paneOpen = paneHasEntries && !paneState.closing
+    // Now Playing's frame in this window: on a Medium or Wide full window the
+    // pill opens a phone-width side panel and the shell content keeps working
+    // beside it, narrower and read by its own width (adaptive principle 4).
+    // Beside the panel the shell keeps a phone column — two phone columns and
+    // the gutter while the detail column is open; where that cannot fit, the
+    // player goes straight to its full state.
+    val npPanelMinContent = if (paneHasEntries) TwoColumnsMinWidth else NowPlayingPanelMinContentWidth
+    val npFrame = rememberNowPlayingFrame(nowPlayingViewModel, npPanelMinContent)
+    val npPanelMotion = rememberNowPlayingPanelMotion()
+    val npPanel = rememberNowPlayingPanelInset(npFrame, showNowPlaying, npPanelMotion)
     val npSharesCover = npFrame.presentation == NowPlayingPresentation.Phone ||
         npFrame.presentation == NowPlayingPresentation.Tabletop
     val memoriesReveal = rememberRevealState(
         initialFraction = if (homeSurface == HomeSurface.Memories) 0f else 1f,
     )
-    val memoriesMounted = homeSurface == HomeSurface.Memories || memoriesReveal.isVisible
+    // Derived: a pull or spring frame invalidates the shell only when the
+    // deck's mounted-ness flips, never per frame.
+    val memoriesVisible by remember(memoriesReveal) { derivedStateOf { memoriesReveal.isVisible } }
+    val memoriesMounted = homeSurface == HomeSurface.Memories || memoriesVisible
     val shellScope = rememberCoroutineScope()
 
     val coverArtUrl = currentTrack?.coverArt?.let { coverArt ->
@@ -373,6 +421,13 @@ private fun YoinShell(
 
     LaunchedEffect(musicConfigurationRevision) {
         if (musicConfigurationRevision == 0L) return@LaunchedEffect
+        // A profile switch (Settings is reachable beside an open column):
+        // the column's pages hold the old profile's ids, while play / star /
+        // go-to-artist would act on the new source. The column ends.
+        if (paneStack.isNotEmpty()) {
+            paneStack.clear()
+            paneState.snapClosed()
+        }
         homeViewModel.refresh()
         libraryViewModel.refresh()
         memoriesViewModel.refresh()
@@ -387,7 +442,67 @@ private fun YoinShell(
         showNowPlaying = showNowPlaying,
         selectedSection = selectedSection,
         homeSurface = homeSurface,
+        detailPaneOpen = paneOpen,
     )
+    // The column's back handlers (NavDisplay's stacked pop, the last page's
+    // close) register on a CHILD dispatcher that is live only while the
+    // column owns back. Handler priority is registration order, and the
+    // column mounts after Now Playing — without this gate a stacked page
+    // would pop under the open player.
+    val paneBackOwner = rememberNavigationEventDispatcherOwner(
+        enabled = shellBackOwner == ShellBackOwner.DetailPane,
+    )
+    // Column open / close: ONE spring drives the width (DetailPaneState is
+    // the single owner). Closing keeps the last entry on screen until the
+    // column has slid out, then clears the stack; opening another page
+    // mid-close simply retargets the spring.
+    LaunchedEffect(paneHasEntries, paneState.closing) {
+        when {
+            !paneHasEntries -> paneState.snapClosed()
+            paneState.closing -> {
+                paneState.animateOpen(open = false, spec = paneSpring)
+                paneStack.clear()
+                paneState.closing = false
+            }
+            else -> {
+                paneState.awaitPrewarm()
+                paneState.animateOpen(open = true, spec = paneSpring)
+            }
+        }
+    }
+    val openPane: (DetailPaneRoute) -> Unit = { route ->
+        // From the shell's content or Now Playing the column shows the
+        // tapped page as its root; pushes come only from inside the column.
+        // The shell re-tiers in this same frame, beside the new page's first
+        // composition — all before the open spring starts (awaitPrewarm).
+        paneState.requestColumn()
+        if (paneStack.lastOrNull() != route || paneState.closing) {
+            paneState.closing = false
+            paneStack.clear()
+            paneStack.add(route)
+        }
+        // The page the user asked for must be visible. A full-window player
+        // would cover the column: step it back to the side panel — or, where
+        // the panel cannot sit beside two columns, close it.
+        if (showNowPlaying) {
+            val panelFitsBesideColumns = canOpenNowPlayingPanel(
+                layoutMode = windowInfo.layoutMode,
+                heightAtLeastMedium = windowInfo.isHeightAtLeastMedium,
+                windowWidth = npFrame.windowWidth,
+                minContentWidth = TwoColumnsMinWidth,
+            )
+            if (!panelFitsBesideColumns) {
+                experienceSessionStore.setNowPlayingExpanded(false)
+            } else if (npFrame.presentation == NowPlayingPresentation.DualPane) {
+                nowPlayingViewModel.setMediumFullscreen(false)
+            }
+        }
+    }
+    val pushPane: (DetailPaneRoute) -> Unit = { route -> paneStack.add(route) }
+    val closePane = { if (paneHasEntries) paneState.closing = true }
+    val popPaneEntry = {
+        if (paneStack.size > 1) paneStack.removeLastOrNull() else closePane()
+    }
     val memoriesActive = selectedSection == YoinSection.HOME && homeSurface == HomeSurface.Memories
     // Memories is a Home-owned overlay. If we leave Home for another shell
     // surface while it is active, collapse it first so closing the new
@@ -409,10 +524,6 @@ private fun YoinShell(
     // With Now Playing or Memories open the shell bar is hidden and the back reveal
     // is the overlay itself — arming chrome would only queue a phantom morph (and a
     // wrong split→nav scrub on the detail's back), so skip it.
-    // 分栏接住 detail 时 shell 永远不会被覆盖：onStop 的恢复 tick 不会来，
-    // morph 一旦 arm 就卡死（首点卡死、后续点击伪 morph 抖动）。判定必须用
-    // isDetailSplitEligible —— 分栏激活后本 Activity 的 LayoutMode 读到的是
-    // 窗格宽（Compact），拿它做门会把编舞错误放行（P0 修正案 2026-07-27）。
     val shellContext = LocalContext.current
     val shellHostActivity = remember(shellContext) { shellContext.findActivityOrNull() }
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -461,15 +572,13 @@ private fun YoinShell(
         } == true
     }
     val armDetailChrome = {
-        val splitTakesIt = shellHostActivity?.let(::isDetailSplitEligible) == true
         // INVARIANT: cross-window bar choreography exists ONLY when both
         // windows draw the SAME group geometry and the shell will be fully
         // covered: the portrait bar (Compact, not Tabletop) or the edge-split
         // capsules (hasChromeHandoff). The centred bar's detail pose differs
-        // (→ PlainPush) and a split never covers the shell (→ Embedded) —
-        // neither may arm; one-to-one with detailLaunchMode's choice.
+        // (→ PlainPush) — it may not arm; one-to-one with detailLaunchMode's
+        // choice. (A Wide window never gets here: its details are a column.)
         if (!experienceSessionStore.state.value.hasOverlayHidingBottomBar &&
-            !splitTakesIt &&
             windowInfo.hasChromeHandoff
         ) {
             experienceSessionStore.prepareDetailEnterSlide()
@@ -477,7 +586,9 @@ private fun YoinShell(
         }
     }
     val navigateToAlbumFromShell: (String, String?) -> Unit = { albumId, sharedTransitionKey ->
-        if (canLaunchDetail()) {
+        if (hasDetailPane) {
+            openPane(DetailPaneRoute.Album(albumId))
+        } else if (canLaunchDetail()) {
             detailLaunchPending = true
             try {
                 armDetailChrome()
@@ -491,7 +602,9 @@ private fun YoinShell(
         }
     }
     val navigateToArtistFromShell: (String, String?) -> Unit = { artistId, sharedTransitionKey ->
-        if (canLaunchDetail()) {
+        if (hasDetailPane) {
+            openPane(DetailPaneRoute.Artist(artistId))
+        } else if (canLaunchDetail()) {
             detailLaunchPending = true
             try {
                 armDetailChrome()
@@ -505,7 +618,9 @@ private fun YoinShell(
         }
     }
     val navigateToPlaylistFromShell: (String, String?) -> Unit = { playlistId, sharedTransitionKey ->
-        if (canLaunchDetail()) {
+        if (hasDetailPane) {
+            openPane(DetailPaneRoute.Playlist(playlistId))
+        } else if (canLaunchDetail()) {
             detailLaunchPending = true
             try {
                 armDetailChrome()
@@ -515,6 +630,43 @@ private fun YoinShell(
                 detailLaunchPending = false
                 experienceSessionStore.setDetailChromeActive(false)
                 throw error
+            }
+        }
+    }
+
+    // Leaving the Wide tier with a column open (rotating a tablet to portrait,
+    // a window snapped narrower): the column cannot exist there, so it is gone
+    // before the next frame and its top page continues as the pushed window
+    // page that tier uses — launched through the same gate and chrome
+    // hand-off as a tap, once the shell is resumed.
+    LaunchedEffect(hasDetailPane) {
+        if (!hasDetailPane && paneStack.isNotEmpty()) {
+            val top = paneStack.last() as DetailPaneRoute
+            // A column the user is already closing is dropped, not relaunched.
+            val relaunch = !paneState.closing
+            paneStack.clear()
+            paneState.snapClosed()
+            // Now Playing outranks the column (it was the front surface):
+            // leave it in front instead of pushing the page over it.
+            if (!relaunch || showNowPlaying) return@LaunchedEffect
+            lifecycleOwner.lifecycle.withResumed {
+                // The tap gate and chrome hand-off, but Memories stays where
+                // it was (as an album opened from Memories keeps it).
+                if (canLaunchDetail()) {
+                    detailLaunchPending = true
+                    try {
+                        armDetailChrome()
+                        when (top) {
+                            is DetailPaneRoute.Album -> onNavigateToAlbum(top.albumId, null)
+                            is DetailPaneRoute.Artist -> onNavigateToArtist(top.artistId, null)
+                            is DetailPaneRoute.Playlist -> onNavigateToPlaylist(top.playlistId, null)
+                        }
+                    } catch (error: RuntimeException) {
+                        detailLaunchPending = false
+                        experienceSessionStore.setDetailChromeActive(false)
+                        throw error
+                    }
+                }
             }
         }
     }
@@ -613,7 +765,44 @@ private fun YoinShell(
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background),
     ) {
-        ProvideBesidePanelWindowInfo(npPanel) {
+        // The columns region: everything beside the Now Playing panel. The
+        // shell column takes what the detail column (gutter + page) leaves,
+        // on the column's open/close spring; each column reads its OWN width.
+        // Column tiers come from the region at rest (window − a settled
+        // panel); the live widths are the layout's (measure phase only).
+        val windowWidth = rememberWindowWidthDp()
+        val restingRegionWidth = (windowWidth - if (npPanel.panelOpen) npPanel.panelWidth else 0.dp)
+            .coerceAtLeast(0.dp)
+        val columnWindowInfos = rememberColumnWindowInfos(restingRegionWidth, paneState, paneSplit)
+        // Post-release settles have no touch boost: vote High while the
+        // column or the panel beside it moves (ARR panels pace them at 60Hz).
+        val columnsMoving by remember(paneState, npPanel) {
+            derivedStateOf { paneState.openFraction.isRunning || npPanel.isMoving }
+        }
+        // The shell column's width is moving (springs, a gesture carrying the
+        // panel, or the handle): feeds whose height follows width place their
+        // items 1:1 meanwhile. One State for the shell's lifetime — the panel
+        // inset is re-created when it opens or closes, and a new object in
+        // this static local would invalidate the whole shell subtree.
+        val currentNpPanel by rememberUpdatedState(npPanel)
+        val paneWidthInMotion = remember(paneState, paneSplit) {
+            derivedStateOf {
+                paneState.openFraction.isRunning || currentNpPanel.isMoving ||
+                    currentNpPanel.isCarried || paneSplit.dragging
+            }
+        }
+        DetailColumnsLayout(
+            paneState = paneState,
+            split = paneSplit,
+            modifier = Modifier
+                .fillMaxSize()
+                .voteHighFrameRate(columnsMoving)
+                .besideNowPlayingPanel(npPanel),
+            shell = {
+        CompositionLocalProvider(
+            LocalYoinWindowInfo provides columnWindowInfos.shell.value,
+            LocalPaneWidthInMotion provides paneWidthInMotion,
+        ) {
             AnimatedContent<YoinSection>(
                 targetState = selectedSection,
                 transitionSpec = {
@@ -627,7 +816,6 @@ private fun YoinShell(
                 // static twin under the detail window's bar.
                 modifier = Modifier
                     .fillMaxSize()
-                    .besideNowPlayingPanel(npPanel)
                     .then(
                         rememberDetailBackEnteringModifier(
                             experienceSessionStore,
@@ -638,19 +826,21 @@ private fun YoinShell(
             ) { section: YoinSection ->
                 when (section) {
                     YoinSection.HOME -> {
-                        val homeBgColor = MaterialTheme.colorScheme.background
-
-                        Box(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .background(homeBgColor),
-                        ) {
+                        // The page wash runs full-bleed, under the edge-split
+                        // capsules and into the cutout band too: the page
+                        // itself is inset past them (edgeContentPadding), and
+                        // the wash is a vertical gradient with Home's own
+                        // parameters, so the two meet without a seam.
+                        ExpressivePageBackground(modifier = Modifier.fillMaxSize()) {
                             HomeScreen(
                                 viewModel = homeViewModel,
                                 isPlaying = isPlaying,
                                 playbackSignal = if (isPlaying) playbackSignal else 0f,
                                 activeSongId = currentTrack?.id?.toString(),
-                                suppressBackHandling = showNowPlaying,
+                                // Gated, not mount-ordered: anything ranked above
+                                // Home (Now Playing, the detail column) owns back.
+                                suppressBackHandling = shellBackOwner == ShellBackOwner.NowPlaying ||
+                                    shellBackOwner == ShellBackOwner.DetailPane,
                                 onNavigateToSettings = { navigateToSettingsFromShell(null) },
                                 onNavigateToMemories = {
                                     experienceSessionStore.setHomeSurface(HomeSurface.Memories)
@@ -714,7 +904,11 @@ private fun YoinShell(
                                             // full MediaId — recombine or parse throws
                                             // and the page lands on "Couldn't load
                                             // this album." (memory → goto album).
-                                            if (canLaunchDetail()) {
+                                            if (hasDetailPane) {
+                                                openPane(
+                                                    DetailPaneRoute.Album("${memory.entityProvider}:${memory.entityId}"),
+                                                )
+                                            } else if (canLaunchDetail()) {
                                                 detailLaunchPending = true
                                                 try {
                                                     // Keep the deck mounted. Its hidden bottom bar must
@@ -768,13 +962,13 @@ private fun YoinShell(
                         }
                     }
 
-                    YoinSection.LIBRARY -> Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(MaterialTheme.colorScheme.background),
-                    ) {
+                    // Full-bleed page wash under the capsule / cutout band, as Home.
+                    YoinSection.LIBRARY -> ExpressivePageBackground(modifier = Modifier.fillMaxSize()) {
                         LibraryScreen(
                             viewModel = libraryViewModel,
+                            // The expanded search is a full-window dialog: a
+                            // result opened as a column must close it to be seen.
+                            collapseSearchOnOpen = hasDetailPane,
                             activeSongId = currentTrack?.id?.toString(),
                             isPlaying = isPlaying,
                             playbackSignal = if (isPlaying) playbackSignal else 0f,
@@ -818,6 +1012,80 @@ private fun YoinShell(
                 }
             }
         }
+            },
+            pane = {
+                // ── Detail column: gutter (the M3 drag handle) + page, laid
+                // out at the column's full width; DetailColumnsLayout slides
+                // and clips it at the region's end.
+                if (paneHasEntries) {
+                    // The column ends when this branch leaves: its pages' view
+                    // models end with it (a stack clear never pops entries).
+                    val hostActivity = LocalActivity.current
+                    DisposableEffect(Unit) {
+                        onDispose {
+                            if (hostActivity?.isChangingConfigurations != true) paneViewModels.endColumn()
+                        }
+                    }
+                    // The gutter and the column sit on the shell's own neutral
+                    // page wash (the column's page draws the same one), so the
+                    // two columns meet as one surface — no pale strip between.
+                    ExpressivePageBackground(modifier = Modifier.fillMaxSize()) {
+                    Row(modifier = Modifier.fillMaxSize()) {
+                        DetailPaneDivider(split = paneSplit)
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxHeight()
+                                .detailPaneClosePreview(paneState),
+                        ) {
+                            // The page builds once the column has landed (see
+                            // DetailPaneState.pageReady); the column slides in as
+                            // the plain page surface and the page fades in over it.
+                            androidx.compose.animation.AnimatedVisibility(
+                                visible = paneState.pageReady,
+                                enter = YoinMotion.fadeIn(role = YoinMotionRole.Standard),
+                                exit = YoinMotion.fadeOut(role = YoinMotionRole.Standard),
+                                modifier = Modifier.fillMaxSize(),
+                            ) {
+                            CompositionLocalProvider(
+                                LocalYoinWindowInfo provides columnWindowInfos.pane.value,
+                                LocalNavigationEventDispatcherOwner provides paneBackOwner,
+                                LocalViewModelStoreOwner provides paneViewModels,
+                                LocalSharedPageBackground provides true,
+                            ) {
+                                DetailPaneHost(
+                                    backStack = paneStack,
+                                    app = app,
+                                    isPlaying = isPlaying,
+                                    currentTrackId = currentTrack?.id?.toString(),
+                                    playbackSignal = if (isPlaying) playbackSignal else 0f,
+                                    registry = paneRegistry,
+                                    onPopEntry = { popPaneEntry() },
+                                    onPush = pushPane,
+                                    onMessage = { message ->
+                                        shellScope.launch {
+                                            snackbarHostState.showSnackbar(message, duration = SnackbarDuration.Short)
+                                        }
+                                    },
+                                    modifier = Modifier.fillMaxSize(),
+                                )
+                            }
+                            }
+                        }
+                    }
+                    }
+                }
+            },
+        )
+        // The column's last page closes it — on the column's gated child
+        // dispatcher, beside its NavDisplay (which pops stacked pages).
+        CompositionLocalProvider(LocalNavigationEventDispatcherOwner provides paneBackOwner) {
+            DetailPaneCloseHandler(
+                state = paneState,
+                enabled = shellBackOwner == ShellBackOwner.DetailPane && paneStack.size == 1,
+                onClose = closePane,
+            )
+        }
 
         // ── Now Playing overlay (scrim + slide-up + back layering) ───────
         NowPlayingOverlayHost(
@@ -834,6 +1102,8 @@ private fun YoinShell(
             onArtistClick = { artistId -> navigateToArtistFromShell(artistId, null) },
             onPlaylistClick = { playlistId -> navigateToPlaylistFromShell(playlistId, null) },
             sharedTransitionScope = sharedTransitionScope,
+            panelMotion = npPanelMotion,
+            panelMinContentWidth = npPanelMinContent,
         )
 
         // ── Navigation chrome: the Button Group in the window's form ──────
@@ -855,12 +1125,30 @@ private fun YoinShell(
         // app open — the group rises in instead of just being there.
         var barEntered by remember { mutableStateOf(false) }
         LaunchedEffect(Unit) { barEntered = true }
+        // The column's top page publishes its Play actions; while the column
+        // swaps pages the old entry retires before the new one publishes, so
+        // the bar keeps the last actions for that gap instead of falling back
+        // to the theme stand-in for a frame.
+        val livePaneBarActions = paneStack.lastOrNull()?.let { paneRegistry[it] }
+        val lastPaneBarActions = remember { arrayOfNulls<BarPlaySplitActions>(1) }
+        SideEffect {
+            when {
+                livePaneBarActions != null -> lastPaneBarActions[0] = livePaneBarActions
+                !paneHasEntries -> lastPaneBarActions[0] = null
+            }
+        }
+        // While a new column's page is still building, the bar shows the
+        // theme stand-in, never the last column's page.
+        val paneBarActions = livePaneBarActions
+            ?: lastPaneBarActions[0].takeIf { paneHasEntries && paneState.pageReady }
         Crossfade(
             targetState = chromeForm,
             animationSpec = YoinMotion.effectsSpring(),
             label = "shellChromeForm",
         ) { form ->
             val formIsEdge = form == ShellChromeForm.EdgeSplit
+            // Edge capsules slide over their own edge — the cutout's.
+            val edgeOut = if (edgeSplitSide == EdgeSplitSide.Right) 1 else -1
             OverlayChromeVisibility(
                 // Beside the side panel the group stays: the content it
                 // navigates is still usable (it folds to Home / Library).
@@ -868,12 +1156,12 @@ private fun YoinShell(
 
                 enabled = barEntered,
                 enter = YoinMotion.fadeIn(role = YoinMotionRole.Standard) + if (formIsEdge) {
-                    YoinMotion.slideInHorizontally(role = YoinMotionRole.Standard) { -it }
+                    YoinMotion.slideInHorizontally(role = YoinMotionRole.Standard) { edgeOut * it }
                 } else {
                     YoinMotion.slideInVertically(role = YoinMotionRole.Standard) { it + navBarBottomPx }
                 },
                 exit = YoinMotion.fadeOut(role = YoinMotionRole.Standard) + if (formIsEdge) {
-                    YoinMotion.slideOutHorizontally(role = YoinMotionRole.Standard) { -it }
+                    YoinMotion.slideOutHorizontally(role = YoinMotionRole.Standard) { edgeOut * it }
                 } else {
                     YoinMotion.slideOutVertically(role = YoinMotionRole.Standard) { it + navBarBottomPx }
                 },
@@ -918,10 +1206,14 @@ private fun YoinShell(
                             // slides/fades out together with the open gesture
                             // instead of waiting for the surface flip — down
                             // for the bar forms, left for the edge capsules.
-                            val hide = (1f - memoriesReveal.fraction).coerceIn(0f, 1f)
+                            // With the detail column open the one bar carries
+                            // the column page's Play split; Memories then covers
+                            // only the shell column and must not take the bar.
+                            val hide = (1f - memoriesReveal.fraction).coerceIn(0f, 1f) *
+                                (1f - paneState.openFraction.value).coerceIn(0f, 1f)
                             alpha = (1f - hide * 1.4f).coerceAtLeast(0f)
                             if (formIsEdge) {
-                                translationX = -hide * 120.dp.toPx()
+                                translationX = edgeOut * hide * 120.dp.toPx()
                             } else {
                                 translationY = hide * 120.dp.toPx()
                             }
@@ -934,6 +1226,11 @@ private fun YoinShell(
                         // The pill became the side panel: the bar keeps only
                         // the two destinations, centred in the content pane.
                         navOnly = npPanel.panelOpen,
+                        // Detail column open: the one bar spans both columns —
+                        // nav on the shell's side, the column's page Play on
+                        // its side — on the column's own open/close spring.
+                        paneProgress = { paneState.openFraction.value },
+                        playSplitActions = paneBarActions,
                         selectedSection = selectedSection,
                         // Single settle owner for the group pose: open/restore
                         // morphs AND the detail-back commit settle (seeded from
@@ -966,12 +1263,10 @@ private fun YoinShell(
                             experienceSessionStore.setHomeSurface(HomeSurface.Feed)
                         },
                         onLibraryLongClick = {
-                            val scope = if (
-                                app.container.repository.currentProviderId() == MediaId.PROVIDER_SPOTIFY
-                            ) {
-                                LibrarySearchScope.SpotifyGlobal
-                            } else {
-                                LibrarySearchScope.CurrentLibrary
+                            val scope = when (app.container.repository.currentProviderId()) {
+                                MediaId.PROVIDER_SPOTIFY -> LibrarySearchScope.SpotifyGlobal
+                                MediaId.PROVIDER_APPLE_MUSIC -> LibrarySearchScope.AppleMusicGlobal
+                                else -> LibrarySearchScope.CurrentLibrary
                             }
                             libraryViewModel.openSearchShortcut(scope)
                             experienceSessionStore.setSelectedSection(YoinSection.LIBRARY)
@@ -1002,13 +1297,23 @@ private fun YoinShell(
         // ── Shell-level snackbar host ────────────────────────────────────
         // Anchored bottom, overlaid above Now Playing / bottom nav. Spotify
         // connect failures surface here with actionable labels.
-        SnackbarHost(
-            hostState = snackbarHostState,
+        // Beside the Now Playing panel and clear of the bar (its reserve).
+        Box(
             modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .padding(bottom = 96.dp, start = 12.dp, end = 12.dp),
-        ) { data ->
-            Snackbar(snackbarData = data)
+                .matchParentSize()
+                .besideNowPlayingPanel(npPanel),
+            contentAlignment = Alignment.BottomCenter,
+        ) {
+            SnackbarHost(
+                hostState = snackbarHostState,
+                modifier = Modifier.padding(
+                    bottom = shellChromeInsets.calculateBottomPadding(),
+                    start = 12.dp,
+                    end = 12.dp,
+                ),
+            ) { data ->
+                Snackbar(snackbarData = data)
+            }
         }
     }
 }

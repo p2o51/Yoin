@@ -39,6 +39,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.lerp
 import kotlin.math.PI
 import kotlin.math.sin
@@ -67,6 +68,15 @@ import com.gpo.yoin.ui.theme.YoinContainerShapes
 // feels alive without competing with cover art or scrolling content.
 private const val ExpressivePageBackgroundDriftMillis = 75_000
 
+/**
+ * Pages that share a window with another column (the Wide shell's detail
+ * column) draw the window's ONE neutral page wash — no cover accent, no
+ * playing wobble — and so does the gutter between the columns. The wash is a
+ * vertical gradient, so equal parameters meet edge to edge without a seam:
+ * the columns read as one surface, with only the drag handle between them.
+ */
+internal val LocalSharedPageBackground = staticCompositionLocalOf { false }
+
 @Composable
 internal fun ExpressivePageBackground(
     accentColor: androidx.compose.ui.graphics.Color? = null,
@@ -75,6 +85,11 @@ internal fun ExpressivePageBackground(
     modifier: Modifier = Modifier,
     content: @Composable BoxScope.() -> Unit,
 ) {
+    val shared = LocalSharedPageBackground.current
+    @Suppress("NAME_SHADOWING")
+    val accentColor = accentColor.takeUnless { shared }
+    @Suppress("NAME_SHADOWING")
+    val isPlaying = isPlaying && !shared
     val scheme = MaterialTheme.colorScheme
     // Animated because the upstream 380ms palette tween can't cover the
     // null→non-null accent gate (DetailPageColors): at the instant the palette

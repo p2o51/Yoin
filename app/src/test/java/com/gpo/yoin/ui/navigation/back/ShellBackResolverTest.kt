@@ -30,6 +30,30 @@ class ShellBackResolverTest {
     }
 
     @Test
+    fun should_giveTheDetailPaneBack_when_itIsOpenOverMemories() {
+        val owner = resolveShellBackOwner(
+            showNowPlaying = false,
+            selectedSection = YoinSection.HOME,
+            homeSurface = HomeSurface.Memories,
+            detailPaneOpen = true,
+        )
+
+        assertEquals(ShellBackOwner.DetailPane, owner)
+    }
+
+    @Test
+    fun should_keepNowPlayingFirst_when_theDetailPaneIsAlsoOpen() {
+        val owner = resolveShellBackOwner(
+            showNowPlaying = true,
+            selectedSection = YoinSection.LIBRARY,
+            homeSurface = HomeSurface.Feed,
+            detailPaneOpen = true,
+        )
+
+        assertEquals(ShellBackOwner.NowPlaying, owner)
+    }
+
+    @Test
     fun should_return_none_when_no_shell_overlay_owns_back() {
         val owner = resolveShellBackOwner(
             showNowPlaying = false,

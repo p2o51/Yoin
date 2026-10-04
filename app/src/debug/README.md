@@ -29,20 +29,24 @@ Example:
 adb shell am start -n com.gpo.yoin/com.gpo.yoin.debug.LibraryScreenshotActivity --es tab Albums
 ```
 
-## Activity Embedding QA 通道
+## 详情页 QA 通道
 
 Debug manifest 把 `AlbumDetailActivity` 放开成 exported（release 保持
-false），让 adb 能在无账号数据的模拟器上直接触发 shell↔detail 的分栏配对
-（规则见 `res/xml/main_split_config.xml`，≥840dp 激活）：
+false），让 adb 能在无账号数据的设备上直接以**独立窗口**启动它——这是
+Compact / Medium / 矮窗下的推入页（Pattern B）：
 
 ```bash
-adb shell wm size 1280x800 && adb shell wm density 160
-adb shell am start -n com.gpo.yoin/.MainActivity
 adb shell am start -n com.gpo.yoin/.ui.detail.AlbumDetailActivity --es albumId any-id
 ```
 
-fake id 会让 detail 显示加载失败态——分栏几何与两侧 bar 行为照常可验。
-验完 `adb shell wm size reset && adb shell wm density reset`。
+fake id 会让 detail 显示加载失败态，底栏与返回照常可验。
+
+Wide（≥ 840 且高 ≥ 480）窗口里**新打开**的详情不是 Activity，而是 shell 窗口里的
+右列（`ui/navigation/pane/`，适配原则 3），adb 推 Activity 触发不了列（adb 推出来的
+Activity 在 Wide 窗里保持整窗，属预期）。
+列的 QA 走 MainActivity：横屏平板（或 `wm size 1280x800 && wm density 160`）
+里从 Home / Library 点任意专辑 / 歌手 / 歌单。验完
+`adb shell wm size reset && adb shell wm density reset`。
 
 ## Token bridge
 

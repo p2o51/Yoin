@@ -85,7 +85,6 @@ import com.gpo.yoin.ui.experience.LayoutMode
 import com.gpo.yoin.ui.experience.LocalYoinWindowInfo
 import com.gpo.yoin.ui.experience.ProvidePreviewWindow
 import com.gpo.yoin.ui.experience.RevealState
-import com.gpo.yoin.ui.experience.rememberIsActivityEmbedded
 import com.gpo.yoin.ui.experience.rememberRevealState
 import com.gpo.yoin.ui.navigation.YoinSection
 import com.gpo.yoin.ui.theme.ProvideYoinMotionRole
@@ -133,9 +132,14 @@ fun AlbumDetailScreen(
     onOpenNowPlaying: () -> Unit = {},
     nowPlayingOpen: Boolean = false,
 
-    // True when this window sits directly over the shell: predictive back
-    // scrubs the bar toward nav chrome (matching the reveal underneath).
+    // True when a nav-pose bar sits beneath this window: predictive back
+    // scrubs the bar toward nav chrome (matching the reveal underneath), and
+    // without a shell hand-off the bar morphs nav→detail in-window on reveal.
     morphBarOnBack: Boolean = false,
+    // FullChoreography only: the back pose is bridged to the shell (its content
+    // plays the entering side, its bar morphs in lockstep). Plain pushes keep
+    // the morph inside this window.
+    bridgeBackToShell: Boolean = morphBarOnBack,
     // Shell tab at launch time (the back scrub's revealed selection) and
     // whether the launch used the bar hand-off window animation (delays the
     // content slide-in to match the transparent hold).
@@ -150,9 +154,6 @@ fun AlbumDetailScreen(
 ) {
     val content = uiState as? AlbumDetailUiState.Content
     val pageAccent = rememberDetailPageAccent(content?.coverArtUrl)
-    // A split-pane detail has no bottom bar (断点交接 §2.3): Play / Share
-    // move into the hero. Subscribed — the pane can join or leave a split.
-    val embedded = rememberIsActivityEmbedded()
 
     ProvideYoinMotionRole(role = YoinMotionRole.Expressive) {
         // In-window predictive back (AOSP cross-activity math): the whole
@@ -162,10 +163,20 @@ fun AlbumDetailScreen(
         // own morph off the same progress.
         val backCollapse = rememberDetailBackCollapse(
             onBack = onLeavePage,
-            bridgeToShell = morphBarOnBack,
+            bridgeToShell = bridgeBackToShell,
         )
+        // The header arrow leaves THIS page through its commit choreography —
+        // never via the window's back dispatcher, where an open Now Playing
+        // side panel ranks first and would take the tap. In the shell's
+        // detail column it pops the column's stack, as before.
+        @Suppress("NAME_SHADOWING")
+        val onBackClick: () -> Unit = if (LocalDetailHostMode.current == DetailHostMode.Pane) {
+            onBackClick
+        } else {
+            backCollapse::requestBack
+        }
         val enterIntro = rememberDetailEnterIntro(
-            barHandoff = enterBarHandoff && morphBarOnBack,
+            barHandoff = enterBarHandoff && bridgeBackToShell,
             visualReady = uiState !is AlbumDetailUiState.Loading,
             back = backCollapse,
         )
@@ -219,30 +230,6 @@ fun AlbumDetailScreen(
                             is AlbumDetailUiState.Content ->
                                 AlbumDetailContent(
                                     content = state,
-                                    heroActions = if (embedded) {
-                                        {
-                                            val heroScheme = rememberCoverColorScheme(state.coverArtUrl)
-                                                ?: MaterialTheme.colorScheme
-                                            DetailHeroActions(
-                                                playContainer = heroScheme.primary,
-                                                playContent = heroScheme.onPrimary,
-                                                onPlay = onPlayAlbum,
-                                                onShuffle = onShufflePlay,
-                                                onShare = onShare,
-                                                menuActions = listOfNotNull(
-                                                    onOpenArtist?.let { openArtist ->
-                                                        BarExtraAction(
-                                                            icon = YoinSymbols.Artist,
-                                                            label = "Go to artist",
-                                                            onClick = openArtist,
-                                                        )
-                                                    },
-                                                ),
-                                            )
-                                        }
-                                    } else {
-                                        null
-                                    },
                                     onBackClick = onBackClick,
                                     onSongClick = onSongClick,
                                     onToggleStar = onToggleStar,
@@ -268,13 +255,9 @@ fun AlbumDetailScreen(
                 // Content and no-op during Loading/Error.
                 val barScheme = rememberCoverColorScheme(content?.coverArtUrl)
                     ?: MaterialTheme.colorScheme
-                val barPlayContainer by animateColorAsState(
-                    barScheme.primary,
-                    YoinMotion.effectsSpring(),
-                    label = "albumBarPlayContainer",
-                )
             DetailBottomBar(
-                    playContainer = barPlayContainer,
+                    // Targets: the bar animates the change itself (YoinChromeGroup).
+                    playContainer = barScheme.primary,
                     playContent = barScheme.onPrimary,
                     onPlay = onPlayAlbum,
                     onShuffle = onShufflePlay,
@@ -285,8 +268,10 @@ fun AlbumDetailScreen(
 
                 interactionsEnabled = enterIntro.pageVisible,
                 enterChromeProgress = rememberDetailBarEnterProgress(
-                    followShell = enterBarHandoff && morphBarOnBack,
+                    followShell = enterBarHandoff && bridgeBackToShell,
                     back = backCollapse,
+                    inWindowMorph = morphBarOnBack && !bridgeBackToShell,
+                    intro = enterIntro,
                 ),
                     backMorphProgress = if (morphBarOnBack) {
                         { backCollapse.progress }
@@ -324,8 +309,6 @@ fun AlbumDetailScreen(
 @Composable
 private fun AlbumDetailContent(
     content: AlbumDetailUiState.Content,
-    // Split-pane detail: [Share] [Play ▾] in the hero (no bottom bar there).
-    heroActions: (@Composable () -> Unit)? = null,
     onBackClick: () -> Unit,
     onSongClick: (songId: String) -> Unit,
     onToggleStar: (songId: String) -> Unit,
@@ -422,7 +405,6 @@ private fun AlbumDetailContent(
                                 accent = primaryBlock,
                                 bunContainer = bunContainer,
                                 bunContent = bunContent,
-                                heroActions = heroActions,
                                 notedSongIds = notedSongIds,
                                 currentTrackId = currentTrackId,
                                 isPlaying = isPlaying,
@@ -439,7 +421,6 @@ private fun AlbumDetailContent(
                                 accent = primaryBlock,
                                 bunContainer = bunContainer,
                                 bunContent = bunContent,
-                                heroActions = heroActions,
                                 notedSongIds = notedSongIds,
                                 currentTrackId = currentTrackId,
                                 isPlaying = isPlaying,
@@ -979,7 +960,9 @@ private fun AlbumTrackList(
                 )
             }
         }
-        itemsIndexed(content.songs, key = { _, song -> song.id }) { index, song ->
+        // Index-qualified: a provider can list the same track twice on one
+        // album (seen on Apple Music), and a repeated lazy key is fatal.
+        itemsIndexed(content.songs, key = { index, song -> "${song.id}#$index" }) { index, song ->
             Column {
                 AlbumTrackRow(
                     index = index,
@@ -1028,7 +1011,6 @@ private fun AlbumMediumOverview(
     accent: Color,
     bunContainer: Color,
     bunContent: Color,
-    heroActions: (@Composable () -> Unit)?,
     notedSongIds: Set<String>,
     currentTrackId: String?,
     isPlaying: Boolean,
@@ -1064,7 +1046,6 @@ private fun AlbumMediumOverview(
                 content = content,
                 bunContainer = bunContainer,
                 bunContent = bunContent,
-                heroActions = heroActions,
                 onEditComment = onEditComment,
             )
         },
@@ -1076,7 +1057,6 @@ private fun AlbumMediumHeroRow(
     content: AlbumDetailUiState.Content,
     bunContainer: Color,
     bunContent: Color,
-    heroActions: (@Composable () -> Unit)?,
     onEditComment: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -1111,10 +1091,6 @@ private fun AlbumMediumHeroRow(
                 onEditComment = onEditComment,
                 onTapBun = onEditComment,
             )
-            if (heroActions != null) {
-                Spacer(modifier = Modifier.height(16.dp))
-                heroActions()
-            }
         }
     }
 }
@@ -1134,7 +1110,6 @@ private fun AlbumWideOverview(
     accent: Color,
     bunContainer: Color,
     bunContent: Color,
-    heroActions: (@Composable () -> Unit)?,
     notedSongIds: Set<String>,
     currentTrackId: String?,
     isPlaying: Boolean,
@@ -1192,10 +1167,6 @@ private fun AlbumWideOverview(
                 onTapBun = onEditComment,
                 modifier = Modifier.width(AlbumWideCoverSide),
             )
-            if (heroActions != null) {
-                Spacer(modifier = Modifier.height(20.dp))
-                heroActions()
-            }
         }
         AlbumTrackList(
             content = content,

@@ -3,6 +3,7 @@ package com.gpo.yoin.ui.experience
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.unit.dp
 
 /**
  * The [YoinWindowInfo] a window of [widthDp] × [heightDp] reads — the same
@@ -12,20 +13,24 @@ import androidx.compose.runtime.CompositionLocalProvider
 fun previewYoinWindowInfo(widthDp: Int, heightDp: Int): YoinWindowInfo {
     val widthAtLeastMedium = widthDp >= 600
     val heightAtLeastMedium = heightDp >= 480
+    val layoutMode = when {
+        widthDp >= 840 -> LayoutMode.Wide
+        widthAtLeastMedium -> LayoutMode.Medium
+        else -> LayoutMode.Compact
+    }
+    val chromeForm = resolveShellChromeForm(
+        isTabletop = false,
+        widthAtLeastMedium = widthAtLeastMedium,
+        heightAtLeastMedium = heightAtLeastMedium,
+    )
     return YoinWindowInfo(
-        layoutMode = when {
-            widthDp >= 840 -> LayoutMode.Wide
-            widthAtLeastMedium -> LayoutMode.Medium
-            else -> LayoutMode.Compact
-        },
+        layoutMode = layoutMode,
         isWidthAtLeastMedium = widthAtLeastMedium,
         isHeightAtLeastMedium = heightAtLeastMedium,
         hingeBounds = null,
-        chromeForm = resolveShellChromeForm(
-            isTabletop = false,
-            widthAtLeastMedium = widthAtLeastMedium,
-            heightAtLeastMedium = heightAtLeastMedium,
-        ),
+        chromeForm = chromeForm,
+        feedUnits = feedUnitsForContainer(widthDp.dp, layoutMode, chromeForm),
+        feedCoverColumns = feedCoverColumnsForContainer(widthDp.dp, layoutMode, chromeForm),
     )
 }
 

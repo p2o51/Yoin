@@ -90,7 +90,6 @@ import com.gpo.yoin.ui.component.yoinPageContentWidth
 import com.gpo.yoin.ui.experience.LayoutMode
 import com.gpo.yoin.ui.experience.LocalYoinWindowInfo
 import com.gpo.yoin.ui.experience.ProvidePreviewWindow
-import com.gpo.yoin.ui.experience.rememberIsActivityEmbedded
 import com.gpo.yoin.ui.experience.rememberRevealState
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
 import com.gpo.yoin.ui.navigation.YoinSection
@@ -124,9 +123,14 @@ fun PlaylistDetailScreen(
     onOpenNowPlaying: () -> Unit = {},
     nowPlayingOpen: Boolean = false,
 
-    // True when this window sits directly over the shell: predictive back
-    // scrubs the bar toward nav chrome (matching the reveal underneath).
+    // True when a nav-pose bar sits beneath this window: predictive back
+    // scrubs the bar toward nav chrome (matching the reveal underneath), and
+    // without a shell hand-off the bar morphs nav→detail in-window on reveal.
     morphBarOnBack: Boolean = false,
+    // FullChoreography only: the back pose is bridged to the shell (its content
+    // plays the entering side, its bar morphs in lockstep). Plain pushes keep
+    // the morph inside this window.
+    bridgeBackToShell: Boolean = morphBarOnBack,
     // Shell tab at launch time (the back scrub's revealed selection) and
     // whether the launch used the bar hand-off window animation (delays the
     // content slide-in to match the transparent hold).
@@ -158,8 +162,6 @@ fun PlaylistDetailScreen(
     val stackColors = listOf(stackBack, stackMiddle, stackFront)
 
     val accentColor = rememberDetailPageAccent(content?.coverArtUrl)
-    // A split-pane detail has no bottom bar (断点交接 §2.3): Play / Share in the hero.
-    val embedded = rememberIsActivityEmbedded()
     ProvideYoinMotionRole(role = YoinMotionRole.Expressive) {
         // In-window predictive back (AOSP cross-activity math): the whole page
         // — background included — collapses as one card over the LIVE window
@@ -168,10 +170,20 @@ fun PlaylistDetailScreen(
         // in-page state, not a back stop.
         val backCollapse = rememberDetailBackCollapse(
             onBack = onLeavePage,
-            bridgeToShell = morphBarOnBack,
+            bridgeToShell = bridgeBackToShell,
         )
+        // The header arrow leaves THIS page through its commit choreography —
+        // never via the window's back dispatcher, where an open Now Playing
+        // side panel ranks first and would take the tap. In the shell's
+        // detail column it pops the column's stack, as before.
+        @Suppress("NAME_SHADOWING")
+        val onBackClick: () -> Unit = if (LocalDetailHostMode.current == DetailHostMode.Pane) {
+            onBackClick
+        } else {
+            backCollapse::requestBack
+        }
         val enterIntro = rememberDetailEnterIntro(
-            barHandoff = enterBarHandoff && morphBarOnBack,
+            barHandoff = enterBarHandoff && bridgeBackToShell,
             visualReady = uiState !is PlaylistDetailUiState.Loading,
             back = backCollapse,
         )
@@ -247,19 +259,6 @@ fun PlaylistDetailScreen(
                                         content = state,
                                         stackColors = stackColors,
                                         onSongClick = onSongClick,
-                                        heroActions = if (embedded) {
-                                            {
-                                                DetailHeroActions(
-                                                    playContainer = titleColor,
-                                                    playContent = headerScheme.onPrimary,
-                                                    onPlay = onPlayAllClick,
-                                                    onShuffle = onShufflePlay,
-                                                    onShare = onShare,
-                                                )
-                                            }
-                                        } else {
-                                            null
-                                        },
                                     )
                             }
                         }
@@ -272,7 +271,7 @@ fun PlaylistDetailScreen(
             // this window fades in). Play rides the cover-seeded primary; on an
             // empty playlist it simply no-ops.
             DetailBottomBar(
-                playContainer = titleColor,
+                playContainer = headerScheme.primary,
                 playContent = headerScheme.onPrimary,
                 onPlay = onPlayAllClick,
                 onShuffle = onShufflePlay,
@@ -283,8 +282,10 @@ fun PlaylistDetailScreen(
 
                 interactionsEnabled = enterIntro.pageVisible,
                 enterChromeProgress = rememberDetailBarEnterProgress(
-                    followShell = enterBarHandoff && morphBarOnBack,
+                    followShell = enterBarHandoff && bridgeBackToShell,
                     back = backCollapse,
+                    inWindowMorph = morphBarOnBack && !bridgeBackToShell,
+                    intro = enterIntro,
                 ),
                 backMorphProgress = if (morphBarOnBack) {
                     { backCollapse.progress }
@@ -490,7 +491,6 @@ private fun PlaylistDetailContent(
     content: PlaylistDetailUiState.Content,
     stackColors: List<Color>,
     onSongClick: (songId: String) -> Unit,
-    heroActions: (@Composable () -> Unit)? = null,
 ) {
     // Same breakpoints as the Album (断点交接 §5): height first — a landscape
     // handset turns the hero sideways and keeps the pull-up — then width.
@@ -506,11 +506,10 @@ private fun PlaylistDetailContent(
         layoutMode == LayoutMode.Wide -> PlaylistWideOverview(
             content = content,
             stackColors = stackColors,
-            heroActions = heroActions,
             onSongClick = onSongClick,
         )
         layoutMode != LayoutMode.Compact && layoutMode != LayoutMode.Tabletop ->
-            PlaylistMediumOverview(content = content, heroActions = heroActions, onSongClick = onSongClick)
+            PlaylistMediumOverview(content = content, onSongClick = onSongClick)
         else -> PlaylistPullUpOverview(
             content = content,
             stackColors = stackColors,
@@ -525,7 +524,6 @@ private fun PlaylistDetailContent(
 private fun PlaylistWideOverview(
     content: PlaylistDetailUiState.Content,
     stackColors: List<Color>,
-    heroActions: (@Composable () -> Unit)?,
     onSongClick: (songId: String) -> Unit,
 ) {
     val listState = rememberLazyListState()
@@ -566,10 +564,6 @@ private fun PlaylistWideOverview(
             }
             Spacer(modifier = Modifier.height(16.dp))
             PlaylistHeroMeta(content = content, modifier = Modifier.width(PlaylistWideCoverSide))
-            if (heroActions != null) {
-                Spacer(modifier = Modifier.height(20.dp))
-                heroActions()
-            }
         }
         PlaylistTrackList(
             content = content,
@@ -1034,7 +1028,6 @@ private val PlaylistMediumHeroCoverSide = 240.dp
 @Composable
 private fun PlaylistMediumOverview(
     content: PlaylistDetailUiState.Content,
-    heroActions: (@Composable () -> Unit)?,
     onSongClick: (songId: String) -> Unit,
 ) {
     val listState = rememberLazyListState()
@@ -1069,10 +1062,6 @@ private fun PlaylistMediumOverview(
                 )
                 Column(modifier = Modifier.weight(1f)) {
                     PlaylistHeroMeta(content = content)
-                    if (heroActions != null) {
-                        Spacer(modifier = Modifier.height(16.dp))
-                        heroActions()
-                    }
                 }
             }
         },

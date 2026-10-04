@@ -23,7 +23,6 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalInspectionMode
 import androidx.compose.ui.platform.LocalView
-import androidx.window.embedding.ActivityEmbeddingController
 import com.gpo.yoin.YoinApplication
 import com.gpo.yoin.ui.component.YoinLoadingIndicator
 import com.gpo.yoin.ui.navigation.back.BackMotionTokens
@@ -70,15 +69,15 @@ import kotlinx.coroutines.withTimeoutOrNull
  * boundary without the shell's 200ms bar hold. Plays once per Activity
  * (rememberSaveable), so rotation doesn't replay it.
  *
- * Pages opened into an Activity Embedding pane skip all of it: the system
- * animates the pane (the split opening, or a push inside it), so a second
- * slide would stack on the platform's, and the page mounts at once — an
- * unmounted translucent pane would show nothing behind it.
+ * Pages composed in the shell's detail column ([DetailHostMode.Pane]) skip
+ * all of it: the pane itself slides in, and its NavDisplay animates pushes
+ * inside it, so a second slide would stack on that one; the page mounts at
+ * once (the spinner then waits, see [DetailLoadingIndicator]).
  */
 @Stable
 class DetailEnterIntroState internal constructor(
     alreadyPlayed: Boolean,
-    /** Opened into a split pane: mounted at once, so its spinner waits (see [DetailLoadingIndicator]). */
+    /** Composed in the detail column: mounted at once, so its spinner waits (see [DetailLoadingIndicator]). */
     internal val mountedEarly: Boolean = false,
 ) {
     internal val slide = Animatable(if (alreadyPlayed) 0f else 1f)
@@ -86,26 +85,15 @@ class DetailEnterIntroState internal constructor(
         internal set
     internal var slideReleased by mutableStateOf(alreadyPlayed)
         internal set
+
+    /** The entrance sequence has finished, released or not (timeout, back abort). */
+    internal var entranceResolved by mutableStateOf(alreadyPlayed)
+        internal set
     internal var pageMounted by mutableStateOf(alreadyPlayed)
         private set
 
     internal fun notePageMounted() {
         pageMounted = true
-    }
-}
-
-/**
- * Whether this page opened into a split pane: the launch said so
- * ([DETAIL_EXTRA_EMBEDDED]) or the extension already reports the pane.
- */
-@Composable
-private fun rememberDetailOpenedInSplit(): Boolean {
-    val activity = LocalContext.current.findActivityOrNull()
-    return remember(activity) {
-        activity != null && (
-            activity.intent.getBooleanExtra(DETAIL_EXTRA_EMBEDDED, false) ||
-                ActivityEmbeddingController.getInstance(activity).isActivityEmbedded(activity)
-            )
     }
 }
 
@@ -149,9 +137,9 @@ fun rememberDetailEnterIntro(
 ): DetailEnterIntroState {
     // Previews render the settled end state directly (no enter animation).
     val inspectionMode = LocalInspectionMode.current
-    val openedInSplit = rememberDetailOpenedInSplit()
-    var played by rememberSaveable { mutableStateOf(inspectionMode || openedInSplit) }
-    val state = remember { DetailEnterIntroState(played, mountedEarly = openedInSplit && !inspectionMode) }
+    val paneHosted = LocalDetailHostMode.current == DetailHostMode.Pane
+    var played by rememberSaveable { mutableStateOf(inspectionMode || paneHosted) }
+    val state = remember { DetailEnterIntroState(played, mountedEarly = paneHosted && !inspectionMode) }
     val context = LocalContext.current
     val store = remember(context) {
         (context.applicationContext as YoinApplication).container.experienceSessionStore
@@ -202,6 +190,7 @@ fun rememberDetailEnterIntro(
                 },
             )
             if (started) state.slideReleased = true
+            state.entranceResolved = true
         }
     }
     // A back gesture can interrupt an unfinished entrance. Freeze its current

@@ -7,8 +7,10 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.statusBars
+import androidx.compose.material3.adaptive.ExperimentalMaterial3AdaptiveApi
 import androidx.compose.material3.adaptive.WindowAdaptiveInfo
 import androidx.compose.material3.adaptive.currentWindowAdaptiveInfo
+import androidx.compose.material3.adaptive.currentWindowDpSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.collectAsState
@@ -100,30 +102,19 @@ internal fun resolveShellChromeForm(
 }
 
 /**
- * Now Playing renders the two-column player ONLY where the window (or the
- * embedded pane) is itself ≥ 840dp. Medium became the Spotify-style
- * panel → enlarged-phone pair (断点交接 §3.4 / §14.1). Deliberately NOT
- * `!= Compact`: [LayoutMode.Tabletop] keeps its own top/bottom hinge layout.
- */
-val LayoutMode.isDualPaneNowPlaying: Boolean
-    get() = this == LayoutMode.Wide
-
-/**
- * The NP-gate predicate the app actually consumes: Wide AND enough HEIGHT for
- * the two-column reserve math (≈590dp). Every NP gate — body dispatch,
- * drag-to-dismiss, stage back layer, shared elements, the overlay host's
- * BackHandler / PredictiveBackHandler pairs — reads this one value (§14.7).
- */
-val YoinWindowInfo.isDualPaneNowPlaying: Boolean
-    get() = layoutMode.isDualPaneNowPlaying && isHeightAtLeastMedium
-
-/**
  * Window configuration snapshot. Recomposes on fold / rotate / split-screen
  * because [rememberYoinWindowInfo] reads the observable [currentWindowAdaptiveInfo].
  *
  * @param hingeBounds the horizontal hinge rectangle in WINDOW coordinates when
  *   in [LayoutMode.Tabletop]; null otherwise. Used to split the kickstand layout.
  * @param chromeForm where the Button Group lives; see [ShellChromeForm].
+ * @param feedUnits the Home feed's discrete width class N ([feedUnitsFor]),
+ *   computed from the CONTAINER's resting width by [rememberYoinWindowInfo] /
+ *   [forPaneWidth]; a directly-constructed instance defaults from [layoutMode]
+ *   ([representativeFeedUnits]).
+ * @param feedCoverColumns how many phone-sized cover columns the feed seats
+ *   ([feedCoverColumnsFor]) — Jump Back In's column count; same sourcing as
+ *   [feedUnits] ([representativeFeedCoverColumns] by default).
  */
 @Immutable
 data class YoinWindowInfo(
@@ -132,6 +123,8 @@ data class YoinWindowInfo(
     val isHeightAtLeastMedium: Boolean,
     val hingeBounds: Rect?,
     val chromeForm: ShellChromeForm = ShellChromeForm.PortraitBar,
+    val feedUnits: Int = representativeFeedUnits(layoutMode),
+    val feedCoverColumns: Int = representativeFeedCoverColumns(layoutMode),
 ) {
     /** Shorter than 480dp — a landscape handset. Pages check this before [layoutMode]. */
     val isCompactHeight: Boolean get() = chromeForm == ShellChromeForm.EdgeSplit
@@ -152,6 +145,20 @@ val LocalYoinWindowInfo = staticCompositionLocalOf {
 }
 
 /**
+ * The WINDOW's info for chrome that belongs to the window — the bar
+ * (adaptive principle 2) — when a narrower container re-provided
+ * [LocalYoinWindowInfo] for its content (the side panel's beside-content).
+ * Null = no one narrowed it; read [LocalYoinWindowInfo].
+ */
+val LocalWindowChromeInfo = staticCompositionLocalOf<YoinWindowInfo?> { null }
+
+/** The window-level info the bar must follow, whatever column it is composed in. */
+val windowChromeInfo: YoinWindowInfo
+    @androidx.compose.runtime.Composable
+    @androidx.compose.runtime.ReadOnlyComposable
+    get() = LocalWindowChromeInfo.current ?: LocalYoinWindowInfo.current
+
+/**
  * Space a page leaves for the Button Group (断点交接 §1): bottom for the two
  * bar forms, start (+ the right cutout at end) for [ShellChromeForm.EdgeSplit].
  * Provided per Activity by `YoinActivityRoot`; pages add it to their scrolling
@@ -165,11 +172,16 @@ val LocalShellChromeInsets = staticCompositionLocalOf { PaddingValues(0.dp) }
  * Mapping (first match wins): a separating/occluding HORIZONTAL hinge with a
  * tabletop posture -> Tabletop; width >= Expanded (840dp) -> Wide; width >=
  * Medium (600dp) -> Medium; otherwise Compact. [ShellChromeForm] is read off
- * height first ([resolveShellChromeForm]).
+ * height first ([resolveShellChromeForm]). [YoinWindowInfo.feedUnits] comes
+ * from the live window width (the same `currentWindowDpSize` source as
+ * `rememberWindowWidthDp`). The instance is remembered on its discrete
+ * values, so a resize that crosses no breakpoint keeps the SAME object.
  */
+@OptIn(ExperimentalMaterial3AdaptiveApi::class)
 @Composable
 fun rememberYoinWindowInfo(): YoinWindowInfo {
     val adaptiveInfo: WindowAdaptiveInfo = currentWindowAdaptiveInfo()
+    val windowWidth = currentWindowDpSize().width
     val widthAtLeastMedium = adaptiveInfo.windowSizeClass.isWidthAtLeastBreakpoint(
         WindowSizeClass.WIDTH_DP_MEDIUM_LOWER_BOUND,
     )
@@ -190,17 +202,33 @@ fun rememberYoinWindowInfo(): YoinWindowInfo {
         widthAtLeastMedium -> LayoutMode.Medium
         else -> LayoutMode.Compact
     }
-    return YoinWindowInfo(
-        layoutMode = layoutMode,
-        isWidthAtLeastMedium = widthAtLeastMedium,
-        isHeightAtLeastMedium = heightAtLeastMedium,
-        hingeBounds = horizontalHinge?.bounds,
-        chromeForm = resolveShellChromeForm(
-            isTabletop = isTabletop,
-            widthAtLeastMedium = widthAtLeastMedium,
-            heightAtLeastMedium = heightAtLeastMedium,
-        ),
+    val chromeForm = resolveShellChromeForm(
+        isTabletop = isTabletop,
+        widthAtLeastMedium = widthAtLeastMedium,
+        heightAtLeastMedium = heightAtLeastMedium,
     )
+    val feedUnits = feedUnitsForContainer(windowWidth, layoutMode, chromeForm)
+    val feedCoverColumns = feedCoverColumnsForContainer(windowWidth, layoutMode, chromeForm)
+    val hingeBounds = horizontalHinge?.bounds
+    return remember(
+        layoutMode,
+        widthAtLeastMedium,
+        heightAtLeastMedium,
+        hingeBounds,
+        chromeForm,
+        feedUnits,
+        feedCoverColumns,
+    ) {
+        YoinWindowInfo(
+            layoutMode = layoutMode,
+            isWidthAtLeastMedium = widthAtLeastMedium,
+            isHeightAtLeastMedium = heightAtLeastMedium,
+            hingeBounds = hingeBounds,
+            chromeForm = chromeForm,
+            feedUnits = feedUnits,
+            feedCoverColumns = feedCoverColumns,
+        )
+    }
 }
 
 /**
@@ -217,18 +245,68 @@ val YoinWindowInfo.hasChromeHandoff: Boolean
         ShellChromeForm.CenteredBar -> false
     }
 
-/** A copy that reads as a handset — the NP side panel and the content beside it (§14.3). */
-fun YoinWindowInfo.asCompactPane(): YoinWindowInfo = copy(
-    layoutMode = LayoutMode.Compact,
-    isWidthAtLeastMedium = false,
-    chromeForm = if (chromeForm == ShellChromeForm.EdgeSplit) chromeForm else ShellChromeForm.PortraitBar,
-)
+/**
+ * The window info a COLUMN of this window reads (adaptive principle 1 / 5:
+ * content reads its own container, and any container that gives width away
+ * — the Now Playing side panel, the detail pane — re-provides this for the
+ * subtree it narrows). Pure: the same breakpoints as [rememberYoinWindowInfo]
+ * applied to [widthDp]; height, hinge and the height-first chrome judgement
+ * are the window's. A Tabletop window keeps its posture whatever the column.
+ * [YoinWindowInfo.feedUnits] is re-read from [widthDp] with the column's own
+ * mode and chrome form (a Tabletop column stays in the 1–4 range).
+ */
+fun YoinWindowInfo.forPaneWidth(widthDp: Dp): YoinWindowInfo {
+    // Column widths are float sums (region − (pane + gutter)); an ulp must not
+    // drop a 600dp column a tier. 0.01dp is far below a pixel.
+    val width = widthDp.value + 0.01f
+    val widthAtLeastMedium = width >= WindowSizeClass.WIDTH_DP_MEDIUM_LOWER_BOUND
+    val widthAtLeastExpanded = width >= WindowSizeClass.WIDTH_DP_EXPANDED_LOWER_BOUND
+    val isTabletop = layoutMode == LayoutMode.Tabletop
+    val columnMode = when {
+        isTabletop -> LayoutMode.Tabletop
+        widthAtLeastExpanded -> LayoutMode.Wide
+        widthAtLeastMedium -> LayoutMode.Medium
+        else -> LayoutMode.Compact
+    }
+    val columnChromeForm = resolveShellChromeForm(
+        isTabletop = isTabletop,
+        widthAtLeastMedium = widthAtLeastMedium,
+        heightAtLeastMedium = isHeightAtLeastMedium,
+    )
+    return copy(
+        layoutMode = columnMode,
+        isWidthAtLeastMedium = widthAtLeastMedium,
+        chromeForm = columnChromeForm,
+        // feedUnitsFor carries the same 0.01dp guard, so the raw width goes in.
+        feedUnits = feedUnitsForContainer(widthDp, columnMode, columnChromeForm),
+        feedCoverColumns = feedCoverColumnsForContainer(widthDp, columnMode, columnChromeForm),
+    )
+}
+
+/**
+ * Whether this window lays its detail pages out as a second COLUMN beside the
+ * shell (adaptive principle 3: a split is columns of one window, never a
+ * second window). Wide and tall — the same line the two-column player uses;
+ * a Wide-but-short window (a landscape handset at 844dp) keeps pushing pages.
+ */
+val YoinWindowInfo.hasDetailPane: Boolean
+    get() = layoutMode == LayoutMode.Wide && isHeightAtLeastMedium
+
+/**
+ * Whether content sizes its cells to the column instead of the phone's fixed
+ * dp (Home's Jump Back In covers). Height first (principle 1): a landscape
+ * handset reads Wide by width but keeps the phone grid. Then the feed's width
+ * class, not the mode: N ≥ 3 ([feedUnits]) — Medium, Tabletop and Wide, and
+ * a Compact container from 480dp (phone composition stops at N = 2).
+ */
+val YoinWindowInfo.contentFollowsColumns: Boolean
+    get() = !isCompactHeight && feedUnits >= 3
 
 // ---------------------------------------------------------------------------
 // Edge-split geometry (ShellChromeForm.EdgeSplit, 断点交接 §2.2)
 // ---------------------------------------------------------------------------
 
-/** Left edge x of both capsules, inside the cutout band. */
+/** Inset of both capsules from their edge (the cutout's), inside the cutout band. */
 val EdgeSplitGroupInset = 8.dp
 
 /** Capsule width: 6 padding + 52 button + 6 padding. */
@@ -237,7 +315,7 @@ val EdgeSplitGroupWidth = 64.dp
 /** Air between the capsules and the page content. */
 val EdgeSplitContentGap = 12.dp
 
-/** Content start when the group sits on the left edge: 8 + 64 + 12 = 84. */
+/** Content inset on the capsules' edge: 8 + 64 + 12 = 84. */
 val EdgeSplitContentStart = EdgeSplitGroupInset + EdgeSplitGroupWidth + EdgeSplitContentGap
 
 private val EdgeSplitTopMargin = 14.dp
@@ -335,7 +413,35 @@ data class EdgeCutouts(
     val leftBottom: Dp?,
     /** Right cutout inset (content must not draw into it). */
     val rightInset: Dp,
-)
+    /** Right-edge cutout extent in window dp, or null (the phone turned the other way). */
+    val rightTop: Dp? = null,
+    val rightBottom: Dp? = null,
+    /** Left cutout inset. */
+    val leftInset: Dp = 0.dp,
+) {
+    /** The edge the capsules live on: the cutout's (adaptive principle: chrome sits in the band). */
+    val side: EdgeSplitSide
+        get() = resolveEdgeSplitSide(
+            hasLeftCutout = leftTop != null || leftInset > 0.dp,
+            hasRightCutout = rightTop != null || rightInset > 0.dp,
+        )
+
+    /** The cutout extent on [side]'s edge, or nulls. */
+    val sideTop: Dp? get() = if (side == EdgeSplitSide.Right) rightTop else leftTop
+    val sideBottom: Dp? get() = if (side == EdgeSplitSide.Right) rightBottom else leftBottom
+}
+
+/**
+ * Which edge of a short window holds the Button Group's capsules: the edge
+ * with the camera cutout, so the chrome sits in the band content can't use
+ * (断点交接 §2.2). A phone turned the other way moves its cutout — and the
+ * capsules, the now-playing pill with them — to the right. No cutout (or one
+ * on both edges): the left, as designed.
+ */
+enum class EdgeSplitSide { Left, Right }
+
+fun resolveEdgeSplitSide(hasLeftCutout: Boolean, hasRightCutout: Boolean): EdgeSplitSide =
+    if (hasRightCutout && !hasLeftCutout) EdgeSplitSide.Right else EdgeSplitSide.Left
 
 @Composable
 fun rememberEdgeCutouts(): EdgeCutouts {
@@ -356,17 +462,55 @@ fun rememberEdgeCutouts(): EdgeCutouts {
         } else {
             null
         }
+        // …and on the RIGHT edge (the phone turned the other way).
+        val rightRect = if (right > 0 && windowWidth > 0) {
+            rects.firstOrNull { it.right >= windowWidth - 1 && it.left > windowWidth / 2 }
+        } else {
+            null
+        }
         with(density) {
             EdgeCutouts(
                 leftTop = leftRect?.top?.toDp(),
                 leftBottom = leftRect?.bottom?.toDp(),
                 rightInset = right.toDp(),
+                rightTop = rightRect?.top?.toDp(),
+                rightBottom = rightRect?.bottom?.toDp(),
+                leftInset = left.toDp(),
             )
         }
     }
 }
 
-/** [computeEdgeSplitSegments] for the live window. */
+/**
+ * The window's TOP camera cutout (a bounding rect that touches the top edge
+ * and is short), in window px; null when there is none. Re-read when the
+ * cutout insets move (rotation, cutout mode). Home's Memories arrow hangs
+ * just below it.
+ */
+@Composable
+fun rememberTopCutoutBounds(): Rect? {
+    val view = LocalView.current
+    val density = LocalDensity.current
+    val layoutDirection = LocalLayoutDirection.current
+    val cutoutInsets = WindowInsets.displayCutout
+    val left = cutoutInsets.getLeft(density, layoutDirection)
+    val right = cutoutInsets.getRight(density, layoutDirection)
+    val top = cutoutInsets.getTop(density)
+    return remember(view, left, right, top) {
+        val windowHeight = view.rootView.height.takeIf { it > 0 } ?: view.height
+        ViewCompat.getRootWindowInsets(view)?.displayCutout?.boundingRects.orEmpty()
+            .firstOrNull { rect ->
+                rect.top <= 0 && rect.height() > 0 && (windowHeight == 0 || rect.height() < windowHeight / 4)
+            }
+            ?.let { rect -> Rect(rect.left.toFloat(), rect.top.toFloat(), rect.right.toFloat(), rect.bottom.toFloat()) }
+    }
+}
+
+/** The edge the capsules live on in this window, from the live cutout (see [EdgeSplitSide]). */
+@Composable
+fun rememberEdgeSplitSide(): EdgeSplitSide = rememberEdgeCutouts().side
+
+/** [computeEdgeSplitSegments] for the live window, around the cutout on the group's edge. */
 @Composable
 fun rememberEdgeSplitSegments(windowHeight: Dp): EdgeSplitSegments {
     val density = LocalDensity.current
@@ -378,24 +522,34 @@ fun rememberEdgeSplitSegments(windowHeight: Dp): EdgeSplitSegments {
             windowHeight = windowHeight,
             topInset = statusTop,
             bottomInset = navBottom,
-            leftCutoutTop = cutouts.leftTop,
-            leftCutoutBottom = cutouts.leftBottom,
+            leftCutoutTop = cutouts.sideTop,
+            leftCutoutBottom = cutouts.sideBottom,
         )
     }
 }
 
-/** Nav-bar inset on the left edge (3-button nav in seascape) — the group shifts right by it. */
+/**
+ * Nav-bar inset on the group's own edge (3-button nav on that side) — the
+ * group steps inward by it.
+ */
 @Composable
-fun rememberEdgeSplitStartShift(): Dp {
+fun rememberEdgeSplitEdgeShift(side: EdgeSplitSide): Dp {
     val density = LocalDensity.current
     val layoutDirection = LocalLayoutDirection.current
-    return with(density) { WindowInsets.navigationBars.getLeft(this, layoutDirection).toDp() }
+    return with(density) {
+        if (side == EdgeSplitSide.Right) {
+            WindowInsets.navigationBars.getRight(this, layoutDirection).toDp()
+        } else {
+            WindowInsets.navigationBars.getLeft(this, layoutDirection).toDp()
+        }
+    }
 }
 
 /**
  * [LocalShellChromeInsets] for a window: bar forms reserve the bar's height at
- * the bottom; [ShellChromeForm.EdgeSplit] reserves the 84dp band at the start
- * and the right cutout at the end.
+ * the bottom; [ShellChromeForm.EdgeSplit] reserves the 84dp band on the
+ * capsules' edge (the cutout's, [EdgeSplitSide]) and the nav bar / any cutout
+ * on the other. Physical (Absolute) sides: the cutout is physical.
  */
 @Composable
 fun rememberShellChromeInsets(windowInfo: YoinWindowInfo): PaddingValues {
@@ -408,11 +562,19 @@ fun rememberShellChromeInsets(windowInfo: YoinWindowInfo): PaddingValues {
             val navLeft = with(density) { WindowInsets.navigationBars.getLeft(this, layoutDirection).toDp() }
             val navRight = with(density) { WindowInsets.navigationBars.getRight(this, layoutDirection).toDp() }
             remember(navLeft, navRight, navBottom, cutouts) {
-                PaddingValues(
-                    start = EdgeSplitContentStart + navLeft,
-                    end = maxOf(cutouts.rightInset, navRight),
-                    bottom = navBottom,
-                )
+                if (cutouts.side == EdgeSplitSide.Right) {
+                    PaddingValues.Absolute(
+                        left = maxOf(cutouts.leftInset, navLeft),
+                        right = EdgeSplitContentStart + navRight,
+                        bottom = navBottom,
+                    )
+                } else {
+                    PaddingValues.Absolute(
+                        left = EdgeSplitContentStart + navLeft,
+                        right = maxOf(cutouts.rightInset, navRight),
+                        bottom = navBottom,
+                    )
+                }
             }
         }
 
@@ -420,7 +582,7 @@ fun rememberShellChromeInsets(windowInfo: YoinWindowInfo): PaddingValues {
             val margin =
                 if (windowInfo.layoutMode == LayoutMode.Wide) CenteredBarBottomMarginWide else CenteredBarBottomMargin
             remember(navBottom, margin) {
-                PaddingValues(bottom = FloatingBarHeight + margin + FloatingBarContentGap + navBottom)
+                PaddingValues(bottom = CenteredBarHeight + margin + FloatingBarContentGap + navBottom)
             }
         }
 
@@ -430,8 +592,18 @@ fun rememberShellChromeInsets(windowInfo: YoinWindowInfo): PaddingValues {
     }
 }
 
-/** Outer height of the bottom bar's pill surface (row 68 = 48 button + 10 × 2). */
+/** Outer height of the portrait bar's pill surface (row 68 = 48 button + 10 × 2). */
 val FloatingBarHeight = 68.dp
+
+/**
+ * The centred bar (Medium / Wide, and the merged pose) is a step lower: 60 =
+ * 44 button + 8 × 2. Tablets have the height to spare, but the full-size pill
+ * read as a slab there (owner, 2026-10-02); the portrait bar is unchanged.
+ */
+val CenteredBarHeight = 60.dp
+
+/** The centred bar's button height (its row minus 8dp above and below). */
+val CenteredBarButtonHeight = 44.dp
 
 /** The portrait bar's vertical margin (top and bottom). */
 val PortraitBarVerticalMargin = 12.dp
@@ -446,11 +618,18 @@ val CenteredBarHorizontalMargin = 20.dp
 /** CenteredBar: width cap. */
 val CenteredBarMaxWidth = 600.dp
 
+/**
+ * The merged pose's cap (Wide shell with its detail column open): the one bar
+ * spans both columns, so it may grow to the feed column's width — nav on the
+ * shell's side, the page's Play on the detail's side, the pill bridging them.
+ */
+val MergedBarMaxWidth = 720.dp
+
 /** Air between the last content row and the bar. */
 private val FloatingBarContentGap = 12.dp
 
 // ---------------------------------------------------------------------------
-// Activity Embedding (断点交接 §2.3 / §13 —— 一律订阅，不在创建时算一次)
+// Activity Embedding — Settings list-detail only (一律订阅，不在创建时算一次)
 // ---------------------------------------------------------------------------
 
 /**

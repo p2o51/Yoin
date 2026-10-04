@@ -28,6 +28,7 @@ import com.gpo.yoin.ui.nowplaying.ProvideBesidePanelWindowInfo
 import com.gpo.yoin.ui.nowplaying.besideNowPlayingPanel
 import com.gpo.yoin.ui.nowplaying.rememberNowPlayingFrame
 import com.gpo.yoin.ui.nowplaying.rememberNowPlayingPanelInset
+import com.gpo.yoin.ui.nowplaying.rememberNowPlayingPanelMotion
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 
@@ -129,7 +130,8 @@ class AlbumDetailActivity : ComponentActivity() {
                 // A Medium window opens Now Playing as a side panel: the page
                 // gives up its width and reads as a handset (断点交接 §3.4).
                 val nowPlayingFrame = rememberNowPlayingFrame(nowPlayingViewModel)
-                val nowPlayingPanel = rememberNowPlayingPanelInset(nowPlayingFrame, nowPlayingOpen)
+                val nowPlayingPanelMotion = rememberNowPlayingPanelMotion()
+                val nowPlayingPanel = rememberNowPlayingPanelInset(nowPlayingFrame, nowPlayingOpen, nowPlayingPanelMotion)
 
                 Box(modifier = Modifier.fillMaxSize()) {
                 ProvideBesidePanelWindowInfo(nowPlayingPanel) {
@@ -149,7 +151,9 @@ class AlbumDetailActivity : ComponentActivity() {
                         }
                         finish()
                     },
-                    morphBarOnBack = intent.getBooleanExtra(DETAIL_EXTRA_FROM_SHELL, false),
+                    morphBarOnBack = intent.getBooleanExtra(DETAIL_EXTRA_FROM_SHELL, false) ||
+                        intent.getBooleanExtra(DETAIL_EXTRA_BAR_MORPH, false),
+                    bridgeBackToShell = intent.getBooleanExtra(DETAIL_EXTRA_FROM_SHELL, false),
                     navSection = intent.detailOriginSection(),
                     enterBarHandoff = intent.getBooleanExtra(DETAIL_EXTRA_BAR_HANDOFF, false),
                     barExitsOnBack = intent.detailBarExitsOnBack(),
@@ -216,6 +220,7 @@ class AlbumDetailActivity : ComponentActivity() {
                     onPlaylistClick = { id ->
                         launchChildDetail(PlaylistDetailActivity.intent(this@AlbumDetailActivity, id), fromNowPlaying = true)
                     },
+                    panelMotion = nowPlayingPanelMotion,
                 )
                 NowPlayingAccessories(
                     viewModel = nowPlayingViewModel,

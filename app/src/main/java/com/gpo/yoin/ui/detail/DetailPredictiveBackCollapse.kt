@@ -5,7 +5,8 @@ import androidx.activity.compose.PredictiveBackHandler
 import androidx.compose.animation.core.Animatable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
@@ -20,7 +21,6 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import com.gpo.yoin.YoinApplication
 import com.gpo.yoin.ui.experience.DetailBackPhase
-import com.gpo.yoin.ui.experience.rememberIsActivityEmbedded
 import com.gpo.yoin.ui.experience.voteHighFrameRate
 import com.gpo.yoin.ui.navigation.back.BackMotionTokens
 import com.gpo.yoin.ui.theme.YoinMotion
@@ -59,12 +59,10 @@ import kotlinx.coroutines.launch
  * The whole gesture is CONSUMED, so the system's window-level animation —
  * which would scale the bar too — never engages. Activities stay Activities.
  *
- * Except in an Activity Embedding pane: a split-pane detail has no bar, so
- * the reason for the replica is gone and the page is a plain destination
- * (predictive-back skill, Pattern A). There the handler is disabled, the
- * window opaque and the close transition the system's — the platform plays
- * its own back, including closing the split when the pane's last page goes,
- * with nothing of ours to reveal a black pane behind it.
+ * Except in the shell's detail column ([DetailHostMode.Pane]): there is no
+ * window of its own to collapse — the pane's NavDisplay pops stacked entries
+ * with its own predictive pop, and the shell closes the column — so the
+ * handler is disabled and the state stays idle.
  */
 @Stable
 class DetailBackCollapseState internal constructor() {
@@ -96,6 +94,16 @@ class DetailBackCollapseState internal constructor() {
 
     /** Terminal for this Activity instance: once a back commits it never resets. */
     internal var committed by mutableStateOf(false)
+
+    internal var buttonBack: () -> Unit = {}
+
+    /**
+     * The page's OWN back affordance (the header arrow): runs the same commit
+     * choreography as a system back, without going through the window's back
+     * dispatcher — where an open Now Playing side panel ranks first and would
+     * take the tap. System back keeps that ranking.
+     */
+    fun requestBack() = buttonBack()
 }
 
 /**
@@ -170,6 +178,7 @@ fun rememberDetailBackCollapse(
     val state = remember { DetailBackCollapseState() }
     val operationGuard = remember { DetailBackOperationGuard() }
     val scope = rememberCoroutineScope()
+    val currentOnBack by rememberUpdatedState(onBack)
     val settleSpec = YoinMotion.predictiveBackSettleSpring<Float>()
     val commitSpec = YoinMotion.defaultSpatialSpec<Float>(role = YoinMotionRole.Standard)
     val exitSpec = YoinMotion.defaultEffectsSpec<Float>(role = YoinMotionRole.Standard)
@@ -178,12 +187,11 @@ fun rememberDetailBackCollapse(
         (context.applicationContext as YoinApplication).container.experienceSessionStore
     }
 
-    // Pattern A inside a split pane, Pattern B everywhere else — re-decided
-    // whenever the pane joins or leaves a split (rotation, resizing).
-    val nativeBack = rememberIsActivityEmbedded()
-    DetailWindowBackModeEffect(nativeBack)
+    // The shell's detail column owns its own back (DetailPaneHost); a page
+    // composed there must not register a consuming handler.
+    val paneHosted = LocalDetailHostMode.current == DetailHostMode.Pane
 
-    // Out of a split, keep the detail window translucent for its whole lifetime. Converting it
+    // Keep the detail window translucent for its whole lifetime. Converting it
     // to opaque lets WM stop and discard the shell surface underneath. On the
     // first predictive-back frame, setTranslucent(true) cannot recreate and
     // present that surface before the 1:1 card transform exposes it, leaving a
@@ -192,7 +200,48 @@ fun rememberDetailBackCollapse(
     // keeping the already-rendered shell surface alive is the only path that
     // preserves both the destination preview and direct finger tracking.
 
-    PredictiveBackHandler(enabled = !nativeBack) { events ->
+    // Button, gesture and header-arrow commits share the same settle. The
+    // detail stays translucent, so its actual source window is already live.
+    suspend fun commit() {
+        operationGuard.markCommitted()
+        state.committed = true
+        state.gestureActive = false
+        if (bridgeToShell) {
+            store.detailBackPhase.value = DetailBackPhase.Committed
+            store.setDetailChromeActive(false)
+        }
+        // Finish both the content dissolve and the bar's spatial motion
+        // before handing the window back. A 140 ms timer used to dispose
+        // the bar mid-spring; multiplying its alpha by five made the page
+        // disappear in just a few frames.
+        operationGuard.launchCommit(
+            scope = scope,
+            settle = {
+                coroutineScope {
+                    launch { state.chased.animateTo(1f, commitSpec) }
+                    // Page gone: only the bar is left, over its identical
+                    // (shadowless) twin beneath, so the system dissolve
+                    // after finish() has nothing visible to animate.
+                    launch { state.exit.animateTo(1f, exitSpec) }
+                }
+            },
+            onFinish = { currentOnBack() },
+        ).join()
+    }
+    SideEffect {
+        state.buttonBack = {
+            if (!paneHosted && !state.committed) {
+                scope.launch {
+                    // Joins a running cancel settle first, like a button back.
+                    operationGuard.beginOperation()
+                    state.exit.snapTo(0f)
+                    commit()
+                }
+            }
+        }
+    }
+
+    PredictiveBackHandler(enabled = !paneHosted) { events ->
         if (state.committed) {
             events.collect { }
             return@PredictiveBackHandler
@@ -225,32 +274,7 @@ fun rememberDetailBackCollapse(
                     store.detailBackTouchYDelta.floatValue = state.touchYDelta
                 }
             }
-            // Button and gesture commits share the same settle. The detail
-            // stays translucent, so its actual source window is already live.
-            operationGuard.markCommitted()
-            state.committed = true
-            state.gestureActive = false
-            if (bridgeToShell) {
-                store.detailBackPhase.value = DetailBackPhase.Committed
-                store.setDetailChromeActive(false)
-            }
-            // Finish both the content dissolve and the bar's spatial motion
-            // before handing the window back. A 140 ms timer used to dispose
-            // the bar mid-spring; multiplying its alpha by five made the page
-            // disappear in just a few frames.
-            operationGuard.launchCommit(
-                scope = scope,
-                settle = {
-                    coroutineScope {
-                        launch { state.chased.animateTo(1f, commitSpec) }
-                        // Page gone: only the bar is left, over its identical
-                        // (shadowless) twin beneath, so the system dissolve
-                        // after finish() has nothing visible to animate.
-                        launch { state.exit.animateTo(1f, exitSpec) }
-                    }
-                },
-                onFinish = onBack,
-            ).join()
+            commit()
         } catch (e: CancellationException) {
             operationGuard.recoverCancellation(
                 onCommittedCancellation = {
@@ -289,24 +313,6 @@ fun rememberDetailBackCollapse(
         }
     }
     return state
-}
-
-/**
- * Applies [applyDetailWindowBackMode] when the pane's embedding changes. The
- * Activity's onCreate already set up Pattern B (translucent theme + close
- * dissolve), so nothing is re-applied until the first real switch.
- */
-@Composable
-private fun DetailWindowBackModeEffect(nativeBack: Boolean) {
-    val activity = LocalContext.current.findActivityOrNull() ?: return
-    val applied = remember(activity) { BooleanArray(1) }
-    DisposableEffect(activity, nativeBack) {
-        if (applied[0] != nativeBack) {
-            activity.applyDetailWindowBackMode(nativeBack)
-            applied[0] = nativeBack
-        }
-        onDispose { }
-    }
 }
 
 /**

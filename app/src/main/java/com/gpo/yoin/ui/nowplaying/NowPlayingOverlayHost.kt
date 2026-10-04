@@ -5,6 +5,8 @@ import androidx.activity.compose.PredictiveBackHandler
 import com.gpo.yoin.ui.navigation.back.OverlayPlayerVisibility
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionScope
+import androidx.compose.animation.core.Animatable
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
@@ -35,23 +37,31 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SnackbarResult
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.unit.LayoutDirection
+import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import com.gpo.yoin.AppContainer
 import com.gpo.yoin.data.source.Capability
 import com.gpo.yoin.ui.component.AddToPlaylistSheet
 import com.gpo.yoin.ui.component.DevicesSheet
+import com.gpo.yoin.ui.experience.LayoutMode
+import com.gpo.yoin.ui.experience.LocalShellChromeInsets
 import com.gpo.yoin.ui.experience.LocalYoinWindowInfo
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
 import com.gpo.yoin.ui.theme.ProvideYoinMotionRole
@@ -87,6 +97,13 @@ fun NowPlayingOverlayHost(
     onArtistClick: (String) -> Unit = {},
     onPlaylistClick: (String) -> Unit = {},
     sharedTransitionScope: SharedTransitionScope? = null,
+    // Where the panel's live travel is published for the content beside it
+    // (see NowPlayingPanelMotion / besideNowPlayingPanel).
+    panelMotion: NowPlayingPanelMotion? = null,
+    // The floor the host keeps beside a side panel (two columns while the
+    // Wide shell shows its detail column) — the same value the host passes
+    // to its own rememberNowPlayingFrame.
+    panelMinContentWidth: Dp = NowPlayingPanelMinContentWidth,
 ) {
     val nowPlayingUiState by viewModel.uiState.collectAsState()
     val aboutUiState by viewModel.aboutUiState.collectAsState()
@@ -101,29 +118,47 @@ fun NowPlayingOverlayHost(
 
     // The frame this window gives Now Playing (断点交接 §3.4 / §14.1) — the
     // same resolution the host content beside a side panel reads.
-    val frame = rememberNowPlayingFrame(viewModel)
+    val liveFrame = rememberNowPlayingFrame(viewModel, panelMinContentWidth)
+    // The player leaves in the frame it was last SHOWN in: the shell can raise
+    // the panel floor (a detail column opening) in the same event that closes
+    // it, which would otherwise re-resolve the closing panel into the
+    // full-window two-column player for its whole exit.
+    val shownFrame = remember { arrayOfNulls<NowPlayingFrame>(1) }
+    if (expanded) shownFrame[0] = liveFrame
+    val frame = if (expanded) liveFrame else shownFrame[0] ?: liveFrame
     val presentation = frame.presentation
     val dualPaneNowPlaying = presentation == NowPlayingPresentation.DualPane
     val panelMode = presentation == NowPlayingPresentation.Panel
-    // Medium full window: panel ⇄ enlarged phone share one container that
-    // slides in from the right; everything else rises from the bottom.
+    // Medium or Wide full window: panel ⇄ Full (enlarged phone / two columns)
+    // share one container that slides in from the right; everything else
+    // rises from the bottom.
     val panelFamily = frame.panelAvailable &&
-        (panelMode || presentation == NowPlayingPresentation.Enlarged)
+        (panelMode || presentation == NowPlayingPresentation.Enlarged || dualPaneNowPlaying)
 
-    // Size switches while open: unfolding a phone lands in the enlarged phone,
-    // any other arrival in Medium starts as the panel; a fresh open is always
-    // the panel. The flag lives in the ViewModel, so a recreated detail
-    // Activity keeps the user's choice.
-    val layoutMode = LocalYoinWindowInfo.current.layoutMode
-    var lastLayoutMode by remember { mutableStateOf(layoutMode) }
-    LaunchedEffect(layoutMode) {
+    // Size switches while open: unfolding a phone lands in the Full state,
+    // Medium ⇄ Wide keeps the user's choice, any other arrival starts as the
+    // panel; a fresh open is always the panel. The flag lives in the
+    // ViewModel, so a recreated detail Activity keeps the user's choice.
+    val windowInfo = LocalYoinWindowInfo.current
+    val layoutMode = windowInfo.layoutMode
+    // Height first (adaptive principle 1): a short window is a handset whatever
+    // its width — so unfolding from a landscape outer screen also counts as
+    // growing out of Compact. Saveable: the detail Activities are recreated on
+    // fold / unfold, and the rule needs the size class before it.
+    val npSizeClass = if (!windowInfo.isHeightAtLeastMedium && layoutMode != LayoutMode.Tabletop) {
+        LayoutMode.Compact
+    } else {
+        layoutMode
+    }
+    var lastLayoutMode by rememberSaveable { mutableStateOf(npSizeClass) }
+    LaunchedEffect(npSizeClass) {
         val previous = lastLayoutMode
-        lastLayoutMode = layoutMode
-        if (previous != layoutMode) {
+        lastLayoutMode = npSizeClass
+        if (previous != npSizeClass) {
             viewModel.setMediumFullscreen(
                 fullscreenAfterLayoutChange(
                     previous = previous,
-                    current = layoutMode,
+                    current = npSizeClass,
                     expanded = expanded,
                     wasFullscreen = viewModel.mediumFullscreen.value,
                 ),
@@ -131,11 +166,7 @@ fun NowPlayingOverlayHost(
         }
     }
     var wasExpanded by rememberSaveable { mutableStateOf(expanded) }
-    LaunchedEffect(expanded) {
-        if (expanded && !wasExpanded) viewModel.setMediumFullscreen(false)
-        wasExpanded = expanded
-    }
-
+    val expandedNow by rememberUpdatedState(expanded)
     var dismissDragPx by remember { mutableStateOf(0f) }
     var predictiveBackProgress by remember { mutableStateOf(0f) }
     // Expanded-collapse (and enlarged → panel) predictive back drives a
@@ -145,6 +176,20 @@ fun NowPlayingOverlayHost(
     var stageBackProgress by remember { mutableStateOf(0f) }
     val stageProgress = rememberNowPlayingStageProgress(initialMode = stageMode)
     val dragResetSpec = YoinMotion.defaultSpatialSpec<Float>(role = YoinMotionRole.Standard)
+    // A fresh open starts as the panel. (The Full flag is also reset once a
+    // closed player's exit has finished — see the content's DisposableEffect —
+    // so a re-open never resolves Full for its first frames.) A re-open
+    // during the exit takes the dismiss pose back on the drag-reset spring.
+    LaunchedEffect(expanded) {
+        if (expanded && !wasExpanded) viewModel.setMediumFullscreen(false)
+        wasExpanded = expanded
+        if (expanded) {
+            predictiveBackProgress = 0f
+            if (dismissDragPx != 0f) {
+                animate(dismissDragPx, 0f, animationSpec = dragResetSpec) { value, _ -> dismissDragPx = value }
+            }
+        }
+    }
     // Fast, near-critical spring owns the whole stage reshape (expand, collapse,
     // and gesture-release settle). Non-bouncy so the open never overshoots past
     // 1.0 (which would re-trigger the cover-flight flash); fast so a released
@@ -158,11 +203,15 @@ fun NowPlayingOverlayHost(
     // Collapse PREVIEW scale: 1f → ~0.90f (the platform's ~90% min
     // back-scale) as the gesture progresses; animated so the release settles
     // smoothly back to 1f instead of snapping. Inert (1f) when not gesturing.
-    val stageBackScale by animateFloatAsState(
-        targetValue = 1f - 0.10f * stageBackProgress,
-        animationSpec = YoinMotion.defaultSpatialSpec(role = YoinMotionRole.Standard),
-        label = "stageBackScale",
-    )
+    // Followed on the frame clock, not in composition: a back-gesture frame
+    // then re-runs neither this host nor the player (the scale is read in
+    // the player's draw phase). Same chase spring, one settle owner.
+    val stageBackScale = remember { Animatable(1f) }
+    val stageBackSpec = YoinMotion.defaultSpatialSpec<Float>(role = YoinMotionRole.Standard)
+    LaunchedEffect(stageBackScale) {
+        snapshotFlow { 1f - 0.10f * stageBackProgress }
+            .collectLatest { target -> stageBackScale.animateTo(target, stageBackSpec) }
+    }
 
     // isGestureDriving is a KEY, not just an early-return guard: when a gesture
     // ends (endGesture flips the flag) this effect re-runs and reconciles the
@@ -209,13 +258,15 @@ fun NowPlayingOverlayHost(
 
     // Layered back, one level at a time (断点交接 §3.4): the Expanded stage
     // collapses in place first (single-column only — Immersive is a transient
-    // cover-focus variant of Compact and never enters the chain); the enlarged
-    // phone steps back to its side panel; then Now Playing closes. The three
-    // levels' `enabled` flags are mutually exclusive, so a closed overlay —
-    // or a level that doesn't exist here — never swallows the host's back.
+    // cover-focus variant of Compact and never enters the chain); the Full
+    // player (enlarged phone / two columns) steps back to its side panel; then
+    // Now Playing closes. The three levels' `enabled` flags are mutually
+    // exclusive, so a closed overlay — or a level that doesn't exist here —
+    // never swallows the host's back.
     val stageBackLevel = expanded && stageMode == NowPlayingStageMode.Expanded && !dualPaneNowPlaying
     val fullscreenBackLevel = expanded && !stageBackLevel &&
-        presentation == NowPlayingPresentation.Enlarged && frame.panelAvailable
+        (presentation == NowPlayingPresentation.Enlarged || dualPaneNowPlaying) &&
+        frame.panelAvailable
     val closeBackLevel = expanded && !stageBackLevel && !fullscreenBackLevel
 
     BackHandler(enabled = stageBackLevel) {
@@ -251,8 +302,9 @@ fun NowPlayingOverlayHost(
         }
     }
 
-    // Enlarged → panel: the same uniform scale preview of the complete stage;
-    // the container's width change runs only on commit, on its own spring.
+    // Full → panel (enlarged phone or two columns): the same uniform scale
+    // preview of the complete stage; the container's width change runs only
+    // on commit, on its own spring.
     PredictiveBackHandler(enabled = fullscreenBackLevel) { progress ->
         try {
             progress.collect { event ->
@@ -273,11 +325,32 @@ fun NowPlayingOverlayHost(
             progress.collectLatest { event ->
                 predictiveBackProgress = event.progress
             }
-            dismissDragPx = 0f
+            // Commit: the exit continues from the previewed pose — the panel
+            // (and the content following it) never jumps back first. The pose
+            // resets once the player is gone (the content's DisposableEffect).
             onExpandedChange(false)
-        } finally {
+        } catch (e: CancellationException) {
             predictiveBackProgress = 0f
+            throw e
         }
+    }
+
+    // The panel's horizontal travel — back preview + drag — handed to the
+    // content beside it as a READER, installed once per presentation: it is
+    // called only in that content's layout pass, so a drag or back frame
+    // re-lays the column without recomposing this host or the shell, and the
+    // two edges move in the same frame (no bare window background between
+    // them). Zero whenever the panel is not the presentation.
+    val panelTravelReader: () -> Float = remember(panelMode) {
+        if (panelMode) {
+            { overlayOffsetPx * PanelBackTravelFraction + dismissDragPx }
+        } else {
+            { 0f }
+        }
+    }
+    DisposableEffect(panelMotion, panelTravelReader) {
+        panelMotion?.travelReader = panelTravelReader
+        onDispose { panelMotion?.travelReader = { 0f } }
     }
 
     // ── Background scrim ─────────────────────────────────────────────────
@@ -295,20 +368,51 @@ fun NowPlayingOverlayHost(
         )
     }
 
-    // Panel (0) ⇄ enlarged phone (1): one container, one spatial spring.
+    // Panel (0) ⇄ Full (1) — enlarged phone or two columns: one container,
+    // one spatial spring.
     val fullFraction by animateFloatAsState(
         targetValue = if (panelMode) 0f else 1f,
         animationSpec = YoinMotion.defaultSpatialSpec(role = YoinMotionRole.Standard),
         label = "nowPlayingPanelFull",
     )
+    // Panel ⇄ two columns (Wide): the body swaps at the container spring's
+    // midpoint, so the two-column player is never laid out at panel width
+    // (a sliver of a cover column) and the phone column never stretches to
+    // the window. Medium's panel ⇄ enlarged phone keeps one body throughout.
+    val containerPastMidpoint by remember { derivedStateOf { fullFraction > 0.5f } }
+    // Medium Full → panel: the enlarged phone shrinks WITH the container and
+    // hands over to the panel body at rest (its spec already lerps with
+    // fullFraction); swapping at the start popped the cover 520 → 312dp.
+    val containerLeavingFull by remember { derivedStateOf { fullFraction > 0f } }
+    val bodyPresentation = when {
+        layoutMode == LayoutMode.Wide && panelFamily && (panelMode || dualPaneNowPlaying) ->
+            if (containerPastMidpoint) NowPlayingPresentation.DualPane else NowPlayingPresentation.Panel
+        layoutMode == LayoutMode.Medium && panelMode && containerLeavingFull ->
+            NowPlayingPresentation.Enlarged
+        else -> presentation
+    }
+    val isRtl = LocalLayoutDirection.current == LayoutDirection.Rtl
+    val panelTravelPx = with(LocalDensity.current) { frame.panelWidth.roundToPx() }
 
     // ── Now Playing overlay ──────────────────────────────────────────────
     OverlayPlayerVisibility(
         expanded = expanded,
         fromEnd = panelFamily,
+        // The panel travels exactly its own width (the content beside it moves
+        // that far on the same spring); the full-window states the window.
+        endTravel = { full -> if (panelMode) panelTravelPx else full },
         modifier = Modifier.fillMaxSize(),
     ) {
         val npAvScope = this
+        // The player is gone (its exit finished): clear the dismiss pose and
+        // the Full flag, so the next open starts as the panel from frame one.
+        DisposableEffect(Unit) {
+            onDispose {
+                dismissDragPx = 0f
+                predictiveBackProgress = 0f
+                if (!expandedNow) viewModel.setMediumFullscreen(false)
+            }
+        }
         // The 4Hz playhead is collected HERE (not in the host body) and
         // handed to the screen as reader lambdas, so only the leaves that
         // invoke them (progress bar, lyrics) recompose per tick.
@@ -359,6 +463,19 @@ fun NowPlayingOverlayHost(
                     .align(Alignment.CenterEnd)
                     .width(containerWidth)
                     .fillMaxHeight()
+                    // Panel: back / drag carry the WHOLE container right —
+                    // corners, clip and shadow with it — so the content beside
+                    // it meets a real panel edge.
+                    .offset {
+                        if (panelMode) {
+                            IntOffset(
+                                x = (overlayOffsetPx * PanelBackTravelFraction + dismissDragPx).roundToInt(),
+                                y = 0,
+                            )
+                        } else {
+                            IntOffset.Zero
+                        }
+                    }
                     .graphicsLayer {
                         if (panelFamily) {
                             shape = panelShape
@@ -378,9 +495,11 @@ fun NowPlayingOverlayHost(
                         // system back), so the drag is gated off there.
                         enabled = stageMode != NowPlayingStageMode.Expanded &&
                             !dualPaneNowPlaying,
+                        // RTL mirrors the panel's end edge (vertical drags never reverse).
+                        reverseDirection = panelMode && isRtl,
                         onDragStopped = { velocity ->
                             if (dismissDragPx > 240f || velocity > 800f) {
-                                dismissDragPx = 0f
+                                // The exit continues from the dragged pose.
                                 predictiveBackProgress = 0f
                                 onExpandedChange(false)
                             } else {
@@ -426,6 +545,7 @@ fun NowPlayingOverlayHost(
                     onApplyLyrics = viewModel::applyLyrics,
                     onRatingChange = viewModel::setRating,
                     onToggleFavorite = viewModel::toggleFavorite,
+                    onAddCurrentToLibrary = viewModel::addCurrentToLibrary,
                     onAddCurrentToPlaylist = viewModel::requestAddCurrentToPlaylist,
                     onSkipToQueueItem = viewModel::skipToQueueItem,
                     onCyclePlayMode = viewModel::cyclePlayMode,
@@ -470,10 +590,12 @@ fun NowPlayingOverlayHost(
                     // Collapse PREVIEW recedes the CONTENT (inside NowPlayingScreen,
                     // over the full-screen aurora) — NOT the whole overlay, which
                     // would reveal the host behind and read as the app shrinking.
-                    contentScale = stageBackScale,
+                    contentScale = { stageBackScale.value },
                     skipDirection = skipDirection,
-                    presentation = presentation,
-                    enlarged = nowPlayingEnlargedSpec(frame.windowWidth).let { spec ->
+                    presentation = bodyPresentation,
+                    // Built only where it is used (the enlarged phone): on Wide
+                    // a per-frame spec would recompose the player all spring long.
+                    enlarged = if (bodyPresentation != NowPlayingPresentation.Enlarged) null else nowPlayingEnlargedSpec(frame.windowWidth).let { spec ->
                         // Grows in with the container, so the panel → full
                         // screen change never pops the rating column.
                         spec.copy(
@@ -495,13 +617,10 @@ fun NowPlayingOverlayHost(
                     modifier = Modifier
                         .fillMaxSize()
                         .offset {
+                            // Phone / enlarged: back / drag carry the player
+                            // down; the panel's travel is on its container.
                             if (panelMode) {
-                                // Panel: back / drag carry it right, toward where
-                                // the pill sat; capped + chased like the phone's.
-                                IntOffset(
-                                    x = (overlayOffsetPx * PanelBackTravelFraction + dismissDragPx).roundToInt(),
-                                    y = 0,
-                                )
+                                IntOffset.Zero
                             } else {
                                 IntOffset(
                                     x = 0,
@@ -532,7 +651,10 @@ fun NowPlayingOverlayHost(
     }
 }
 
-/** The panel's corner button: full screen, or back to the side panel. */
+/**
+ * The panel's corner button: full screen (the enlarged phone on Medium, the
+ * two columns on Wide), or back to the side panel.
+ */
 @Composable
 private fun PanelToggleButton(
     fullscreen: Boolean,
@@ -621,7 +743,8 @@ fun BoxScope.NowPlayingAccessories(
         hostState = snackbarHostState,
         modifier = Modifier
             .align(Alignment.BottomCenter)
-            .padding(bottom = 24.dp, start = 12.dp, end = 12.dp),
+            // Clear of the window's bar (its reserve), never over it.
+            .padding(bottom = LocalShellChromeInsets.current.calculateBottomPadding(), start = 12.dp, end = 12.dp),
     ) { data ->
         Snackbar(snackbarData = data)
     }
