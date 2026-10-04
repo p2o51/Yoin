@@ -67,6 +67,7 @@ MD3 Expressive 不是 M4，而是 M3 的扩展进化。
 3. **播放态 = 封面提取色** — 有内容播放时，用 Palette API 从专辑封面提取主色，替换 color tokens，实现全局色调切换
 4. **颜色过渡** — 使用 Effects Spring 做平滑过渡，不生硬跳变。播放封面取色与当前过渡进度由 app session 共享，首页与子页面首帧使用同一色板；底部 NP 和底栏直接读取这套已动画的 tokens，不再叠加按窗口重启的颜色动画。
 5. **服务色（2026-10-03，唯一的非 token 颜色）** — Settings 家族里每个音乐服务固定一个色族（Subsonic 蓝 H256 / Spotify 绿 H148 / Apple Music 玫红 H10 / 本地文件 琥珀 H60），是 M3「自定义色」：MCU HCT 按色调取值，并向**壁纸（系统 dynamic）primary** 协调最多 10°（MCU 原版 15°，收紧是为了让任意壁纸下服务色两两 ≥ 30°；壁纸近灰（chroma < 6）时不转）。不向封面色协调，否则服务色会随歌漂移。只给"服务"上色：账号头像 / 角标、在用卡片、添加账号面板、服务二级页的服务标记；普通设置行一律单色线条图标。实现在 `ui/settings/SettingsColors.kt`。
+6. **Memories 专辑色（2026-10-04）** — Memories 每张卡的颜色（ink、高亮、按钮、页点、底色、徽记）都由这张专辑的调色板（base / accent / deep / soft）直接做 sRGB lerp 得到，不走 `fromSeed`、不旋转色相，也不替换全局 color tokens。封面提取色的 base 先夹进可读的亮度窗口；深色下的播放高亮提到 OKLab L 0.92，不比正文暗。实现在 `ui/memories/showcase/MemoryPalette.kt`。
 
 浮动底栏（含短窗的左缘分离胶囊）不投阴影（2026-10-01，取代 12dp 阴影及其跨窗口交接）：栏和内容靠下面「溶解」的底部网点场分开，不靠阴影。两个窗口的栏在交接时完全同形同色，叠在一起也没有可见差异。
 
@@ -194,7 +195,7 @@ MD3 Expressive 不是 M4，而是 M3 的扩展进化。
 
 Yoin Memory 是 **当前 profile 下的 local-first 专辑记忆层**，不是 Spotify Wrapped、stats.fm、Last.fm clone，也不是全平台实时统计服务。Spotify、Subsonic、未来本地文件或其它来源都只是 provider；第一阶段不做跨 profile 自动合并、不做跨源 canonical album merge、不做通知 scrobbler。
 
-v1 的 Memories surface 定义为 **profile-local, album-first listening journal deck**。Header 可以继续使用 `Memories` 作为 umbrella 名称，但页面表达需要用 `Album memories` 副标题或 chip 说明当前 MVP 的实体范围。SONG / PLAYLIST Memory、timestamp memory / music time machine（例如 this day last week）属于后续方向，不进入 v1 主 deck。
+v1 的 Memories surface 定义为 **profile-local, album-first listening journal deck**。顶栏只写 `Memories`（和 Last heard），不再加 `Album memories` 副标题或 chip。SONG / PLAYLIST Memory、timestamp memory / music time machine（例如 this day last week）属于后续方向，不进入 v1 主 deck。
 
 Memory 的核心单位是 album。候选由当前 active profile/provider 下的播放历史、曲目评分覆盖率、Album Note、Song Note、AskAI 记录、专辑评分与 NeoDB review 状态共同生成。推荐型 Memory 的 gate 是：
 
@@ -202,17 +203,62 @@ Memory 的核心单位是 album。候选由当前 active profile/provider 下的
 
 但有专辑 review，或至少两条 album/song note 的专辑，也可以进入 Memory。Note 是用户自己的观点，AskAI 是参考资料；二者必须在 prompt 和 UI 表达中分开，不能混成同一种用户立场。
 
-Memory 卡片必须解释「为什么这张专辑成为 memory」：至少表达 album review、rated-track coverage、note count、AskAI references、recent revisit、NeoDB ready/synced 等本地信号。评分显示遵循 Notion 产品规则：用户有 album rating 时优先显示 album rating；否则显示 average track rating。Gemini emotional copy 是可选增强；未配置 BYOK 或生成失败时使用本地 deterministic fallback copy，不扩大 Gemini scope，也不上传 note/review 原文。
+**v4 起卡片不再罗列「为什么成为 memory」（2026-10-04）**：卡面和日记都不写证据句，覆盖率、笔记数、AskAI、NeoDB ready/synced 都不上卡。听歌的事实只出现在三处：动机短句、Yoin 的旁白、日记页脚的两个数字。评分显示规则不变：有 album rating 时优先显示 album rating，否则显示 average track rating；卡面、徽记标签和日记用同一个一位小数（统一四舍五入，9.95 显示为 10.0）。
 
-**记忆表面字体规范（2026-07-26 定稿，同日收窄；适用 Memories 卡 + 首页 Jump Back In）**：
+**展示柜两态 v4（2026-10-04 owner 验收，同日落地 Compose；取代 2026-07-26 的「印章」v2.2 / v2.3）**。规格和 owner 决定在 `docs/handoff/memories-showcase/`（`README.md`、`PLAN.md`，原型 `memories-showcase-v4.html` / `twostate4.html` / `groove.js`），代码在 `ui/memories/`（`showcase/`、`emblem/`、`award/`、`copy/`）。
 
-- **宋体只属于 AI 拟题（memoryTitle）**：那一枚生成的标题（JBI memory 卡与 Memories 卡印章旁两处），衬线（`FontFamily.Serif`，Pixel 上即 Noto Serif CJK / 思源宋体同源字形），SemiBold 17–18sp。token：`YoinSerifTitle`（Type.kt）。
-- **其它标题维持 GSF，只加大字号**：专辑名照旧；歌名（笔记卡头行、JBI 卡片标题）升到 16sp SemiBold。
-- **用户正文**：Memories 卡的乐评正文、笔记正文用系统默认字面（`FontFamily.Default`）；首页 Jump Back In 的 note 正文改用 Google Sans Flex，继承 `bodyMedium`（2026-09-19 调整）。
-- **GSF = 其余一切**：Yoin 代笔文案（必须带「Written by Yoin」署名）、评分数字、标签、按钮、证据句。
+- **模型**：Memories 仍是 ShellOverlayUp（从 Home 下拉打开）。横滑 deck，每页两态：**卡片**（展品）和**日记**（读和写）。一个共享顶栏：左边「⌃ Home」胶囊，任何状态下都只回首页；右边是页点，每个点有 32×48 的点击框，点按落到 x 方向最近的点；从胶囊或页点上起手的横拖照样翻页。两个控制器：外层 q（`RevealState`，退回 Home）和内层 p（`MemoriesDiaryState`，0 卡片 ⇄ 1 日记）。每次手势越过 slop 时，按方向和起点交给其中一个，不会同时交给两个（`MemoriesGestures.kt`）。全页扁平：没有阴影，封面裸图无描边。
+- **卡片态**：
+  - 两簇。展品簇定高：顶部留白 → 封面 + 徽记 → 拟题 → 专辑行，所以每张卡的封面顶边同位。预告簇贴底：摘录 → [Diary · N notes | Go to album] → 「Swipe up for Home」提示（短屏只留箭头）。中间的空隙吃掉余量。
+  - 手机封面 256dp、徽记 96dp；短屏（高 < 760）168 / 72。徽记挂在封面右下角，向右、向下各探出自身尺寸的 0.3 / 0.24。
+  - 摘录只用整句，永远不出省略号。依次试：乐评开头的整句（从多到少）；没有乐评时，第一条单曲笔记；最短的一条单曲笔记；最后只剩署名行（"Your review · Jul 26 · in Diary"）。放得下哪个就用哪个。字号按长度分三档：≤ 16 字 22 / 500，≤ 60 字 17，更长 16，用系统字面。Medium 上摘录只是预告：最多两句、约 60 个加权字。
+  - 按钮：Diary 是 tonal（专辑 ink 14% 底，高 48），带笔记数；Go to album 是专辑色实心胶囊，不带箭头。
+  - 手势：卡片上任意位置上滑一次，回首页。往下拉是 0.3× 橡皮筋（最多 −90dp），松手回卡片；拉下后再往上推也只停在卡片。打开日记只靠 Diary 按钮。
+- **日记态**：
+  - 只能纵向滚动。每页有自己的滚动位置，离开这一页就归零；开着日记横滑，下一张卡也是日记态，从头读。顶部交界用潮线（`seamDissolveViewport`），底部 40dp 渐隐。
+  - 顶栏：胶囊收窄到 36dp，只剩箭头；后面是 40dp 封面（4dp 圆角）和专辑名、艺人行、⌄。艺人行放不下时先去掉年份，还放不下才跑马灯；跑马灯只在页面停稳、日记完全打开时滚。
+  - 从上到下：标题行（Yoin 的标题，右侧是原生 48dp 徽记）→ Yoin 的段落（只在没有乐评时出现：讲你是怎么听的，问句接在同一段末尾）→ 你的条目 → 两段真实内容之间放 • • • → 曲目行 → 结尾。
+  - 你的条目：有乐评就是乐评，不加引号、不署名；16 字以内又没有笔记的短乐评放大（26，平板 30），停在可视区 38% 的光学位置。没有乐评就是今天的空白日记页：和 NP 写作器同一套竖线和保存胶囊（`JournalRail` / `JournalSavePill`），用 BasicTextField，不用 OutlinedTextField；Cancel / Save 落在下面。保存后原地变成乐评条目：竖线淡出，正文左移 14→0（空间弹簧），标签 Today → Your review 交叉淡化，打一拍 CONFIRM。保存失败保留草稿，用 snackbar 提示。
+  - 回卡片：在顶部继续下拉；把顶栏往下拉（1:1，滚动冻结）；点顶栏封面或 ⌄；系统返回。从正文里下拉越过顶部时，前 24dp 走半速；如果起手时正文已经滚动过，松手时还在半速带里就留在日记。惯性滚到顶只停住。
+  - 回首页：顶栏上推；日记已经停在底部时，新起一次上推（越过末尾再推）。惯性滚到底只停住，不回首页。
+- **曲目行（选项 A，显式推翻 v2.2 的「别复活曲目表」）**：日记只列有评分或有笔记的曲目，不是完整曲目表；完整曲目表仍在 Go to album 打开的专辑页里。专辑笔记排最前，左边一颗 6dp 空心小珠，不可点。每条曲目行高 48：曲号 / 歌名 / 分数。笔记像歌词一样挂在所属曲目下面：40dp 列里放时间戳，后面是正文，两者按基线对齐。点曲目行从头播放；点笔记行播放这首，等它成为当前曲目后 seek 到笔记的时间锚点一次（4 秒内没就绪就放弃）。正在播的曲目和播放头所在的笔记只变色高亮，不压暗其它行，也不自动滚动。
+- **结尾**：跟着内容走，离上一块 56dp。依次是 28dp 的导出槽（三圈发丝细环）、两个大数字（在 Yoin 里的播放次数；距第一次播放的天数，"days since Mar 14"）、Go to album、NeoDB 入口。页脚只有这两个数字，取代旧的证据句和 NeoDB 状态页脚。「听过」只看播放历史，访问专辑页不算；从没在 Yoin 里播放过的专辑，两个数字整个不显示，顶栏也不写 Last heard。
+- **NeoDB 入口（2026-10-04，PLAN Q1）**：日记末尾、两个数字下面，一行安静的 "Push to NeoDB"（onSurfaceVariant 小字，无底色，点按区 48），只在 NeoDB 已配置时出现，推送中显示 "Pushing to NeoDB…"。离线等失败只出 snackbar，不崩溃。卡面不再显示同步状态。
+- **不署名**：Yoin 写的字不署名，去掉 "Written by Yoin"（取代 2026-07-26「Yoin 代笔文案必须带署名」）。Yoin 的字和用户的字靠字体和位置区分。
+- **字体（取代下面 2026-07-26 规范里 Memories 的部分）**：
+  - 宋体（`YoinSerifTitle`）只给 AI 拟题：卡片 26sp SemiBold（短屏 24，Medium 30），日记标题 22（大屏 24），对开左页 30（收紧档 27）。
+  - 没有 AI 拟题时，标题是本地规则生成的动机短句，用 GSF 600、ROND 60（卡片 24，Medium 27；日记 21 / 23）。连动机短句都凑不出时，标题位放专辑名（GSF）。
+  - Yoin 的旁白：GSF ROND 60，16 / 1.6，onSurfaceVariant；末尾的问句 onSurface、500。
+  - 用户的字（摘录、乐评、笔记）用系统字面 `FontFamily.Default`。页脚数字用 GSF 500、ROND 40。其余标签和按钮用 GSF。
+- **语言**：Yoin 写的成段文字（动机短句、旁白、问句）跟用户的写作语言。统计乐评和笔记里的字，一个汉字按两个拉丁字母算，汉字多就写中文。出现假名或谚文（日文、韩文，没有模板），或者用户还什么都没写时，用 app 语言。按钮、署名、页脚标签这类界面文字跟 app 语言；app 目前只有英文界面。
+- **旁白（2026-10-04，PLAN Q5）**：继续由 Gemini 生成（BYOK），提示词改成原型的文风：第二人称、过去时、一两句，只讲这张专辑是怎么听的，只用本地信号（在 Yoin 里的播放次数、时间跨度、季节、曲目名、最高分的曲目）；不评价音乐，不引用也不转述乐评和笔记，不提 memory 这个机制，最后用一个承接前文事实的问句收尾；动机短句已经说过的事实不再重复。发给 Gemini 的只有事实清单，没有用户原文。结果缓存在 `memory_copy_cache`，旧提示词的缓存永不复用。没有 key 或生成失败时，用本地的四套模板（中英各一版）。有乐评时没有旁白。
+- **刻纹徽记（唱片刻纹，`ui/memories/emblem/`）**：
+  - 几何：一圈对应一首曲目，外圈是第 1 首；曲目比这个尺寸能画的圈数多时合并（≥ 110dp 12 圈，≥ 88 8 圈，≥ 64 6 圈，其余 3 圈，< 60 用简化画法）。有评分的曲目刻成实线，没评分的留点阵。中心标签带分数：专辑分是实心 Cookie12Sided，均分是浅底上的描边圆，未评分是一圈虚线曲奇「空模子」（中性 token），模子外有一圈慢涟漪。
+  - 扁平：每个填充和描边都是一种平色，没有光泽、扫光、发光、阴影，也没有笔记小点。
+  - 倾斜：表现为颜色变化，不是光。读 `TYPE_GAME_ROTATION_VECTOR`，相对 1.6 秒的慢基线取倾斜（拿稳的姿势会慢慢回到中性），±18° 映射到 ±1 并限在单位圆内，再用弹簧（阻尼 0.9，刚度 90）跟随。外缘和最外两圈分成 24 段平色，朝倾斜方向的一侧变浅、另一侧变深；静止时和不倾斜完全一样。只在卡片态、当前页、q = 0、没在横滑、没开减少动态时注册传感器；日记里的 48dp 不跟倾斜。
+  - 尺寸：手机卡片 96，短屏 72，Medium 和对开 96–124（随封面），手机横屏 48–72，日记标题旁 48（按 48 原生绘制，不是缩小的 96）。徽记是展品，不可点。
+  - 四档获得动画，按卡面显示的一位小数分：1 档 < 6.0，盘面从 −16° 回正（0.62s）；2 档 6.0–7.9，从 −330° 转回（1.0s）；3 档 8.0–9.9，转一整圈，有评分的圈依次点亮（1.3s）；4 档恰好 10.0，转两整圈，标签压下，外缘转成强调色（1.6s）。未评分没有动画。每个通道都是闭式弹簧的函数，用 `withFrameNanos` 推进、只在 draw 里读，没有 tween。
+  - 触感：每一拍都落在画面同一条弹簧曲线上（停稳帧、过冲峰、标签触底、某一圈最亮的时刻），一档最多 7 拍，相隔不到 45ms 的两拍合并。API 31+、有马达、支持全部 primitive 时，整档组合成一个 `VibrationEffect.Composition`（33+ 用 USAGE_TOUCH，跟随系统触感开关）；否则在同样的时刻回退到 `YoinHaptics`。需要 VIBRATE 权限。逐拍映射待写入 `docs/haptic-feedback.md`。
+- **获得动画的生命周期（`MemoriesAwardLifecycle`）**：
+  - 每张卡每次打开 Memories 只颁一次，时机是它第一次完整展示：打开时 reveal 到 85%（q ≤ 0.15）；横滑停到离这张卡 0.15 以内，且手指已经抬起；日记收回到这张卡（p 落到 0）。第一拍离手指抬起至少 120ms。系统返回预览进行中不开始。
+  - 还没颁的卡停在动画第 0 帧（一道都没刻），不会先显示成品再擦掉。
+  - 任何拖动都暂停拍点，画面照播；回到同一张卡接着打。在高潮拍之前真正离开这张卡，就撤销这次颁奖，下次重新完整播放；过了高潮就算颁过。
+  - 日记里从不颁奖。开着日记横滑遇到的卡，只让 48dp 小徽记「点头」（scale 0.6→1，2 档起再从 −90° 转回），打这一档最强的那一拍，强度减半；完整颁奖等回到卡片再播。
+  - Memories 关闭就卸载，所以每次打开都会重新颁奖。
+- **颜色**：每张卡的颜色由这张专辑自己的调色板直接 lerp 出来（见「颜色系统」第 6 条）；背景极光随当前卡换色，走效果弹簧。
+- **五个默认选项（2026-10-04，原型的推荐项）**：① 曲目行只列有评分或有笔记的曲目；② 没有 AI 拟题时，用本地规则生成的动机短句；③ 竖屏平板是放大的手机两态；④ 日记结尾跟着内容走，不贴底；⑤ Yoin 的成段文字跟随用户的写作语言，界面文字跟随 app 语言。
+- **减少动态**（省电模式、移除动画）：Memories 原地淡出，不平移、没有圆角；卡片⇄日记只做透明度，p 0.5 之前卡片淡完、0.5 起日记淡入，同一时刻屏上只有一层文字；不读倾斜，不播涟漪；获得动画改成约 200ms 的透明度显影，只在显影结束时打最强的一拍。
+- **无障碍**：只有停稳的当前页可读，邻页和看不见的层不暴露语义；页面的 paneTitle 在 "Memory, …" 和 "Diary, …" 之间切换，开关日记会被播报。
+
+**首页 Jump Back In 的字体（2026-07-26 定稿，同日收窄；Memories 的部分已由上面的 v4 取代）**：
+
+- **宋体只属于 AI 拟题（memoryTitle）**：JBI memory 卡上那一枚生成的标题用衬线（`FontFamily.Serif`，Pixel 上即 Noto Serif CJK / 思源宋体同源字形），SemiBold 17–18sp。token：`YoinSerifTitle`（Type.kt）。
+- **其它标题维持 GSF，只加大字号**：专辑名照旧；歌名（JBI 卡片标题）升到 16sp SemiBold。
+- **用户正文**：JBI 的 note 正文用 Google Sans Flex，继承 `bodyMedium`（2026-09-19 调整）。
+- **GSF = 其余一切**：评分数字、标签、按钮等。
 - `HomeWidgetCard.commentIsHeadline` 区分拟题（宋体标题）与笔记原文（黑体正文）。
 
-**拟题豁免（2026-07-26 决定）**：Memory 卡的 AI 拟题（`memoryTitle`，同时复用为首页 Jump Back In memory 槽位的标题）是上一条「不上传原文」的唯一例外——拟题 prompt 允许携带正文槽占用者（album review 或最新一条 note）的原文，并拼上专辑背景（专辑名/艺人/年份 + 本地已缓存的 Gemini About 行，不产生额外请求）。豁免仅此一处用途；`narrativeCopy` 的输入契约不变。未配置 BYOK 或生成失败时，拟题回退本地 deterministic 模板（覆盖率/笔记数），拟题槽永不为空。
+**拟题豁免（2026-07-26 决定）**：AI 拟题（`memoryTitle`，同时复用为首页 Jump Back In memory 槽位的标题）是「不上传原文」的唯一例外——拟题 prompt 允许携带正文槽占用者（album review 或最新一条 note）的原文，并拼上专辑背景（专辑名/艺人/年份 + 本地已缓存的 Gemini About 行，不产生额外请求）。豁免仅此一处用途；旁白只收事实清单。未配置 BYOK 或生成失败时，拟题槽永不为空：Memories 退到动机短句，再退到专辑名；首页 JBI 仍用原来的本地 deterministic 模板（覆盖率 / 笔记数，要不要也改成动机短句见 PLAN Q6）。
 
 NeoDB 同步以 album 为边界。第一阶段只有同时具备 album rating 和非空 album review 的 Memory 才能推送到 NeoDB；单曲碎片笔记只作为本地 Memory/Review 草稿素材，不直接推 NeoDB。
 
@@ -293,6 +339,8 @@ NeoDB 同步以 album 为边界。第一阶段只有同时具备 album rating �
 | Now Playing → 专辑 / 歌手 / 歌单 | 保留原播放器及其 stage；详情正文准备好后不透明推入，详情底栏同步从下方进入，不等待主页底栏变形 |
 | 详情 → 原 Now Playing | 返回手势同时驱动页面收回和底栏向下退出；取消回到详情，提交等空间 / 透明度弹簧收尾后再关闭窗口 |
 | Memories → Go to album → 返回 | 保留原 Memories 卡片与滚动位置；专辑详情底栏随正文进入和退出，不与隐藏的首页底栏交接或变形 |
+| Memories 卡片 ⇄ 日记（2026-10-04） | 一个 p（`MemoriesDiaryState`）驱动全部共享元素（`MemoriesMorph.kt`）。点 Diary 由弹簧推开，不跟手。封面尺寸领先于位置，飞进顶栏的 40dp 槽，圆角 8→4dp，在 fp 0.62–0.9 之间按透明度交给顶栏自己的封面；拟题在 p 0.2 之前不动，之后飞到日记标题，在 0.42–0.78 之间交叉淡化；96dp 徽记跟着拟题飞，说明字先淡出，在 0.6–0.95 之间交给原生 48dp；专辑行上移 36dp 淡出，摘录和按钮下沉 56dp 淡出；日记各块错落升起；Home 胶囊 88→36。卡片层和日记层任何时刻都完整排版，只做位移、缩放、透明度和逐帧圆角，所以返回手势可以全程擦洗。收起：顶部下拉、顶栏下拉、点顶栏封面或 ⌄、系统返回；如果日记标题已经滚到顶栏下面，正文原地下沉淡出，封面先在顶栏里等，滚动在看不见时归零，不倒带。打开、关闭、松手、返回的提交和取消都走同一条 morph 弹簧（Expressive 默认空间弹簧）。拖动越过 p 0.5 时打一拍 CLOCK_TICK，退回再打一拍。减少动态：同一个 p 只做淡入淡出 |
+| Memories 回首页（2026-10-04） | q（`RevealState`）是唯一位移：宿主 translationY = −q·H，Home 在背后从 0.94 / 50% 回到 1 / 100%。手指 1:1，按 dp 判定：卡片主体上推 112dp 或 600dp/s 提交，顶栏上推 56dp 或 450dp/s 提交；反向快甩 350dp/s 即使越过阈值也收回。阈值从按下那一刻算，slop 吃掉的距离也计入。日记已经停在底部时，新起一次上推按卡片规则回首页；惯性滚到底只停住。系统返回：日记态先把日记收回卡片（p 从当前值按 backGestureEasing 全程擦洗到 0）；卡片态把 q 从当前值擦洗到 112dp，progress 1 正好停在手指的提交距离上。提交交给宿主的关闭弹簧，取消回弹，都用 `predictiveBackSettleSpring`；三键返回直接提交。底部两角按 28dp · smoothstep(0, 阈值 / H, q) 变圆，在松手会提交的位置正好变满，无阴影。越过提交线打一拍 CLOCK_TICK，退回再打一拍，提交时 CONFIRM。减少动态：原地淡出（alpha 1 − q），没有圆角 |
 | 多层详情 / 播放器返回 | 返回当前窗口的真实来源；内层详情不改写主页的返回进度和底栏状态 |
 | 歌词搜索 | 从实际搜索按钮展开，收起回到该按钮；复用官方 SearchBarState 与全屏 Search 的动效、键盘处理和预测性返回 |
 | 切歌 | 大封面在新图加载成功后用封面专用低刚度、临界阻尼 Effects Spring 驱动细密错列的波点溶解，约 700ms 显影完成后自然收尾：波前本身持续起伏，圆点轻微漂移、柔和浮现后合拢，边缘带低强度 Primary → Tertiary 渐变光晕；下一首从右、上一首从左接管。点距约 6dp，旧图始终不透明兜底，新图随溶解逐步显影。缩略图保留轻量 crossfade，背景色继续原有 Effects Spring 过渡 |
@@ -357,7 +405,7 @@ Podcast、Internet Radio、Chat、User Management、Jukebox、Bookmarks、Shares
 - Button Group 三种形态（竖屏底栏 / 手机横屏分离式挖孔带 / Medium+ 底栏居中限宽 600）见「导航结构」；`LocalShellChromeInsets` 给页面让位；原 Navigation Rail 已删除
 - 跨窗口 bar 交接（`DetailLaunchMode.FullChoreography`）在竖屏底栏与分离式挖孔带下都做（两个窗口的组逐像素同位）；居中底栏（Medium 整窗）是纯推入，但栏仍然有动画——**窗口内 morph**（2026-10-03，`DETAIL_EXTRA_BAR_MORPH`）：详情窗口的栏从和 shell 底栏像素相同的导航姿态出发，页面滑入的那一拍 morph 成详情姿态；返回手势把它 scrub 回导航姿态，溶解落在 shell 的导航栏上。不桥接 shell 的任何状态（`bridgeBackToShell=false`）。Wide 整窗没有跨窗口交接——详情根本不是另一个窗口
 - **详情列（2026-10-02，适配原则 3「分栏是同一窗口里的列」）**：Wide 且高 ≥ 480 的整窗（`YoinWindowInfo.hasDetailPane`）里，Album / Artist / Playlist 不再启动 Activity，而是作为 shell 窗口的**右列**打开（`ui/navigation/pane/`：Navigation 3 子栈，同一批页面 composable，`LocalDetailHostMode = Pane`）。shell 平时独占整窗，开第一个详情才分列、关最后一个解散，开合走 `defaultSpatialSpec`（列从右缘滑入、shell 列同步让位，`DetailPaneState.openFraction` 是唯一驱动）。列宽 = 一个纯函数 `resolvePaneBudget`：窗宽 − 24dp 槽，shell 份额默认 0.45、≥ 1080 时保证 shell ≥ 600（1280 → 600 ｜ 24 ｜ 656），两列都 ≥ 360；槽里是 M3 `VerticalDragHandle`，整条槽可拖、1:1、只钳制（session 内记住）。两列和槽共用 shell 的中性页面底色（列里的详情页不再画封面色顶部渐变），中间没有分隔线，只有把手。列里每页读自己的列宽（Medium / Compact 布局照页面规则）。列内推入 / 弹出 = AOSP 96dp + EMPHASIZED 450ms；预测返回：栈内由 NavDisplay 的 predictive pop 做整体缩放预览，最后一页的返回缩放到 0.9 + 28dp 圆角、提交后列滑出、shell 变宽；返回归属 NowPlaying > DetailPane > Memories（`ShellBackResolver`），列的两个返回处理器挂在只在它拥有返回时才启用的子 dispatcher 上（处理器按注册先后排，后挂载的列否则会压过 NP）。列宽、侧栏让位、栏槽宽都在 layout 阶段算，手势 / 弹簧帧不重组 shell。换档永远不落在弹簧中途：开列时 shell 在点击那一帧换档，等帧率平稳后列才滑入（空白页面），页面在列落定后构建并淡入；关列时等弹簧落定后 shell 才换回 Wide。Wide → 窄（平板转竖屏）时列顶层页自动变成推入页。**Activity Embedding 的 shell ↔ detail 规则、`SplitAttributesCalculator` 的 shell 比例和平台分隔条全部删除**（两个 Activity 窗口物理上无法共享一条栏；平台分隔条拖后 calculator 会把比例改回去、颜色退成库默认黑色），只剩 Settings 的 list-detail
-- 页面：Home / Library 手机横屏有单独一档（Home 28sp 标题、Activities 单行三卡；Library 单行头部 [搜索 208][chips][设置]、~100dp 格子 6 列）；详情页手机横屏把竖屏 hero 横过来（封面左、竖屏里封面下面的东西在右，上拉照旧），背景图形做成贴着封面的闭合形状、不伸到左边的组下面；Medium 歌手是宽 hero（名字只出现一次，Follow 进 hero，Play 只在底栏）；Wide 整窗专辑 / 歌单是 400 身份栏 + 完整曲目表，歌手是横顶 hero + Most Played 480 | Discography；Memories 16:9 印章 112、提问与 Write a review 并行，手机横屏一张卡拆两栏，Wide 整窗对开（大印章 190、笔记回到卡面）
+- 页面：Home / Library 手机横屏有单独一档（Home 28sp 标题、Activities 单行三卡；Library 单行头部 [搜索 208][chips][设置]、~100dp 格子 6 列）；详情页手机横屏把竖屏 hero 横过来（封面左、竖屏里封面下面的东西在右，上拉照旧），背景图形做成贴着封面的闭合形状、不伸到左边的组下面；Medium 歌手是宽 hero（名字只出现一次，Follow 进 hero，Play 只在底栏）；Wide 整窗专辑 / 歌单是 400 身份栏 + 完整曲目表，歌手是横顶 hero + Most Played 480 | Discography；Memories（2026-10-04 v4）按**自己的容器**分档（`memoriesLayoutFor(宽, 高)`，读 BoxWithConstraints，不看设备和 LayoutMode），门槛是 600 / 900：宽 < 600 是手机两态；Medium 是放大的手机两态，卡片在 480 列，封面 clamp(H − 580, 256, 360)，日记在 min(640, W − 32) 列，用平板字号；宽 ≥ 900、右栏 ≥ 360、而且左页放得下不小于 Medium 的封面时是对开：左页是展品、Yoin 的标题 / 旁白 / 问句和 Go to album，右页从你的条目开始，中间无分隔线、至少 64dp；左页上滑回首页，右页滚到底再上推回首页，返回只有一级。对开的高度梯子先收间距、再缩封面，整叠卡共用一个封面尺寸；窗口拖过 600 或 900 时展品永不变小。所以 1280 窗口开着详情列时，Memories 按 Medium 排。手机横屏（高 < 480）也用对开结构，但封面下限降到 88、徽记 48–72，Yoin 的段落移到右页开头
 - 页面内容宽度有 clamp 基线（`yoinPageContentWidth`，Feed=720 / Prose=640 / Card=480）
 
 ---

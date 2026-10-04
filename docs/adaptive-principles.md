@@ -23,6 +23,12 @@
   属于窗口的 chrome（底栏）不跟列走，读 `windowChromeInfo`（`LocalWindowChromeInfo`）。
   所以 1280 宽的窗口里，600 宽的 shell 列就是 Medium，460 宽的详情列就是 Compact，和它们在
   同尺寸的独立窗口里长得一模一样。
+- 例：Memories（2026-10-04）的档位只看自己的容器。它在自己的 BoxWithConstraints 里用纯函数
+  `memoriesLayoutFor(宽, 高)` 分三档：手机两态 / Medium 放大两态 / 对开，门槛 600 / 900，另加
+  「右栏 ≥ 360、对开的封面不小于 Medium」；高 < 480 先出局，走对开结构、封面下限更低。所以开着
+  详情列的 1280 窗口里，它就是 Medium。档位之间**展品永不变小**：Medium 的下限取手机在同一高度
+  的值，对开给的永远不少于 Medium，窗口拖过 600 或 900 时封面和徽记只会不变或变大。代码：
+  `ui/memories/showcase/MemoriesLayout.kt`（`MemoriesLayoutTest`，原型导出的黄金数据）。
 - 代码：`ui/experience/WindowAdaptiveRuntime.kt`（`rememberYoinWindowInfo`、`forPaneWidth`、
   `resolveShellChromeForm`）。
 
@@ -105,6 +111,12 @@
   （`ui/nowplaying/NowPlayingBudget.kt`，有单测）：内容最小值按当前字号量出来
   （`NowPlayingMetrics.kt`），每段间距是一对（标称，最小）。页面里不再出现手加的预留常数
   （以前的 392 / 450 漏算过 16dp，侧栏那行歌词被截底）。
+- Memories 卡同理（2026-10-04）：文字高度用 TextMeasurer 按当前字号量，不估。卡片的摘录槽量出来后
+  只换候选（更少的整句 → 只剩署名），永不截断；Medium 每张卡的标题、专辑行、摘录和预告一起量，
+  展品和预告之间的空隙封顶 120，多出来的按余量最少的那张卡算，1:1 分给顶部和底部；对开在每个间距档
+  各量一遍引文，梯子先收间距、再把封面往下降（对开到 200，手机横屏到 88），整叠卡共用一个封面，
+  每张卡的封面顶边同位。代码：`MemoryCardFace.kt`（`rememberCardMetrics`）、`MemoriesSpread.kt`
+  （`rememberSpreadDeckFit`）、`MemoriesLayout.kt`（`balanceMedium`、`fitSpreadCover`）。
 - **让位梯子**，恢复时倒着走：
   1. 弹性余量（歌词窗口超出最少行数的部分、双栏的居中余量、一行歌词区多出的高度——行在区内居中）
   2. **下层间距**（封面以下：控件、标题、胶囊各自的余量）
