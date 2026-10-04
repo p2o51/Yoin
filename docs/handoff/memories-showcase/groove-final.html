@@ -1,0 +1,1015 @@
+<section class="gal-concept" id="groove-final">
+<style>
+#groove-final .gf-h3 { font: 650 19px/1.3 var(--font-sans); margin: 50px 0 6px; color: var(--page-ink); }
+#groove-final .gf-sub { font-size: 14.5px; color: var(--page-muted); margin: 0 0 18px; max-width: 820px; }
+#groove-final .gf-sub b { color: var(--page-ink); font-weight: 600; }
+#groove-final .gf-missing { padding: 14px 16px; border-radius: 14px; background: var(--page-card); border: 1px solid var(--page-rule); }
+#groove-final .gf-tag { font: 600 11.5px/1.35 var(--font-sans); color: var(--on-surface-var); text-align: center; }
+#groove-final .gf-btn[aria-pressed="true"] { background: var(--page-ink); color: var(--page); border-color: var(--page-ink); }
+#groove-final .gf-seg { display: inline-flex; border: 1px solid var(--page-rule); border-radius: 999px; padding: 2px; gap: 2px; background: var(--page-card); }
+#groove-final .gf-seg button { font: 600 13px/1 var(--font-sans); padding: 7px 12px; border-radius: 999px; border: 0; background: none; color: var(--page-ink); cursor: pointer; }
+#groove-final .gf-seg button[aria-pressed="true"] { background: var(--page-ink); color: var(--page); }
+#groove-final .gf-seg button:focus-visible, #groove-final .gf-pad:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+#groove-final .gf-cover { display: block; border-radius: 6px; }
+
+/* ---------- tilt ---------- */
+#groove-final .gf-tiltbar { display: flex; flex-wrap: wrap; gap: 18px 26px; align-items: center; margin: 0 0 22px; }
+#groove-final .gf-pad { position: relative; width: 112px; height: 112px; flex: none; border-radius: 50%; touch-action: none; cursor: grab;
+  background: var(--page-card); box-shadow: inset 0 0 0 1px var(--page-rule); }
+#groove-final .gf-pad:active { cursor: grabbing; }
+#groove-final .gf-pad svg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; color: var(--page-ink); }
+#groove-final .gf-tiltctl { display: grid; gap: 10px; min-width: 0; flex: 1 1 320px; max-width: 640px; }
+#groove-final .gf-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+#groove-final .gf-read { font: 500 13px/1.5 var(--font-sans); color: var(--page-muted); font-variant-numeric: tabular-nums; }
+#groove-final .gf-read b { color: var(--page-ink); font-weight: 600; }
+#groove-final .gf-tiltwrap { display: flex; flex-wrap: wrap; gap: 22px 28px; align-items: flex-start; }
+#groove-final .gf-big { display: flex; flex-wrap: wrap; gap: 16px; }
+#groove-final .gf-bcol { display: grid; gap: 16px; }
+#groove-final .gf-btile { width: 256px; max-width: 100%; border-radius: 26px; padding: 18px 16px 14px; display: grid; justify-items: center; gap: 10px;
+  background: var(--gf-wash, none), var(--bg); }
+#groove-final .gf-btile .gf-em { width: 220px; height: 220px; }
+#groove-final .gf-covs { display: grid; grid-template-columns: repeat(2, auto); gap: 16px; align-content: start; }
+@media (max-width: 520px) { #groove-final .gf-covs { grid-template-columns: minmax(0, auto); } }
+#groove-final .gf-ccell { border-radius: 22px; padding: 16px 16px 12px; background: var(--bg); display: grid; gap: 8px; justify-items: start; }
+#groove-final .gf-show { position: relative; flex: none; }
+#groove-final .gf-show .gf-art { position: absolute; left: 0; top: 0; border-radius: 6px; overflow: hidden; box-shadow: 0 16px 32px -16px rgba(20, 10, 40, .45); }
+#groove-final .gf-show .gf-pin { position: absolute; }
+#groove-final .gf-spec { margin-top: 24px; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 300px); gap: 14px 30px; max-width: 1180px; }
+#groove-final .gf-spec p { margin: 0; font-size: 14.5px; line-height: 1.65; }
+#groove-final .gf-spec em { font-style: normal; font-weight: 600; }
+#groove-final .gf-params { margin: 0; padding: 0; list-style: none; display: grid; gap: 6px; font-size: 13.5px; color: var(--page-muted); }
+#groove-final .gf-params b { color: var(--page-ink); font-weight: 600; font-variant-numeric: tabular-nums; }
+@media (max-width: 860px) { #groove-final .gf-spec { grid-template-columns: minmax(0, 1fr); } }
+
+/* ---------- award tiers ---------- */
+#groove-final .gf-labbar { display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: center; margin: 0 0 18px; }
+#groove-final .gf-labnote { font-size: 13px; color: var(--page-muted); }
+#groove-final .gf-tiers { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; }
+@media (max-width: 1180px) { #groove-final .gf-tiers { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 620px) { #groove-final .gf-tiers { grid-template-columns: minmax(0, 1fr); } }
+#groove-final .gf-tier { min-width: 0; border-radius: 26px; padding: 18px 16px 16px; display: grid; gap: 12px; align-content: start;
+  background: var(--gf-wash, none), var(--bg); color: var(--on-surface); }
+#groove-final .gf-thead { display: grid; gap: 2px; }
+#groove-final .gf-tno { font: 600 12px/1.3 var(--font-sans); color: var(--on-surface-var); font-variant-numeric: tabular-nums; }
+#groove-final .gf-tname { font: 700 22px/1.2 var(--font-sans); font-variation-settings: "ROND" 60; }
+#groove-final .gf-tname small { font: 500 13px/1 var(--font-sans); color: var(--on-surface-var); margin-left: 6px; }
+#groove-final .gf-tline { font-size: 13.5px; line-height: 1.5; color: var(--on-surface-var); min-height: 61px; }
+#groove-final .gf-stage { justify-self: center; width: 192px; height: 192px; position: relative; margin: 4px 0 2px; }
+#groove-final .gf-stage > .gf-zoom { position: absolute; left: 0; top: 0; width: 96px; height: 96px; transform: scale(2); transform-origin: 0 0; }
+#groove-final .gf-real { display: grid; gap: 8px; justify-items: start; }
+#groove-final .gf-real .gf-tag { text-align: left; }
+#groove-final .gf-hxwrap { color: var(--on-surface); padding-top: 4px; }
+#groove-final .gf-hxsum { font: 500 12px/1.4 var(--font-sans); color: var(--on-surface-var); font-variant-numeric: tabular-nums; margin-top: 2px; }
+#groove-final .gf-tier .gal-btn { justify-self: start; background: var(--surface); color: var(--on-surface); border-color: var(--outline-var); }
+#groove-final .gf-legend { display: flex; flex-wrap: wrap; gap: 8px 18px; margin: 16px 0 0; padding: 0; list-style: none; font-size: 12.5px; color: var(--page-muted); }
+#groove-final .gf-legend li { display: inline-flex; align-items: center; gap: 8px; }
+#groove-final .gf-legend .gf-g { position: relative; width: 20px; height: 16px; color: var(--page-ink); }
+#groove-final .gf-legend .gf-g > .ye-groove-hx-b { left: 10px; top: 8px; }
+#groove-final .gf-legend code { font: 600 12px/1 var(--font-sans); color: var(--page-ink); }
+#groove-final .gf-tablewrap { margin-top: 22px; overflow-x: auto; max-width: 100%; border: 1px solid var(--page-rule); border-radius: 16px; background: var(--page-card); }
+#groove-final table { border-collapse: collapse; width: 100%; min-width: 720px; font-size: 13.5px; }
+#groove-final th, #groove-final td { text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--page-rule); vertical-align: top; }
+#groove-final th { font: 600 12px/1.3 var(--font-sans); color: var(--page-muted); background: color-mix(in srgb, var(--page-card) 70%, var(--page)); }
+#groove-final tr:last-child td { border-bottom: 0; }
+#groove-final td.gf-ms { font-variant-numeric: tabular-nums; white-space: nowrap; width: 72px; }
+#groove-final td.gf-tier-cell { font-weight: 650; white-space: nowrap; }
+#groove-final td code { font: 600 12.5px/1.4 var(--font-sans); color: var(--page-ink); white-space: nowrap; }
+#groove-final td .gf-gl { position: relative; display: inline-block; width: 18px; height: 14px; vertical-align: -2px; margin-right: 6px; color: var(--page-ink); }
+#groove-final td .gf-gl > .ye-groove-hx-b { left: 9px; top: 7px; }
+#groove-final td.gf-fb { color: var(--page-muted); }
+#groove-final tr.gf-first td { border-top: 2px solid var(--page-rule); }
+#groove-final .gf-code { margin-top: 22px; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px 30px; max-width: 1180px; }
+@media (max-width: 960px) { #groove-final .gf-code { grid-template-columns: minmax(0, 1fr); } }
+#groove-final .gf-code p { margin: 0 0 8px; font-size: 14.5px; line-height: 1.65; }
+#groove-final .gf-code em { font-style: normal; font-weight: 600; }
+#groove-final pre { margin: 0; padding: 14px 16px; border-radius: 14px; background: var(--page-card); border: 1px solid var(--page-rule); overflow-x: auto;
+  font: 500 12.5px/1.6 var(--font-mono); color: var(--page-ink); white-space: pre; }
+
+/* ---------- cabinet ---------- */
+#groove-final .gf-cab { display: flex; flex-wrap: wrap; gap: 18px; }
+#groove-final .gf-cabcell { border-radius: 22px; padding: 16px 16px 12px; background: var(--gf-wash, none), var(--bg); display: grid; gap: 10px; justify-items: start; width: 230px; max-width: 100%; }
+#groove-final .gf-cabcell .gf-tag { text-align: left; font-size: 12.5px; }
+#groove-final .gf-cabcell .gf-tag b { display: block; color: var(--on-surface); font-size: 13px; }
+#groove-final .gf-cabcell button { font: 600 12.5px/1 var(--font-sans); padding: 7px 12px; border-radius: 999px; border: 1px solid var(--outline-var); background: var(--surface); color: var(--on-surface); cursor: pointer; }
+#groove-final .gf-cabcell button[disabled] { opacity: .5; cursor: default; }
+</style>
+
+<div class="gal-head">
+  <div>
+    <div class="gal-eyebrow">徽记 · 定稿</div>
+    <h2>唱片刻纹，定稿</h2>
+    <p class="gal-lede">你选了唱片刻纹。这一版按你的意见改了三处：光跟着手机的倾斜走；获得动画按分数分成四档，一档比一档隆重；每一档都配了触感，节拍落在动画的关键帧上。掐丝徽记不再做徽记，它的线条拿去做了单色图标，见下一节。</p>
+  </div>
+  <div class="gal-meta">
+    <div><b>定了什么</b> Memory 的徽记就是唱片刻纹：手机上 96dp 贴在封面右下角，短屏 72、平板 120、首页 44、日记顶栏 40。外形、三态（专辑分 / 曲目均分 / 未评）和配色规则都不变。</div>
+    <div><b>改了什么</b> 光泽改由倾斜驱动。获得动画分四档：6 分以下、6–8、8–10、10 分。每档一份触感计划，用 Android 的 Composition 原语，手机不支持时退回 Yoin 现有的 YoinHaptics。</div>
+    <div><b>网页里看不到的</b> 触感只有真机能感觉到。这里画出每一拍的时间轴；手机浏览器支持振动时会用 navigator.vibrate 粗略地震一下，但没有强度。</div>
+  </div>
+</div>
+<p class="gf-missing" hidden>没有加载唱片刻纹组件（emblems/groove.js），这一节无法显示。</p>
+
+<!-- ============ 1 · tilt light ============ -->
+<div class="gf-h3">光跟着倾斜走</div>
+<p class="gf-sub">光固定在屏幕坐标里，像一盏顶灯照着唱片。手机往哪边倾，光就往反方向滑：评过分的刻纹上那道蝴蝶结形的反光跟着转（最多约 ±32°），亮度在 0.6 到 1.0 之间变，光心最多偏 3.5%。专辑分的曲奇标签上还有一道斜向细光，跟着同一个倾斜滑动；曲目均分没有这道细光。未评的盘没有刻纹可亮，只有一层很淡的无色反光，所以它也会动，但不会变彩。</p>
+<div class="gf-tiltbar">
+  <div class="gf-pad" role="slider" tabindex="0" aria-label="Tilt" aria-valuetext="0, 0"><svg viewBox="-56 -56 112 112" aria-hidden="true"></svg></div>
+  <div class="gf-tiltctl">
+    <div class="gf-row">
+      <button type="button" class="gal-btn gf-btn gf-auto" aria-pressed="true">自动摆动</button>
+      <button type="button" class="gal-btn gf-sensor" hidden>允许读取陀螺仪</button>
+      <span class="gf-read gf-src"></span>
+    </div>
+    <div class="gf-read gf-num"></div>
+    <div class="gf-read gf-hint">拖左边的圆盘倾斜；鼠标在下面的标本上移动也会带动光。所有标本共用同一个倾斜源。</div>
+  </div>
+</div>
+<div class="gf-tiltwrap">
+  <div class="gf-big"></div>
+  <div class="gf-covs"></div>
+</div>
+<div class="gf-spec">
+  <p><em>Compose 怎么做。</em>用 SensorManager 注册 <em>TYPE_GAME_ROTATION_VECTOR</em>（陀螺仪和加速度计融合，不用磁力计，不受附近金属干扰，也不会慢慢转向北），采样率 SENSOR_DELAY_GAME。只在 Memory 卡真正可见时注册：Memories 已展开、这张卡是 pager 的当前页、Activity 处于 RESUMED，任何一条不满足就立刻注销。每个样本走 getRotationMatrixFromVector，按屏幕方向 remapCoordinateSystem，再 getOrientation 取俯仰和横滚。减去一条 τ = 1.6 s 的低通基线，握持姿势会自动归零，只留下“比刚才多倾了多少”；±18° 映射到 ±1，再限幅到单位圆。结果写进一个 Animatable，用 spring(dampingRatio = 0.9f, stiffness = 90f) 跟随，顺便滤掉手抖。光泽层画在 drawWithCache 里，只在 onDrawWithContent 读这个 State 再 rotate，所以倾斜只触发重绘，不触发重组。系统关闭动画，或 LocalMotionProfile 为 AdaptiveReduced（省电模式、低内存设备）时不注册传感器，光固定在 −128°。耗电很小：融合在传感器 hub 里完成，注册时长只覆盖用户看卡的那几十秒，不持有 wake lock，熄屏或切到后台都会注销。翻页时光不再跟页偏移走，倾斜是光的唯一输入，免得两套位移叠在一起。</p>
+  <ul class="gf-params">
+    <li><b>静止光角</b> −128°（左上方）</li>
+    <li><b>倾斜映射</b> 相对基线 ±18° → ±1，限幅单位圆</li>
+    <li><b>基线低通</b> τ = 1.6 s</li>
+    <li><b>跟随弹簧</b> dampingRatio 0.9 · stiffness 90</li>
+    <li><b>光角偏转</b> 最多约 ±32°</li>
+    <li><b>亮度</b> 0.6 – 1.0，静止 0.8</li>
+    <li><b>光心偏移</b> 尺寸的 3.5%</li>
+    <li><b>曲奇细光</b> 只给专辑分，偏移 0.55 × 标签半径</li>
+  </ul>
+</div>
+
+<!-- ============ 2 · award tiers ============ -->
+<div class="gf-h3">获得动画分四档</div>
+<p class="gf-sub">四个样例是同一张专辑（m1 的配色，10 首里评了前 5 首），只改分数，所以差别只来自档位。每升一档多一个动作、多几拍触感；最长的 10 分也不超过 1.6 秒。所有运动都来自弹簧，闪光的淡出是指数衰减，不用线性补间。<b>未评没有获得动画。</b>减弱动效时直接显示终态，触感只保留这一档最重的那一拍。</p>
+<div class="gf-labbar">
+  <button type="button" class="gal-btn gf-all">全部播放</button>
+  <span class="gf-seg" role="group" aria-label="评分类型"><button type="button" data-kind="album" aria-pressed="true">专辑分</button><button type="button" data-kind="average" aria-pressed="false">曲目均分</button></span>
+  <span class="gf-seg" role="group" aria-label="配色"><button type="button" data-th="light" aria-pressed="true">浅色</button><button type="button" data-th="dark" aria-pressed="false">深色</button></span>
+  <span class="gf-labnote gf-vib"></span>
+</div>
+<div class="gf-tiers"></div>
+<ul class="gf-legend"></ul>
+<div class="gf-tablewrap"><table><thead><tr><th>档位</th><th>时刻</th><th>画面上发生的事</th><th>Composition 原语 × 强度</th><th>不支持时（YoinHaptics）</th></tr></thead><tbody class="gf-tbody"></tbody></table></div>
+<div class="gf-code">
+  <div>
+    <p><em>节拍从哪来。</em>每一拍都是在动画用的同一条弹簧曲线上找出来的：落定那一帧、盘面回到 12 点、回摆的顶点、标签压到最低、每一圈亮到最亮、外圈闪到最亮。改弹簧常数，节拍跟着变，不用手对时间。两拍间隔小于 45 ms 会糊成一下，只留强的那一拍。</p>
+    <p><em>和评分提交的关系。</em>提交评分本身已经有一下 click。获得动画在提交后 120 ms 开始，第一拍不会和它粘在一起。振动用 USAGE_TOUCH，用户在系统里关掉触摸振动时自动静音。</p>
+    <p><em>回退。</em>Composition 原语要 API 30（LOW_TICK、THUD、SPIN 要 31），而且要先问 areAllPrimitivesSupported。不支持时按同样的时刻调用 YoinHaptics；没有对应常量的拍（QUICK_RISE）直接跳过，满分的逐圈 tick 只留第一下，因为 View 级触感连发会糊成一片。</p>
+  </div>
+<pre>// beats：和动画同一组弹簧常数算出来的 (atMs, id, scale)
+val ids = beats.map { it.id }.toIntArray()
+val v = vibrator
+if (SDK_INT >= 31 &amp;&amp; v.areAllPrimitivesSupported(*ids)) {
+    val dur = v.getPrimitiveDurations(*ids)
+    val c = VibrationEffect.startComposition()
+    var cursor = 0
+    beats.forEachIndexed { i, b -&gt;
+        // delay 从上一拍结束算起
+        val wait = (b.atMs - cursor).coerceAtLeast(0)
+        c.addPrimitive(b.id, b.scale, wait)
+        cursor = maxOf(cursor, b.atMs) + dur[i]
+    }
+    // 和动画同一帧启动；USAGE_TOUCH
+    v.vibrate(c.compose(), touchAttrs)
+} else beats.forEach { b -&gt;
+    scope.launch {
+        delay(b.atMs.toLong())
+        b.fallback?.invoke(haptics)
+    }
+}</pre>
+</div>
+
+<!-- ============ 3 · in the cabinet ============ -->
+<div class="gf-h3">在展示柜里</div>
+<p class="gf-sub">上面的展示柜原型（“在真实流程里换徽记”）现在默认就是唱片刻纹，其他徽记仍可切换。“播放获得动画”按当前这张卡的分数走对应档位，同时在按钮下面画出这一次的触感时间轴；鼠标移到手机上，光也会跟着动。四张样例卡分别落在下面这几档，点“播放”可以在这里直接看。</p>
+<div class="gf-cab"></div>
+
+<div class="gal-notes">
+  <div><h4>光为什么往反方向走</h4><p>顶灯不动，唱片朝右倾，灯在唱片上的倒影就往左滑。照这个物理关系做，手感才像真东西；反过来做会像光“粘”在手指上。</p></div>
+  <div><h4>分寸</h4><p>偏转封顶约 32°，亮度只在 0.6–1.0 之间。光要像一直在那里，而不是一个会跳的特效。静止时和原来那张定稿图完全一样。</p></div>
+  <div><h4>档位怎么定</h4><p>按显示出来的一位小数算：5.95 显示 6.0，就走第 2 档。专辑分和曲目均分用同一套档位，专辑分的标签压得更重一些（幅度 1 对 0.7）。</p></div>
+  <div><h4>没验证的</h4><p>真机上的震感强弱、各原语的实际时长（Pixel 和其他品牌差别很大）、传感器在平板横屏下的坐标换算，都需要上 Pixel Tablet 再调。</p></div>
+</div>
+
+<script>
+/* inline copy of emblems/groove.js (version-guarded: a registered copy of the same or newer version wins) */
+(function () {
+  /* 唱片刻纹 · Groove — the chosen Memory emblem (owner, 2026-10-03), the 96dp award pinned to the cover.
+     One ring per track (outer = track 1, merged into ≤ N rings when small). Only rated tracks are CUT (solid,
+     flat palette colour); unrated tracks stay a dotted pre-cut lattice. The centre label carries the score:
+     album = filled Cookie12Sided (most ceremonious), average = outlined circle on a paler disc,
+     unrated = a dashed Cookie12Sided "empty mould" on a neutral lattice.
+
+     v3 (owner review): tilt, four award tiers by score (t1 < 6 · t2 6–8 · t3 8–10 · t4 = 10.0), hapticPlan(m) as
+     VibrationEffect.Composition primitives found on the same spring curves that drive the picture.
+
+     v4 (owner review, 2026-10-04): flat Material, nothing glossy.
+     · No sheen, no specular wedge, no label glint, no glow halos, no drop shadow, no gradients. Every fill and stroke
+       is one flat colour.
+     · Tilt is read as COLOUR, not light: the outer ring lines (the rim, and the cut runs of the two outer rings) are
+       split into 15° segments with two flat overlays (a lighter tone shifted toward the accent, and a deeper tone);
+       their opacity follows the cosine of the segment's angle to the tilt direction. setTilt also writes
+       --ye-groove-ta (direction) and --ye-groove-tm (size, 0 at rest); the overlay pair turns to ta and fades by tm.
+       At rest nothing shows; tilted, the side the device leans toward warms and lightens, the far side deepens.
+       setTilt / tiltVars / tiltDriver keep their API (tiltVars returns ta / tm too).
+     · Award tiers keep their springs and beats; the light effects became flat colour: rings change to a lit colour
+       (t2 all cuts together at the overshoot, t3 the rated rings one by one, t4 every ring outer → inner), and the
+       10.0 moment is a flat accent pulse on the rim plus one thin ring released from it (no blend modes, no halo).
+     · No note beads on the disc (the owner read them as noise); notes live in the diary.
+     Inline copies of this file are allowed: an equal or newer registered version wins. */
+  const KEY = 'groove', VERSION = 4;
+  window.YS_EMBLEM = window.YS_EMBLEM || {};
+  const prev = window.YS_EMBLEM[KEY];
+  if (prev && (prev.version || 0) >= VERSION) return;
+
+  const PHI = -128;                       // resting light direction (deg, 0 = 3 o'clock, clockwise), screen space
+  const DEG = Math.PI / 180;
+  const WHITE = '#ffffff', BG_D = '#141218', SURF_D = '#1d1b20';
+  const N_L = '#7b7581', N_D = '#958e99'; // --outline tokens (light / dark)
+  const LI_REST = .8;                     // tilt intensity variable at rest (kept for setTilt's API; v4 draws nothing from it)
+  const TINT_SEG = 24;                    // tilt colour: 15° flat segments on the outer ring lines
+  const rgb = h => { h = h.replace('#', ''); return [0, 2, 4].map(i => parseInt(h.substr(i, 2), 16)); };
+  const hex = c => '#' + c.map(v => Math.round(Math.max(0, Math.min(255, v))).toString(16).padStart(2, '0')).join('');
+  const mix = (a, b, t) => { const A = rgb(a), B = rgb(b); return hex(A.map((v, i) => v + (B[i] - v) * t)); };
+  const rgba = (h, a) => { const c = rgb(h); return `rgba(${c[0]},${c[1]},${c[2]},${a})`; };
+  const f = v => (+v).toFixed(2);
+  const kindOf = m => m.scoreKind === 'album' ? 'album' : m.scoreKind === 'average' ? 'average' : 'none';
+  const scoreTxt = m => m.score == null ? '' : m.score.toFixed(1);
+  const reduced = () => (window.YS && YS.reducedMotion) ? YS.reducedMotion() : matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  const CSS = `
+.ye-groove-root{position:relative;flex:none;display:block}
+.ye-groove-root>svg.ye-groove-disc{position:absolute;inset:0;width:100%;height:100%;overflow:visible}
+.ye-groove-label{position:absolute;display:flex;flex-direction:column;align-items:center;justify-content:center;transform-origin:50% 50%}
+.ye-groove-label>svg{position:absolute;inset:0;width:100%;height:100%;overflow:visible;transform-origin:50% 50%}
+.ye-groove-score{position:relative;font-family:var(--font-sans);line-height:1;letter-spacing:0;white-space:nowrap}
+.ye-groove-cap{position:relative;font-family:var(--font-sans);font-weight:600;line-height:1;letter-spacing:0;white-space:nowrap}
+.ye-groove-ripple{transform-box:fill-box;transform-origin:center;opacity:0;animation:ye-groove-ripple 4.8s cubic-bezier(.16,.8,.3,1) infinite}
+@keyframes ye-groove-ripple{0%{opacity:0;transform:scale(1)}8%{opacity:.5}62%,100%{opacity:0;transform:scale(1.3)}}
+@media (prefers-reduced-motion: reduce){.ye-groove-ripple{animation:none;opacity:0}}
+.ye-groove-hx{position:relative;height:40px;min-width:0;font-family:var(--font-sans)}
+.ye-groove-hx-axis{position:absolute;left:0;right:0;top:15px;height:2px;border-radius:1px;background:currentColor;opacity:.18}
+.ye-groove-hx-span{position:absolute;left:0;top:15px;height:2px;border-radius:1px;background:currentColor;opacity:.42}
+.ye-groove-hx-t{position:absolute;top:27px;font:500 10.5px/1 var(--font-sans);opacity:.6;transform:translateX(-50%);white-space:nowrap;font-variant-numeric:tabular-nums}
+.ye-groove-hx-t:first-of-type{transform:none}
+.ye-groove-hx-b{position:absolute;top:16px;width:0;height:0;line-height:0}
+.ye-groove-hx-b>svg{position:absolute;overflow:visible;transform-origin:50% 50%}
+.ye-groove-hx-b.on{color:var(--primary)}
+.ye-groove-hx-head{position:absolute;top:3px;left:0;width:2px;height:26px;margin-left:-1px;border-radius:1px;background:var(--primary);opacity:0;pointer-events:none}
+.ye-groove-hx-dot{position:absolute;right:0;top:-2px;width:9px;height:9px;border-radius:50%;background:var(--primary);opacity:0}`;
+  let st = document.getElementById('ye-groove-style');
+  if (!st) { st = document.createElement('style'); st.id = 'ye-groove-style'; document.head.appendChild(st); }
+  st.textContent = CSS;
+
+  /* ---------- colour: direct palette lerp, never hue-rotated; every value is one flat colour ----------
+     v4: the old two-stop values (disc0/1, cutA/B, lab0/1) are folded to one flat colour each, at the mid point the
+     gradient used to show, so the drawings keep their tone without any gradient. hi / lo are the tilt colours of the
+     outer ring lines: hi leans toward the accent (and lighter), lo toward the deep tone. lit = a ring lit by the award. */
+  function colours(m, kind, dark, on) {
+    const p = m.palette, N = dark ? N_D : N_L;
+    let c;
+    if (kind === 'album') c = dark ? {
+      disc: mix(mix(p.base, BG_D, .34), mix(p.base, p.soft, .06), .6),
+      cut: mix(mix(p.soft, p.base, .12), mix(p.accent, p.soft, .15), .4), under: rgba(p.soft, .16),
+      dot: rgba(p.soft, .46), rim: p.accent, rim2: rgba(p.accent, .5),
+      lab: mix(mix(p.base, p.soft, .66), mix(p.base, p.soft, .42), .5), labRing: mix(p.deep, p.base, .3),
+      ink: p.deep, cap: mix(p.deep, p.base, .35),
+      hiT: mix(p.accent, WHITE, .45), loT: mix(p.base, BG_D, .25), lit: mix(p.accent, WHITE, .3), flare: mix(p.accent, WHITE, .15)
+    } : {
+      disc: mix(mix(p.soft, WHITE, .62), mix(p.soft, p.base, .06), .6),
+      cut: mix(mix(p.base, p.deep, .2), mix(p.base, p.accent, .32), .4), under: rgba(p.base, .1),
+      dot: rgba(p.base, .42), rim: p.base, rim2: mix(p.accent, p.base, .25),
+      lab: mix(mix(p.base, WHITE, .14), mix(p.base, p.deep, .3), .5), labRing: p.accent,
+      ink: mix(p.soft, WHITE, .72), cap: mix(p.soft, WHITE, .35),
+      hiT: p.accent, loT: p.deep, lit: p.accent, flare: mix(p.accent, p.base, .1)
+    };
+    else if (kind === 'average') c = dark ? {
+      disc: mix(mix(p.deep, SURF_D, .45), mix(p.deep, SURF_D, .25), .6),
+      cut: mix(mix(p.base, p.soft, .45), mix(p.soft, p.accent, .4), .4), under: rgba(p.soft, .08),
+      dot: rgba(p.soft, .42), rim: mix(p.base, p.soft, .5),
+      labFill: mix(p.deep, SURF_D, .15), labStroke: mix(p.base, p.soft, .6),
+      ink: mix(p.soft, WHITE, .5), cap: rgba(p.soft, .82),
+      hiT: mix(p.accent, WHITE, .45), loT: mix(p.deep, SURF_D, .2), lit: mix(p.accent, WHITE, .3), flare: mix(p.accent, WHITE, .15)
+    } : {
+      disc: mix(mix(p.soft, WHITE, .82), mix(p.soft, WHITE, .6), .6),
+      cut: mix(mix(p.base, p.soft, .08), mix(p.base, p.accent, .34), .4), under: rgba(p.base, .06),
+      dot: rgba(p.base, .38), rim: p.base,
+      labFill: mix(p.soft, WHITE, .4), labStroke: p.base,
+      ink: p.deep, cap: rgba(p.deep, .74),
+      hiT: p.accent, loT: p.deep, lit: p.accent, flare: mix(p.accent, p.base, .1)
+    };
+    else {
+      // not rated: neutral tokens only — the album's colour is earned, not given. Its tilt colour is neutral too
+      // (the hairline on a cover lightens / deepens a little), so the blank disc still answers the tilt.
+      c = {
+        disc: on === 'cover' ? 'var(--surface)' : 'none',
+        dot: rgba(N, dark ? .82 : .6), slot: N, slotFill: rgba(N, dark ? .14 : .08), ground: rgba(N, dark ? .1 : .06),
+        ink: 'var(--on-surface-var)', hair: rgba(N, dark ? .7 : .45), hairS: N,
+        hiT: dark ? '#e6e0e9' : '#ffffff', loT: dark ? '#49454f' : '#1d1b20'
+      };
+    }
+    // the tilt tones of one base colour: half way to the accent-ward / deep-ward target, flat
+    c.tint = base => ({ hi: mix(base, c.hiT, .55), lo: mix(base, c.loT, .5) });
+    return c;
+  }
+
+  /* ---------- geometry (CSS px == dp, viewBox = size) ---------- */
+  function geom(m, s, kind, on) {
+    const r = s / 2, tiny = s < 60, big = s >= 110;
+    const rimR = r - (on === 'bar' ? .5 : 1);
+    // label outer radius; the unrated mould holds a word, not a score, so it opens a little wider below 88
+    const L = s * (tiny ? .345 : big ? .3 : .305) * (kind === 'none' && s >= 60 && s < 88 ? 1.07 : 1);
+    // rim → lead-in (plain vinyl) → grooves → run-out → label
+    const rimW = kind === 'album' ? Math.max(1.1, s * .019) : kind === 'average' ? Math.max(.9, s * .012) : 0;
+    const rim2At = rimW + Math.max(.9, s * .011);                  // album's inner accent hairline (≥ 64 only)
+    const leadIn = tiny ? .9 : Math.max(1.4, s * .016);
+    const gOut = rimR - (kind === 'album' && !tiny ? rim2At + .4 : rimW) - leadIn;
+    const gIn = L + Math.max(1.2, s * .017);
+    const band = gOut - gIn;
+    const cap = big ? 12 : s >= 88 ? 8 : s >= 64 ? 6 : 3;          // ring budget per size
+    const minPitch = tiny ? 1.3 : 1.72;
+    const n = m.tracks.length;
+    const R = Math.max(1, Math.min(cap, n, Math.floor(band / minPitch)));
+    const pitch = band / R;
+    const rings = [];
+    for (let i = 0; i < R; i++) {
+      const a = Math.round(i * n / R), b = Math.round((i + 1) * n / R);
+      rings.push({ i, a, b, tracks: m.tracks.slice(a, b), rad: gOut - pitch * (i + .5) });
+    }
+    const dw = Math.min(pitch * .58, tiny ? 1 : 1.2);              // dot diameter
+    const sw = Math.min(pitch * .64, dw + .25);                    // cut line width
+    return { r, s, tiny, big, rimR, L, gOut, gIn, pitch, rings, dw, sw, rimW, rim2At };
+  }
+
+  const pt = (cx, cy, rad, deg) => [cx + rad * Math.cos(deg * DEG), cy + rad * Math.sin(deg * DEG)];
+  function arcPath(c, rad, a0, a1) {           // clockwise from a0 to a1 (deg)
+    if (a1 - a0 >= 359.99) {
+      const [x0, y0] = pt(c, c, rad, -90), [x1, y1] = pt(c, c, rad, 90);
+      return `M${f(x0)} ${f(y0)}A${f(rad)} ${f(rad)} 0 1 1 ${f(x1)} ${f(y1)}A${f(rad)} ${f(rad)} 0 1 1 ${f(x0)} ${f(y0)}`;
+    }
+    const [x0, y0] = pt(c, c, rad, a0), [x1, y1] = pt(c, c, rad, a1);
+    return `M${f(x0)} ${f(y0)}A${f(rad)} ${f(rad)} 0 ${a1 - a0 > 180 ? 1 : 0} 1 ${f(x1)} ${f(y1)}`;
+  }
+  /** runs of rated tracks inside one ring (each track gets an equal angular share, starting at 12 o'clock) */
+  function cutRuns(ring) {
+    const len = ring.tracks.length, runs = [];
+    let start = -1;
+    for (let j = 0; j <= len; j++) {
+      const rated = j < len && ring.tracks[j].rating != null;
+      if (rated && start < 0) start = j;
+      if (!rated && start >= 0) { runs.push([-90 + start / len * 360, -90 + j / len * 360]); start = -1; }
+    }
+    return runs;
+  }
+  /** what the award needs to know about a rendered emblem (same order as render: k counts cuts ring by ring) */
+  function layout(m, s) {
+    const kind = kindOf(m), g = geom(m, s, kind, 'cover'), cuts = [];
+    if (kind !== 'none') g.rings.forEach(ring => cutRuns(ring).forEach(() => cuts.push({ k: cuts.length, ring: ring.i })));
+    const ratedRings = [...new Set(cuts.map(c => c.ring))].sort((a, b) => a - b);
+    return { kind, s, nRings: g.rings.length, cuts, ratedRings, tiny: g.tiny };
+  }
+
+  /* tilt colour: a ring line split into 15° flat segments. The hi overlay's segments carry a fixed opacity profile
+     max(0, cos θ) (pointing at 3 o'clock), the lo overlay max(0, −cos θ); the pair is turned to the tilt direction
+     (--ye-groove-ta) and faded by the tilt's size (--ye-groove-tm). Plain variables only: per-path calc(max()) opacities
+     made Chrome drop whole drawings while the award animated. mask: the cut runs a groove ring's tint is limited to. */
+  function tintRing(c, cx, rad, width, base, w, maskId) {
+    const T = c.tint(base), step = 360 / TINT_SEG;
+    let hi = '', lo = '';
+    for (let a = -90; a < 270 - .01; a += step) {
+      const mid = (a + step / 2) * DEG, k = Math.cos(mid), d = arcPath(cx, rad, a, a + step);
+      if (k > .02) hi += `<path d="${d}" stroke="${T.hi}" stroke-opacity="${f(k * w)}"/>`;
+      if (k < -.02) lo += `<path d="${d}" stroke="${T.lo}" stroke-opacity="${f(-k * w)}"/>`;
+    }
+    const g = `<g style="transform-origin:${f(cx)}px ${f(cx)}px;transform:rotate(var(--ye-groove-ta, 0deg));opacity:var(--ye-groove-tm, 0)">${hi}${lo}</g>`;
+    return `<g class="ye-groove-tint" fill="none" stroke-width="${f(width)}" stroke-linecap="butt"${maskId ? ` mask="url(#${maskId})"` : ''}>${g}</g>`;
+  }
+
+  function render(m, o) {
+    const s = o.size, dark = !!o.dark, on = o.on || 'surface', uid = o.uid || ('ygr' + Math.random().toString(36).slice(2, 8));
+    const kind = kindOf(m), g = geom(m, s, kind, on), c = colours(m, kind, dark, on), r = g.r;
+    const none = kind === 'none';
+    let svg = '';
+    const defs = [];
+
+    // 1 · ground: opaque on a cover so the silhouette separates from any artwork (flat, no shadow)
+    svg += `<circle cx="${f(r)}" cy="${f(r)}" r="${f(g.rimR)}" style="fill:${none ? (c.disc !== 'none' ? c.disc : c.ground) : c.disc}"/>`;
+
+    // 2 · disc space (rotates in the award)
+    let spin = '';
+    // 2a · dotted pre-cut lattice under every ring (cut lines cover it where a track is rated)
+    g.rings.forEach((ring, i) => {
+      const C = 2 * Math.PI * ring.rad, gapT = Math.max(g.tiny ? 2.3 : 2.6, g.dw * 2.3), cnt = Math.max(6, Math.round(C / gapT)), gap = C / cnt;
+      const da = `stroke-width="${f(g.dw)}" stroke-linecap="round" stroke-dasharray="0 ${f(gap)}" stroke-dashoffset="${f(i % 2 ? gap / 2 : 0)}"`;
+      spin += `<circle cx="${f(r)}" cy="${f(r)}" r="${f(ring.rad)}" fill="none" stroke="${none && g.tiny ? rgba(dark ? N_D : N_L, dark ? .95 : .8) : c.dot}" ${da}/>`;
+    });
+    // 2b · cut (rated) grooves, their tilt colour (outer two rings) and the award's flat "lit" layers
+    if (!none) {
+      let k = 0, cuts = '', under = '', tints = '', lits = '';
+      g.rings.forEach(ring => {
+        const runs = cutRuns(ring);
+        runs.forEach(([a0, a1]) => {
+          const d = arcPath(r, ring.rad, a0, a1);
+          under += `<path d="${d}" fill="none" stroke="${c.under}" stroke-width="${f(g.pitch + .05)}"/>`;
+          cuts += `<path class="ye-groove-cut" data-k="${k}" data-ring="${ring.i}" d="${d}" pathLength="1" fill="none" stroke="${c.cut}" stroke-width="${f(g.sw)}" stroke-linecap="butt"/>`;
+          // award: the cut changes to the lit colour (same width, flat; no halo)
+          if (!g.tiny) lits += `<path class="ye-groove-glow" data-k="${k}" data-ring="${ring.i}" d="${d}" opacity="0" fill="none" stroke="${c.lit}" stroke-width="${f(g.sw)}" stroke-linecap="butt"/>`;
+          k++;
+        });
+        if (runs.length && ring.i < 2) {
+          const mid = `${uid}-t${ring.i}`;
+          defs.push(`<mask id="${mid}" maskUnits="userSpaceOnUse" x="0" y="0" width="${f(s)}" height="${f(s)}">${runs.map(([a0, a1]) => `<path d="${arcPath(r, ring.rad, a0, a1)}" fill="none" stroke="#fff" stroke-width="${f(g.sw + .3)}"/>`).join('')}</mask>`);
+          tints += tintRing(c, r, ring.rad, g.sw, c.cut, ring.i ? .55 : .85, mid);
+        }
+      });
+      // every ring, cut or not, can light as a whole (the 10.0 moment lights them all in sequence): a flat ring
+      if (!g.tiny) g.rings.forEach(ring => { lits += `<circle class="ye-groove-rglow" data-ring="${ring.i}" cx="${f(r)}" cy="${f(r)}" r="${f(ring.rad)}" opacity="0" fill="none" stroke="${c.lit}" stroke-width="${f(g.sw)}"/>`; });
+      spin = under + spin + cuts + tints + lits;
+    }
+    svg += `<g class="ye-groove-spin" style="transform-origin:${f(r)}px ${f(r)}px">${spin}</g>`;
+
+    // 3 · rim: album = accent double rim, average = single palette rim, unrated = hairline only on a cover.
+    //     The rim is the outermost ring line, so it answers the tilt most (w 1).
+    if (kind === 'album') {
+      svg += `<circle cx="${f(r)}" cy="${f(r)}" r="${f(g.rimR - g.rimW / 2)}" fill="none" stroke="${c.rim}" stroke-width="${f(g.rimW)}"/>`;
+      svg += tintRing(c, r, g.rimR - g.rimW / 2, g.rimW, c.rim, 1);
+      if (!g.tiny) svg += `<circle cx="${f(r)}" cy="${f(r)}" r="${f(g.rimR - g.rim2At)}" fill="none" stroke="${c.rim2}" stroke-width="${f(Math.max(.75, s * .008))}"/>`;
+    } else if (kind === 'average') {
+      svg += `<circle cx="${f(r)}" cy="${f(r)}" r="${f(g.rimR - g.rimW / 2)}" fill="none" stroke="${c.rim}" stroke-width="${f(g.rimW)}"/>`;
+      svg += tintRing(c, r, g.rimR - g.rimW / 2, g.rimW, c.rim, 1);
+    } else if (on === 'cover') {
+      svg += `<circle cx="${f(r)}" cy="${f(r)}" r="${f(g.rimR - .4)}" fill="none" stroke="${c.hair}" stroke-width=".8"/>`;
+      if (!g.tiny) svg += tintRing(c, r, g.rimR - .4, .8, c.hairS, .6);
+    }
+    // 3b · the 10.0 moment: the rim pulses in flat accent, one thin ring leaves the rim (award only, hidden at rest)
+    if (!none && !g.tiny) {
+      const fw = Math.max(1.6, s * .026);
+      const fr = g.rimR - fw / 2;
+      svg += `<circle class="ye-groove-flare" cx="${f(r)}" cy="${f(r)}" r="${f(fr)}" opacity="0" fill="none" stroke="${c.flare}" stroke-width="${f(fw)}"/>` +
+        `<circle class="ye-groove-burst" cx="${f(r)}" cy="${f(r)}" r="${f(g.rimR)}" fill="none" stroke="${c.flare}" stroke-width="${f(Math.max(1, s * .014))}" opacity="0" style="transform-origin:${f(r)}px ${f(r)}px"/>`;
+    }
+
+    const disc = `<svg class="ye-groove-disc" viewBox="0 0 ${f(s)} ${f(s)}" aria-hidden="true">${defs.length ? `<defs>${defs.join('')}</defs>` : ''}${svg}</svg>`;
+
+    // 4 · centre label (flat fills)
+    const L = g.L, D = 2 * L;
+    let shape = '';
+    if (kind === 'album') {
+      const cp = YS.cookiePath(L, L, L, 12, g.tiny ? .92 : .9, 240);
+      shape = `<path d="${cp}" fill="${c.lab}"/>` +
+        (g.big ? `<path d="${YS.cookiePath(L, L, L * .94, 12, .9, 240)}" fill="none" stroke="${c.labRing}" stroke-width="${f(s * .007)}" stroke-opacity=".9"/>` : '');
+    } else if (kind === 'average') {
+      const w = Math.max(1.2, s * .017);
+      shape = `<circle cx="${f(L)}" cy="${f(L)}" r="${f(L - w / 2)}" fill="${c.labFill}" stroke="${c.labStroke}" stroke-width="${f(w)}"/>`;
+    } else {
+      const w = g.tiny ? 1.4 : Math.max(1.1, s * .013), cp = YS.cookiePath(L, L, L - w / 2, 12, .9, 240);
+      const per = 2 * Math.PI * L * .95 / 24;      // 24 dashes around the mould → two per lobe
+      shape = `<path d="${cp}" fill="${c.slotFill}" stroke="${c.slot}" stroke-width="${f(w)}" stroke-dasharray="${f(per * .55)} ${f(per * .45)}" stroke-linecap="round"/>` +
+        (s >= 64 && on !== 'bar' ? `<path class="ye-groove-ripple" d="${cp}" fill="none" stroke="${c.slot}" stroke-width="${f(w * .7)}"/>` : '') +
+        (s < 64 ? `<circle cx="${f(L)}" cy="${f(L)}" r="${f(Math.max(1.6, s * .045))}" fill="${c.slot}" fill-opacity=".85"/>` : '');   // spindle hole: an empty pressing
+    }
+    let txt = '';
+    if (!none) {
+      const t = scoreTxt(m), four = t.length >= 4;
+      const F = g.big ? s * .27 : s >= 64 ? Math.max(s * .29, 21.5) : Math.max(15.5, s * .36);
+      const showCap = s >= 88;
+      const capF = Math.max(10, s * (g.big ? .1 : .105));
+      const wght = kind === 'album' ? 690 : 640;
+      txt = `<span class="ye-groove-score" style="font-size:${f(F)}px;font-weight:${wght};color:${c.ink};font-variation-settings:'wdth' ${four ? 76 : 92},'ROND' 50;${showCap ? `margin-top:${f(F * .06)}px` : `transform:translateY(${f(F * .02)}px)`}">${t}</span>` +
+        (showCap ? `<span class="ye-groove-cap" style="font-size:${f(capF)}px;margin-top:${f(s * .012)}px;color:${c.cap}">${kind === 'album' ? 'Album' : 'Avg.'}</span>` : '');
+    } else if (s >= 64) {
+      txt = `<span class="ye-groove-cap" style="font-size:${f(s < 88 ? 9.5 : Math.max(10, s * .125))}px;color:${c.ink};font-variation-settings:'wdth' ${s < 88 ? 76 : 92}">Unrated</span>`;
+    }
+    const label = `<div class="ye-groove-label" style="left:${f(r - L)}px;top:${f(r - L)}px;width:${f(D)}px;height:${f(D)}px"><svg viewBox="0 0 ${f(D)} ${f(D)}" aria-hidden="true">${shape}</svg>${txt}</div>`;
+
+    const aria = none ? `${m.album}: not rated` : `${m.album}: ${kind === 'album' ? 'album rating' : 'track average'} ${scoreTxt(m)}`;
+    return `<div class="ye-groove-root" data-kind="${kind}" data-size="${f(s)}" data-tier="${tierOf(m)}" style="width:${f(s)}px;height:${f(s)}px" role="img" aria-label="${aria.replace(/"/g, '&quot;')}">${disc}${label}</div>`;
+  }
+
+  /* ---------- tilt light ---------- */
+  /** x, y in −1 … 1: the direction the device leans toward, in screen axes (+x right, +y down). Capped to the unit disc.
+   *  v4 draws only from tx / ty (the outer ring lines' flat tilt colours, see tintRing). rot and li are still written
+   *  (an angle swung by up to ~±32° around PHI, and an intensity 0.6 … 1.0) so older readers of these variables keep working. */
+  function tiltVars(x, y) {
+    x = +x || 0; y = +y || 0;
+    const mg = Math.hypot(x, y); if (mg > 1) { x /= mg; y /= mg; }
+    const ux = Math.cos(PHI * DEG), uy = Math.sin(PHI * DEG), A = .53;   // asin(.53) ≈ 32° at most
+    let d = Math.atan2(uy + A * y, ux + A * x) / DEG - PHI;
+    d = ((d + 540) % 360) - 180;
+    return { rot: d, tx: x, ty: y, li: LI_REST + .2 * (x * ux + y * uy), ta: Math.atan2(y, x) / DEG, tm: Math.min(1, Math.hypot(x, y)) };
+  }
+  function setTilt(el, x, y) {
+    if (!el || !el.style) return;
+    const v = tiltVars(x, y);
+    el.style.setProperty('--ye-groove-rot', v.rot.toFixed(2) + 'deg');
+    el.style.setProperty('--ye-groove-tx', v.tx.toFixed(4));
+    el.style.setProperty('--ye-groove-ty', v.ty.toFixed(4));
+    el.style.setProperty('--ye-groove-li', v.li.toFixed(4));
+    el.style.setProperty('--ye-groove-ta', v.ta.toFixed(2) + 'deg');   // v4: the tilt colour's direction and size
+    el.style.setProperty('--ye-groove-tm', v.tm.toFixed(4));
+  }
+  /** One controller for the tilt: pointer (hover / drag) > device orientation > auto sway > rest, smoothed by one
+   *  spring (dampingRatio .9, stiffness 90). Runs only while `target` is on screen; off under reduced motion. */
+  function tiltDriver(target, opt = {}) {
+    const S = { x: 0, y: 0, vx: 0, vy: 0, src: 'rest', auto: !!opt.auto, ptr: null, sensor: null, sensorAt: -1e9, base: null,
+      sensorOk: false, alive: true, visible: true, raf: 0, last: 0, t0: performance.now(), reduced: reduced() };
+    const K = 90, C = 2 * .9 * Math.sqrt(K);
+    const offs = [];
+    const on = (node, ev, fn, o) => { try { node.addEventListener(ev, fn, o); offs.push(() => node.removeEventListener(ev, fn, o)); } catch (e) { /* ignore */ } };
+    const emit = () => { setTilt(target, S.x, S.y); if (opt.onUpdate) { try { opt.onUpdate(S); } catch (e) { /* ignore */ } } };
+    const api = { state: S, reduced: S.reduced, setAuto(b) { S.auto = !!b; kick(); }, setPointer(p) { S.ptr = p ? { x: +p.x || 0, y: +p.y || 0 } : null; kick(); }, requestSensor, destroy };
+    if (S.reduced) { emit(); return api; }
+
+    /* sensor: relative tilt around a slow baseline (holding posture becomes neutral), ±18° → ±1 */
+    let sensorOn = false;
+    const onOri = e => {
+      if (e.beta == null || e.gamma == null) return;
+      const now = performance.now(), b = e.beta, g = e.gamma;
+      if (!S.base || now - S.sensorAt > 1500) S.base = { b, g };
+      const dt = Math.min(.25, Math.max(0, (now - S.sensorAt) / 1000));
+      const a = 1 - Math.exp(-dt / 1.6);                        // baseline low-pass, τ = 1.6 s
+      S.base.b += (b - S.base.b) * a; S.base.g += (g - S.base.g) * a;
+      let x = -(g - S.base.g) / 18, y = -(b - S.base.b) / 18;   // the light leans away from gravity
+      let ang = 0;
+      try { ang = ((screen.orientation && screen.orientation.angle) || window.orientation || 0) * DEG; } catch (e2) { ang = 0; }
+      const rx = x * Math.cos(ang) - y * Math.sin(ang), ry = x * Math.sin(ang) + y * Math.cos(ang);
+      S.sensor = { x: rx, y: ry }; S.sensorAt = now; S.sensorOk = true; kick();
+    };
+    const needsPermission = () => typeof window.DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function';
+    const sensorAvailable = () => typeof window.DeviceOrientationEvent !== 'undefined';
+    let permitted = sensorAvailable() && !needsPermission();
+    function sensorListen(want) {
+      if (want && permitted && !sensorOn) { sensorOn = true; window.addEventListener('deviceorientation', onOri); }
+      if (!want && sensorOn) { sensorOn = false; window.removeEventListener('deviceorientation', onOri); }
+    }
+    function requestSensor() {
+      if (!sensorAvailable()) return Promise.resolve(false);
+      if (!needsPermission()) { permitted = true; sensorListen(S.visible); return Promise.resolve(true); }
+      try {
+        return Promise.resolve(DeviceOrientationEvent.requestPermission()).then(r => { permitted = r === 'granted'; sensorListen(S.visible); return permitted; }, () => false);
+      } catch (e) { return Promise.resolve(false); }
+    }
+    api.needsPermission = needsPermission();
+    api.sensorAvailable = sensorAvailable();
+
+    /* pointer: hover (mouse) and drag (any pointer, captured) map the pointer offset from the frame centre */
+    const rel = (e, frame) => { const r = frame.getBoundingClientRect(); return { x: (e.clientX - (r.left + r.width / 2)) / Math.max(1, r.width / 2), y: (e.clientY - (r.top + r.height / 2)) / Math.max(1, r.height / 2) }; };
+    (opt.hover || []).forEach(node => {
+      on(node, 'pointermove', e => { if (e.pointerType !== 'mouse' || S.dragging) return; S.ptr = rel(e, opt.frame || node); kick(); });
+      on(node, 'pointerleave', e => { if (e.pointerType !== 'mouse' || S.dragging) return; S.ptr = null; kick(); });
+    });
+    (opt.drag || []).forEach(node => {
+      on(node, 'pointerdown', e => { try { node.setPointerCapture(e.pointerId); } catch (e2) { /* ignore */ } S.dragging = true; S.ptr = rel(e, node); kick(); });
+      on(node, 'pointermove', e => { if (!S.dragging) return; S.ptr = rel(e, node); kick(); });
+      const up = () => { if (!S.dragging) return; S.dragging = false; S.ptr = null; kick(); };
+      on(node, 'pointerup', up); on(node, 'pointercancel', up); on(node, 'lostpointercapture', up);
+    });
+
+    /* visibility: sample and animate only while the target is on screen */
+    let io = null;
+    if ('IntersectionObserver' in window) {
+      io = new IntersectionObserver(es => { S.visible = es.some(x => x.isIntersecting); sensorListen(S.visible); if (S.visible) kick(); }, { threshold: 0 });
+      io.observe(target);
+    } else sensorListen(true);
+
+    const unit = p => { const mg = Math.hypot(p.x, p.y); return mg > 1 ? { x: p.x / mg, y: p.y / mg } : p; };
+    function goal(now) {
+      if (S.ptr) { S.src = 'pointer'; return unit(S.ptr); }
+      if (S.sensor && now - S.sensorAt < 700) { S.src = 'sensor'; return unit(S.sensor); }
+      if (S.auto) { S.src = 'auto'; const t = (now - S.t0) / 1000; return { x: .72 * Math.sin(t * 2 * Math.PI / 5.6), y: .42 * Math.sin(t * 2 * Math.PI / 8.3 + 1.1) }; }
+      S.src = 'rest'; return { x: 0, y: 0 };
+    }
+    function step(now) {
+      S.raf = 0;
+      if (!S.alive || !S.visible) { S.last = 0; return; }
+      const dt = S.last ? Math.min(.034, Math.max(.001, (now - S.last) / 1000)) : .016; S.last = now;
+      const g = goal(now);
+      S.vx += (K * (g.x - S.x) - C * S.vx) * dt; S.x += S.vx * dt;
+      S.vy += (K * (g.y - S.y) - C * S.vy) * dt; S.y += S.vy * dt;
+      if (S.src === 'rest' && Math.abs(S.x) + Math.abs(S.y) + Math.abs(S.vx) + Math.abs(S.vy) < 2e-3) { S.x = S.y = S.vx = S.vy = 0; S.last = 0; emit(); return; }
+      emit();
+      S.raf = requestAnimationFrame(step);
+    }
+    function kick() { if (!S.raf && S.alive && S.visible) S.raf = requestAnimationFrame(step); }
+    function destroy() { S.alive = false; cancelAnimationFrame(S.raf); S.raf = 0; sensorListen(false); offs.forEach(fn => fn()); if (io) io.disconnect(); }
+    emit(); kick();
+    return api;
+  }
+
+  /* ---------- springs (Compose spring(): dampingRatio, stiffness, mass 1; optional initial velocity) ---------- */
+  function spring(z, k, t, x0, x1, v0 = 0) {
+    if (t <= 0) return x0;
+    const w0 = Math.sqrt(k), d0 = x0 - x1;
+    let d;
+    if (z < 1) { const wd = w0 * Math.sqrt(1 - z * z); d = Math.exp(-z * w0 * t) * (d0 * Math.cos(wd * t) + ((v0 + z * w0 * d0) / wd) * Math.sin(wd * t)); }
+    else d = Math.exp(-w0 * t) * (d0 + (v0 + w0 * d0) * t);
+    return x1 + d;
+  }
+  const cl = v => Math.max(0, Math.min(1, v));
+  const gauss = (t, c, w) => Math.exp(-Math.pow((t - c) / w, 2));
+  /** an effects-spring flash: a stiff critically-damped rise, then an exponential fade (no linear tween) */
+  const pulse = (t, at, hold) => t < at ? 0 : cl(spring(1, 2400, t - at, 0, 1)) * Math.exp(-Math.max(0, t - at - .04) / hold);
+  const frames = (dur, fn) => { const out = [], N = Math.round(dur * 60); for (let i = 0; i <= N; i++) out.push(fn(i / N * dur, i === N)); return out; };
+  const scan = (T, fn) => { const out = []; for (let t = 0; t <= T + 1e-9; t += .001) out.push([t, fn(t)]); return out; };
+  const argmax = (a, b, fn) => { let best = -Infinity, bt = a; for (let t = a; t <= b; t += .001) { const v = fn(t); if (v > best) { best = v; bt = t; } } return bt; };
+  const argmin = (a, b, fn) => argmax(a, b, t => -fn(t));
+  const firstT = (a, b, pred) => { for (let t = a; t <= b; t += .001) if (pred(t)) return t; return null; };
+
+  /* ---------- the four award tiers ---------- */
+  const TIERS = {
+    1: { range: '< 6', name: '轻落', en: 'Settle', line: '不转。盘面轻轻落定，刻纹一次刻好，标签贴稳，一拍很轻的触感。' },
+    2: { range: '6 – 8', name: '一转', en: 'One turn', line: '从静止转起来近一圈，回摆到顶时刻纹一起换成亮色一下，标签轻压。两拍。' },
+    3: { range: '8 – 10', name: '逐圈', en: 'Ring by ring', line: '被拨动整整一圈，标签在回摆顶点压下，然后评过分的圈从外到内逐圈换成亮色，再退回原色。' },
+    4: { range: '10.0', name: '满分', en: 'Full marks', line: '拨两圈；所有圈从外到内依次换成亮色；标签重重压下；最后外圈换成 accent 实色跳一下，放出一道细环。' }
+  };
+  function tierOf(m) {
+    if (!m || kindOf(m) === 'none' || m.score == null) return 0;
+    const s = Math.round(m.score * 10) / 10;
+    return s >= 10 ? 4 : s >= 8 ? 3 : s >= 6 ? 2 : 1;
+  }
+  /* primitive table: Android VibrationEffect.Composition id, API level, YoinHaptics fallback, rough on-time for navigator.vibrate */
+  const PRIM = {
+    TICK: { api: 30, yoin: 'performTick', ms: 10 }, LOW_TICK: { api: 31, yoin: 'performLightTick', ms: 14 },
+    CLICK: { api: 30, yoin: 'performClick', ms: 22 }, THUD: { api: 31, yoin: 'performConfirm', ms: 46 },
+    SPIN: { api: 31, yoin: 'performTick', ms: 64 }, QUICK_RISE: { api: 30, yoin: null, ms: 56 },
+    SLOW_RISE: { api: 30, yoin: null, ms: 140 }, QUICK_FALL: { api: 30, yoin: null, ms: 36 }
+  };
+
+  /** The choreography of one tier as pure functions of t (s). inf = layout(m, size). */
+  function script(tier, inf, kind) {
+    const A = kind === 'album' ? 1 : .7;            // the user's own album score stamps harder than an average
+    const S = { tier, T: 1, beats: [] };
+    const beat = (at, p, scale, what, yoin) => S.beats.push({ atMs: Math.max(0, Math.round(at * 1000)), primitive: 'PRIMITIVE_' + p, p, scale: +scale.toFixed(2), yoin: yoin === undefined ? PRIM[p].yoin : yoin, what });
+    const none = () => 0;
+    // v4: no light channels (sheen / bright / light are gone); the lit-colour channels are cutGlow, ringGlow, flare, burst
+    S.cutGlow = () => none; S.ringGlow = () => none; S.flare = none; S.burst = null;
+    if (tier === 1) {
+      // quiet settle: no spin. The disc eases 16° into place, every cut appears together, the label sits down.
+      S.T = .62;
+      S.disc = t => spring(1, 90, t, -16, 0);
+      S.label = t => spring(.9, 300, t, 1 + .06 * A, 1);
+      S.cut = () => t => cl(spring(1, 140, t, 0, 1));
+      const settle = firstT(.05, S.T, t => S.label(t) <= 1) || .36;
+      beat(settle, 'LOW_TICK', .5, '标签贴稳（落定那一帧）');
+    } else if (tier === 2) {
+      // one spin-up from rest; at the overshoot every cut turns the lit colour once, the label nods
+      S.T = 1.0;
+      S.disc = t => spring(.74, 70, t, -330, 0);
+      const cross = firstT(0, S.T, t => S.disc(t) >= 0) || .43;
+      const peak = argmax(cross, S.T, S.disc);
+      S.label = t => t < peak ? 1 : spring(.5, 420, t - peak, 1, 1, -1.1 * A);
+      S.cut = j => t => cl(spring(1, 150, t - (.05 + j * .05), 0, 1));
+      S.cutGlow = () => t => .85 * gauss(t, peak + .01, .085);
+      const fastest = argmax(0, cross, t => S.disc(t + .001) - S.disc(t));
+      beat(fastest, 'TICK', .5, '从静止转起来，转到最快');
+      beat(peak, 'CLICK', .75, '回摆到顶：刻纹换成亮色一下，标签轻压');
+    } else if (tier === 3) {
+      // a full flick; the label stamps at the overshoot; then the rated rings turn the lit colour one by one, outer first
+      S.T = 1.3;
+      S.disc = t => spring(.8, 42, t, -360, 0, 1300);
+      const LAB = .5, lift = t => spring(1, 220, t, 1, 1 + .12 * A);
+      S.label = t => t < LAB ? lift(t) : spring(.55, 520, t - LAB, lift(LAB), 1);
+      const contact = argmin(LAB, LAB + .3, S.label);
+      S.cut = j => t => cl(spring(1, 150, t - (.04 + j * .06), 0, 1));
+      const at = j => .72 + j * .08;
+      S.cutGlow = (j) => t => .95 * pulse(t, at(j), .2);
+      beat(0, 'SPIN', .5, '拨动：盘面转起一整圈');
+      beat(contact, 'CLICK', 1, '标签压到最低（回摆顶点）', 'performConfirm');
+      const n = inf.ratedRings.length, stride = Math.max(1, Math.ceil(n / 4));
+      for (let j = 0; j < n; j += stride) beat(argmax(at(j), at(j) + .2, t => pulse(t, at(j), .2)), 'LOW_TICK', .35, `第 ${j + 1} 道评过分的圈换成亮色`);
+    } else {
+      // the full moment: two turns; every ring lights outer → inner; a heavy stamp; the rim pulses in flat accent and lets a ring go
+      S.T = 1.6;
+      S.disc = t => spring(.82, 44, t, -720, 0, 2000);
+      const LAB = .74, lift = t => spring(1, 200, t, 1, 1 + .18 * A);
+      S.label = t => t < LAB ? lift(t) : spring(.5, 600, t - LAB, lift(LAB), 1);
+      const contact = argmin(LAB, LAB + .3, S.label);
+      S.cut = j => t => cl(spring(1, 150, t - (.04 + j * .045), 0, 1));
+      const TF = 1.02;
+      const at = i => .28 + i * .055;
+      S.ringGlow = i => t => .9 * pulse(t, at(i), .2);
+      S.cutGlow = () => t => .7 * pulse(t, TF, .26);
+      S.flare = t => pulse(t, TF - .04, .3);
+      S.burst = t => ({ s: 1 + .2 * cl(spring(1, 90, t - (TF - .04), 0, 1)), o: .9 * pulse(t, TF - .04, .2) });
+      const flarePeak = argmax(TF - .04, TF + .2, S.flare);
+      beat(0, 'SPIN', .8, '拨动：两圈');
+      const n = inf.nRings, stride = Math.max(1, Math.ceil(n / 8));
+      for (let i = 0; i < n; i += stride) beat(argmax(at(i), at(i) + .2, t => pulse(t, at(i), .2)), 'TICK', .45, `第 ${i + 1} 圈换成亮色`, i === 0 ? 'performLightTick' : null);
+      beat(contact - .01, 'THUD', 1, '标签重重压下', 'performConfirm');
+      beat(TF - .04, 'QUICK_RISE', .7, '外圈开始换成 accent', null);
+      beat(flarePeak, 'CLICK', 1, '外圈 accent 最满，细环放出', 'performClick');
+    }
+    // two beats closer than 45 ms blur into one buzz: keep the stronger one
+    S.beats.sort((a, b) => a.atMs - b.atMs);
+    const kept = [];
+    S.beats.forEach(b => { const last = kept[kept.length - 1]; if (last && b.atMs - last.atMs < 45) { if (b.scale > last.scale) kept[kept.length - 1] = b; } else kept.push(b); });
+    S.beats = kept;
+    return S;
+  }
+
+  /** The award's haptic beats for memory m (at o.size, default 96): [{atMs, primitive, scale, yoin, what}].
+   *  Under reduced motion (o.reduced) only the tier's strongest beat survives, at 0 ms. */
+  function hapticPlan(m, o = {}) {
+    const tier = tierOf(m);
+    if (!tier) return [];
+    const S = script(tier, layout(m, o.size || 96), kindOf(m));
+    if (!o.reduced) return S.beats.map(b => Object.assign({ tier }, b));
+    const top = S.beats.reduce((a, b) => (b.scale > a.scale || (b.scale === a.scale && b.p === 'THUD') ? b : a), S.beats[0]);
+    return [Object.assign({ tier }, top, { atMs: 0 })];
+  }
+  hapticPlan.duration = m => { const t = tierOf(m); return t ? Math.round(script(t, layout(m, 96), kindOf(m)).T * 1000) : 0; };
+
+  /** navigator.vibrate approximation: [on, off, on, …]; the browser has no amplitude, so strength → on-time */
+  function vibratePattern(plan) {
+    const arr = []; let cursor = 0;
+    plan.forEach(b => {
+      const pr = PRIM[b.p] || PRIM.TICK, onMs = Math.max(6, Math.round(pr.ms * (.55 + .45 * b.scale)));
+      const pause = Math.max(0, b.atMs - cursor);
+      if (!arr.length) { if (pause > 0) arr.push(0, pause); } else arr.push(pause);
+      arr.push(onMs); cursor += pause + onMs;
+    });
+    return arr;
+  }
+  function canVibrate() {
+    try {
+      if (typeof navigator === 'undefined' || typeof navigator.vibrate !== 'function') return false;
+      if (navigator.userActivation && !navigator.userActivation.hasBeenActive) return false;   // would only log an intervention
+      return true;
+    } catch (e) { return false; }
+  }
+  /** Plays a plan: one navigator.vibrate call (if it exists and o.vibrate !== false) + o.onBeat(beat, i) at each beat. */
+  function playHaptics(plan, o = {}) {
+    const timers = []; let buzzing = false;
+    if (o.vibrate !== false && plan.length && canVibrate()) { try { buzzing = !!navigator.vibrate(vibratePattern(plan)); } catch (e) { buzzing = false; } }
+    if (o.onBeat) plan.forEach((b, i) => timers.push(setTimeout(() => { try { o.onBeat(b, i); } catch (e) { /* ignore */ } }, b.atMs)));
+    return { vibrated: buzzing, cancel() { timers.forEach(clearTimeout); if (buzzing) { try { navigator.vibrate(0); } catch (e) { /* ignore */ } } } };
+  }
+
+  /* ---------- visual haptic timeline (a strip the pages can drop in; colours inherit currentColor) ---------- */
+  function glyph(b) {
+    const k = .72 + .45 * b.scale, P = b.p;
+    const box = (w, h, inner) => `<svg width="${f(w)}" height="${f(h)}" viewBox="${f(-w / 2)} ${f(-h / 2)} ${f(w)} ${f(h)}" style="left:${f(-w / 2)}px;top:${f(-h / 2)}px" aria-hidden="true">${inner}</svg>`;
+    if (P === 'TICK') return box(8 * k, 8 * k, `<circle r="${f(2.6 * k)}" fill="currentColor"/>`);
+    if (P === 'LOW_TICK') return box(9 * k, 9 * k, `<circle r="${f(3 * k)}" fill="var(--bg, #fff)" stroke="currentColor" stroke-width="1.5"/>`);
+    if (P === 'CLICK') return box(12 * k, 12 * k, `<circle r="${f(4.6 * k)}" fill="currentColor"/>`);
+    if (P === 'THUD') return box(13 * k, 13 * k, `<rect x="${f(-5.2 * k)}" y="${f(-5.2 * k)}" width="${f(10.4 * k)}" height="${f(10.4 * k)}" rx="${f(2.2 * k)}" fill="currentColor"/>`);
+    if (P === 'SPIN') return box(15 * k, 15 * k, `<path d="M${f(4.6 * k)} ${f(-2.2 * k)}A${f(5 * k)} ${f(5 * k)} 0 1 0 ${f(4.2 * k)} ${f(2.8 * k)}" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><path d="M${f(5.8 * k)} ${f(-5 * k)}L${f(5 * k)} ${f(-1.4 * k)}L${f(1.6 * k)} ${f(-2.6 * k)}" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>`);
+    if (P === 'QUICK_RISE') return box(15 * k, 12 * k, `<path d="M${f(-6.5 * k)} ${f(4.5 * k)}L${f(6.5 * k)} ${f(-4.5 * k)}L${f(6.5 * k)} ${f(4.5 * k)}Z" fill="currentColor"/>`);
+    if (P === 'SLOW_RISE') return box(22 * k, 12 * k, `<path d="M${f(-10 * k)} ${f(4.5 * k)}L${f(10 * k)} ${f(-4.5 * k)}L${f(10 * k)} ${f(4.5 * k)}Z" fill="currentColor"/>`);
+    return box(15 * k, 12 * k, `<path d="M${f(-6.5 * k)} ${f(-4.5 * k)}L${f(6.5 * k)} ${f(4.5 * k)}L${f(-6.5 * k)} ${f(4.5 * k)}Z" fill="currentColor"/>`);
+  }
+  const hx = {
+    glyph,
+    /** strip markup. opt.spanMs = axis length (default 1600, the same for every tier so lengths compare); opt.T = this award's length */
+    html(plan, opt = {}) {
+      const span = opt.spanMs || 1600, T = opt.T || 0;
+      const pc = ms => (Math.min(span, ms) / span * 100).toFixed(2) + '%';
+      const ticks = (opt.ticks || [0, 500, 1000, 1500]).filter(x => x <= span);
+      return `<div class="ye-groove-hx" data-span="${span}" role="img" aria-label="${plan.length} haptic beats">` +
+        `<div class="ye-groove-hx-axis"></div>${T ? `<div class="ye-groove-hx-span" style="width:${pc(T)}"></div>` : ''}` +
+        ticks.map(x => `<span class="ye-groove-hx-t" style="left:${pc(x)}">${x ? (x / 1000).toFixed(1) + ' s' : '0'}</span>`).join('') +
+        plan.map((b, i) => `<span class="ye-groove-hx-b" data-i="${i}" style="left:${pc(b.atMs)}" title="${b.atMs} ms · ${b.primitive} × ${b.scale} · ${b.what}">${glyph(b)}</span>`).join('') +
+        `<div class="ye-groove-hx-head"><i class="ye-groove-hx-dot"></i></div></div>`;
+    },
+    /** run the playhead and flash each beat on time; returns { cancel } */
+    play(strip, plan) {
+      const el = strip && (strip.classList.contains('ye-groove-hx') ? strip : strip.querySelector('.ye-groove-hx'));
+      if (!el) return { cancel() {} };
+      if (el._hx) el._hx.cancel();
+      const span = +el.dataset.span || 1600, head = el.querySelector('.ye-groove-hx-head'), dot = head && head.querySelector('.ye-groove-hx-dot');
+      const timers = [], anims = [];
+      const end = plan.length ? plan[plan.length - 1].atMs + 260 : 400;
+      const pop = YS.springKeyframes(.42, 520, 36, .6);
+      if (head) {
+        head.style.opacity = '1';
+        anims.push(head.animate([{ left: '0%' }, { left: (Math.min(span, end) / span * 100).toFixed(2) + '%' }], { duration: Math.min(span, end), easing: 'linear', fill: 'forwards' }));
+      }
+      plan.forEach((b, i) => timers.push(setTimeout(() => {
+        const n = el.querySelector(`.ye-groove-hx-b[data-i="${i}"]`);
+        if (n) {
+          n.classList.add('on'); const g = n.firstElementChild;
+          if (g) anims.push(g.animate(pop.map(v => ({ transform: `scale(${(2.1 - 1.1 * v).toFixed(3)})` })), { duration: 600, easing: 'linear' }));
+          timers.push(setTimeout(() => n.classList.remove('on'), 420));
+        }
+        if (dot) anims.push(dot.animate([{ opacity: 1, transform: 'scale(1.6)' }, { opacity: 0, transform: 'scale(.6)' }], { duration: 260, easing: 'cubic-bezier(.2,.8,.2,1)' }));
+      }, b.atMs)));
+      timers.push(setTimeout(() => { if (head) head.style.opacity = '0'; }, end + 200));
+      const h = { cancel() { timers.forEach(clearTimeout); anims.forEach(a => { try { a.cancel(); } catch (e) { /* ignore */ } }); if (head) head.style.opacity = '0'; el.querySelectorAll('.ye-groove-hx-b.on').forEach(n => n.classList.remove('on')); } };
+      el._hx = h;
+      return h;
+    }
+  };
+
+  /* ---------- the award ---------- */
+  const rootOf = el => !el ? null : (el.classList && el.classList.contains('ye-groove-root')) ? el : (el.querySelector ? el.querySelector('.ye-groove-root') : null);
+
+  /** Play the tier's award on a rendered emblem. o.haptics: also buzz (navigator.vibrate, feature-detected) and call
+   *  o.onBeat(beat, i) on each beat. Resolves when settled; resolves at once under prefers-reduced-motion or unrated. */
+  function award(el, m, o = {}) {
+    const root = rootOf(el);
+    if (!root) return Promise.resolve();
+    if (root._yeAward) { root._yeAward.cancel(); root._yeAward = null; }
+    const tier = tierOf(m);
+    if (!tier) return Promise.resolve();                       // nothing earned yet: no ceremony
+    const size = +root.dataset.size || o.size || 96, kind = root.dataset.kind || kindOf(m);
+    const RM = reduced();
+    const hap = o.haptics ? playHaptics(hapticPlan(m, { size, reduced: RM }), o) : null;
+    if (RM) { root._yeAward = { cancel() { if (hap) hap.cancel(); } }; return Promise.resolve(); }
+    const inf = layout(m, size), S = script(tier, inf, kind);
+    const q = s => root.querySelector(s), qa = s => [...root.querySelectorAll(s)];
+    const spinG = q('.ye-groove-spin');
+    const label = q('.ye-groove-label'), shape = label && label.querySelector('svg');
+    const anims = [];
+    // v4: the old shadow filter used to give each drawing its own layer; without it Chrome could drop whole SVGs
+    // while many awards ran at once. The two SVGs are promoted for the award's duration only.
+    const layers = [q('svg.ye-groove-disc'), shape].filter(Boolean);
+    layers.forEach(n => { n.style.willChange = 'transform'; });
+    const unlayer = () => layers.forEach(n => { n.style.willChange = ''; });
+    const go = (node, fn) => { if (node) anims.push(node.animate(frames(S.T, fn), { duration: S.T * 1000, easing: 'linear' })); };
+    const ringOrder = r => Math.max(0, inf.ratedRings.indexOf(r));
+
+    go(spinG, (t, end) => ({ transform: `rotate(${end ? 0 : S.disc(t).toFixed(2)}deg)` }));
+    if (kind === 'album') go(shape, (t, end) => ({ transform: `rotate(${end ? 0 : S.disc(t).toFixed(2)}deg)` }));
+    go(label, (t, end) => ({ transform: `scale(${end ? 1 : S.label(t).toFixed(4)})` }));
+    qa('.ye-groove-cut').forEach(p => { const fn = S.cut(ringOrder(+p.dataset.ring)); go(p, (t, end) => ({ strokeDasharray: '1 1', strokeDashoffset: end ? 0 : (1 - fn(t)).toFixed(4) })); });
+    qa('.ye-groove-glow').forEach(p => { const fn = S.cutGlow(ringOrder(+p.dataset.ring)); if (fn(.5) || fn(S.T * .6) || fn(.85) || fn(1.05)) go(p, (t, end) => ({ opacity: end ? 0 : cl(fn(t)).toFixed(3) })); });
+    if (tier === 4) qa('.ye-groove-rglow').forEach(p => { const fn = S.ringGlow(+p.dataset.ring); go(p, (t, end) => ({ opacity: end ? 0 : cl(fn(t)).toFixed(3) })); });
+    if (tier === 4) {
+      go(q('.ye-groove-flare'), (t, end) => ({ opacity: end ? 0 : cl(S.flare(t)).toFixed(3) }));
+      go(q('.ye-groove-burst'), (t, end) => { const b = S.burst(t); return { opacity: end ? 0 : cl(b.o).toFixed(3), transform: `scale(${end ? 1 : b.s.toFixed(4)})` }; });
+    }
+    const handle = { anims, cancel() { anims.forEach(a => { try { a.cancel(); } catch (e) { /* ignore */ } }); if (hap) hap.cancel(); unlayer(); } };
+    root._yeAward = handle;
+    return Promise.all(anims.map(a => a.finished.catch(() => null))).then(() => { if (root._yeAward === handle) { root._yeAward = null; unlayer(); } });
+  }
+
+  window.YS_EMBLEM[KEY] = {
+    name: '唱片刻纹', version: VERSION,
+    render, award,
+    tierOf, tiers: TIERS, hapticPlan, playHaptics, vibratePattern, primitives: PRIM,
+    setTilt, tiltVars, tiltDriver, hx,
+    /** the curves behind a tier, for keyframe strips and tables: script(tier, m, size) */
+    script: (tier, m, size = 96) => script(tier, layout(m, size), kindOf(m))
+  };
+})();
+(() => {
+  const root = document.getElementById('groove-final');
+  if (!root) return;
+  const E = window.YS_EMBLEM && window.YS_EMBLEM.groove;
+  if (!E || !E.tiltDriver || !window.YS || !window.YS_DATA) { const w = root.querySelector('.gf-missing'); if (w) w.hidden = false; return; }
+  const RM = YS.reducedMotion();
+  const MEM = YS_DATA.memories, byId = id => MEM.find(m => m.id === id);
+  let n = 0;
+  const uid = () => 'groove-final-u' + (++n);
+  const rgb = h => { h = h.replace('#', ''); return [0, 2, 4].map(i => parseInt(h.substr(i, 2), 16)); };
+  const rgba = (h, a) => { const c = rgb(h); return `rgba(${c[0]},${c[1]},${c[2]},${a})`; };
+  const wash = (m, dark) => dark ? `radial-gradient(64% 58% at 50% 42%, ${rgba(m.palette.base, .5)}, transparent 72%)`
+    : `radial-gradient(64% 58% at 50% 42%, ${rgba(m.palette.soft, .95)}, transparent 72%)`;
+  const cover = (m, size) => { const id = uid(), c = m.cover; return `<svg class="gf-cover" viewBox="0 0 100 100" width="${size}" height="${size}" aria-hidden="true"><defs><linearGradient id="${id}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${c.from}"/><stop offset="1" stop-color="${c.to}"/></linearGradient></defs><rect width="100" height="100" fill="url(#${id})"/><circle cx="50" cy="50" r="26" fill="${c.dot}"/></svg>`; };
+  const em = (m, size, dark, on) => E.render(m, { size, dark, on, uid: uid() });
+  /* the cabinet pose: the emblem overlaps the cover's lower-right corner by about a third */
+  const show = (m, cov, sd, dark) => `<div class="gf-show" style="width:${cov + sd * .3}px;height:${cov + sd * .24}px"><div class="gf-art" style="width:${cov}px;height:${cov}px">${cover(m, cov)}</div><div class="gf-pin" style="left:${cov - sd * .7}px;top:${cov - sd * .76}px;width:${sd}px;height:${sd}px">${em(m, sd, dark, 'cover')}</div></div>`;
+  const STATE = { m1: '专辑分 9.5', m3: '曲目均分 7.8', m2: '未评' };
+
+  /* ================= 1 · tilt light ================= */
+  const tiltWrap = root.querySelector('.gf-tiltwrap');
+  root.querySelector('.gf-big').innerHTML = ['m1', 'm3', 'm2'].map(id => {
+    const m = byId(id);
+    return `<div class="gf-bcol">` + [false, true].map(dark => `<div class="gf-btile ${dark ? 'ys-dark' : 'ys-light'}" style="--gf-wash:${wash(m, dark)}"><div class="gf-em">${em(m, 220, dark, 'surface')}</div><div class="gf-tag">${id} · ${STATE[id]} · ${dark ? '深色' : '浅色'} · 220</div></div>`).join('') + `</div>`;
+  }).join('');
+  root.querySelector('.gf-covs').innerHTML = ['m1', 'm3', 'm2'].map(id => {
+    const m = byId(id);
+    return [false, true].map(dark => `<div class="gf-ccell ${dark ? 'ys-dark' : 'ys-light'}">${show(m, 150, 96, dark)}<div class="gf-tag">${id} · 96 贴封面${dark ? ' · 深色' : ''}</div></div>`).join('');
+  }).join('');
+
+  const pad = root.querySelector('.gf-pad'), padSvg = pad.querySelector('svg');
+  padSvg.innerHTML = `<circle r="50" fill="none" stroke="currentColor" stroke-opacity=".14"/><circle r="25" fill="none" stroke="currentColor" stroke-opacity=".1"/>` +
+    `<path d="M-50 0H50M0-50V50" stroke="currentColor" stroke-opacity=".1"/>` +
+    `<g class="gf-needle"><path d="M0 0L-24.6 -31.5" stroke="currentColor" stroke-opacity=".38" stroke-width="1.5" stroke-dasharray="2 3"/><circle cx="-24.6" cy="-31.5" r="5" fill="#f6c453" stroke="currentColor" stroke-opacity=".5"/></g>` +
+    `<circle class="gf-knob" r="8" fill="var(--primary)"/>`;
+  const needle = padSvg.querySelector('.gf-needle'), knob = padSvg.querySelector('.gf-knob');
+  const srcEl = root.querySelector('.gf-src'), numEl = root.querySelector('.gf-num');
+  const autoBtn = root.querySelector('.gf-auto'), sensBtn = root.querySelector('.gf-sensor');
+  const SRC = { pointer: '鼠标 / 手指', sensor: '陀螺仪', auto: '自动摆动', rest: '静止' };
+  const labEl = root.querySelector('.gf-tiers'), cabEl = root.querySelector('.gf-cab');
+  let lastTxt = '';
+  const sign = v => (v < 0 ? '−' : '+') + Math.abs(v).toFixed(2);
+  function onTilt(S) {
+    E.setTilt(labEl, S.x, S.y); E.setTilt(cabEl, S.x, S.y);
+    const v = E.tiltVars(S.x, S.y);
+    knob.setAttribute('cx', (S.x * 42).toFixed(2)); knob.setAttribute('cy', (S.y * 42).toFixed(2));
+    needle.setAttribute('transform', `rotate(${v.rot.toFixed(2)})`);
+    const sens = S.reduced ? '' : drv && drv.sensorAvailable === false ? ' · 这个浏览器没有方向传感器' : S.sensorOk ? ' · 陀螺仪已连接'
+      : drv && drv.needsPermission && !asked ? ' · 陀螺仪要先授权' : ' · 没收到陀螺仪数据（电脑上和网页框架里通常没有）';
+    const txt = `光源：<b>${SRC[S.src] || '静止'}</b>${sens}`;
+    if (txt !== lastTxt) { srcEl.innerHTML = txt; lastTxt = txt; }
+    numEl.innerHTML = `x <b>${sign(S.x)}</b> · y <b>${sign(S.y)}</b> → 光角 <b>${(-128 + v.rot).toFixed(0)}°</b> · 亮度 <b>${v.li.toFixed(2)}</b>`;
+    pad.setAttribute('aria-valuetext', `${S.x.toFixed(2)}, ${S.y.toFixed(2)}`);
+  }
+  let drv = null, asked = false;
+  drv = E.tiltDriver(tiltWrap, { auto: !RM, hover: [tiltWrap], frame: tiltWrap, drag: [pad], onUpdate: onTilt });
+  if (RM) {
+    autoBtn.disabled = true; autoBtn.setAttribute('aria-pressed', 'false');
+    root.querySelector('.gf-hint').textContent = '系统开启了减弱动效：光固定在静止角度，倾斜不生效（App 里同样处理）。';
+    onTilt(drv.state);
+  } else {
+    if (drv.needsPermission) sensBtn.hidden = false;
+    sensBtn.addEventListener('click', () => { asked = true; drv.requestSensor().then(ok => { sensBtn.textContent = ok ? '陀螺仪已允许' : '陀螺仪不可用'; sensBtn.disabled = true; }); });
+    autoBtn.addEventListener('click', () => { const on = autoBtn.getAttribute('aria-pressed') !== 'true'; autoBtn.setAttribute('aria-pressed', String(on)); drv.setAuto(on); });
+    // keyboard: arrows lean the light while the pad has focus (element listener only), Escape / blur lets go
+    let kx = 0, ky = 0;
+    pad.addEventListener('keydown', e => {
+      const d = { ArrowLeft: [-.25, 0], ArrowRight: [.25, 0], ArrowUp: [0, -.25], ArrowDown: [0, .25] }[e.key];
+      if (d) { e.preventDefault(); kx = Math.max(-1, Math.min(1, kx + d[0])); ky = Math.max(-1, Math.min(1, ky + d[1])); drv.setPointer({ x: kx, y: ky }); }
+      else if (e.key === 'Escape' || e.key === '0') { kx = ky = 0; drv.setPointer(null); }
+    });
+    pad.addEventListener('blur', () => { kx = ky = 0; drv.setPointer(null); });
+    onTilt(drv.state);
+  }
+
+  /* ================= 2 · award tiers ================= */
+  const base = byId('m1');
+  const SCORES = [5.4, 7.2, 8.6, 10];
+  const RAT = { 5.4: [6, 5, 5.5, 5, 5.5], 7.2: [7.5, 7, 6.5, 8, 7], 8.6: [9, 8.5, 8, 9, 8.5], 10: [10, 10, 10, 10, 10] };   // first five tracks; their mean is the score
+  const sample = (score, kind) => {
+    const m = JSON.parse(JSON.stringify(base));
+    m.id = 'gf' + String(score).replace('.', ''); m.score = score; m.scoreKind = kind; m.ratedTracks = 5;
+    m.tracks.forEach((t, i) => { t.rating = i < 5 ? RAT[score][i] : null; });
+    return m;
+  };
+  const LAB = { kind: 'album', dark: false, samples: [], plans: [], hx: [], timers: [] };
+  const PNAME = { TICK: 'TICK', LOW_TICK: 'LOW_TICK', CLICK: 'CLICK', THUD: 'THUD', SPIN: 'SPIN', QUICK_RISE: 'QUICK_RISE', SLOW_RISE: 'SLOW_RISE', QUICK_FALL: 'QUICK_FALL' };
+  const glyphCell = b => `<span class="ye-groove-hx-b" style="left:50%">${E.hx.glyph(b)}</span>`;
+  function buildLab() {
+    stopAll();
+    LAB.samples = SCORES.map(s => sample(s, LAB.kind));
+    LAB.plans = LAB.samples.map(m => E.hapticPlan(m, { size: 96 }));
+    const th = LAB.dark ? 'ys-dark' : 'ys-light';
+    labEl.innerHTML = LAB.samples.map((m, i) => {
+      const t = i + 1, T = E.tiers[t], plan = LAB.plans[i], dur = E.hapticPlan.duration(m);
+      return `<div class="gf-tier ${th}" data-i="${i}" style="--gf-wash:${wash(m, LAB.dark)}">` +
+        `<div class="gf-thead"><span class="gf-tno">第 ${t} 档 · ${T.range} · 样例 ${m.score.toFixed(1)}</span><span class="gf-tname">${T.name}<small>${T.en}</small></span></div>` +
+        `<div class="gf-tline">${T.line}</div>` +
+        `<div class="gf-stage"><div class="gf-zoom">${em(m, 96, LAB.dark, 'surface')}</div></div>` +
+        `<div class="gf-real">${show(m, 150, 96, LAB.dark)}<span class="gf-tag">上面是 96dp 几何放大 2×；这里是实际大小（封面按 150 缩小）</span></div>` +
+        `<button type="button" class="gal-btn gf-replay" data-i="${i}">重播</button>` +
+        `<div class="gf-hxwrap">${E.hx.html(plan, { spanMs: 1600, T: dur })}<div class="gf-hxsum">${plan.length} 拍 · 动画 ${(dur / 1000).toFixed(2)} s</div></div></div>`;
+    }).join('');
+    // legend: every primitive the four plans use
+    const used = [...new Set(LAB.plans.flat().map(b => b.p))];
+    const ORDER = ['TICK', 'LOW_TICK', 'CLICK', 'THUD', 'SPIN', 'QUICK_RISE', 'SLOW_RISE', 'QUICK_FALL'];
+    root.querySelector('.gf-legend').innerHTML = ORDER.filter(p => used.includes(p)).map(p => `<li><span class="gf-g">${glyphCell({ p, scale: .7 })}</span><code>PRIMITIVE_${PNAME[p]}</code></li>`).join('') +
+      `<li>图形越大，强度（scale）越高；竖线是播放头。</li>`;
+    // beat table
+    root.querySelector('.gf-tbody').innerHTML = LAB.plans.map((plan, i) => plan.map((b, j) => {
+      const t = i + 1;
+      return `<tr class="${j === 0 ? 'gf-first' : ''}">` + (j === 0 ? `<td class="gf-tier-cell" rowspan="${plan.length}">第 ${t} 档 ${E.tiers[t].name}<br><span style="font-weight:500;color:var(--page-muted)">${E.tiers[t].range}</span></td>` : '') +
+        `<td class="gf-ms">${b.atMs} ms</td><td>${b.what}</td><td><span class="gf-gl">${glyphCell(b)}</span><code>${b.primitive}</code> × ${b.scale.toFixed(2)}</td>` +
+        `<td class="gf-fb">${b.yoin ? `<code>${b.yoin}()</code>` : '跳过'}</td></tr>`;
+    }).join('')).join('');
+  }
+  function stopAll() { LAB.timers.forEach(clearTimeout); LAB.timers = []; LAB.hx.forEach(h => h && h.cancel()); LAB.hx = []; }
+  function playTier(i, vib) {
+    const col = labEl.querySelector(`.gf-tier[data-i="${i}"]`); if (!col) return 0;
+    const m = LAB.samples[i];
+    col.querySelectorAll('.ye-groove-root').forEach((el, j) => E.award(el, m, j === 0 ? { haptics: true, vibrate: vib } : {}));
+    if (LAB.hx[i]) LAB.hx[i].cancel();
+    if (!RM) LAB.hx[i] = E.hx.play(col.querySelector('.ye-groove-hx'), LAB.plans[i]);
+    return E.hapticPlan.duration(m);
+  }
+  labEl.addEventListener('click', e => { const b = e.target.closest('.gf-replay'); if (b) playTier(+b.dataset.i, true); });
+  root.querySelector('.gf-all').addEventListener('click', () => {
+    stopAll();
+    let at = 0;
+    LAB.samples.forEach((m, i) => { LAB.timers.push(setTimeout(() => playTier(i, true), at)); at += E.hapticPlan.duration(m) + 480; });
+  });
+  root.querySelectorAll('.gf-labbar [data-kind]').forEach(b => b.addEventListener('click', () => {
+    LAB.kind = b.dataset.kind; root.querySelectorAll('.gf-labbar [data-kind]').forEach(x => x.setAttribute('aria-pressed', String(x === b))); buildLab();
+  }));
+  root.querySelectorAll('.gf-labbar [data-th]').forEach(b => b.addEventListener('click', () => {
+    LAB.dark = b.dataset.th === 'dark'; root.querySelectorAll('.gf-labbar [data-th]').forEach(x => x.setAttribute('aria-pressed', String(x === b))); buildLab();
+  }));
+  const vibOk = typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function';
+  root.querySelector('.gf-vib').textContent = RM ? '减弱动效已开启：只显示终态。' : vibOk ? '浏览器提供振动接口：在手机上播放时会粗略地震一下（没有强度，电脑上没有感觉）。' : '这个浏览器没有振动接口，只看时间轴。';
+  buildLab();
+
+  /* ================= 3 · in the cabinet ================= */
+  const CAB = ['m1', 'm3', 'm2', 'm4'].map(byId);
+  cabEl.innerHTML = CAB.map((m, i) => {
+    const t = E.tierOf(m), T = E.tiers[t];
+    const what = m.scoreKind === 'album' ? `专辑分 ${m.score.toFixed(1)}` : m.scoreKind === 'average' ? `曲目均分 ${m.score.toFixed(1)}` : '未评';
+    return `<div class="gf-cabcell ys-light" style="--gf-wash:${wash(m, false)}">${show(m, 150, 96, false)}` +
+      `<div class="gf-tag"><b>${m.id} · ${what}</b>${t ? `第 ${t} 档 · ${T.name}` : '没有获得动画，也没有触感'}</div>` +
+      `<button type="button" data-i="${i}"${t ? '' : ' disabled'}>播放</button></div>`;
+  }).join('');
+  cabEl.addEventListener('click', e => {
+    const b = e.target.closest('button[data-i]'); if (!b || b.disabled) return;
+    const cell = b.closest('.gf-cabcell'), m = CAB[+b.dataset.i];
+    E.award(cell.querySelector('.ye-groove-root'), m, { haptics: true });
+  });
+})();
+</script>
+</section>

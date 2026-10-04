@@ -82,6 +82,8 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
@@ -196,7 +198,21 @@ fun MemoriesScreen(
     )
 
     ProvideYoinMotionRole(role = YoinMotionRole.Expressive) {
-        ExpressivePageBackground(modifier = modifier) {
+        ExpressivePageBackground(
+            modifier = modifier
+                // Hit-test shield. Without any pointer node on the root, a tap
+                // on blank page (the header band) falls through to Home's
+                // settings gear underneath. Merely being a pointer node makes
+                // the page the hit target, so siblings below are never hit
+                // tested; nothing is consumed, so the deck's own gestures are
+                // untouched. It rides the host's translation, so the strip of
+                // Home a half-open reveal uncovers stays tappable.
+                .pointerInput(Unit) {
+                    awaitPointerEventScope {
+                        while (true) awaitPointerEvent(PointerEventPass.Initial)
+                    }
+                },
+        ) {
             AnimatedContent(
                 targetState = uiState,
                 transitionSpec = {

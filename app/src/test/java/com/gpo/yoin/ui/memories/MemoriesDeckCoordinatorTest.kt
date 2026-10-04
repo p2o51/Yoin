@@ -10,6 +10,7 @@ import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -160,6 +161,57 @@ class MemoriesDeckCoordinatorTest {
         assertEquals("9.0", focusedCard.scoreText)
         assertEquals(MemoryScoreKind.ALBUM_RATING, focusedCard.scoreKind)
         coVerify(exactly = 2) { repository.getAlbumMemoryCandidates(limit = 48) }
+    }
+
+    @Test
+    fun should_keep_stale_entry_when_candidate_leaves_pool_after_write() = runTest {
+        val candidates = buildAlbumCandidates(count = 8).map { candidate ->
+            candidate.copy(albumRating = 7f)
+        }
+        val coordinator = buildCoordinator(candidates)
+        val deck = coordinator.ensureDeck()
+        sessionStore.setMemoriesCurrentPage(3)
+        val sessionBefore = sessionStore.state.value.memories
+        val rerated = deck[0]
+        val leaving = deck[1]
+
+        // One write re-rates the first card; another drops the second card's
+        // album out of the eligible pool.
+        coEvery { repository.getAlbumMemoryCandidates(limit = 48) } returns candidates
+            .filterNot { candidate -> candidate.sessionId == leaving.sourceActivityId }
+            .map { candidate ->
+                if (candidate.sessionId == rerated.sourceActivityId) candidate.copy(albumRating = 9f) else candidate
+            }
+        val refreshed = coordinator.refreshDeck(deck)
+
+        // Same cards, same order: the departed album keeps its old card so no
+        // later page shifts under the user.
+        assertEquals(
+            deck.map(MemoryEntry::sourceActivityId),
+            refreshed.map(MemoryEntry::sourceActivityId),
+        )
+        assertSame(leaving, refreshed[1])
+        assertEquals("9.0", refreshed[0].scoreText)
+        assertEquals("7.0", refreshed[2].scoreText)
+        // In place: the session's deck identity and page are untouched.
+        assertEquals(sessionBefore, sessionStore.state.value.memories)
+        coVerify(exactly = 2) { repository.getAlbumMemoryCandidates(limit = 48) }
+    }
+
+    @Test
+    fun should_return_previous_deck_when_refresh_rebuilds_empty_pool() = runTest {
+        val coordinator = buildCoordinator(buildAlbumCandidates(count = 8))
+        val deck = coordinator.ensureDeck()
+
+        // The source went away mid-session: nothing to re-resolve against.
+        coEvery { repository.getAlbumMemoryCandidates(limit = 48) } returns emptyList()
+        val refreshed = coordinator.refreshDeck(deck)
+
+        assertEquals(deck, refreshed)
+        assertEquals(
+            deck.map(MemoryEntry::sourceActivityId),
+            sessionStore.state.value.memories.currentDeckActivityIds,
+        )
     }
 
     private fun buildCoordinator(candidates: List<AlbumMemoryCandidate>): MemoriesDeckCoordinator {

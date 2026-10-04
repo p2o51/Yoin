@@ -1,0 +1,846 @@
+{
+ "critiques": [
+  {
+   "lens": "review",
+   "summary": "回顾区在 twostate2 和 twostate3 里的代码完全一样（reviewH、askH、excerpt、evidence 逐字相同），上一轮 critique:twostate 关于提问区和平板重复署名的意见都还没改。大框架已经不是 MD3 了：宋体拟题、Written by Yoin、日记里乐评全文不截断，这些都成立。剩下像 MD3 的地方有三处。一是提问区：虚下划线输入框加 tonal 胶囊，问句还用了用户字体。二是卡片摘录：按行数截断，颜色是 on-surface-var，像辅助文字。三是页脚证据句：一串居中小字，折行时会把单独一个「2」甩到下一行。最要紧的问题是两种声音的署名语法不统一：卡片上用户的引文没有署名，紧挨在「Written by Yoin」下面，读起来像是 Yoin 写的。我的方案是：卡片上 Yoin 拿你的话来展示，所以加引号和「Your review · 日期」署名；日记是你自己的本子，所以不加引号，用日期做条目页眉，Yoin 的话一律带标记署名；问句并进 Yoin 那段话，写作区换成一篇带今天日期的空白日记，用 NP 写作器的竖线和「记下」胶囊。截图和效果样稿都在 /private/tmp/claude-501/-Users-gpo-Developer-Yoin/23f51111-8eb4-4490-b6dd-c3b596c48260/scratchpad/design2/critique/review/（现状：a_*.png 卡片、b_*.png 日记、t_*.png 平板、d_dark_short.png；样稿：mock.html、mock_A1/A2/B1/B2/B3.png）。",
+   "proposals": [
+    {
+     "id": "voice-signature-grammar",
+     "area": "card",
+     "priority": "must",
+     "problem": "卡片上只有标题下面有一个署名「Written by Yoin」（.ts-aby，y=510）。它下面的用户乐评摘录 .ts-aex（y=597），以及没有乐评时显示的笔记摘录（m3「合成器在这里像退潮。」），都没有用户署名，读起来像 Yoin 写的（a_m1_card.png、a_m3_card.png）。垂直间距几乎相等：标题底 499，到署名 510（11dp），到专辑名 538（14dp），到摘录 597（约 20dp）。这违反了「簇内紧、簇间松」，署名看起来像在标注专辑名。日记里的署名语法正好相反：Yoin 的字署名在后（.ts-bby），用户的字用标签放在前面（.ts-rvby）（b_m1_diary.png）。",
+     "proposal": "统一一条规则：署名一律跟在文字后面，用同一种结构（GSF 12/500 on-surface-var，tabular 数字）。\n卡片间距：标题 → 6dp → Yoin 署名，这两个是一簇；→ 20dp → 专辑名和艺人一簇；→ 22dp → 用户引文 → 8dp → 用户署名。\n用户署名文案：乐评写「Your review · Jul 26」/「你的乐评 · 7月26日」；笔记写「Your note · 序曲 0:12」/「你的笔记 · 序曲 0:12」，曲名和时间用 ink 色。\n引文颜色从 on-surface-var 提到 on-surface。用户的话不能比 Yoin 的拟题低一档、变成辅助文字。样稿：mock_A1.png。",
+     "needs_owner": false
+    },
+    {
+     "id": "ask-into-yoin-voice",
+     "area": "diary-review",
+     "priority": "must",
+     "problem": "提问区还是表单的样子：.ts-askline 是铅笔、问句加 1.5px 虚下划线，右边另有一个 tonal 胶囊「Write a review」（.ts-askbtn，128×36）。同一个动作有两个入口。\n问句是 Yoin 说的话，实测却用了 --font-user（Noto Sans SC 17px），违反 design.md「GSF = Yoin 代笔文案」。\n点开以后，问句消失，变成 textarea 的占位符，下面是虚下划线和 Cancel、Save 两个 tonal 胶囊（b_m2_writing.png）。这是上一轮 critique:twostate 第 7 条，v3 没有处理。",
+     "proposal": "1）问句并进 Yoin 那段话，作为最后一句：GSF ROND 60，16/1.6，ink 色，字重 500，和旁白共用一个 Written by Yoin。\n2）下面放一篇空白日记。页眉是日期「Oct 4, 2026 · Today」/「2026年10月4日 · 今天」，GSF 13/600 ink，tabular 数字。页眉下面左侧是 2dp ink 竖线（32% 不透明，就是 NP 写作器的 journal accent rail），竖线旁是一行占位「Write a few lines…」/「写几句……」，用户字体 16，on-surface-var 70%。整块最小高度 64dp，是一个点击目标。\n3）点开后：竖线从 32% 变到 100%（效果弹簧），块高随文字增长（空间弹簧），问句一直留在上面。右下角是文字按钮「Cancel」/「取消」，加一个 ink 实心胶囊「Save」/「记下」，和 NP 写作器同一个胶囊。保存时给一次 CONFIRM 触感。\n4）保存后，同一块原地变成乐评条目：竖线淡出，页眉日期保留。\n不用虚线，不用 tonal 胶囊，不用 OutlinedTextField。样稿：mock_B2.png（空态）、mock_B3.png（书写态）。",
+     "needs_owner": false
+    },
+    {
+     "id": "card-excerpt-whole-sentence",
+     "area": "card",
+     "priority": "must",
+     "problem": ".ts-aq 用 -webkit-line-clamp: 3，短屏 .ts-S 是 2，长句在短屏上会从句子中间被省略号截掉。这是上一轮指出过的页中截断，没有改。\n可是 412×915 上摘录下面还空着不少：m1 从摘录底 676 到按钮 789 有 113dp，m4 有 165dp。\n用户的字是 15px on-surface-var。「好听。」这种短评在卡上只占 26dp 高，像一行灰色说明（a_m4_card.png）。",
+     "proposal": "按句取，不按字截。用 。！？.!? 切句，从开头取能放进实测槽高的整句，永远不出省略号。槽高 = 专辑簇到按钮之间的剩余高度，按行高换算行数，和 audit 的「weight(1f) + 按高度算行数」同一做法。\n如果连第一句都放不下（短屏遇到长句），就不放摘录，只留一行署名「Your review · Jul 26 · in Diary」/「你的乐评 · 7月26日 · 在日记里」。\n字号按长度分档，颜色都是 on-surface：16 字以内 22sp/500；60 字以内 17sp/400；更长用 16sp/1.7。\n折行：Compose 设 lineBreak = LineBreak.Paragraph，HTML 用 text-wrap: pretty。样稿：mock_A2.png 是短评档。",
+     "needs_owner": false
+    },
+    {
+     "id": "yoin-voice-templates",
+     "area": "copy",
+     "priority": "should",
+     "problem": "Yoin 的旁白在讲 app 的机制，没在讲这次怎么听的。m2「Notes around this album are starting to form a memory.」是一句状态提示。m3 旁白里的「rating it track by track」和页脚的「6 of 8 tracks rated」说的是同一件事。\n问句「How did this album land for you?」每张专辑都一样，像问卷（b_m2_diary.png、b_m3_diary.png）。",
+     "proposal": "Yoin 的文风规则：第二人称，过去时，只用本地信号（播放次数、日期跨度、季节、曲名、最高分的曲目），一到两句。不评价音乐本身，那是用户的事。不引用也不转述乐评和笔记原文，narrativeCopy 的输入契约不变。不用「memory / 形成记忆」这类讲机制的词。问句接着前面那条事实问。\n确定性模板：\n① 多条笔记、没有评分：\"Four notes in four days. The first one was on 序曲.\" + \"What would you say about the whole album?\" /「四天里记了四条笔记，第一条写在《序曲》。」+「整张专辑，你会怎么说？」\n② 逐曲评分覆盖 ≥60%：\"You came back across three seasons. Undertow scored highest.\" + \"Why a 7.8, in a line or two?\" /「你跨了三个季节回来听，最高分给了 Undertow。」+「为什么是 7.8？写一两句吧。」\n③ 有专辑分、没有乐评：\"37 plays since March, the last one two days ago.\" + \"You gave it a 9.5. What earned it?\" /「三月以来听了 37 遍，最近一次是前天。」+「你给了 9.5 分，是哪里打动了你？」\n④ 兜底：\"What stays with you from this one?\" /「这张专辑，留下了什么？」\n旁白里用过的事实，从页脚证据句里删掉，同一屏不说两遍。",
+     "needs_owner": false
+    },
+    {
+     "id": "fallback-title",
+     "area": "copy",
+     "priority": "should",
+     "problem": "没有 Gemini 时，标题槽显示「Listened closely」，字体是 GSF 24/600（.ts-atx.ts-fb）。翻卡时主标题从宋体突然变成粗黑体，像资源没加载出来（a_m3_card.png）。下面照样署「Written by Yoin」，内容却是一句通用短语，和徽记的「7.8 Avg.」、页脚证据句说的是同一件事（audit 已记为三重复）。回退拟题文案是 owner 还没拍板的事项。",
+     "proposal": "推荐用 C，C 没有可用的文字时退到 A。不管选哪个，回退标题都不用宋体，宋体只给 AI 拟题。",
+     "needs_owner": true,
+     "options": [
+      "A. 专辑名升为主标题（GSF 24/600），原来的专辑行收成「艺人 · 年份」，不署 Yoin。没有 Yoin 写的字，就不出现 Yoin 的署名。",
+      "B. 用本地规则生成一个短标题，GSF 24/600，署 Written by Yoin，按信号取：\"Three seasons, track by track\" /「三个季节，一首一首」；\"Four days, four notes\" /「四天，四条笔记」。",
+      "C. 用用户自己的话当标题：从最新的笔记或乐评里取一个完整短句，用户字体 22/500，加引号；署名换成「Your note · Undertow 3:21」/「你的笔记 · Undertow 3:21」。没有可用的文字时退到 A。"
+     ]
+    },
+    {
+     "id": "diary-entry-not-quote",
+     "area": "diary-review",
+     "priority": "should",
+     "problem": "日记里的乐评有一条眉题「—— Your review · Jul 26, 2026」，正文前挂了一个引号 .ts-q（left: -17px）。实测引号离屏幕左边只有 7dp，越过了 16dp 页边线，是整页唯一越界的元素（b_m1_diary.png）。语义上也不对：在自己的日记里给自己的话加引号，引号本来表示「别人说的」。\n短屏末行只剩一个字「它。」（d_dark_short.png）。",
+     "proposal": "分工：卡片是 Yoin 在展示你，所以用引号加署名；日记是你自己的本子，所以不加引号，用日期做条目页眉。\n页眉：「Jul 26, 2026 · Your review」/「2026年7月26日 · 乐评」。日期 GSF 13/600 ink tabular，后半截 500 on-surface-var。删掉 18×1.5 的短横和 .ts-q。\n正文：保持用户字体 16/1.85（平板 17.5/1.9），全文显示，不截断，左边缘和拟题对齐在同一条 24dp 线上。\n折行：加 text-wrap: pretty（Compose 用 LineBreak.Paragraph），消掉末行单字。\n16 字以内的短评保留现在的 26/500 大字。改过的乐评，页眉加「· edited Oct 2」/「· 10月2日改过」。样稿：mock_B1.png。",
+     "needs_owner": false
+    },
+    {
+     "id": "tablet-single-yoin-block",
+     "area": "tablet",
+     "priority": "should",
+     "problem": "平板横屏 m2，同一屏出现两个「Written by Yoin」：左页拟题下面一个（y≈561），右页旁白下面一个（y≈183）（t_tl_m2.png）。右页第一行是 Yoin 的状态句，用户自己的字要往下找。上一轮已经提过，v3 没有改。",
+     "proposal": "平板上 Yoin 的话全部放在左页（竖屏是上半区）：放进 .ts-cite，顺序是拟题、旁白、问句，只署一次 Written by Yoin，max-width 420。\n右页（竖屏是下半区 .ts-bin）从用户自己的字开始：有乐评就是乐评条目；没有就是提案 ask-into-yoin-voice 里的空白日记条目，第一行是日期页眉。\n结果：一屏只出现一次 Yoin 署名。左边是 Yoin 写的颁奖词，右边是你的本子。",
+     "needs_owner": false
+    },
+    {
+     "id": "evidence-ledger",
+     "area": "diary-structure",
+     "priority": "should",
+     "problem": "页脚证据句是一串居中小字，折行很难看：m1 在 412 宽下折成「…last heard Oct」，下一行单独一个「2」（b_m1_diary.png）；短屏折成「last / heard Oct 2」（d_dark_short.png）。\n「Last heard Oct 2」同时出现在顶栏副标题和页脚，平板上两处同屏可见（t_tp_m1.png）。\ndesign.md 要求卡片解释「为什么这张专辑成为 memory」，现在没有一句话直接说出原因。",
+     "proposal": "改成两行账本，居中。\n第一行说原因（on-surface，600）：\"Kept because you reviewed it and rated it 9.5\" /「因为你写了乐评、打了 9.5 分，留在这里」。没有乐评时按门槛信号换：\"…because you rated 6 of 8 tracks\" /「因为 8 首里你评了 6 首」；\"…because of your 4 notes\" /「因为你记了 4 条笔记」。\n第二行是事实：\"37 plays · Mar 14 – Oct 2 · 4 of 10 tracks rated\" /「听了 37 遍 · 3月14日 – 10月2日 · 已评 4/10 首」。每条事实内部不许断行：HTML 用 white-space: nowrap 的 span，Compose 用   连接或 FlowRow。\nNeoDB 状态单独一行。用日期区间替代 since 和 last heard 两项。样稿：mock_B1.png。",
+     "needs_owner": false
+    },
+    {
+     "id": "yoin-language-rule",
+     "area": "consistency",
+     "priority": "should",
+     "problem": "Yoin 写的话混着两种语言：拟题是中文（Gemini 跟着中文原文写），旁白和问句是英文模板。日记顶部 50dp 之内先是「雨天里的水底吉他」，接着就是一句英文旁白（b_m2_diary.png）。回退标题「Listened closely」也是英文。界面是英文优先，用户的笔记却是中文。design.md 没有写语言规则。",
+     "proposal": "需要 owner 定一条规则：Yoin 写的成段文字（拟题、旁白、问句、回退标题）用哪种语言。按钮、署名、证据句这些界面文字始终跟 app 语言。推荐 A。",
+     "needs_owner": true,
+     "options": [
+      "A. Yoin 写的成段文字跟用户的写作语言：对乐评和笔记做文字系统检测，没有文字时用 app 语言。界面文字跟 app 语言。（推荐）",
+      "B. Yoin 写的一切都跟 app 语言（英文优先），Gemini 的拟题 prompt 固定输出语言。",
+      "C. 维持现状：拟题跟原文语言，模板固定英文。不推荐，同屏会混两种语言。"
+     ]
+    },
+    {
+     "id": "memory-date-home",
+     "area": "card",
+     "priority": "could",
+     "problem": "四处日期各写各的格式：顶栏「Last heard Oct 2」，乐评「Jul 26, 2026」带年份，笔记「Aug 2」不带年份，页脚「since Mar 14 · last heard Oct 2」。旧版的大日期要不要回来、放哪里，是 owner 还没拍板的事项（把大日期移进 eyebrow）。",
+     "proposal": "先统一日期语法：当年的日期省略年份，写「Jul 26」/「7月26日」；跨年时带年份，写「Jul 26, 2025」/「2025年7月26日」。条目页眉（乐评、空白日记）一律带年份，这是日记的惯例。\n「Last heard」整页只出现一次。具体放在哪，见下面三个选项。",
+     "needs_owner": true,
+     "options": [
+      "A. 顶栏副标题保留「Last heard Oct 2」，页脚只写日期区间「Mar 14 – Oct 2」，去掉 last heard。",
+      "B. 顶栏只写「Memories」，所有日期都放到页脚账本。",
+      "C. 卡片拟题上方加一行眉题「Since March · 37 plays」/「三月起 · 37 遍」（GSF 12.5/500，on-surface-var），替代旧的大日期；顶栏只写 Memories。"
+     ]
+    },
+    {
+     "id": "short-diary-rhythm",
+     "area": "diary-structure",
+     "priority": "could",
+     "problem": "内容少的日记会留出大段空白。m4 只有「好听。」，从乐评到页脚空着约 420dp（b_m4_diary.png）。m3 只有一条笔记，后面空着约 230dp，上下两组「• • •」中间什么都没有（b_m3_diary.png）。原因是 .ts-ast-end 设了 margin-top: auto，把页脚钉在了底部。",
+     "proposal": "内容不满一屏时，页脚不再钉底，而是跟在内容后面 40dp。\n分隔点只放在两段真实内容之间（乐评和笔记之间）。页脚前面那组分隔点，在空白超过 48dp 时省略。\n16 字以内、又没有笔记的短评，条目放在可视区 38% 的光学位置，和 audit 里「短评升引文到 38% 光学位」是同一个做法。",
+     "needs_owner": false
+    }
+   ]
+  },
+  {
+   "lens": "notes",
+   "summary": "twostate3 日记里的笔记仍然是三层的列表项：▸ 三角、墨色 600 字重的时间戳，下面每条还挂一行“歌名 · 日期”。时间戳成了每行最扎眼的东西，和 NP 里 NoteCompactPane 的歌词式笔记行也对不上。可点的只有时间戳，实测 46.8×25dp；点亮靠一个 3.2s 定时器，和真实播放无关。更大的缺口是逐曲评分在日记里完全没有：m3 的旁白说“rating it track by track”，日记里却只有一条笔记和约 245dp 空白。建议把评分和笔记合成一张按专辑顺序排的曲目+笔记表：已评的曲目实色、配墨色分数，未评的灰、分数位留空；笔记作为歌词行挂在所属曲目下，整行 48dp 可点，高亮跟随播放头，并和徽记上的珠子、刻槽联动，配 TICK 触感。可点 mock 在 /private/tmp/claude-501/-Users-gpo-Developer-Yoin/23f51111-8eb4-4490-b6dd-c3b596c48260/scratchpad/design2/critique/notes/ts3_liner.html，前后对比图是同目录 shots/compare_m1_light.png、compare_m2_dark.png、compare_m3_light.png。需要 owner 拍板的有三件：列哪些曲目、点曲目做什么、徽记怎么联动。",
+   "proposals": [
+    {
+     "id": "note-line-calm",
+     "area": "diary-notes",
+     "priority": "must",
+     "problem": "笔记行的视觉重心错位，太扎眼。`.ts-nst` 是 ▸ 三角（`.ts-nst i`）加 `color: var(--ink)`、600 字重、12.5px，成了每行最饱和、最重的元素：浅色下金色“▸ 0:12”比正文先抓眼，见 /private/tmp/claude-501/-Users-gpo-Developer-Yoin/23f51111-8eb4-4490-b6dd-c3b596c48260/scratchpad/design2/critique/notes/shots/Z_m2_notes.png 和 ZD_m2_notes.png。每条下面再挂一行 `.ts-nmeta`（12px/500），如“序曲 · Oct 1”。一条笔记有时间戳、正文、歌名加日期三层，读起来是列表项，不是歌词行。这违背已记录的规则：小窗是歌词式纯文字，只有时间戳和正文。也和 NP 的实际实现不一致：NoteCompactPane.kt 的 NoteLineItem 用 labelSmall、onSurfaceVariant，没有三角，也没有元信息。",
+     "proposal": "笔记行只保留时间戳和正文两样。时间戳用 GSF 12.5/500，tabular，颜色 on-surface-var；删掉 `.ts-nst i` 三角，只有激活态才变 ink。时间戳和正文首行按基线对齐（Compose 用 alignByBaseline），两者 line-height 都用 25.6。正文保持 --font-user 15.5/1.65、on-surface，全文显示不截断，不要回到旧笔记卡的 2 行 clamp。`.ts-nmeta` 里的日期删掉；歌名也不再挂在每条笔记下面，改由曲目行承担（见 liner-notes-list）。时间格式和 NP 共用 formatNotePosition。遗留的无锚点歌曲笔记（positionMs=null）时间戳列留空，排在同曲有锚点的笔记之后，点按就从这首歌开头播放。",
+     "needs_owner": false
+    },
+    {
+     "id": "liner-notes-list",
+     "area": "diary-structure",
+     "priority": "must",
+     "problem": "日记里完全没有逐曲评分。data.js 里 m1 有 4 首评分（9.0/8.5/10.0/7.5），m3 有 6 首。m3 的 Yoin 旁白写着“rating it track by track”，日记里却只有一条笔记，笔记和证据句之间空出约 245dp（/private/tmp/claude-501/-Users-gpo-Developer-Yoin/23f51111-8eb4-4490-b6dd-c3b596c48260/scratchpad/design2/critique/notes/shots/L_phone_m3_diary.png，y≈436→683）。逐曲评价现在只剩证据句里的“4 of 10 tracks rated”。owner 说逐曲评价缺少交互上的考虑；日记现在能纵向滚动，正好可以放它。v2.2 删掉曲目表，是因为当时卡片是单视口、不能滚，日记没有这个限制，但复活曲目行仍要 owner 点头。",
+     "proposal": "把评分和笔记合成一张按专辑曲序排的“曲目 + 笔记”表（liner notes），放在乐评或提问区之后、证据句之前。曲目行高 48dp，从左到右三栏：40dp 的数字列放曲号（13/500，tabular，on-surface-var）；然后是单行歌名，GSF 16，已评用 600、on-surface，未评用 500、on-surface-var；最右是右对齐的分数（15/600，tabular，ink）。这首歌的笔记作为歌词行挂在曲目行下面：时间戳落在曲号那一列，正文和歌名共用一条左边线。整张表只有两条边线，数字一条，文字一条。已评的行是实色加墨色分数；未评的行是灰色，分数位留空，不写“–”或“Not rated”。这对应徽记上“刻过的槽对点阵”，也符合 groove.js 注释里“the album's colour is earned, not given”。同一首歌的笔记按 at 排序；组与组之间留 8dp，笔记行底部 padding 8。scratch 里有可点的 mock：/private/tmp/claude-501/-Users-gpo-Developer-Yoin/23f51111-8eb4-4490-b6dd-c3b596c48260/scratchpad/design2/critique/notes/ts3_liner.html，截图在 shots/L2_liner_m1.png、L2_liner_m3.png、D2_liner_m2.png、L2_liner_tl_m3.png，前后对比在 shots/compare_*.png。mock 里 m3 的空白被 6 行评分填满（日记内容高 900，视口 819）。m1 内容高 1025，日记滚动约 200dp。",
+     "needs_owner": true,
+     "options": [
+      "A（推荐，mock 用的就是这个）：只列有评分或有笔记的曲目。完整曲目留给 Go to album，避免日记像一张待办清单",
+      "B：列完整曲目表，和徽记的每一圈一一对应；既未评分又没有笔记的行再降一档（on-surface-var 70%）",
+      "C：不加曲目行，笔记按歌曲分组，只在换歌处加一行 12/600 的小字歌名；评分仍然只体现在徽记里"
+     ]
+    },
+    {
+     "id": "row-tap-targets",
+     "area": "diary-notes",
+     "priority": "must",
+     "problem": "可点的只有 `.ts-nst` 按钮，手机和平板实测都是 46.8×25dp（CDP 量 getBoundingClientRect），正文点了没反应；整条 `.ts-note` 是 364×44dp。不到 48dp，也和 NP 里“点一行就从那一刻播放”的习惯不一样。",
+     "proposal": "整行做成一个按钮。笔记行和曲目行都是全宽、min-height 48dp；按压态的 ripple 用 ListRow 的 12dp 圆角（YoinContainerShapes.ListRow）。语义上合并子节点，onClickLabel 写成“Play from 1:12”或“Play Night Bus”。mock 里每个 `.ts-trow` 和 `.ts-nl` 实测都是 364×48。专辑笔记没有锚点，不做成按钮，也不给按压态。",
+     "needs_owner": false
+    },
+    {
+     "id": "live-highlight",
+     "area": "diary-notes",
+     "priority": "should",
+     "problem": "点了时间戳以后，`.has-on .ts-note:not(.is-on){opacity:.42}` 会把其余所有行（包括专辑笔记）一起压到 42%；3.2s 后 `setTimeout(clearNotes, 3200)` 又全部恢复，和真实播放状态无关。激活行 `.ts-note.is-on .ts-ntx` 改成 font-weight 500，Latin 字符变宽，有重新换行的风险（比如“Bridge 太好了”）。toast 固定在 bottom:40，日记滚到底时会盖住 Go to album（/private/tmp/claude-501/-Users-gpo-Developer-Yoin/23f51111-8eb4-4490-b6dd-c3b596c48260/scratchpad/design2/critique/notes/shots/L_liner_m1_tap.png）。",
+     "proposal": "高亮改由播放状态驱动。只要正在播放的是这张专辑，就按 NP 的同一条规则点亮对应的行：currentAnchoredNoteId，即不晚于播放头的最后一个锚点。被点亮的笔记行，时间戳和正文变 ink；这首歌的曲号也变 ink。只变颜色，不变字重；颜色用 effects spring 过渡。其余行不压暗，因为日记是阅读面，不是 NP 的歌词小窗；也不自动跟随滚动，用户可能正在读。播放离开这张专辑时才熄灭，去掉定时器。toast 的 bottom 要让开 `.ts-foot .ts-go`；更轻的做法是日记里不弹 toast，只靠行高亮加系统媒体通知。",
+     "needs_owner": false
+    },
+    {
+     "id": "album-note",
+     "area": "diary-notes",
+     "priority": "should",
+     "problem": "专辑笔记左列写着“Album”（`.ts-nst-alb`），下面 `.ts-nmeta` 又写“Whole album · Sep 28”，同一件事说了两遍。它和歌曲笔记长得一样，却不能点。",
+     "proposal": "专辑笔记排在曲目表之前，正文落在文字边线上。数字列放一颗 6dp 的空心珠：1.5dp 描边，on-surface-var，60% 不透明度。徽记上的专辑笔记就是这样一颗空心珠（groove.js 2c：album note 画在标签边缘 12 点钟，是空心珠），两处用同一个记号。不写 Album、Whole album 或日期，也不做成按钮。效果见 /private/tmp/claude-501/-Users-gpo-Developer-Yoin/23f51111-8eb4-4490-b6dd-c3b596c48260/scratchpad/design2/critique/notes/shots/D2_liner_m2.png。",
+     "needs_owner": false
+    },
+    {
+     "id": "tap-track",
+     "area": "diary-structure",
+     "priority": "should",
+     "problem": "现在没有曲目行，所以“点一首歌会发生什么”还没有定义。笔记行点了是从那一刻播放，曲目行需要一个和它一致的动词，而且不能让展示柜变重。",
+     "proposal": "推荐：点曲目行就从这首歌开头播放，和点笔记从那一刻播放是同一个动词“听”。日记保持只读，评分仍然只在 NP 的竖条里改。播放后这一行按 live-highlight 的规则点亮，并按 diary-haptics 给一下触感。",
+     "needs_owner": true,
+     "options": [
+      "A（推荐）：从头播放这首歌，日记保持只读",
+      "B：推入专辑详情页并高亮这一首（originSection=MEMORIES，和 Go to album 走同一条路）",
+      "C：弹出评分面板就地改分。最重，偏离展示柜的定位"
+     ]
+    },
+    {
+     "id": "emblem-bead-link",
+     "area": "tablet",
+     "priority": "should",
+     "problem": "徽记已经画出了笔记和评分：每条笔记在它所属曲目那一圈上，按 at/dur 的角度放一颗珠子（D_tl_m2.png 里 m2 的未评徽记上能看到三颗），评过分的曲目是实刻槽。但在日记里点笔记或曲目，徽记毫无反应，两边的信息互不相认。平板上 120/124dp 的徽记和日记同屏，联动的收益最大（/private/tmp/claude-501/-Users-gpo-Developer-Yoin/23f51111-8eb4-4490-b6dd-c3b596c48260/scratchpad/design2/critique/notes/shots/D_tl_m2.png、L_tl_m3.png）。手机顶栏的小徽记只有 40dp，不画珠子（groove.js 只在 s>=64 时画）。",
+     "proposal": "groove.js 的 render 给每颗珠子加 data-ni，给每段刻槽加 data-t。只加属性，不改画法。平板上点笔记，对应的珠子弹一下：scale 1→1.8→1，spring k≈420、z≈0.6，同时放一圈 ye-groove-ripple。点曲目，这首歌那段刻槽过一次光，复用获得动画的 sheen 扫光，只扫这一圈。所有效果在“减弱动画”下关闭。手机端怎么做见选项。",
+     "needs_owner": true,
+     "options": [
+      "A：只在平板做珠子弹跳和刻槽扫光，手机不联动",
+      "B“落针”：点笔记时 .ye-groove-spin 用弹簧转动，把这颗珠子转到 12 点钟，分数标签保持正立；手机顶栏的小徽记临时画出这一颗珠子，一起转",
+      "C：不联动，徽记只在卡片上表达"
+     ]
+    },
+    {
+     "id": "diary-haptics",
+     "area": "haptics",
+     "priority": "should",
+     "problem": "owner 要求实现时带触感，但目前只有获得动画有 hapticPlan，日记里的交互（点笔记播放、以后的点曲目）没有任何触感规划。",
+     "proposal": "点笔记行：在高亮落定的那一帧给一次 PRIMITIVE_TICK，scale .5（YoinHaptics.performTick），和 NP 进度条划过笔记锚点时的那一下是同一种手感。点曲目行：TICK，scale .4。平板上珠子弹跳到顶点时（如果做 emblem-bead-link）：LOW_TICK，scale .35（performLightTick）。滚动、打开或收起日记、行入场都不震，跟随系统触感开关。",
+     "needs_owner": false
+    },
+    {
+     "id": "tablet-list-measure",
+     "area": "tablet",
+     "priority": "could",
+     "problem": "平板日记的列宽是 608dp（竖屏）和约 600dp（横屏右页）。加上曲目行后，歌名和右对齐的分数相隔约 370dp（/private/tmp/claude-501/-Users-gpo-Developer-Yoin/23f51111-8eb4-4490-b6dd-c3b596c48260/scratchpad/design2/critique/notes/shots/L2_liner_tl_m3.png 里“Tidal … 8.0”），视线要横跨大半列。现在的笔记是 12.5 的时间戳配 16.5 的正文，数字列 52dp 加 6dp 间距，比手机还松（L_tp_m1.png）。",
+     "proposal": "平板上曲目+笔记表限宽 520dp，分数贴着 520 处右对齐，不跟随乐评的 608 列宽；数字列 44dp。鼠标或触控笔悬停、手指按压时，整行铺一层 ListRow 12dp 的底色，把歌名和分数连成一体。平板的时间戳和曲号升到 13/500，正文 16.5 不变。",
+     "needs_owner": false
+    },
+    {
+     "id": "card-excerpt-link",
+     "area": "card",
+     "priority": "could",
+     "problem": "卡片在没有乐评时会摘录第一条笔记，署名“序曲 · 0:12”用 ink、600、12px（`.ts-aex small`，见 /private/tmp/claude-501/-Users-gpo-Developer-Yoin/23f51111-8eb4-4490-b6dd-c3b596c48260/scratchpad/design2/critique/notes/shots/L_card_m2.png），在卡片上和 Go to album 抢颜色。摘录本身也不能点，卡片上的这条笔记和日记里的同一条之间没有联系。",
+     "proposal": "署名改成 on-surface-var、500，格式和日记里的时间戳一致。点摘录就打开日记，把这条笔记滚到视口约 30% 的位置，点亮一次，不播放。卡片的其余手势不变，上滑仍然回首页。",
+     "needs_owner": false
+    },
+    {
+     "id": "rated-rows-cut-in",
+     "area": "motion",
+     "priority": "could",
+     "problem": "奖赏感目前全压在徽记的获得动画上。日记打开时，曲目评分只是跟着 .ts-st 错落升起，和 t3 档“刻槽一圈圈亮起”的语言没有关系；10.0 的曲目看起来和 7.5 一样。",
+     "proposal": "日记第一次打开时，已评行的分数按曲序每行错开 40ms，从 on-surface-var 过渡到 ink（effects spring），像刻槽逐圈亮起。这一步不震，“减弱动画”下直接显示终态。10.0 的分数下面垫一枚 22dp 的 Cookie12Sided（ink 12% 底色），呼应徽记的标签，不加别的装饰。",
+     "needs_owner": false
+    }
+   ]
+  },
+  {
+   "lens": "structure",
+   "summary": "我在 headless Chrome 里用 CDP 发真实鼠标事件，把 twostate3 的卡片、日记、几种手势都跑了一遍。日记的转场大体连贯（点 Diary 约 250ms 用弹簧推完，内容错落升起）。主要问题出在手势和结构上，代码都已核实：顶栏上推回首页还是只能靠快甩，慢慢推到屏幕顶最多 68dp，即 q=0.074，阈值要 0.25；从拉深的日记点 ⌄ 或系统返回，会把整段滚动\"倒带\"一遍；短日记因为 .ts-ast-end 锚底，中间空出 235–420dp；结尾和段落分隔用的是同一个“• • •”，看不出这里结束了。旧评审核对结果：⌃ 两义在卡片上已修好（Diary 改用书本图标），但日记态胶囊仍收成 36dp 的纯 ⌃ 圆钮；顶栏阈值、拇指区出口、在日记里换卡丢掉获得时刻、笔记点按区 47×25、平板重复的 Written by Yoin、短屏卡片摘录 2 行截断，这几条都还在。另外 m1–m4 的日记在 412×915 上全都一屏放得下，从来不滚，所以滚动、交界、结尾一直没被真正检验过；我在 critique/diary-structure/long.test.html 里注入了一个 12 条笔记的样本来补测。",
+   "proposals": [
+    {
+     "id": "bar-dismiss-threshold-dp",
+     "area": "motion",
+     "priority": "must",
+     "problem": "顶栏上推回首页拖不到提交点（旧评审 must#1 未修）。起手区是 y<d.barB（手机 96dp），releaseQ（L806–808）却要求 d.q>0.25（915 高约 229dp）或速度 >600dp/s。实测（真实 pointer 事件）：卡片和日记两态下，从 y=70 慢推到 y=2 再松手，q 最大 0.074（68dp），随后弹回（T1、T5）。只有把鼠标拖出设备外 230dp（T2，真机做不到）或快甩约 1400dp/s（T3）才提交。owner 定的是在日记里上推顶栏一步回首页，而日记里纵向拖动都归滚动，所以顶栏是唯一的拖动出口，现在等于只能快甩。",
+     "proposal": "pointerdown 时记下 gst.zone==='bar'，releaseQ 接收 fromBar 参数。从顶栏起手时，d.q*d.H ≥ 56dp 或上推速度 ≥ 450dp/s 就提交，平板同样按 dp 判定。卡片主体仍沿用 25% / 600dp/s。跟手仍然 1:1，但 renderQ 的圆角和阴影在 56dp 处就给满，即 r = 32*ss(0, 56/d.H, q)。越过 56dp 时给一次轻触感（CLOCK_TICK），退回阈值以下再给一次。手势面板“顶栏”一条补写“上推 56dp 或快甩”。",
+     "needs_owner": false
+    },
+    {
+     "id": "collapse-no-scroll-rewind",
+     "area": "motion",
+     "priority": "should",
+     "problem": "从拉深的日记里收起会倒带整段滚动。toggleAB(false)（L762–766）把 v 从 D+scrollTop 弹回 0，renderV 每帧设 scrollTop=v−D，所以 ⌄、点小徽记、系统返回（sysBack 走同一路径）都会先把正文高速滚回顶部，然后才开始变形。12 条笔记的样本里实测：scrollTop 631 在约 70ms 内降到 246，约 140ms 归 0，接着才变形。帧见 /private/tmp/claude-501/-Users-gpo-Developer-Yoin/23f51111-8eb4-4490-b6dd-c3b596c48260/scratchpad/design2/critique/diary-structure/81_rewind_strip.png。真实的长日记（2000dp 以上）会糊成一片。",
+     "proposal": "程序化收起只驱动变形进度 p，不动滚动：冻结 scrollTop，令 v=D，用 SPR.morph 把 p 从 1 弹到 0。正文块 .ts-st 从当前滚动位置整体下沉淡出，沿用现有的 lag+错落公式。p<0.05 时正文已经看不见，这时再把 scrollTop 归 0。顶部下拉收起不变（那时本来就在顶部）。这样变形仍只有 p 一个主进度，滚动只是容器自己的状态，对应 Compose 的 LazyListState，收起完成后再 scrollToItem(0)。",
+     "needs_owner": false
+    },
+    {
+     "id": "bar-is-diary-handle",
+     "area": "motion",
+     "priority": "should",
+     "problem": "日记态从顶栏往下拉，不会收起日记，而是把整个 Memories 往下橡皮筋 46dp，顶上露出一条首页（T6，q=−0.05；截图 /private/tmp/claude-501/-Users-gpo-Developer-Yoin/23f51111-8eb4-4490-b6dd-c3b596c48260/scratchpad/design2/critique/diary-structure/41_diary_pull_from_bar.png）。原因在 pointermove（L909–915）：zone 为 'bar' 时一律进 'dismiss'。手指按在带 ⌄ 的专辑名上往下拉，是最自然的收起手势，现在却只在正文区起手才生效。",
+     "proposal": "日记态（d.v ≥ D/2）且从顶栏起手时，过了 8dp 判向再按方向分：向上进 'dismiss'（q，配合上一条的 56dp 阈值），向下进 'vert'（applyV 负增量，接上变形擦洗，松手规则同 releaseV）。这样顶栏就是日记的把手：点 ⌄、下拉收起、上推回首页都在这一条上，而且都接同一个 v/q 控制器。卡片态不变。",
+     "needs_owner": false
+    },
+    {
+     "id": "diary-predictive-back-scrub",
+     "area": "motion",
+     "priority": "should",
+     "problem": "日记里的系统返回没有预览。卡片态的 sysBack 先用 420ms 把 q 擦到 0.09 再提交，日记态（L812）直接调 toggleAB(false) 弹回卡片，没有手势进度阶段。这违反 AGENTS 的要求：手势进度要直接驱动 UI，取消和提交用同一组动效 token，同类页面的返回语言要一致。",
+     "proposal": "日记态的预测性返回用全程缓动擦洗：p = 1 − backGestureEasing(progress)，easing 用 CubicBezier(0.1,0.1,0,1)，不封顶也不追赶，符合 owner 已否掉 cap+chase 的口味。预览里小徽记离开顶栏飞回封面角，封面淡入，正文下沉（深滚动时用上一条的整块下沉）。取消时用 SPR.morph 回到 1，提交时用 SPR.morph 到 0。原型的“模拟系统返回”在日记态改为先播 420ms 进度擦洗再提交，和卡片态同构。",
+     "needs_owner": false
+    },
+    {
+     "id": "diary-end-and-void",
+     "area": "diary-structure",
+     "priority": "should",
+     "problem": "结尾不清楚，短日记中间留大洞。(1) .ts-ast.ts-ast-end{margin-top:auto}（L190）把证据句锚到底：m4 的乐评在 y=257 结束，结尾点在 y≈681，中间空约 420dp（26_diary_m4.png）；m3 的笔记在 446 结束，空约 235dp（24_diary_m3_after_swipe.png）。(2) 段落分隔（乐评→笔记）和结尾用的是同一个“• • •”，读者分不出这里是不是结束。(3) 412 和 375 宽下证据句都把“2”单独挤到一行：“…last heard Oct / 2”（03_diary_top.png、32_short_dark_end.png）。(4) m4 的卡片上已经显示完整乐评“好听。”，日记除了证据句什么都没多。(5) 样本 m1–m4 在 412×915 上 scrollHeight 都等于 clientHeight（819），从来不滚，结尾和长度问题因此一直没暴露。截图目录均为 /private/tmp/claude-501/-Users-gpo-Developer-Yoin/23f51111-8eb4-4490-b6dd-c3b596c48260/scratchpad/design2/critique/diary-structure/。",
+     "proposal": "推荐方案：去掉 margin-top:auto，结尾块跟着内容走，和上一块间隔 56dp，短日记自然在内容处结束。结尾的“• • •”换成只在结尾出现的收束记号，借唱片的“导出槽”（run-out groove）：居中 28dp 的 2–3 圈发丝同心环，ink 45%，和刻纹徽记同一语言。证据句当版权页，每个分句不断行（clause 内用 U+00A0 或 nowrap，只在“ · ”处换行），NeoDB 行在下，Go to album 最后。YS_DATA 加一个 m5 压力样本（长乐评 + 12 条笔记，可直接用 long.test.html 的注入），专门检验滚动、交界和结尾。说明：v2.2 的“footnotes 锚底、四卡同位”是给单视口卡片定的，日记是滚动页，情况不同。",
+     "needs_owner": true,
+     "options": [
+      "结尾跟随内容 + 导出槽收束记号（推荐）",
+      "保持锚底，但把空白让给别的内容（例如下一条里的写乐评邀请），只换掉结尾记号",
+      "维持现状"
+     ]
+    },
+    {
+     "id": "own-words-first-order",
+     "area": "diary-structure",
+     "priority": "should",
+     "problem": "没有乐评的日记，第一块用户可操作的内容是一张表单。m2/m3 的顺序是：Yoin 拟题 → Yoin 旁白 → Written by Yoin → 铅笔加虚线“How did this album land for you?”和“Write a review”胶囊 → • • • → 笔记。用户自己写的笔记在 y≈406 才开始（21_diary_m2_top.png）。平板横屏左页拟题下一次、右页旁白下一次，同屏两个“Written by Yoin”，旧评审 should#6 仍在（62_tablet_landscape.png）。",
+     "proposal": "日记顺序统一成“Yoin 的话 → 用户的字 → 邀请 → 收束”。有乐评时：拟题/Written by Yoin → 乐评 → 笔记 → 收束。没乐评时：拟题 + 旁白 + Written by Yoin → 笔记 → 写乐评邀请（单一文字动作，样式交给回顾区视角）→ 收束记号 → 证据句。邀请正好挨着“NeoDB sync waits for a review”，因果关系一目了然，也顺手填掉 m3 的空洞。平板把旁白移进左页或上半区的拟题下，两段 Yoin 的话共用一个 Written by Yoin，右栏从用户的字开始。",
+     "needs_owner": false
+    },
+    {
+     "id": "bar-truncation-targets",
+     "area": "consistency",
+     "priority": "should",
+     "problem": "日记顶栏的截断和可点性。(1) .ts-bt/.ts-ba 用 text-overflow:ellipsis（L85–86）：m3 显示成“The Patterns Lost to t…”（scrollWidth 355 对 clientWidth 178，52_bar_m3.png），短屏 m1 显示成“夜行列车与未寄出…”和“… · 2…”（31_short_dark_start.png），违反 owner 的单行标题要跑马灯、不许页中截断。(2) 卡片端的页中截断也还在：短屏 .ts-S .ts-aq 限 2 行，m1 首句 scrollHeight 79 大于 53，被截断。(3) 40dp 小徽记沿用 96dp 渲染整体缩小，“Album/Avg.”小字约 4dp，不可读（51_bar_m1.png）。(4) 点按区都不到 48dp：Home 圆钮 36×36，小徽记 40×40（点它会收起日记，但看不出来），.ts-collapse 202×36，笔记 .ts-nst 47×25。截图目录同上。",
+     "proposal": ".ts-bt/.ts-ba 停稳 1.2s 后走 MarqueeText 式跑马灯，⌄ 固定在 slotB 末端，不再跟在文字后面漂。顶栏小徽记单独出一个尺寸角色，只显示数字（未评显示一短横），不显示类别字。所有顶栏按钮的命中区扩到 48dp，视觉尺寸不变，64dp 高的顶栏放得下。.ts-S 的摘录改成按可用高度决定显示几句整句，放不下就整句不显示，不做行截断。",
+     "needs_owner": false
+    },
+    {
+     "id": "home-affordance-in-diary",
+     "area": "consistency",
+     "priority": "should",
+     "problem": "日记态的 Home 胶囊收成 36dp 纯 ⌃ 圆钮（L664，pill.style.width = lerp(88,36)），右边紧挨着收起日记的 ⌄。旧评审 must#2 在卡片上已修：Diary 改用书本图标，⌃ 只表示 Home。但长阅读页左上角的圆形 ⌃ 是典型的“回到顶部”按钮。在 12 条笔记的样本里滚到深处（74_long_end.png），读者点它多半是想回顶部，结果整个 Memories 直接离场。twostate2 里已经是这样，owner 看过。",
+     "proposal": "让 ⌃ 在日记态也能一眼读出“Home”，从下面三个方案里选一个，并且三个方案都把命中区扩到 48dp。",
+     "needs_owner": true,
+     "options": [
+      "日记态保留 88dp 的“⌃ Home”文字胶囊：小徽记挪到 x=116，slotB 左边改为 164，标题少的宽度由跑马灯兜住",
+      "只显示图标，但换成 Yoin Symbols 里专用的 home 字形，不和 ⌃/⌄ 共用 chevron",
+      "维持现状（owner 在 twostate2 里已看过）"
+     ]
+    },
+    {
+     "id": "swipe-in-diary-award",
+     "area": "motion",
+     "priority": "should",
+     "problem": "日记里横滑换卡，新卡直接以日记打开：goTo 在 L784 把 v 夹在 D。实测滑到 m3 后 isB=true（24_diary_m3_after_swipe.png）。唱片刻纹的分档获得动画和触感，对这样滑到的卡永远不会播，旧评审 should 条目仍在。用户进过一次日记，这一叠后面几张的展示柜时刻就都没了。",
+     "proposal": "在下面三个方案里选一个。",
+     "needs_owner": true,
+     "options": [
+      "从日记横滑后回到卡片：goTo 同时用 SPR.morph 把 v 弹到 0，和翻页弹簧并行，新卡按规则播获得动画",
+      "留在日记，但顶栏小徽记落位时做一次迷你获得：第 2 档及以上转四分之一圈加扫光，配一次轻触感，scale 0.6→1，k≈420，z≈0.7",
+      "维持现状（文档已写“新卡也以日记打开”）"
+     ]
+    },
+    {
+     "id": "morph-title-over-cover",
+     "area": "motion",
+     "priority": "should",
+     "problem": "变形过程中，宋体拟题会从封面上穿过。pair(g.atx, g.btx)（L626）让标题沿直线从 y≈483 移到 122，而封面（y 150–406）的透明度是 1−ss(0,0.36,p)，p<0.3 时还有 50–100% 不透明。下拉擦洗停在 p≈0.25 时，标题正压在封面下沿上（/private/tmp/claude-501/-Users-gpo-Developer-Yoin/23f51111-8eb4-4490-b6dd-c3b596c48260/scratchpad/design2/critique/diary-structure/47_pull_strip.png 第 4 帧）。点按时弹簧一闪而过不明显，但下拉是跟手擦洗，owner 可以停在这一帧上看。",
+     "proposal": "让封面在标题进入它的范围前就让开：标题顶边在 p≈0.21 时到达封面底边，所以封面透明度窗口改为 1−ss(0,0.18,p)，上移从 −28 加到 −56dp（缩放 0.94 不变），保证 p=0.21 时封面 ≤15%。另一种做法是标题先在原位停住，p 过 0.2 后再开始飞，pair 的透明度交接窗口相应后移。徽记的直线飞行不变。",
+     "needs_owner": false
+    },
+    {
+     "id": "diary-top-seam-tide",
+     "area": "consistency",
+     "priority": "could",
+     "problem": "日记顶部交界用的是整个视口的线性 alpha 遮罩：--ft = min(scrollTop,40)px（L185–187、L661），底部也是线性 64px（--fb）。design.md 2026-10-04 定的是：固定 chrome 下的顶部交界默认用潮线，文字在水线下 10dp 内淡完，淡出长度取 max(文字带, 0.75×字号)，而且 owner 说过线性渐隐生硬、像白雾。截图 /private/tmp/claude-501/-Users-gpo-Developer-Yoin/23f51111-8eb4-4490-b6dd-c3b596c48260/scratchpad/design2/critique/diary-structure/76_seam_zoom.png 里，“Night Bus · Mar 12”在顶栏下雾化了约 40px。",
+     "proposal": "顶部：scrollTop>0 时在 y=96 画潮线（两道页面底色的波浪，相位跟随滚动，停下即静止），日记全是文字，所以只做文字淡出，带宽约 12dp（16sp×0.75），遮罩用 smoothstep 缓动色标（同 EdgeFade 的 easedMaskColors）。底部：Memories 打开时底栏隐藏，交界外没有 Yoin chrome，所以保留滚动感知的淡出（到底时释放，现在已经是这样），改成缓动色标，长度收到 40dp。",
+     "needs_owner": false
+    },
+    {
+     "id": "handoff-haptic-tick",
+     "area": "haptics",
+     "priority": "could",
+     "problem": "一次连续拖动会从读日记直接滑进收起擦洗，中间没有任何边界感。实测：从 scrollTop 291 往下拖 450dp，到顶后继续进入变形 159dp，离 160dp 的提交点只差 1dp（s5）。滚轮要求重新起一次滚动（wFloor），快甩会停在顶部（fling 在 d.D 处停住），只有触摸拖动没有边界。owner 要求“注意实现的时候需要触感效果”。",
+     "proposal": "保留同一手势里的嵌套交接（这是 Android 惯例），但加两处反馈：v 在拖动中向下越过 D 后，前 24dp 用 0.5× 阻尼；p 越过 0.5（收起已就绪）时给一次轻触感（CLOCK_TICK），退回时再给一次，和进度条笔记刻度的划过震动同一语言。下拉擦洗跟手的 1:1 不变，松手仍用 SPR.morph。",
+     "needs_owner": false
+    }
+   ]
+  },
+  {
+   "lens": "card",
+   "summary": "卡片态的骨架成立：256dp 封面配右下角 96dp 唱片刻纹，读起来就是\"唱片贴着获奖贴纸\"。我在浅色、深色和模拟的杂乱封面上都看了，m1–m4 的分数都清楚（Busy_all.png），groove 的可读性不用改。最大的缺口在动效链路上。颁奖动画和触感目前只挂在画廊按钮上，开 Memories、换卡、从日记回到卡片都不会颁奖；重播时第一帧会把刻纹整片抹掉。日记顶栏的小徽记是把 96dp 整体缩小来的，说明字只剩 4–5dp。点 Diary 时封面直接淡出，没有去处；减少动态下卡片和日记之间是硬切。奖赏感本身还有一处倒挂：盘面华不华丽看的是评过几首曲目，不看分数，所以 10.0 的 m4 反而是最朴素、光也落不上的那张。待拍板的几件，证据倾向这样：删掉自转、徽记可点（有分数的重播颁奖，未评的轻晃一下）、日期留在顶栏、按钮换成 Expressive 按压形变并降低 Go to album 的强调，具体选项见各条。截图和测量都在 /private/tmp/claude-501/-Users-gpo-Developer-Yoin/23f51111-8eb4-4490-b6dd-c3b596c48260/scratchpad/design2/critique/card-groove-motion/png/（下文写作 png/…），插桩副本是同目录上一级的 ts3_light.html 和 ts3_dark.html，原型文件没有改动。",
+   "proposals": [
+    {
+     "id": "award-lifecycle",
+     "area": "motion",
+     "priority": "must",
+     "problem": "twostate3.html 里只有画廊按钮 [data-em-award] 的点击会调用 G.award，也只有它带触感（1052–1061 行）。设备里打开 Memories、左右换卡、日记收回卡片，都不会颁奖。卡片态点 .ts-seal 什么也不发生（990 行只在日记态收起）。award() 的第 0 帧会把 .ye-groove-cut 的 dashoffset 设成 1，所以对已经静止显示的徽记重播，会先整片抹掉刻纹再重刻：png/L_seal_m1_x3.png 静止时有金色刻纹，png/Aw_t3m1_strip.png 第 1 帧刻纹全无，m3 的 png/Aw_t2m3_strip.png 一样。中途打断时 handle.cancel() 让 WAAPI 直接跳回静止态。另外 10.0 的闪光上升段（约 1000ms），maroon 外圈和低透明的 mint 叠成一圈灰褐色（png/Aw_t4_zoom.png 第 3 帧）。",
+     "proposal": "1）触发时机：每张卡在本次 deck 会话里第一次完整露面时颁奖一次。(a) 打开 Memories 时，q 回到 0 的弹簧过 85% 就开始；(b) 横向换卡时，等 SPR.page 落到 |pos−idx|<0.15 再开始，手指还在屏上时不播；(c) 在日记态换卡到达的卡，只让顶栏小徽记点一下头，配该档最强的一拍（scale×0.5），完整颁奖留到收回卡片落定时再播。已经颁过的卡再出现，不自动重播。2）首帧状态：还没颁奖的卡，渲染时就停在 script(t=0) 的姿态（给 .ye-groove-root 加 data-pending，CSS 让 .ye-groove-cut 的 stroke-dashoffset 为 1、标签处在起始缩放）。这样卡片滑进来时看到的是一张待颁奖的盘，不会先露出成品再被抹掉。3）重播：点有分数的徽记就重播，但重播版不跑刻纹轨道，只跑转盘、光扫、标签压下、10 分闪光和触感。4）打断：换卡或打开日记时触感立刻停；画面用 SPR.settle 弹簧收到静止，不用 cancel() 硬跳。5）flare 层加 mix-blend-mode: screen，或让它的不透明度直接从 0.5 起步，跳过那段脏色。",
+     "needs_owner": false
+    },
+    {
+     "id": "bar-emblem-native-40",
+     "area": "motion",
+     "priority": "must",
+     "problem": "日记顶栏的小徽记，是把 96dp 徽记整体 transform: scale(0.416667) 缩下来的（实测 40×40，transform 为 translate(-231px,-322px) scale(0.416667)）。结果 \"Album\" 说明字 10.08px 变成 4.2dp，\"Unrated\" 12px 变成 5dp；m2 的笔记珠子和虚线模具挤成一团（png/T_m1_bar_x4.png、png/T_m2_bar_x3.png）。groove.js 其实已经有 on:'bar'、尺寸小于 60 的画法：不画说明字，未评用纺锤孔，环数降到约 3 圈，但 twostate3 没用上。原生曲奇那条路径有 .ts-smini 负责交接，groove 这条路径的 g.sB 和 g.sLab 都是空的，什么也没接。",
+     "proposal": ".ts-seal 里叠两层：render(m,{size:96,on:'cover'}) 和 render(m,{size:40,on:'bar'})，两层走同一条 transform 路径。说明字在 p 0–0.35 先淡掉；p 在 0.62–0.9 之间，用效果弹簧（k≈200，z=1）把 40dp 层淡入、96 层淡出。落地后只剩原生 40dp：只有分数，未评显示纺锤孔空盘，不出现 Album、Avg.、Unrated 字样。收回卡片时反向交接。Compose 落地时按目标尺寸重新排矢量，不要缩放 96dp 的绘制结果。",
+     "needs_owner": false
+    },
+    {
+     "id": "cover-fate-in-morph",
+     "area": "motion",
+     "priority": "should",
+     "problem": "卡片变日记时，封面上移 28p、缩到 0.94，透明度在 p≈0.36 就归零（renderPages 634 行）。展示柜的主角没有去处。p=0.4（v=128）时，屏幕上半部只剩一枚徽记悬在空白里（png/T_m1_strip.png 第 3 帧）。徽记一离开封面，\"贴纸贴在唱片上\"的关系也就断了。原型里写的\"封面轻轻后退并淡出\"，读起来更像封面蒸发了。",
+     "proposal": "给封面一个落点，让它和徽记走同一族路径（推荐 A）。不论选哪种，收回卡片时都原路倒放，并且和 v 共用一个控制器，不另开动画系统。",
+     "needs_owner": true,
+     "options": [
+      "A：封面和徽记一起缩进顶栏。封面从 256dp 缩成 40dp 缩略图，圆角 8→4，用 HeroAnimated / ThumbAnimated 这对圆弧版形状，落在 slotB 左侧；徽记缩成约 24dp 的纯分数角标，贴在缩略图右下角，贴法比例和 96:256 一致。日记顶栏就成了\"唱片加贴纸\"的缩影。",
+      "B：只飞徽记（保持现状），但封面退场改用 app 切歌时的波点溶解（ArtworkHalftone，点距 6dp），波前从徽记所在的右下角推向左上，读作\"徽记从封套上揭下来\"。",
+      "C：封面不离场，退成日记顶部一条约 12% 不透明的模糊底色带，滚动时和潮线溶解衔接；徽记照常飞进顶栏。"
+     ]
+    },
+    {
+     "id": "reduced-motion-crossfade",
+     "area": "motion",
+     "priority": "should",
+     "problem": "开启减少动态后，run() 会直接 set(to)：点 Diary，v 同步从 0 跳到 320，30ms 后仍是 320，卡片和日记之间是硬切，违反 AGENTS.md 里\"不能有硬切\"的规定。颁奖整段跳过（anims=0），但 hapticPlan(reduced) 仍在 0ms 打一拍：m1（第 3 档）是 CLICK×1，m4（第 4 档）是 THUD×1。手上震了一下，眼前什么都没变。",
+     "proposal": "减少动态下仍用同一个 v 控制器，只是只驱动效果属性：卡片层和日记层按效果弹簧（k≈200，z=1）交叉淡入淡出，没有位移和缩放；徽记直接在顶栏位置做透明度交接（配合上一条的 40dp 原生层）。颁奖改成效果版：刻纹和标签在约 200ms 内用透明度显影，唯一那一拍触感放在显影结束的那一帧，而不是 0ms。swipe 提示的 nudge、未评 ripple、aurora 漂移照旧关闭。",
+     "needs_owner": false
+    },
+    {
+     "id": "haptic-density-context",
+     "area": "haptics",
+     "priority": "should",
+     "problem": "节拍落点本身是对的（hapticPlan 实测）：第 2 档 CLICK 在 558ms，正好是回摆顶点；第 3 档 CLICK 在 665ms，正好是标签压到最低；第 4 档 THUD 878ms、CLICK 1066ms，对应压章和闪光峰值。问题在密度和时机。第 4 档一共 10 拍，其中 356–631ms 连着 6 个 TICK，间隔只有 55ms，在 LRA 马达上容易糊成一串嗡嗡声。第 3、4 档的第一拍 SPIN 在 0ms，如果颁奖在用户横滑松手的同一刻开始，这一拍就和手指离屏叠在一起。重播时也是整套触感，看多了会累。",
+     "proposal": "1）第 4 档的\"圈亮起\"tick 最多 4 拍（stride = ceil(n/4)），间隔不小于 90ms，scale 0.35；全档总拍数不超过 7。2）颁奖起点放到换卡弹簧落定之后（见 award-lifecycle），第一拍和手势松手至少隔 120ms。3）重播只保留该档的高潮拍：第 2 档 CLICK，第 3 档 CLICK，第 4 档 THUD 加 CLICK；完整节拍只在首播出现。4）跟随系统的触感反馈开关；省电模式下只打高潮拍。5）原型 .ts-hx 时间轴把首播和重播两条都画出来，方便上 Pixel Tablet 对比震感。",
+     "needs_owner": false
+    },
+    {
+     "id": "reward-inversion-at-rest",
+     "area": "card",
+     "priority": "should",
+     "problem": "刻纹只刻评过分的曲目，分数只决定标签和颁奖档位，所以静止时盘面的华丽程度跟着曲目覆盖率走，而不是跟着分数走。结果是：m4 专辑分 10.0，但 6 首一首都没评，静止时是一张只有点阵、没有刻纹的粉色盘，比 m3 的 7.8 均分（8 首评了 6 首）朴素得多；m1 的 9.5（10 首评了 4 首）也只有右上角一小段刻纹（png/L_seal_m4_x3.png、png/L_seal_m3_x3.png、png/D_seals_all.png、png/Busy_all.png）。sheen 的遮罩只覆盖刻纹，所以 owner 最喜欢的\"光随重力走\"，在 10.0 这张卡上只剩标签那道细光（倾斜对比见 png/Tilt_m1_strip.png 和 png/Tilt_m3_strip.png）。奖赏的顺序倒过来了。",
+     "proposal": "让分数在静止画面上也看得出来，同时不改\"一圈一首曲目\"的刻纹语义（推荐 A）。",
+     "needs_owner": true,
+     "options": [
+      "A：曲目语义不动，让分数占据盘上刻纹以外的部分。从第 3 档起，外圈 rim 上有一道跟着倾斜移动的高光弧（sheen 的 mask 加上 rim 圆环）；第 4 档的外圈换成 accent 箔面加常驻柔光。这样任何 10.0 静止时都是全场最亮的盘。",
+      "B：把专辑分理解为\"整张唱片已经压制过\"：所有环先浅刻一遍（base 色 35% 不透明、无光泽），评过分的曲目在上面再深刻一遍，带渐变和光泽；sheen 落在全部刻纹上，浅刻部分强度减半。未评盘保持空白点阵。",
+      "C：保持现状。盘面诚实记录\"细听了多少\"，标签记录\"有多喜欢\"，奖赏感交给颁奖动画。"
+     ]
+    },
+    {
+     "id": "card-two-clusters",
+     "area": "card",
+     "priority": "should",
+     "problem": "卡片纵向是从上往下堆的：.ts-air1 最多 60dp，封面顶恒在 155dp。这一点是好的，换卡时展品位置不跳。但文字块长短随卡变化，空白全部堆在摘录和按钮之间：.ts-air2 实测 m1 95dp、m3 111dp、m2 127dp、m4 147dp（png/L_card_m1.png 到 m4）。摘录 .ts-aex 本来是 Diary 内容的预告，现在却和专辑名同在一个居中栏里，贴着展品簇，和它要预告的 Diary 按钮之间反而隔着整张卡最大的空白。16:9 短屏上，摘录被 -webkit-line-clamp:2 截成\"耳机里的弦乐刚…\"（png/D_short_m1.png），这仍然是页中截断（上一轮评审的 must，到现在没修）。",
+     "proposal": "把卡片分成两簇，簇内紧、簇间松。展品簇是封面加徽记、拟题、Written by Yoin、专辑行，位置不动，封面顶保持 155dp，四张卡同位。预告簇是摘录、Diary / Go to album、swipe 提示，整体锚在底部，摘录到按钮 16dp；空白挪到两簇之间。原型改法：把 .ts-air2 移到 .ts-aex 前面，.ts-aex 设 margin-top:auto、margin-bottom:16px。摘录最多 2 行，挑一句能整句放下的，放不下就换下一个来源（最短的那条笔记），再放不下就不显示，永远不出省略号；短屏 667dp 直接不显示摘录。",
+     "needs_owner": false
+    },
+    {
+     "id": "tilt-gesture-and-rest-rules",
+     "area": "motion",
+     "priority": "could",
+     "problem": "倾斜光能用，但很轻。鼠标放到设备左上角，--ye-groove-rot 只有 −2.42°，--ye-groove-li 为 0.9985；放到右下角是 7.76° 和 0.6015。原因是静止光方向 PHI=−128° 本来就沿着这条对角线，沿光轴倾斜只改亮度、几乎不改角度：png/Tilt_m1_strip.png 三个状态几乎一样，png/Tilt_m3_strip.png 才看得出差别。Pixel Tablet 平时横放在底座上，陀螺仪读数不变，光就一直不动。进入日记后，顶栏的 40dp 小徽记还在跟着倾斜闪，阅读时会在视野边缘晃。",
+     "proposal": "1）让手势也喂同一个光弹簧：横向拖卡时把 (pos−idx) 映射到 x（±0.6），上滑回首页时把 q 映射到 y（最多 −0.5）。这样平板放在底座上，手指一拖，光也会滑过刻纹，像实物在灯下移动。tiltDriver 已有 setPointer，可以直接复用。2）进入日记后，顶栏小徽记的光冻结在静止角度。3）省电模式和减少动态下光固定不动，和潮线溶解是同一条规则。4）Pixel Tablet 横屏的传感器坐标换算还没验证过（groove-final 已列出），上真机时一起测。",
+     "needs_owner": false
+    },
+    {
+     "id": "idle-loops-60s-spin",
+     "area": "motion",
+     "priority": "should",
+     "problem": "待拍板：是否删掉 60s 慢转。groove 版本身没有自转（.ts-spin 只用在原生曲奇上），但卡片上还有三条一直在跑的循环：未评模具的 .ye-groove-ripple 每 4.8s 外扩一次（png/Rip_strip.png 第 2 帧）；\"Swipe up for Home\" 的 ⌃ 每 3.2s 点一下；aurora 每 26s 漂移一轮。m2 上同时有两条周期不同的循环。如果再给刻纹盘加自转，固定在屏幕坐标里的 sheen 会被转过来的刻纹周期性扫亮，和 groove-final 写的\"光要像一直在那里\"冲突；而且均匀点阵转起来本来就看不出来。证据倾向于删除自转。",
+     "proposal": "徽记待机时的\"活\"只交给倾斜光，把常驻循环降成一次性的（推荐 A）。",
+     "needs_owner": true,
+     "options": [
+      "A（推荐）：删掉自转，徽记的动感只来自倾斜光和颁奖动画。ripple 改成到达时只播一次；nudge 只在本次会话第一张卡上播两次就停；\"Swipe up for Home\" 文字只在前几次打开时出现，之后只留一个静止的 ⌃。",
+      "B：删掉自转。但当超过 3s 没有任何传感器或手势输入（比如平板在底座上）时，用 tiltDriver 的 auto 摆动当待机光，振幅降到 0.35 / 0.2，周期 5.6s / 8.3s。",
+      "C：保留 120s 慢转（和原生曲奇一致），接受 sheen 周期性扫过刻纹。"
+     ]
+    },
+    {
+     "id": "emblem-tap",
+     "area": "card",
+     "priority": "should",
+     "problem": "待拍板：未评徽记是否可点。卡片态的 .ts-seal 是 cursor:pointer，未评的盘还在一呼一吸地外扩，看上去就是\"点我\"。但实际点下去什么也不发生：点 m2 徽记后 v、p、q 都没变；它也没有 role 和 tabindex，读屏不知道能不能点。",
+     "proposal": "让徽记的交互和它的外观对得上（推荐 A，同时解决颁奖重播的入口问题）。",
+     "needs_owner": true,
+     "options": [
+      "A（推荐）：所有徽记都可点。有分数的，点了重播颁奖（award-lifecycle 里不抹刻纹的版本，配高潮拍触感）；未评的，盘轻晃一下（±6° 弹簧，一拍 LOW_TICK 0.3），同时 Diary 按钮呼吸一次，提示去写点什么。不跳转，也不打开评分。",
+      "B：只有未评的可点，点了进入专辑评分（Go to album 并定位到专辑页的评分 Bun）；有分数的徽记不可点。",
+      "C：都不可点。去掉 cursor:pointer 和 ripple 循环，徽记纯展示。"
+     ]
+    },
+    {
+     "id": "buttons-expressive",
+     "area": "card",
+     "priority": "could",
+     "problem": "待拍板：是否换成 Expressive 按钮族。现在是两枚 48dp 胶囊：Diary 是 14% ink 的 tonal，Go to album 是专辑主色实心（m1 为 rgb(59,45,143) 配白字）。不论浅色还是深色，Go to album 都是卡片下半部对比度最高的一块（png/L_card_m1.png、png/D_cards_all.png），比徽记还抢眼，而它恰恰是离开展示柜的出口。Expressive 的按压形变能给展示柜补一个精致的手感，但会偏离 v2.2 设计稿规格。注意：项目记忆里，M3 ButtonGroup 在折叠屏的 lookahead 下会崩溃，所以如果要换，只能用单个 Button 的 shapes，放在普通 Row 里。",
+     "proposal": "按\"留下来欣赏 vs. 离开\"重新分配强调，再决定要不要换按钮族（推荐 A）。",
+     "needs_owner": true,
+     "options": [
+      "A（推荐）：换成 Expressive Button，按压时形变（ButtonDefaults.shapes()），尺寸 Medium 56dp，放在普通 Row 里。强调关系反过来：Diary 用 filled tonal（留下来欣赏），Go to album 降一级用 outlined 或浅 tonal，让徽记和拟题保持视觉焦点。",
+      "B：不换按钮族，保留 48dp 胶囊，只调强调：Go to album 降成 tonal，Diary 保持 tonal 并带笔记数。",
+      "C：保持现状（设计稿规格）。"
+     ]
+    },
+    {
+     "id": "date-placement",
+     "area": "consistency",
+     "priority": "could",
+     "problem": "待拍板：日期是否挪进 eyebrow。现在已经没有大日期了，日期在顶栏副标题 .ts-slotA span（\"Last heard Oct 2\"）。日记底部的证据句又写了一遍 \"last heard Oct 2\"，在平板上两处同时可见（png/L_tp.png、png/L_tl_m1.png）。手机卡片上，日期离拟题和徽记很远，读不出这枚徽章是什么时候得的。",
+     "proposal": "每个日期只出现一次，并且出现在回答\"何时\"的位置（推荐 A，对现状改动最小）。",
+     "needs_owner": true,
+     "options": [
+      "A（推荐）：日期留在顶栏副标题，证据句里去掉 last heard。顶栏回答\"何时\"，证据句回答\"多少\"。",
+      "B：日期做成拟题上方的 eyebrow（例如 \"Mar 14 – Oct 2\"，GSF 12sp，on-surface-var），像奖状落款；顶栏只留 \"Memories\"，证据句也去掉日期。",
+      "C：卡片和顶栏都不放日期，只在日记证据句里出现一次。"
+     ]
+    }
+   ]
+  },
+  {
+   "lens": "tablet",
+   "summary": "我在真浏览器里把四台设备都按 1:1 dp 渲染了一遍，又把两种平板版式拉伸到 app 里真实会出现的容器尺寸。这几类都已经过关：GSF 字距全是 normal（0），封面圆角 8dp（Hero），没有描边，配色用 pal() 直接插值，JS 里的运动都是弹簧。最大的问题是平板版式按设备写死：top:580、height:476、width:608、left:640 都是绝对值。换到 600 的 shell 列（Wide 窗开着详情列时）、690×840 折叠屏、860 宽（旁边开着 NP 侧栏）、1000×700 桌面窗，版式全坏，日记最窄只剩 4 个字一行。竖屏平板上下同屏还有两个问题：一条看不见的手势边界（上推一半回首页、一半滚日记），日记滚动时内容在页面中间淡出。另有两处 CSS 层叠 bug：页脚贴底和短乐评大字在平板上失效。其余是和 app 规则对齐：分隔线、潮线、跑马灯，还缺手机横屏档和 Wide 上点 Go to album 后的列态。",
+   "proposals": [
+    {
+     "id": "container-budget",
+     "area": "tablet",
+     "priority": "must",
+     "needs_owner": false,
+     "problem": "平板版式按设备写死，不读容器：.ts-L-tp .ts-hero{height:476px}、.ts-L-tp .ts-b{top:580px}、.ts-L-tp .ts-bin{width:608px}、.ts-L-tl .ts-hero{width:640px}、.ts-gut{left:640px}、.ts-L-tl .ts-b{left:641px}。app 的适配原则 1、5 要求页面只读自己所在容器的宽高。实测：690×840 折叠屏，日记视口只剩 260dp，m2 还要再滚 419dp 才能看到 4 条笔记。600 宽（Wide 窗开详情列后的 shell 列）时 .ts-bin 固定 608，超出屏幕右缘，Go to album 折成两行。860×800（1280 横屏开着 NP 侧栏，app 里仍算 Wide）时右栏正文 4 个字一行。1000×700 桌面窗是 12 个字一行。截图：/private/tmp/claude-501/-Users-gpo-Developer-Yoin/23f51111-8eb4-4490-b6dd-c3b596c48260/scratchpad/design2/critique/large-screen/medium_row.png、wide_row.png。",
+     "proposal": "在 Device() 里写一个纯函数 layoutFor(W,H)，按容器算档位和尺寸，CSS 只读它写的变量（--lp、--measure、--cov、--seal）。档位：H<480 用横屏档（见 phone-landscape）；W<600 用手机两态；600≤W<900，或右栏正文宽小于 360，用 Medium（见 medium-portrait-model）；其余用对开。对开的取值：--lp=clamp(round(0.46W),400,600)，右页=W−lp，--measure=clamp(右页−104,360,560)，封面=min(300, lp−96, H−386)，徽记=clamp(封面×0.4,96,124)。验算：1280×800 → lp 589、正文宽 560（17.5px 约 32 字/行）、封面 300；1000×700 → lp 460、正文宽 436、封面 300；860 宽回落到 Medium。画廊补 6 个框：600×728（shell 列，底栏可见）、690×840、640×800、860×800、1000×700、844×390。"
+    },
+    {
+     "id": "medium-portrait-model",
+     "area": "tablet",
+     "priority": "must",
+     "needs_owner": true,
+     "problem": "竖屏平板（800×1280，Medium）把展品和常开的日记上下同屏，有三个问题。①手势边界看不见：y<580 上推回首页，y≥580 上推滚日记，中间没有任何视觉分界。拇指落在 Go to album 下面那段 110dp 空白里想滚日记，整个 Memories 就退了（标注图 /private/tmp/claude-501/-Users-gpo-Developer-Yoin/23f51111-8eb4-4490-b6dd-c3b596c48260/scratchpad/design2/critique/large-screen/tp_zones.png）。②日记一滚，正文在页面中间 y=580–628 淡出，Write a review 胶囊的残影浮在那里（fold_scrolled_m2.png）。这正是 owner 最反感的页中截断。③这偏离了已拍板的展示柜模型（卡片任意处上滑回首页、日记要点按钮才打开）。现在 app 的 Medium 也是 480 宽的手机卡（MemoriesScreen.kt memoryCardLayoutFor），NP 的规则同样是 Medium = 放大的手机。",
+     "proposal": "请 owner 二选一。推荐 A：Medium 和手机共用一套两态和手势，只放大尺寸，600 列、折叠屏、半屏分屏自动适用。",
+     "options": [
+      "A（推荐）Medium 竖屏 = 放大的手机两态：卡片放在 Card 480 列里居中，封面 = clamp(H−580,168,360)（1280 高取 360，840 高取 260，640×800 取 220），徽记 = clamp(封面×0.375,72,124)，贴在右下角（right −0.3×徽记，bottom −0.24×徽记）。下面是 Diary 和 Go to album 两个按钮。点 Diary 打开日记层，日记层放在 Prose 640 列（x=96–704，正文约 34 字/行），徽记飞进顶栏的转场和手机一样。卡片任意处上推回首页，没有例外。",
+      "B 保留上下同屏，只在 H≥1000 时用，否则回落到 A：去掉 height:476，hero 高度跟内容走（约 420）；日记区至少占屏高 60%，顶边画成真正的交界（潮线）；从日记区起手的上推只滚动，回首页走 Home 胶囊、顶栏上推和系统返回，平板竖屏接受“任意处上推”有例外。同时收成一条左边线：用 Medium 的 688 内容框（x=56–744），胶囊 left 56，圆点组右缘 744，封面 x=56，日记列 x=56、宽 ≤630，悬挂引号外凸到 x=40。现在有 32/56/80/96/420 五条左线，hero 和日记的右缘也不一样（736 对 704）。"
+     ]
+    },
+    {
+     "id": "tablet-cascade-bugs",
+     "area": "tablet",
+     "priority": "must",
+     "needs_owner": false,
+     "problem": "平板上有两条层叠覆盖，把手机上已经做好的效果吃掉了。①#page-twostate3 .ts-L-tp .ts-ast, .ts-L-tl .ts-ast{margin:34px 0 26px} 和 .ts-ast.ts-ast-end{margin-top:auto} 特异性相同，又写在后面，结果页脚不再贴底。实测 tl_m4 的 .ts-foot 在 y=290，下面空着约 470dp；tp_m4 的页脚在 y=764，下面空着约 480dp（tl_m4.png、tp_m4.png）。②.ts-L-tp/.ts-L-tl .ts-rvtx{font-size:17.5px} 盖掉了 .ts-rv-short .ts-rvtx 的 26px/500。“好听。”在手机上是 26px，到平板上（computed）只剩 17.5px，一小块字孤零零地漂着。",
+     "proposal": "①改成 .ts-L-tp .ts-ast:not(.ts-ast-end), .ts-L-tl .ts-ast:not(.ts-ast-end){margin:34px 0 26px}，再补一条 .ts-L-tp .ts-ast-end, .ts-L-tl .ts-ast-end{margin-top:auto; padding-top:34px}。②补 .ts-L-tp .ts-rv-short .ts-rvtx, .ts-L-tl .ts-rv-short .ts-rvtx{font-size:30px; line-height:1.45; font-weight:500}，平板比手机的 26 大一档，和拟题的 30px 同级。以后加平板覆盖规则时，避免用同特异性的后置规则去盖状态类。"
+    },
+    {
+     "id": "spread-balance",
+     "area": "tablet",
+     "priority": "should",
+     "needs_owner": false,
+     "problem": "对开的右页内容一短，整页就失衡。m4 的内容只占 y=136–330，m3 到 578 就结束。左页展品占 132–708，右页上面一截字、下面一大片空。另外 tl_m2 同屏出现两个 Written by Yoin：左页拟题下一个，右页旁白下一个（tl_m2.png）。这条上一轮评审提过，现在还在。",
+     "proposal": "右页按内容高度排：内容高 ≤ 视口−160 时，整块垂直居中在左页的光学中线上，也就是 (封面顶 132 + Go to album 底 708)/2 ≈ y 420，页脚底对齐 Go to album 的底边（y=708）；内容更长时顶对齐封面顶（y=132），正常滚动。Yoin 旁白（m2、m3）挪到左页拟题下面，和拟题共用一个 Written by Yoin。左边是 Yoin 写的颁奖词，右页从用户自己的字开始（乐评或提问）。手机不受影响。"
+    },
+    {
+     "id": "go-to-album-in-wide",
+     "area": "tablet",
+     "priority": "should",
+     "needs_owner": false,
+     "problem": "Wide 窗里点 Go to album，app 实际会把专辑开成 shell 窗口的右列（600 | 24 | 656）。Memories 留在 600 宽的 shell 列里，底栏也会出现，因为合体栏要承载列里页面的 Play（adaptive-principles 原则 3、5，design.md 的详情列一节）。原型里 .ts-go 只弹一个 toast，这个状态没有设计。照现在的写死版式，640 宽的左页会直接塞进 600 列。",
+     "proposal": "补一条三帧演示。①1280 对开。②点击那一帧：Memories 立刻换成 600 列的档位（按 container-budget，W=600 走手机/Medium 两态，日记收起回卡片）。这符合原则 5：换档发生在点击那一帧，不落在弹簧中途。右页内容用 effects spring 淡出，详情列从右缘用 defaultSpatialSpec 滑入。③落定：600 列里是卡片，封面按 clamp(H−580,…) 算，H 扣掉合体栏的 inset（LocalShellChromeInsets，约 60+12dp），按钮行抬到栏上方。返回顺序是 NowPlaying > DetailPane > Memories：先关列，等列的弹簧落定后 Memories 再换回对开。"
+    },
+    {
+     "id": "no-column-divider",
+     "area": "consistency",
+     "priority": "should",
+     "needs_owner": false,
+     "problem": "横屏对开中间画了一条竖线：.ts-gut，1.5px 的 outline 渐变，位置 left:640px、top:136、bottom:80。app 的分栏语言是“两列之间没有分隔线，同一种底色读作一整块，只剩把手”（adaptive-principles 原则 3，design.md 详情列）。Memories 的两页是同一个表面，也没有可拖的把手，这条线只会让它看起来像两个窗口。",
+     "proposal": "删掉 .ts-gut 和对应的 <i class=\"ts-gut\">，两页之间只留空白：左页内容右缘到右页正文左缘至少 64dp。aurora 背景本来就整窗连续，不需要加别的东西。"
+    },
+    {
+     "id": "phone-landscape-tier",
+     "area": "tablet",
+     "priority": "should",
+     "needs_owner": false,
+     "problem": "手机横屏（高 <480）没有版式。原型说明里也写了“还没做的：横屏手机的版式”。现在的 app 有这一档（MemoryCardLayout.Landscape，760dp，一张卡拆两栏；design.md 写的是“手机横屏一张卡拆两栏”）。新设计少了这一档，就是功能倒退。844×390 下，256 的封面加卡片竖排根本放不下。",
+     "proposal": "844×390 方案。顶部：状态栏 24，加 48dp 顶栏（Home 胶囊、圆点）。左栏：封面 216，徽记 80 贴右下角（比例 .375），垂直居中。右栏宽 380：拟题 22px，Written by Yoin，专辑名 17px 加艺人；摘录只在整句放得下时显示，放不下就不显示；按钮是 Diary 和 Go to album（48dp）。点 Diary 后，日记在右栏原地打开：拟题、专辑行升走，日记正文从下面升起，徽记照手机的样子飞进顶栏槽，封面留在左栏。右栏纵向只滚日记，顶部下拉、点专辑名 ⌄、系统返回都回卡片。左栏上推回首页，和顶栏上推共用同一个 q。胶囊放在挖孔那一侧（EdgeSplitSide 规则）。"
+    },
+    {
+     "id": "diary-seam-tide",
+     "area": "consistency",
+     "priority": "should",
+     "needs_owner": false,
+     "problem": ".ts-b 用的是线性 alpha 遮罩：mask-image linear-gradient，顶部 --ft 40px（手机）/48px（平板），底部 --fb 64px。有两处不合 app 规则。①固定 chrome 下的顶部交界，默认语言是潮线（SeamTop.Chrome）：两道页面底色的波浪，文字在水线以下约 10dp（max(文字带, 0.75×字号)）淡完。现在是 40–48dp 的雾状渐隐（short_dark.png 顶部）。②所有渐隐都应该用 smoothstep 缓动（owner 嫌线性渐隐“生硬、像白雾”，2b320912）。平板竖屏的交界还在页面中间（见 medium-portrait-model）。",
+     "proposal": "手机日记：在顶栏底边（y=96）画潮线（两道 --bg 色波浪，静止振幅约 4dp），文字淡出长度 = max(12dp, 0.75×字号)。底部没有底栏（Memories 隐藏了底栏），保留随滚动释放的渐隐，但长度改成 48dp，并用缓动色标：linear-gradient(to top, transparent 0, rgba(0,0,0,.03) 8%, rgba(0,0,0,.16) 21%, rgba(0,0,0,.5) 50%, rgba(0,0,0,.84) 79%, rgba(0,0,0,.97) 92%, #000 100%)。平板：潮线只放在顶栏下，页中间不放任何渐隐或遮罩。"
+    },
+    {
+     "id": "marquee-not-ellipsis",
+     "area": "consistency",
+     "priority": "should",
+     "needs_owner": false,
+     "problem": "有两处截断不合 app 规则。①日记态顶栏的 .ts-bt/.ts-ba 用 text-overflow:ellipsis。m3 显示成“The Patterns Lost to t…”（scrollWidth 355，可见 178）；短屏 m1 的副行显示成“椎名林檎 & 东京事变 · 2…”，年份被截掉（phone_row.png、short_dark.png）。app 的规则是标题只显示一行，超出就跑马灯（MarqueeText）。②短屏卡片 .ts-S .ts-aq{-webkit-line-clamp:2}，m1 的摘录在“耳机里的弦乐刚…”处被截断，句子没说完（short_card_m1.png，aqTrunc=true）。这是 owner 明令禁止的页中截断。上一轮评审提过，现在还在。",
+     "proposal": "①.ts-bt 改成跑马灯：一行，停 1.2s 后滚动，两端用缓动渐隐，沿用 MarqueeText 的节奏。.ts-ba 超长时先去掉“· 年份”，还放不下再跑马灯。②卡片摘录不再限行数。按高度梯子（适配原则 6）处理：先收间距，再测量整句放不放得下，放不下就整段不显示，由 Diary 按钮承担入口。永远不出现半句加省略号。"
+    },
+    {
+     "id": "dismiss-threshold-dp",
+     "area": "consistency",
+     "priority": "could",
+     "needs_owner": false,
+     "problem": "上推回首页的提交阈值按屏高比例算：releaseQ 里 q>0.25，手机要拖 229dp，竖屏平板 320dp，横屏 200dp。屏幕越大越难退出。app 已有的 token 是 BackMotionTokens.MemoriesDismissTrigger = 112dp（predictive-back SKILL 的 Memories 一节），所有尺寸一样。",
+     "proposal": "提交条件改成 q×H ≥ 112dp，或上推速度 ≥ 600dp/s。缩放、圆角、阴影反馈在 112dp 处到位，仍然 1:1 跟手、松手弹簧；滚轮那一路（qT 里的 0.22）同样换成 dp。手机、平板、横屏的手感一致。"
+    },
+    {
+     "id": "token-drift",
+     "area": "consistency",
+     "priority": "could",
+     "needs_owner": false,
+     "problem": "有几处细小的 token 偏差。①AI 拟题 .ts-atx/.ts-btx 用 Noto Serif SC 700，字号 26/30/22px；design.md 的 YoinSerifTitle 是 SemiBold、17–18sp。字号变大是重设计，但字重和 token 名没有跟着定。②.ts-pill 用了 backdrop-filter: blur(8px)，app 的 chrome 不用毛玻璃，溶解语言本来就是为了取代模糊。卡片态下胶囊下面也没有滚动内容，这层模糊看不出来。③触控目标偏小：圆点 .ts-dot 18×40dp，笔记时间 .ts-nst 47×25dp，都低于 48dp，平板上更难点中。",
+     "proposal": "①字重改成 600（字体已经加载），在 design.md 新增 YoinSerifDisplay：卡片 26（手机）/30（平板），日记标题 22，YoinSerifTitle 留给 JBI。②胶囊改成实色 surface-high，去掉 blur。③.ts-dot 的点击区扩到 32×48，视觉仍是 7/12dp；笔记整行做成按钮，最小高度 48dp。"
+    }
+   ]
+  }
+ ],
+ "plan": {
+  "overview": "这一轮从 twostate3.html 改出 twostate4.html，重点是日记页和回顾区，同时修掉几处 owner 一上手就会碰到的交互 bug。回顾区先统一两种声音的署名规则：卡片上是 Yoin 引用你的话，所以加引号，并署「Your review · 日期」；日记是你自己的本子，所以不加引号，改用日期做条目页眉。提问并进 Yoin 的那段话，写作区换成一篇带今天日期的空白日记，沿用 NP 写作器的竖线和「记下」胶囊。笔记改回歌词式：只留时间戳和正文，整行可点，高亮跟着播放头走。页脚改成两行账本，第一行直接说明这张专辑为什么留下；日期整页只出现一次；卡片摘录按整句取，永远不截断。交互上要修的有：顶栏上推拖不到提交点、收起日记时滚动会倒带、日记态的系统返回没有进度预览、减少动态下卡片和日记硬切、顶栏小徽记是把 96dp 整体缩小来的；同时把分档获得动画和触感接进真实流程（打开、换卡、从日记回到卡片），并加一个长日记压力样本，第一次真正检验滚动、交界和结尾。平板把 Yoin 的话都收到左页，版式改成按容器尺寸计算。曲目行、回退拟题、竖屏平板版式、日记结尾、Yoin 文字语言这五件事，做成可切换的变体交给 owner 选。",
+  "apply_now": [
+   {
+    "id": "voice-grammar",
+    "title": "两种声音的署名规则统一",
+    "change": "规则：Yoin 的话和卡片上引用的用户原话，署名都放在文字后面，样式统一为 GSF 12/500、on-surface-var、tabular-nums。Yoin = MARK + \"Written by Yoin\"；用户 = \"Your review · Jul 26\"，笔记写 \"Your note · 序曲 0:12\"。日记里用户自己的条目不放署名，改用日期做页眉（日记惯例）。\n卡片：excerpt() 输出改成 <figure class=\"ts-aex\"><blockquote class=\"ts-aq\">“…”</blockquote><figcaption class=\"ts-aex-by\">Your review · ${day(reviewWrittenAt)}</figcaption></figure>。笔记来源的署名是 \"Your note · ${track} ${time}\"。删掉 .ts-aex small 的 ink/600 样式，统一用上面的署名样式，避免和专辑色实心的 Go to album 抢色。.ts-aq 颜色从 on-surface-var 改为 on-surface。删掉 .ts-aex-yoin 分支：卡片上 Yoin 只在标题处说话。间距：.ts-aby 的 margin-top 从 8 改为 6，和拟题算一簇；.ts-aal 的 margin-top 从 14 改为 20；figcaption 的 margin-top 为 8。\n日记：reviewH() 删掉 .ts-q 引号和 .ts-rvby::before 的短横。在正文前加页眉 <header class=\"ts-entry-h\"><b>Jul 26, 2026</b> · Your review</header>：b 用 GSF 13/600、ink、tabular，其余 500、on-surface-var，margin-bottom 10。改过的乐评在页眉末尾加 \" · edited Oct 2\"。正文 .ts-rvtx 保持 --font-user 16/1.85（平板 17.5/1.9），全文显示，加 text-wrap: pretty，左边缘落在 .ts-btx 所在的 24dp 线上。16 字以内的短评保持 26/500。",
+    "why": "卡片上的用户引文没有署名，又紧挨着 Written by Yoin，读起来像 Yoin 写的。design.md 要求机器写的字和用户的字不能混淆。在自己的日记里给自己的话加引号，语义不对；而且 .ts-q 离屏幕左边只有 7dp，是整页唯一越过页边的元素。",
+    "from_lenses": [
+     "review",
+     "notes",
+     "card"
+    ]
+   },
+   {
+    "id": "ask-blank-entry",
+    "title": "提问并进 Yoin 那段话，写作区换成今天的空白日记",
+    "change": "askH() 删掉 .ts-askline（铅笔加虚下划线）、.ts-askbtn tonal 胶囊，以及 .ts-askta 的 dashed border-bottom。\n问句作为 .ts-bnar 的最后一句，和旁白同一段：GSF ROND 60，16/1.6。问句用 on-surface/500，前面的旁白保持 on-surface-var/400。两者共用一个 .ts-bby「Written by Yoin」；没有旁白时就是问句加署名。\n署名下方 24dp 放空白条目 .ts-entry.ts-blank：\n- 页眉 \"Oct 4, 2026 · Today\"，中文「2026年10月4日 · 今天」，样式同 voice-grammar 的条目页眉。\n- 下面一行占位 \"Write a few lines…\"（「写几句……」），--font-user 16/1.85，on-surface-var 70%。\n- 左侧一条 2dp 竖线 rail：ink、opacity .32、圆头，正文缩进 14dp。\n- 整块 min-height 64dp，role=button，aria-label \"Write a review\"。\n点开后：\n- rail 的 opacity 从 .32 到 1，用 effects spring（k=200，z=1）。\n- textarea 无边框，caret 用 ink；高度随内容增长，由 SPR.settle 驱动 height。\n- 问句一直留在上面。\n- 右下角是文字按钮 \"Cancel\"（on-surface-var），加一个 ink 实心胶囊 \"Save\"（「记下」，高 36、圆角 18、文字 onSeal）。\n- 点 Save 打一拍 CONFIRM 触感。\n保存后不再 pg.replaceWith 重建整页：同一块原地变成乐评条目，页眉改为 \"Oct 4, 2026 · Your review\"，rail 用 effects spring 淡出，卡片摘录同步更新。全程不出现下划线、描边输入框或 tonal 胶囊。",
+    "why": "上一轮 critique:twostate 的第 7 条到现在没改。问句是 Yoin 说的话，却用了用户字体（--font-user），违反 design.md「GSF = Yoin 代笔」；同一个动作还有两个入口。NP 写作器的语言是 owner 已经定下的：journal accent rail、「记下」胶囊、禁用 OutlinedTextField。",
+    "from_lenses": [
+     "review",
+     "structure"
+    ]
+   },
+   {
+    "id": "note-lines-lyric",
+    "title": "笔记行改回歌词式：时间戳加正文，整行可点，高亮跟着播放走",
+    "change": "notesH()：删掉 .ts-nst i 三角和 .ts-nmeta（歌名 · 日期）。时间戳 .ts-nst 改为 GSF 12.5/500、tabular、on-surface-var。时间戳和正文首行按基线对齐：两者 line-height 都是 25.6px，grid 用 align-items: baseline。正文 --font-user 15.5/1.65、on-surface，全文显示不截断。歌名放在哪里，由 owner_choices.track-rows 的变体决定。\n每条笔记行改成 <li><button class=\"ts-nrow\">：全宽，min-height 48dp，按压底色用 ListRow 的 12dp 圆角（on-surface 8%），aria-label \"Play ${title} from ${time}\"。\n专辑笔记排在最前，不是按钮：时间戳列放一颗 6dp 空心珠（1.5dp 描边、on-surface-var、opacity .6，和刻纹徽记上专辑笔记的空心珠同一个记号），不写 Album、Whole album 或日期。没有锚点的歌曲笔记，时间戳列留空，排在同一首歌有锚点的笔记之后，点了从这首歌开头播放。\n高亮改由播放状态驱动。原型里点一行就启动一个模拟播放头，从 at 起每秒 +1。高亮规则沿用 NP 的 currentAnchoredNoteId：同一张专辑里不晚于播放头的最后一条锚点笔记。高亮行的时间戳和正文变成 ink，用 effects spring 过渡颜色，字重不变。删掉 .has-on .ts-note:not(.is-on){opacity:.42} 和 setTimeout(clearNotes,3200)。只有换卡或 Reset 时才熄灭，不自动滚动。日记态不再弹 toast。\n平板：笔记表 max-width 520dp，时间戳 13/500，数字列 44dp。",
+    "why": "现在一条笔记有三层：▸ 三角、墨色 600 的时间戳、再加一行「歌名 · 日期」，读起来像列表项。owner 定过笔记小窗是歌词式纯文字，不要卡片和头行。可点的只有时间戳，46.8×25dp。3.2s 定时器和真实播放毫无关系。",
+    "from_lenses": [
+     "notes",
+     "structure",
+     "tablet",
+     "review"
+    ]
+   },
+   {
+    "id": "evidence-ledger",
+    "title": "页脚改成两行账本，日期整页只出现一次",
+    "change": "evidence(m) 改成居中的两到三行：\n第 1 行说原因，on-surface，600，12.5/1.6：\n- 有乐评也有专辑分：\"Kept because you reviewed it and rated it 9.5\" /「因为你写了乐评、打了 9.5 分，留在这里」\n- 只有覆盖率：\"Kept because you rated 6 of 8 tracks\" /「因为 8 首里你评了 6 首」\n- 只有笔记：\"Kept because of your 4 notes\" /「因为你记了 4 条笔记」\n第 2 行是事实，on-surface-var，500：\"37 plays · Mar 14 – Oct 2 · 4 of 10 tracks rated\"。每条事实包在 <span style=\"white-space:nowrap\"> 里，只在 \" · \" 处换行。\n第 3 行是 NeoDB 状态。\n删掉 since 和 last heard，用日期区间代替。旁白里已经说过的事实（播放次数、季节、覆盖率）从第 2 行剔除。\n日期写法：当年的日期省略年份（Jul 26 / 7月26日），跨年的带年份；乐评和空白日记的条目页眉一律带年份。顶栏 .ts-slotA 保留 \"Last heard Oct 2\"，页脚不再写 last heard。",
+    "why": "现在页脚是一串居中小字，在 412 宽会把单独一个「2」折到下一行。「Last heard」在顶栏和页脚各写一次，平板上两处同屏可见。design.md 要求卡片解释「为什么成为 memory」，现在没有一句话直接说出原因。",
+    "from_lenses": [
+     "review",
+     "structure",
+     "card",
+     "tablet"
+    ]
+   },
+   {
+    "id": "m5-stress",
+    "title": "加一个长日记压力样本 m5",
+    "change": "在 twostate4 里本地拼接：const MEMS = YS_DATA.memories.concat([M5])，不改 shared/data.js。\nM5 的内容：\n- 约 420 字的多段乐评，专辑分 8.5\n- 12 首曲目，评了 8 首\n- 12 条锚点笔记，分布在 7 首曲目上，外加 1 条专辑笔记\n- 日期跨年（2025-11 到 2026-09），用来检验日期写法\n- 有 aiTitle\n主机 deck 变成 5 张。画廊另加一台「长日记」手机：412×915，start {i:4, v:D+600}，打开时已经在日记深处。",
+    "why": "m1–m4 的日记在 412×915 上都一屏放得下，从来不滚，所以滚动、交界、结尾和收起时的倒带一直没被真正检验过。",
+    "from_lenses": [
+     "structure"
+    ]
+   },
+   {
+    "id": "card-excerpt-whole",
+    "title": "卡片摘录按整句取，展品和预告分成两簇",
+    "change": "删掉 .ts-aq 的 -webkit-line-clamp，包括 .ts-S 里的 2。\nexcerpt 改为按 。！？.!? 切句，从开头取能放进槽高的最多整句。槽高 = .ts-acts 顶 − 16dp − 专辑簇底 − 24dp 最小空白。第一句都放不下时，换下一个来源（最短的那条歌曲笔记）；还放不下，就只显示一行署名 \"Your review · Jul 26 · in Diary\"。永远不出省略号。\n字号按长度分档，颜色都是 on-surface，text-wrap: pretty：16 字以内 22/500/1.4；60 字以内 17/400/1.65；更长 16/400/1.7。\n分两簇：\n- 展品簇（.ts-air1、.ts-show、.ts-at、.ts-aby、.ts-aal）位置不动，封面顶保持 155dp，四张卡同位。\n- 预告簇（.ts-aex、.ts-acts、.ts-swipe）锚在底部：把 .ts-air2 移到 .ts-aex 前面，.ts-aex 设 margin-top:auto、margin-bottom:16px。",
+    "why": "owner 明令禁止页中截断，短屏上 m1 现在显示成「耳机里的弦乐刚…」。摘录是 Diary 的预告，现在却贴着专辑名；它和 Diary 按钮之间隔着整张卡最大的一块空白（95–147dp）。",
+    "from_lenses": [
+     "review",
+     "card",
+     "structure",
+     "tablet"
+    ]
+   },
+   {
+    "id": "bar-gestures",
+    "title": "顶栏手势：上推按 dp 提交，日记里下拉收起",
+    "change": "pointerdown 时记下 gst.zone。releaseQ 改为 releaseQ(velDp, fromBar)：\n- 从顶栏起手：q·H ≥ 56dp 或上推速度 ≥ 450dp/s 就提交。\n- 卡片主体：q·H ≥ 112dp（沿用 app 的 MemoriesDismissTrigger 112dp）或 ≥ 600dp/s。\n平板同样按 dp 判定。滚轮路径 qT 里的 0.22 改成 112/d.H。\nrenderQ 的圆角和阴影在阈值处给满：r = 32·ss(0, thrDp/d.H, q)，阴影用同一条曲线。越过阈值时打一拍 CLOCK_TICK，退回阈值以下再打一拍。\n日记态（d.v ≥ D/2）从顶栏起手时，过 8dp 再按方向分：向上进 'dismiss'；向下进 'vert'，用 applyV 的负增量接上变形擦洗，松手沿用 releaseV。卡片态不变。\n手势说明面板的「顶栏」一条改成：上推 56dp 或快甩回首页；日记里从顶栏下拉收起日记。",
+    "why": "owner 定的是「顶栏上推仍一步回首页」。现在慢推到屏幕顶最多只有 q=0.074，阈值却要 0.25，只能靠快甩。日记态从专辑名往下拉，结果是把整个 Memories 橡皮筋拉下来，违背「顶部下拉回卡片」。",
+    "from_lenses": [
+     "structure",
+     "tablet"
+    ]
+   },
+   {
+    "id": "award-lifecycle",
+    "title": "获得动画接进真实流程",
+    "change": "每张卡在本次 deck 会话里第一次完整露面时，播一次 G.award(target, m, {haptics:true})：\n- 打开或重置：q 回到 0 的弹簧过 85% 时开始（原型里是 load/reset 后 300ms）。\n- 横滑换卡：SPR.page 落到 |pos−idx|<0.15、而且手指已经离屏时才开始。\n- 在日记态横滑到的卡：只让顶栏小徽记「点个头」（scale .6→1，k≈420，z≈.7；第 2 档及以上再转 90° 并扫一次 sheen），配该档最强的一拍触感 ×0.5。完整获得动画留到收回卡片、v 落定 0 时再播。\n已经颁过的卡不自动重播。画廊里的「播放获得动画」按钮保留，用来重播。\n还没颁奖的卡，首帧就停在 script(t=0) 的姿态：.ye-groove-root[data-pending] 时，.ye-groove-cut 的 stroke-dashoffset 为 1，标签停在起始缩放。这样不会先露出成品、再整片抹掉。\n重播走 award(el, m, {replay:true})：跳过刻纹轨道，只跑转盘、光扫、标签压下、10 分闪光和高潮拍。\n被打断时（换卡、打开日记）：触感立刻停，画面用 SPR.settle 弹簧收到静止，不用 handle.cancel() 硬跳。\n10 分的 .ye-groove-flare 加 mix-blend-mode: screen，或让不透明度从 .5 起步，去掉上升段 maroon 和 mint 叠出的灰褐色。未评的卡（tier 0）没有获得动画。\ngroove.js 需要相应加上 data-pending 和 replay 两个开关。",
+    "why": "owner 定了按分数分档的获得动画（6 分以下、6–8、8 分以上、10 分）并要求带触感，但现在只有画廊按钮会播。重播的第一帧会把刻纹整片抹掉。进过一次日记以后，横滑到的卡永远不会颁奖。",
+    "from_lenses": [
+     "card",
+     "structure"
+    ]
+   },
+   {
+    "id": "bar-emblem-40",
+    "title": "顶栏小徽记改用原生 40dp 画法",
+    "change": "在顶栏落点位置（现有飞行终点，中心 (84,64)）放一层原生小徽记 .ts-seal-bar = YS_EMBLEM.groove.render(m,{size:40,on:'bar'})。这种画法只有分数、没有说明字；未评的是纺锤孔空盘，不显示 Unrated。\n交接：p 在 0.62–0.9 之间，用效果弹簧（k≈200，z=1）让 .ts-seal-bar 淡入，飞行中的 96dp .ts-seal 同步淡出。96 层的说明字仍按现有的 1−ss(0,0.4,p) 先淡掉。收回卡片时反向交接。\n日记态里 .ts-seal-bar 的点击区 48×48，点击收起日记。光冻结在静止角度：这一层不接 tiltDriver 的变量，--ye-groove-rot 固定为静止值。\nCompose 落地时按 40dp 重新排版矢量，不要缩放 96dp 的绘制结果。",
+    "why": "现在是把 96dp 整体 scale(0.4167)：Album、Unrated 小字只剩 4–5dp，m2 的笔记珠子挤成一团。groove.js 已经有 on:'bar' 的画法，却没用上。阅读时，视野边缘的小徽记还在跟着倾斜闪光。",
+    "from_lenses": [
+     "card",
+     "structure"
+    ]
+   },
+   {
+    "id": "diary-collapse",
+    "title": "收起日记不倒带，系统返回有进度预览",
+    "change": "toggleAB(false) 和 sysBack 的日记分支不再把 v 从 D+scrollTop 弹到 0。改为：冻结 scrollTop，令 d.v = D，只用 SPR.morph 把变形进度 p 从 1 弹到 0。正文在当前滚动位置整体下沉淡出：.ts-bin 的 translateY 为 (1−p)·lag，透明度用现有的错落公式。等 p < 0.05、正文已经看不见时，再把 scrollTop 归 0。在顶部下拉收起的路径不变。\n日记态的预测性返回：p = 1 − backGestureEasing(progress)，easing 用 cubic-bezier(0.1,0.1,0,1)，全程擦洗，不封顶、不追赶。松手提交用 SPR.morph 到 0，取消用 SPR.morph 回 1。原型的「模拟系统返回」在日记态先播 420ms 的进度擦洗（0→0.3），停 90ms 再提交，和卡片态同构。\n拖动中从日记顶部越过 D 继续下拉时，前 24dp 用 0.5× 阻尼。p 跨过 0.5 时打一拍 CLOCK_TICK，退回再打一拍。",
+    "why": "现在点 ⌄ 或系统返回，会先把整段滚动高速倒带，再开始变形：12 条笔记的样本里，scrollTop 631 在约 140ms 内归 0。日记态的系统返回没有手势进度阶段，违反 AGENTS.md「手势进度直接驱动 UI，取消和提交用同一组动效」。owner 的口味是全程缓动擦洗，封顶和追赶都否掉过。",
+    "from_lenses": [
+     "structure"
+    ]
+   },
+   {
+    "id": "reduced-motion-crossfade",
+    "title": "减少动态下改用交叉淡入，不硬切",
+    "change": "run() 在 RM 下不再直接 set(to)。仍用同一个 v 控制器，只驱动效果属性：\n- 卡片层 .ts-a 和日记层 .ts-b 用 effects spring（k=200，z=1）交叉淡入淡出，没有位移和缩放。\n- 96dp 徽记层和顶栏 40dp 层在原位做透明度交接。\n- q 退场：Memories 层透明度从 1 到 0（effects），不位移。\n获得动画的 RM 版：刻纹和标签在约 200ms 内用透明度显影，唯一一拍触感放在显影结束的那一帧，不放在 0ms。\nswipe 的 nudge、未评 ripple、aurora 漂移照旧关闭。",
+    "why": "AGENTS.md 明令不能硬切。现在 RM 下点 Diary，v 同步从 0 跳到 320；m4 却仍然在 0ms 打一拍 THUD，手上震了一下，眼前什么也没变。",
+    "from_lenses": [
+     "card"
+    ]
+   },
+   {
+    "id": "yoin-voice-copy",
+    "title": "Yoin 的旁白讲这一次是怎么听的，不讲机制",
+    "change": "在原型注释里写下文风规则：第二人称、过去时，只用本地信号（播放次数、日期跨度、季节、曲名、最高分的曲目），一到两句。不评价音乐本身；不引用也不转述乐评和笔记（narrativeCopy 的输入契约不变）；不用 memory、「形成记忆」这类讲机制的词。问句接着前面那条事实问。\n原型数据替换：\n- m2：\"Four notes in four days; the latest was on 序曲.\" + \"Put together, what would you say about the album?\" /「四天里记了四条笔记，最近一条写在《序曲》。」+「合起来看，这张专辑你会怎么说？」\n- m3：\"You came back across three seasons. Undertow scored highest, a 9.0.\" + \"And the album as a whole?\" /「你跨了三个季节回来听，最高分是 Undertow 的 9.0。」+「那整张专辑呢？」\n- 有专辑分、没有乐评的模板：\"37 plays since March, the last one two days ago.\" + \"You gave it a 9.5. What earned it?\"\n- 兜底：\"What stays with you from this one?\" /「这张专辑，留下了什么？」\n每个模板都写中英两版，由 owner_choices.yoin-language 切换。旁白里用过的事实从页脚第 2 行剔除。",
+    "why": "m2 的「Notes around this album are starting to form a memory.」是一句状态提示，不是回顾。m3 旁白和页脚把「逐曲评分」说了两遍。问句每张专辑都一样，像问卷。owner 这一轮点名要打磨「回顾区的写法」。",
+    "from_lenses": [
+     "review"
+    ]
+   },
+   {
+    "id": "tablet-yoin-left",
+    "title": "平板：Yoin 的话都在左页，右页从你的字开始",
+    "change": "平板对开（tl，以及竖屏选 B 时）：\n- 把 .ts-bnar（旁白加问句）挪进左页 .ts-cite，顺序是：拟题 → 旁白和问句 → 一个 Written by Yoin → 专辑行 → Go to album，max-width 420。\n- diary(m,false) 不再输出 .ts-bhead-t。右页 .ts-bin 的第一块是乐评条目，没有乐评时是空白日记条目，都以日期页眉开头。\n- 右页内容高 ≤ 视口−160 时，整块垂直居中在左页的光学中线上，即 (封面顶 + Go to album 底)/2；内容更长时顶对齐封面顶。\n- 删掉 .ts-gut 规则和 <i class=\"ts-gut\">；左页内容右缘到右页正文左缘至少 64dp。\n- 修层叠：补上 #page-twostate3 .ts-L-tp .ts-rv-short .ts-rvtx, .ts-L-tl .ts-rv-short .ts-rvtx { font-size:30px; line-height:1.45; font-weight:500 }。",
+    "why": "平板横屏 m2 同屏出现两个 Written by Yoin，上一轮已经提过，没改。内容短的时候，右页上面一截字、下面一大片空。app 的分栏语言是两列之间没有分隔线。同特异性的后置规则把「好听。」在平板上从 26px 吃成了 17.5px。",
+    "from_lenses": [
+     "review",
+     "tablet",
+     "structure"
+    ]
+   },
+   {
+    "id": "haptics-plan",
+    "title": "补全触感方案，收紧密度",
+    "change": "获得动画：\n- 第 4 档「圈亮起」的 tick 最多 4 拍（stride = ceil(n/4)），间隔 ≥ 90ms，scale .35；单档总拍数不超过 7。\n- 第一拍和手指离屏至少隔 120ms，配合 award-lifecycle 的触发时机。\n- 重播和日记里的「点头」只打该档的高潮拍：第 2 档 CLICK；第 3 档 CLICK；第 4 档 THUD + CLICK。\n日记：\n- 点笔记行：高亮落定那一帧打 PRIMITIVE_TICK，scale .5（对应 YoinHaptics.performTick，和 NP 进度条划过笔记锚点同一种手感）。\n- 点曲目行（如果有曲目行）：TICK，scale .4。\n- 保存乐评：CONFIRM。\n- 顶栏上推越过 56dp、下拉收起时 p 越过 0.5：各打一拍 CLOCK_TICK，退回时再打一拍。\n滚动、打开或收起日记、行入场都不震。跟随系统的触感反馈开关。\n原型：每台可交互设备下方加一条 .ts-hx 风格的实时打点日志，复用 G.hx 的样式；支持时用 navigator.vibrate 粗略模拟。",
+    "why": "owner 要求「注意实现的时候需要触感效果」。现在只有获得动画有 hapticPlan，日记里的交互一拍都没有。第 4 档 356–631ms 连着 6 个 TICK，间隔只有 55ms，在 LRA 马达上会糊成一串嗡嗡声。",
+    "from_lenses": [
+     "card",
+     "notes",
+     "structure",
+     "review"
+    ]
+   },
+   {
+    "id": "title-hold",
+    "title": "变形时拟题不再从封面上穿过",
+    "change": "renderPages 里，pair(g.atx, g.btx, …) 和 g.aby 的 follow 改用延后的进度 t = clamp((p−0.2)/0.8, 0, 1)：p < 0.2 时拟题原地不动。pair 的交接窗口 (0.42, 0.78) 改为作用于 t。\n日记各块的 lag 改为 (M.at.y − M.bt.y)/0.8 + 36，保证正文块始终落在仍在飞行的拟题下方。\n封面透明度窗口 1−ss(0,0.36,p) 不变。这样拟题顶边到达封面底边（y≈406）时 p≈0.37，封面透明度已经是 0。",
+    "why": "下拉是跟手擦洗，停在 p≈0.25 时，宋体拟题正好压在仍有 50–100% 不透明的封面下沿上，owner 可以停在这一帧看见。",
+    "from_lenses": [
+     "structure"
+    ]
+   },
+   {
+    "id": "seam-tide",
+    "title": "日记顶部改用潮线，所有渐隐改缓动",
+    "change": "手机日记：scrollTop > 0 时，在 .ts-b 顶边（y=96）画潮线。潮线是两道 var(--bg) 色的 SVG 波浪：静止振幅 4dp，波长约 48dp，相位 = scrollTop×0.5，停下就静止。\n文字在水线以下淡完，淡出长度 = max(12dp, 0.75×16sp) = 12dp：--ft 从 min(scrollTop,40) 改为 min(scrollTop,12)，遮罩色标用 smoothstep 缓动（0、.03@8%、.16@21%、.5@50%、.84@79%、.97@92%、1）。\n底部：保留随滚动释放的淡出，长度从 64 改为 40dp，用同一组缓动色标。\n平板：潮线只放在顶栏下，页面中间不放任何渐隐或遮罩。",
+    "why": "design.md 2026-10-04 定稿：固定 chrome 下的顶部交界默认用潮线。owner 嫌线性渐隐「生硬、像白雾」。现在「Night Bus · Mar 12」在顶栏下雾化了约 40px。",
+    "from_lenses": [
+     "structure",
+     "tablet"
+    ]
+   },
+   {
+    "id": "marquee-targets",
+    "title": "顶栏不截断，所有点按区 ≥48dp",
+    "change": ".ts-bt 去掉 text-overflow:ellipsis，改成 MarqueeText 式跑马灯：停稳 1.2s 后滚动，速度约 30dp/s，两端用 12dp 缓动渐隐，每轮之间停 1.2s。⌄ 固定在 .ts-slotB 右端，不跟着文字漂。.ts-ba 超长时先去掉 \" · 年份\"，还放不下再跑马灯。\n点按区，视觉尺寸都不变：.ts-pill 用 ::before 扩到 48×48；顶栏小徽记 48×48；.ts-collapse 高 48；.ts-dot 扩到 32×48，视觉仍是 7/12dp。笔记行和曲目行见 note-lines-lyric。\n卡片态 .ts-seal 去掉 cursor:pointer：审计记录徽记在卡片上不可点是既定设计，不要暗示可以点。",
+    "why": "owner 的单行标题规则是「只显示一行，超出滚动」，m3 现在显示成「The Patterns Lost to t…」，短屏 m1 的副行把年份截成「2…」。Home 36×36、圆点 18×40、collapse 202×36，都低于 48dp。",
+    "from_lenses": [
+     "structure",
+     "tablet",
+     "card"
+    ]
+   },
+   {
+    "id": "container-budget",
+    "title": "版式按容器尺寸算，不按设备写死",
+    "change": "在 Device() 里加一个纯函数 layoutFor(W,H)，写出 --lp、--measure、--cov、--seal 四个变量，并给 .ys-device 打上档位类：\n- W < 600：手机两态。\n- 600 ≤ W < 900，或右栏正文宽 < 360：Medium，具体排法按 owner_choices.tablet-portrait。\n- 其余：对开。--lp = clamp(round(.46W), 400, 600)；--measure = clamp(W − lp − 104, 360, 560)；封面 = min(300, lp − 96, H − 386)；徽记 = clamp(封面 × .4, 96, 124)。\n用这些变量替换 .ts-L-tp 和 .ts-L-tl 里写死的 top:580、height:476、width:608、left:640、left:641。\n画廊加 4 个框：600×728（Wide 窗开着详情列时的 shell 列）、690×840（折叠屏内屏）、860×800（横屏开着 NP 侧栏）、1000×700（桌面窗）。手机横屏（H < 480）本轮不出框，在说明里标「待做」。",
+    "why": "app 的适配原则要求页面只读自己所在容器的宽高。现在 690×840 下日记视口只剩 260dp；600 宽时 .ts-bin 固定 608，溢出屏幕；860 宽时右栏正文 4 个字一行。全局规则也要求响应式竖屏、横屏都要测。",
+    "from_lenses": [
+     "tablet"
+    ]
+   },
+   {
+    "id": "token-align",
+    "title": "字重和 chrome 对齐 app token",
+    "change": ".ts-atx 和 .ts-btx 的 font-weight 从 700 改为 600（Noto Serif SC SemiBold，对应 YoinSerifTitle 的 SemiBold）。字号 26/30/22 保留，注释里标明这是待写进 design.md 的 YoinSerifDisplay。\n.ts-pill 去掉 -webkit-backdrop-filter 和 backdrop-filter，背景改为实色 var(--surface-high)。",
+    "why": "design.md 里拟题字重是 SemiBold。app 的 chrome 不用毛玻璃，溶解语言本来就是为了取代模糊；卡片态胶囊下面也没有滚动内容，模糊看不出来。",
+    "from_lenses": [
+     "tablet"
+    ]
+   }
+  ],
+  "owner_choices": [
+   {
+    "id": "track-rows",
+    "question": "日记里要不要按曲序列出逐曲评分，做成「曲目 + 笔记」表？",
+    "options": [
+     "A 只列有评分或有笔记的曲目。曲目行高 48dp，三栏：曲号 13/500 tabular on-surface-var；歌名 GSF 16，已评用 600 on-surface，未评用 500 on-surface-var；最右是分数 15/600 tabular ink，未评留空。笔记作为歌词行挂在所属曲目下。点曲目行从头播放这首歌，日记保持只读，评分仍只在 NP 里改。",
+     "B 列完整曲目表，和徽记的每一圈一一对应。既没有评分也没有笔记的行降到 on-surface-var 70%。点按和 A 一样。",
+     "C 不加曲目行，维持 v2.2 删掉曲目表的裁决。笔记按歌曲分组，只在换歌处插一行 12/600 on-surface-var 的小字歌名；逐曲评分只在徽记刻纹里体现。"
+    ],
+    "recommended": "A",
+    "why": "owner 说过，逐曲评价放在一个不能上下滑的页面里很别扭。日记现在能纵向滚动，A 直接回应了这一点：m3 那片约 245dp 的空白会被 6 行评分填满；只列有内容的曲目，日记也不会变成一张待办清单。但 v2.2 明确删过曲目表（「别复活曲目表」），所以必须由 owner 拍板。"
+   },
+   {
+    "id": "fallback-title",
+    "question": "没有 Gemini 拟题时，卡片标题槽放什么？",
+    "options": [
+     "A 专辑名升为主标题（GSF 24/600），原来的专辑行收成「艺人 · 年份」，不署 Written by Yoin。",
+     "B 本地规则生成一个动机短句（GSF 24/600 + ROND 60，署 Written by Yoin），按信号取，例如 \"Three seasons, track by track\" /「三个季节，一首一首」、\"Four days, four notes\" /「四天，四条笔记」。短句里用过的事实从页脚删掉。",
+     "C 用用户自己的一句话当标题（用户字体 22/500，加引号，署「Your note · Undertow 3:21」），卡片下方不再重复摘录；没有可用的文字时退到 A。"
+    ],
+    "recommended": "B",
+    "why": "design.md 规定拟题槽永远不空，回退用本地 deterministic 模板。B 和这条一致，也就是审计里待拍板的「回退拟题改成动机短句」，四张卡也保持同一个语法（标题 + Written by Yoin）。三案都不用宋体，宋体只给 AI 拟题。C 最有温度，但会和摘录槽抢同一段用户的文字。"
+   },
+   {
+    "id": "tablet-portrait",
+    "question": "竖屏平板（800×1280 等 Medium 宽度）怎么排？",
+    "options": [
+     "A Medium 就是放大的手机两态。卡片在 480 列里居中，封面 clamp(H−580,168,360)（1280 高时是 360），徽记 clamp(封面×.375,72,124) 贴在右下角。点 Diary 打开日记层，日记放在 640 列里，约 34 字一行。卡片任意处上推回首页，没有例外。600 列、折叠屏、半屏分屏都自动用这一套。",
+     "B 保留上下同屏，但只在 H≥1000 时用，其余回落到 A。hero 高度跟内容走；日记区至少占屏高 60%，顶边画潮线，作为看得见的交界；从日记区起手的上推只滚动，回首页走 Home 胶囊、顶栏上推和系统返回；所有元素收到 688 内容框的一条左边线上。"
+    ],
+    "recommended": "A",
+    "why": "现在上下同屏有一条看不见的手势边界：y<580 上推回首页，y≥580 上推滚日记。日记滚动时，正文在页面中间淡出，正是 owner 最反感的页中截断。它也偏离了已定的展示柜模型（卡片任意处上滑回首页，日记要点按钮才打开）。app 现在的 Medium 也是 480 宽的手机卡。但 owner 看过 twostate2 的上下同屏版并说「特别美」，所以要他来选。"
+   },
+   {
+    "id": "diary-ending",
+    "question": "日记结尾：页脚跟着内容走，还是继续锚在底部？",
+    "options": [
+     "A 跟着内容走。去掉 .ts-ast-end 的 margin-top:auto，结尾块和上一块间隔 56dp。结尾的「• • •」换成只在结尾出现的导出槽记号：居中 28dp，2–3 圈发丝同心环，ink 45%，和刻纹徽记同一种语言。段落间的分隔点只放在两段真实内容之间。16 字以内、又没有笔记的短评，条目放在可视区 38% 的光学位置。",
+     "B 保持锚底（v2.2 定的 footnotes 固定底部），但把空白让给内容：没有乐评时，空白日记条目挪到页脚正上方。结尾记号同样换成导出槽。平板的层叠规则加 :not(.ts-ast-end)，修好锚底失效。"
+    ],
+    "recommended": "A",
+    "why": "v2.2 的「footnotes 锚底、四卡同位」是给单视口卡片定的，日记现在是一个滚动页。锚底让 m4 中间空出约 420dp、m3 空出约 235dp；而且段落分隔和结尾用同一个「• • •」，读者看不出这里已经结束。这一条改的是 owner 明确裁决过的规则，所以要他确认。"
+   },
+   {
+    "id": "yoin-language",
+    "question": "Yoin 写的成段文字（拟题、旁白、问句、回退标题）用哪种语言？",
+    "options": [
+     "A 跟用户的写作语言：对乐评和笔记做文字系统检测，没有文字时用 app 语言。按钮、署名、证据句这些界面文字始终跟 app 语言。",
+     "B 一律跟 app 语言（英文优先），Gemini 拟题的 prompt 固定输出语言。",
+     "C 维持现状：拟题跟原文语言，模板固定英文，同一屏会混两种语言。"
+    ],
+    "recommended": "A",
+    "why": "现在日记顶部 50dp 之内，先是「雨天里的水底吉他」，紧接着一句英文旁白；回退标题「Listened closely」也是英文。design.md 没有语言规则，这是一条新的产品规则，要 owner 来定。原型里每个模板都给了中英两版，切换就能对比。"
+   }
+  ],
+  "rejected": [
+   "structure:own-words-first-order 主张把写乐评的邀请挪到笔记后面，不采纳。改用 review 视角的空白日记条目：问句和作答的位置挨在一起；虚线加 tonal 胶囊的表单外观已经去掉，「第一块是表单」的根因也就没了。平板「右页从用户的字开始」照做。",
+   "review:voice-signature 里「曲名和时间用 ink 色」不采纳，改用 notes/card 视角的 on-surface-var 500。卡片下半部已经有一个专辑色实心的 Go to album，署名再用 ink 会抢颜色。",
+   "structure:morph-title-over-cover 的「封面提前淡出（ss 0→0.18）」不采纳，改成拟题延后起飞。提前淡出会让 card 视角指出的「封面蒸发」更严重。",
+   "card:cover-fate-in-morph（封面缩进顶栏、波点揭下、模糊底色带）本轮不做。owner 看过现在的转场，称「特别美」；这一轮聚焦日记内容和回顾区，拟题穿过封面的 bug 已经单独修。留作下一轮打磨转场的候选。",
+   "dismiss 阈值数值冲突：structure 只给顶栏定 56dp、卡片保留 25%，tablet 全部定 112dp。最后采用两档：顶栏 56dp（顶栏只有 96dp 高，112 根本拖不到）；卡片主体 112dp，沿用 app 现有的 MemoriesDismissTrigger 常量。纠正一处：这个常量在 app 里是 dismiss 提示的位移量，不是提交阈值，tablet 视角说它是 commit trigger 不准。",
+   "tablet:tablet-cascade-bugs 第 ① 条（恢复平板锚底）取决于 owner_choices.diary-ending：选 A（跟随内容）时这条作废，只在 B 变体里修。第 ② 条（平板短评字号）已经放进 tablet-yoin-left。",
+   "structure:swipe-in-diary-award 提出「从日记横滑后回到卡片」，不采纳。原型文档写明、owner 也看过「日记打开时换卡，新卡也以日记打开」。改用 card:award-lifecycle 的做法：顶栏小徽记点头，收回卡片时再补播完整的获得动画。",
+   "structure:home-affordance-in-diary（日记态保留 88dp 文字胶囊，或换成专用 home 字形）本轮不改。owner 的规则「⌃ 只表示 Home」已经满足，twostate2 里收成圆钮的样子 owner 也看过。只把点击区扩到 48dp；等 m5 长日记样本上线，如果仍会被误读成「回到顶部」，再提出来。",
+   "card:emblem-tap（点徽记重播、未评的轻晃）不进本轮。审计记录「印章不可点」是既定设计，这件事属于卡片层的待拍板项，而本轮 owner_choices 已满 5 个，又聚焦日记。卡片态先去掉误导人的 cursor:pointer，重播暂时留在画廊按钮。",
+   "card:idle-loops-60s-spin：groove 版本本身没有自转（.ts-spin 只挂在原生曲奇上），所以「删掉 60s 慢转」对已选定的刻纹自然成立。ripple 和 nudge 要不要改成只播一次，属于卡片层，下一轮再议。",
+   "card:reward-inversion-at-rest（按分数给外圈加高光，或把所有环先浅刻一遍）不进本轮。它改的是 owner 刚定稿的刻纹语义：一圈对应一首曲目，颜色是挣来的。这属于徽记层的决定，应该在徽记专项里单独提给 owner，不该混进日记打磨。",
+   "card:buttons-expressive、日期 eyebrow、Tall 档、门槛规则，都是审计里待拍板的卡片层或数据层决定，不在本轮日记和回顾区的范围内，继续留在待拍板清单。日期本轮只做去重：顶栏保留 Last heard，页脚改成日期区间，这是两位评审都推荐的最小改动。",
+   "notes:emblem-bead-link（点笔记时珠子弹跳、落针）推迟。它依赖曲目行选项的结果；而且本轮奖赏感的重点，是先把获得动画接进真实流程。",
+   "notes:rated-rows-cut-in（分数逐行变成墨色，10.0 下面垫一枚 Cookie）推迟到曲目行选项定下以后。10.0 下面垫曲奇是新增装饰，和展示柜要轻的方向有冲突。",
+   "notes:card-excerpt-link（点卡片摘录，打开日记并定位到那一条）不采纳。owner 选的是用 Diary 按钮作为日记唯一的显式入口，卡片上再加一个点按入口会把它冲淡。",
+   "card:tilt-gesture-and-rest-rules 里「用手势喂光弹簧」推迟，等真机验证陀螺仪时一起做。本轮只做日记态顶栏小徽记的光冻结，已经放进 bar-emblem-40。",
+   "tablet:phone-landscape-tier 和 go-to-album-in-wide 推迟到适配专项。app 已经有 MemoryCardLayout.Landscape，落 Kotlin 之前必须补回来，但这不属于本轮的日记和回顾区打磨。container-budget 先把档位函数立起来。",
+   "tablet:medium-portrait-model 的 B 方案里「悬挂引号外凸到 x=40」不采纳。日记条目去掉引号，引号只留给卡片上 Yoin 引用你的话。",
+   "底部渐隐长度：structure 给 40dp，tablet 给 48dp，取 40dp。溶解相关的记录里，owner 要求过渡带和留白都要短。",
+   "review:short-diary-rhythm 已经并进 owner_choices.diary-ending 的 A 选项（38% 光学位置；分隔点只放在两段内容之间）。",
+   "review:yoin-voice-templates 有两处改写。m2 的「The first one was on 序曲」和数据不符：时间上第一条是 9 月 28 日的专辑笔记，序曲那条是最近一条，所以改成「最近一条写在《序曲》」。m3 的「Why a 7.8」不采纳：7.8 是曲目均分，不是用户打的分，改问「那整张专辑呢？」。"
+  ]
+ }
+}

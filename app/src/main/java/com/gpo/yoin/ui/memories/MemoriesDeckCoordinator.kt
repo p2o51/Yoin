@@ -9,6 +9,7 @@ import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.Track
 import com.gpo.yoin.data.repository.YoinRepository
 import com.gpo.yoin.ui.experience.ExperienceSessionStore
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -140,6 +141,39 @@ class MemoriesDeckCoordinator(
             },
         )
         return nextMemories
+    }
+
+    /**
+     * Re-resolve [currentDeck] in place after a memory write (rating, note,
+     * review): drops every cache, rebuilds the pool, then re-resolves each card
+     * in the deck's own order. Nothing is re-dealt and the session store is not
+     * touched, so deckId / currentPage — and with them the pager — stay put.
+     *
+     * A card whose album has left the pool (the write made it ineligible), or
+     * whose resolve fails, keeps its previous entry: dropping it would shift
+     * every later page under the user's finger. An empty rebuild (source gone)
+     * therefore hands the old deck back unchanged.
+     */
+    suspend fun refreshDeck(currentDeck: List<MemoryEntry>): List<MemoryEntry> {
+        if (currentDeck.isEmpty()) return currentDeck
+        invalidate()
+        val pool = ensureCandidates().associateBy(AlbumMemoryCandidate::sessionId)
+        return coroutineScope {
+            currentDeck
+                .map { previous ->
+                    async {
+                        val candidate = pool[previous.sourceActivityId] ?: return@async previous
+                        try {
+                            resolveMemoryCached(candidate) ?: previous
+                        } catch (cancellation: CancellationException) {
+                            throw cancellation
+                        } catch (_: Exception) {
+                            previous
+                        }
+                    }
+                }
+                .awaitAll()
+        }
     }
 
     fun invalidate() {
