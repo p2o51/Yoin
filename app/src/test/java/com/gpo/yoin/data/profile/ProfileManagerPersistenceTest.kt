@@ -130,6 +130,72 @@ class ProfileManagerPersistenceTest {
         scope.cancelChildren()
     }
 
+    @Test
+    fun should_invokeOnProfileDeleted_when_profileDeleted() = runTest {
+        val scope = TestScope(StandardTestDispatcher(testScheduler))
+        val deleted = mutableListOf<String>()
+        val manager = manager(scope, onProfileDeleted = { deleted += it })
+        manager.create(displayName = "active", credentials = subsonic("a"))
+        val other = manager.create(displayName = "other", credentials = subsonic("b"))
+        scope.advanceUntilIdle()
+
+        manager.delete(other.id)
+
+        assertEquals(listOf(other.id), deleted)
+        scope.cancelChildren()
+    }
+
+    @Test
+    fun should_runOnProfileDeletedAfterSwitch_when_deletingActiveProfile() = runTest {
+        val scope = TestScope(StandardTestDispatcher(testScheduler))
+        var activeDuringCleanup: String? = null
+        lateinit var manager: ProfileManager
+        manager = manager(scope, onProfileDeleted = { activeDuringCleanup = manager.activeProfileId.value })
+        val active = manager.create(displayName = "active", credentials = subsonic("a"))
+        val remaining = manager.create(displayName = "remaining", credentials = subsonic("b"))
+        scope.advanceUntilIdle()
+        assertEquals(active.id, manager.activeProfileId.value)
+
+        manager.delete(active.id)
+
+        assertEquals(remaining.id, activeDuringCleanup)
+        scope.cancelChildren()
+    }
+
+    @Test
+    fun should_completeDelete_when_onProfileDeletedThrows() = runTest {
+        val scope = TestScope(StandardTestDispatcher(testScheduler))
+        val profileDao = InMemoryProfileDao()
+        val manager = manager(scope, profileDao = profileDao, onProfileDeleted = { error("disk full") })
+        val profile = manager.create(displayName = "doomed", credentials = subsonic("a"))
+        scope.advanceUntilIdle()
+
+        manager.delete(profile.id)
+
+        assertEquals(null, profileDao.getById(profile.id))
+        assertEquals(null, manager.activeProfileId.value)
+        scope.cancelChildren()
+    }
+
+    private fun manager(
+        scope: CoroutineScope,
+        profileDao: ProfileDao = InMemoryProfileDao(),
+        onProfileDeleted: suspend (String) -> Unit,
+    ): ProfileManager = ProfileManager(
+        profileDao = profileDao,
+        activeIdStore = InMemoryActiveIdStore(),
+        credentialsStore = InMemoryProfileCredentialsStore(),
+        legacyCodec = PlaintextProfileCredentialsCodec(),
+        scope = scope,
+        onProfileDeleted = onProfileDeleted,
+    )
+
+    private fun subsonic(user: String) = ProfileCredentials.Subsonic(
+        serverUrl = "https://example.test",
+        username = user,
+        password = "pw",
+    )
+
     private fun CoroutineScope.cancelChildren() {
         coroutineContext[Job]?.children?.forEach { it.cancel() }
     }

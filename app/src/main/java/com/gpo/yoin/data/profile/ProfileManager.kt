@@ -7,6 +7,7 @@ import com.gpo.yoin.data.remote.SubsonicApiFactory
 import com.gpo.yoin.data.source.MusicSource
 import com.gpo.yoin.data.source.subsonic.SubsonicMusicSource
 import java.util.UUID
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -52,6 +53,9 @@ class ProfileManager(
     private val spotifyRateLimitGate: com.gpo.yoin.data.source.spotify.SpotifyRateLimitGate? = null,
     private val onSwitchPrepare: suspend () -> Unit = {},
     private val onSwitchCommit: suspend () -> Unit = {},
+    // Per-profile cleanup outside this manager (the Home layout row). Runs
+    // after the delete, and after the switch when the profile was active.
+    private val onProfileDeleted: suspend (profileId: String) -> Unit = {},
 ) {
     val profiles: Flow<List<Profile>> = profileDao.observeAll()
 
@@ -241,6 +245,14 @@ class ProfileManager(
             } else {
                 setActive(null)
             }
+        }
+        // After the switch, so Home no longer observes the outgoing profile
+        // (no Default flash). Cleanup never fails the delete.
+        try {
+            onProfileDeleted(id)
+        } catch (cancellation: CancellationException) {
+            throw cancellation
+        } catch (_: Exception) {
         }
     }
 

@@ -26,6 +26,7 @@ import io.mockk.coVerify
 import io.mockk.mockk
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -318,6 +319,296 @@ class AlbumMemoryCandidateBuilderTest {
         assertEquals(9_000L, candidate.lastPlayedAt)
     }
 
+    @Test
+    fun should_returnIdenticalEligibleSubset_when_includeIneligible() = runTest {
+        // Seed order: C (album rating), E (album notes), then the play aggregates
+        // B, D, A. C has no recent aggregate, so the by-id lookup fires.
+        coEvery { library.getAlbum(any()) } answers { album(firstArg<MediaId>().rawId, trackCount = 10) }
+        coEvery {
+            playHistoryDao.getAlbumAggregates("profile-a", MediaId.PROVIDER_SUBSONIC, any())
+        } returns listOf(
+            aggregate(albumId = "album-b", firstPlayedAt = 900L, lastPlayedAt = 900L),
+            aggregate(albumId = "album-d", firstPlayedAt = 400L, lastPlayedAt = 400L),
+            aggregate(albumId = "album-a", firstPlayedAt = 400L, lastPlayedAt = 400L),
+            aggregate(albumId = "album-e", firstPlayedAt = 200L, lastPlayedAt = 200L),
+        )
+        coEvery {
+            playHistoryDao.getAlbumAggregatesFor("profile-a", MediaId.PROVIDER_SUBSONIC, listOf("album-c"))
+        } returns listOf(aggregate(albumId = "album-c", playCount = 7, firstPlayedAt = 10L, lastPlayedAt = 50L))
+        coEvery {
+            activityEventDao.getRecentAlbumEvents("profile-a", MediaId.PROVIDER_SUBSONIC, any())
+        } returns emptyList()
+        val reviewed = AlbumRating(
+            profileId = "profile-a",
+            albumId = "album-c",
+            provider = MediaId.PROVIDER_SUBSONIC,
+            rating = 7f,
+            review = "review",
+            neoDbReviewUuid = null,
+        )
+        coEvery {
+            albumRatingDao.getAllForProfile(MediaId.PROVIDER_SUBSONIC, "profile-a")
+        } returns listOf(reviewed)
+        coEvery { albumRatingDao.get(any(), MediaId.PROVIDER_SUBSONIC, "profile-a") } returns null
+        coEvery {
+            albumNoteDao.getNoteCountsForProfile(MediaId.PROVIDER_SUBSONIC, "profile-a")
+        } returns listOf(
+            AlbumNoteCount(albumId = "album-e", provider = MediaId.PROVIDER_SUBSONIC, noteCount = 2),
+        )
+        // D and A tie on every comparator key (coverage .6, no notes, played at
+        // 400); B is ineligible (.5) and sorts between the eligible ones.
+        val ratedTracks = mapOf("album-a" to 6, "album-b" to 5, "album-d" to 6)
+        coEvery {
+            localRatingDao.getRatings(any(), MediaId.PROVIDER_SUBSONIC, "profile-a")
+        } answers {
+            firstArg<List<String>>().mapNotNull { songId ->
+                val albumId = songId.substringBefore("#")
+                val index = songId.substringAfter("#").toInt()
+                if (index <= (ratedTracks[albumId] ?: 0)) {
+                    LocalRating(
+                        profileId = "profile-a",
+                        songId = songId,
+                        provider = MediaId.PROVIDER_SUBSONIC,
+                        rating = 8f,
+                        serverRating = 4,
+                        updatedAt = 1_000L,
+                    )
+                } else {
+                    null
+                }
+            }
+        }
+        coEvery {
+            songNoteDao.getForTracks(any(), MediaId.PROVIDER_SUBSONIC, "profile-a")
+        } returns emptyList()
+        coEvery { songAboutEntryDao.countAskRowsByAlbum(any()) } returns emptyList()
+
+        val pool = builder().build(limit = 3, includeIneligible = true)
+        val eligible = builder().build(limit = 3)
+
+        assertEquals(
+            listOf("album-c", "album-d", "album-a", "album-b", "album-e"),
+            pool.map(AlbumMemoryCandidate::albumId),
+        )
+        assertEquals(listOf("album-c", "album-d", "album-a"), eligible.map(AlbumMemoryCandidate::albumId))
+        assertEquals(eligible, pool.memoryEligible(3))
+        assertEquals(50L, eligible.first().lastPlayedFromHistoryAt)
+    }
+
+    @Test
+    fun should_includeIneligibleCandidates_when_includeIneligible() = runTest {
+        val album = album(trackCount = 10)
+        stubBase(
+            album = album,
+            albumRatings = listOf(
+                AlbumRating(
+                    profileId = "profile-a",
+                    albumId = "album-1",
+                    provider = MediaId.PROVIDER_SUBSONIC,
+                    rating = 9f,
+                    review = null,
+                    neoDbReviewUuid = null,
+                ),
+            ),
+        )
+        coEvery {
+            localRatingDao.getRatings(any(), MediaId.PROVIDER_SUBSONIC, "profile-a")
+        } returns (1..5).map { index -> trackRating(trackIndex = index, rating = 9f, updatedAt = 1_000L) }
+
+        val eligible = builder().build(limit = 6)
+        val pool = builder().build(limit = 6, includeIneligible = true)
+
+        assertTrue(eligible.isEmpty())
+        val candidate = pool.single()
+        assertFalse(candidate.isMemoryEligible)
+        assertEquals(9f, candidate.albumRating ?: 0f, 0.001f)
+        assertEquals(0.5f, candidate.ratingCoverage, 0.001f)
+    }
+
+    @Test
+    fun should_takeHistoryFieldsFromPlayHistoryOnly_when_visitIsNewer() = runTest {
+        val album = album(trackCount = 10)
+        stubBase(album)
+        coEvery {
+            activityEventDao.getRecentAlbumEvents("profile-a", MediaId.PROVIDER_SUBSONIC, any())
+        } returns listOf(visit(timestamp = 9_000L))
+        coEvery {
+            localRatingDao.getRatings(any(), MediaId.PROVIDER_SUBSONIC, "profile-a")
+        } returns emptyList()
+
+        val candidate = builder().build(limit = 6, includeIneligible = true).single()
+
+        assertEquals(9_000L, candidate.lastPlayedAt)
+        assertEquals(300L, candidate.lastPlayedFromHistoryAt)
+        assertEquals(100L, candidate.firstPlayedFromHistoryAt)
+        assertEquals(3, candidate.playCountFromHistory)
+    }
+
+    @Test
+    fun should_lookUpHistoryById_when_albumOutsideRecentAggregateWindow() = runTest {
+        val album = album(trackCount = 10)
+        stubBase(
+            album = album,
+            albumRatings = listOf(
+                AlbumRating(
+                    profileId = "profile-a",
+                    albumId = "album-1",
+                    provider = MediaId.PROVIDER_SUBSONIC,
+                    rating = 9f,
+                    review = "still great",
+                    neoDbReviewUuid = null,
+                ),
+            ),
+            aggregates = emptyList(),
+        )
+        coEvery {
+            playHistoryDao.getAlbumAggregatesFor("profile-a", MediaId.PROVIDER_SUBSONIC, listOf("album-1"))
+        } returns listOf(aggregate(playCount = 23, firstPlayedAt = 100L, lastPlayedAt = 300L))
+        coEvery {
+            localRatingDao.getRatings(any(), MediaId.PROVIDER_SUBSONIC, "profile-a")
+        } returns emptyList()
+
+        val candidate = builder().build(limit = 6).single()
+
+        assertEquals(23, candidate.playCountFromHistory)
+        assertEquals(100L, candidate.firstPlayedFromHistoryAt)
+        assertEquals(300L, candidate.lastPlayedFromHistoryAt)
+        // Memory's own inputs are untouched by the lookup.
+        assertEquals(0, candidate.playCount)
+        assertNull(candidate.firstPlayedAt)
+        assertNull(candidate.lastPlayedAt)
+    }
+
+    @Test
+    fun should_skipHistoryLookup_when_everyScannedSeedHasAggregate() = runTest {
+        val album = album(trackCount = 10)
+        stubBase(album)
+        coEvery {
+            localRatingDao.getRatings(any(), MediaId.PROVIDER_SUBSONIC, "profile-a")
+        } returns emptyList()
+
+        builder().build(limit = 6, includeIneligible = true)
+
+        coVerify(exactly = 0) { playHistoryDao.getAlbumAggregatesFor(any(), any(), any()) }
+    }
+
+    @Test
+    fun should_leaveHistoryFieldsNull_when_albumOnlyVisited() = runTest {
+        val album = album(trackCount = 10)
+        stubBase(album = album, aggregates = emptyList())
+        coEvery {
+            activityEventDao.getRecentAlbumEvents("profile-a", MediaId.PROVIDER_SUBSONIC, any())
+        } returns listOf(visit(timestamp = 9_000L))
+        coEvery {
+            playHistoryDao.getAlbumAggregatesFor("profile-a", MediaId.PROVIDER_SUBSONIC, listOf("album-1"))
+        } returns emptyList()
+        coEvery {
+            localRatingDao.getRatings(any(), MediaId.PROVIDER_SUBSONIC, "profile-a")
+        } returns emptyList()
+
+        val candidate = builder().build(limit = 6, includeIneligible = true).single()
+
+        assertEquals(9_000L, candidate.lastPlayedAt)
+        assertNull(candidate.lastPlayedFromHistoryAt)
+        assertNull(candidate.firstPlayedFromHistoryAt)
+        assertEquals(0, candidate.playCountFromHistory)
+    }
+
+    @Test
+    fun should_keepMemoryFieldsUnchanged_when_historyLookupFails() = runTest {
+        val album = album(trackCount = 10)
+        stubBase(
+            album = album,
+            albumRatings = listOf(
+                AlbumRating(
+                    profileId = "profile-a",
+                    albumId = "album-1",
+                    provider = MediaId.PROVIDER_SUBSONIC,
+                    rating = 9f,
+                    review = "review",
+                    neoDbReviewUuid = null,
+                ),
+            ),
+            aggregates = emptyList(),
+        )
+        coEvery {
+            activityEventDao.getRecentAlbumEvents("profile-a", MediaId.PROVIDER_SUBSONIC, any())
+        } returns listOf(visit(timestamp = 9_000L))
+        coEvery {
+            playHistoryDao.getAlbumAggregatesFor(any(), any(), any())
+        } throws IllegalStateException("database closed")
+        coEvery {
+            localRatingDao.getRatings(any(), MediaId.PROVIDER_SUBSONIC, "profile-a")
+        } returns emptyList()
+
+        val candidate = builder().build(limit = 6).single()
+
+        assertTrue(candidate.isMemoryEligible)
+        assertEquals(0, candidate.playCount)
+        assertEquals(9_000L, candidate.firstPlayedAt)
+        assertEquals(9_000L, candidate.lastPlayedAt)
+        assertNull(candidate.lastPlayedFromHistoryAt)
+        assertNull(candidate.firstPlayedFromHistoryAt)
+        assertEquals(0, candidate.playCountFromHistory)
+    }
+
+    private fun aggregate(
+        albumId: String = "album-1",
+        playCount: Int = 3,
+        firstPlayedAt: Long = 100L,
+        lastPlayedAt: Long = 300L,
+    ): AlbumPlayHistoryAggregate = AlbumPlayHistoryAggregate(
+        albumId = albumId,
+        provider = MediaId.PROVIDER_SUBSONIC,
+        albumName = "Album One",
+        artistName = "Artist One",
+        coverArtId = null,
+        playCount = playCount,
+        firstPlayedAt = firstPlayedAt,
+        lastPlayedAt = lastPlayedAt,
+    )
+
+    private fun visit(timestamp: Long): ActivityEvent = ActivityEvent(
+        entityType = ActivityEntityType.ALBUM.name,
+        actionType = ActivityActionType.VISITED.name,
+        entityId = "album-1",
+        profileId = "profile-a",
+        provider = MediaId.PROVIDER_SUBSONIC,
+        title = "Album One",
+        subtitle = "Artist One",
+        timestamp = timestamp,
+    )
+
+    /** An album whose track raw ids are `<albumId>#<index>`. */
+    private fun album(albumId: String, trackCount: Int): Album =
+        Album(
+            id = MediaId.subsonic(albumId),
+            name = albumId,
+            artist = "Artist One",
+            artistId = null,
+            coverArt = null,
+            songCount = trackCount,
+            durationSec = null,
+            year = null,
+            genre = null,
+            tracks = (1..trackCount).map { index ->
+                Track(
+                    id = MediaId.subsonic("$albumId#$index"),
+                    title = "Track $index",
+                    artist = "Artist One",
+                    artistId = null,
+                    album = albumId,
+                    albumId = MediaId.subsonic(albumId),
+                    coverArt = null,
+                    durationSec = null,
+                    trackNumber = index,
+                    year = null,
+                    genre = null,
+                    userRating = null,
+                )
+            },
+        )
+
     private fun trackRating(trackIndex: Int, rating: Float, updatedAt: Long): LocalRating = LocalRating(
         profileId = "profile-a",
         songId = "track-$trackIndex",
@@ -358,22 +649,12 @@ class AlbumMemoryCandidateBuilderTest {
         album: Album,
         albumRatings: List<AlbumRating> = emptyList(),
         noteCounts: List<AlbumNoteCount> = emptyList(),
+        aggregates: List<AlbumPlayHistoryAggregate> = listOf(aggregate()),
     ) {
         coEvery { library.getAlbum(MediaId.subsonic("album-1")) } returns album
         coEvery {
             playHistoryDao.getAlbumAggregates("profile-a", MediaId.PROVIDER_SUBSONIC, any())
-        } returns listOf(
-            AlbumPlayHistoryAggregate(
-                albumId = "album-1",
-                provider = MediaId.PROVIDER_SUBSONIC,
-                albumName = "Album One",
-                artistName = "Artist One",
-                coverArtId = null,
-                playCount = 3,
-                firstPlayedAt = 100L,
-                lastPlayedAt = 300L,
-            ),
-        )
+        } returns aggregates
         coEvery {
             activityEventDao.getRecentAlbumEvents("profile-a", MediaId.PROVIDER_SUBSONIC, any())
         } returns emptyList()

@@ -2,6 +2,7 @@ package com.gpo.yoin.data.memory
 
 import com.gpo.yoin.data.local.ActivityEventDao
 import com.gpo.yoin.data.local.AlbumNoteDao
+import com.gpo.yoin.data.local.AlbumPlayHistoryAggregate
 import com.gpo.yoin.data.local.AlbumRating
 import com.gpo.yoin.data.local.AlbumRatingDao
 import com.gpo.yoin.data.local.LocalRating
@@ -15,6 +16,7 @@ import com.gpo.yoin.data.model.Album
 import com.gpo.yoin.data.model.CoverRef
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.Track
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -35,7 +37,12 @@ class AlbumMemoryCandidateBuilder(
     private val songAboutEntryDao: SongAboutEntryDao,
     private val resolveCoverUrl: (CoverRef, Int) -> String?,
 ) {
-    suspend fun build(limit: Int): List<AlbumMemoryCandidate> = coroutineScope {
+    /**
+     * Builds up to [limit] Memory-eligible candidates. With [includeIneligible]
+     * every scanned candidate comes back, in the same order, so
+     * `build(n, true).memoryEligible(n) == build(n)`.
+     */
+    suspend fun build(limit: Int, includeIneligible: Boolean = false): List<AlbumMemoryCandidate> = coroutineScope {
         val scanLimit = (limit * 4).coerceAtLeast(limit).coerceAtMost(MAX_CANDIDATE_SCAN_SIZE)
         val playAggregates = playHistoryDao.getAlbumAggregates(profileId, provider, scanLimit)
         val albumEvents = activityEventDao.getRecentAlbumEvents(profileId, provider, scanLimit)
@@ -66,6 +73,9 @@ class AlbumMemoryCandidateBuilder(
                     playCount = aggregate.playCount
                     firstPlayedAt = aggregate.firstPlayedAt
                     lastPlayedAt = aggregate.lastPlayedAt
+                    historyPlayCount = aggregate.playCount
+                    historyFirstPlayedAt = aggregate.firstPlayedAt
+                    historyLastPlayedAt = aggregate.lastPlayedAt
                 }
         }
         albumEvents.forEach { event ->
@@ -84,14 +94,50 @@ class AlbumMemoryCandidateBuilder(
         // cache, but a cold start would otherwise fire scanLimit concurrent
         // network fetches at once.
         val buildGate = Semaphore(MAX_CONCURRENT_CANDIDATE_BUILDS)
-        seeds.values
-            .take(scanLimit)
+        val scanned = seeds.values.take(scanLimit)
+        // Runs for both flags, so the eligible subset is identical either way.
+        fillHistoryGaps(scanned)
+        // sortedWith is stable: sort-then-filter keeps the old filter-then-sort
+        // order, ties included.
+        val sorted = scanned
             .map { seed -> async { buildGate.withPermit { buildCandidate(seed) } } }
             .awaitAll()
             .filterNotNull()
-            .filter(AlbumMemoryCandidate::isMemoryEligible)
             .sortedWith(albumMemoryCandidateComparator)
-            .take(limit)
+        if (includeIneligible) sorted else sorted.memoryEligible(limit)
+    }
+
+    /**
+     * Seeds outside [PlayHistoryDao.getAlbumAggregates]' recency window get
+     * their play history by id. Only the history-only fields are filled — the
+     * Memory inputs (playCount / firstPlayedAt / lastPlayedAt) are never
+     * touched. A failed lookup leaves them null.
+     */
+    private suspend fun fillHistoryGaps(scanned: List<AlbumMemorySeed>) {
+        val missing = scanned.filter { seed ->
+            seed.historyLastPlayedAt == null && seed.albumId.isNotBlank()
+        }
+        if (missing.isEmpty()) return
+        val rows = try {
+            playHistoryDao.getAlbumAggregatesFor(
+                profileId = profileId,
+                provider = provider,
+                // History stores raw ids; seeds may carry the legacy provider:raw form.
+                albumIds = missing.map { seed -> MediaId.storedRawId(provider, seed.albumId) }.distinct(),
+            )
+        } catch (cancellation: CancellationException) {
+            throw cancellation
+        } catch (_: Exception) {
+            return
+        }
+        val byRawId = rows.associateBy(AlbumPlayHistoryAggregate::albumId)
+        missing.forEach { seed ->
+            byRawId[MediaId.storedRawId(provider, seed.albumId)]?.let { aggregate ->
+                seed.historyPlayCount = aggregate.playCount
+                seed.historyFirstPlayedAt = aggregate.firstPlayedAt
+                seed.historyLastPlayedAt = aggregate.lastPlayedAt
+            }
+        }
     }
 
     private suspend fun buildCandidate(seed: AlbumMemorySeed): AlbumMemoryCandidate? {
@@ -159,6 +205,9 @@ class AlbumMemoryCandidateBuilder(
                 ?: seed.coverArtId
                     ?.let(CoverRef::fromStorageKey)
                     ?.let { cover -> resolveCoverUrl(cover, 480) },
+            firstPlayedFromHistoryAt = seed.historyFirstPlayedAt,
+            lastPlayedFromHistoryAt = seed.historyLastPlayedAt,
+            playCountFromHistory = seed.historyPlayCount,
         )
     }
 
@@ -239,6 +288,10 @@ class AlbumMemoryCandidateBuilder(
         var lastPlayedAt: Long? = null,
         var albumRating: AlbumRating? = null,
         var albumNoteCount: Int = 0,
+        // play_history only; the fields above also absorb VISITED events.
+        var historyPlayCount: Int = 0,
+        var historyFirstPlayedAt: Long? = null,
+        var historyLastPlayedAt: Long? = null,
     )
 
     private data class SongNoteStats(

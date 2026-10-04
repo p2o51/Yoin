@@ -55,6 +55,31 @@ interface PlayHistoryDao {
     ): List<AlbumPlayHistoryAggregate>
 
     /**
+     * Same aggregate as [getAlbumAggregates], but for the given raw album ids
+     * only — no recency window. Albums with no play rows are simply absent.
+     */
+    @Query(
+        "SELECT albumId, provider, album AS albumName, artist AS artistName, coverArtId, " +
+            "COUNT(*) AS playCount, MIN(playedAt) AS firstPlayedAt, MAX(playedAt) AS lastPlayedAt " +
+            "FROM play_history " +
+            "WHERE profileId = :profileId AND provider = :provider AND albumId IN (:albumIds) " +
+            "GROUP BY albumId, provider",
+    )
+    suspend fun getAlbumAggregatesFor(
+        profileId: String,
+        provider: String,
+        albumIds: List<String>,
+    ): List<AlbumPlayHistoryAggregate>
+
+    /** The newest play row for this scope; a single-row twin of [getRecentHistory]. */
+    @Query(
+        "SELECT * FROM play_history " +
+            "WHERE profileId = :profileId AND provider = :provider " +
+            "ORDER BY playedAt DESC LIMIT 1",
+    )
+    fun observeMostRecent(profileId: String, provider: String): Flow<PlayHistory?>
+
+    /**
      * An artist's most-played songs for this profile. A play belongs to the
      * artist when it came from one of their releases OR carries their exact
      * name (features, releases outside the fetched discography).

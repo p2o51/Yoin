@@ -308,6 +308,8 @@ class AppContainer(private val context: Context) {
                 // shows new-profile content.
                 notifyMusicConfigurationChanged()
             },
+            // A deleted profile's home layout row would otherwise be orphaned.
+            onProfileDeleted = { profileId -> homeLayoutStore.clearLayout(profileId) },
         ).also { manager ->
             applicationScope.launch {
                 // One-shot carry-forward: pre-3D inline credentialsJson
@@ -349,6 +351,11 @@ class AppContainer(private val context: Context) {
     /** Once-a-day UI hints (the Now Playing "tap to expand" lyric line). */
     val lyricHintStore: com.gpo.yoin.ui.nowplaying.LyricHintStore by lazy {
         com.gpo.yoin.ui.nowplaying.SharedPrefsLyricHintStore(context)
+    }
+
+    /** Home edit-mode hints (session count, sections seen), per device. */
+    val homeEditHintStore: com.gpo.yoin.ui.home.HomeEditHintStore by lazy {
+        com.gpo.yoin.ui.home.SharedPrefsHomeEditHintStore(context)
     }
 
     val experienceSessionStore: ExperienceSessionStore by lazy {

@@ -78,6 +78,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.distinctUntilChangedBy
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
@@ -1416,7 +1417,15 @@ class YoinRepository(
 
     // ── Album Memory candidates ───────────────────────────────────────
 
-    suspend fun getAlbumMemoryCandidates(limit: Int = 48): List<AlbumMemoryCandidate> {
+    /**
+     * Memory-eligible album candidates. [includeIneligible] returns every
+     * scanned candidate instead (Home's Rediscover pool); `memoryEligible(limit)`
+     * on that list equals the default result.
+     */
+    suspend fun getAlbumMemoryCandidates(
+        limit: Int = 48,
+        includeIneligible: Boolean = false,
+    ): List<AlbumMemoryCandidate> {
         val source = activeSource.value ?: return emptyList()
         val profileId = activeProfileId.value ?: return emptyList()
         return AlbumMemoryCandidateBuilder(
@@ -1434,7 +1443,7 @@ class YoinRepository(
             songNoteDao = songNoteDao,
             songAboutEntryDao = songAboutEntryDao,
             resolveCoverUrl = { ref, size -> resolveCoverUrl(ref, size) },
-        ).build(limit)
+        ).build(limit, includeIneligible)
     }
 
     suspend fun getTopAlbumMemoryCandidate(): AlbumMemoryCandidate? =
@@ -2293,6 +2302,23 @@ class YoinRepository(
             }
             database.playHistoryDao().getRecentHistory(profileId, provider, limit)
         }
+
+    /**
+     * Newest play row for the active scope; Home uses it to drop a Rediscover
+     * card once its album plays. Deliberately NOT folded into
+     * [observeMemorySignalStamp], which would rebuild every Memory candidate on
+     * each track change.
+     */
+    fun observeMostRecentPlay(): Flow<PlayHistory?> =
+        combine(activeSource, activeProfileId) { source, profileId ->
+            source?.id to profileId
+        }.flatMapLatest { (provider, profileId) ->
+            if (provider == null || profileId.isNullOrBlank()) {
+                return@flatMapLatest flowOf(null)
+            }
+            database.playHistoryDao().observeMostRecent(profileId, provider)
+        }
+            .distinctUntilChangedBy { play -> play?.id }
 
     fun getRecentActivities(limit: Int = 20): Flow<List<ActivityEvent>> =
         combine(activeSource, activeProfileId) { source, profileId ->

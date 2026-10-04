@@ -28,9 +28,19 @@ data class AlbumMemoryCandidate(
     val year: Int?,
     val durationSeconds: Int?,
     val coverArtUrl: String?,
+    /** play_history MIN(playedAt) only; VISITED events never count. */
+    val firstPlayedFromHistoryAt: Long? = null,
+    /** play_history MAX(playedAt) only; VISITED events never count. */
+    val lastPlayedFromHistoryAt: Long? = null,
+    /** play_history row count. [playCount] keeps its Memory meaning. */
+    val playCountFromHistory: Int = 0,
 ) {
     val sessionId: Long = stableAlbumMemorySessionId(profileId, provider, albumId)
 }
+
+/** The Memory pool: eligible candidates, in input order, capped at [limit]. */
+fun List<AlbumMemoryCandidate>.memoryEligible(limit: Int): List<AlbumMemoryCandidate> =
+    filter(AlbumMemoryCandidate::isMemoryEligible).take(limit)
 
 fun stableAlbumMemorySessionId(
     profileId: String,
