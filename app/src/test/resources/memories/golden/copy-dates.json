@@ -1,0 +1,252 @@
+{
+ "today": "2026-10-04",
+ "days": [
+  {
+   "iso": "2026-01-01",
+   "day": "Jan 1",
+   "dayZh": "1月1日",
+   "dayY": "Jan 1, 2026"
+  },
+  {
+   "iso": "2026-02-02",
+   "day": "Feb 2",
+   "dayZh": "2月2日",
+   "dayY": "Feb 2, 2026"
+  },
+  {
+   "iso": "2026-07-26",
+   "day": "Jul 26",
+   "dayZh": "7月26日",
+   "dayY": "Jul 26, 2026"
+  },
+  {
+   "iso": "2026-10-04",
+   "day": "Oct 4",
+   "dayZh": "10月4日",
+   "dayY": "Oct 4, 2026"
+  },
+  {
+   "iso": "2026-12-31",
+   "day": "Dec 31",
+   "dayZh": "12月31日",
+   "dayY": "Dec 31, 2026"
+  },
+  {
+   "iso": "2025-11-08",
+   "day": "Nov 8, 2025",
+   "dayZh": "2025年11月8日",
+   "dayY": "Nov 8, 2025"
+  },
+  {
+   "iso": "2025-12-31",
+   "day": "Dec 31, 2025",
+   "dayZh": "2025年12月31日",
+   "dayY": "Dec 31, 2025"
+  },
+  {
+   "iso": "2024-02-29",
+   "day": "Feb 29, 2024",
+   "dayZh": "2024年2月29日",
+   "dayY": "Feb 29, 2024"
+  },
+  {
+   "iso": "2019-06-15",
+   "day": "Jun 15, 2019",
+   "dayZh": "2019年6月15日",
+   "dayY": "Jun 15, 2019"
+  }
+ ],
+ "zhMonths": [
+  "一月",
+  "二月",
+  "三月",
+  "四月",
+  "五月",
+  "六月",
+  "七月",
+  "八月",
+  "九月",
+  "十月",
+  "十一月",
+  "十二月"
+ ],
+ "numbers": [
+  {
+   "n": 0,
+   "zh": "零",
+   "en": "zero",
+   "enCap": "Zero"
+  },
+  {
+   "n": 1,
+   "zh": "一",
+   "en": "one",
+   "enCap": "One"
+  },
+  {
+   "n": 2,
+   "zh": "两",
+   "en": "two",
+   "enCap": "Two"
+  },
+  {
+   "n": 3,
+   "zh": "三",
+   "en": "three",
+   "enCap": "Three"
+  },
+  {
+   "n": 7,
+   "zh": "七",
+   "en": "seven",
+   "enCap": "Seven"
+  },
+  {
+   "n": 10,
+   "zh": "十",
+   "en": "ten",
+   "enCap": "Ten"
+  },
+  {
+   "n": 11,
+   "zh": "十一",
+   "en": "eleven",
+   "enCap": "Eleven"
+  },
+  {
+   "n": 12,
+   "zh": "十二",
+   "en": "twelve",
+   "enCap": "Twelve"
+  },
+  {
+   "n": 13,
+   "zh": "13",
+   "en": "13",
+   "enCap": "13"
+  },
+  {
+   "n": 64,
+   "zh": "64",
+   "en": "64",
+   "enCap": "64"
+  }
+ ],
+ "memories": [
+  {
+   "id": "m1",
+   "key": "m1/as-is",
+   "lastHeard": "Last heard Oct 2",
+   "footer": [
+    {
+     "caption": "plays",
+     "value": 37
+    },
+    {
+     "caption": "days since Mar 14",
+     "value": 204
+    }
+   ],
+   "reviewHeader": "Jul 26, 2026 · Your review",
+   "blankHeader": "Oct 4, 2026 · Today",
+   "sinceZh": "三月",
+   "sinceEn": "March",
+   "agoZh": "前天",
+   "agoEn": "two days ago",
+   "seasons": 2,
+   "noteDays": 15
+  },
+  {
+   "id": "m2",
+   "key": "m2/as-is",
+   "lastHeard": "Last heard Sep 30",
+   "footer": [
+    {
+     "caption": "plays",
+     "value": 9
+    },
+    {
+     "caption": "days since Sep 21",
+     "value": 13
+    }
+   ],
+   "reviewHeader": null,
+   "blankHeader": "Oct 4, 2026 · Today",
+   "sinceZh": "九月",
+   "sinceEn": "September",
+   "agoZh": "四天前",
+   "agoEn": "four days ago",
+   "seasons": 0,
+   "noteDays": 4
+  },
+  {
+   "id": "m3",
+   "key": "m3/as-is",
+   "lastHeard": "Last heard Oct 1",
+   "footer": [
+    {
+     "caption": "plays",
+     "value": 22
+    },
+    {
+     "caption": "days since Jan 5",
+     "value": 272
+    }
+   ],
+   "reviewHeader": null,
+   "blankHeader": "Oct 4, 2026 · Today",
+   "sinceZh": "一月",
+   "sinceEn": "January",
+   "agoZh": "三天前",
+   "agoEn": "three days ago",
+   "seasons": 3,
+   "noteDays": 1
+  },
+  {
+   "id": "m4",
+   "key": "m4/as-is",
+   "lastHeard": "Last heard Sep 29",
+   "footer": [
+    {
+     "caption": "plays",
+     "value": 5
+    },
+    {
+     "caption": "days since Sep 27",
+     "value": 7
+    }
+   ],
+   "reviewHeader": "Sep 29, 2026 · Your review",
+   "blankHeader": "Oct 4, 2026 · Today",
+   "sinceZh": "九月",
+   "sinceEn": "September",
+   "agoZh": "五天前",
+   "agoEn": "five days ago",
+   "seasons": 0,
+   "noteDays": null
+  },
+  {
+   "id": "m5",
+   "key": "m5/as-is",
+   "lastHeard": "Last heard Sep 20",
+   "footer": [
+    {
+     "caption": "plays",
+     "value": 64
+    },
+    {
+     "caption": "days since Nov 8, 2025",
+     "value": 330
+    }
+   ],
+   "reviewHeader": "Dec 20, 2025 · Your review",
+   "blankHeader": "Oct 4, 2026 · Today",
+   "sinceZh": "2025年十一月",
+   "sinceEn": "November 2025",
+   "agoZh": "9月20日",
+   "agoEn": "on Sep 20",
+   "seasons": 3,
+   "noteDays": 316
+  }
+ ]
+}

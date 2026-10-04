@@ -3,12 +3,19 @@ package com.gpo.yoin.ui.memories
 import com.gpo.yoin.data.local.ActivityEvent
 import com.gpo.yoin.data.local.LocalRating
 import com.gpo.yoin.data.memory.AlbumMemoryCandidate
-import com.gpo.yoin.data.memory.deterministicMemoryTitle
 import com.gpo.yoin.data.model.CoverRef
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.Track
 import com.gpo.yoin.data.repository.YoinRepository
 import com.gpo.yoin.ui.experience.ExperienceSessionStore
+import com.gpo.yoin.ui.memories.copy.MemoryCopyInput
+import com.gpo.yoin.ui.memories.copy.MemoryCopyNote
+import com.gpo.yoin.ui.memories.copy.MemoryCopyTrack
+import com.gpo.yoin.ui.memories.copy.MemoryDates
+import com.gpo.yoin.ui.memories.copy.MemoryExcerpt
+import com.gpo.yoin.ui.memories.copy.MemoryListening
+import com.gpo.yoin.ui.memories.copy.MemoryVoice
+import java.time.ZoneId
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -23,7 +30,20 @@ class MemoriesDeckCoordinator(
     private val repository: YoinRepository,
     private val sessionStore: ExperienceSessionStore,
     randomSeed: Long = System.currentTimeMillis(),
+    narrationSource: MemoryNarrationSource? = null,
+    /** "Today" for the copy (date grammar, "two days ago", days since first play). */
+    private val clock: () -> Long = System::currentTimeMillis,
+    private val zone: () -> ZoneId = ZoneId::systemDefault,
 ) {
+    /**
+     * Gemini narration; null = local templates only. Settable because the
+     * coordinator is built in AppContainer, which another session is editing:
+     * MemoriesViewModel.Factory attaches it until AppContainer can pass it to
+     * the constructor.
+     */
+    @Volatile
+    internal var narrationSource: MemoryNarrationSource? = narrationSource
+
     private val random = Random(randomSeed)
     private val resolvedMemoryCache = mutableMapOf<Long, MemoryEntry?>()
     // Bumped by invalidate(); a resolve only caches into the generation it
@@ -239,6 +259,23 @@ class MemoriesDeckCoordinator(
 
     private fun rawEntityId(provider: String, raw: String): String = MediaId.storedRawId(provider, raw)
 
+    /**
+     * Bug 5 (PLAN §2): every "heard" fact (the top bar's Last heard, the
+     * footer's two numerals, the narration's plays and dates, the plays motif)
+     * comes from play_history only, never from VISITED events.
+     *
+     * TEMPORARY FALLBACK: AlbumMemoryCandidate's play_history-only fields
+     * (playCountFromHistory / firstPlayedFromHistoryAt / lastPlayedFromHistoryAt)
+     * are not in HEAD yet, so this compiles against the old fields. playCount
+     * is already play_history-only (a visit-only album still hides its play
+     * facts), but firstPlayedAt / lastPlayedAt still absorb visits.
+     * ONE-LINE SWITCH once `git show HEAD:app/src/main/java/com/gpo/yoin/data/memory/AlbumMemoryCandidate.kt
+     * | grep FromHistory` finds them; the return line becomes:
+     *   memoryPlayHistory(candidate.playCountFromHistory, candidate.firstPlayedFromHistoryAt, candidate.lastPlayedFromHistoryAt)
+     */
+    private fun historyOf(candidate: AlbumMemoryCandidate): MemoryPlayHistory? =
+        memoryPlayHistory(candidate.playCount, candidate.firstPlayedAt, candidate.lastPlayedAt)
+
     private suspend fun resolveSongMemory(activity: ActivityEvent): MemoryEntry {
         val provider = activity.provider
         val rawSongId = rawEntityId(provider, activity.songId ?: activity.entityId)
@@ -353,10 +390,10 @@ class MemoriesDeckCoordinator(
             else -> MemoryNeoDbState.UNAVAILABLE
         }
 
-        // 正文槽阶梯①②的占用者决定拟题输入（design.md 拟题豁免）；
-        // 拟题槽永不为空 —— AI 不可用时落 deterministic 模板。
+        // 正文槽阶梯①②的占用者决定拟题输入（design.md 拟题豁免）。没有 AI 拟题时
+        // 回退到本地动机短句（owner 2026-10-04），再不行才是专辑名。
         val titleOccupant = review ?: writings.firstOrNull()
-        val memoryTitle = album?.let { resolved ->
+        val aiTitle = album?.let { resolved ->
             runCatching {
                 repository.getOrGenerateAlbumMemoryTitle(
                     album = resolved,
@@ -368,25 +405,51 @@ class MemoriesDeckCoordinator(
                     writingText = titleOccupant?.text,
                 )
             }.getOrNull()
-        } ?: deterministicMemoryTitle(
-            ratedTrackCount = candidate.ratedTrackCount,
-            totalTrackCount = candidate.totalTracks,
-            noteCount = candidate.noteCount,
-            hasAlbumReview = candidate.hasAlbumReview,
-        )
-
-        // 「余音 Gemini 文案」：没专辑元数据（冷加载失败）时跳过，避免给
-        // Gemini 送空名字；有 API key 时命中缓存或后台生成。失败静默降级。
-        val narrative = album?.let { resolved ->
-            runCatching {
-                repository.getOrGenerateAlbumMemoryCopy(
-                    album = resolved,
-                    averageRating = averageRating,
-                    ratedSongCount = rated.size,
-                    totalSongCount = songs.size,
-                )
-            }.getOrNull()
         }
+
+        val tracks = songs.mapIndexed { index, song ->
+            MemoryTrack(
+                stableId = "album:$rawAlbumId:song:${song.id}",
+                title = song.title.orEmpty(),
+                artist = song.artist.orEmpty(),
+                durationSeconds = song.durationSec,
+                rating = ratings[song.id]?.rating?.takeIf { rating -> rating > 0f },
+                number = song.trackNumber ?: (index + 1),
+                trackId = song.id.rawId,
+                playbackIndex = index,
+            ).withIndexFallback(index)
+        }
+        val history = historyOf(candidate)
+        val zone = zone()
+        val today = MemoryDates.localDate(clock(), zone)
+        val copyInput = memoryCopyInput(
+            albumName = album?.name ?: candidate.albumName,
+            aiTitle = aiTitle,
+            review = review,
+            writings = writings,
+            tracks = tracks,
+            ratedTracks = if (songs.isNotEmpty()) rated.size else candidate.ratedTrackCount,
+            totalTracks = songs.size.takeIf { count -> count > 0 } ?: candidate.totalTracks,
+            albumScore = candidate.albumRating?.takeIf { scoreKind == MemoryScoreKind.ALBUM_RATING },
+            history = history,
+            zone = zone,
+        )
+        val voice = MemoryVoice.compose(copyInput, today)
+        // Yoin's narration (only without a review): Gemini in the prototype's
+        // voice when a key is set, else the local template.
+        val gemini = MemoryVoice.narrationBrief(copyInput, voice, today)?.let { brief ->
+            narrationSource?.let { source ->
+                try {
+                    source.narrate(albumId, brief)
+                } catch (cancellation: CancellationException) {
+                    throw cancellation
+                } catch (_: Exception) {
+                    null
+                }
+            }
+        }
+        val narration = gemini?.narration ?: voice.narration
+        val question = gemini?.question ?: voice.question
         val reasonChips = buildAlbumReasonChips(candidate)
 
         return MemoryEntry(
@@ -426,21 +489,25 @@ class MemoriesDeckCoordinator(
             lastPlayedAt = candidate.lastPlayedAt,
             neoDbSynced = candidate.neoDbSynced,
             neoDbState = neoDbState,
-            memoryTitle = memoryTitle,
+            memoryTitle = voice.title,
             review = review,
             writings = writings,
             reasonChips = reasonChips,
-            narrativeCopy = narrative ?: buildAlbumFallbackCopy(candidate, reasonChips),
+            // The old card shows this only without a review, above its own prompt line.
+            narrativeCopy = narration,
             playbackSongs = songs,
-            tracks = songs.mapIndexed { index, song ->
-                MemoryTrack(
-                    stableId = "album:$rawAlbumId:song:${song.id}",
-                    title = song.title.orEmpty(),
-                    artist = song.artist.orEmpty(),
-                    durationSeconds = song.durationSec,
-                    rating = ratings[song.id]?.rating?.takeIf { rating -> rating > 0f },
-                ).withIndexFallback(index)
-            },
+            tracks = tracks,
+            playsInYoin = history?.plays,
+            firstHeardAt = history?.firstHeardAt,
+            lastHeardAt = history?.lastHeardAt,
+            memoryTitleKind = voice.titleKind,
+            proseLanguage = voice.language,
+            yoinNarration = narration,
+            yoinQuestion = question,
+            excerptCandidates = MemoryExcerpt.candidates(copyInput, capped = false, today = today),
+            excerptCandidatesMedium = MemoryExcerpt.candidates(copyInput, capped = true, today = today),
+            diaryAlbumNotes = diaryAlbumNotes(writings),
+            diaryTracks = diaryTracks(tracks, writings),
         )
     }
 
@@ -508,6 +575,7 @@ class MemoriesDeckCoordinator(
                 kind = MemoryWriting.Kind.ALBUM_NOTE,
                 text = note.content,
                 writtenAt = note.updatedAt,
+                noteId = note.id,
             )
         }
         val titlesByRawId = songs.associate { song -> song.id.rawId to song.title }
@@ -518,6 +586,8 @@ class MemoriesDeckCoordinator(
                 writtenAt = note.updatedAt,
                 trackTitle = titlesByRawId[note.trackId] ?: note.title,
                 positionMs = note.positionMs,
+                trackId = note.trackId,
+                noteId = note.id,
             )
         }
         return (albumNotes + songNotes)
@@ -547,6 +617,106 @@ class MemoriesDeckCoordinator(
 }
 
 internal const val MEMORY_DECK_SIZE = 6
+
+/** Plays in Yoin and the first / latest play, from play_history only. */
+internal data class MemoryPlayHistory(
+    val plays: Int,
+    val firstHeardAt: Long,
+    val lastHeardAt: Long,
+)
+
+/** Null when the album was never played in Yoin: no footer, no Last heard, no plays in the copy. */
+internal fun memoryPlayHistory(plays: Int, firstPlayedAt: Long?, lastPlayedAt: Long?): MemoryPlayHistory? {
+    if (plays <= 0 || lastPlayedAt == null) return null
+    val first = firstPlayedAt?.coerceAtMost(lastPlayedAt) ?: lastPlayedAt
+    return MemoryPlayHistory(plays = plays, firstHeardAt = first, lastHeardAt = lastPlayedAt)
+}
+
+/** What MemoryVoice / MemoryExcerpt read, with dates in the coordinator's zone. */
+internal fun memoryCopyInput(
+    albumName: String,
+    aiTitle: String?,
+    review: MemoryWriting?,
+    writings: List<MemoryWriting>,
+    tracks: List<MemoryTrack>,
+    ratedTracks: Int,
+    totalTracks: Int,
+    albumScore: Float?,
+    history: MemoryPlayHistory?,
+    zone: ZoneId,
+): MemoryCopyInput {
+    val copyTracks = tracks.map { track ->
+        MemoryCopyTrack(number = track.number ?: 0, title = track.title, rating = track.rating)
+    }
+    val copyTrackById = HashMap<String, MemoryCopyTrack>()
+    tracks.zip(copyTracks).forEach { (track, copy) ->
+        track.trackId?.let { id -> copyTrackById.putIfAbsent(id, copy) }
+    }
+    val notes = writings
+        .filter { writing -> writing.kind != MemoryWriting.Kind.REVIEW }
+        .sortedBy(MemoryWriting::writtenAt)
+        .map { writing ->
+            val track = if (writing.kind == MemoryWriting.Kind.SONG_NOTE) {
+                writing.trackId?.let(copyTrackById::get)
+                    ?: MemoryCopyTrack(number = Int.MAX_VALUE, title = writing.trackTitle.orEmpty(), rating = null)
+            } else {
+                null
+            }
+            MemoryCopyNote(
+                text = writing.text,
+                writtenOn = MemoryDates.localDate(writing.writtenAt, zone),
+                track = track,
+                positionMs = writing.positionMs,
+            )
+        }
+    return MemoryCopyInput(
+        albumName = albumName,
+        aiTitle = aiTitle,
+        review = review?.text,
+        reviewWrittenOn = review?.let { writing -> MemoryDates.localDate(writing.writtenAt, zone) },
+        notes = notes,
+        tracks = copyTracks,
+        ratedTracks = ratedTracks,
+        totalTracks = totalTracks,
+        albumScore = albumScore,
+        listening = history?.let {
+            MemoryListening(
+                plays = it.plays,
+                firstHeard = MemoryDates.localDate(it.firstHeardAt, zone),
+                lastHeard = MemoryDates.localDate(it.lastHeardAt, zone),
+            )
+        },
+    )
+}
+
+/** The diary's album notes, oldest first; they head the liner. */
+internal fun diaryAlbumNotes(writings: List<MemoryWriting>): List<MemoryWriting> = writings
+    .filter { writing -> writing.kind == MemoryWriting.Kind.ALBUM_NOTE }
+    .sortedBy(MemoryWriting::writtenAt)
+
+/**
+ * Track rows, option A (owner default): only tracks that are rated or noted,
+ * in album order. Song notes group under their track by [MemoryWriting.trackId]:
+ * anchored notes by position, unanchored ones after them, oldest first.
+ */
+internal fun diaryTracks(tracks: List<MemoryTrack>, writings: List<MemoryWriting>): List<MemoryDiaryTrack> {
+    val notesByTrack = writings
+        .filter { writing -> writing.kind == MemoryWriting.Kind.SONG_NOTE && writing.trackId != null }
+        .groupBy { writing -> writing.trackId }
+    val placed = HashSet<String>()
+    return tracks.mapNotNull { track ->
+        // a duplicate id (the same song listed twice) keeps its notes under the first row only
+        val notes = track.trackId
+            ?.takeIf(placed::add)
+            ?.let(notesByTrack::get)
+            .orEmpty()
+            .sortedWith(
+                compareBy<MemoryWriting> { writing -> writing.positionMs ?: Long.MAX_VALUE }
+                    .thenBy(MemoryWriting::writtenAt),
+            )
+        if (track.rating == null && notes.isEmpty()) null else MemoryDiaryTrack(track = track, notes = notes)
+    }
+}
 
 internal fun Float?.formatScore(): String = if (this != null && this > 0f) {
     String.format(Locale.US, "%.1f", this)
@@ -608,26 +778,6 @@ private fun buildAlbumReasonChips(candidate: AlbumMemoryCandidate): List<String>
         chips += "NeoDB ready"
     }
     return chips
-}
-
-private fun buildAlbumFallbackCopy(
-    candidate: AlbumMemoryCandidate,
-    reasonChips: List<String>,
-): String = when {
-    candidate.hasAlbumReview && candidate.noteCount > 0 ->
-        "A reviewed album with saved notes, ready to revisit."
-    candidate.hasAlbumReview ->
-        "A reviewed album worth coming back to."
-    candidate.noteCount >= 2 ->
-        "Notes around this album are starting to form a memory."
-    candidate.ratingCoverage >= 0.6f ->
-        "You have rated most of this album; it is ready to revisit."
-    "Recently revisited" in reasonChips ->
-        "You recently came back to this album."
-    candidate.askAiCount > 0 ->
-        "Ask AI context is waiting beside this album memory."
-    else ->
-        "A small album memory from your listening history."
 }
 
 internal fun formatDurationSeconds(seconds: Int): String {

@@ -1,0 +1,731 @@
+{
+ "today": "2026-10-04",
+ "cases": [
+  {
+   "key": "m1/as-is",
+   "language": "auto",
+   "lang": "zh",
+   "title": {
+    "kind": "ai",
+    "text": "写给自己的、不寄出的信"
+   },
+   "nar": null,
+   "ask": null,
+   "said": []
+  },
+  {
+   "key": "m1/as-is",
+   "language": "en",
+   "lang": "en",
+   "title": {
+    "kind": "ai",
+    "text": "A letter to yourself, never sent"
+   },
+   "nar": null,
+   "ask": null,
+   "said": []
+  },
+  {
+   "key": "m1/no-ai",
+   "language": "auto",
+   "lang": "zh",
+   "title": {
+    "kind": "motif",
+    "text": "15天，两条笔记"
+   },
+   "nar": null,
+   "ask": null,
+   "said": [
+    "notes"
+   ]
+  },
+  {
+   "key": "m1/no-ai",
+   "language": "en",
+   "lang": "en",
+   "title": {
+    "kind": "motif",
+    "text": "15 days, two notes"
+   },
+   "nar": null,
+   "ask": null,
+   "said": [
+    "notes"
+   ]
+  },
+  {
+   "key": "m1/no-review",
+   "language": "auto",
+   "lang": "zh",
+   "title": {
+    "kind": "ai",
+    "text": "写给自己的、不寄出的信"
+   },
+   "nar": "三月以来听了 37 遍，最近一次是前天。",
+   "ask": "你给了 9.5 分，是哪里打动了你？",
+   "said": [
+    "plays",
+    "range",
+    "score"
+   ]
+  },
+  {
+   "key": "m1/no-review",
+   "language": "en",
+   "lang": "en",
+   "title": {
+    "kind": "ai",
+    "text": "A letter to yourself, never sent"
+   },
+   "nar": "37 plays since March, the last one two days ago.",
+   "ask": "You gave it a 9.5. What earned it?",
+   "said": [
+    "plays",
+    "range",
+    "score"
+   ]
+  },
+  {
+   "key": "m1/no-review-no-ai",
+   "language": "auto",
+   "lang": "zh",
+   "title": {
+    "kind": "motif",
+    "text": "15天，两条笔记"
+   },
+   "nar": "三月以来听了 37 遍，最近一次是前天。",
+   "ask": "你给了 9.5 分，是哪里打动了你？",
+   "said": [
+    "notes",
+    "plays",
+    "range",
+    "score"
+   ]
+  },
+  {
+   "key": "m1/no-review-no-ai",
+   "language": "en",
+   "lang": "en",
+   "title": {
+    "kind": "motif",
+    "text": "15 days, two notes"
+   },
+   "nar": "37 plays since March, the last one two days ago.",
+   "ask": "You gave it a 9.5. What earned it?",
+   "said": [
+    "notes",
+    "plays",
+    "range",
+    "score"
+   ]
+  },
+  {
+   "key": "m2/as-is",
+   "language": "auto",
+   "lang": "zh",
+   "title": {
+    "kind": "ai",
+    "text": "雨天里的水底吉他"
+   },
+   "nar": "四天里记了四条笔记，最近一条写在《序曲》。",
+   "ask": "合起来看，这张专辑你会怎么说？",
+   "said": [
+    "notes"
+   ]
+  },
+  {
+   "key": "m2/as-is",
+   "language": "en",
+   "lang": "en",
+   "title": {
+    "kind": "ai",
+    "text": "Underwater guitar on a rainy day"
+   },
+   "nar": "Four notes in four days; the latest was on 序曲.",
+   "ask": "Put together, what would you say about the album?",
+   "said": [
+    "notes"
+   ]
+  },
+  {
+   "key": "m2/no-ai",
+   "language": "auto",
+   "lang": "zh",
+   "title": {
+    "kind": "motif",
+    "text": "四天，四条笔记"
+   },
+   "nar": "四天里记了四条笔记，最近一条写在《序曲》。",
+   "ask": "合起来看，这张专辑你会怎么说？",
+   "said": [
+    "notes"
+   ]
+  },
+  {
+   "key": "m2/no-ai",
+   "language": "en",
+   "lang": "en",
+   "title": {
+    "kind": "motif",
+    "text": "Four days, four notes"
+   },
+   "nar": "Four notes in four days; the latest was on 序曲.",
+   "ask": "Put together, what would you say about the album?",
+   "said": [
+    "notes"
+   ]
+  },
+  {
+   "key": "m2/no-review",
+   "language": "auto",
+   "lang": "zh",
+   "title": {
+    "kind": "ai",
+    "text": "雨天里的水底吉他"
+   },
+   "nar": "四天里记了四条笔记，最近一条写在《序曲》。",
+   "ask": "合起来看，这张专辑你会怎么说？",
+   "said": [
+    "notes"
+   ]
+  },
+  {
+   "key": "m2/no-review",
+   "language": "en",
+   "lang": "en",
+   "title": {
+    "kind": "ai",
+    "text": "Underwater guitar on a rainy day"
+   },
+   "nar": "Four notes in four days; the latest was on 序曲.",
+   "ask": "Put together, what would you say about the album?",
+   "said": [
+    "notes"
+   ]
+  },
+  {
+   "key": "m2/no-review-no-ai",
+   "language": "auto",
+   "lang": "zh",
+   "title": {
+    "kind": "motif",
+    "text": "四天，四条笔记"
+   },
+   "nar": "四天里记了四条笔记，最近一条写在《序曲》。",
+   "ask": "合起来看，这张专辑你会怎么说？",
+   "said": [
+    "notes"
+   ]
+  },
+  {
+   "key": "m2/no-review-no-ai",
+   "language": "en",
+   "lang": "en",
+   "title": {
+    "kind": "motif",
+    "text": "Four days, four notes"
+   },
+   "nar": "Four notes in four days; the latest was on 序曲.",
+   "ask": "Put together, what would you say about the album?",
+   "said": [
+    "notes"
+   ]
+  },
+  {
+   "key": "m3/as-is",
+   "language": "auto",
+   "lang": "zh",
+   "title": {
+    "kind": "motif",
+    "text": "三个季节，一首一首"
+   },
+   "nar": "听了 22 遍，最高分是《Undertow》的 9.0。",
+   "ask": "那整张专辑呢？",
+   "said": [
+    "coverage",
+    "plays",
+    "range",
+    "top"
+   ]
+  },
+  {
+   "key": "m3/as-is",
+   "language": "en",
+   "lang": "en",
+   "title": {
+    "kind": "motif",
+    "text": "Three seasons, track by track"
+   },
+   "nar": "22 plays in, Undertow is still your top track at 9.0.",
+   "ask": "And the album as a whole?",
+   "said": [
+    "coverage",
+    "plays",
+    "range",
+    "top"
+   ]
+  },
+  {
+   "key": "m3/no-ai",
+   "language": "auto",
+   "lang": "zh",
+   "title": {
+    "kind": "motif",
+    "text": "三个季节，一首一首"
+   },
+   "nar": "听了 22 遍，最高分是《Undertow》的 9.0。",
+   "ask": "那整张专辑呢？",
+   "said": [
+    "coverage",
+    "plays",
+    "range",
+    "top"
+   ]
+  },
+  {
+   "key": "m3/no-ai",
+   "language": "en",
+   "lang": "en",
+   "title": {
+    "kind": "motif",
+    "text": "Three seasons, track by track"
+   },
+   "nar": "22 plays in, Undertow is still your top track at 9.0.",
+   "ask": "And the album as a whole?",
+   "said": [
+    "coverage",
+    "plays",
+    "range",
+    "top"
+   ]
+  },
+  {
+   "key": "m3/no-review",
+   "language": "auto",
+   "lang": "zh",
+   "title": {
+    "kind": "motif",
+    "text": "三个季节，一首一首"
+   },
+   "nar": "听了 22 遍，最高分是《Undertow》的 9.0。",
+   "ask": "那整张专辑呢？",
+   "said": [
+    "coverage",
+    "plays",
+    "range",
+    "top"
+   ]
+  },
+  {
+   "key": "m3/no-review",
+   "language": "en",
+   "lang": "en",
+   "title": {
+    "kind": "motif",
+    "text": "Three seasons, track by track"
+   },
+   "nar": "22 plays in, Undertow is still your top track at 9.0.",
+   "ask": "And the album as a whole?",
+   "said": [
+    "coverage",
+    "plays",
+    "range",
+    "top"
+   ]
+  },
+  {
+   "key": "m3/no-review-no-ai",
+   "language": "auto",
+   "lang": "zh",
+   "title": {
+    "kind": "motif",
+    "text": "三个季节，一首一首"
+   },
+   "nar": "听了 22 遍，最高分是《Undertow》的 9.0。",
+   "ask": "那整张专辑呢？",
+   "said": [
+    "coverage",
+    "plays",
+    "range",
+    "top"
+   ]
+  },
+  {
+   "key": "m3/no-review-no-ai",
+   "language": "en",
+   "lang": "en",
+   "title": {
+    "kind": "motif",
+    "text": "Three seasons, track by track"
+   },
+   "nar": "22 plays in, Undertow is still your top track at 9.0.",
+   "ask": "And the album as a whole?",
+   "said": [
+    "coverage",
+    "plays",
+    "range",
+    "top"
+   ]
+  },
+  {
+   "key": "m4/as-is",
+   "language": "auto",
+   "lang": "zh",
+   "title": {
+    "kind": "ai",
+    "text": "一句好听就够了"
+   },
+   "nar": null,
+   "ask": null,
+   "said": []
+  },
+  {
+   "key": "m4/as-is",
+   "language": "en",
+   "lang": "en",
+   "title": {
+    "kind": "ai",
+    "text": "One word was enough"
+   },
+   "nar": null,
+   "ask": null,
+   "said": []
+  },
+  {
+   "key": "m4/no-ai",
+   "language": "auto",
+   "lang": "zh",
+   "title": {
+    "kind": "motif",
+    "text": "九月以来，5 遍"
+   },
+   "nar": null,
+   "ask": null,
+   "said": [
+    "plays",
+    "range"
+   ]
+  },
+  {
+   "key": "m4/no-ai",
+   "language": "en",
+   "lang": "en",
+   "title": {
+    "kind": "motif",
+    "text": "5 plays since September"
+   },
+   "nar": null,
+   "ask": null,
+   "said": [
+    "plays",
+    "range"
+   ]
+  },
+  {
+   "key": "m4/no-review",
+   "language": "auto",
+   "lang": "en",
+   "title": {
+    "kind": "ai",
+    "text": "One word was enough"
+   },
+   "nar": "5 plays since September, the last one five days ago.",
+   "ask": "You gave it a 10.0. What earned it?",
+   "said": [
+    "plays",
+    "range",
+    "score"
+   ]
+  },
+  {
+   "key": "m4/no-review",
+   "language": "en",
+   "lang": "en",
+   "title": {
+    "kind": "ai",
+    "text": "One word was enough"
+   },
+   "nar": "5 plays since September, the last one five days ago.",
+   "ask": "You gave it a 10.0. What earned it?",
+   "said": [
+    "plays",
+    "range",
+    "score"
+   ]
+  },
+  {
+   "key": "m4/no-review-no-ai",
+   "language": "auto",
+   "lang": "en",
+   "title": {
+    "kind": "motif",
+    "text": "5 plays since September"
+   },
+   "nar": "You last played it five days ago.",
+   "ask": "You gave it a 10.0. What earned it?",
+   "said": [
+    "plays",
+    "range",
+    "score"
+   ]
+  },
+  {
+   "key": "m4/no-review-no-ai",
+   "language": "en",
+   "lang": "en",
+   "title": {
+    "kind": "motif",
+    "text": "5 plays since September"
+   },
+   "nar": "You last played it five days ago.",
+   "ask": "You gave it a 10.0. What earned it?",
+   "said": [
+    "plays",
+    "range",
+    "score"
+   ]
+  },
+  {
+   "key": "m5/as-is",
+   "language": "auto",
+   "lang": "zh",
+   "title": {
+    "kind": "ai",
+    "text": "一整个冬天的回信"
+   },
+   "nar": null,
+   "ask": null,
+   "said": []
+  },
+  {
+   "key": "m5/as-is",
+   "language": "en",
+   "lang": "en",
+   "title": {
+    "kind": "ai",
+    "text": "A whole winter of replies"
+   },
+   "nar": null,
+   "ask": null,
+   "said": []
+  },
+  {
+   "key": "m5/no-ai",
+   "language": "auto",
+   "lang": "zh",
+   "title": {
+    "kind": "motif",
+    "text": "三个季节，一首一首"
+   },
+   "nar": null,
+   "ask": null,
+   "said": [
+    "coverage",
+    "range"
+   ]
+  },
+  {
+   "key": "m5/no-ai",
+   "language": "en",
+   "lang": "en",
+   "title": {
+    "kind": "motif",
+    "text": "Three seasons, track by track"
+   },
+   "nar": null,
+   "ask": null,
+   "said": [
+    "coverage",
+    "range"
+   ]
+  },
+  {
+   "key": "m5/no-review",
+   "language": "auto",
+   "lang": "zh",
+   "title": {
+    "kind": "ai",
+    "text": "一整个冬天的回信"
+   },
+   "nar": "你跨了三个季节回来听，最高分是《Snowline》的 9.5。",
+   "ask": "那整张专辑呢？",
+   "said": [
+    "range",
+    "top"
+   ]
+  },
+  {
+   "key": "m5/no-review",
+   "language": "en",
+   "lang": "en",
+   "title": {
+    "kind": "ai",
+    "text": "A whole winter of replies"
+   },
+   "nar": "You came back across three seasons. Snowline scored highest, a 9.5.",
+   "ask": "And the album as a whole?",
+   "said": [
+    "range",
+    "top"
+   ]
+  },
+  {
+   "key": "m5/no-review-no-ai",
+   "language": "auto",
+   "lang": "zh",
+   "title": {
+    "kind": "motif",
+    "text": "三个季节，一首一首"
+   },
+   "nar": "听了 64 遍，最高分是《Snowline》的 9.5。",
+   "ask": "那整张专辑呢？",
+   "said": [
+    "coverage",
+    "plays",
+    "range",
+    "top"
+   ]
+  },
+  {
+   "key": "m5/no-review-no-ai",
+   "language": "en",
+   "lang": "en",
+   "title": {
+    "kind": "motif",
+    "text": "Three seasons, track by track"
+   },
+   "nar": "64 plays in, Snowline is still your top track at 9.5.",
+   "ask": "And the album as a whole?",
+   "said": [
+    "coverage",
+    "plays",
+    "range",
+    "top"
+   ]
+  },
+  {
+   "key": "m3/sparse-ratings",
+   "language": "auto",
+   "lang": "zh",
+   "title": {
+    "kind": "motif",
+    "text": "一月以来，22 遍"
+   },
+   "nar": null,
+   "ask": "这张专辑，留下了什么？",
+   "said": [
+    "plays",
+    "range"
+   ]
+  },
+  {
+   "key": "m3/sparse-ratings",
+   "language": "en",
+   "lang": "en",
+   "title": {
+    "kind": "motif",
+    "text": "22 plays since January"
+   },
+   "nar": null,
+   "ask": "What stays with you from this one?",
+   "said": [
+    "plays",
+    "range"
+   ]
+  },
+  {
+   "key": "m2/one-note",
+   "language": "auto",
+   "lang": "zh",
+   "title": {
+    "kind": "motif",
+    "text": "九月以来，9 遍"
+   },
+   "nar": null,
+   "ask": "这张专辑，留下了什么？",
+   "said": [
+    "plays",
+    "range"
+   ]
+  },
+  {
+   "key": "m2/one-note",
+   "language": "en",
+   "lang": "en",
+   "title": {
+    "kind": "motif",
+    "text": "9 plays since September"
+   },
+   "nar": null,
+   "ask": "What stays with you from this one?",
+   "said": [
+    "plays",
+    "range"
+   ]
+  },
+  {
+   "key": "m5/last-year-only",
+   "language": "auto",
+   "lang": "en",
+   "title": {
+    "kind": "motif",
+    "text": "64 plays since February 2025"
+   },
+   "nar": "You last played it on Feb 20, 2025.",
+   "ask": "You gave it a 8.5. What earned it?",
+   "said": [
+    "plays",
+    "range",
+    "score"
+   ]
+  },
+  {
+   "key": "m5/last-year-only",
+   "language": "en",
+   "lang": "en",
+   "title": {
+    "kind": "motif",
+    "text": "64 plays since February 2025"
+   },
+   "nar": "You last played it on Feb 20, 2025.",
+   "ask": "You gave it a 8.5. What earned it?",
+   "said": [
+    "plays",
+    "range",
+    "score"
+   ]
+  },
+  {
+   "key": "m4/yesterday",
+   "language": "auto",
+   "lang": "en",
+   "title": {
+    "kind": "ai",
+    "text": "One word was enough"
+   },
+   "nar": "5 plays since September, the last one yesterday.",
+   "ask": "You gave it a 10.0. What earned it?",
+   "said": [
+    "plays",
+    "range",
+    "score"
+   ]
+  },
+  {
+   "key": "m4/yesterday",
+   "language": "en",
+   "lang": "en",
+   "title": {
+    "kind": "ai",
+    "text": "One word was enough"
+   },
+   "nar": "5 plays since September, the last one yesterday.",
+   "ask": "You gave it a 10.0. What earned it?",
+   "said": [
+    "plays",
+    "range",
+    "score"
+   ]
+  }
+ ]
+}

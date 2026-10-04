@@ -1,0 +1,915 @@
+{
+ "today": "2026-10-04",
+ "cases": [
+  {
+   "key": "m1/as-is",
+   "medium": false,
+   "candidates": [
+    {
+     "text": "第一次听这张是在去机场的夜班巴士上，窗外的高速路灯一盏一盏往后退，耳机里的弦乐刚好起来。后来每次出远门都会把它从头放到尾，像是给自己写一封不打算寄出去的信。第三首的鼓点让我想起高中操场，第七首的和声又把我拉回现在。它不是那种一听就爱上的专辑，但它会在你需要的时候一直在那里。如果只能留一张专辑陪我坐完一整夜的车，我会选它。",
+     "by": "Your review · Jul 26",
+     "only": false
+    },
+    {
+     "text": "第一次听这张是在去机场的夜班巴士上，窗外的高速路灯一盏一盏往后退，耳机里的弦乐刚好起来。后来每次出远门都会把它从头放到尾，像是给自己写一封不打算寄出去的信。第三首的鼓点让我想起高中操场，第七首的和声又把我拉回现在。它不是那种一听就爱上的专辑，但它会在你需要的时候一直在那里。",
+     "by": "Your review · Jul 26",
+     "only": false
+    },
+    {
+     "text": "第一次听这张是在去机场的夜班巴士上，窗外的高速路灯一盏一盏往后退，耳机里的弦乐刚好起来。后来每次出远门都会把它从头放到尾，像是给自己写一封不打算寄出去的信。第三首的鼓点让我想起高中操场，第七首的和声又把我拉回现在。",
+     "by": "Your review · Jul 26",
+     "only": false
+    },
+    {
+     "text": "第一次听这张是在去机场的夜班巴士上，窗外的高速路灯一盏一盏往后退，耳机里的弦乐刚好起来。后来每次出远门都会把它从头放到尾，像是给自己写一封不打算寄出去的信。",
+     "by": "Your review · Jul 26",
+     "only": false
+    },
+    {
+     "text": "第一次听这张是在去机场的夜班巴士上，窗外的高速路灯一盏一盏往后退，耳机里的弦乐刚好起来。",
+     "by": "Your review · Jul 26",
+     "only": false
+    },
+    {
+     "text": "和声把我拉回现在。",
+     "by": "Your note · Satellite Hearts 2:21",
+     "only": false
+    },
+    {
+     "text": null,
+     "by": "Your review · Jul 26 · in Diary",
+     "only": true
+    }
+   ]
+  },
+  {
+   "key": "m1/as-is",
+   "medium": true,
+   "candidates": [
+    {
+     "text": "第一次听这张是在去机场的夜班巴士上，窗外的高速路灯一盏一盏往后退，耳机里的弦乐刚好起来。",
+     "by": "Your review · Jul 26",
+     "only": false
+    },
+    {
+     "text": "和声把我拉回现在。",
+     "by": "Your note · Satellite Hearts 2:21",
+     "only": false
+    },
+    {
+     "text": null,
+     "by": "Your review · Jul 26 · in Diary",
+     "only": true
+    }
+   ]
+  },
+  {
+   "key": "m1/no-ai",
+   "medium": false,
+   "candidates": [
+    {
+     "text": "第一次听这张是在去机场的夜班巴士上，窗外的高速路灯一盏一盏往后退，耳机里的弦乐刚好起来。后来每次出远门都会把它从头放到尾，像是给自己写一封不打算寄出去的信。第三首的鼓点让我想起高中操场，第七首的和声又把我拉回现在。它不是那种一听就爱上的专辑，但它会在你需要的时候一直在那里。如果只能留一张专辑陪我坐完一整夜的车，我会选它。",
+     "by": "Your review · Jul 26",
+     "only": false
+    },
+    {
+     "text": "第一次听这张是在去机场的夜班巴士上，窗外的高速路灯一盏一盏往后退，耳机里的弦乐刚好起来。后来每次出远门都会把它从头放到尾，像是给自己写一封不打算寄出去的信。第三首的鼓点让我想起高中操场，第七首的和声又把我拉回现在。它不是那种一听就爱上的专辑，但它会在你需要的时候一直在那里。",
+     "by": "Your review · Jul 26",
+     "only": false
+    },
+    {
+     "text": "第一次听这张是在去机场的夜班巴士上，窗外的高速路灯一盏一盏往后退，耳机里的弦乐刚好起来。后来每次出远门都会把它从头放到尾，像是给自己写一封不打算寄出去的信。第三首的鼓点让我想起高中操场，第七首的和声又把我拉回现在。",
+     "by": "Your review · Jul 26",
+     "only": false
+    },
+    {
+     "text": "第一次听这张是在去机场的夜班巴士上，窗外的高速路灯一盏一盏往后退，耳机里的弦乐刚好起来。后来每次出远门都会把它从头放到尾，像是给自己写一封不打算寄出去的信。",
+     "by": "Your review · Jul 26",
+     "only": false
+    },
+    {
+     "text": "第一次听这张是在去机场的夜班巴士上，窗外的高速路灯一盏一盏往后退，耳机里的弦乐刚好起来。",
+     "by": "Your review · Jul 26",
+     "only": false
+    },
+    {
+     "text": "和声把我拉回现在。",
+     "by": "Your note · Satellite Hearts 2:21",
+     "only": false
+    },
+    {
+     "text": null,
+     "by": "Your review · Jul 26 · in Diary",
+     "only": true
+    }
+   ]
+  },
+  {
+   "key": "m1/no-ai",
+   "medium": true,
+   "candidates": [
+    {
+     "text": "第一次听这张是在去机场的夜班巴士上，窗外的高速路灯一盏一盏往后退，耳机里的弦乐刚好起来。",
+     "by": "Your review · Jul 26",
+     "only": false
+    },
+    {
+     "text": "和声把我拉回现在。",
+     "by": "Your note · Satellite Hearts 2:21",
+     "only": false
+    },
+    {
+     "text": null,
+     "by": "Your review · Jul 26 · in Diary",
+     "only": true
+    }
+   ]
+  },
+  {
+   "key": "m1/no-review",
+   "medium": false,
+   "candidates": [
+    {
+     "text": "副歌前那一拍停顿，像信写到一半停笔。",
+     "by": "Your note · 未寄出的信 1:12",
+     "only": false
+    },
+    {
+     "text": "和声把我拉回现在。",
+     "by": "Your note · Satellite Hearts 2:21",
+     "only": false
+    },
+    {
+     "text": null,
+     "by": "Your note · 未寄出的信 1:12 · in Diary",
+     "only": true
+    }
+   ]
+  },
+  {
+   "key": "m1/no-review",
+   "medium": true,
+   "candidates": [
+    {
+     "text": "副歌前那一拍停顿，像信写到一半停笔。",
+     "by": "Your note · 未寄出的信 1:12",
+     "only": false
+    },
+    {
+     "text": "和声把我拉回现在。",
+     "by": "Your note · Satellite Hearts 2:21",
+     "only": false
+    },
+    {
+     "text": null,
+     "by": "Your note · 未寄出的信 1:12 · in Diary",
+     "only": true
+    }
+   ]
+  },
+  {
+   "key": "m1/no-review-no-ai",
+   "medium": false,
+   "candidates": [
+    {
+     "text": "副歌前那一拍停顿，像信写到一半停笔。",
+     "by": "Your note · 未寄出的信 1:12",
+     "only": false
+    },
+    {
+     "text": "和声把我拉回现在。",
+     "by": "Your note · Satellite Hearts 2:21",
+     "only": false
+    },
+    {
+     "text": null,
+     "by": "Your note · 未寄出的信 1:12 · in Diary",
+     "only": true
+    }
+   ]
+  },
+  {
+   "key": "m1/no-review-no-ai",
+   "medium": true,
+   "candidates": [
+    {
+     "text": "副歌前那一拍停顿，像信写到一半停笔。",
+     "by": "Your note · 未寄出的信 1:12",
+     "only": false
+    },
+    {
+     "text": "和声把我拉回现在。",
+     "by": "Your note · Satellite Hearts 2:21",
+     "only": false
+    },
+    {
+     "text": null,
+     "by": "Your note · 未寄出的信 1:12 · in Diary",
+     "only": true
+    }
+   ]
+  },
+  {
+   "key": "m2/as-is",
+   "medium": false,
+   "candidates": [
+    {
+     "text": "前奏的吉他像在水底。",
+     "by": "Your note · 序曲 0:12",
+     "only": false
+    },
+    {
+     "text": "前奏的吉他像在水底。",
+     "by": "Your note · 序曲 0:12",
+     "only": false
+    },
+    {
+     "text": null,
+     "by": "Your note · 序曲 0:12 · in Diary",
+     "only": true
+    }
+   ]
+  },
+  {
+   "key": "m2/as-is",
+   "medium": true,
+   "candidates": [
+    {
+     "text": "前奏的吉他像在水底。",
+     "by": "Your note · 序曲 0:12",
+     "only": false
+    },
+    {
+     "text": "前奏的吉他像在水底。",
+     "by": "Your note · 序曲 0:12",
+     "only": false
+    },
+    {
+     "text": null,
+     "by": "Your note · 序曲 0:12 · in Diary",
+     "only": true
+    }
+   ]
+  },
+  {
+   "key": "m2/no-ai",
+   "medium": false,
+   "candidates": [
+    {
+     "text": "前奏的吉他像在水底。",
+     "by": "Your note · 序曲 0:12",
+     "only": false
+    },
+    {
+     "text": "前奏的吉他像在水底。",
+     "by": "Your note · 序曲 0:12",
+     "only": false
+    },
+    {
+     "text": null,
+     "by": "Your note · 序曲 0:12 · in Diary",
+     "only": true
+    }
+   ]
+  },
+  {
+   "key": "m2/no-ai",
+   "medium": true,
+   "candidates": [
+    {
+     "text": "前奏的吉他像在水底。",
+     "by": "Your note · 序曲 0:12",
+     "only": false
+    },
+    {
+     "text": "前奏的吉他像在水底。",
+     "by": "Your note · 序曲 0:12",
+     "only": false
+    },
+    {
+     "text": null,
+     "by": "Your note · 序曲 0:12 · in Diary",
+     "only": true
+    }
+   ]
+  },
+  {
+   "key": "m2/no-review",
+   "medium": false,
+   "candidates": [
+    {
+     "text": "前奏的吉他像在水底。",
+     "by": "Your note · 序曲 0:12",
+     "only": false
+    },
+    {
+     "text": "前奏的吉他像在水底。",
+     "by": "Your note · 序曲 0:12",
+     "only": false
+    },
+    {
+     "text": null,
+     "by": "Your note · 序曲 0:12 · in Diary",
+     "only": true
+    }
+   ]
+  },
+  {
+   "key": "m2/no-review",
+   "medium": true,
+   "candidates": [
+    {
+     "text": "前奏的吉他像在水底。",
+     "by": "Your note · 序曲 0:12",
+     "only": false
+    },
+    {
+     "text": "前奏的吉他像在水底。",
+     "by": "Your note · 序曲 0:12",
+     "only": false
+    },
+    {
+     "text": null,
+     "by": "Your note · 序曲 0:12 · in Diary",
+     "only": true
+    }
+   ]
+  },
+  {
+   "key": "m2/no-review-no-ai",
+   "medium": false,
+   "candidates": [
+    {
+     "text": "前奏的吉他像在水底。",
+     "by": "Your note · 序曲 0:12",
+     "only": false
+    },
+    {
+     "text": "前奏的吉他像在水底。",
+     "by": "Your note · 序曲 0:12",
+     "only": false
+    },
+    {
+     "text": null,
+     "by": "Your note · 序曲 0:12 · in Diary",
+     "only": true
+    }
+   ]
+  },
+  {
+   "key": "m2/no-review-no-ai",
+   "medium": true,
+   "candidates": [
+    {
+     "text": "前奏的吉他像在水底。",
+     "by": "Your note · 序曲 0:12",
+     "only": false
+    },
+    {
+     "text": "前奏的吉他像在水底。",
+     "by": "Your note · 序曲 0:12",
+     "only": false
+    },
+    {
+     "text": null,
+     "by": "Your note · 序曲 0:12 · in Diary",
+     "only": true
+    }
+   ]
+  },
+  {
+   "key": "m3/as-is",
+   "medium": false,
+   "candidates": [
+    {
+     "text": "合成器在这里像退潮。",
+     "by": "Your note · Undertow 3:21",
+     "only": false
+    },
+    {
+     "text": "合成器在这里像退潮。",
+     "by": "Your note · Undertow 3:21",
+     "only": false
+    },
+    {
+     "text": null,
+     "by": "Your note · Undertow 3:21 · in Diary",
+     "only": true
+    }
+   ]
+  },
+  {
+   "key": "m3/as-is",
+   "medium": true,
+   "candidates": [
+    {
+     "text": "合成器在这里像退潮。",
+     "by": "Your note · Undertow 3:21",
+     "only": false
+    },
+    {
+     "text": "合成器在这里像退潮。",
+     "by": "Your note · Undertow 3:21",
+     "only": false
+    },
+    {
+     "text": null,
+     "by": "Your note · Undertow 3:21 · in Diary",
+     "only": true
+    }
+   ]
+  },
+  {
+   "key": "m3/no-ai",
+   "medium": false,
+   "candidates": [
+    {
+     "text": "合成器在这里像退潮。",
+     "by": "Your note · Undertow 3:21",
+     "only": false
+    },
+    {
+     "text": "合成器在这里像退潮。",
+     "by": "Your note · Undertow 3:21",
+     "only": false
+    },
+    {
+     "text": null,
+     "by": "Your note · Undertow 3:21 · in Diary",
+     "only": true
+    }
+   ]
+  },
+  {
+   "key": "m3/no-ai",
+   "medium": true,
+   "candidates": [
+    {
+     "text": "合成器在这里像退潮。",
+     "by": "Your note · Undertow 3:21",
+     "only": false
+    },
+    {
+     "text": "合成器在这里像退潮。",
+     "by": "Your note · Undertow 3:21",
+     "only": false
+    },
+    {
+     "text": null,
+     "by": "Your note · Undertow 3:21 · in Diary",
+     "only": true
+    }
+   ]
+  },
+  {
+   "key": "m3/no-review",
+   "medium": false,
+   "candidates": [
+    {
+     "text": "合成器在这里像退潮。",
+     "by": "Your note · Undertow 3:21",
+     "only": false
+    },
+    {
+     "text": "合成器在这里像退潮。",
+     "by": "Your note · Undertow 3:21",
+     "only": false
+    },
+    {
+     "text": null,
+     "by": "Your note · Undertow 3:21 · in Diary",
+     "only": true
+    }
+   ]
+  },
+  {
+   "key": "m3/no-review",
+   "medium": true,
+   "candidates": [
+    {
+     "text": "合成器在这里像退潮。",
+     "by": "Your note · Undertow 3:21",
+     "only": false
+    },
+    {
+     "text": "合成器在这里像退潮。",
+     "by": "Your note · Undertow 3:21",
+     "only": false
+    },
+    {
+     "text": null,
+     "by": "Your note · Undertow 3:21 · in Diary",
+     "only": true
+    }
+   ]
+  },
+  {
+   "key": "m3/no-review-no-ai",
+   "medium": false,
+   "candidates": [
+    {
+     "text": "合成器在这里像退潮。",
+     "by": "Your note · Undertow 3:21",
+     "only": false
+    },
+    {
+     "text": "合成器在这里像退潮。",
+     "by": "Your note · Undertow 3:21",
+     "only": false
+    },
+    {
+     "text": null,
+     "by": "Your note · Undertow 3:21 · in Diary",
+     "only": true
+    }
+   ]
+  },
+  {
+   "key": "m3/no-review-no-ai",
+   "medium": true,
+   "candidates": [
+    {
+     "text": "合成器在这里像退潮。",
+     "by": "Your note · Undertow 3:21",
+     "only": false
+    },
+    {
+     "text": "合成器在这里像退潮。",
+     "by": "Your note · Undertow 3:21",
+     "only": false
+    },
+    {
+     "text": null,
+     "by": "Your note · Undertow 3:21 · in Diary",
+     "only": true
+    }
+   ]
+  },
+  {
+   "key": "m4/as-is",
+   "medium": false,
+   "candidates": [
+    {
+     "text": "好听。",
+     "by": "Your review · Sep 29",
+     "only": false
+    },
+    {
+     "text": null,
+     "by": "Your review · Sep 29 · in Diary",
+     "only": true
+    }
+   ]
+  },
+  {
+   "key": "m4/as-is",
+   "medium": true,
+   "candidates": [
+    {
+     "text": "好听。",
+     "by": "Your review · Sep 29",
+     "only": false
+    },
+    {
+     "text": null,
+     "by": "Your review · Sep 29 · in Diary",
+     "only": true
+    }
+   ]
+  },
+  {
+   "key": "m4/no-ai",
+   "medium": false,
+   "candidates": [
+    {
+     "text": "好听。",
+     "by": "Your review · Sep 29",
+     "only": false
+    },
+    {
+     "text": null,
+     "by": "Your review · Sep 29 · in Diary",
+     "only": true
+    }
+   ]
+  },
+  {
+   "key": "m4/no-ai",
+   "medium": true,
+   "candidates": [
+    {
+     "text": "好听。",
+     "by": "Your review · Sep 29",
+     "only": false
+    },
+    {
+     "text": null,
+     "by": "Your review · Sep 29 · in Diary",
+     "only": true
+    }
+   ]
+  },
+  {
+   "key": "m4/no-review",
+   "medium": false,
+   "candidates": []
+  },
+  {
+   "key": "m4/no-review",
+   "medium": true,
+   "candidates": []
+  },
+  {
+   "key": "m4/no-review-no-ai",
+   "medium": false,
+   "candidates": []
+  },
+  {
+   "key": "m4/no-review-no-ai",
+   "medium": true,
+   "candidates": []
+  },
+  {
+   "key": "m5/as-is",
+   "medium": false,
+   "candidates": [
+    {
+     "text": "去年十一月搬到北边的城市，第一周每天下班都要走二十分钟的夜路。那时候手机里只有这一张，是朋友临走前塞给我的，她说冬天很长，你会需要它。",
+     "by": "Your review · Dec 20, 2025",
+     "only": false
+    },
+    {
+     "text": "去年十一月搬到北边的城市，第一周每天下班都要走二十分钟的夜路。",
+     "by": "Your review · Dec 20, 2025",
+     "only": false
+    },
+    {
+     "text": "整首都像屏着一口气。",
+     "by": "Your note · Thin Ice 0:00",
+     "only": false
+    },
+    {
+     "text": null,
+     "by": "Your review · Dec 20, 2025 · in Diary",
+     "only": true
+    }
+   ]
+  },
+  {
+   "key": "m5/as-is",
+   "medium": true,
+   "candidates": [
+    {
+     "text": "去年十一月搬到北边的城市，第一周每天下班都要走二十分钟的夜路。",
+     "by": "Your review · Dec 20, 2025",
+     "only": false
+    },
+    {
+     "text": "整首都像屏着一口气。",
+     "by": "Your note · Thin Ice 0:00",
+     "only": false
+    },
+    {
+     "text": null,
+     "by": "Your review · Dec 20, 2025 · in Diary",
+     "only": true
+    }
+   ]
+  },
+  {
+   "key": "m5/no-ai",
+   "medium": false,
+   "candidates": [
+    {
+     "text": "去年十一月搬到北边的城市，第一周每天下班都要走二十分钟的夜路。那时候手机里只有这一张，是朋友临走前塞给我的，她说冬天很长，你会需要它。",
+     "by": "Your review · Dec 20, 2025",
+     "only": false
+    },
+    {
+     "text": "去年十一月搬到北边的城市，第一周每天下班都要走二十分钟的夜路。",
+     "by": "Your review · Dec 20, 2025",
+     "only": false
+    },
+    {
+     "text": "整首都像屏着一口气。",
+     "by": "Your note · Thin Ice 0:00",
+     "only": false
+    },
+    {
+     "text": null,
+     "by": "Your review · Dec 20, 2025 · in Diary",
+     "only": true
+    }
+   ]
+  },
+  {
+   "key": "m5/no-ai",
+   "medium": true,
+   "candidates": [
+    {
+     "text": "去年十一月搬到北边的城市，第一周每天下班都要走二十分钟的夜路。",
+     "by": "Your review · Dec 20, 2025",
+     "only": false
+    },
+    {
+     "text": "整首都像屏着一口气。",
+     "by": "Your note · Thin Ice 0:00",
+     "only": false
+    },
+    {
+     "text": null,
+     "by": "Your review · Dec 20, 2025 · in Diary",
+     "only": true
+    }
+   ]
+  },
+  {
+   "key": "m5/no-review",
+   "medium": false,
+   "candidates": [
+    {
+     "text": "钢琴慢到我以为播放器卡住了。",
+     "by": "Your note · 初雪 0:08",
+     "only": false
+    },
+    {
+     "text": "整首都像屏着一口气。",
+     "by": "Your note · Thin Ice 0:00",
+     "only": false
+    },
+    {
+     "text": null,
+     "by": "Your note · 初雪 0:08 · in Diary",
+     "only": true
+    }
+   ]
+  },
+  {
+   "key": "m5/no-review",
+   "medium": true,
+   "candidates": [
+    {
+     "text": "钢琴慢到我以为播放器卡住了。",
+     "by": "Your note · 初雪 0:08",
+     "only": false
+    },
+    {
+     "text": "整首都像屏着一口气。",
+     "by": "Your note · Thin Ice 0:00",
+     "only": false
+    },
+    {
+     "text": null,
+     "by": "Your note · 初雪 0:08 · in Diary",
+     "only": true
+    }
+   ]
+  },
+  {
+   "key": "m5/no-review-no-ai",
+   "medium": false,
+   "candidates": [
+    {
+     "text": "钢琴慢到我以为播放器卡住了。",
+     "by": "Your note · 初雪 0:08",
+     "only": false
+    },
+    {
+     "text": "整首都像屏着一口气。",
+     "by": "Your note · Thin Ice 0:00",
+     "only": false
+    },
+    {
+     "text": null,
+     "by": "Your note · 初雪 0:08 · in Diary",
+     "only": true
+    }
+   ]
+  },
+  {
+   "key": "m5/no-review-no-ai",
+   "medium": true,
+   "candidates": [
+    {
+     "text": "钢琴慢到我以为播放器卡住了。",
+     "by": "Your note · 初雪 0:08",
+     "only": false
+    },
+    {
+     "text": "整首都像屏着一口气。",
+     "by": "Your note · Thin Ice 0:00",
+     "only": false
+    },
+    {
+     "text": null,
+     "by": "Your note · 初雪 0:08 · in Diary",
+     "only": true
+    }
+   ]
+  },
+  {
+   "key": "m3/sparse-ratings",
+   "medium": false,
+   "candidates": [
+    {
+     "text": "合成器在这里像退潮。",
+     "by": "Your note · Undertow 3:21",
+     "only": false
+    },
+    {
+     "text": "合成器在这里像退潮。",
+     "by": "Your note · Undertow 3:21",
+     "only": false
+    },
+    {
+     "text": null,
+     "by": "Your note · Undertow 3:21 · in Diary",
+     "only": true
+    }
+   ]
+  },
+  {
+   "key": "m3/sparse-ratings",
+   "medium": true,
+   "candidates": [
+    {
+     "text": "合成器在这里像退潮。",
+     "by": "Your note · Undertow 3:21",
+     "only": false
+    },
+    {
+     "text": "合成器在这里像退潮。",
+     "by": "Your note · Undertow 3:21",
+     "only": false
+    },
+    {
+     "text": null,
+     "by": "Your note · Undertow 3:21 · in Diary",
+     "only": true
+    }
+   ]
+  },
+  {
+   "key": "m2/one-note",
+   "medium": false,
+   "candidates": [
+    {
+     "text": "前奏的吉他像在水底。",
+     "by": "Your note · 序曲 0:12",
+     "only": false
+    },
+    {
+     "text": "前奏的吉他像在水底。",
+     "by": "Your note · 序曲 0:12",
+     "only": false
+    },
+    {
+     "text": null,
+     "by": "Your note · 序曲 0:12 · in Diary",
+     "only": true
+    }
+   ]
+  },
+  {
+   "key": "m2/one-note",
+   "medium": true,
+   "candidates": [
+    {
+     "text": "前奏的吉他像在水底。",
+     "by": "Your note · 序曲 0:12",
+     "only": false
+    },
+    {
+     "text": "前奏的吉他像在水底。",
+     "by": "Your note · 序曲 0:12",
+     "only": false
+    },
+    {
+     "text": null,
+     "by": "Your note · 序曲 0:12 · in Diary",
+     "only": true
+    }
+   ]
+  },
+  {
+   "key": "m5/last-year-only",
+   "medium": false,
+   "candidates": []
+  },
+  {
+   "key": "m5/last-year-only",
+   "medium": true,
+   "candidates": []
+  },
+  {
+   "key": "m4/yesterday",
+   "medium": false,
+   "candidates": []
+  },
+  {
+   "key": "m4/yesterday",
+   "medium": true,
+   "candidates": []
+  }
+ ]
+}

@@ -1,0 +1,2122 @@
+{
+ "today": "2026-10-04",
+ "source": "docs/handoff/memories-showcase/twostate4.html + data.js",
+ "inputs": {
+  "m1/as-is": {
+   "id": "m1",
+   "album": "夜行列车与未寄出的信",
+   "aiTitle": "写给自己的、不寄出的信",
+   "review": "第一次听这张是在去机场的夜班巴士上，窗外的高速路灯一盏一盏往后退，耳机里的弦乐刚好起来。后来每次出远门都会把它从头放到尾，像是给自己写一封不打算寄出去的信。第三首的鼓点让我想起高中操场，第七首的和声又把我拉回现在。它不是那种一听就爱上的专辑，但它会在你需要的时候一直在那里。如果只能留一张专辑陪我坐完一整夜的车，我会选它。",
+   "reviewWrittenAt": "2026-07-26",
+   "scoreKind": "album",
+   "score": 9.5,
+   "ratedTracks": 4,
+   "totalTracks": 10,
+   "plays": 37,
+   "firstPlayed": "2026-03-14",
+   "lastPlayed": "2026-10-02",
+   "tracks": [
+    {
+     "n": 1,
+     "title": "序曲",
+     "rating": 9
+    },
+    {
+     "n": 2,
+     "title": "Night Bus",
+     "rating": 8.5
+    },
+    {
+     "n": 3,
+     "title": "未寄出的信",
+     "rating": 10
+    },
+    {
+     "n": 4,
+     "title": "Glass Harbour",
+     "rating": 7.5
+    },
+    {
+     "n": 5,
+     "title": "看不见的潮汐",
+     "rating": null
+    },
+    {
+     "n": 6,
+     "title": "Lemonade",
+     "rating": null
+    },
+    {
+     "n": 7,
+     "title": "Satellite Hearts",
+     "rating": null
+    },
+    {
+     "n": 8,
+     "title": "雨のち晴れ",
+     "rating": null
+    },
+    {
+     "n": 9,
+     "title": "Afterglow",
+     "rating": null
+    },
+    {
+     "n": 10,
+     "title": "Paper Moon",
+     "rating": null
+    }
+   ],
+   "notes": [
+    {
+     "track": 3,
+     "at": 72,
+     "date": "2026-08-02",
+     "text": "副歌前那一拍停顿，像信写到一半停笔。"
+    },
+    {
+     "track": 7,
+     "at": 141,
+     "date": "2026-07-19",
+     "text": "和声把我拉回现在。"
+    }
+   ]
+  },
+  "m1/no-ai": {
+   "id": "m1",
+   "album": "夜行列车与未寄出的信",
+   "aiTitle": null,
+   "review": "第一次听这张是在去机场的夜班巴士上，窗外的高速路灯一盏一盏往后退，耳机里的弦乐刚好起来。后来每次出远门都会把它从头放到尾，像是给自己写一封不打算寄出去的信。第三首的鼓点让我想起高中操场，第七首的和声又把我拉回现在。它不是那种一听就爱上的专辑，但它会在你需要的时候一直在那里。如果只能留一张专辑陪我坐完一整夜的车，我会选它。",
+   "reviewWrittenAt": "2026-07-26",
+   "scoreKind": "album",
+   "score": 9.5,
+   "ratedTracks": 4,
+   "totalTracks": 10,
+   "plays": 37,
+   "firstPlayed": "2026-03-14",
+   "lastPlayed": "2026-10-02",
+   "tracks": [
+    {
+     "n": 1,
+     "title": "序曲",
+     "rating": 9
+    },
+    {
+     "n": 2,
+     "title": "Night Bus",
+     "rating": 8.5
+    },
+    {
+     "n": 3,
+     "title": "未寄出的信",
+     "rating": 10
+    },
+    {
+     "n": 4,
+     "title": "Glass Harbour",
+     "rating": 7.5
+    },
+    {
+     "n": 5,
+     "title": "看不见的潮汐",
+     "rating": null
+    },
+    {
+     "n": 6,
+     "title": "Lemonade",
+     "rating": null
+    },
+    {
+     "n": 7,
+     "title": "Satellite Hearts",
+     "rating": null
+    },
+    {
+     "n": 8,
+     "title": "雨のち晴れ",
+     "rating": null
+    },
+    {
+     "n": 9,
+     "title": "Afterglow",
+     "rating": null
+    },
+    {
+     "n": 10,
+     "title": "Paper Moon",
+     "rating": null
+    }
+   ],
+   "notes": [
+    {
+     "track": 3,
+     "at": 72,
+     "date": "2026-08-02",
+     "text": "副歌前那一拍停顿，像信写到一半停笔。"
+    },
+    {
+     "track": 7,
+     "at": 141,
+     "date": "2026-07-19",
+     "text": "和声把我拉回现在。"
+    }
+   ]
+  },
+  "m1/no-review": {
+   "id": "m1",
+   "album": "夜行列车与未寄出的信",
+   "aiTitle": "写给自己的、不寄出的信",
+   "review": null,
+   "reviewWrittenAt": "2026-07-26",
+   "scoreKind": "album",
+   "score": 9.5,
+   "ratedTracks": 4,
+   "totalTracks": 10,
+   "plays": 37,
+   "firstPlayed": "2026-03-14",
+   "lastPlayed": "2026-10-02",
+   "tracks": [
+    {
+     "n": 1,
+     "title": "序曲",
+     "rating": 9
+    },
+    {
+     "n": 2,
+     "title": "Night Bus",
+     "rating": 8.5
+    },
+    {
+     "n": 3,
+     "title": "未寄出的信",
+     "rating": 10
+    },
+    {
+     "n": 4,
+     "title": "Glass Harbour",
+     "rating": 7.5
+    },
+    {
+     "n": 5,
+     "title": "看不见的潮汐",
+     "rating": null
+    },
+    {
+     "n": 6,
+     "title": "Lemonade",
+     "rating": null
+    },
+    {
+     "n": 7,
+     "title": "Satellite Hearts",
+     "rating": null
+    },
+    {
+     "n": 8,
+     "title": "雨のち晴れ",
+     "rating": null
+    },
+    {
+     "n": 9,
+     "title": "Afterglow",
+     "rating": null
+    },
+    {
+     "n": 10,
+     "title": "Paper Moon",
+     "rating": null
+    }
+   ],
+   "notes": [
+    {
+     "track": 3,
+     "at": 72,
+     "date": "2026-08-02",
+     "text": "副歌前那一拍停顿，像信写到一半停笔。"
+    },
+    {
+     "track": 7,
+     "at": 141,
+     "date": "2026-07-19",
+     "text": "和声把我拉回现在。"
+    }
+   ]
+  },
+  "m1/no-review-no-ai": {
+   "id": "m1",
+   "album": "夜行列车与未寄出的信",
+   "aiTitle": null,
+   "review": null,
+   "reviewWrittenAt": "2026-07-26",
+   "scoreKind": "album",
+   "score": 9.5,
+   "ratedTracks": 4,
+   "totalTracks": 10,
+   "plays": 37,
+   "firstPlayed": "2026-03-14",
+   "lastPlayed": "2026-10-02",
+   "tracks": [
+    {
+     "n": 1,
+     "title": "序曲",
+     "rating": 9
+    },
+    {
+     "n": 2,
+     "title": "Night Bus",
+     "rating": 8.5
+    },
+    {
+     "n": 3,
+     "title": "未寄出的信",
+     "rating": 10
+    },
+    {
+     "n": 4,
+     "title": "Glass Harbour",
+     "rating": 7.5
+    },
+    {
+     "n": 5,
+     "title": "看不见的潮汐",
+     "rating": null
+    },
+    {
+     "n": 6,
+     "title": "Lemonade",
+     "rating": null
+    },
+    {
+     "n": 7,
+     "title": "Satellite Hearts",
+     "rating": null
+    },
+    {
+     "n": 8,
+     "title": "雨のち晴れ",
+     "rating": null
+    },
+    {
+     "n": 9,
+     "title": "Afterglow",
+     "rating": null
+    },
+    {
+     "n": 10,
+     "title": "Paper Moon",
+     "rating": null
+    }
+   ],
+   "notes": [
+    {
+     "track": 3,
+     "at": 72,
+     "date": "2026-08-02",
+     "text": "副歌前那一拍停顿，像信写到一半停笔。"
+    },
+    {
+     "track": 7,
+     "at": 141,
+     "date": "2026-07-19",
+     "text": "和声把我拉回现在。"
+    }
+   ]
+  },
+  "m2/as-is": {
+   "id": "m2",
+   "album": "Godspeed!",
+   "aiTitle": "雨天里的水底吉他",
+   "review": null,
+   "reviewWrittenAt": null,
+   "scoreKind": "none",
+   "score": null,
+   "ratedTracks": 0,
+   "totalTracks": 12,
+   "plays": 9,
+   "firstPlayed": "2026-09-21",
+   "lastPlayed": "2026-09-30",
+   "tracks": [
+    {
+     "n": 1,
+     "title": "序曲",
+     "rating": null
+    },
+    {
+     "n": 2,
+     "title": "Night Bus",
+     "rating": null
+    },
+    {
+     "n": 3,
+     "title": "未寄出的信",
+     "rating": null
+    },
+    {
+     "n": 4,
+     "title": "Glass Harbour",
+     "rating": null
+    },
+    {
+     "n": 5,
+     "title": "看不见的潮汐",
+     "rating": null
+    },
+    {
+     "n": 6,
+     "title": "Lemonade",
+     "rating": null
+    },
+    {
+     "n": 7,
+     "title": "Satellite Hearts",
+     "rating": null
+    },
+    {
+     "n": 8,
+     "title": "雨のち晴れ",
+     "rating": null
+    },
+    {
+     "n": 9,
+     "title": "Afterglow",
+     "rating": null
+    },
+    {
+     "n": 10,
+     "title": "Paper Moon",
+     "rating": null
+    },
+    {
+     "n": 11,
+     "title": "Static",
+     "rating": null
+    },
+    {
+     "n": 12,
+     "title": "Coda",
+     "rating": null
+    }
+   ],
+   "notes": [
+    {
+     "track": 1,
+     "at": 12,
+     "date": "2026-10-01",
+     "text": "前奏的吉他像在水底。"
+    },
+    {
+     "track": 2,
+     "at": 64,
+     "date": "2026-09-30",
+     "text": "副歌那一句一直在脑子里转，走路的时候会不自觉地跟着节奏。"
+    },
+    {
+     "track": 5,
+     "at": 140,
+     "date": "2026-09-29",
+     "text": "Bridge 太好了"
+    },
+    {
+     "track": null,
+     "at": null,
+     "date": "2026-09-28",
+     "text": "整张专辑适合下雨天一个人在家听。"
+    }
+   ]
+  },
+  "m2/no-ai": {
+   "id": "m2",
+   "album": "Godspeed!",
+   "aiTitle": null,
+   "review": null,
+   "reviewWrittenAt": null,
+   "scoreKind": "none",
+   "score": null,
+   "ratedTracks": 0,
+   "totalTracks": 12,
+   "plays": 9,
+   "firstPlayed": "2026-09-21",
+   "lastPlayed": "2026-09-30",
+   "tracks": [
+    {
+     "n": 1,
+     "title": "序曲",
+     "rating": null
+    },
+    {
+     "n": 2,
+     "title": "Night Bus",
+     "rating": null
+    },
+    {
+     "n": 3,
+     "title": "未寄出的信",
+     "rating": null
+    },
+    {
+     "n": 4,
+     "title": "Glass Harbour",
+     "rating": null
+    },
+    {
+     "n": 5,
+     "title": "看不见的潮汐",
+     "rating": null
+    },
+    {
+     "n": 6,
+     "title": "Lemonade",
+     "rating": null
+    },
+    {
+     "n": 7,
+     "title": "Satellite Hearts",
+     "rating": null
+    },
+    {
+     "n": 8,
+     "title": "雨のち晴れ",
+     "rating": null
+    },
+    {
+     "n": 9,
+     "title": "Afterglow",
+     "rating": null
+    },
+    {
+     "n": 10,
+     "title": "Paper Moon",
+     "rating": null
+    },
+    {
+     "n": 11,
+     "title": "Static",
+     "rating": null
+    },
+    {
+     "n": 12,
+     "title": "Coda",
+     "rating": null
+    }
+   ],
+   "notes": [
+    {
+     "track": 1,
+     "at": 12,
+     "date": "2026-10-01",
+     "text": "前奏的吉他像在水底。"
+    },
+    {
+     "track": 2,
+     "at": 64,
+     "date": "2026-09-30",
+     "text": "副歌那一句一直在脑子里转，走路的时候会不自觉地跟着节奏。"
+    },
+    {
+     "track": 5,
+     "at": 140,
+     "date": "2026-09-29",
+     "text": "Bridge 太好了"
+    },
+    {
+     "track": null,
+     "at": null,
+     "date": "2026-09-28",
+     "text": "整张专辑适合下雨天一个人在家听。"
+    }
+   ]
+  },
+  "m2/no-review": {
+   "id": "m2",
+   "album": "Godspeed!",
+   "aiTitle": "雨天里的水底吉他",
+   "review": null,
+   "reviewWrittenAt": null,
+   "scoreKind": "none",
+   "score": null,
+   "ratedTracks": 0,
+   "totalTracks": 12,
+   "plays": 9,
+   "firstPlayed": "2026-09-21",
+   "lastPlayed": "2026-09-30",
+   "tracks": [
+    {
+     "n": 1,
+     "title": "序曲",
+     "rating": null
+    },
+    {
+     "n": 2,
+     "title": "Night Bus",
+     "rating": null
+    },
+    {
+     "n": 3,
+     "title": "未寄出的信",
+     "rating": null
+    },
+    {
+     "n": 4,
+     "title": "Glass Harbour",
+     "rating": null
+    },
+    {
+     "n": 5,
+     "title": "看不见的潮汐",
+     "rating": null
+    },
+    {
+     "n": 6,
+     "title": "Lemonade",
+     "rating": null
+    },
+    {
+     "n": 7,
+     "title": "Satellite Hearts",
+     "rating": null
+    },
+    {
+     "n": 8,
+     "title": "雨のち晴れ",
+     "rating": null
+    },
+    {
+     "n": 9,
+     "title": "Afterglow",
+     "rating": null
+    },
+    {
+     "n": 10,
+     "title": "Paper Moon",
+     "rating": null
+    },
+    {
+     "n": 11,
+     "title": "Static",
+     "rating": null
+    },
+    {
+     "n": 12,
+     "title": "Coda",
+     "rating": null
+    }
+   ],
+   "notes": [
+    {
+     "track": 1,
+     "at": 12,
+     "date": "2026-10-01",
+     "text": "前奏的吉他像在水底。"
+    },
+    {
+     "track": 2,
+     "at": 64,
+     "date": "2026-09-30",
+     "text": "副歌那一句一直在脑子里转，走路的时候会不自觉地跟着节奏。"
+    },
+    {
+     "track": 5,
+     "at": 140,
+     "date": "2026-09-29",
+     "text": "Bridge 太好了"
+    },
+    {
+     "track": null,
+     "at": null,
+     "date": "2026-09-28",
+     "text": "整张专辑适合下雨天一个人在家听。"
+    }
+   ]
+  },
+  "m2/no-review-no-ai": {
+   "id": "m2",
+   "album": "Godspeed!",
+   "aiTitle": null,
+   "review": null,
+   "reviewWrittenAt": null,
+   "scoreKind": "none",
+   "score": null,
+   "ratedTracks": 0,
+   "totalTracks": 12,
+   "plays": 9,
+   "firstPlayed": "2026-09-21",
+   "lastPlayed": "2026-09-30",
+   "tracks": [
+    {
+     "n": 1,
+     "title": "序曲",
+     "rating": null
+    },
+    {
+     "n": 2,
+     "title": "Night Bus",
+     "rating": null
+    },
+    {
+     "n": 3,
+     "title": "未寄出的信",
+     "rating": null
+    },
+    {
+     "n": 4,
+     "title": "Glass Harbour",
+     "rating": null
+    },
+    {
+     "n": 5,
+     "title": "看不见的潮汐",
+     "rating": null
+    },
+    {
+     "n": 6,
+     "title": "Lemonade",
+     "rating": null
+    },
+    {
+     "n": 7,
+     "title": "Satellite Hearts",
+     "rating": null
+    },
+    {
+     "n": 8,
+     "title": "雨のち晴れ",
+     "rating": null
+    },
+    {
+     "n": 9,
+     "title": "Afterglow",
+     "rating": null
+    },
+    {
+     "n": 10,
+     "title": "Paper Moon",
+     "rating": null
+    },
+    {
+     "n": 11,
+     "title": "Static",
+     "rating": null
+    },
+    {
+     "n": 12,
+     "title": "Coda",
+     "rating": null
+    }
+   ],
+   "notes": [
+    {
+     "track": 1,
+     "at": 12,
+     "date": "2026-10-01",
+     "text": "前奏的吉他像在水底。"
+    },
+    {
+     "track": 2,
+     "at": 64,
+     "date": "2026-09-30",
+     "text": "副歌那一句一直在脑子里转，走路的时候会不自觉地跟着节奏。"
+    },
+    {
+     "track": 5,
+     "at": 140,
+     "date": "2026-09-29",
+     "text": "Bridge 太好了"
+    },
+    {
+     "track": null,
+     "at": null,
+     "date": "2026-09-28",
+     "text": "整张专辑适合下雨天一个人在家听。"
+    }
+   ]
+  },
+  "m3/as-is": {
+   "id": "m3",
+   "album": "The Patterns Lost to the Tide (Expanded Edition)",
+   "aiTitle": null,
+   "review": null,
+   "reviewWrittenAt": null,
+   "scoreKind": "average",
+   "score": 7.8,
+   "ratedTracks": 6,
+   "totalTracks": 8,
+   "plays": 22,
+   "firstPlayed": "2026-01-05",
+   "lastPlayed": "2026-10-01",
+   "tracks": [
+    {
+     "n": 1,
+     "title": "Tidal",
+     "rating": 8
+    },
+    {
+     "n": 2,
+     "title": "Lost Pattern",
+     "rating": 7
+    },
+    {
+     "n": 3,
+     "title": "Undertow",
+     "rating": 9
+    },
+    {
+     "n": 4,
+     "title": "Salt Light",
+     "rating": 6.5
+    },
+    {
+     "n": 5,
+     "title": "Littoral",
+     "rating": 8.5
+    },
+    {
+     "n": 6,
+     "title": "Fathom",
+     "rating": 7.5
+    },
+    {
+     "n": 7,
+     "title": "Brine (Expanded)",
+     "rating": null
+    },
+    {
+     "n": 8,
+     "title": "Tideline (Live)",
+     "rating": null
+    }
+   ],
+   "notes": [
+    {
+     "track": 3,
+     "at": 201,
+     "date": "2026-05-11",
+     "text": "合成器在这里像退潮。"
+    }
+   ]
+  },
+  "m3/no-ai": {
+   "id": "m3",
+   "album": "The Patterns Lost to the Tide (Expanded Edition)",
+   "aiTitle": null,
+   "review": null,
+   "reviewWrittenAt": null,
+   "scoreKind": "average",
+   "score": 7.8,
+   "ratedTracks": 6,
+   "totalTracks": 8,
+   "plays": 22,
+   "firstPlayed": "2026-01-05",
+   "lastPlayed": "2026-10-01",
+   "tracks": [
+    {
+     "n": 1,
+     "title": "Tidal",
+     "rating": 8
+    },
+    {
+     "n": 2,
+     "title": "Lost Pattern",
+     "rating": 7
+    },
+    {
+     "n": 3,
+     "title": "Undertow",
+     "rating": 9
+    },
+    {
+     "n": 4,
+     "title": "Salt Light",
+     "rating": 6.5
+    },
+    {
+     "n": 5,
+     "title": "Littoral",
+     "rating": 8.5
+    },
+    {
+     "n": 6,
+     "title": "Fathom",
+     "rating": 7.5
+    },
+    {
+     "n": 7,
+     "title": "Brine (Expanded)",
+     "rating": null
+    },
+    {
+     "n": 8,
+     "title": "Tideline (Live)",
+     "rating": null
+    }
+   ],
+   "notes": [
+    {
+     "track": 3,
+     "at": 201,
+     "date": "2026-05-11",
+     "text": "合成器在这里像退潮。"
+    }
+   ]
+  },
+  "m3/no-review": {
+   "id": "m3",
+   "album": "The Patterns Lost to the Tide (Expanded Edition)",
+   "aiTitle": null,
+   "review": null,
+   "reviewWrittenAt": null,
+   "scoreKind": "average",
+   "score": 7.8,
+   "ratedTracks": 6,
+   "totalTracks": 8,
+   "plays": 22,
+   "firstPlayed": "2026-01-05",
+   "lastPlayed": "2026-10-01",
+   "tracks": [
+    {
+     "n": 1,
+     "title": "Tidal",
+     "rating": 8
+    },
+    {
+     "n": 2,
+     "title": "Lost Pattern",
+     "rating": 7
+    },
+    {
+     "n": 3,
+     "title": "Undertow",
+     "rating": 9
+    },
+    {
+     "n": 4,
+     "title": "Salt Light",
+     "rating": 6.5
+    },
+    {
+     "n": 5,
+     "title": "Littoral",
+     "rating": 8.5
+    },
+    {
+     "n": 6,
+     "title": "Fathom",
+     "rating": 7.5
+    },
+    {
+     "n": 7,
+     "title": "Brine (Expanded)",
+     "rating": null
+    },
+    {
+     "n": 8,
+     "title": "Tideline (Live)",
+     "rating": null
+    }
+   ],
+   "notes": [
+    {
+     "track": 3,
+     "at": 201,
+     "date": "2026-05-11",
+     "text": "合成器在这里像退潮。"
+    }
+   ]
+  },
+  "m3/no-review-no-ai": {
+   "id": "m3",
+   "album": "The Patterns Lost to the Tide (Expanded Edition)",
+   "aiTitle": null,
+   "review": null,
+   "reviewWrittenAt": null,
+   "scoreKind": "average",
+   "score": 7.8,
+   "ratedTracks": 6,
+   "totalTracks": 8,
+   "plays": 22,
+   "firstPlayed": "2026-01-05",
+   "lastPlayed": "2026-10-01",
+   "tracks": [
+    {
+     "n": 1,
+     "title": "Tidal",
+     "rating": 8
+    },
+    {
+     "n": 2,
+     "title": "Lost Pattern",
+     "rating": 7
+    },
+    {
+     "n": 3,
+     "title": "Undertow",
+     "rating": 9
+    },
+    {
+     "n": 4,
+     "title": "Salt Light",
+     "rating": 6.5
+    },
+    {
+     "n": 5,
+     "title": "Littoral",
+     "rating": 8.5
+    },
+    {
+     "n": 6,
+     "title": "Fathom",
+     "rating": 7.5
+    },
+    {
+     "n": 7,
+     "title": "Brine (Expanded)",
+     "rating": null
+    },
+    {
+     "n": 8,
+     "title": "Tideline (Live)",
+     "rating": null
+    }
+   ],
+   "notes": [
+    {
+     "track": 3,
+     "at": 201,
+     "date": "2026-05-11",
+     "text": "合成器在这里像退潮。"
+    }
+   ]
+  },
+  "m4/as-is": {
+   "id": "m4",
+   "album": "MeMe",
+   "aiTitle": "一句好听就够了",
+   "review": "好听。",
+   "reviewWrittenAt": "2026-09-29",
+   "scoreKind": "album",
+   "score": 10,
+   "ratedTracks": 0,
+   "totalTracks": 6,
+   "plays": 5,
+   "firstPlayed": "2026-09-27",
+   "lastPlayed": "2026-09-29",
+   "tracks": [
+    {
+     "n": 1,
+     "title": "MeMe",
+     "rating": null
+    },
+    {
+     "n": 2,
+     "title": "Afterparty",
+     "rating": null
+    },
+    {
+     "n": 3,
+     "title": "霓虹",
+     "rating": null
+    },
+    {
+     "n": 4,
+     "title": "Static Love",
+     "rating": null
+    },
+    {
+     "n": 5,
+     "title": "Kiss Me Neon",
+     "rating": null
+    },
+    {
+     "n": 6,
+     "title": "Outro",
+     "rating": null
+    }
+   ],
+   "notes": []
+  },
+  "m4/no-ai": {
+   "id": "m4",
+   "album": "MeMe",
+   "aiTitle": null,
+   "review": "好听。",
+   "reviewWrittenAt": "2026-09-29",
+   "scoreKind": "album",
+   "score": 10,
+   "ratedTracks": 0,
+   "totalTracks": 6,
+   "plays": 5,
+   "firstPlayed": "2026-09-27",
+   "lastPlayed": "2026-09-29",
+   "tracks": [
+    {
+     "n": 1,
+     "title": "MeMe",
+     "rating": null
+    },
+    {
+     "n": 2,
+     "title": "Afterparty",
+     "rating": null
+    },
+    {
+     "n": 3,
+     "title": "霓虹",
+     "rating": null
+    },
+    {
+     "n": 4,
+     "title": "Static Love",
+     "rating": null
+    },
+    {
+     "n": 5,
+     "title": "Kiss Me Neon",
+     "rating": null
+    },
+    {
+     "n": 6,
+     "title": "Outro",
+     "rating": null
+    }
+   ],
+   "notes": []
+  },
+  "m4/no-review": {
+   "id": "m4",
+   "album": "MeMe",
+   "aiTitle": "一句好听就够了",
+   "review": null,
+   "reviewWrittenAt": "2026-09-29",
+   "scoreKind": "album",
+   "score": 10,
+   "ratedTracks": 0,
+   "totalTracks": 6,
+   "plays": 5,
+   "firstPlayed": "2026-09-27",
+   "lastPlayed": "2026-09-29",
+   "tracks": [
+    {
+     "n": 1,
+     "title": "MeMe",
+     "rating": null
+    },
+    {
+     "n": 2,
+     "title": "Afterparty",
+     "rating": null
+    },
+    {
+     "n": 3,
+     "title": "霓虹",
+     "rating": null
+    },
+    {
+     "n": 4,
+     "title": "Static Love",
+     "rating": null
+    },
+    {
+     "n": 5,
+     "title": "Kiss Me Neon",
+     "rating": null
+    },
+    {
+     "n": 6,
+     "title": "Outro",
+     "rating": null
+    }
+   ],
+   "notes": []
+  },
+  "m4/no-review-no-ai": {
+   "id": "m4",
+   "album": "MeMe",
+   "aiTitle": null,
+   "review": null,
+   "reviewWrittenAt": "2026-09-29",
+   "scoreKind": "album",
+   "score": 10,
+   "ratedTracks": 0,
+   "totalTracks": 6,
+   "plays": 5,
+   "firstPlayed": "2026-09-27",
+   "lastPlayed": "2026-09-29",
+   "tracks": [
+    {
+     "n": 1,
+     "title": "MeMe",
+     "rating": null
+    },
+    {
+     "n": 2,
+     "title": "Afterparty",
+     "rating": null
+    },
+    {
+     "n": 3,
+     "title": "霓虹",
+     "rating": null
+    },
+    {
+     "n": 4,
+     "title": "Static Love",
+     "rating": null
+    },
+    {
+     "n": 5,
+     "title": "Kiss Me Neon",
+     "rating": null
+    },
+    {
+     "n": 6,
+     "title": "Outro",
+     "rating": null
+    }
+   ],
+   "notes": []
+  },
+  "m5/as-is": {
+   "id": "m5",
+   "album": "雪线以北",
+   "aiTitle": "一整个冬天的回信",
+   "review": "去年十一月搬到北边的城市，第一周每天下班都要走二十分钟的夜路。那时候手机里只有这一张，是朋友临走前塞给我的，她说冬天很长，你会需要它。\n前两个月我几乎只听前四首。《初雪》开头那段钢琴很慢，慢到我以为播放器卡住了，后来才明白那是故意留出来的呼吸。《Thin Ice》的鼓一直压着拍子走，像踩在冰面上不敢用力。那段时间我每天都把音量调得很低，怕吵到隔壁，也怕吵到自己。到了一月，我终于能从头听到尾，第七首《Snowline》合唱进来的那一下，我在地铁上没忍住。\n春天以后听得少了，偶尔想起来放一遍，发现它和冬天时不一样了。以前觉得它冷，现在觉得它其实一直在等天亮。最后一首结尾那段很长的环境声，我以前总是跳过，现在会等它放完，像是陪它把灯关掉。\n这不是一张会推荐给所有人的专辑。它太安静，前半张也确实有点闷，第一次听很容易半路关掉。但如果你也在一个陌生的地方熬过一个冬天，它会比任何人都懂你。给 8.5，扣掉的那一点留给第十首，它不该那么短。",
+   "reviewWrittenAt": "2025-12-20",
+   "scoreKind": "album",
+   "score": 8.5,
+   "ratedTracks": 8,
+   "totalTracks": 12,
+   "plays": 64,
+   "firstPlayed": "2025-11-08",
+   "lastPlayed": "2026-09-20",
+   "tracks": [
+    {
+     "n": 1,
+     "title": "初雪",
+     "rating": 8
+    },
+    {
+     "n": 2,
+     "title": "Thin Ice",
+     "rating": 8.5
+    },
+    {
+     "n": 3,
+     "title": "夜路",
+     "rating": 7.5
+    },
+    {
+     "n": 4,
+     "title": "Radiator Hum",
+     "rating": 7
+    },
+    {
+     "n": 5,
+     "title": "北窗",
+     "rating": null
+    },
+    {
+     "n": 6,
+     "title": "Breath on Glass",
+     "rating": 8
+    },
+    {
+     "n": 7,
+     "title": "Snowline",
+     "rating": 9.5
+    },
+    {
+     "n": 8,
+     "title": "冻土",
+     "rating": null
+    },
+    {
+     "n": 9,
+     "title": "Late Thaw",
+     "rating": 9
+    },
+    {
+     "n": 10,
+     "title": "Interlude",
+     "rating": 6.5
+    },
+    {
+     "n": 11,
+     "title": "融雪",
+     "rating": null
+    },
+    {
+     "n": 12,
+     "title": "Morning Train",
+     "rating": null
+    }
+   ],
+   "notes": [
+    {
+     "track": 1,
+     "at": 8,
+     "date": "2025-11-09",
+     "text": "钢琴慢到我以为播放器卡住了。"
+    },
+    {
+     "track": 1,
+     "at": 102,
+     "date": "2026-01-14",
+     "text": "原来那是留给呼吸的空白。"
+    },
+    {
+     "track": 2,
+     "at": 31,
+     "date": "2025-11-21",
+     "text": "鼓压着拍子走，像踩在冰面上。"
+    },
+    {
+     "track": 2,
+     "at": 130,
+     "date": "2025-12-03",
+     "text": "这里贝斯终于敢用力了。"
+    },
+    {
+     "track": 2,
+     "at": null,
+     "date": "2025-11-15",
+     "text": "整首都像屏着一口气。"
+    },
+    {
+     "track": 10,
+     "at": null,
+     "date": "2026-02-10",
+     "text": "太短了，刚进入状态就结束。"
+    },
+    {
+     "track": 3,
+     "at": 65,
+     "date": "2025-11-12",
+     "text": "下班的夜路，路灯每隔二十步一盏。"
+    },
+    {
+     "track": 6,
+     "at": 47,
+     "date": "2026-02-02",
+     "text": "呵气在玻璃上画了个圈。"
+    },
+    {
+     "track": 7,
+     "at": 118,
+     "date": "2026-01-20",
+     "text": "合唱进来那一下，地铁上没忍住。"
+    },
+    {
+     "track": 7,
+     "at": 220,
+     "date": "2026-03-08",
+     "text": "第二遍合唱压低了半度，像天快亮了。"
+    },
+    {
+     "track": 7,
+     "at": 295,
+     "date": "2026-06-30",
+     "text": "夏天再听，它不冷了。"
+    },
+    {
+     "track": 9,
+     "at": 20,
+     "date": "2026-04-02",
+     "text": "解冻是从屋檐开始的。"
+    },
+    {
+     "track": 9,
+     "at": 192,
+     "date": "2026-04-19",
+     "text": "弦乐把整张专辑托起来了，这一首可以单独拿出来听很多遍。"
+    },
+    {
+     "track": 12,
+     "at": 330,
+     "date": "2026-09-20",
+     "text": "以前总跳过这段环境声，今天等它放完了。"
+    },
+    {
+     "track": null,
+     "at": null,
+     "date": "2026-09-12",
+     "text": "适合一个人走很长的路。"
+    }
+   ]
+  },
+  "m5/no-ai": {
+   "id": "m5",
+   "album": "雪线以北",
+   "aiTitle": null,
+   "review": "去年十一月搬到北边的城市，第一周每天下班都要走二十分钟的夜路。那时候手机里只有这一张，是朋友临走前塞给我的，她说冬天很长，你会需要它。\n前两个月我几乎只听前四首。《初雪》开头那段钢琴很慢，慢到我以为播放器卡住了，后来才明白那是故意留出来的呼吸。《Thin Ice》的鼓一直压着拍子走，像踩在冰面上不敢用力。那段时间我每天都把音量调得很低，怕吵到隔壁，也怕吵到自己。到了一月，我终于能从头听到尾，第七首《Snowline》合唱进来的那一下，我在地铁上没忍住。\n春天以后听得少了，偶尔想起来放一遍，发现它和冬天时不一样了。以前觉得它冷，现在觉得它其实一直在等天亮。最后一首结尾那段很长的环境声，我以前总是跳过，现在会等它放完，像是陪它把灯关掉。\n这不是一张会推荐给所有人的专辑。它太安静，前半张也确实有点闷，第一次听很容易半路关掉。但如果你也在一个陌生的地方熬过一个冬天，它会比任何人都懂你。给 8.5，扣掉的那一点留给第十首，它不该那么短。",
+   "reviewWrittenAt": "2025-12-20",
+   "scoreKind": "album",
+   "score": 8.5,
+   "ratedTracks": 8,
+   "totalTracks": 12,
+   "plays": 64,
+   "firstPlayed": "2025-11-08",
+   "lastPlayed": "2026-09-20",
+   "tracks": [
+    {
+     "n": 1,
+     "title": "初雪",
+     "rating": 8
+    },
+    {
+     "n": 2,
+     "title": "Thin Ice",
+     "rating": 8.5
+    },
+    {
+     "n": 3,
+     "title": "夜路",
+     "rating": 7.5
+    },
+    {
+     "n": 4,
+     "title": "Radiator Hum",
+     "rating": 7
+    },
+    {
+     "n": 5,
+     "title": "北窗",
+     "rating": null
+    },
+    {
+     "n": 6,
+     "title": "Breath on Glass",
+     "rating": 8
+    },
+    {
+     "n": 7,
+     "title": "Snowline",
+     "rating": 9.5
+    },
+    {
+     "n": 8,
+     "title": "冻土",
+     "rating": null
+    },
+    {
+     "n": 9,
+     "title": "Late Thaw",
+     "rating": 9
+    },
+    {
+     "n": 10,
+     "title": "Interlude",
+     "rating": 6.5
+    },
+    {
+     "n": 11,
+     "title": "融雪",
+     "rating": null
+    },
+    {
+     "n": 12,
+     "title": "Morning Train",
+     "rating": null
+    }
+   ],
+   "notes": [
+    {
+     "track": 1,
+     "at": 8,
+     "date": "2025-11-09",
+     "text": "钢琴慢到我以为播放器卡住了。"
+    },
+    {
+     "track": 1,
+     "at": 102,
+     "date": "2026-01-14",
+     "text": "原来那是留给呼吸的空白。"
+    },
+    {
+     "track": 2,
+     "at": 31,
+     "date": "2025-11-21",
+     "text": "鼓压着拍子走，像踩在冰面上。"
+    },
+    {
+     "track": 2,
+     "at": 130,
+     "date": "2025-12-03",
+     "text": "这里贝斯终于敢用力了。"
+    },
+    {
+     "track": 2,
+     "at": null,
+     "date": "2025-11-15",
+     "text": "整首都像屏着一口气。"
+    },
+    {
+     "track": 10,
+     "at": null,
+     "date": "2026-02-10",
+     "text": "太短了，刚进入状态就结束。"
+    },
+    {
+     "track": 3,
+     "at": 65,
+     "date": "2025-11-12",
+     "text": "下班的夜路，路灯每隔二十步一盏。"
+    },
+    {
+     "track": 6,
+     "at": 47,
+     "date": "2026-02-02",
+     "text": "呵气在玻璃上画了个圈。"
+    },
+    {
+     "track": 7,
+     "at": 118,
+     "date": "2026-01-20",
+     "text": "合唱进来那一下，地铁上没忍住。"
+    },
+    {
+     "track": 7,
+     "at": 220,
+     "date": "2026-03-08",
+     "text": "第二遍合唱压低了半度，像天快亮了。"
+    },
+    {
+     "track": 7,
+     "at": 295,
+     "date": "2026-06-30",
+     "text": "夏天再听，它不冷了。"
+    },
+    {
+     "track": 9,
+     "at": 20,
+     "date": "2026-04-02",
+     "text": "解冻是从屋檐开始的。"
+    },
+    {
+     "track": 9,
+     "at": 192,
+     "date": "2026-04-19",
+     "text": "弦乐把整张专辑托起来了，这一首可以单独拿出来听很多遍。"
+    },
+    {
+     "track": 12,
+     "at": 330,
+     "date": "2026-09-20",
+     "text": "以前总跳过这段环境声，今天等它放完了。"
+    },
+    {
+     "track": null,
+     "at": null,
+     "date": "2026-09-12",
+     "text": "适合一个人走很长的路。"
+    }
+   ]
+  },
+  "m5/no-review": {
+   "id": "m5",
+   "album": "雪线以北",
+   "aiTitle": "一整个冬天的回信",
+   "review": null,
+   "reviewWrittenAt": "2025-12-20",
+   "scoreKind": "album",
+   "score": 8.5,
+   "ratedTracks": 8,
+   "totalTracks": 12,
+   "plays": 64,
+   "firstPlayed": "2025-11-08",
+   "lastPlayed": "2026-09-20",
+   "tracks": [
+    {
+     "n": 1,
+     "title": "初雪",
+     "rating": 8
+    },
+    {
+     "n": 2,
+     "title": "Thin Ice",
+     "rating": 8.5
+    },
+    {
+     "n": 3,
+     "title": "夜路",
+     "rating": 7.5
+    },
+    {
+     "n": 4,
+     "title": "Radiator Hum",
+     "rating": 7
+    },
+    {
+     "n": 5,
+     "title": "北窗",
+     "rating": null
+    },
+    {
+     "n": 6,
+     "title": "Breath on Glass",
+     "rating": 8
+    },
+    {
+     "n": 7,
+     "title": "Snowline",
+     "rating": 9.5
+    },
+    {
+     "n": 8,
+     "title": "冻土",
+     "rating": null
+    },
+    {
+     "n": 9,
+     "title": "Late Thaw",
+     "rating": 9
+    },
+    {
+     "n": 10,
+     "title": "Interlude",
+     "rating": 6.5
+    },
+    {
+     "n": 11,
+     "title": "融雪",
+     "rating": null
+    },
+    {
+     "n": 12,
+     "title": "Morning Train",
+     "rating": null
+    }
+   ],
+   "notes": [
+    {
+     "track": 1,
+     "at": 8,
+     "date": "2025-11-09",
+     "text": "钢琴慢到我以为播放器卡住了。"
+    },
+    {
+     "track": 1,
+     "at": 102,
+     "date": "2026-01-14",
+     "text": "原来那是留给呼吸的空白。"
+    },
+    {
+     "track": 2,
+     "at": 31,
+     "date": "2025-11-21",
+     "text": "鼓压着拍子走，像踩在冰面上。"
+    },
+    {
+     "track": 2,
+     "at": 130,
+     "date": "2025-12-03",
+     "text": "这里贝斯终于敢用力了。"
+    },
+    {
+     "track": 2,
+     "at": null,
+     "date": "2025-11-15",
+     "text": "整首都像屏着一口气。"
+    },
+    {
+     "track": 10,
+     "at": null,
+     "date": "2026-02-10",
+     "text": "太短了，刚进入状态就结束。"
+    },
+    {
+     "track": 3,
+     "at": 65,
+     "date": "2025-11-12",
+     "text": "下班的夜路，路灯每隔二十步一盏。"
+    },
+    {
+     "track": 6,
+     "at": 47,
+     "date": "2026-02-02",
+     "text": "呵气在玻璃上画了个圈。"
+    },
+    {
+     "track": 7,
+     "at": 118,
+     "date": "2026-01-20",
+     "text": "合唱进来那一下，地铁上没忍住。"
+    },
+    {
+     "track": 7,
+     "at": 220,
+     "date": "2026-03-08",
+     "text": "第二遍合唱压低了半度，像天快亮了。"
+    },
+    {
+     "track": 7,
+     "at": 295,
+     "date": "2026-06-30",
+     "text": "夏天再听，它不冷了。"
+    },
+    {
+     "track": 9,
+     "at": 20,
+     "date": "2026-04-02",
+     "text": "解冻是从屋檐开始的。"
+    },
+    {
+     "track": 9,
+     "at": 192,
+     "date": "2026-04-19",
+     "text": "弦乐把整张专辑托起来了，这一首可以单独拿出来听很多遍。"
+    },
+    {
+     "track": 12,
+     "at": 330,
+     "date": "2026-09-20",
+     "text": "以前总跳过这段环境声，今天等它放完了。"
+    },
+    {
+     "track": null,
+     "at": null,
+     "date": "2026-09-12",
+     "text": "适合一个人走很长的路。"
+    }
+   ]
+  },
+  "m5/no-review-no-ai": {
+   "id": "m5",
+   "album": "雪线以北",
+   "aiTitle": null,
+   "review": null,
+   "reviewWrittenAt": "2025-12-20",
+   "scoreKind": "album",
+   "score": 8.5,
+   "ratedTracks": 8,
+   "totalTracks": 12,
+   "plays": 64,
+   "firstPlayed": "2025-11-08",
+   "lastPlayed": "2026-09-20",
+   "tracks": [
+    {
+     "n": 1,
+     "title": "初雪",
+     "rating": 8
+    },
+    {
+     "n": 2,
+     "title": "Thin Ice",
+     "rating": 8.5
+    },
+    {
+     "n": 3,
+     "title": "夜路",
+     "rating": 7.5
+    },
+    {
+     "n": 4,
+     "title": "Radiator Hum",
+     "rating": 7
+    },
+    {
+     "n": 5,
+     "title": "北窗",
+     "rating": null
+    },
+    {
+     "n": 6,
+     "title": "Breath on Glass",
+     "rating": 8
+    },
+    {
+     "n": 7,
+     "title": "Snowline",
+     "rating": 9.5
+    },
+    {
+     "n": 8,
+     "title": "冻土",
+     "rating": null
+    },
+    {
+     "n": 9,
+     "title": "Late Thaw",
+     "rating": 9
+    },
+    {
+     "n": 10,
+     "title": "Interlude",
+     "rating": 6.5
+    },
+    {
+     "n": 11,
+     "title": "融雪",
+     "rating": null
+    },
+    {
+     "n": 12,
+     "title": "Morning Train",
+     "rating": null
+    }
+   ],
+   "notes": [
+    {
+     "track": 1,
+     "at": 8,
+     "date": "2025-11-09",
+     "text": "钢琴慢到我以为播放器卡住了。"
+    },
+    {
+     "track": 1,
+     "at": 102,
+     "date": "2026-01-14",
+     "text": "原来那是留给呼吸的空白。"
+    },
+    {
+     "track": 2,
+     "at": 31,
+     "date": "2025-11-21",
+     "text": "鼓压着拍子走，像踩在冰面上。"
+    },
+    {
+     "track": 2,
+     "at": 130,
+     "date": "2025-12-03",
+     "text": "这里贝斯终于敢用力了。"
+    },
+    {
+     "track": 2,
+     "at": null,
+     "date": "2025-11-15",
+     "text": "整首都像屏着一口气。"
+    },
+    {
+     "track": 10,
+     "at": null,
+     "date": "2026-02-10",
+     "text": "太短了，刚进入状态就结束。"
+    },
+    {
+     "track": 3,
+     "at": 65,
+     "date": "2025-11-12",
+     "text": "下班的夜路，路灯每隔二十步一盏。"
+    },
+    {
+     "track": 6,
+     "at": 47,
+     "date": "2026-02-02",
+     "text": "呵气在玻璃上画了个圈。"
+    },
+    {
+     "track": 7,
+     "at": 118,
+     "date": "2026-01-20",
+     "text": "合唱进来那一下，地铁上没忍住。"
+    },
+    {
+     "track": 7,
+     "at": 220,
+     "date": "2026-03-08",
+     "text": "第二遍合唱压低了半度，像天快亮了。"
+    },
+    {
+     "track": 7,
+     "at": 295,
+     "date": "2026-06-30",
+     "text": "夏天再听，它不冷了。"
+    },
+    {
+     "track": 9,
+     "at": 20,
+     "date": "2026-04-02",
+     "text": "解冻是从屋檐开始的。"
+    },
+    {
+     "track": 9,
+     "at": 192,
+     "date": "2026-04-19",
+     "text": "弦乐把整张专辑托起来了，这一首可以单独拿出来听很多遍。"
+    },
+    {
+     "track": 12,
+     "at": 330,
+     "date": "2026-09-20",
+     "text": "以前总跳过这段环境声，今天等它放完了。"
+    },
+    {
+     "track": null,
+     "at": null,
+     "date": "2026-09-12",
+     "text": "适合一个人走很长的路。"
+    }
+   ]
+  },
+  "m3/sparse-ratings": {
+   "id": "m3",
+   "album": "The Patterns Lost to the Tide (Expanded Edition)",
+   "aiTitle": null,
+   "review": null,
+   "reviewWrittenAt": null,
+   "scoreKind": "average",
+   "score": 7.8,
+   "ratedTracks": 2,
+   "totalTracks": 8,
+   "plays": 22,
+   "firstPlayed": "2026-01-05",
+   "lastPlayed": "2026-10-01",
+   "tracks": [
+    {
+     "n": 1,
+     "title": "Tidal",
+     "rating": 8
+    },
+    {
+     "n": 2,
+     "title": "Lost Pattern",
+     "rating": 7
+    },
+    {
+     "n": 3,
+     "title": "Undertow",
+     "rating": null
+    },
+    {
+     "n": 4,
+     "title": "Salt Light",
+     "rating": null
+    },
+    {
+     "n": 5,
+     "title": "Littoral",
+     "rating": null
+    },
+    {
+     "n": 6,
+     "title": "Fathom",
+     "rating": null
+    },
+    {
+     "n": 7,
+     "title": "Brine (Expanded)",
+     "rating": null
+    },
+    {
+     "n": 8,
+     "title": "Tideline (Live)",
+     "rating": null
+    }
+   ],
+   "notes": [
+    {
+     "track": 3,
+     "at": 201,
+     "date": "2026-05-11",
+     "text": "合成器在这里像退潮。"
+    }
+   ]
+  },
+  "m2/one-note": {
+   "id": "m2",
+   "album": "Godspeed!",
+   "aiTitle": null,
+   "review": null,
+   "reviewWrittenAt": null,
+   "scoreKind": "none",
+   "score": null,
+   "ratedTracks": 0,
+   "totalTracks": 12,
+   "plays": 9,
+   "firstPlayed": "2026-09-21",
+   "lastPlayed": "2026-09-30",
+   "tracks": [
+    {
+     "n": 1,
+     "title": "序曲",
+     "rating": null
+    },
+    {
+     "n": 2,
+     "title": "Night Bus",
+     "rating": null
+    },
+    {
+     "n": 3,
+     "title": "未寄出的信",
+     "rating": null
+    },
+    {
+     "n": 4,
+     "title": "Glass Harbour",
+     "rating": null
+    },
+    {
+     "n": 5,
+     "title": "看不见的潮汐",
+     "rating": null
+    },
+    {
+     "n": 6,
+     "title": "Lemonade",
+     "rating": null
+    },
+    {
+     "n": 7,
+     "title": "Satellite Hearts",
+     "rating": null
+    },
+    {
+     "n": 8,
+     "title": "雨のち晴れ",
+     "rating": null
+    },
+    {
+     "n": 9,
+     "title": "Afterglow",
+     "rating": null
+    },
+    {
+     "n": 10,
+     "title": "Paper Moon",
+     "rating": null
+    },
+    {
+     "n": 11,
+     "title": "Static",
+     "rating": null
+    },
+    {
+     "n": 12,
+     "title": "Coda",
+     "rating": null
+    }
+   ],
+   "notes": [
+    {
+     "track": 1,
+     "at": 12,
+     "date": "2026-10-01",
+     "text": "前奏的吉他像在水底。"
+    }
+   ]
+  },
+  "m5/last-year-only": {
+   "id": "m5",
+   "album": "雪线以北",
+   "aiTitle": null,
+   "review": null,
+   "reviewWrittenAt": "2025-12-20",
+   "scoreKind": "album",
+   "score": 8.5,
+   "ratedTracks": 0,
+   "totalTracks": 12,
+   "plays": 64,
+   "firstPlayed": "2025-02-03",
+   "lastPlayed": "2025-02-20",
+   "tracks": [
+    {
+     "n": 1,
+     "title": "初雪",
+     "rating": null
+    },
+    {
+     "n": 2,
+     "title": "Thin Ice",
+     "rating": null
+    },
+    {
+     "n": 3,
+     "title": "夜路",
+     "rating": null
+    },
+    {
+     "n": 4,
+     "title": "Radiator Hum",
+     "rating": null
+    },
+    {
+     "n": 5,
+     "title": "北窗",
+     "rating": null
+    },
+    {
+     "n": 6,
+     "title": "Breath on Glass",
+     "rating": null
+    },
+    {
+     "n": 7,
+     "title": "Snowline",
+     "rating": null
+    },
+    {
+     "n": 8,
+     "title": "冻土",
+     "rating": null
+    },
+    {
+     "n": 9,
+     "title": "Late Thaw",
+     "rating": null
+    },
+    {
+     "n": 10,
+     "title": "Interlude",
+     "rating": null
+    },
+    {
+     "n": 11,
+     "title": "融雪",
+     "rating": null
+    },
+    {
+     "n": 12,
+     "title": "Morning Train",
+     "rating": null
+    }
+   ],
+   "notes": []
+  },
+  "m4/yesterday": {
+   "id": "m4",
+   "album": "MeMe",
+   "aiTitle": "一句好听就够了",
+   "review": null,
+   "reviewWrittenAt": "2026-09-29",
+   "scoreKind": "album",
+   "score": 10,
+   "ratedTracks": 0,
+   "totalTracks": 6,
+   "plays": 5,
+   "firstPlayed": "2026-09-27",
+   "lastPlayed": "2026-10-03",
+   "tracks": [
+    {
+     "n": 1,
+     "title": "MeMe",
+     "rating": null
+    },
+    {
+     "n": 2,
+     "title": "Afterparty",
+     "rating": null
+    },
+    {
+     "n": 3,
+     "title": "霓虹",
+     "rating": null
+    },
+    {
+     "n": 4,
+     "title": "Static Love",
+     "rating": null
+    },
+    {
+     "n": 5,
+     "title": "Kiss Me Neon",
+     "rating": null
+    },
+    {
+     "n": 6,
+     "title": "Outro",
+     "rating": null
+    }
+   ],
+   "notes": []
+  }
+ }
+}

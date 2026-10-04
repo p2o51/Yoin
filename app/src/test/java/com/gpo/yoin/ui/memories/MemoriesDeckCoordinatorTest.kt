@@ -1,15 +1,30 @@
 package com.gpo.yoin.ui.memories
 
+import com.gpo.yoin.data.local.AlbumNote
+import com.gpo.yoin.data.local.AlbumRating
+import com.gpo.yoin.data.local.LocalRating
+import com.gpo.yoin.data.local.SongNote
 import com.gpo.yoin.data.memory.AlbumMemoryCandidate
+import com.gpo.yoin.data.model.Album
+import com.gpo.yoin.data.model.MediaId
+import com.gpo.yoin.data.model.Track
 import com.gpo.yoin.data.repository.YoinRepository
 import com.gpo.yoin.ui.experience.ExperienceSessionStore
+import com.gpo.yoin.ui.memories.copy.MemoryNarrationBrief
+import com.gpo.yoin.ui.memories.copy.MemoryProseLanguage
+import com.gpo.yoin.ui.memories.copy.MemoryTitleKind
 import io.mockk.coEvery
 import io.mockk.coVerify
+import io.mockk.every
 import io.mockk.mockk
+import java.time.LocalDate
+import java.time.ZoneId
+import java.time.ZoneOffset
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -86,7 +101,8 @@ class MemoriesDeckCoordinatorTest {
         assertTrue(memory.reasonChips.contains("Ask AI references"))
         assertTrue(memory.reasonChips.contains("Recently revisited"))
         assertTrue(memory.reasonChips.contains("NeoDB ready"))
-        assertNotNull(memory.narrativeCopy)
+        // no review row resolved: Yoin asks about the album score
+        assertEquals("You gave it a 9.0. What earned it?", memory.yoinQuestion)
     }
 
     @Test
@@ -103,7 +119,7 @@ class MemoriesDeckCoordinatorTest {
         assertEquals("7.3", memory.scoreText)
         assertEquals(MemoryScoreKind.AVERAGE_TRACK_RATING, memory.scoreKind)
         assertEquals("Track average", memory.scoreSupportingText)
-        assertTrue(memory.narrativeCopy?.isNotBlank() == true)
+        assertTrue(memory.yoinQuestion?.isNotBlank() == true)
     }
 
     @Test
@@ -214,15 +230,338 @@ class MemoriesDeckCoordinatorTest {
         )
     }
 
-    private fun buildCoordinator(candidates: List<AlbumMemoryCandidate>): MemoriesDeckCoordinator {
+    // ── P4: copy and data model ────────────────────────────────────────
+    // These avoid asserting play facts through the coordinator: historyOf()
+    // still reads the pre-history candidate fields until they reach HEAD, and
+    // a visit-only album hides its play facts under both.
+
+    @Test
+    fun should_group_notes_under_tracks_by_track_id() = runTest {
+        val candidate = visitOnlyCandidate()
+        stubAlbum(
+            candidate = candidate,
+            songNotes = listOf(
+                songNote(id = "n1", track = "t2", text = "Late anchor", positionMs = 30_000L, at = day(3)),
+                songNote(id = "n2", track = "t2", text = "No anchor", positionMs = null, at = day(1)),
+                songNote(id = "n3", track = "t2", text = "Early anchor", positionMs = 10_000L, at = day(2)),
+                songNote(id = "n4", track = "t4", text = "Outro note", positionMs = 5_000L, at = day(4)),
+            ),
+            albumNotes = listOf(albumNote(id = "a1", text = "Whole album", at = day(5))),
+        )
+        val memory = buildCoordinator(listOf(candidate), stubAlbumDefaults = false).ensureDeck().single()
+
+        assertEquals(listOf("t2", "t4"), memory.diaryTracks.map { it.track.trackId })
+        assertEquals(
+            listOf("Early anchor", "Late anchor", "No anchor"),
+            memory.diaryTracks[0].notes.map(MemoryWriting::text),
+        )
+        assertTrue(memory.diaryTracks[0].notes.all { it.trackId == "t2" })
+        assertEquals(listOf("Outro note"), memory.diaryTracks[1].notes.map(MemoryWriting::text))
+        assertEquals(listOf("Whole album"), memory.diaryAlbumNotes.map(MemoryWriting::text))
+        assertEquals("a1", memory.diaryAlbumNotes.single().noteId)
+        assertEquals(10_000L, memory.diaryTracks[0].notes.first().positionMs)
+    }
+
+    @Test
+    fun should_list_only_rated_or_noted_tracks_when_mode_a() = runTest {
+        val candidate = visitOnlyCandidate()
+        stubAlbum(
+            candidate = candidate,
+            ratings = mapOf("t1" to 8f, "t3" to 0f),
+            songNotes = listOf(
+                songNote(id = "n1", track = "t4", text = "Only a note", positionMs = 1_000L, at = day(1)),
+            ),
+        )
+        val memory = buildCoordinator(listOf(candidate), stubAlbumDefaults = false).ensureDeck().single()
+
+        // t1 rated, t4 noted; t2 untouched and t3's 0 rating count as neither
+        assertEquals(listOf("t1", "t4"), memory.diaryTracks.map { it.track.trackId })
+        val first = memory.diaryTracks[0].track
+        assertEquals(1, first.number)
+        assertEquals(0, first.playbackIndex)
+        assertEquals("Song 1", first.title)
+        assertEquals(8f, first.rating)
+        assertEquals(4, memory.diaryTracks[1].track.number)
+        assertEquals(3, memory.diaryTracks[1].track.playbackIndex)
+        assertNull(memory.diaryTracks[1].track.rating)
+        // the full list keeps every song for playback
+        assertEquals(4, memory.tracks.size)
+    }
+
+    @Test
+    fun should_ignore_visits_when_mapping_last_heard_and_plays() = runTest {
+        // Visited twice, never played: the builder folds the visits into
+        // first/lastPlayedAt, but there is no play.
+        val candidate = visitOnlyCandidate()
+        val memory = buildCoordinator(listOf(candidate)).ensureDeck().single()
+
+        assertNull(memory.playsInYoin)
+        assertNull(memory.firstHeardAt)
+        assertNull(memory.lastHeardAt)
+
+        assertNull(memoryPlayHistory(plays = 0, firstPlayedAt = day(1), lastPlayedAt = day(2)))
+        assertNull(memoryPlayHistory(plays = 3, firstPlayedAt = day(1), lastPlayedAt = null))
+        assertEquals(
+            MemoryPlayHistory(plays = 3, firstHeardAt = day(1), lastHeardAt = day(2)),
+            memoryPlayHistory(plays = 3, firstPlayedAt = day(1), lastPlayedAt = day(2)),
+        )
+        assertEquals(
+            MemoryPlayHistory(plays = 1, firstHeardAt = day(2), lastHeardAt = day(2)),
+            memoryPlayHistory(plays = 1, firstPlayedAt = null, lastPlayedAt = day(2)),
+        )
+    }
+
+    @Test
+    fun should_hide_play_facts_when_album_has_no_play_history() = runTest {
+        val candidate = visitOnlyCandidate().copy(albumRating = 9f)
+        stubAlbum(candidate = candidate)
+        val memory = buildCoordinator(listOf(candidate), stubAlbumDefaults = false).ensureDeck().single()
+
+        // no "N plays since …" motif: nothing else fits, so the title is the album name
+        assertEquals(MemoryTitleKind.ALBUM, memory.memoryTitleKind)
+        assertEquals("Visited Album", memory.memoryTitle)
+        // ③ keeps the question about the score but says nothing about listening
+        assertNull(memory.yoinNarration)
+        assertNull(memory.narrativeCopy)
+        assertEquals("You gave it a 9.0. What earned it?", memory.yoinQuestion)
+        assertNull(memory.playsInYoin)
+        assertNull(memory.lastHeardAt)
+    }
+
+    @Test
+    fun should_fall_back_to_motif_title_when_ai_title_missing() = runTest {
+        val candidate = visitOnlyCandidate()
+        stubAlbum(
+            candidate = candidate,
+            songNotes = listOf(
+                songNote(id = "n1", track = "t1", text = "The intro hums", positionMs = 4_000L, at = day(1)),
+                songNote(id = "n2", track = "t3", text = "Drums come in late", positionMs = 9_000L, at = day(3)),
+            ),
+        )
+        val memory = buildCoordinator(listOf(candidate), stubAlbumDefaults = false).ensureDeck().single()
+
+        assertEquals(MemoryTitleKind.MOTIF, memory.memoryTitleKind)
+        assertEquals("Three days, two notes", memory.memoryTitle)
+        assertEquals(MemoryProseLanguage.EN, memory.proseLanguage)
+        assertEquals("Two notes in three days; the latest was on Song 3.", memory.yoinNarration)
+        assertEquals("Put together, what would you say about the album?", memory.yoinQuestion)
+        // the excerpt opens with the first song note in album order
+        assertEquals("The intro hums", memory.excerptCandidates.first().text)
+        assertEquals("Your note · Song 1 0:04", memory.excerptCandidates.first().attribution)
+    }
+
+    @Test
+    fun should_keep_ai_title_and_write_in_chinese_when_notes_are_chinese() = runTest {
+        val candidate = visitOnlyCandidate()
+        stubAlbum(
+            candidate = candidate,
+            aiTitle = "雨天里的水底吉他",
+            songNotes = listOf(
+                songNote(id = "n1", track = "t1", text = "前奏的吉他像在水底。", positionMs = 12_000L, at = day(1)),
+                songNote(id = "n2", track = "t2", text = "副歌一直在脑子里转。", positionMs = 64_000L, at = day(2)),
+            ),
+        )
+        val memory = buildCoordinator(listOf(candidate), stubAlbumDefaults = false).ensureDeck().single()
+
+        assertEquals(MemoryTitleKind.AI, memory.memoryTitleKind)
+        assertEquals("雨天里的水底吉他", memory.memoryTitle)
+        assertEquals(MemoryProseLanguage.ZH, memory.proseLanguage)
+        assertEquals("两天里记了两条笔记，最近一条写在《Song 2》。", memory.yoinNarration)
+        assertEquals("合起来看，这张专辑你会怎么说？", memory.yoinQuestion)
+    }
+
+    @Test
+    fun should_use_gemini_narration_when_source_answers() = runTest {
+        val candidate = visitOnlyCandidate()
+        stubAlbum(
+            candidate = candidate,
+            songNotes = listOf(
+                songNote(id = "n1", track = "t1", text = "The intro hums", positionMs = 4_000L, at = day(1)),
+                songNote(id = "n2", track = "t3", text = "Drums come in late", positionMs = 9_000L, at = day(3)),
+            ),
+        )
+        val briefs = mutableListOf<MemoryNarrationBrief>()
+        val coordinator = buildCoordinator(listOf(candidate), stubAlbumDefaults = false).apply {
+            narrationSource = MemoryNarrationSource { _, brief ->
+                briefs += brief
+                MemoryNarration("You wrote on two songs in three days.", "Which one pulled you back?")
+            }
+        }
+        val memory = coordinator.ensureDeck().single()
+
+        assertEquals("You wrote on two songs in three days.", memory.yoinNarration)
+        assertEquals("Which one pulled you back?", memory.yoinQuestion)
+        assertEquals("You wrote on two songs in three days.", memory.narrativeCopy)
+        val brief = briefs.single()
+        assertEquals(MemoryProseLanguage.EN, brief.language)
+        assertEquals("Three days, two notes", brief.alreadySaid)
+        // listening facts only: never the user's words
+        assertTrue(brief.facts.none { fact -> "intro hums" in fact || "Drums" in fact })
+    }
+
+    @Test
+    fun should_fall_back_to_template_when_narration_source_fails() = runTest {
+        val candidate = visitOnlyCandidate()
+        stubAlbum(
+            candidate = candidate,
+            songNotes = listOf(
+                songNote(id = "n1", track = "t1", text = "The intro hums", positionMs = 4_000L, at = day(1)),
+                songNote(id = "n2", track = "t3", text = "Drums come in late", positionMs = 9_000L, at = day(3)),
+            ),
+        )
+        val coordinator = buildCoordinator(listOf(candidate), stubAlbumDefaults = false).apply {
+            narrationSource = MemoryNarrationSource { _, _ -> error("offline") }
+        }
+        val memory = coordinator.ensureDeck().single()
+
+        assertEquals("Two notes in three days; the latest was on Song 3.", memory.yoinNarration)
+        assertEquals("Put together, what would you say about the album?", memory.yoinQuestion)
+    }
+
+    @Test
+    fun should_not_narrate_when_review_present() = runTest {
+        val candidate = visitOnlyCandidate().copy(albumRating = 8f, hasAlbumReview = true)
+        stubAlbum(
+            candidate = candidate,
+            review = "Quiet start. The bridge lifts. Then it ends.",
+        )
+        var asked = false
+        val coordinator = buildCoordinator(listOf(candidate), stubAlbumDefaults = false).apply {
+            narrationSource = MemoryNarrationSource { _, _ ->
+                asked = true
+                null
+            }
+        }
+        val memory = coordinator.ensureDeck().single()
+
+        assertEquals(false, asked)
+        assertNull(memory.yoinNarration)
+        assertNull(memory.yoinQuestion)
+        assertEquals("Quiet start. The bridge lifts. Then it ends.", memory.excerptCandidates.first().text)
+        assertEquals(
+            listOf("Quiet start. The bridge lifts.", "Quiet start."),
+            memory.excerptCandidatesMedium.filterNot { it.attributionOnly }.map { it.text },
+        )
+        assertNotNull(memory.review)
+    }
+
+    /** Visited, rated a little, never played in Yoin (playCount 0). */
+    private fun visitOnlyCandidate(): AlbumMemoryCandidate = buildAlbumCandidates(count = 1).single().copy(
+        albumId = "al-visit",
+        albumName = "Visited Album",
+        totalTracks = 4,
+        ratedTrackCount = 0,
+        ratingCoverage = 0f,
+        averageSongRating = null,
+        playCount = 0,
+        firstPlayedAt = day(1),
+        lastPlayedAt = day(6),
+    )
+
+    private fun stubAlbum(
+        candidate: AlbumMemoryCandidate,
+        ratings: Map<String, Float> = emptyMap(),
+        songNotes: List<SongNote> = emptyList(),
+        albumNotes: List<AlbumNote> = emptyList(),
+        review: String? = null,
+        aiTitle: String? = null,
+    ) {
+        val albumId = MediaId(candidate.provider, candidate.albumId)
+        val songs = (1..4).map { n ->
+            Track(
+                id = MediaId(candidate.provider, "t$n"),
+                title = "Song $n",
+                artist = "Artist",
+                artistId = null,
+                album = candidate.albumName,
+                albumId = albumId,
+                coverArt = null,
+                durationSec = 200,
+                trackNumber = n,
+                year = null,
+                genre = null,
+                userRating = null,
+            )
+        }
+        val album = Album(
+            id = albumId,
+            name = candidate.albumName,
+            artist = "Artist",
+            artistId = null,
+            coverArt = null,
+            songCount = songs.size,
+            durationSec = 800,
+            year = 2026,
+            genre = null,
+            tracks = songs,
+        )
+        coEvery { repository.getAlbum(albumId) } returns album
+        coEvery { repository.getRatings(any()) } returns ratings.entries.associate { (raw, rating) ->
+            MediaId(candidate.provider, raw) to LocalRating(
+                songId = raw,
+                provider = candidate.provider,
+                rating = rating,
+                serverRating = 0,
+            )
+        }
+        coEvery { repository.getAlbumRatingRow(albumId) } returns review?.let { text ->
+            AlbumRating(
+                albumId = candidate.albumId,
+                provider = candidate.provider,
+                rating = candidate.albumRating ?: 0f,
+                review = text,
+                neoDbReviewUuid = null,
+                updatedAt = day(5),
+            )
+        }
+        coEvery { repository.getAlbumNotesOnce(albumId) } returns albumNotes
+        coEvery { repository.getSongNotesOnce(any()) } returns songNotes
+        coEvery { repository.getOrGenerateAlbumMemoryTitle(any(), any(), any()) } returns aiTitle
+        every { repository.resolveCoverUrl(any(), any()) } returns null
+    }
+
+    private fun songNote(id: String, track: String, text: String, positionMs: Long?, at: Long): SongNote = SongNote(
+        id = id,
+        trackId = track,
+        provider = "subsonic",
+        content = text,
+        createdAt = at,
+        updatedAt = at,
+        title = "Song ${track.removePrefix("t")}",
+        artist = "Artist",
+        positionMs = positionMs,
+    )
+
+    private fun albumNote(id: String, text: String, at: Long): AlbumNote = AlbumNote(
+        id = id,
+        albumId = "al-visit",
+        provider = "subsonic",
+        content = text,
+        createdAt = at,
+        updatedAt = at,
+        albumName = "Visited Album",
+        artist = "Artist",
+    )
+
+    /** Noon UTC on the [n]th of September 2026. */
+    private fun day(n: Int): Long = LocalDate.of(2026, 9, n).atTime(12, 0).toInstant(ZoneOffset.UTC).toEpochMilli()
+
+    private fun buildCoordinator(
+        candidates: List<AlbumMemoryCandidate>,
+        stubAlbumDefaults: Boolean = true,
+    ): MemoriesDeckCoordinator {
         coEvery { repository.getAlbumMemoryCandidates(limit = 48) } returns candidates
-        coEvery { repository.getAlbum(any()) } returns null
-        coEvery { repository.getRatings(any()) } returns emptyMap()
+        if (stubAlbumDefaults) {
+            coEvery { repository.getAlbum(any()) } returns null
+            coEvery { repository.getRatings(any()) } returns emptyMap()
+        }
 
         return MemoriesDeckCoordinator(
             repository = repository,
             sessionStore = sessionStore,
             randomSeed = 42L,
+            clock = { day(10) },
+            zone = { ZoneId.of("UTC") },
         )
     }
 

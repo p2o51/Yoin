@@ -1,6 +1,9 @@
 package com.gpo.yoin.ui.memories
 
 import com.gpo.yoin.data.model.Track
+import com.gpo.yoin.ui.memories.copy.MemoryExcerptCandidate
+import com.gpo.yoin.ui.memories.copy.MemoryProseLanguage
+import com.gpo.yoin.ui.memories.copy.MemoryTitleKind
 
 sealed interface MemoriesUiState {
     data object Loading : MemoriesUiState
@@ -57,6 +60,10 @@ data class MemoryWriting(
     /** SONG_NOTE 才有：曲名 + 笔记锚定的时间点（song_notes.positionMs，v27 起）。 */
     val trackTitle: String? = null,
     val positionMs: Long? = null,
+    /** SONG_NOTE: the song's raw id, joins [MemoryTrack.trackId] so notes group under their track. */
+    val trackId: String? = null,
+    /** The note row's id (album_notes / song_notes); null for the review. */
+    val noteId: String? = null,
 ) {
     enum class Kind { REVIEW, ALBUM_NOTE, SONG_NOTE }
 }
@@ -105,6 +112,30 @@ data class MemoryEntry(
     val narrativeCopy: String? = null,
     val playbackSongs: List<Track>,
     val tracks: List<MemoryTrack>,
+    // ── Showcase v4 (P4). New fields only; the old ones above go in P7. ──
+    /**
+     * "Heard" facts, from play_history only (VISITED events never count).
+     * All three are null for an album never played in Yoin: the diary footer
+     * and the top bar's "Last heard" are then hidden entirely.
+     */
+    val playsInYoin: Int? = null,
+    val firstHeardAt: Long? = null,
+    val lastHeardAt: Long? = null,
+    /** Where [memoryTitle] came from: AI (the only serif title), the local motif, or the album name. */
+    val memoryTitleKind: MemoryTitleKind = MemoryTitleKind.AI,
+    /** Yoin's prose follows the language the user writes in; UI strings stay in the app language. */
+    val proseLanguage: MemoryProseLanguage = MemoryProseLanguage.EN,
+    /** Yoin's narration (Gemini, or the local template), only while there is no review. */
+    val yoinNarration: String? = null,
+    /** The question that closes Yoin's paragraph; only while there is no review. */
+    val yoinQuestion: String? = null,
+    /** Card excerpt candidates, best first: phone (capped by the slot) and Medium (the teaser cap). */
+    val excerptCandidates: List<MemoryExcerptCandidate> = emptyList(),
+    val excerptCandidatesMedium: List<MemoryExcerptCandidate> = emptyList(),
+    /** The diary liner: album notes first (oldest first), then [diaryTracks]. */
+    val diaryAlbumNotes: List<MemoryWriting> = emptyList(),
+    /** Track rows, option A: only rated or noted tracks, album order, each with its notes. */
+    val diaryTracks: List<MemoryDiaryTrack> = emptyList(),
 )
 
 data class MemoryTrack(
@@ -113,4 +144,19 @@ data class MemoryTrack(
     val artist: String,
     val durationSeconds: Int?,
     val rating: Float?,
+    /** Album position: the track number, else the 1-based index. */
+    val number: Int? = null,
+    /** The song's raw id; joins [MemoryWriting.trackId]. */
+    val trackId: String? = null,
+    /** Index into [MemoryEntry.playbackSongs] for onPlayMemoryTrack. */
+    val playbackIndex: Int? = null,
+)
+
+/**
+ * One diary track row and the notes under it, lyrics-style: anchored notes by
+ * position, unanchored ones after them (oldest first).
+ */
+data class MemoryDiaryTrack(
+    val track: MemoryTrack,
+    val notes: List<MemoryWriting>,
 )

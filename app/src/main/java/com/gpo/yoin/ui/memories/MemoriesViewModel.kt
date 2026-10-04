@@ -410,7 +410,16 @@ class MemoriesViewModel(
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T =
             MemoriesViewModel(
-                deckCoordinator = container.memoriesDeckCoordinator,
+                deckCoordinator = container.memoriesDeckCoordinator.also { coordinator ->
+                    // Belongs in AppContainer's constructor call; that file is
+                    // being edited by another session, so it is attached here.
+                    coordinator.narrationSource = GeminiMemoryNarrationSource(
+                        geminiService = container.geminiService,
+                        geminiConfigDao = container.database.geminiConfigDao(),
+                        cacheDao = container.database.memoryCopyCacheDao(),
+                        activeProfileId = container.profileManager.activeProfileId,
+                    )
+                },
                 sessionStore = container.experienceSessionStore,
                 repository = container.repository,
                 activeProfileId = container.profileManager.activeProfileId,

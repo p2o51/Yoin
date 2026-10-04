@@ -1,6 +1,7 @@
 package com.gpo.yoin.data.remote
 
 import com.gpo.yoin.data.local.SongAboutEntry
+import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.encodeToString
@@ -166,6 +167,11 @@ class GeminiService(
      * 数量。不传播 song_notes / review 原文给 Gemini —— 笔记是本地私密。
      *
      * 返回的是纯文本（没有 tag），调用方直接落 `memory_copy_cache.copy`。
+     *
+     * Superseded for Memories by [generateAlbumMemoryNarration] (showcase v4,
+     * P4). Its only caller left is `YoinRepository.getOrGenerateAlbumMemoryCopy`,
+     * which nothing calls any more; both go in the P7 cleanup once that file
+     * is free to edit.
      */
     suspend fun generateAlbumMemoryCopy(
         apiKey: String,
@@ -214,6 +220,69 @@ class GeminiService(
             ?.removeSurrounding("\"")
             ?.takeIf { it.isNotEmpty() }
             ?: throw GeminiException("No content in Gemini response")
+    }
+
+    /**
+     * Yoin's narration on a Memories diary page (showcase v4): one or two
+     * sentences about how the listener listened to one album, then a question
+     * that follows from the last fact.
+     *
+     * The input is local listening facts only (plays, date span, seasons,
+     * track names, the top-rated track, note counts), already phrased in
+     * [languageName] where they are words. The review and the notes' text are
+     * never sent. [alreadySaid] is the motif title on the page; the narration
+     * must not repeat its facts.
+     *
+     * Bump [MEMORY_NARRATION_PROMPT_VERSION] whenever the prompt changes: the
+     * caller keys its cache on it, so copy written by an older prompt is never
+     * shown again.
+     */
+    suspend fun generateAlbumMemoryNarration(
+        apiKey: String,
+        languageName: String,
+        facts: List<String>,
+        alreadySaid: String?,
+    ): MemoryNarrationText = withContext(Dispatchers.IO) {
+        val prompt = buildMemoryNarrationPrompt(
+            languageName = languageName,
+            facts = facts,
+            alreadySaid = alreadySaid,
+        )
+        val requestBody = GeminiRequest(
+            contents = listOf(GeminiContent(parts = listOf(GeminiPart(text = prompt)))),
+            // Only the given facts may be used: no search grounding.
+            tools = null,
+            generationConfig = GeminiGenerationConfig(temperature = 0.4f),
+        )
+
+        val bodyJson = json.encodeToString(requestBody)
+        val request = Request.Builder()
+            .url("$BASE_URL$MODEL:generateContent?key=$apiKey")
+            .post(bodyJson.toRequestBody(JSON_MEDIA_TYPE))
+            .build()
+
+        val call = client.newCall(request)
+        // The Memories deck waits on this call; past the timeout the local
+        // template stands in.
+        call.timeout().timeout(MEMORY_NARRATION_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+        val response = call.execute()
+        val responseBody = response.body?.string()
+            ?: throw GeminiException("Empty response from Gemini API")
+
+        if (!response.isSuccessful) {
+            throw GeminiException(
+                "Gemini API error (${response.code}): ${extractErrorMessage(responseBody)}",
+            )
+        }
+
+        val geminiResponse = json.decodeFromString<GeminiResponse>(responseBody)
+        val rawText = geminiResponse.candidates
+            ?.firstOrNull()?.content?.parts?.firstOrNull()?.text
+            ?.takeIf { it.isNotEmpty() }
+            ?: throw GeminiException("No content in Gemini response")
+
+        parseMemoryNarration(rawText)
+            ?: throw GeminiException("No usable narration in Gemini response")
     }
 
     /**
@@ -506,11 +575,98 @@ $indexedLines
         val answer: String,
     )
 
+    /** Narration + closing question returned by [generateAlbumMemoryNarration]. */
+    data class MemoryNarrationText(
+        val narration: String,
+        val question: String,
+    )
+
     companion object {
         private const val BASE_URL =
             "https://generativelanguage.googleapis.com/v1beta/models/"
         internal const val MODEL = "gemini-3.1-flash-lite"
         private val JSON_MEDIA_TYPE = "application/json".toMediaType()
+
+        /**
+         * Version of the Memories narration prompt. v1 was the poetic one-liner
+         * of [generateAlbumMemoryCopy]; v2 is the showcase v4 voice. Part of
+         * the narration cache key: bump it with every prompt change.
+         */
+        const val MEMORY_NARRATION_PROMPT_VERSION = 2
+        private const val MEMORY_NARRATION_TIMEOUT_SECONDS = 8L
+
+        /**
+         * The v2 narration prompt (the prototype's voice rules, twostate4.html
+         * "Yoin's voice"): second person, past tense, one or two sentences from
+         * the given listening facts only, then a question that follows from the
+         * last fact. Never judges the music, never touches the listener's own
+         * words, never names the mechanism.
+         */
+        internal fun buildMemoryNarrationPrompt(
+            languageName: String,
+            facts: List<String>,
+            alreadySaid: String?,
+        ): String {
+            val factLines = facts.joinToString("\n") { fact -> "- $fact" }
+            val saidLine = alreadySaid?.takeIf(String::isNotBlank)?.let { said ->
+                "\nThe title already on the page reads: \"$said\". Do not repeat any fact it states.\n"
+            }.orEmpty()
+            return """
+You are Yoin, a music app. You write a few words at the top of a listener's
+private diary page for one album, speaking to the listener directly.
+
+Listening facts recorded in the app (the only things you may mention):
+$factLines
+$saidLine
+Rules:
+- Write in $languageName.
+- NARRATION: one or two short sentences, second person, past tense, built only
+  from the facts above. Pick the one or two facts that say most about how they
+  listened; do not list them all.
+- QUESTION: one short question that follows directly from the last fact you
+  stated, so the listener wants to write their own words. It ends with "?" in
+  English or "？" in Chinese.
+- Never judge, praise or describe the music, the artist, the album or its
+  sound. Never guess at feelings, moods or reasons.
+- Never quote, paraphrase or allude to anything the listener wrote. You have
+  not read it.
+- Never name the mechanism: no words such as "memory", "memories",
+  "remember", "记忆", "回忆".
+- Keep track names, months and relative dates as given.
+- No quotation marks around your text, no emoji, no hashtags, no line breaks.
+
+The voice, from other albums (never reuse their facts):
+[NARRATION]37 plays since March, the last one two days ago.[/NARRATION]
+[QUESTION]You gave it a 9.5. What earned it?[/QUESTION]
+[NARRATION]你跨了三个季节回来听，最高分是《Undertow》的 9.0。[/NARRATION]
+[QUESTION]那整张专辑呢？[/QUESTION]
+
+Output exactly this and nothing else:
+[NARRATION]...[/NARRATION]
+[QUESTION]...[/QUESTION]
+            """.trimIndent()
+        }
+
+        /**
+         * Parses `[NARRATION]…[/NARRATION]` + `[QUESTION]…[/QUESTION]`. Null when
+         * either part is missing or blank, or the question isn't a question.
+         */
+        fun parseMemoryNarration(rawText: String): MemoryNarrationText? {
+            fun clean(text: String?): String? = text
+                ?.replace(Regex("""\s*\n\s*"""), " ")
+                ?.trim()
+                ?.trim('"', '“', '”')
+                ?.trim()
+                ?.takeIf(String::isNotEmpty)
+            val narration = clean(extractTagContent(rawText, "NARRATION")) ?: return null
+            val question = clean(extractTagContent(rawText, "QUESTION")) ?: return null
+            if (!question.endsWith("?") && !question.endsWith("？")) return null
+            return MemoryNarrationText(narration = narration, question = question)
+        }
+
+        /** The cached form of a narration; [parseMemoryNarration] reads it back. */
+        fun encodeMemoryNarration(text: MemoryNarrationText): String =
+            "[NARRATION]${text.narration}[/NARRATION]\n[QUESTION]${text.question}[/QUESTION]"
 
         // Matches any `[TAG]`, `[/TAG]`, `[ TAG ]`, `[ / TAG ]` etc. with
         // tag identifiers. Used both to extract content by tag name and
