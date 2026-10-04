@@ -80,6 +80,14 @@ private val MemoriesAdjacentDeckTrigger = 72.dp
 private val MemoriesDeckEnterOffset = 44.dp
 
 /**
+ * Letting go past the deck's last (or first) card also turns the deck when the pull is at least this far to
+ * its trigger, or when the release flings on outward at [MemoriesAdjacentDeckFlingVelocity] (per second): an
+ * ordinary swipe or flick past the end goes to the next group, not only a long drag (owner, 2026-10-05).
+ */
+private const val MemoriesAdjacentDeckReleaseFraction = 0.5f
+private val MemoriesAdjacentDeckFlingVelocity = 600.dp
+
+/**
  * Memories (ShellOverlayUp). The host translates this page by its reveal q; here live the page's two
  * controllers — q ([RevealState], the retreat to Home) and p ([MemoriesDiaryState], card ⇄ diary) — the one
  * gesture router that feeds them ([memoriesGestures]), the predictive back over both, and the state
@@ -446,6 +454,7 @@ private fun MemoriesContent(
     val density = LocalDensity.current
     val haptics = rememberYoinHaptics()
     val adjacentDeckTriggerPx = with(density) { MemoriesAdjacentDeckTrigger.toPx() }
+    val adjacentDeckFlingPx = with(density) { MemoriesAdjacentDeckFlingVelocity.toPx() }
     val deckEnterOffsetPx = with(density) { MemoriesDeckEnterOffset.toPx() }
     val edgeAdvanceState = rememberEdgeAdvanceState(triggerPx = adjacentDeckTriggerPx)
 
@@ -534,6 +543,30 @@ private fun MemoriesContent(
                         return Offset(available.x, 0f)
                     }
 
+                    override suspend fun onPreFling(available: Velocity): Velocity {
+                        // the finger let go after pulling past an end of the deck: a release far enough along,
+                        // or flung on outward, turns the deck (the pager still settles back on its own)
+                        val direction = edgeAdvanceState.direction
+                        if (direction != null && !deckState.isLoadingAdjacentDeck) {
+                            val outward = when (direction) {
+                                EdgeAdvanceDirection.Forward -> -available.x
+                                EdgeAdvanceDirection.Backward -> available.x
+                            }
+                            if (
+                                shouldAdvanceDeckOnRelease(
+                                    pullProgress = edgeAdvanceState.progress,
+                                    outwardVelocity = outward,
+                                    flingVelocity = adjacentDeckFlingPx,
+                                )
+                            ) {
+                                edgeAdvanceState.reset()
+                                haptics.performTick()
+                                onAdvanceDeck(direction.toMemoryDeckDirection())
+                            }
+                        }
+                        return Velocity.Zero
+                    }
+
                     override suspend fun onPostFling(
                         consumed: Velocity,
                         available: Velocity,
@@ -587,6 +620,13 @@ private fun MemoriesContent(
         }
     }
 }
+
+/**
+ * Whether a release after an edge pull turns the deck: the pull got [MemoriesAdjacentDeckReleaseFraction] of the
+ * way to its trigger, or the finger left still moving outward at [flingVelocity] or faster (px/s).
+ */
+internal fun shouldAdvanceDeckOnRelease(pullProgress: Float, outwardVelocity: Float, flingVelocity: Float): Boolean =
+    pullProgress >= MemoriesAdjacentDeckReleaseFraction || (pullProgress > 0f && outwardVelocity >= flingVelocity)
 
 private fun EdgeAdvanceDirection.toMemoryDeckDirection(): MemoryDeckDirection = when (this) {
     EdgeAdvanceDirection.Backward -> MemoryDeckDirection.Backward

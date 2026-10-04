@@ -16,8 +16,12 @@ import kotlin.math.max
 
 /** Closed-form springs and the beat-finding scans of the prototype. StrictMath = fdlibm, as V8 uses. */
 internal object GrooveMath {
-    /** Compose `spring()` from [x0] to [x1] with initial velocity [v0], evaluated at [t] seconds. */
-    fun spring(z: Double, k: Double, t: Double, x0: Double, x1: Double, v0: Double = 0.0): Double {
+    /**
+     * Where a Compose spring (dampingRatio [z], stiffness [k], mass 1) going from [x0] to [x1] with initial
+     * velocity [v0] is at [t] seconds: the closed-form position, plain math for the award's timeline, not an
+     * animation spec (those come from YoinMotion).
+     */
+    fun springAt(z: Double, k: Double, t: Double, x0: Double, x1: Double, v0: Double = 0.0): Double {
         if (t <= 0) return x0
         val w0 = StrictMath.sqrt(k)
         val d0 = x0 - x1
@@ -32,7 +36,7 @@ internal object GrooveMath {
     }
 
     /**
-     * An upper bound of |spring(t) − x1| from [t] on; used to end a spring run once it can no longer move by
+     * An upper bound of |springAt(t) − x1| from [t] on; used to end a spring run once it can no longer move by
      * more than an epsilon (instead of guessing a duration).
      */
     fun springEnvelope(z: Double, k: Double, t: Double, x0: Double, x1: Double, v0: Double = 0.0): Double {
@@ -55,7 +59,11 @@ internal object GrooveMath {
 
     /** An effects-spring flash: a stiff critically-damped rise, then an exponential fade (no linear tween). */
     fun pulse(t: Double, at: Double, hold: Double): Double =
-        if (t < at) 0.0 else cl(spring(1.0, 2400.0, t - at, 0.0, 1.0)) * StrictMath.exp(-max(0.0, t - at - 0.04) / hold)
+        if (t < at) {
+            0.0
+        } else {
+            cl(springAt(1.0, 2400.0, t - at, 0.0, 1.0)) * StrictMath.exp(-max(0.0, t - at - 0.04) / hold)
+        }
 
     /** The prototype's 1ms scans, including its floating-point step accumulation. */
     inline fun argmax(a: Double, b: Double, fn: (Double) -> Double): Double {
@@ -164,32 +172,32 @@ class GrooveScript internal constructor(
 
     /** Disc (and album label) rotation, degrees; 0 at rest. */
     fun disc(t: Double): Double = when (tier) {
-        1 -> GrooveMath.spring(1.0, 90.0, t, -16.0, 0.0)
-        2 -> GrooveMath.spring(0.74, 70.0, t, -330.0, 0.0)
-        3 -> GrooveMath.spring(0.8, 42.0, t, -360.0, 0.0, 1300.0)
-        else -> GrooveMath.spring(0.82, 44.0, t, -720.0, 0.0, 2000.0)
+        1 -> GrooveMath.springAt(1.0, 90.0, t, -16.0, 0.0)
+        2 -> GrooveMath.springAt(0.74, 70.0, t, -330.0, 0.0)
+        3 -> GrooveMath.springAt(0.8, 42.0, t, -360.0, 0.0, 1300.0)
+        else -> GrooveMath.springAt(0.82, 44.0, t, -720.0, 0.0, 2000.0)
     }
 
     private fun lift(t: Double): Double = if (tier == 4) {
-        GrooveMath.spring(1.0, 200.0, t, 1.0, 1 + 0.18 * a)
+        GrooveMath.springAt(1.0, 200.0, t, 1.0, 1 + 0.18 * a)
     } else {
-        GrooveMath.spring(1.0, 220.0, t, 1.0, 1 + 0.12 * a)
+        GrooveMath.springAt(1.0, 220.0, t, 1.0, 1 + 0.12 * a)
     }
 
     /** Label scale; 1 at rest. */
     fun label(t: Double): Double = when (tier) {
-        1 -> GrooveMath.spring(0.9, 300.0, t, 1 + 0.06 * a, 1.0)
-        2 -> if (t < t2Peak) 1.0 else GrooveMath.spring(0.5, 420.0, t - t2Peak, 1.0, 1.0, -1.1 * a)
-        3 -> if (t < labAt) lift(t) else GrooveMath.spring(0.55, 520.0, t - labAt, lift(labAt), 1.0)
-        else -> if (t < labAt) lift(t) else GrooveMath.spring(0.5, 600.0, t - labAt, lift(labAt), 1.0)
+        1 -> GrooveMath.springAt(0.9, 300.0, t, 1 + 0.06 * a, 1.0)
+        2 -> if (t < t2Peak) 1.0 else GrooveMath.springAt(0.5, 420.0, t - t2Peak, 1.0, 1.0, -1.1 * a)
+        3 -> if (t < labAt) lift(t) else GrooveMath.springAt(0.55, 520.0, t - labAt, lift(labAt), 1.0)
+        else -> if (t < labAt) lift(t) else GrooveMath.springAt(0.5, 600.0, t - labAt, lift(labAt), 1.0)
     }
 
     /** How much of a cut is drawn, 0–1 (clockwise from its start). */
     fun cut(order: Int, t: Double): Double = when (tier) {
-        1 -> GrooveMath.cl(GrooveMath.spring(1.0, 140.0, t, 0.0, 1.0))
-        2 -> GrooveMath.cl(GrooveMath.spring(1.0, 150.0, t - (0.05 + order * 0.05), 0.0, 1.0))
-        3 -> GrooveMath.cl(GrooveMath.spring(1.0, 150.0, t - (0.04 + order * 0.06), 0.0, 1.0))
-        else -> GrooveMath.cl(GrooveMath.spring(1.0, 150.0, t - (0.04 + order * 0.045), 0.0, 1.0))
+        1 -> GrooveMath.cl(GrooveMath.springAt(1.0, 140.0, t, 0.0, 1.0))
+        2 -> GrooveMath.cl(GrooveMath.springAt(1.0, 150.0, t - (0.05 + order * 0.05), 0.0, 1.0))
+        3 -> GrooveMath.cl(GrooveMath.springAt(1.0, 150.0, t - (0.04 + order * 0.06), 0.0, 1.0))
+        else -> GrooveMath.cl(GrooveMath.springAt(1.0, 150.0, t - (0.04 + order * 0.045), 0.0, 1.0))
     }
 
     private fun t3At(order: Int) = 0.72 + order * 0.08
@@ -211,7 +219,7 @@ class GrooveScript internal constructor(
 
     /** The thin ring released from the rim (tier 4 only): scale and opacity. */
     fun burstScale(t: Double): Double =
-        if (tier == 4) 1 + 0.2 * GrooveMath.cl(GrooveMath.spring(1.0, 90.0, t - (TF - 0.04), 0.0, 1.0)) else 1.0
+        if (tier == 4) 1 + 0.2 * GrooveMath.cl(GrooveMath.springAt(1.0, 90.0, t - (TF - 0.04), 0.0, 1.0)) else 1.0
 
     fun burstAlpha(t: Double): Double = if (tier == 4) 0.9 * GrooveMath.pulse(t, TF - 0.04, 0.2) else 0.0
 

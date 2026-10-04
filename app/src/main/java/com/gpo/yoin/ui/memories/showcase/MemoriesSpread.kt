@@ -175,7 +175,13 @@ internal fun rememberSpreadDeckFit(
                 val byStep = SpreadTightness.entries.associateWith { t ->
                     val artist = h(AnnotatedString(memory.supportingText), artistStyle, albumWidth)
                     SpreadCiteHeights(
-                        title = h(title, titleStyles.getValue(t).getValue(kind), citeWidth),
+                        // an album-name title takes two lines at most (the rest runs as a marquee)
+                        title = h(
+                            title,
+                            titleStyles.getValue(t).getValue(kind),
+                            citeWidth,
+                            maxLines = if (kind == MemoryTitleKind.ALBUM) 2 else Int.MAX_VALUE,
+                        ),
                         paragraph = paragraph?.let { h(it, paragraphStyles.getValue(t), citeWidth) },
                         album = if (onlyArtist) {
                             artist
@@ -266,6 +272,7 @@ internal fun MemorySpreadPage(
             cover = cover,
             emblem = emblem,
             interactive = isCurrent,
+            marqueeRunning = atRest,
             onOpenAlbum = onOpenAlbum,
             modifier = Modifier
                 .width(layout.leftPage)
@@ -319,6 +326,7 @@ private fun SpreadExhibit(
     cover: @Composable (Modifier) -> Unit,
     emblem: @Composable (Modifier) -> Unit,
     interactive: Boolean,
+    marqueeRunning: Boolean,
     onOpenAlbum: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -336,12 +344,24 @@ private fun SpreadExhibit(
             emblem = emblem,
         )
         Spacer(Modifier.height(spacing.citeTop.dp))
-        Text(
-            text = memory.memoryTitle?.takeIf(String::isNotBlank) ?: memory.title,
-            style = spreadTitleStyle(kind, fit.tightness),
-            color = MaterialTheme.colorScheme.onSurface,
-            modifier = Modifier.widthIn(max = SpreadCiteMax).semantics { heading() },
-        )
+        val titleModifier = Modifier.widthIn(max = SpreadCiteMax).semantics(mergeDescendants = true) { heading() }
+        if (kind == MemoryTitleKind.ALBUM) {
+            // the title is the album name: two lines at most, the rest runs as a marquee (never an ellipsis)
+            TwoLineMarqueeText(
+                text = memory.title,
+                style = spreadTitleStyle(kind, fit.tightness),
+                color = MaterialTheme.colorScheme.onSurface,
+                running = marqueeRunning,
+                modifier = titleModifier,
+            )
+        } else {
+            Text(
+                text = memory.memoryTitle?.takeIf(String::isNotBlank) ?: memory.title,
+                style = spreadTitleStyle(kind, fit.tightness),
+                color = MaterialTheme.colorScheme.onSurface,
+                modifier = titleModifier,
+            )
+        }
         if (paragraph != null) {
             Spacer(Modifier.height(spacing.paragraphTop.dp))
             YoinParagraphText(
@@ -361,12 +381,11 @@ private fun SpreadExhibit(
                 .semantics(mergeDescendants = true) { },
         ) {
             if (!onlyArtist) {
-                Text(
+                TwoLineMarqueeText(
                     text = memory.title,
                     style = spreadAlbumStyle(fit.tightness),
                     color = MaterialTheme.colorScheme.onSurface,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
+                    running = marqueeRunning,
                 )
                 Spacer(Modifier.height(AlbumArtistGap))
             }

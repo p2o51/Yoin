@@ -1,7 +1,6 @@
 package com.gpo.yoin.ui.memories.emblem
 
 import android.content.res.Configuration
-import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -12,11 +11,7 @@ import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.MaterialShapes
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.State
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithCache
@@ -81,18 +76,12 @@ private const val RimTintWeight = 1f
 private const val HairlineTintWeight = 0.6f
 private val RingTintWeights = floatArrayOf(0.85f, 0.55f)
 
-/** The unrated mould's ambient ripple (prototype CSS keyframes, 4.8 s). */
-private const val RippleCycleMs = 4_800.0
-private val RippleEasing = CubicBezierEasing(0.16f, 0.8f, 0.3f, 1f)
-
 /**
  * The groove emblem of one memory, drawn natively at [size].
  *
  * @param tilt the device tilt in −1…1 screen axes (see [rememberGrooveTilt]); read only in draw.
  * @param award a running award's channels (see [rememberGrooveAwardState]); null draws the resting emblem.
- * @param ambientMotion lets the unrated mould's slow ripple run (turn off when the emblem is off screen).
- * @param reducedMotion stops the ripple: the AMBIENT switch ([rememberGrooveAmbientReduced]), so adaptive
- *   pressure may quiet it too.
+ *   The unrated mould is static: its 4.8 s ripple loop is gone (owner, 2026-10-05).
  * @param captionAlpha the caption's own alpha (the card ⇄ diary morph fades it first, so it never shrinks
  *   into noise); read only in draw.
  */
@@ -104,8 +93,6 @@ fun GrooveEmblem(
     modifier: Modifier = Modifier,
     tilt: () -> Offset = { Offset.Zero },
     award: GrooveAwardChannels? = null,
-    ambientMotion: Boolean = true,
-    reducedMotion: Boolean = rememberGrooveAmbientReduced(),
     captionAlpha: () -> Float = { 1f },
 ) {
     val neutrals = GrooveNeutrals.current
@@ -116,7 +103,6 @@ fun GrooveEmblem(
         grooveColors(model.palette, model.kind, neutrals.dark, surface, neutrals)
     }
     val textMeasurer = rememberTextMeasurer(cacheSize = 4)
-    val ripple = if (geometry.showsRipple && ambientMotion && !reducedMotion) rememberRipplePhase() else null
     val layer = if (award != null) {
         Modifier.graphicsLayer {
             val s = award.emblemScale
@@ -137,7 +123,7 @@ fun GrooveEmblem(
             .then(layer)
             .drawWithCache {
                 val art = GrooveArt(this.size, density, geometry, colors, model, textMeasurer)
-                onDrawBehind { art.draw(this, tilt(), award, ripple?.value, captionAlpha()) }
+                onDrawBehind { art.draw(this, tilt(), award, captionAlpha()) }
             },
     )
 }
@@ -214,12 +200,9 @@ private class GrooveArt(
         if (kind != GrooveKind.Unrated) {
             val text = model.scoreText
             scoreText = measure(text, GrooveType.score(kind, text.length >= 4, g.scoreFontSize), g.scoreFontSize)
+            // only a track average says what it is ("Avg."); an album score stands alone (owner, 2026-10-05)
             captionText = if (g.showsCaption) {
-                measure(
-                    if (kind == GrooveKind.Album) "Album" else "Avg.",
-                    GrooveType.caption(g.captionFontSize),
-                    g.captionFontSize,
-                )
+                measure("Avg.", GrooveType.caption(g.captionFontSize), g.captionFontSize)
             } else {
                 null
             }
@@ -269,7 +252,6 @@ private class GrooveArt(
         scope: DrawScope,
         tiltNow: Offset,
         award: GrooveAwardChannels?,
-        ripplePhase: Float?,
         captionAlpha: Float = 1f,
     ) = with(scope) {
         this@GrooveArt.captionAlpha = captionAlpha.coerceIn(0f, 1f)
@@ -429,12 +411,12 @@ private class GrooveArt(
         val labelAlpha = (award?.labelAlpha ?: 1f).coerceIn(0f, 1f)
         if (labelAlpha > 0f) {
             scale(award?.labelScale ?: 1f, pivot = center) {
-                drawLabel(disc, labelAlpha, ripplePhase)
+                drawLabel(disc, labelAlpha)
             }
         }
     }
 
-    private fun DrawScope.drawLabel(disc: Float, alpha: Float, ripplePhase: Float?) {
+    private fun DrawScope.drawLabel(disc: Float, alpha: Float) {
         val l = g.labelRadius.toFloat()
         when (kind) {
             GrooveKind.Album -> rotate(disc, pivot = center) {
@@ -463,14 +445,6 @@ private class GrooveArt(
                         alpha = alpha,
                         style = Stroke(width = w * k, cap = StrokeCap.Round, pathEffect = mouldDash),
                     )
-                    if (ripplePhase != null) {
-                        val (rs, ro) = ripple(ripplePhase)
-                        if (ro > 0.002f) {
-                            scale(rs, pivot = center) {
-                                drawPath(path, c.slot, alpha = ro * alpha, style = Stroke(width = w * 0.7f * k))
-                            }
-                        }
-                    }
                 }
                 // spindle hole: an empty pressing
                 if (g.showsSpindle) drawCircle(c.slot, g.spindleRadius.toFloat() * k, center, alpha = 0.85f * alpha)
@@ -594,32 +568,6 @@ private class GrooveArt(
     private companion object {
         val Shifts = floatArrayOf(-360f, 0f, 360f)
     }
-}
-
-/** The ripple's scale and opacity at [phase] (0–1 of its 4.8 s cycle), CSS keyframe for keyframe. */
-private fun ripple(phase: Float): Pair<Float, Float> {
-    val scale = if (phase < 0.62f) 1f + 0.3f * RippleEasing.transform(phase / 0.62f) else 1.3f
-    val alpha = when {
-        phase < 0.08f -> 0.5f * RippleEasing.transform(phase / 0.08f)
-        phase < 0.62f -> 0.5f * (1f - RippleEasing.transform((phase - 0.08f) / 0.54f))
-        else -> 0f
-    }
-    return scale to alpha
-}
-
-@Composable
-private fun rememberRipplePhase(): State<Float> {
-    val phase = remember { mutableFloatStateOf(0f) }
-    LaunchedEffect(phase) {
-        var start = -1L
-        while (true) {
-            withFrameNanos { now ->
-                if (start < 0) start = now
-                phase.floatValue = (((now - start) / 1e6) % RippleCycleMs / RippleCycleMs).toFloat()
-            }
-        }
-    }
-    return phase
 }
 
 /** MaterialShapes.Cookie12Sided as a unit path, with its measured centre and outer (lobe) radius. */

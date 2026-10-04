@@ -126,6 +126,67 @@ class AlbumMemoryCandidateBuilderTest {
     }
 
     @Test
+    fun should_excludeSingle_when_albumHasFewerThanFourTracks() = runTest {
+        // "Making Out": one track, reviewed and fully rated — every writing gate passes, the track count doesn't.
+        stubBase(album = album(trackCount = 1), albumRatings = listOf(reviewedAlbum()))
+        coEvery {
+            localRatingDao.getRatings(any(), MediaId.PROVIDER_SUBSONIC, "profile-a")
+        } returns listOf(trackRating(trackIndex = 1, rating = 9f, updatedAt = 1_000L))
+
+        val eligible = builder().build(limit = 6)
+        val pool = builder().build(limit = 6, includeIneligible = true)
+
+        assertTrue(eligible.isEmpty())
+        val single = pool.single()
+        assertFalse(single.isMemoryEligible)
+        assertTrue(single.hasAlbumReview)
+        assertEquals(1f, single.ratingCoverage, 0.001f)
+        assertEquals(eligible, pool.memoryEligible(6))
+    }
+
+    @Test
+    fun should_gateOnFourTracks_when_albumIsAShortEp() = runTest {
+        stubBase(album = album(trackCount = 3), albumRatings = listOf(reviewedAlbum()))
+        coEvery { localRatingDao.getRatings(any(), MediaId.PROVIDER_SUBSONIC, "profile-a") } returns emptyList()
+        assertTrue(builder().build(limit = 6).isEmpty())
+
+        stubBase(album = album(trackCount = MEMORY_MIN_TRACK_COUNT), albumRatings = listOf(reviewedAlbum()))
+        val ep = builder().build(limit = 6).single()
+        assertTrue(ep.isMemoryEligible)
+        assertEquals(4, ep.totalTracks)
+    }
+
+    @Test
+    fun should_countSourceSongCount_when_trackListIsPartial() = runTest {
+        // two tracks loaded, the source says twelve: a long album, not a single
+        stubBase(album = album(trackCount = 2).copy(songCount = 12), albumRatings = listOf(reviewedAlbum()))
+        coEvery { localRatingDao.getRatings(any(), MediaId.PROVIDER_SUBSONIC, "profile-a") } returns emptyList()
+
+        assertTrue(builder().build(limit = 6).single().isMemoryEligible)
+    }
+
+    @Test
+    fun should_leaveTrackGateOpen_when_albumDetailIsUnavailable() = runTest {
+        stubBase(album = album(trackCount = 10), albumRatings = listOf(reviewedAlbum()))
+        coEvery { library.getAlbum(any()) } returns null
+
+        val candidate = builder().build(limit = 6).single()
+
+        assertTrue(candidate.isMemoryEligible)
+        assertEquals(0, candidate.totalTracks)
+    }
+
+    @Test
+    fun should_applyTrackGate_when_memoryTrackCountIsChecked() {
+        assertFalse(meetsMemoryTrackCount(0))
+        assertFalse(meetsMemoryTrackCount(1))
+        assertFalse(meetsMemoryTrackCount(MEMORY_MIN_TRACK_COUNT - 1))
+        assertTrue(meetsMemoryTrackCount(MEMORY_MIN_TRACK_COUNT))
+        assertTrue(meetsMemoryTrackCount(12))
+        assertTrue(meetsMemoryTrackCount(null))
+    }
+
+    @Test
     fun should_keep_candidate_queries_profile_scoped() = runTest {
         val album = album(trackCount = 2)
         stubBase(album)
@@ -551,6 +612,15 @@ class AlbumMemoryCandidateBuilderTest {
         assertNull(candidate.firstPlayedFromHistoryAt)
         assertEquals(0, candidate.playCountFromHistory)
     }
+
+    private fun reviewedAlbum(): AlbumRating = AlbumRating(
+        profileId = "profile-a",
+        albumId = "album-1",
+        provider = MediaId.PROVIDER_SUBSONIC,
+        rating = 8f,
+        review = "review",
+        neoDbReviewUuid = null,
+    )
 
     private fun aggregate(
         albumId: String = "album-1",

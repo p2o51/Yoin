@@ -410,7 +410,7 @@ class GrooveAwardState internal constructor(
             val now = withFrameNanos { it }
             if (t0 < 0) t0 = now
             val t = (now - t0) / 1e9
-            val e = GrooveMath.spring(spec.z, spec.k, t, 1.0, 0.0)
+            val e = GrooveMath.springAt(spec.z, spec.k, t, 1.0, 0.0)
             if (abs(e) < SettleEnd && t > MinSettleS) break
             chans.forEachIndexed { i, c -> values[c.index] = (c.rest + (snap[i] - c.rest) * e).toFloat() }
             bump()
@@ -463,7 +463,7 @@ class GrooveAwardState internal constructor(
     }
 
     private fun springTo(spec: GrooveSprings.Spec, t: Double, from: Double, to: Double, v0: Double = 0.0) =
-        GrooveMath.spring(spec.z, spec.k, t, from, to, v0)
+        GrooveMath.springAt(spec.z, spec.k, t, from, to, v0)
 
     private fun jsRoundTurns(d0: Double): Double = kotlin.math.floor(d0 / 360 + 0.5)
 
@@ -497,8 +497,8 @@ class GrooveAwardState internal constructor(
  *    system animator duration scale at 0, which is what Developer options and Accessibility › Remove
  *    animations set. It is a standing choice, so it is the same before, during and after an open.
  *  · ADAPTIVE PRESSURE ([MotionProfile.AdaptiveReduced]: battery saver, a low-RAM device, any screen reporting
- *    a busy moment) is transient and app-wide. It may only lighten the AMBIENT effects (the tilt sensor, the
- *    unrated ripple); it must never swap the spatial model mid-flow or spend a card's award as a 200ms develop.
+ *    a busy moment) is transient and app-wide. It may only lighten the AMBIENT effects (the tilt sensor); it
+ *    must never swap the spatial model mid-flow or spend a card's award as a 200ms develop.
  */
 internal object MemoriesMotionPolicy {
     /** The choreography's reduced mode, from the window's animator duration scale (null: no scale known). */
@@ -520,7 +520,7 @@ fun rememberGrooveReducedMotion(): Boolean {
 }
 
 /**
- * The ambient effects' switch (the tilt sensor, the unrated mould's ripple): the user's reduced motion, or
+ * The ambient effects' switch (the tilt sensor; the unrated mould no longer ripples): the user's reduced motion, or
  * adaptive pressure (battery saver, low RAM, a busy moment). Never use it for the choreography.
  */
 @Composable

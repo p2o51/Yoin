@@ -312,6 +312,43 @@ class MemoriesDeckCoordinatorTest {
     }
 
     @Test
+    fun should_take_last_heard_and_first_heard_from_play_history_when_visits_surround_the_plays() = runTest {
+        // Played three times (days 2–4), visited before (day 1) and after (day 6): the Memory-side fields
+        // absorb both visits, the play_history fields don't, and only those reach the card.
+        val played = buildAlbumCandidates(count = 1).single().copy(
+            playCount = 3,
+            firstPlayedAt = day(1),
+            lastPlayedAt = day(6),
+            playCountFromHistory = 3,
+            firstPlayedFromHistoryAt = day(2),
+            lastPlayedFromHistoryAt = day(4),
+        )
+        val memory = buildCoordinator(listOf(played)).ensureDeck().single()
+
+        assertEquals(3, memory.playsInYoin)
+        assertEquals(day(2), memory.firstHeardAt)
+        assertEquals(day(4), memory.lastHeardAt)
+    }
+
+    @Test
+    fun should_show_no_plays_and_no_last_heard_when_history_fields_are_null() = runTest {
+        // No play_history row: the history fields are null / 0 even though the Memory-side count is set.
+        val candidate = buildAlbumCandidates(count = 1).single().copy(
+            playCount = 5,
+            firstPlayedAt = day(1),
+            lastPlayedAt = day(6),
+            playCountFromHistory = 0,
+            firstPlayedFromHistoryAt = null,
+            lastPlayedFromHistoryAt = null,
+        )
+        val memory = buildCoordinator(listOf(candidate)).ensureDeck().single()
+
+        assertNull(memory.playsInYoin)
+        assertNull(memory.firstHeardAt)
+        assertNull(memory.lastHeardAt)
+    }
+
+    @Test
     fun should_hide_play_facts_when_album_has_no_play_history() = runTest {
         val candidate = visitOnlyCandidate().copy(albumRating = 9f)
         stubAlbum(candidate = candidate)

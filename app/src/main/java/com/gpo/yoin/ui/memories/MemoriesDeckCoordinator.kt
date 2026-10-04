@@ -262,19 +262,15 @@ class MemoriesDeckCoordinator(
     /**
      * Bug 5 (PLAN §2): every "heard" fact (the top bar's Last heard, the
      * footer's two numerals, the narration's plays and dates, the plays motif)
-     * comes from play_history only, never from VISITED events.
-     *
-     * TEMPORARY FALLBACK: AlbumMemoryCandidate's play_history-only fields
-     * (playCountFromHistory / firstPlayedFromHistoryAt / lastPlayedFromHistoryAt)
-     * are not in HEAD yet, so this compiles against the old fields. playCount
-     * is already play_history-only (a visit-only album still hides its play
-     * facts), but firstPlayedAt / lastPlayedAt still absorb visits.
-     * ONE-LINE SWITCH once `git show HEAD:app/src/main/java/com/gpo/yoin/data/memory/AlbumMemoryCandidate.kt
-     * | grep FromHistory` finds them; the return line becomes:
-     *   memoryPlayHistory(candidate.playCountFromHistory, candidate.firstPlayedFromHistoryAt, candidate.lastPlayedFromHistoryAt)
+     * comes from play_history only, never from VISITED events: the candidate's
+     * *FromHistory fields, which are null / 0 for an album with no history row
+     * (then: no footer, no Last heard, no plays in the copy).
      */
-    private fun historyOf(candidate: AlbumMemoryCandidate): MemoryPlayHistory? =
-        memoryPlayHistory(candidate.playCount, candidate.firstPlayedAt, candidate.lastPlayedAt)
+    private fun historyOf(candidate: AlbumMemoryCandidate): MemoryPlayHistory? = memoryPlayHistory(
+        candidate.playCountFromHistory,
+        candidate.firstPlayedFromHistoryAt,
+        candidate.lastPlayedFromHistoryAt,
+    )
 
     private suspend fun resolveSongMemory(activity: ActivityEvent): MemoryEntry {
         val provider = activity.provider
@@ -470,6 +466,8 @@ class MemoriesDeckCoordinator(
                 ?: candidate.coverArtUrl
                 ?: album?.id?.takeIf { it.provider == MediaId.PROVIDER_SUBSONIC }
                     ?.rawId?.let(::sourceRelativeCoverArtUrl),
+            // the playback theme's own URL for this cover (resolveCoverUrl without a size)
+            paletteCoverUrl = album?.coverArt?.let { cover -> repository.resolveCoverUrl(cover) },
             timestamp = candidate.lastPlayedAt ?: candidate.firstPlayedAt ?: 0L,
             scoreText = score.formatScore(),
             scoreKind = scoreKind,

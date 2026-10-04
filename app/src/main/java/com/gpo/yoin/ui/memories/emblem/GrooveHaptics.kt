@@ -52,7 +52,7 @@ object GrooveBeatTimes {
     val NodMs: Int = run {
         var t = 0.0
         while (t < 0.6) {
-            if (GrooveMath.spring(GrooveSprings.Nod.z, GrooveSprings.Nod.k, t, 0.6, 1.0) >= 1) {
+            if (GrooveMath.springAt(GrooveSprings.Nod.z, GrooveSprings.Nod.k, t, 0.6, 1.0) >= 1) {
                 return@run jsRound(
                     t * 1000,
                 ).toInt()
@@ -66,7 +66,7 @@ object GrooveBeatTimes {
     val NodAgainMs: Int = run {
         var t = 0.02
         while (t < 0.6) {
-            if (GrooveMath.spring(GrooveSprings.Nod.z, GrooveSprings.Nod.k, t, 1.0, 1.0, -7.0) >= 1) {
+            if (GrooveMath.springAt(GrooveSprings.Nod.z, GrooveSprings.Nod.k, t, 1.0, 1.0, -7.0) >= 1) {
                 return@run jsRound(
                     t * 1000,
                 ).toInt()

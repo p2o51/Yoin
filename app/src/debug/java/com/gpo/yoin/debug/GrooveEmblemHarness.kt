@@ -252,7 +252,6 @@ private fun GalleryPanel(options: GrooveHarnessOptions, reduced: Boolean) {
                         size = size.dp,
                         surface = surface,
                         tilt = tilt,
-                        reducedMotion = reduced,
                     )
                 }
             }

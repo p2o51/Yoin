@@ -5,8 +5,6 @@ import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.expandVertically
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
@@ -65,7 +63,9 @@ import com.gpo.yoin.ui.component.seamFade
 import com.gpo.yoin.ui.memories.MemoryWriting
 import com.gpo.yoin.ui.memories.copy.MemoryDates
 import com.gpo.yoin.ui.theme.GoogleSansFlex
+import com.gpo.yoin.ui.theme.LocalYoinMotionRole
 import com.gpo.yoin.ui.theme.YoinMotion
+import com.gpo.yoin.ui.theme.YoinMotionSpeed
 import java.time.LocalDate
 import java.time.ZoneId
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -254,10 +254,15 @@ internal fun MemoryDiaryEntry(
                 }
             }
         }
+        // the house fade wrappers on this surface's role and scheme (the same fast effects spring as before)
+        val motionRole = LocalYoinMotionRole.current
+        val motionScheme = MaterialTheme.motionScheme
         AnimatedVisibility(
             visible = writing && blank,
-            enter = expandVertically(YoinMotion.defaultSpatialSpec()) + fadeIn(YoinMotion.fastEffectsSpec()),
-            exit = shrinkVertically(YoinMotion.defaultSpatialSpec()) + fadeOut(YoinMotion.fastEffectsSpec()),
+            enter = expandVertically(YoinMotion.defaultSpatialSpec()) +
+                YoinMotion.fadeIn(role = motionRole, speed = YoinMotionSpeed.Fast, expressiveScheme = motionScheme),
+            exit = shrinkVertically(YoinMotion.defaultSpatialSpec()) +
+                YoinMotion.fadeOut(role = motionRole, speed = YoinMotionSpeed.Fast, expressiveScheme = motionScheme),
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth().padding(top = 6.dp),

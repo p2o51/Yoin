@@ -30,6 +30,7 @@ import com.gpo.yoin.ui.experience.MotionCapabilityProvider
 import com.gpo.yoin.ui.experience.MotionProfile
 import com.gpo.yoin.ui.experience.rememberShellChromeInsets
 import com.gpo.yoin.ui.experience.rememberYoinWindowInfo
+import com.gpo.yoin.ui.theme.CoverSeedExtractor
 import com.gpo.yoin.ui.theme.YoinTheme
 
 /**
@@ -109,7 +110,7 @@ private fun YoinAppEnvironment(content: @Composable () -> Unit) {
             ) { url ->
                 val request = ImageRequest.Builder(context)
                     .data(url)
-                    .size(Size(200, 200))
+                    .size(Size(CoverSeedExtractor.BitmapSizePx, CoverSeedExtractor.BitmapSizePx))
                     .allowHardware(false)
                     .build()
                 (imageLoader.execute(request) as? SuccessResult)?.image?.toBitmap()

@@ -1,6 +1,5 @@
 package com.gpo.yoin.ui.memories.showcase
 
-import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.WindowInsets
@@ -36,6 +35,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.nestedScroll
@@ -51,7 +51,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.max
 import com.gpo.yoin.symbols.YoinSymbols
 import com.gpo.yoin.ui.component.ExpressiveMediaArtwork
-import com.gpo.yoin.ui.component.rememberExpressiveBackdropColors
 import com.gpo.yoin.ui.experience.DeckIndicatorTransitionState
 import com.gpo.yoin.ui.experience.RevealState
 import com.gpo.yoin.ui.memories.MemoryEntry
@@ -82,6 +81,7 @@ import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinMotionRole
 import java.time.LocalDate
 import java.time.ZoneId
+import kotlin.math.floor
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 
@@ -120,7 +120,7 @@ class MemoriesShowcaseFixtures(
  * states on a phone and (enlarged) on a Medium, the spread ([MemorySpreadPage]) on an Expanded container.
  *
  * [reducedMotion] is the user's setting and drives the choreography (morph, award); [ambientReduced] also
- * folds in adaptive pressure and only quiets the tilt and the ripple (MemoriesMotionPolicy).
+ * folds in adaptive pressure and only quiets the tilt (MemoriesMotionPolicy).
  */
 @Composable
 internal fun MemoriesShowcase(
@@ -290,7 +290,6 @@ internal fun MemoriesShowcase(
                                 tilt = tilt,
                                 isCurrent = isCurrent,
                                 reducedMotion = reducedMotion,
-                                ambientReduced = ambientReduced,
                                 captionAlpha = { 1f },
                                 modifier = m,
                             )
@@ -314,7 +313,6 @@ internal fun MemoriesShowcase(
                         awards = awards,
                         tilt = tilt,
                         reducedMotion = reducedMotion,
-                        ambientReduced = ambientReduced,
                         lastHeard = lastHeard,
                         today = day,
                         zone = zone,
@@ -353,14 +351,34 @@ internal fun MemoriesShowcase(
     }
 }
 
-/** The ambient wash in the current card's palette; a page change re-tints it on the effects spring. */
+/**
+ * The ambient wash in the cards' palettes, following the finger: its colours are a direct lerp between the two
+ * cards either side of the pager's position, read in the draw phase, so a swipe re-tints it frame by frame
+ * (and a fling, a dot tap or a deck switch with it) instead of flipping at the halfway mark.
+ */
 @Composable
 private fun DeckAurora(palettes: List<MemoryPalette>, pagerState: PagerState, visible: Boolean) {
-    val current = palettes[pagerState.currentPage.coerceIn(0, palettes.lastIndex)]
-    val spec = YoinMotion.defaultEffectsSpec<Color>(role = YoinMotionRole.Standard)
-    val base by animateColorAsState(current.base, spec, label = "memoriesAuroraBase")
-    val accent by animateColorAsState(current.accent, spec, label = "memoriesAuroraAccent")
-    Box(Modifier.fillMaxSize().memoriesAuroraBackground(baseColor = base, accentColor = accent, visible = visible))
+    val current by rememberUpdatedState(palettes)
+    Box(
+        Modifier
+            .fillMaxSize()
+            .memoriesAuroraBackground(
+                colors = {
+                    deckAuroraColors(current, pagerState.currentPage + pagerState.currentPageOffsetFraction)
+                },
+                visible = visible,
+            ),
+    )
+}
+
+/** The wash's base and accent at deck [position] (page + offset): the two neighbouring palettes, lerped. */
+internal fun deckAuroraColors(palettes: List<MemoryPalette>, position: Float): Pair<Color, Color> {
+    if (palettes.isEmpty()) return Color.Transparent to Color.Transparent
+    val at = position.coerceIn(0f, palettes.lastIndex.toFloat())
+    val from = floor(at).toInt()
+    val to = (from + 1).coerceAtMost(palettes.lastIndex)
+    val f = at - from
+    return lerp(palettes[from].base, palettes[to].base, f) to lerp(palettes[from].accent, palettes[to].accent, f)
 }
 
 /** The album cover, bare: the fixture's drawn cover in the harness, the network art in the app. */
@@ -398,7 +416,6 @@ private fun ShowcasePage(
     awards: MemoriesAwardLifecycle,
     tilt: GrooveTiltState,
     reducedMotion: Boolean,
-    ambientReduced: Boolean,
     lastHeard: String?,
     today: LocalDate,
     zone: ZoneId,
@@ -416,6 +433,10 @@ private fun ShowcasePage(
     val diaryOpen by remember(diary) { derivedStateOf { diary.fraction >= 0.5f } }
     val diaryAtRest by remember(pagerState, diary, page) {
         derivedStateOf { pagerState.settledPage == page && !pagerState.isScrollInProgress && diary.fraction >= 1f }
+    }
+    // a long album name's marquee runs on the settled card only (a neighbour mid-swipe holds its start)
+    val cardAtRest by remember(pagerState, page) {
+        derivedStateOf { pagerState.settledPage == page && !pagerState.isScrollInProgress }
     }
     val density = LocalDensity.current
     val scroll = rememberScrollState()
@@ -505,13 +526,13 @@ private fun ShowcasePage(
                     tilt = tilt,
                     isCurrent = isCurrent,
                     reducedMotion = reducedMotion,
-                    ambientReduced = ambientReduced,
                     captionAlpha = { morph.sealCaptionAlpha() },
                     modifier = m,
                 )
             },
             morph = morph,
             interactive = !diaryOpen,
+            marqueeRunning = cardAtRest && !diaryOpen,
             modifier = Modifier
                 .align(Alignment.TopCenter)
                 .then(if (wide) Modifier.widthIn(max = MemoryCardTokens.Column) else Modifier)
@@ -551,7 +572,6 @@ internal fun CardEmblem(
     tilt: GrooveTiltState,
     isCurrent: Boolean,
     reducedMotion: Boolean,
-    ambientReduced: Boolean,
     captionAlpha: () -> Float,
     modifier: Modifier,
 ) {
@@ -587,9 +607,6 @@ internal fun CardEmblem(
         modifier = modifier,
         tilt = { if (current) tilt.offset else Offset.Zero },
         award = award,
-        ambientMotion = isCurrent,
-        // the ripple is ambient: adaptive pressure may quiet it, the award above never
-        reducedMotion = ambientReduced,
         captionAlpha = captionAlpha,
     )
 }
@@ -635,8 +652,6 @@ private fun DiaryEmblem(
         surface = GrooveSurface.Bar,
         modifier = modifier,
         award = award,
-        ambientMotion = false,
-        reducedMotion = reducedMotion,
     )
 }
 
@@ -673,20 +688,6 @@ internal fun String.artistOnly(): String {
     if (cut < 0) return this
     val tail = substring(cut + 3)
     return if (tail.isNotEmpty() && tail.all(Char::isDigit)) substring(0, cut) else this
-}
-
-/** The album's palette: the fixture's, or one built from the cover's extracted backdrop colours. */
-@Composable
-private fun rememberMemoryPalette(memory: MemoryEntry, fixture: MemoryPalette?): MemoryPalette {
-    if (fixture != null) return fixture
-    val colors = rememberExpressiveBackdropColors(
-        model = memory.coverArtUrl,
-        fallbackBaseColor = MaterialTheme.colorScheme.primary,
-        fallbackAccentColor = MaterialTheme.colorScheme.tertiary,
-    )
-    return remember(colors.baseColor, colors.accentColor) {
-        MemoryPalette.fromBackdrop(colors.baseColor, colors.accentColor)
-    }
 }
 
 private const val RestEpsilon = 0.001f

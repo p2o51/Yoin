@@ -47,7 +47,6 @@ import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.LineBreak
 import androidx.compose.ui.text.style.LineHeightStyle
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Constraints
@@ -77,7 +76,11 @@ import kotlin.math.roundToInt
  *
  *  · The exhibit sits at a fixed height — air1, the cover with the groove emblem pinned to its lower-right
  *    corner, the title, the album row — so every card's cover top is the same.
- *  · The teaser anchors to the bottom — the excerpt, [Diary · N notes | Go to album], "Swipe up for Home".
+ *  · The teaser anchors to the bottom — the excerpt, [Diary · N notes | Go to album]. No "Swipe up for Home"
+ *    cue (owner, 2026-10-05: the bar's Home pill already says it); the buttons keep [MemoryCardTokens.TeaserBottom]
+ *    of air under them.
+ *  · An album name takes at most two lines and runs the rest as a marquee, never an ellipsis
+ *    ([TwoLineMarqueeText]).
  *  · air2 takes the slack. The excerpt is the first candidate (whole sentences, best first) whose block fits
  *    the slot between the album row (+24) and the buttons (−16); the last candidate is the attribution line
  *    alone, so nothing is ever cut or ellipsized.
@@ -106,6 +109,13 @@ internal object MemoryCardTokens {
     val ButtonHeight: Dp = 48.dp
     val ButtonGap: Dp = 10.dp
 
+    /**
+     * Air under the button row (the nav bar's inset wins when it is taller). The swipe cue's 48dp band is gone:
+     * about a quarter of it comes back here, so the row doesn't sink onto the edge, and the rest goes to air2.
+     */
+    val TeaserBottom: Dp = 40.dp
+    val TeaserBottomShort: Dp = 28.dp
+
     /** The Diary button's tonal ground: the album ink at 14%. */
     const val DiaryTonalAlpha = 0.14f
 
@@ -122,11 +132,10 @@ internal data class MemoryCardMetrics(
     /** The container is Medium: the card sits in a 480 column and takes the capped teaser excerpt. */
     val wide: Boolean,
     /** Under the teaser (Medium: plus half the slack over the 120dp air cap, [balanceMedium]). */
-    val bottomPadding: Dp = if (short) 22.dp else 30.dp,
+    val bottomPadding: Dp = if (short) MemoryCardTokens.TeaserBottomShort else MemoryCardTokens.TeaserBottom,
 ) {
     val titleTop: Dp get() = if (short) 22.dp else 30.dp
     val albumTop: Dp get() = if (short) 16.dp else 20.dp
-    val swipeTop: Dp get() = if (short) 8.dp else 14.dp
     val titleMaxWidth: Dp get() = if (wide) 424.dp else 340.dp
     val excerptMaxWidth: Dp get() = if (wide) 400.dp else 324.dp
 }
@@ -169,7 +178,6 @@ internal fun rememberCardMetrics(
     val artistStyle = cardArtistStyle()
     val excerptStyles = MemoryExcerptSize.entries.associateWith { excerptStyle(it) }
     val attribution = attributionStyle()
-    val swipe = swipeCueStyle()
     return remember(memories, base, width, height, statusTop, navBottom, density, titleStyles, excerptStyles) {
         with(density) {
             val inner = (minOf(width, MemoryCardTokens.Column) - MemoryCardTokens.SidePadding * 2).toPx()
@@ -185,8 +193,7 @@ internal fun rememberCardMetrics(
                 return measured.size.height.toDp().value
             }
             val bottom = maxOf(base.bottomPadding, navBottom)
-            val teaser = MemoryCardTokens.ButtonHeight.value + base.swipeTop.value + SwipeCueIcon.value +
-                if (base.short) 0f else h("Swipe up for Home", swipe, inner.roundToInt())
+            val teaser = MemoryCardTokens.ButtonHeight.value
             val avail = (height - statusTop - MemoriesTopBarTokens.Height - bottom).value
             val gap = MemoryCardTokens.ExcerptGap.value
             val clear = MemoryCardTokens.ExcerptClear.value
@@ -199,9 +206,11 @@ internal fun rememberCardMetrics(
                 } else {
                     base.albumTop.value + h(memory.title, albumStyle, titleWidth, maxLines = 2) + 2f + artist
                 }
+                // the album name as the title takes at most two lines too (the rest runs as a marquee)
+                val titleLines = if (kind == MemoryTitleKind.ALBUM) 2 else Int.MAX_VALUE
                 val exhibit = base.air1.value + base.cover.value +
                     base.seal.value * MemoryCardTokens.SealOverhangBottom +
-                    base.titleTop.value + h(title, titleStyles.getValue(kind), titleWidth) + row
+                    base.titleTop.value + h(title, titleStyles.getValue(kind), titleWidth, titleLines) + row
                 val candidates = memory.excerptCandidatesMedium
                 val heights = HashMap<Int, Float>()
                 fun block(i: Int): Float = heights.getOrPut(i) {
@@ -267,6 +276,7 @@ internal fun MemoryCardFace(
     modifier: Modifier = Modifier,
     morph: MemoryPageMorph? = null,
     interactive: Boolean = true,
+    marqueeRunning: Boolean = true,
 ) {
     val excerpts = if (metrics.wide) memory.excerptCandidatesMedium else memory.excerptCandidates
     val face = if (morph != null) {
@@ -284,7 +294,14 @@ internal fun MemoryCardFace(
         val height = constraints.maxHeight
         val inner = Constraints(maxWidth = (width - MemoryCardTokens.SidePadding.roundToPx() * 2).coerceAtLeast(0))
         val top = subcompose(CardSlot.Exhibit) {
-            CardExhibit(memory = memory, metrics = metrics, cover = cover, emblem = emblem, morph = morph)
+            CardExhibit(
+                memory = memory,
+                metrics = metrics,
+                cover = cover,
+                emblem = emblem,
+                morph = morph,
+                marqueeRunning = marqueeRunning,
+            )
         }.map { it.measure(inner) }
         // the button row may use the side padding on a narrow phone: it never wraps
         val bottom = subcompose(CardSlot.Teaser) {
@@ -338,6 +355,7 @@ private fun CardExhibit(
     cover: @Composable (Modifier) -> Unit,
     emblem: @Composable (Modifier) -> Unit,
     morph: MemoryPageMorph?,
+    marqueeRunning: Boolean,
 ) {
     val titleKind = memory.cardTitleKind()
     val title = memory.memoryTitle?.takeIf(String::isNotBlank) ?: memory.title
@@ -355,15 +373,27 @@ private fun CardExhibit(
             emblem = { m -> emblem(m.then(sealLayer ?: Modifier)) },
         )
         Spacer(Modifier.height(metrics.titleTop))
-        Text(
-            text = title,
-            style = cardTitleStyle(titleKind),
-            color = MaterialTheme.colorScheme.onSurface,
-            modifier = Modifier
-                .widthIn(max = metrics.titleMaxWidth)
-                .semantics { heading() }
-                .then(titleLayer ?: Modifier),
-        )
+        val titleModifier = Modifier
+            .widthIn(max = metrics.titleMaxWidth)
+            .semantics(mergeDescendants = true) { heading() }
+            .then(titleLayer ?: Modifier)
+        if (titleKind == MemoryTitleKind.ALBUM) {
+            // fallback A: the title is the album name, two lines at most
+            TwoLineMarqueeText(
+                text = title,
+                style = cardTitleStyle(titleKind),
+                color = MaterialTheme.colorScheme.onSurface,
+                running = marqueeRunning,
+                modifier = titleModifier,
+            )
+        } else {
+            Text(
+                text = title,
+                style = cardTitleStyle(titleKind),
+                color = MaterialTheme.colorScheme.onSurface,
+                modifier = titleModifier,
+            )
+        }
         // the album row reads as one line: "album, artist · year"
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
@@ -374,12 +404,11 @@ private fun CardExhibit(
                 Spacer(Modifier.height(6.dp))
             } else {
                 Spacer(Modifier.height(metrics.albumTop))
-                Text(
+                TwoLineMarqueeText(
                     text = memory.title,
                     style = cardAlbumStyle(),
                     color = MaterialTheme.colorScheme.onSurface,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
+                    running = marqueeRunning,
                     modifier = Modifier.widthIn(max = metrics.titleMaxWidth).then(rowLayer),
                 )
                 Spacer(Modifier.height(2.dp))
@@ -525,26 +554,6 @@ private fun CardTeaser(
                 }
             }
         }
-        Spacer(Modifier.height(metrics.swipeTop))
-        // the cue only: a swipe up anywhere goes Home (the gesture router), the words are not a control
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            modifier = Modifier.clearAndSetSemantics { },
-        ) {
-            Icon(
-                imageVector = YoinSymbols.ChevronUp,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(SwipeCueIcon),
-            )
-            if (!metrics.short) {
-                Text(
-                    text = "Swipe up for Home",
-                    style = swipeCueStyle(),
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        }
     }
 }
 
@@ -586,14 +595,8 @@ internal fun cardArtistStyle(): TextStyle =
 internal fun attributionStyle(): TextStyle =
     cardText(GoogleSansFlex, FontWeight.Medium, 12.sp, 1.3f).copy(letterSpacing = 0.1.sp)
 
-@Composable
-internal fun swipeCueStyle(): TextStyle = cardText(GoogleSansFlex, FontWeight.Medium, 11.5.sp, 1.2f)
-
 /** Between a quote and its signature. */
 internal val ExcerptAttributionGap: Dp = 8.dp
-
-/** The swipe cue's chevron. */
-internal val SwipeCueIcon: Dp = 20.dp
 
 /** The user's own words, in the system face (never the serif): three sizes by length. */
 @Composable

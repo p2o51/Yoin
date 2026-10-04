@@ -46,6 +46,16 @@ internal fun Modifier.memoriesAuroraBackground(
     baseColor: Color,
     accentColor: Color,
     visible: Boolean,
+): Modifier = memoriesAuroraBackground(colors = { baseColor to accentColor }, visible = visible)
+
+/**
+ * The same wash with its two colours read in the draw phase: the deck lerps them with the pager's position
+ * every frame of a swipe, and only the draw is invalidated (no recomposition per frame).
+ */
+@Composable
+internal fun Modifier.memoriesAuroraBackground(
+    colors: () -> Pair<Color, Color>,
+    visible: Boolean,
 ): Modifier {
     val flowPhase = remember { Animatable(0f) }
     val breathPhase = remember { Animatable(0f) }
@@ -92,13 +102,14 @@ internal fun Modifier.memoriesAuroraBackground(
         val flow = flowPhase.value
         val breath = breathPhase.value
 
-        val colors = listOf(baseColor, accentColor, lerp(baseColor, accentColor, 0.5f))
+        val (baseColor, accentColor) = colors()
+        val blooms = listOf(baseColor, accentColor, lerp(baseColor, accentColor, 0.5f))
         val anchors = listOf(
             Offset(w * 0.24f, h * 0.22f),
             Offset(w * 0.78f, h * 0.44f),
             Offset(w * 0.34f, h * 0.80f),
         )
-        colors.forEachIndexed { i, color ->
+        blooms.forEachIndexed { i, color ->
             val anchor = anchors[i]
             val angle = TWO_PI * flow * (0.6f + 0.4f * i) + i * TWO_PI / 3f
             val center = Offset(
@@ -109,7 +120,7 @@ internal fun Modifier.memoriesAuroraBackground(
             val depth = 1f - i * 0.18f
             val cycled = lerp(
                 color,
-                colors[(i + 1) % colors.size],
+                blooms[(i + 1) % blooms.size],
                 0.5f + 0.5f * sin(TWO_PI * flow + i.toFloat()),
             )
             val radius = maxDim * (0.5f + 0.12f * wobble) * depth

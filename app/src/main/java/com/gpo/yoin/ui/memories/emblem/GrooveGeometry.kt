@@ -20,8 +20,8 @@ import kotlin.math.min
 enum class GrooveKind { Album, Average, Unrated }
 
 /**
- * Where the emblem sits. [Cover]: pinned on the artwork (opaque ground, hairline when unrated, the ripple).
- * [Bar]: the diary title's native 48dp copy (rim inset only .5, no ground colour, no ripple).
+ * Where the emblem sits. [Cover]: pinned on the artwork (opaque ground, hairline when unrated).
+ * [Bar]: the diary title's native 48dp copy (rim inset only .5, no ground colour).
  */
 enum class GrooveSurface { Cover, Bar }
 
@@ -124,7 +124,6 @@ data class GrooveGeometry(
     val albumLabelRingStroke: Double get() = size * 0.007
     val averageLabelStroke: Double get() = max(1.2, size * 0.017)
     val unratedLabelStroke: Double get() = if (tiny) 1.4 else max(1.1, size * 0.013)
-    val showsRipple: Boolean get() = kind == GrooveKind.Unrated && size >= 64 && surface != GrooveSurface.Bar
     val showsSpindle: Boolean get() = kind == GrooveKind.Unrated && size < 64
     val spindleRadius: Double get() = max(1.6, size * 0.045)
 
@@ -135,7 +134,9 @@ data class GrooveGeometry(
             size >= 64 -> max(size * 0.29, 21.5)
             else -> max(15.5, size * 0.36)
         }
-    val showsCaption: Boolean get() = size >= 88
+
+    /** "Avg." under a track average (≥ 88dp); an album score has no caption (owner, 2026-10-05). */
+    val showsCaption: Boolean get() = kind == GrooveKind.Average && size >= 88
     val captionFontSize: Double get() = max(10.0, size * (if (big) 0.1 else 0.105))
     val showsUnratedWord: Boolean get() = kind == GrooveKind.Unrated && size >= 64
     val unratedFontSize: Double get() = if (size < 88) 9.5 else max(10.0, size * 0.125)

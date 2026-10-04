@@ -1,6 +1,7 @@
 package com.gpo.yoin.ui.memories.showcase
 
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.luminance
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
@@ -85,6 +86,23 @@ class MemoryPaletteTest {
         assertArrayEquals(hex("#9a90cc").rgb8(), mixSrgb(hex("#3b2d8f"), hex("#d9d2f4"), 0.6).rgb8())
         assertEquals(0.38, toFixed(0.375, 2), 0.0)
         assertEquals(6.0, toFixed(5.95, 1), 0.0)
+    }
+
+    @Test
+    fun should_lerp_aurora_between_neighbouring_cards_when_pager_is_between_pages() {
+        val palettes = listOf(MemoryPaletteSamples.M1, MemoryPaletteSamples.M3, MemoryPaletteSamples.M4)
+        // at rest on a page: that card's colours
+        assertEquals(MemoryPaletteSamples.M3.base to MemoryPaletteSamples.M3.accent, deckAuroraColors(palettes, 1f))
+        // halfway between 0 and 1: neither card's, the lerp of both (it follows the finger)
+        val (base, accent) = deckAuroraColors(palettes, 0.5f)
+        assertEquals(lerp(MemoryPaletteSamples.M1.base, MemoryPaletteSamples.M3.base, 0.5f), base)
+        assertEquals(
+            lerp(MemoryPaletteSamples.M1.accent, MemoryPaletteSamples.M3.accent, 0.5f),
+            accent,
+        )
+        // overscroll past either end clamps to the end card
+        assertEquals(MemoryPaletteSamples.M4.base, deckAuroraColors(palettes, 2.3f).first)
+        assertEquals(MemoryPaletteSamples.M1.base, deckAuroraColors(palettes, -0.2f).first)
     }
 
     @Test

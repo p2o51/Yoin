@@ -7,6 +7,7 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -64,6 +65,18 @@ class GrooveGeometryTest {
     }
 
     @Test
+    fun should_caption_only_the_track_average_when_large() {
+        val rated = List(10) { it < 5 }
+        // owner, 2026-10-05: an album score stands alone; "Avg." stays under a track average
+        assertFalse(grooveGeometry(rated, 96.0, GrooveKind.Album, GrooveSurface.Cover).showsCaption)
+        assertFalse(grooveGeometry(rated, 124.0, GrooveKind.Album, GrooveSurface.Cover).showsCaption)
+        assertTrue(grooveGeometry(rated, 96.0, GrooveKind.Average, GrooveSurface.Cover).showsCaption)
+        assertFalse(grooveGeometry(rated, 72.0, GrooveKind.Average, GrooveSurface.Cover).showsCaption)
+        // "Unrated" is the word on the mould, not a caption
+        assertTrue(grooveGeometry(rated, 96.0, GrooveKind.Unrated, GrooveSurface.Cover).showsUnratedWord)
+    }
+
+    @Test
     fun should_match_prototype_render_constants_when_drawn() {
         cases(setOf(124, 96, 72, 48, 44, 40)).forEach { case ->
             val model = models.getValue(case.str("id"))
@@ -90,7 +103,12 @@ class GrooveGeometryTest {
                 assertEquals("$label score weight", s.int("weight"), if (model.kind == GrooveKind.Album) 690 else 640)
                 assertEquals("$label score wdth", s.int("wdth"), if (model.scoreText.length >= 4) 76 else 92)
             }
-            val caps = p.arr("caps").map { it.jsonPrimitive.double }
+            // owner, 2026-10-05: the prototype's "Album" caption is gone; only "Avg." and "Unrated" remain
+            val caps = if (model.kind == GrooveKind.Album) {
+                emptyList()
+            } else {
+                p.arr("caps").map { it.jsonPrimitive.double }
+            }
             val expectedCaps = when {
                 model.kind != GrooveKind.Unrated && g.showsCaption -> listOf(g.captionFontSize)
                 g.showsUnratedWord -> listOf(g.unratedFontSize)
@@ -108,7 +126,7 @@ class GrooveGeometryTest {
             if (!p.isNull("burstWidth")) assertEquals("$label burst", p.num("burstWidth"), g.burstWidth, probeEps)
             assertEquals("$label spindle", !p.isNull("spindleRadius"), g.showsSpindle)
             if (g.showsSpindle) assertEquals("$label spindle r", p.num("spindleRadius"), g.spindleRadius, probeEps)
-            assertEquals("$label ripple", p.bool("ripple"), g.showsRipple)
+            // owner, 2026-10-05: the unrated mould's 4.8s ripple (the probe's `ripple`) is gone; the disc is static
             val tintRings = when (model.kind) {
                 GrooveKind.Unrated -> if (g.surface == GrooveSurface.Cover && !g.tiny) 1 else 0
                 else -> 1 + g.rings.count { it.index < 2 && it.runs.isNotEmpty() }

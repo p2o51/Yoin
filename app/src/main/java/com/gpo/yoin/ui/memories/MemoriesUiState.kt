@@ -78,6 +78,11 @@ data class MemoryEntry(
     val supportingText: String,
     val metaText: String?,
     val coverArtUrl: String?,
+    /**
+     * The cover the album's colour is read from: the URL the playback theme decodes for the same cover (no
+     * size), so Memories and Now Playing read one cover the same way. Null: [coverArtUrl].
+     */
+    val paletteCoverUrl: String? = null,
     val timestamp: Long,
     val scoreText: String,
     val scoreKind: MemoryScoreKind = MemoryScoreKind.NONE,

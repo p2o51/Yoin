@@ -41,6 +41,28 @@ class MemoryCardFaceTest {
     }
 
     @Test
+    fun should_keep_air_under_buttons_when_swipe_cue_is_gone() {
+        // no "Swipe up for Home" under the buttons (owner, 2026-10-05): the row keeps 40 / 28dp of air
+        assertEquals(MemoryCardTokens.TeaserBottom, memoryCardMetrics(412.dp, 915.dp).bottomPadding)
+        assertEquals(MemoryCardTokens.TeaserBottomShort, memoryCardMetrics(411.dp, 731.dp).bottomPadding)
+        assertEquals(40.dp, MemoryCardTokens.TeaserBottom)
+        assertEquals(28.dp, MemoryCardTokens.TeaserBottomShort)
+    }
+
+    @Test
+    fun should_marquee_the_rest_when_album_name_needs_more_than_two_lines() {
+        val name = "The Extraordinarily Long Afternoon We Spent Waiting For The Rain"
+        // two lines hold it: wrap as usual
+        assertNull(twoLineMarqueeSplit(name, lineCount = 2, firstLineEnd = 30))
+        assertNull(twoLineMarqueeSplit(name, lineCount = 1, firstLineEnd = name.length))
+        // three lines: the first line as it wraps, the rest in one marquee line, nothing dropped
+        val split = twoLineMarqueeSplit(name, lineCount = 3, firstLineEnd = 20)!!
+        assertEquals("The Extraordinarily", split.first)
+        assertEquals("Long Afternoon We Spent Waiting For The Rain", split.rest)
+        assertEquals(name, split.first + " " + split.rest)
+    }
+
+    @Test
     fun should_pin_emblem_to_cover_corner_by_its_own_size() {
         // right −0.3s, bottom −0.24s: the 96 hangs 28.8dp right of and 23.04dp below the 256 cover
         val (x, y) = sealOffset(256.dp, 96.dp)

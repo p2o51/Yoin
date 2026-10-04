@@ -175,9 +175,13 @@ class AlbumMemoryCandidateBuilder(
             noteStats.lastUpdatedAt,
         ).maxOrNull()
         val askAiCount = countAskAiRows(tracks)
-        val isEligible = ratingCoverage >= MEMORY_RATING_COVERAGE_GATE ||
+        // Singles and short EPs never become Memories (MEMORY_MIN_TRACK_COUNT); the count is the album's own,
+        // so a partly loaded track list can't hide a long album. Unknown (no detail) defers to the gates.
+        val albumTrackCount = album?.let { loaded -> maxOf(loaded.tracks.size, loaded.songCount ?: 0) }
+        val passesWritingGate = ratingCoverage >= MEMORY_RATING_COVERAGE_GATE ||
             hasAlbumReview ||
             noteCount >= MEMORY_NOTE_COUNT_GATE
+        val isEligible = passesWritingGate && meetsMemoryTrackCount(albumTrackCount)
 
         return AlbumMemoryCandidate(
             profileId = profileId,

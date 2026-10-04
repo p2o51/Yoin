@@ -38,6 +38,19 @@ data class AlbumMemoryCandidate(
     val sessionId: Long = stableAlbumMemorySessionId(profileId, provider, albumId)
 }
 
+/**
+ * The fewest tracks an album needs to become a Memory (owner, 2026-10-05): singles and short EPs never do
+ * ("Making Out", one track); an EP of four or more is fine. Part of [AlbumMemoryCandidate.isMemoryEligible].
+ */
+const val MEMORY_MIN_TRACK_COUNT = 4
+
+/**
+ * The track-count half of the Memory rule. [trackCount] is the album's own count (the larger of the loaded
+ * track list and the source's songCount); null when the album detail could not be loaded, which leaves the
+ * album to the other gates rather than dropping one the user wrote about over a failed fetch.
+ */
+fun meetsMemoryTrackCount(trackCount: Int?): Boolean = trackCount == null || trackCount >= MEMORY_MIN_TRACK_COUNT
+
 /** The Memory pool: eligible candidates, in input order, capped at [limit]. */
 fun List<AlbumMemoryCandidate>.memoryEligible(limit: Int): List<AlbumMemoryCandidate> =
     filter(AlbumMemoryCandidate::isMemoryEligible).take(limit)
