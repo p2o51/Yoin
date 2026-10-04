@@ -133,9 +133,11 @@ class MemoriesViewModel(
     }
 
     /**
-     * Rebuild the deck stopped on [focusSessionId] (home teaser entry). Cancels
-     * any in-flight load so a teaser tap always wins, reuses the cached candidate
-     * pool (no full re-scan), and clears the pending focus request when done.
+     * Rebuild the deck stopped on [focusSessionId] (a Home memory pill / grid
+     * card tap). Cancels any in-flight load so the tap always wins, rebuilds
+     * the candidate pool once (the coordinator never lands a focus tap on a
+     * stale card or a cached empty pool), and clears the pending focus request
+     * when done.
      */
     private fun ensureLoadedFocused(focusSessionId: Long) {
         initialLoadJob?.cancel()

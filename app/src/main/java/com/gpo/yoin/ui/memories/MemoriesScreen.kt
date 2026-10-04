@@ -61,6 +61,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.toShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -323,6 +324,8 @@ private fun MemoriesContent(
     syncingEntityIds: Set<String> = emptySet(),
     onSyncToNeoDb: (MemoryEntry) -> Unit = {},
 ) {
+    // Derived: the deck's pull frames flip this once, not per frame.
+    val auroraVisible by remember(revealState) { derivedStateOf { revealState.fraction < 0.999f } }
     val density = LocalDensity.current
     val haptics = rememberYoinHaptics()
     val dismissHintPx = with(density) { BackMotionTokens.MemoriesDismissTrigger.toPx() }
@@ -455,7 +458,7 @@ private fun MemoriesContent(
                     .memoriesAuroraBackground(
                         baseColor = auroraColors.baseColor,
                         accentColor = auroraColors.accentColor,
-                        visible = revealState.fraction < 0.999f,
+                        visible = auroraVisible,
                     )
                     .padding(top = WindowInsets.systemBars.asPaddingValues().calculateTopPadding() + 12.dp)
                     // Landscape: the Button Group hides here, so the card only

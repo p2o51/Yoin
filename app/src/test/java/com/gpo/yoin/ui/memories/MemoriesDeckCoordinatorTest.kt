@@ -105,6 +105,63 @@ class MemoriesDeckCoordinatorTest {
         assertTrue(memory.narrativeCopy?.isNotBlank() == true)
     }
 
+    @Test
+    fun should_notCacheEmptyPool_when_firstBuildIsEmpty() = runTest {
+        // Cold start: the first build races the active source and comes back empty.
+        val coordinator = buildCoordinator(emptyList())
+        assertTrue(coordinator.ensureDeck().isEmpty())
+
+        coEvery { repository.getAlbumMemoryCandidates(limit = 48) } returns buildAlbumCandidates(count = 4)
+        val deck = coordinator.ensureDeck()
+        coordinator.ensureDeck()
+
+        assertEquals(4, deck.size)
+        // Empty build not cached → rebuilt once; the non-empty pool IS cached.
+        coVerify(exactly = 2) { repository.getAlbumMemoryCandidates(limit = 48) }
+    }
+
+    @Test
+    fun should_rebuildPool_when_focusRequestedAfterEmptyPool() = runTest {
+        val coordinator = buildCoordinator(emptyList())
+        assertTrue(coordinator.ensureDeck().isEmpty())
+
+        val candidates = buildAlbumCandidates(count = 8)
+        coEvery { repository.getAlbumMemoryCandidates(limit = 48) } returns candidates
+        val focusSessionId = candidates[5].sessionId
+        val deck = coordinator.ensureDeckFocused(focusSessionId)
+
+        assertEquals(focusSessionId, deck.first().sourceActivityId)
+        val session = sessionStore.state.value.memories
+        assertEquals(focusSessionId, session.currentDeckActivityIds[session.currentPage])
+        coVerify(exactly = 2) { repository.getAlbumMemoryCandidates(limit = 48) }
+    }
+
+    @Test
+    fun should_resolveFocusedCardFresh_when_ratingChangedSinceLastOpen() = runTest {
+        val candidates = buildAlbumCandidates(count = 3).map { candidate ->
+            candidate.copy(albumRating = 7f)
+        }
+        val coordinator = buildCoordinator(candidates)
+        val focus = candidates[1]
+        val staleCard = coordinator.ensureDeck().single { memory ->
+            memory.sourceActivityId == focus.sessionId
+        }
+        assertEquals("7.0", staleCard.scoreText)
+
+        // The user re-rates the album after the deck was opened; Home's pill now
+        // shows 9.0 and the tap must land on a card that agrees.
+        coEvery { repository.getAlbumMemoryCandidates(limit = 48) } returns candidates.map { candidate ->
+            if (candidate.sessionId == focus.sessionId) candidate.copy(albumRating = 9f) else candidate
+        }
+        val deck = coordinator.ensureDeckFocused(focus.sessionId)
+
+        val focusedCard = deck[sessionStore.state.value.memories.currentPage]
+        assertEquals(focus.sessionId, focusedCard.sourceActivityId)
+        assertEquals("9.0", focusedCard.scoreText)
+        assertEquals(MemoryScoreKind.ALBUM_RATING, focusedCard.scoreKind)
+        coVerify(exactly = 2) { repository.getAlbumMemoryCandidates(limit = 48) }
+    }
+
     private fun buildCoordinator(candidates: List<AlbumMemoryCandidate>): MemoriesDeckCoordinator {
         coEvery { repository.getAlbumMemoryCandidates(limit = 48) } returns candidates
         coEvery { repository.getAlbum(any()) } returns null

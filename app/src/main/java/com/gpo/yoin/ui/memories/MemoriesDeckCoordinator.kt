@@ -12,6 +12,8 @@ import com.gpo.yoin.ui.experience.ExperienceSessionStore
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.first
 import java.util.Locale
 import kotlin.random.Random
@@ -23,6 +25,9 @@ class MemoriesDeckCoordinator(
 ) {
     private val random = Random(randomSeed)
     private val resolvedMemoryCache = mutableMapOf<Long, MemoryEntry?>()
+    // Bumped by invalidate(); a resolve only caches into the generation it
+    // started in.
+    private var cacheGeneration = 0L
     private var candidateAlbums: List<AlbumMemoryCandidate>? = null
 
     suspend fun ensureDeck(): List<MemoryEntry> {
@@ -65,24 +70,18 @@ class MemoriesDeckCoordinator(
      * the user into Memories — so the album the teaser showed is what they land
      * on, not a random card from a re-sampled deck.
      *
-     * Reuses the cached candidate pool (no [invalidate]), so this is as cheap as
-     * a normal open. If the focus album isn't in the pool (rare — it ranks high
-     * by the same builder), the deck degrades gracefully to its first resolved
-     * card.
+     * Always starts from a fresh pool and fresh resolves ([invalidate] first):
+     * the Home pill / JBI card the user just tapped showed this memory's LIVE
+     * score, so the focus tap must not land on a stale cached card (the cache
+     * is only dropped on profile switch / force refresh, never on rating, note
+     * or review writes) or on a cached empty pool. Costs one candidate build
+     * per focus tap — mostly local reads, covered by the reveal animation. If
+     * the focus album isn't in the fresh pool (rare — it ranks high by the same
+     * builder), the deck degrades gracefully to its first resolved card.
      */
     suspend fun ensureDeckFocused(focusSessionId: Long): List<MemoryEntry> {
-        var candidates = ensureCandidates()
-        // The cached pool is only invalidated on profile switch / force refresh,
-        // not on rating/note/review writes. If the just-tapped album became
-        // eligible (or top) after the pool was built, it'd be missing here and
-        // focus would silently fall back to the first card. Rebuild once so the
-        // teaser's album is honored.
-        if (candidates.isNotEmpty() &&
-            candidates.none { candidate -> candidate.sessionId == focusSessionId }
-        ) {
-            invalidate()
-            candidates = ensureCandidates()
-        }
+        invalidate()
+        val candidates = ensureCandidates()
         if (candidates.isEmpty()) {
             sessionStore.clearMemories()
             return emptyList()
@@ -146,13 +145,20 @@ class MemoriesDeckCoordinator(
     fun invalidate() {
         candidateAlbums = null
         resolvedMemoryCache.clear()
+        cacheGeneration++
     }
 
+    /**
+     * Never caches an empty pool: a cold-start build can run before the active
+     * source is up and come back empty, which would otherwise pin the deck on
+     * "No memories yet" for the rest of the session. Every caller returns early
+     * on an empty pool, so [findCandidateById] only runs against a cached one.
+     */
     private suspend fun ensureCandidates(): List<AlbumMemoryCandidate> {
         val existing = candidateAlbums
         if (existing != null) return existing
         return repository.getAlbumMemoryCandidates(limit = 48).also { loaded ->
-            candidateAlbums = loaded
+            if (loaded.isNotEmpty()) candidateAlbums = loaded
         }
     }
 
@@ -186,8 +192,14 @@ class MemoriesDeckCoordinator(
 
     private suspend fun resolveMemoryCached(candidate: AlbumMemoryCandidate): MemoryEntry? {
         resolvedMemoryCache[candidate.sessionId]?.let { return it }
+        val generation = cacheGeneration
         val memory = resolveAlbumMemory(candidate)
-        resolvedMemoryCache[candidate.sessionId] = memory
+        // A resolve cancelled mid-flight (its runCatching swallowed the
+        // cancellation) comes back degraded, and one that outlived an
+        // invalidate() is stale: neither may land in the fresh cache a focus
+        // tap just asked for.
+        currentCoroutineContext().ensureActive()
+        if (generation == cacheGeneration) resolvedMemoryCache[candidate.sessionId] = memory
         return memory
     }
 
