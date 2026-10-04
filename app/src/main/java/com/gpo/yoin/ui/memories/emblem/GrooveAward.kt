@@ -2,6 +2,7 @@ package com.gpo.yoin.ui.memories.emblem
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -34,7 +35,8 @@ import kotlinx.coroutines.launch
  *  · replay: grooves stay cut; the disc's turns are rescaled to whole turns and the label joins the script from
  *    rest on a stiff spring; only the climax beats play.
  *  · reduced motion: the grooves and label develop by alpha (~200ms, critically damped) and the one beat lands
- *    as the reveal finishes.
+ *    as the reveal finishes. Reduced motion is the user's setting only ([rememberGrooveReducedMotion]); when it
+ *    flips, the state is kept and only restyled (a waiting card keeps waiting, in the new mode).
  */
 
 /** Spring constants of the award flow (twostate4 `SPR.settle`, `EFFECTS`, `NOD`, `REVEAL`). */
@@ -104,16 +106,29 @@ private class Chan(val index: Int, val rest: Float, val angular: Boolean = false
 /** Prototype `nrm`: an angle as its nearest equivalent to 0. */
 private fun nearestRest(a: Double): Double = ((a % 360) + 540) % 360 - 180
 
+/** The still picture an award state holds when no run is moving it (re-posed when reduced motion flips). */
+private enum class GroovePose { Rest, Pending, Uncut }
+
 @Stable
 class GrooveAwardState internal constructor(
     val model: GrooveModel,
     val size: Double,
     val surface: GrooveSurface,
-    val reducedMotion: Boolean,
+    reducedMotion: Boolean,
     private val haptics: GrooveHapticPlayer?,
     private val scope: CoroutineScope,
     private val tag: String,
 ) : GrooveAwardChannels {
+    /**
+     * The user's reduced motion, read by every pose and run as it starts. A flip keeps this state (and the
+     * award lifecycle's bookkeeping): a still pose is redrawn in the new mode at once; a run finishes in the
+     * mode it started in and then re-poses ([updateReducedMotion]).
+     */
+    var reducedMotion: Boolean = reducedMotion
+        private set
+    private var pose = GroovePose.Rest
+    private var reposeWhenDone = false
+
     private val script: GrooveScript? = grooveScriptFor(model, size)
     private val geometry = grooveGeometry(model.trackRated, size, model.kind, surface)
     private val orders = max(max(1, geometry.ratedRings.size), script?.ratedRingCount ?: 0)
@@ -181,27 +196,8 @@ class GrooveAwardState internal constructor(
      */
     fun setPending(pending: Boolean) {
         stopAll()
-        rest.copyInto(values)
-        val s = script
-        if (pending && s != null) {
-            values[TintAlpha] = 0f
-            when {
-                surface == GrooveSurface.Bar && reducedMotion -> {
-                    for (j in 0 until orders) values[cutAlphaAt(j)] = 0f
-                    values[EmblemAlpha] = BarWaitAlpha
-                }
-                surface == GrooveSurface.Bar -> {
-                    for (j in 0 until orders) values[cutProgressAt(j)] = 0f
-                    values[EmblemScale] = BarWaitScale
-                    if (s.tier >= 2) values[Disc] = BarWaitTurn
-                }
-                reducedMotion -> {
-                    for (j in 0 until orders) values[cutAlphaAt(j)] = 0f
-                    values[LabelAlpha] = 0f
-                }
-                else -> channels(s, GrooveAwardMode.First).forEach { values[it.index] = it.fn(0.0).toFloat() }
-            }
-        }
+        pose = if (pending && script != null) GroovePose.Pending else GroovePose.Rest
+        writePose()
         bump()
     }
 
@@ -214,13 +210,66 @@ class GrooveAwardState internal constructor(
      */
     fun setUncut() {
         stopAll()
+        pose = if (script != null) GroovePose.Uncut else GroovePose.Rest
+        writePose()
+        bump()
+    }
+
+    /**
+     * The user's reduced motion changed under a live emblem: keep everything, restyle the still pose (a card
+     * still due its award keeps waiting, now in the new mode). A run in flight finishes in its own mode, then
+     * re-poses. Never a new state, so the award lifecycle never loses a card.
+     */
+    internal fun updateReducedMotion(reduced: Boolean) {
+        if (reduced == reducedMotion) return
+        reducedMotion = reduced
+        if (isAnimating) {
+            reposeWhenDone = true
+            return
+        }
+        writePose()
+        bump()
+    }
+
+    /** Writes [pose] in the current mode (no bump). */
+    private fun writePose() {
+        reposeWhenDone = false
         rest.copyInto(values)
-        if (script != null) {
-            values[TintAlpha] = 0f
-            for (j in 0 until orders) {
-                if (reducedMotion) values[cutAlphaAt(j)] = 0f else values[cutProgressAt(j)] = 0f
+        val s = script ?: return
+        when (pose) {
+            GroovePose.Rest -> Unit
+            GroovePose.Pending -> {
+                values[TintAlpha] = 0f
+                when {
+                    surface == GrooveSurface.Bar && reducedMotion -> {
+                        for (j in 0 until orders) values[cutAlphaAt(j)] = 0f
+                        values[EmblemAlpha] = BarWaitAlpha
+                    }
+                    surface == GrooveSurface.Bar -> {
+                        for (j in 0 until orders) values[cutProgressAt(j)] = 0f
+                        values[EmblemScale] = BarWaitScale
+                        if (s.tier >= 2) values[Disc] = BarWaitTurn
+                    }
+                    reducedMotion -> {
+                        for (j in 0 until orders) values[cutAlphaAt(j)] = 0f
+                        values[LabelAlpha] = 0f
+                    }
+                    else -> channels(s, GrooveAwardMode.First).forEach { values[it.index] = it.fn(0.0).toFloat() }
+                }
+            }
+            GroovePose.Uncut -> {
+                values[TintAlpha] = 0f
+                for (j in 0 until orders) {
+                    if (reducedMotion) values[cutAlphaAt(j)] = 0f else values[cutProgressAt(j)] = 0f
+                }
             }
         }
+    }
+
+    /** A run or settle reached its end: if reduced motion flipped meanwhile, redraw the pose in the new mode. */
+    private fun reposeIfFlipped() {
+        if (!reposeWhenDone) return
+        writePose()
         bump()
     }
 
@@ -239,6 +288,7 @@ class GrooveAwardState internal constructor(
         )
         // frame 0 first, then the pending pose is gone: no flash
         stopAll()
+        pose = GroovePose.Rest
         rest.copyInto(values)
         launchRun(chans, beats, isDone = { t -> t >= duration }, endAt = duration)
     }
@@ -252,6 +302,8 @@ class GrooveAwardState internal constructor(
         val s = script ?: return
         val beats = awardBeats(model, if (again) GrooveBeatMode.NodAgain else GrooveBeatMode.Nod, size, reducedMotion)
         stopAll()
+        // the small wait grows into the full-size, still uncut emblem
+        if (pose == GroovePose.Pending) pose = GroovePose.Uncut
         val chans = mutableListOf<Chan>()
         if (reducedMotion) {
             if (!again) {
@@ -337,6 +389,7 @@ class GrooveAwardState internal constructor(
                 bump()
                 running = emptyList()
                 isAnimating = false
+                reposeIfFlipped()
             } else {
                 settle(chans)
             }
@@ -366,6 +419,7 @@ class GrooveAwardState internal constructor(
         bump()
         running = emptyList()
         isAnimating = false
+        reposeIfFlipped()
     }
 
     // ------------------------------------------------------------------ channels (twostate4 awardChans)
@@ -435,17 +489,49 @@ class GrooveAwardState internal constructor(
     }
 }
 
-/** Battery saver / low RAM (AdaptiveReduced) or the system's "remove animations". */
-@Composable
-fun rememberGrooveReducedMotion(): Boolean {
-    val profile = LocalMotionProfile.current
-    val durationScale = rememberCoroutineScope().coroutineContext[MotionDurationScale]
-    return profile == MotionProfile.AdaptiveReduced || durationScale?.scaleFactor == 0f
+/**
+ * Who may change Memories' motion, and how much (B2 of the real-data QA).
+ *
+ *  · The CHOREOGRAPHY — the host's pose (slide on q vs fade in place), the award (the tiered ceremony vs the
+ *    200ms develop), the diary morph (spatial vs fade-through) — follows the USER's reduced motion only: the
+ *    system animator duration scale at 0, which is what Developer options and Accessibility › Remove
+ *    animations set. It is a standing choice, so it is the same before, during and after an open.
+ *  · ADAPTIVE PRESSURE ([MotionProfile.AdaptiveReduced]: battery saver, a low-RAM device, any screen reporting
+ *    a busy moment) is transient and app-wide. It may only lighten the AMBIENT effects (the tilt sensor, the
+ *    unrated ripple); it must never swap the spatial model mid-flow or spend a card's award as a 200ms develop.
+ */
+internal object MemoriesMotionPolicy {
+    /** The choreography's reduced mode, from the window's animator duration scale (null: no scale known). */
+    fun choreographyReduced(animatorDurationScale: Float?): Boolean = animatorDurationScale == 0f
+
+    /** The ambient effects' reduced mode: the user's choice, or adaptive pressure. */
+    fun ambientReduced(choreographyReduced: Boolean, profile: MotionProfile): Boolean =
+        choreographyReduced || profile == MotionProfile.AdaptiveReduced
 }
 
 /**
+ * The user's reduced motion (the system's "remove animations": animator duration scale 0) — the one switch that
+ * changes Memories' choreography. Adaptive pressure never reaches it; see [MemoriesMotionPolicy].
+ */
+@Composable
+fun rememberGrooveReducedMotion(): Boolean {
+    val durationScale = rememberCoroutineScope().coroutineContext[MotionDurationScale]
+    return MemoriesMotionPolicy.choreographyReduced(durationScale?.scaleFactor)
+}
+
+/**
+ * The ambient effects' switch (the tilt sensor, the unrated mould's ripple): the user's reduced motion, or
+ * adaptive pressure (battery saver, low RAM, a busy moment). Never use it for the choreography.
+ */
+@Composable
+fun rememberGrooveAmbientReduced(reducedMotion: Boolean = rememberGrooveReducedMotion()): Boolean =
+    MemoriesMotionPolicy.ambientReduced(reducedMotion, LocalMotionProfile.current)
+
+/**
  * The award controller of one emblem. [tag] names its beats in the debug haptic trace. The state is keyed on
- * [model], [size], [surface] and [reducedMotion]; a new key starts at rest.
+ * [model], [size] and [surface] (a new key starts at rest), never on [reducedMotion]: a flip of the user's
+ * setting restyles the live state ([GrooveAwardState.updateReducedMotion]) so a card still due its award is
+ * never rebuilt as already finished.
  */
 @Composable
 fun rememberGrooveAwardState(
@@ -457,9 +543,10 @@ fun rememberGrooveAwardState(
     tag: String = "groove",
 ): GrooveAwardState {
     val scope = rememberCoroutineScope()
-    val state = remember(model, size, surface, reducedMotion, haptics, tag) {
+    val state = remember(model, size, surface, haptics, tag) {
         GrooveAwardState(model, size.value.toDouble(), surface, reducedMotion, haptics, scope, tag)
     }
+    SideEffect { state.updateReducedMotion(reducedMotion) }
     DisposableEffect(state) { onDispose { state.dispose() } }
     return state
 }

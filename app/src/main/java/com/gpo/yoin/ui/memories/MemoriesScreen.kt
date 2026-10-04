@@ -51,7 +51,6 @@ import com.gpo.yoin.ui.component.YoinPageWidths
 import com.gpo.yoin.ui.component.yoinPageContentWidth
 import com.gpo.yoin.ui.experience.EdgeAdvanceDirection
 import com.gpo.yoin.ui.experience.MemoriesSessionState
-import com.gpo.yoin.ui.experience.ReportMotionPressure
 import com.gpo.yoin.ui.experience.RevealState
 import com.gpo.yoin.ui.experience.rememberDeckIndicatorTransitionState
 import com.gpo.yoin.ui.experience.rememberEdgeAdvanceState
@@ -114,6 +113,7 @@ fun MemoriesScreen(
     // p: card ⇄ diary — the Diary button, the diary's pull past its top, the
     // bar as its handle, the bar cover / ⌄, and back at the diary level.
     val dismissRules = rememberMemoriesDismissRules()
+    // the user's reduced motion only (MemoriesMotionPolicy): adaptive pressure never swaps the choreography
     val reducedMotion = rememberGrooveReducedMotion()
     val diaryState = rememberMemoriesDiaryState(reducedMotion = reducedMotion)
     // One award lifecycle per open: Memories unmounts when it closes.
@@ -234,11 +234,8 @@ fun MemoriesScreen(
         }
     }
 
-    ReportMotionPressure(
-        tag = "memories",
-        isHighPressure = uiState is MemoriesUiState.Loading ||
-            (uiState as? MemoriesUiState.Content)?.isLoadingAdjacentDeck == true,
-    )
+    // No ReportMotionPressure: a load here is one small indicator, not pressure, and the report flips the
+    // app-wide LocalMotionProfile (a whole-tree recomposition) in the middle of the open.
 
     ProvideYoinMotionRole(role = YoinMotionRole.Expressive) {
         ExpressivePageBackground(
@@ -327,8 +324,9 @@ fun MemoriesScreen(
 
 /**
  * The host's pose for Memories (ShellOverlayUp), for the Box the shell mounts it in: the page rides q up and
- * out — translationY = −q·H, its only displacement — or, under reduced motion, fades out in place
- * (alpha 1 − q) on the same q. Read only in the layer.
+ * out — translationY = −q·H, its only displacement — or, under the user's reduced motion, fades out in place
+ * (alpha 1 − q) on the same q. Adaptive pressure never picks the fade (MemoriesMotionPolicy): the spatial
+ * model must not change under an open in flight. Read only in the layer.
  */
 @Composable
 fun rememberMemoriesHostPose(reveal: RevealState): Modifier {

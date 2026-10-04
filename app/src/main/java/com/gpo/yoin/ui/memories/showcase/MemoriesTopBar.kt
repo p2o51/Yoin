@@ -28,6 +28,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -338,11 +339,17 @@ internal fun MemoryPageBarSlots(
     insets: MemoriesBarInsets = MemoriesBarInsets.Phone,
 ) {
     val slotEnd = slotEndInset(dotCount, insets)
-    val inDiaryMorph by remember { derivedStateOf { diaryProgress() > 0.001f } }
+    // The derived flags read the CURRENT readers: a reader captured by the first composition keeps reading a
+    // dead controller once the host hands in a new one (a display-size change rebuilt p's state, and slot B —
+    // the bar cover, the album, ⌄ — never appeared on that page again).
+    val currentDiaryProgress by rememberUpdatedState(diaryProgress)
+    val currentRelative by rememberUpdatedState(relative)
+    val currentSettled by rememberUpdatedState(settled)
+    val inDiaryMorph by remember { derivedStateOf { currentDiaryProgress() > 0.001f } }
     // a neighbour's controls (parked over this bar by the parallax, invisible) take no taps
-    val onShow by remember { derivedStateOf { barVisibility(relative()) >= 0.5f } }
-    val diaryOpen by remember { derivedStateOf { diaryProgress() >= 0.5f } }
-    val marqueeRunning by remember { derivedStateOf { diaryProgress() >= 1f && settled() } }
+    val onShow by remember { derivedStateOf { barVisibility(currentRelative()) >= 0.5f } }
+    val diaryOpen by remember { derivedStateOf { currentDiaryProgress() >= 0.5f } }
+    val marqueeRunning by remember { derivedStateOf { currentDiaryProgress() >= 1f && currentSettled() } }
     val shown = onShow
     Box(
         modifier = modifier

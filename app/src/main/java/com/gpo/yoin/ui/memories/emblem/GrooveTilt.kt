@@ -184,10 +184,11 @@ private const val SensorFreshMs = 700L
  * Registers `TYPE_GAME_ROTATION_VECTOR` (SENSOR_DELAY_GAME) only while [active], the lifecycle is RESUMED
  * and motion is not reduced; any one of them dropping unregisters at once. Each sample goes through
  * getRotationMatrixFromVector → remapCoordinateSystem (display rotation) → getOrientation → [GrooveTiltFilter].
- * Under reduced motion the tilt stays at rest.
+ * Under reduced motion the tilt stays at rest: [reducedMotion] is the AMBIENT switch
+ * ([rememberGrooveAmbientReduced]), so battery saver and adaptive pressure also park the sensor.
  */
 @Composable
-fun rememberGrooveTilt(active: Boolean, reducedMotion: Boolean = rememberGrooveReducedMotion()): GrooveTiltState {
+fun rememberGrooveTilt(active: Boolean, reducedMotion: Boolean = rememberGrooveAmbientReduced()): GrooveTiltState {
     val state = remember { GrooveTiltState() }
     val context = LocalContext.current
     val view = LocalView.current

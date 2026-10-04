@@ -3,6 +3,7 @@ package com.gpo.yoin.ui.memories.showcase
 import androidx.compose.animation.core.AnimationSpec
 import androidx.compose.animation.core.animate
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -52,13 +53,20 @@ import kotlinx.coroutines.launch
 @Stable
 class MemoriesDiaryState internal constructor(
     initialFraction: Float,
-    private val morphDistancePx: Float,
-    private val pullBandPx: Float,
-    private val flickPxPerSec: Float,
+    morphDistancePx: Float,
+    pullBandPx: Float,
+    flickPxPerSec: Float,
     private val rubberBand: Float,
-    private val rubberBandFloorPx: Float,
+    rubberBandFloorPx: Float,
     morphSpec: AnimationSpec<Float>,
 ) {
+    // The px metrics of the dp tokens. A density change updates them in place ([updateMetrics]): p itself is
+    // density-free, so the controller — and everything keyed on it (the router, the deck, the bar) — survives.
+    private var morphDistancePx = morphDistancePx
+    private var pullBandPx = pullBandPx
+    private var flickPxPerSec = flickPxPerSec
+    private var rubberBandFloorPx = rubberBandFloorPx
+
     private var _fraction by mutableFloatStateOf(initialFraction.coerceIn(0f, 1f))
 
     /**
@@ -87,6 +95,19 @@ class MemoriesDiaryState internal constructor(
 
     /** System back steps the diary (diary → card) from here up; below it back goes to q. */
     val isDiaryLevel: Boolean get() = _fraction >= 0.5f
+
+    /** New px for the same dp tokens (the display density changed); p and any running spring are untouched. */
+    internal fun updateMetrics(
+        morphDistancePx: Float,
+        pullBandPx: Float,
+        flickPxPerSec: Float,
+        rubberBandFloorPx: Float,
+    ) {
+        this.morphDistancePx = morphDistancePx
+        this.pullBandPx = pullBandPx
+        this.flickPxPerSec = flickPxPerSec
+        this.rubberBandFloorPx = rubberBandFloorPx
+    }
 
     /** Cancel any running spring and return where p stopped (a back gesture's p0). */
     fun stop(): Float {
@@ -336,11 +357,9 @@ fun rememberMemoriesDiaryState(initialFraction: Float = 0f, reducedMotion: Boole
     } else {
         YoinMotion.defaultSpatialSpec(role = YoinMotionRole.Expressive)
     }
+    // Not keyed on the px metrics: a display-size change must not rebuild p (it closed an open diary and left
+    // anything holding the old controller reading a dead one); the new px are handed in below instead.
     val state = rememberSaveable(
-        morphDistancePx,
-        pullBandPx,
-        flickPxPerSec,
-        floorPx,
         saver = Saver(
             save = { it.fraction.coerceIn(0f, 1f) },
             restore = { saved ->
@@ -366,6 +385,9 @@ fun rememberMemoriesDiaryState(initialFraction: Float = 0f, reducedMotion: Boole
             morphSpec = morphSpec,
         )
     }
-    state.morphSpec = morphSpec
+    SideEffect {
+        state.morphSpec = morphSpec
+        state.updateMetrics(morphDistancePx, pullBandPx, flickPxPerSec, floorPx)
+    }
     return state
 }

@@ -71,6 +71,7 @@ import com.gpo.yoin.ui.memories.emblem.GrooveKind
 import com.gpo.yoin.ui.memories.emblem.GrooveModel
 import com.gpo.yoin.ui.memories.emblem.GrooveSurface
 import com.gpo.yoin.ui.memories.emblem.GrooveTiltState
+import com.gpo.yoin.ui.memories.emblem.rememberGrooveAmbientReduced
 import com.gpo.yoin.ui.memories.emblem.rememberGrooveAwardState
 import com.gpo.yoin.ui.memories.emblem.rememberGrooveReducedMotion
 import com.gpo.yoin.ui.memories.emblem.rememberGrooveTilt
@@ -117,6 +118,9 @@ class MemoriesShowcaseFixtures(
  *
  * The tier comes from this composable's own container (BoxWithConstraints, [memoriesLayoutFor]): the two
  * states on a phone and (enlarged) on a Medium, the spread ([MemorySpreadPage]) on an Expanded container.
+ *
+ * [reducedMotion] is the user's setting and drives the choreography (morph, award); [ambientReduced] also
+ * folds in adaptive pressure and only quiets the tilt and the ripple (MemoriesMotionPolicy).
  */
 @Composable
 internal fun MemoriesShowcase(
@@ -135,6 +139,7 @@ internal fun MemoriesShowcase(
     auroraVisible: Boolean = true,
     today: LocalDate? = null,
     reducedMotion: Boolean = rememberGrooveReducedMotion(),
+    ambientReduced: Boolean = rememberGrooveAmbientReduced(reducedMotion),
     fixtures: MemoriesShowcaseFixtures? = null,
     diaryHost: MemoriesDiaryHost = NoDiaryHost,
     router: MemoriesGestureRouter? = null,
@@ -212,7 +217,7 @@ internal fun MemoriesShowcase(
                     !pagerState.isScrollInProgress
             }
         }
-        val tilt = rememberGrooveTilt(active = tiltActive, reducedMotion = reducedMotion)
+        val tilt = rememberGrooveTilt(active = tiltActive, reducedMotion = ambientReduced)
 
         val currentMemories by rememberUpdatedState(memories)
         MemoriesAwardEffects(
@@ -285,6 +290,7 @@ internal fun MemoriesShowcase(
                                 tilt = tilt,
                                 isCurrent = isCurrent,
                                 reducedMotion = reducedMotion,
+                                ambientReduced = ambientReduced,
                                 captionAlpha = { 1f },
                                 modifier = m,
                             )
@@ -308,6 +314,7 @@ internal fun MemoriesShowcase(
                         awards = awards,
                         tilt = tilt,
                         reducedMotion = reducedMotion,
+                        ambientReduced = ambientReduced,
                         lastHeard = lastHeard,
                         today = day,
                         zone = zone,
@@ -391,6 +398,7 @@ private fun ShowcasePage(
     awards: MemoriesAwardLifecycle,
     tilt: GrooveTiltState,
     reducedMotion: Boolean,
+    ambientReduced: Boolean,
     lastHeard: String?,
     today: LocalDate,
     zone: ZoneId,
@@ -497,6 +505,7 @@ private fun ShowcasePage(
                     tilt = tilt,
                     isCurrent = isCurrent,
                     reducedMotion = reducedMotion,
+                    ambientReduced = ambientReduced,
                     captionAlpha = { morph.sealCaptionAlpha() },
                     modifier = m,
                 )
@@ -542,6 +551,7 @@ internal fun CardEmblem(
     tilt: GrooveTiltState,
     isCurrent: Boolean,
     reducedMotion: Boolean,
+    ambientReduced: Boolean,
     captionAlpha: () -> Float,
     modifier: Modifier,
 ) {
@@ -578,7 +588,8 @@ internal fun CardEmblem(
         tilt = { if (current) tilt.offset else Offset.Zero },
         award = award,
         ambientMotion = isCurrent,
-        reducedMotion = reducedMotion,
+        // the ripple is ambient: adaptive pressure may quiet it, the award above never
+        reducedMotion = ambientReduced,
         captionAlpha = captionAlpha,
     )
 }

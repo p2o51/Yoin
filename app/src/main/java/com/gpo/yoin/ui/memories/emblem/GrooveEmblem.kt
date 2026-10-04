@@ -91,6 +91,8 @@ private val RippleEasing = CubicBezierEasing(0.16f, 0.8f, 0.3f, 1f)
  * @param tilt the device tilt in −1…1 screen axes (see [rememberGrooveTilt]); read only in draw.
  * @param award a running award's channels (see [rememberGrooveAwardState]); null draws the resting emblem.
  * @param ambientMotion lets the unrated mould's slow ripple run (turn off when the emblem is off screen).
+ * @param reducedMotion stops the ripple: the AMBIENT switch ([rememberGrooveAmbientReduced]), so adaptive
+ *   pressure may quiet it too.
  * @param captionAlpha the caption's own alpha (the card ⇄ diary morph fades it first, so it never shrinks
  *   into noise); read only in draw.
  */
@@ -103,7 +105,7 @@ fun GrooveEmblem(
     tilt: () -> Offset = { Offset.Zero },
     award: GrooveAwardChannels? = null,
     ambientMotion: Boolean = true,
-    reducedMotion: Boolean = rememberGrooveReducedMotion(),
+    reducedMotion: Boolean = rememberGrooveAmbientReduced(),
     captionAlpha: () -> Float = { 1f },
 ) {
     val neutrals = GrooveNeutrals.current

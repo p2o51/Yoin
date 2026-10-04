@@ -710,7 +710,7 @@ internal fun AlbumRatingReviewSheet(
                 color = MaterialTheme.colorScheme.onSurface,
             )
             Text(
-                text = "Markdown supported. Saved locally; pushed to NeoDB from the Memory card.",
+                text = "Markdown supported. Saved locally; pushed to NeoDB from the end of its Memories diary.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )

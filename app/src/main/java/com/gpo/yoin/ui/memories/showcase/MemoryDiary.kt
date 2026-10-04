@@ -345,9 +345,7 @@ internal fun DiaryBlocks(
     val draft = host.reviewDraft(memory)
     val liner = memory.diaryAlbumNotes.isNotEmpty() || memory.diaryTracks.isNotEmpty()
     val review = memory.review
-    val history = memory.playsInYoin?.takeIf { it > 0 }?.let { plays ->
-        memory.firstHeardAt?.let { first -> MemoryDates.footer(plays, MemoryDates.localDate(first, zone), today) }
-    }
+    val history = diaryFooterStats(memory.playsInYoin, memory.firstHeardAt, zone, today)
     // a lone short review (and nothing after it) rests on the optical line
     val opticalOn = optical != null && review != null && review.text.length <= ShortReviewMax && !liner
 
@@ -405,7 +403,7 @@ internal fun DiaryBlocks(
         )
     }
     Spacer(Modifier.height(MemoryDiaryTokens.EndGap))
-    DiaryRunOut(tones, block(k++))
+    if (diaryShowsRunOut(history)) DiaryRunOut(tones, block(k++))
     DiaryFoot(
         memory = memory,
         tones = tones,
@@ -419,6 +417,24 @@ internal fun DiaryBlocks(
 }
 
 private data class PendingLight(val trackId: String?, val noteId: String?)
+
+/** The foot's two numerals: only for an album played in Yoin (a visit alone has no plays and no first play). */
+internal fun diaryFooterStats(
+    playsInYoin: Int?,
+    firstHeardAt: Long?,
+    zone: ZoneId,
+    today: LocalDate,
+): MemoryFooterStats? {
+    val plays = playsInYoin?.takeIf { it > 0 } ?: return null
+    val first = firstHeardAt ?: return null
+    return MemoryDates.footer(plays, MemoryDates.localDate(first, zone), today)
+}
+
+/**
+ * The run-out groove belongs to the numerals it sits over: without them (an album only visited) it would stand
+ * alone over Go to album, so the foot follows the end gap directly.
+ */
+internal fun diaryShowsRunOut(history: MemoryFooterStats?): Boolean = history != null
 
 /**
  * Yoin's paragraph (narration + question), held while it is being read: a review saved on the blank page
@@ -812,7 +828,7 @@ private fun NoteRow(
 private fun noteTextStyle(type: MemoriesTypeScale): TextStyle =
     diaryUserText(type.note, type.noteLine.value / type.note.value)
 
-/** The end mark: the record's run-out groove, three hairline rings, only at the very end. */
+/** The end mark: the record's run-out groove, three hairline rings, only at the very end, over the numerals. */
 @Composable
 private fun DiaryRunOut(tones: MemoryPaletteTones, modifier: Modifier = Modifier) {
     Box(
