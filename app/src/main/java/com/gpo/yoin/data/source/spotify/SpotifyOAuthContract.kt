@@ -66,6 +66,7 @@ class SpotifyOAuthContract : ActivityResultContract<String?, SpotifyOAuthResult>
             displayName = displayName.ifBlank { userId },
             userId = userId,
             targetProfileId = targetProfileId,
+            avatarUrl = intent.getStringExtra(EXTRA_AVATAR_URL),
         )
     }
 
@@ -76,6 +77,7 @@ class SpotifyOAuthContract : ActivityResultContract<String?, SpotifyOAuthResult>
         internal const val EXTRA_SCOPES = "yoin.spotify.scopes"
         internal const val EXTRA_DISPLAY_NAME = "yoin.spotify.display_name"
         internal const val EXTRA_USER_ID = "yoin.spotify.user_id"
+        internal const val EXTRA_AVATAR_URL = "yoin.spotify.avatar_url"
         internal const val EXTRA_FAILURE_MESSAGE = "yoin.spotify.failure"
         internal const val EXTRA_TARGET_PROFILE_ID = "yoin.spotify.target_profile_id"
     }
@@ -87,6 +89,8 @@ sealed interface SpotifyOAuthResult {
         val displayName: String,
         val userId: String,
         val targetProfileId: String?,
+        /** The account's Spotify profile picture, when it has one. */
+        val avatarUrl: String? = null,
     ) : SpotifyOAuthResult
 
     data class Failure(

@@ -54,7 +54,8 @@ fun rememberPressMorphShape(
     }
 }
 
-private class MorphPolygonShape(
+/** A [Morph] at [progress], scaled from the unit square to the layout bounds. */
+internal class MorphPolygonShape(
     private val morph: Morph,
     private val progress: Float,
 ) : Shape {

@@ -15,6 +15,7 @@ import com.gpo.yoin.data.repository.SubsonicException
 import com.gpo.yoin.data.source.spotify.SpotifyAuthConfig
 import com.gpo.yoin.data.source.spotify.SpotifyOAuthResult
 import com.gpo.yoin.data.source.subsonic.SubsonicMusicSource
+import com.gpo.yoin.ui.settings.assignAvatarShapes
 import java.net.URI
 import java.net.UnknownServiceException
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -78,11 +79,29 @@ class ServiceSetupViewModel(
         subsonicForm,
         spotifyState,
         existingProfileName,
-        profileManager.profiles,
-    ) { form, spotify, name, profiles ->
+        combine(profileManager.profiles, container.profileAvatarStore.urls, ::Pair),
+    ) { form, spotify, name, (profiles, avatarUrls) ->
+        val existing = request.profileId?.let { id -> profiles.firstOrNull { it.id == id } }
         ServiceSetupUiState(
             service = request.service,
             existingProfileName = name,
+            // Until the profile list arrives (and if the account is removed
+            // while its page is open) the tapped card's face stands in.
+            account = existing?.let { profile ->
+                // Same face as the account's Settings card: a Subsonic account
+                // leads with its username and lives on its server's host.
+                val subsonic = request.service == SetupService.Subsonic
+                AccountFace(
+                    title = form.initialUsername.takeIf { subsonic && it.isNotBlank() } ?: profile.displayName,
+                    detail = if (subsonic) {
+                        runCatching { URI(form.initialUrl).host }.getOrNull()?.takeIf { it.isNotBlank() }
+                    } else {
+                        null
+                    },
+                    avatarShape = assignAvatarShapes(profiles.map { it.id to it.createdAt })[profile.id] ?: 0,
+                    photoUrl = avatarUrls[profile.id],
+                )
+            } ?: request.face,
             isManaging = request.profileId != null,
             canAddProfile = request.profileId != null || profiles.size < ProfileManager.MAX_PROFILES,
             subsonic = form,
@@ -91,7 +110,11 @@ class ServiceSetupViewModel(
     }.stateIn(
         viewModelScope,
         SharingStarted.Eagerly,
-        ServiceSetupUiState(service = request.service, isManaging = request.profileId != null),
+        ServiceSetupUiState(
+            service = request.service,
+            isManaging = request.profileId != null,
+            account = request.face,
+        ),
     )
 
     init {
@@ -220,6 +243,7 @@ class ServiceSetupViewModel(
                                 ?: result.displayName.ifBlank { "Spotify · ${result.userId}" },
                             credentials = result.credentials,
                         )
+                        container.profileAvatarStore.put(targetProfileId, result.avatarUrl)
                         if (wasActive) {
                             container.playbackManager.disconnect()
                             container.notifyMusicConfigurationChanged()
@@ -230,6 +254,7 @@ class ServiceSetupViewModel(
                             displayName = result.displayName.ifBlank { "Spotify · ${result.userId}" },
                             credentials = result.credentials,
                         )
+                        container.profileAvatarStore.put(created.id, result.avatarUrl)
                         finishWithNewProfile(created.id)
                     }
                 } catch (limit: ProfileLimitReachedException) {

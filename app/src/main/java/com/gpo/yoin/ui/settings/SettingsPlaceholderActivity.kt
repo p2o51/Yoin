@@ -21,6 +21,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import com.gpo.yoin.YoinActivityRoot
 import com.gpo.yoin.enableYoinEdgeToEdge
 import com.gpo.yoin.ui.theme.YoinTheme
 
@@ -35,7 +36,9 @@ class SettingsPlaceholderActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableYoinEdgeToEdge()
         setContent {
-            YoinTheme {
+            // Same root (and playing-cover palette) as the Settings list
+            // beside it, so the two panes paint the same page colour.
+            YoinActivityRoot {
                 SettingsPlaceholderPane()
             }
         }
@@ -45,7 +48,9 @@ class SettingsPlaceholderActivity : ComponentActivity() {
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun SettingsPlaceholderPane(modifier: Modifier = Modifier) {
-    Surface(modifier = modifier.fillMaxSize()) {
+    // Same flat page colour as the Settings list beside it, so the split
+    // reads as one surface.
+    Surface(modifier = modifier.fillMaxSize(), color = settingsSurfaces().page) {
         Column(
             modifier = Modifier.fillMaxSize(),
             verticalArrangement = Arrangement.Center,

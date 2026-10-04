@@ -166,6 +166,7 @@ class SpotifyOAuthActivity : ComponentActivity() {
                         .orEmpty(),
                     displayName = me.displayName.orEmpty(),
                     userId = me.id,
+                    avatarUrl = me.avatarUrl,
                 )
             } catch (t: Throwable) {
                 Log.w(tag, "processRedirect: failed", t)
@@ -198,6 +199,7 @@ class SpotifyOAuthActivity : ComponentActivity() {
         scopes: List<String>,
         displayName: String,
         userId: String,
+        avatarUrl: String?,
     ) {
         val targetProfileId = currentTargetProfileId()
         val result = Intent().apply {
@@ -207,6 +209,7 @@ class SpotifyOAuthActivity : ComponentActivity() {
             putExtra(SpotifyOAuthContract.EXTRA_SCOPES, scopes.toTypedArray())
             putExtra(SpotifyOAuthContract.EXTRA_DISPLAY_NAME, displayName)
             putExtra(SpotifyOAuthContract.EXTRA_USER_ID, userId)
+            putExtra(SpotifyOAuthContract.EXTRA_AVATAR_URL, avatarUrl)
             putExtra(SpotifyOAuthContract.EXTRA_TARGET_PROFILE_ID, targetProfileId)
         }
         Log.d(

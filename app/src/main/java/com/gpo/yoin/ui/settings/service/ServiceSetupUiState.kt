@@ -5,9 +5,20 @@ data class ServiceSetupUiState(
     /** Adding a new account vs. managing (edit / reconnect) an existing one. */
     val isManaging: Boolean,
     val existingProfileName: String? = null,
+    /** Manage mode: the account's face, matching its Settings card. Null while adding. */
+    val account: AccountFace? = null,
     val canAddProfile: Boolean = true,
     val subsonic: SubsonicFormState = SubsonicFormState(),
     val spotify: SpotifySetupState = SpotifySetupState(),
+)
+
+/** How an account presents itself: the card title, where it lives, its avatar shape. */
+data class AccountFace(
+    val title: String,
+    val detail: String? = null,
+    val avatarShape: Int = 0,
+    /** The account's picture on its service (Spotify profile photo), when known. */
+    val photoUrl: String? = null,
 )
 
 data class SubsonicFormState(

@@ -2,6 +2,7 @@ package com.gpo.yoin.ui.settings
 
 import com.gpo.yoin.data.profile.ProfileManager
 import com.gpo.yoin.data.profile.ProviderKind
+import com.gpo.yoin.ui.settings.service.AccountFace
 
 sealed interface SettingsUiState {
     data object Loading : SettingsUiState
@@ -23,9 +24,16 @@ sealed interface SettingsUiState {
 data class ProfileCard(
     val id: String,
     val displayName: String,
+    /** Where the account lives when the service has a "where" (a Subsonic server's host); else null. */
     val subtitle: String?,
     val provider: ProviderKind,
     val isActive: Boolean,
+    /** The name the card leads with — a Subsonic account's username, otherwise [displayName]. */
+    val title: String = displayName,
+    /** Index of this account's avatar shape; distinct across the accounts on screen. */
+    val avatarShape: Int = 0,
+    /** The account's picture on its service (Spotify profile photo), when known. */
+    val photoUrl: String? = null,
     /**
      * When non-null, this profile is configured but can't currently be used
      * (e.g. Spotify profile without a Client ID). UI renders it desaturated
@@ -44,6 +52,10 @@ data class ProfileCard(
      */
     val requiresCredentialsReentry: Boolean = false,
 )
+
+/** The face a manage page opens with — the same one this card shows. */
+internal val ProfileCard.face: AccountFace
+    get() = AccountFace(title = title, detail = subtitle, avatarShape = avatarShape, photoUrl = photoUrl)
 
 /** "Add an account" sheet visibility. */
 data class ProviderPickerState(val visible: Boolean = false)

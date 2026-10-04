@@ -1,12 +1,18 @@
 package com.gpo.yoin.ui.settings
 
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -17,14 +23,15 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
@@ -47,15 +54,19 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.MutableFloatState
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -63,31 +74,39 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.layout.positionInParent
+import androidx.compose.ui.layout.positionInWindow
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.onClick
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.gpo.yoin.BuildConfig
 import com.gpo.yoin.data.integration.neodb.NeoDBOAuthContract
 import com.gpo.yoin.data.local.GeminiConfig
 import com.gpo.yoin.data.profile.ProfileManager
 import com.gpo.yoin.data.profile.ProviderKind
 import com.gpo.yoin.symbols.YoinSymbols
-import com.gpo.yoin.ui.component.ExpressivePageBackground
-import com.gpo.yoin.ui.component.ExpressiveSectionPanel
 import com.gpo.yoin.ui.component.ExpressiveTextField
+import com.gpo.yoin.ui.component.SeamTopPreference
+import com.gpo.yoin.ui.component.SeamTopStyle
 import com.gpo.yoin.ui.component.YoinDropdownMenu
 import com.gpo.yoin.ui.component.YoinDropdownMenuItem
 import com.gpo.yoin.ui.component.YoinLoadingIndicator
-import com.gpo.yoin.ui.component.YoinPageWidths
-import com.gpo.yoin.ui.component.horizontalEdgeFadeOnScroll
+import com.gpo.yoin.ui.component.currentSeamTopStyle
 import com.gpo.yoin.ui.component.ignoreParentHorizontalPadding
 import com.gpo.yoin.ui.component.minimumTouchTarget
-import com.gpo.yoin.ui.component.yoinPageContentWidth
+import com.gpo.yoin.ui.detail.DetailBackButton
 import com.gpo.yoin.ui.experience.rememberIsActivityEmbedded
-import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.ui.platform.LocalContext
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
 import com.gpo.yoin.ui.settings.service.ServiceSetupContract
 import com.gpo.yoin.ui.settings.service.ServiceSetupRequest
@@ -177,6 +196,7 @@ fun SettingsScreen(
                 service = SetupService.Spotify,
                 profileId = spotifyProfile?.id,
                 focusClientId = true,
+                face = spotifyProfile?.face,
             ),
         )
     }
@@ -242,9 +262,15 @@ fun SettingsContent(
     openFeature: SettingsFeature? = null,
     onOpenFeature: (SettingsFeature) -> Unit = {},
 ) {
+    // Large title → app-bar title handoff (Pixel's collapsing header): the
+    // positions land in plain float state and are read only in the bar
+    // title's graphicsLayer, so scrolling redraws one layer.
+    val viewportTop = remember { mutableFloatStateOf(0f) }
+    val headlineTop = remember { mutableFloatStateOf(Float.NaN) }
+    val headlineHeight = remember { mutableFloatStateOf(1f) }
+    var headerHeightPx by remember { mutableIntStateOf(0) }
     ProvideYoinMotionRole(role = YoinMotionRole.Standard) {
-        val haptics = rememberYoinHaptics()
-        ExpressivePageBackground(modifier = modifier) {
+        SettingsPageBackground(listPane = listDetail, modifier = modifier) {
             Box(modifier = Modifier.fillMaxSize()) {
                 Scaffold(
                     modifier = Modifier.fillMaxSize(),
@@ -253,17 +279,16 @@ fun SettingsContent(
                     contentWindowInsets = WindowInsets(0, 0, 0, 0),
                     topBar = {
                         TopAppBar(
-                            title = { Text("Settings") },
-                            navigationIcon = {
-                                IconButton(
-                                    onClick = {
-                                        haptics.performClick()
-                                        onBackClick()
+                            title = {
+                                Text(
+                                    text = "Settings",
+                                    modifier = Modifier.graphicsLayer {
+                                        alpha = handoffProgress(viewportTop, headlineTop, headlineHeight)
+                                        translationY = (1f - alpha) * size.height * 0.5f
                                     },
-                                ) {
-                                    Icon(YoinSymbols.Back, contentDescription = "Back")
-                                }
+                                )
                             },
+                            navigationIcon = { SettingsBackButton(onClick = onBackClick) },
                             colors = TopAppBarDefaults.topAppBarColors(
                                 containerColor = Color.Transparent,
                                 titleContentColor = MaterialTheme.colorScheme.onSurface,
@@ -278,22 +303,31 @@ fun SettingsContent(
                     var neoDbTopPx by remember { mutableIntStateOf(-1) }
                     LaunchedEffect(focusSection, neoDbTopPx) {
                         if (focusSection == SettingsFocus.NEODB && neoDbTopPx >= 0) {
-                            scrollState.animateScrollTo(neoDbTopPx)
+                            scrollState.animateScrollTo(headerHeightPx + neoDbTopPx)
                         }
                     }
                     Column(
                         modifier = Modifier
                             .fillMaxSize()
-                            // Reading/form surface: cap + center on Medium+
-                            // windows; no-op on phones.
-                            .yoinPageContentWidth(YoinPageWidths.Prose)
                             // Keep low-on-page fields (API key / token) above
                             // the IME (Scaffold contentWindowInsets is 0).
                             .imePadding()
                             .padding(innerPadding)
+                            .onGloballyPositioned { viewportTop.floatValue = it.positionInWindow().y }
+                            // Full width on every window (user, 2026-10-04):
+                            // a centred reading column under a full-bleed
+                            // card row read as two layouts.
                             .verticalScroll(scrollState)
                             .padding(start = 16.dp, top = 8.dp, end = 16.dp, bottom = 24.dp + navBottom),
                     ) {
+                        SettingsHeadline(
+                            title = "Settings",
+                            modifier = Modifier.onSizeChanged { headerHeightPx = it.height },
+                            titleModifier = Modifier.onGloballyPositioned {
+                                headlineTop.floatValue = it.positionInWindow().y
+                                headlineHeight.floatValue = it.size.height.toFloat().coerceAtLeast(1f)
+                            },
+                        )
                         AnimatedContent(
                             targetState = uiState,
                             transitionSpec = {
@@ -332,44 +366,52 @@ fun SettingsContent(
                                             neoDbTopPx = coords.positionInParent().y.toInt().coerceAtLeast(0)
                                         },
                                     ) {
-                                        GeminiItem(
-                                            apiKey = state.geminiApiKey,
-                                            targetLanguage = state.geminiTargetLanguage,
-                                            onSaveApiKey = onSaveGeminiApiKey,
-                                            onSaveTargetLanguage = onSaveGeminiTargetLanguage,
-                                            // List-detail: the feature opens on the right (§7).
-                                            onOpenPage = if (listDetail) {
-                                                { onOpenFeature(SettingsFeature.Gemini) }
-                                            } else {
-                                                null
-                                            },
-                                            selected = openFeature == SettingsFeature.Gemini,
-                                        )
-                                        SettingsRowDivider()
-                                        NeoDbItem(
-                                            instance = state.neoDbInstance,
-                                            accessToken = state.neoDbAccessToken,
-                                            initiallyExpanded = focusSection == SettingsFocus.NEODB,
-                                            onOpenSignIn = onOpenNeoDbSignIn,
-                                            onSaveConfig = onSaveNeoDbConfig,
-                                            onClearToken = onClearNeoDbToken,
-                                            onOpenPage = if (listDetail) {
-                                                { onOpenFeature(SettingsFeature.NeoDb) }
-                                            } else {
-                                                null
-                                            },
-                                            selected = openFeature == SettingsFeature.NeoDb,
-                                        )
+                                        item(key = SettingsFeature.Gemini, paintsOwnSegment = listDetail) {
+                                            GeminiItem(
+                                                apiKey = state.geminiApiKey,
+                                                targetLanguage = state.geminiTargetLanguage,
+                                                onSaveApiKey = onSaveGeminiApiKey,
+                                                onSaveTargetLanguage = onSaveGeminiTargetLanguage,
+                                                // List-detail: the feature opens on the right (§7).
+                                                onOpenPage = if (listDetail) {
+                                                    { onOpenFeature(SettingsFeature.Gemini) }
+                                                } else {
+                                                    null
+                                                },
+                                                selected = openFeature == SettingsFeature.Gemini,
+                                            )
+                                        }
+                                        item(key = SettingsFeature.NeoDb, paintsOwnSegment = listDetail) {
+                                            NeoDbItem(
+                                                instance = state.neoDbInstance,
+                                                accessToken = state.neoDbAccessToken,
+                                                initiallyExpanded = focusSection == SettingsFocus.NEODB,
+                                                onOpenSignIn = onOpenNeoDbSignIn,
+                                                onSaveConfig = onSaveNeoDbConfig,
+                                                onClearToken = onClearNeoDbToken,
+                                                onOpenPage = if (listDetail) {
+                                                    { onOpenFeature(SettingsFeature.NeoDb) }
+                                                } else {
+                                                    null
+                                                },
+                                                selected = openFeature == SettingsFeature.NeoDb,
+                                            )
+                                        }
+                                    }
+                                    SettingsGroup(title = "Motion") {
+                                        item { ScrollEdgeItem() }
                                     }
                                     SettingsGroup(title = "Storage") {
-                                        CacheItem(state.cacheSizeBytes, onClearCache)
+                                        item { CacheItem(state.cacheSizeBytes, onClearCache) }
                                     }
                                     SettingsGroup(title = "About") {
-                                        SettingsItem(
-                                            icon = YoinSymbols.Info,
-                                            title = "Yoin",
-                                            summary = "Version ${BuildConfig.VERSION_NAME}",
-                                        )
+                                        item {
+                                            SettingsItem(
+                                                icon = YoinSymbols.Info,
+                                                title = "Yoin",
+                                                summary = "Version ${BuildConfig.VERSION_NAME}",
+                                            )
+                                        }
                                     }
                                 }
                             }
@@ -407,6 +449,55 @@ fun SettingsContent(
     }
 }
 
+/**
+ * Pixel's sub-page header: the page title set large (displaySmall) on the
+ * 24dp line the group labels share, with generous air above and below.
+ */
+@Composable
+internal fun SettingsHeadline(
+    title: String,
+    modifier: Modifier = Modifier,
+    titleModifier: Modifier = Modifier,
+) {
+    Column(modifier = modifier.fillMaxWidth()) {
+        Spacer(Modifier.height(40.dp))
+        Text(
+            text = title,
+            style = MaterialTheme.typography.displaySmall,
+            color = MaterialTheme.colorScheme.onSurface,
+            modifier = titleModifier
+                .padding(horizontal = 8.dp)
+                .semantics { heading() },
+        )
+        Spacer(Modifier.height(36.dp))
+    }
+}
+
+/** 0 while the large title is in view, 1 once it has slid fully under the bar; tracks the scroll 1:1. */
+internal fun handoffProgress(
+    viewportTop: MutableFloatState,
+    titleTop: MutableFloatState,
+    titleHeight: MutableFloatState,
+): Float {
+    val top = titleTop.floatValue
+    if (top.isNaN()) return 0f
+    return ((viewportTop.floatValue - top) / titleHeight.floatValue).coerceIn(0f, 1f)
+}
+
+/**
+ * Pixel's back affordance: the arrow on a tonal circle, its left edge on the
+ * same 24dp line as the large title and the group labels.
+ */
+@Composable
+internal fun SettingsBackButton(onClick: () -> Unit) {
+    DetailBackButton(
+        onClick = onClick,
+        containerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+        // End air so the handed-off bar title clears the filled circle.
+        modifier = Modifier.padding(start = 20.dp, end = 14.dp),
+    )
+}
+
 // ── Accounts ──────────────────────────────────────────────────────────
 
 @Composable
@@ -433,81 +524,125 @@ private fun AccountsSection(
         if (asRows) {
             // List-detail: a row per account; tapping opens its page on the
             // right (the ⋮ menu keeps "Use" and "Remove").
-            ExpressiveSectionPanel(
-                modifier = Modifier.fillMaxWidth(),
-                containerColor = MaterialTheme.colorScheme.surfaceContainer,
-                tonalElevation = 1.dp,
-            ) {
-                profileCards.forEachIndexed { index, card ->
-                    if (index > 0) SettingsRowDivider()
-                    ProfileAccountRow(
-                        card = card,
-                        selected = card.id == openAccountId,
-                        onOpen = {
-                            SetupService.forProvider(card.provider)?.let { service ->
-                                onOpenService(ServiceSetupRequest(service, profileId = card.id))
-                            }
-                        },
-                        onUse = { onSwitchToProfile(card.id) },
-                        onRemove = { onRequestDeleteProfile(card.id) },
-                    )
+            SettingsSegments {
+                profileCards.forEach { card ->
+                    item(key = card.id, paintsOwnSegment = true) {
+                        ProfileAccountRow(
+                            card = card,
+                            selected = card.id == openAccountId,
+                            onOpen = {
+                                SetupService.forProvider(card.provider)?.let { service ->
+                                    onOpenService(ServiceSetupRequest(service, profileId = card.id, face = card.face))
+                                }
+                            },
+                            onUse = { onSwitchToProfile(card.id) },
+                            onRemove = { onRequestDeleteProfile(card.id) },
+                        )
+                    }
                 }
                 if (canAddProfile) {
-                    SettingsRowDivider()
-                    SettingsItem(
-                        icon = YoinSymbols.Add,
-                        title = "Add account",
-                        onClick = onAddAccount,
-                    )
+                    item(key = "add") {
+                        SettingsItem(
+                            icon = YoinSymbols.Add,
+                            title = "Add account",
+                            onClick = onAddAccount,
+                        )
+                    }
                 }
             }
             return@Column
         }
-        val rowState = rememberLazyListState()
-        LazyRow(
-            state = rowState,
-            // Full-bleed past the page padding: cards scroll under the screen
-            // edges with a fade instead of being chopped at the padding line.
-            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(IntrinsicCardHeight)
-                .ignoreParentHorizontalPadding(16.dp)
-                .horizontalEdgeFadeOnScroll(rowState),
-        ) {
-            items(items = profileCards, key = { it.id }) { card ->
-                val manage = {
-                    SetupService.forProvider(card.provider)?.let { service ->
-                        onOpenService(ServiceSetupRequest(service, profileId = card.id))
-                    }
-                    Unit
+        AccountCardRow(
+            profileCards = profileCards,
+            canAddProfile = canAddProfile,
+            onSwitchToProfile = onSwitchToProfile,
+            onOpenService = onOpenService,
+            onRequestDeleteProfile = onRequestDeleteProfile,
+            onAddAccount = onAddAccount,
+        )
+    }
+}
+
+/**
+ * The account switcher. It runs edge to edge of the screen, past the 16dp
+ * page padding, so cards are only ever cut by the screen edge; resting, the
+ * first card sits on the page margin. No edge fade: the row cuts cleanly.
+ */
+@Composable
+private fun AccountCardRow(
+    profileCards: List<ProfileCard>,
+    canAddProfile: Boolean,
+    onSwitchToProfile: (String) -> Unit,
+    onOpenService: (ServiceSetupRequest) -> Unit,
+    onRequestDeleteProfile: (String) -> Unit,
+    onAddAccount: () -> Unit,
+) {
+    val bleed = 16.dp
+    LazyRow(
+        contentPadding = PaddingValues(horizontal = bleed, vertical = 6.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(accountCardHeight())
+            .ignoreParentHorizontalPadding(bleed),
+    ) {
+        items(items = profileCards, key = { it.id }) { card ->
+            val manage = {
+                SetupService.forProvider(card.provider)?.let { service ->
+                    onOpenService(ServiceSetupRequest(service, profileId = card.id, face = card.face))
                 }
-                ProfileCardTile(
-                    card = card,
-                    // Anything that needs attention — or the account you're
-                    // already on — opens its page; any other card switches.
-                    onTap = {
-                        if (card.isActive || card.requiresReconnect || card.requiresCredentialsReentry) {
-                            manage()
-                        } else {
-                            onSwitchToProfile(card.id)
-                        }
-                    },
-                    onManage = manage,
-                    onRemove = { onRequestDeleteProfile(card.id) },
-                )
+                Unit
             }
-            if (canAddProfile) {
-                item(key = "add") { AddAccountTile(onClick = onAddAccount) }
+            // Anything that needs attention — or the account you're
+            // already on — opens its page; any other card switches.
+            val opensPage = card.isActive || card.requiresReconnect || card.requiresCredentialsReentry
+            ProfileCardTile(
+                modifier = Modifier.animateItem(
+                    fadeInSpec = YoinMotion.defaultEffectsSpec(),
+                    placementSpec = YoinMotion.spatialSpring(),
+                    fadeOutSpec = YoinMotion.defaultEffectsSpec(),
+                ),
+                card = card,
+                tapLabel = if (opensPage) "Manage account" else "Switch to this account",
+                onTap = {
+                    if (opensPage) manage() else onSwitchToProfile(card.id)
+                },
+                onManage = manage,
+                onRemove = { onRequestDeleteProfile(card.id) },
+            )
+        }
+        if (canAddProfile) {
+            item(key = "add") {
+                AddAccountTile(
+                    onClick = onAddAccount,
+                    modifier = Modifier.animateItem(
+                        fadeInSpec = YoinMotion.defaultEffectsSpec(),
+                        placementSpec = YoinMotion.spatialSpring(),
+                        fadeOutSpec = YoinMotion.defaultEffectsSpec(),
+                    ),
+                )
             }
         }
     }
 }
 
-private val IntrinsicCardHeight = 172.dp
+/**
+ * Card height from its content, so text never clips at large font scales:
+ * the fixed parts in dp (the row's 6+6 padding, the card's 16+16, the 48dp
+ * avatar row, the pill's 10dp gap and 3+3 padding, a few dp of slack) plus
+ * each text line converted on its own — Android 14+ scales large sp less than
+ * small sp, so one summed sp value would undercount.
+ */
+@Composable
+private fun accountCardHeight(): Dp {
+    val type = MaterialTheme.typography
+    return with(LocalDensity.current) {
+        112.dp + type.titleMedium.lineHeight.toDp() * 2 + type.bodyMedium.lineHeight.toDp() +
+            type.labelMedium.lineHeight.toDp()
+    }
+}
 
-/** One account as a list-detail row: the open one sits on a selected surface. */
+/** One account as a list-detail row: the open one detaches onto the detail pane's colour. */
 @Composable
 private fun ProfileAccountRow(
     card: ProfileCard,
@@ -517,78 +652,82 @@ private fun ProfileAccountRow(
     onRemove: () -> Unit,
 ) {
     val haptics = rememberYoinHaptics()
-    val container by animateColorAsState(
-        targetValue = if (selected) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent,
-        animationSpec = YoinMotion.defaultEffectsSpec(),
-        label = "accountRowSelection",
-    )
+    val identity = card.provider.serviceIdentity
     var menuOpen by remember { mutableStateOf(false) }
-    Surface(
-        modifier = Modifier
-            .fillMaxWidth()
-            .testTag("account_row_${card.id}"),
-        shape = YoinContainerShapes.ListRow,
-        color = container,
-        onClick = {
-            haptics.performClick()
-            onOpen()
-        },
-    ) {
-        Row(
-            modifier = Modifier.padding(start = 16.dp, top = 12.dp, bottom = 12.dp, end = 4.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(16.dp),
+    SelectableSegment(selected = selected) {
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth()
+                .testTag("account_row_${card.id}"),
+            shape = LocalSettingsRowShape.current,
+            color = Color.Transparent,
+            onClick = {
+                haptics.performClick()
+                onOpen()
+            },
         ) {
-            Icon(
-                imageVector = providerIcon(card.provider),
-                contentDescription = card.provider.displayLabel,
-                modifier = Modifier.size(24.dp),
-            )
-            Column(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(4.dp),
+            Row(
+                modifier = Modifier
+                    .heightIn(min = 72.dp)
+                    .padding(start = 16.dp, top = 12.dp, bottom = 12.dp, end = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                Text(
-                    text = card.displayName,
-                    style = MaterialTheme.typography.titleMedium,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
+                AccountAvatar(
+                    monogram = monogramOf(card.title, identity.name),
+                    shapeIndex = card.avatarShape,
+                    photoUrl = card.photoUrl,
+                    identity = identity,
+                    ringColor = LocalSettingsRowColor.current,
+                    size = 40.dp,
                 )
-                AccountStatus(card = card, contentColor = MaterialTheme.colorScheme.onSurface)
-            }
-            Box {
-                IconButton(
-                    onClick = {
-                        haptics.performTick()
-                        menuOpen = true
-                    },
-                    modifier = Modifier.minimumTouchTarget(),
-                ) {
-                    Icon(
-                        imageVector = YoinSymbols.MoreVertical,
-                        contentDescription = "Account options",
-                        modifier = Modifier.size(20.dp),
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = card.title,
+                        style = MaterialTheme.typography.titleMedium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                     )
+                    serviceLineOf(identity.name, card.title, card.subtitle)?.let { line ->
+                        ServiceLine(text = line, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    AccountStatusPill(card = card, modifier = Modifier.padding(top = 6.dp))
                 }
-                YoinDropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                    if (!card.isActive) {
+                Box {
+                    IconButton(
+                        onClick = {
+                            haptics.performTick()
+                            menuOpen = true
+                        },
+                        modifier = Modifier.minimumTouchTarget(),
+                    ) {
+                        Icon(
+                            imageVector = YoinSymbols.MoreVertical,
+                            contentDescription = "Options for ${card.title}",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(20.dp),
+                        )
+                    }
+                    YoinDropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                        if (!card.isActive) {
+                            YoinDropdownMenuItem(
+                                text = "Use this account",
+                                onClick = {
+                                    haptics.performContextClick()
+                                    menuOpen = false
+                                    onUse()
+                                },
+                            )
+                        }
                         YoinDropdownMenuItem(
-                            text = "Use this account",
+                            text = "Remove",
                             onClick = {
-                                haptics.performContextClick()
+                                haptics.performReject()
                                 menuOpen = false
-                                onUse()
+                                onRemove()
                             },
                         )
                     }
-                    YoinDropdownMenuItem(
-                        text = "Remove",
-                        onClick = {
-                            haptics.performReject()
-                            menuOpen = false
-                            onRemove()
-                        },
-                    )
                 }
             }
         }
@@ -627,32 +766,41 @@ private fun EmptyAccountsCard(onAddAccount: () -> Unit) {
     }
 }
 
+/**
+ * One account in the switcher. The service is the colour (the account in use
+ * fills with it) plus the badge on the avatar and its name on the line under
+ * the account; the avatar's shape and letter tell two accounts on one
+ * service apart.
+ */
 @Composable
 private fun ProfileCardTile(
     card: ProfileCard,
+    tapLabel: String,
     onTap: () -> Unit,
     onManage: () -> Unit,
     onRemove: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val haptics = rememberYoinHaptics()
+    val identity = card.provider.serviceIdentity
+    val tone = identity.hue.tone()
+    val surfaces = settingsSurfaces()
     val containerColor by animateColorAsState(
-        targetValue = if (card.isActive) {
-            MaterialTheme.colorScheme.primaryContainer
-        } else {
-            MaterialTheme.colorScheme.surfaceContainerHigh
-        },
+        targetValue = if (card.isActive) tone.container else surfaces.row,
         animationSpec = YoinMotion.defaultEffectsSpec(),
         label = "accountCardContainer",
     )
     val contentColor by animateColorAsState(
-        targetValue = if (card.isActive) {
-            MaterialTheme.colorScheme.onPrimaryContainer
-        } else {
-            MaterialTheme.colorScheme.onSurface
-        },
+        targetValue = if (card.isActive) tone.onContainer else MaterialTheme.colorScheme.onSurface,
         animationSpec = YoinMotion.defaultEffectsSpec(),
         label = "accountCardContent",
+    )
+    // Secondary text at full strength on the tinted card (AA at 12–14sp);
+    // the usual variant colour on a plain one.
+    val secondaryColor by animateColorAsState(
+        targetValue = if (card.isActive) tone.onContainer else MaterialTheme.colorScheme.onSurfaceVariant,
+        animationSpec = YoinMotion.defaultEffectsSpec(),
+        label = "accountCardSecondary",
     )
     val scale by animateFloatAsState(
         targetValue = if (card.isActive) 1f else 0.96f,
@@ -669,7 +817,14 @@ private fun ProfileCardTile(
                 scaleX = scale
                 scaleY = scale
             }
-            .testTag("account_card_${card.id}"),
+            .testTag("account_card_${card.id}")
+            .semantics {
+                selected = card.isActive
+                onClick(label = tapLabel) {
+                    onTap()
+                    true
+                }
+            },
         shape = YoinContainerShapes.Card,
         color = containerColor,
         contentColor = contentColor,
@@ -679,16 +834,18 @@ private fun ProfileCardTile(
         },
     ) {
         Column(
-            modifier = Modifier.padding(start = 16.dp, top = 6.dp, end = 4.dp, bottom = 16.dp),
+            modifier = Modifier.padding(start = 16.dp, top = 16.dp, end = 4.dp, bottom = 16.dp),
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                    imageVector = providerIcon(card.provider),
-                    contentDescription = card.provider.displayLabel,
-                    modifier = Modifier.size(24.dp),
+            Row(verticalAlignment = Alignment.Top) {
+                AccountAvatar(
+                    monogram = monogramOf(card.title, identity.name),
+                    shapeIndex = card.avatarShape,
+                    photoUrl = card.photoUrl,
+                    identity = identity,
+                    ringColor = containerColor,
                 )
                 Spacer(Modifier.weight(1f))
-                Box {
+                Box(modifier = Modifier.offset(y = (-8).dp)) {
                     IconButton(
                         onClick = {
                             haptics.performTick()
@@ -698,8 +855,8 @@ private fun ProfileCardTile(
                     ) {
                         Icon(
                             imageVector = YoinSymbols.MoreVertical,
-                            contentDescription = "Account options",
-                            tint = contentColor.copy(alpha = 0.72f),
+                            contentDescription = "Options for ${card.title}",
+                            tint = secondaryColor,
                             modifier = Modifier.size(20.dp),
                         )
                     }
@@ -724,68 +881,109 @@ private fun ProfileCardTile(
                 }
             }
             Spacer(Modifier.weight(1f))
+            // Name and service read as one cluster; the status pill is its own.
             Text(
-                text = card.displayName,
+                text = card.title,
                 style = MaterialTheme.typography.titleMedium,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.padding(end = 12.dp),
             )
-            Spacer(Modifier.height(6.dp))
-            AccountStatus(card = card, contentColor = contentColor)
+            serviceLineOf(identity.name, card.title, card.subtitle)?.let { line ->
+                ServiceLine(
+                    text = line,
+                    color = secondaryColor,
+                    modifier = Modifier.padding(end = 12.dp),
+                )
+            }
+            AccountStatusPill(card = card, modifier = Modifier.padding(top = 10.dp))
         }
     }
 }
 
-/** One line under the name: a problem if there is one, else "In use", else where it lives. */
+/**
+ * The one status an account can need to say: a problem (error pill) beats
+ * "In use" (a pill in the service's own accent) — and when the account in
+ * use has a problem the pill says both, so "in use" never rests on colour
+ * alone. Otherwise nothing. Grows in and out on the spatial spring.
+ */
 @Composable
-private fun AccountStatus(card: ProfileCard, contentColor: Color) {
+private fun AccountStatusPill(card: ProfileCard, modifier: Modifier = Modifier) {
+    val tone = card.provider.serviceIdentity.hue.tone()
+    val scheme = MaterialTheme.colorScheme
     val issue = card.unavailableReason
-    when {
-        issue != null -> Surface(
-            shape = YoinShapeTokens.Full,
-            color = MaterialTheme.colorScheme.errorContainer,
-            contentColor = MaterialTheme.colorScheme.onErrorContainer,
-        ) {
-            Text(
-                text = issue,
-                style = MaterialTheme.typography.labelMedium,
-                maxLines = 1,
-                modifier = Modifier.padding(horizontal = 10.dp, vertical = 3.dp),
-            )
-        }
-        card.isActive -> Surface(
-            shape = YoinShapeTokens.Full,
-            color = MaterialTheme.colorScheme.primary,
-            contentColor = MaterialTheme.colorScheme.onPrimary,
-        ) {
-            Text(
-                text = "In use",
-                style = MaterialTheme.typography.labelMedium,
-                modifier = Modifier.padding(horizontal = 10.dp, vertical = 3.dp),
-            )
-        }
-        else -> Text(
-            text = card.subtitle ?: card.provider.displayLabel,
-            style = MaterialTheme.typography.bodySmall,
-            color = contentColor.copy(alpha = 0.72f),
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.padding(end = 12.dp),
+    val status: Triple<String, Color, Color>? = when {
+        issue != null -> Triple(
+            // The problem leads: if large text ellipsizes, it eats "In use",
+            // which the card itself already shows.
+            if (card.isActive) "$issue · In use" else issue,
+            scheme.errorContainer,
+            scheme.onErrorContainer,
         )
+        card.isActive -> Triple("In use", tone.accent, tone.onAccent)
+        else -> null
+    }
+    // Keep the last label on screen while the pill shrinks away.
+    var shown by remember { mutableStateOf(status) }
+    if (status != null) shown = status
+    AnimatedVisibility(
+        visible = status != null,
+        modifier = modifier,
+        enter = expandVertically(
+            animationSpec = YoinMotion.spatialSpring(),
+            expandFrom = Alignment.Top,
+        ) + YoinMotion.fadeIn(role = YoinMotionRole.Standard),
+        exit = shrinkVertically(
+            animationSpec = YoinMotion.spatialSpring(),
+            shrinkTowards = Alignment.Top,
+        ) + YoinMotion.fadeOut(role = YoinMotionRole.Standard),
+    ) {
+        val (label, container, content) = shown ?: return@AnimatedVisibility
+        val pillColor by animateColorAsState(
+            targetValue = container,
+            animationSpec = YoinMotion.defaultEffectsSpec(),
+            label = "accountStatusPill",
+        )
+        val textColor by animateColorAsState(
+            targetValue = content,
+            animationSpec = YoinMotion.defaultEffectsSpec(),
+            label = "accountStatusPillText",
+        )
+        Surface(
+            shape = YoinShapeTokens.Full,
+            color = pillColor,
+            contentColor = textColor,
+        ) {
+            AnimatedContent(
+                targetState = label,
+                transitionSpec = {
+                    YoinMotion.fadeIn(role = YoinMotionRole.Standard) togetherWith
+                        YoinMotion.fadeOut(role = YoinMotionRole.Standard)
+                },
+                label = "accountStatusLabel",
+            ) { text ->
+                Text(
+                    text = text,
+                    style = MaterialTheme.typography.labelMedium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 3.dp),
+                )
+            }
+        }
     }
 }
 
 @Composable
-private fun AddAccountTile(onClick: () -> Unit) {
+private fun AddAccountTile(onClick: () -> Unit, modifier: Modifier = Modifier) {
     val haptics = rememberYoinHaptics()
     Surface(
-        modifier = Modifier
+        modifier = modifier
             .width(112.dp)
             .fillMaxHeight()
             .testTag("add_account"),
         shape = YoinContainerShapes.Card,
-        color = MaterialTheme.colorScheme.surfaceContainer,
+        color = settingsSurfaces().row,
         contentColor = MaterialTheme.colorScheme.primary,
         onClick = {
             haptics.performClick()
@@ -802,11 +1000,27 @@ private fun AddAccountTile(onClick: () -> Unit) {
     }
 }
 
-private fun providerIcon(kind: ProviderKind): ImageVector = when (kind) {
-    ProviderKind.SUBSONIC -> YoinSymbols.Cloud
-    ProviderKind.SPOTIFY -> YoinSymbols.Headphones
-    ProviderKind.APPLE_MUSIC -> YoinSymbols.MusicNote
-    ProviderKind.LOCAL -> YoinSymbols.Folder
+/** Settings' flat page colour (Pixel Settings), in place of the shell's gradient. */
+@Composable
+internal fun SettingsPageBackground(
+    modifier: Modifier = Modifier,
+    // The list pane of the two-pane split steps down to surfaceDim.
+    listPane: Boolean = false,
+    content: @Composable BoxScope.() -> Unit,
+) {
+    val page by animateColorAsState(
+        targetValue = settingsSurfaces(listPane).page,
+        animationSpec = YoinMotion.defaultEffectsSpec(),
+        label = "settingsPage",
+    )
+    CompositionLocalProvider(LocalSettingsHueSource provides rememberSystemPrimary()) {
+        Box(
+            modifier = modifier
+                .fillMaxSize()
+                .background(page),
+            content = content,
+        )
+    }
 }
 
 // ── Add account sheet ────────────────────────────────────────────────
@@ -844,27 +1058,23 @@ private fun AddAccountSheet(
                 modifier = Modifier.padding(start = 24.dp, end = 24.dp, bottom = 12.dp),
             )
             ServiceChoiceRow(
-                icon = YoinSymbols.Cloud,
-                title = "Subsonic",
+                identity = ProviderKind.SUBSONIC.serviceIdentity,
                 summary = "Navidrome, Airsonic and other servers",
                 onClick = { pick(SetupService.Subsonic) },
             )
             ServiceChoiceRow(
-                icon = YoinSymbols.Headphones,
-                title = "Spotify",
+                identity = ProviderKind.SPOTIFY.serviceIdentity,
                 summary = "Your Spotify library",
                 onClick = { pick(SetupService.Spotify) },
             )
             ServiceChoiceRow(
-                icon = YoinSymbols.MusicNote,
-                title = "Apple Music",
+                identity = ProviderKind.APPLE_MUSIC.serviceIdentity,
                 summary = "Your Apple Music library and catalog",
                 badge = "Preview",
                 onClick = { pick(SetupService.AppleMusic) },
             )
             ServiceChoiceRow(
-                icon = YoinSymbols.Folder,
-                title = "Files on this device",
+                identity = ProviderKind.LOCAL.serviceIdentity,
                 summary = "Coming later",
                 onClick = null,
             )
@@ -874,8 +1084,7 @@ private fun AddAccountSheet(
 
 @Composable
 private fun ServiceChoiceRow(
-    icon: ImageVector,
-    title: String,
+    identity: ServiceIdentity,
     summary: String,
     onClick: (() -> Unit)?,
     badge: String? = null,
@@ -900,10 +1109,10 @@ private fun ServiceChoiceRow(
             horizontalArrangement = Arrangement.spacedBy(16.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            SettingsRowIcon(icon)
+            SettingsRowIcon(identity.glyph, tone = identity.hue.tone())
             Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text(title, style = MaterialTheme.typography.titleMedium)
+                    Text(identity.name, style = MaterialTheme.typography.titleMedium)
                     if (badge != null) {
                         Surface(
                             shape = YoinShapeTokens.Full,
@@ -1115,12 +1324,7 @@ private fun FeaturePageRow(
     selected: Boolean,
     onClick: () -> Unit,
 ) {
-    val container by animateColorAsState(
-        targetValue = if (selected) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent,
-        animationSpec = YoinMotion.defaultEffectsSpec(),
-        label = "featureRowSelection",
-    )
-    Surface(color = container, shape = YoinContainerShapes.ListRow) {
+    SelectableSegment(selected = selected) {
         SettingsItem(
             icon = icon,
             title = title,
@@ -1136,6 +1340,36 @@ private fun FeaturePageRow(
         )
     }
 }
+
+/**
+ * A row that can be the open one in the two-pane list (Pixel): open, it takes
+ * the detail pane's colour and rounds all its corners, detaching from its
+ * neighbours — colour on the effects spring, corners on the spatial spring.
+ * Its group item must be `paintsOwnSegment`.
+ */
+@Composable
+private fun SelectableSegment(selected: Boolean, content: @Composable () -> Unit) {
+    val surfaces = settingsSurfaces()
+    val container by animateColorAsState(
+        targetValue = if (selected) surfaces.rowSelected else surfaces.row,
+        animationSpec = YoinMotion.defaultEffectsSpec(),
+        label = "segmentSelection",
+    )
+    val shape = animateSelectedRowShape(selected)
+    Surface(
+        color = container,
+        shape = shape,
+        // The open row is the selected one for TalkBack, too.
+        modifier = Modifier.semantics { this.selected = selected },
+    ) {
+        CompositionLocalProvider(LocalSettingsRowShape provides shape, LocalSettingsRowColor provides container) {
+            content()
+        }
+    }
+}
+
+/** The colour behind the current row (for badges that ring-cut against it). */
+private val LocalSettingsRowColor = staticCompositionLocalOf { Color.Unspecified }
 
 /** Which Settings feature a [SettingsFeatureScreen] shows. */
 enum class SettingsFeature { Gemini, NeoDb }
@@ -1168,9 +1402,15 @@ internal fun SettingsFeatureScreen(
             }
         }
     }
-    val haptics = rememberYoinHaptics()
+    val featureTitle = when (feature) {
+        SettingsFeature.Gemini -> "AI features"
+        SettingsFeature.NeoDb -> "NeoDB"
+    }
+    val viewportTop = remember { mutableFloatStateOf(0f) }
+    val headlineTop = remember { mutableFloatStateOf(Float.NaN) }
+    val headlineHeight = remember { mutableFloatStateOf(1f) }
     ProvideYoinMotionRole(role = YoinMotionRole.Standard) {
-        ExpressivePageBackground(modifier = modifier) {
+        SettingsPageBackground(modifier = modifier) {
             Scaffold(
                 modifier = Modifier.fillMaxSize(),
                 containerColor = Color.Transparent,
@@ -1178,17 +1418,16 @@ internal fun SettingsFeatureScreen(
                 contentWindowInsets = WindowInsets(0, 0, 0, 0),
                 topBar = {
                     TopAppBar(
-                        title = {},
-                        navigationIcon = {
-                            IconButton(
-                                onClick = {
-                                    haptics.performClick()
-                                    onBackClick()
+                        title = {
+                            Text(
+                                text = featureTitle,
+                                modifier = Modifier.graphicsLayer {
+                                    alpha = handoffProgress(viewportTop, headlineTop, headlineHeight)
+                                    translationY = (1f - alpha) * size.height * 0.5f
                                 },
-                            ) {
-                                Icon(YoinSymbols.Back, contentDescription = "Back")
-                            }
+                            )
                         },
+                        navigationIcon = { SettingsBackButton(onClick = onBackClick) },
                         colors = TopAppBarDefaults.topAppBarColors(
                             containerColor = Color.Transparent,
                             navigationIconContentColor = MaterialTheme.colorScheme.onSurface,
@@ -1201,40 +1440,95 @@ internal fun SettingsFeatureScreen(
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
-                        .yoinPageContentWidth(YoinPageWidths.Prose)
                         .imePadding()
                         .padding(innerPadding)
+                        .onGloballyPositioned { viewportTop.floatValue = it.positionInWindow().y }
                         .verticalScroll(rememberScrollState())
                         .padding(start = 16.dp, top = 8.dp, end = 16.dp, bottom = 24.dp + navBottom),
                 ) {
+                    SettingsHeadline(
+                        title = featureTitle,
+                        titleModifier = Modifier.onGloballyPositioned {
+                            headlineTop.floatValue = it.positionInWindow().y
+                            headlineHeight.floatValue = it.size.height.toFloat().coerceAtLeast(1f)
+                        },
+                    )
                     val content = uiState as? SettingsUiState.Content
                     if (content == null) {
                         Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
                             YoinLoadingIndicator()
                         }
                     } else {
-                        SettingsGroup(title = "Features") {
-                            when (feature) {
-                                SettingsFeature.Gemini -> GeminiItem(
-                                    apiKey = content.geminiApiKey,
-                                    targetLanguage = content.geminiTargetLanguage,
-                                    onSaveApiKey = viewModel::saveGeminiApiKey,
-                                    onSaveTargetLanguage = viewModel::saveGeminiTargetLanguage,
-                                    asPage = true,
-                                )
-                                SettingsFeature.NeoDb -> NeoDbItem(
-                                    instance = content.neoDbInstance,
-                                    accessToken = content.neoDbAccessToken,
-                                    initiallyExpanded = true,
-                                    onOpenSignIn = viewModel::openNeoDbSignIn,
-                                    onSaveConfig = viewModel::saveNeoDbConfig,
-                                    onClearToken = viewModel::clearNeoDbToken,
-                                    asPage = true,
-                                )
+                        SettingsSegments {
+                            item {
+                                when (feature) {
+                                    SettingsFeature.Gemini -> GeminiItem(
+                                        apiKey = content.geminiApiKey,
+                                        targetLanguage = content.geminiTargetLanguage,
+                                        onSaveApiKey = viewModel::saveGeminiApiKey,
+                                        onSaveTargetLanguage = viewModel::saveGeminiTargetLanguage,
+                                        asPage = true,
+                                    )
+                                    SettingsFeature.NeoDb -> NeoDbItem(
+                                        instance = content.neoDbInstance,
+                                        accessToken = content.neoDbAccessToken,
+                                        initiallyExpanded = true,
+                                        onOpenSignIn = viewModel::openNeoDbSignIn,
+                                        onSaveConfig = viewModel::saveNeoDbConfig,
+                                        onClearToken = viewModel::clearNeoDbToken,
+                                        asPage = true,
+                                    )
+                                }
                             }
                         }
                     }
                 }
+            }
+        }
+    }
+}
+
+// ── Motion ───────────────────────────────────────────────────────────
+
+/**
+ * How scrolling content meets the fixed chrome at the top of a page (the
+ * chips, a detail page's header): the tide line, the original dots or the
+ * Cookie wave. Only that seam; it repaints open pages live.
+ */
+@Composable
+private fun ScrollEdgeItem() {
+    val context = LocalContext.current
+    val style = currentSeamTopStyle()
+    var menuOpen by remember { mutableStateOf(false) }
+    val haptics = rememberYoinHaptics()
+    Box {
+        SettingsItem(
+            icon = YoinSymbols.UnfoldLess,
+            title = "Scroll edge",
+            summary = style.label,
+            onClick = { menuOpen = true },
+        )
+        YoinDropdownMenu(
+            expanded = menuOpen,
+            onDismissRequest = { menuOpen = false },
+            offset = DpOffset(SettingsRowTextInset, 0.dp),
+        ) {
+            SeamTopStyle.entries.forEach { option ->
+                val chosen = option == style
+                YoinDropdownMenuItem(
+                    text = option.label,
+                    onClick = {
+                        haptics.performContextClick()
+                        menuOpen = false
+                        SeamTopPreference.select(context, option)
+                    },
+                    modifier = Modifier.semantics { selected = chosen },
+                    trailingIcon = if (chosen) {
+                        { Icon(imageVector = YoinSymbols.Check, contentDescription = null) }
+                    } else {
+                        null
+                    },
+                )
             }
         }
     }
@@ -1387,15 +1681,26 @@ private val previewCards = listOf(
         subtitle = "demo.navidrome.org",
         provider = ProviderKind.SUBSONIC,
         isActive = true,
+        title = "demo",
+        avatarShape = 0,
     ),
     ProfileCard(
         id = "b",
-        displayName = "Chen's Spotify",
-        subtitle = "Spotify account",
+        displayName = "Chen",
+        subtitle = null,
         provider = ProviderKind.SPOTIFY,
         isActive = false,
         unavailableReason = "Reconnect",
         requiresReconnect = true,
+        avatarShape = 1,
+    ),
+    ProfileCard(
+        id = "c",
+        displayName = "Apple Music",
+        subtitle = null,
+        provider = ProviderKind.APPLE_MUSIC,
+        isActive = false,
+        avatarShape = 2,
     ),
 )
 

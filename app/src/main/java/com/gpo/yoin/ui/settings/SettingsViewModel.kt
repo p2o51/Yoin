@@ -13,6 +13,7 @@ import com.gpo.yoin.data.profile.ProviderKind
 import com.gpo.yoin.data.profile.SpotifyProviderStatus
 import com.gpo.yoin.data.integration.neodb.NeoDBOAuthResult
 import com.gpo.yoin.data.source.spotify.SpotifyAuthConfig
+import com.gpo.yoin.data.source.spotify.SpotifyMusicSource
 import java.net.URI
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -99,21 +100,23 @@ class SettingsViewModel(
         )
 
     val uiState: StateFlow<SettingsUiState> = combine(
-        profileManager.profiles,
+        combine(profileManager.profiles, container.profileAvatarStore.urls, ::Pair),
         profileManager.activeProfileId,
         cacheSizeFlow,
         miscSettingsBundleFlow,
         // Runtime Spotify status drives the per-card badges (No Client ID,
         // Premium, ...).
         container.spotifyProviderStatus,
-    ) { profiles, activeId, cacheSize, misc, spotifyStatus ->
+    ) { (profiles, avatarUrls), activeId, cacheSize, misc, spotifyStatus ->
         val resolvedActiveId = activeId ?: profiles.firstOrNull()?.id
+        val avatarShapes = assignAvatarShapes(profiles.map { it.id to it.createdAt })
         SettingsUiState.Content(
             profileCards = profiles.map {
                 it.toCard(
                     activeProfileId = resolvedActiveId,
                     spotifyStatus = spotifyStatus,
-                )
+                    avatarShape = avatarShapes[it.id] ?: 0,
+                ).copy(photoUrl = avatarUrls[it.id])
             },
             activeProfileId = resolvedActiveId,
             canAddProfile = profiles.size < ProfileManager.MAX_PROFILES,
@@ -126,6 +129,19 @@ class SettingsViewModel(
     }.stateIn(viewModelScope, SharingStarted.Eagerly, SettingsUiState.Loading)
 
     val switchingState: StateFlow<ProfileManager.SwitchState> = profileManager.switchingState
+
+    init {
+        // Keep the account in use's Spotify picture fresh (it can change, and
+        // accounts added before pictures were kept have none yet). Only the
+        // active profile has a live, refreshing token to ask with.
+        viewModelScope.launch {
+            val source = profileManager.activeSource.first { it != null } as? SpotifyMusicSource
+                ?: return@launch
+            val profileId = profileManager.activeProfileId.value ?: return@launch
+            runCatching { source.profilePictureUrl() }
+                .onSuccess { url -> container.profileAvatarStore.put(profileId, url) }
+        }
+    }
 
     private val _providerPickerState = MutableStateFlow(ProviderPickerState())
     val providerPickerState: StateFlow<ProviderPickerState> = _providerPickerState.asStateFlow()
@@ -187,6 +203,7 @@ class SettingsViewModel(
         viewModelScope.launch {
             val wasActive = profileManager.activeProfileId.value == pending.profileId
             profileManager.delete(pending.profileId)
+            container.profileAvatarStore.remove(pending.profileId)
             if (wasActive) {
                 // If delete removed the active profile, AppContainer needs to
                 // refresh downstream VMs (same as a switch).
@@ -279,20 +296,20 @@ class SettingsViewModel(
     private fun Profile.toCard(
         activeProfileId: String?,
         spotifyStatus: SpotifyProviderStatus,
+        avatarShape: Int,
     ): ProfileCard {
         val provider = ProviderKind.fromKeyOrSubsonic(provider)
-        val subtitle = when (provider) {
-            ProviderKind.SUBSONIC -> {
-                val creds = profileManager.decodeCredentials(this) as? ProfileCredentials.Subsonic
-                creds?.let {
-                    runCatching { URI(it.serverUrl).host }
-                        .getOrNull()?.takeIf { host -> host.isNotBlank() } ?: it.username
-                }
-            }
-            ProviderKind.SPOTIFY -> "Spotify account"
-            ProviderKind.APPLE_MUSIC -> "Apple Music account"
-            ProviderKind.LOCAL -> "Local files"
+        // Subsonic: lead with the username, the server's host goes on the
+        // service line ("Subsonic · host"). Other services have no "where".
+        val subsonic = if (provider == ProviderKind.SUBSONIC) {
+            profileManager.decodeCredentials(this) as? ProfileCredentials.Subsonic
+        } else {
+            null
         }
+        val subtitle = subsonic?.let {
+            runCatching { URI(it.serverUrl).host }.getOrNull()?.takeIf { host -> host.isNotBlank() }
+        }
+        val title = subsonic?.username?.takeIf { it.isNotBlank() } ?: displayName
         // Per-Spotify-profile scope drift (legacy profile missing newly-
         // required scopes) is a static credential check that
         // [SpotifyProviderStatus] doesn't capture — it describes the
@@ -325,6 +342,8 @@ class SettingsViewModel(
             subtitle = subtitle,
             provider = provider,
             isActive = id == activeProfileId,
+            title = title,
+            avatarShape = avatarShape,
             unavailableReason = unavailableReason,
             requiresReconnect = provider == ProviderKind.SPOTIFY &&
                 unavailableReason == "Reconnect",

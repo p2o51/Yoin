@@ -185,7 +185,15 @@ data class SpotifyMe(
     val id: String,
     @SerialName("display_name") val displayName: String? = null,
     val email: String? = null,
-)
+    /** Profile pictures (needs `user-read-private`); usually 64px and 300px, often empty. */
+    val images: List<SpotifyImageObject> = emptyList(),
+) {
+    /** The smallest picture that's still sharp on a small avatar badge. */
+    val avatarUrl: String?
+        get() = images.sortedBy { it.width ?: Int.MAX_VALUE }
+            .firstOrNull { (it.width ?: 0) >= 120 }?.url
+            ?: images.maxByOrNull { it.width ?: 0 }?.url
+}
 
 /**
  * Auth-layer failure surfaced to API / playback callers.

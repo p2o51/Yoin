@@ -14,6 +14,8 @@ import com.gpo.yoin.ui.settings.DeleteConfirmState
 import com.gpo.yoin.ui.settings.ProfileCard
 import com.gpo.yoin.ui.settings.SettingsContent
 import com.gpo.yoin.ui.settings.SettingsUiState
+import com.gpo.yoin.ui.settings.assignAvatarShapes
+import com.gpo.yoin.ui.settings.service.AccountFace
 import com.gpo.yoin.ui.settings.service.ServiceSetupContent
 import com.gpo.yoin.ui.settings.service.ServiceSetupUiState
 import com.gpo.yoin.ui.settings.service.SetupService
@@ -40,6 +42,11 @@ class SettingsPreviewActivity : ComponentActivity() {
                             service = SetupService.Subsonic,
                             isManaging = true,
                             existingProfileName = "chen @ music.home.arpa",
+                            account = AccountFace(
+                                title = "chen",
+                                detail = "music.home.arpa",
+                                avatarShape = sampleShapes.getValue("home"),
+                            ),
                             subsonic = SubsonicFormState(
                                 initialUrl = "https://music.home.arpa",
                                 initialUsername = "chen",
@@ -58,7 +65,8 @@ class SettingsPreviewActivity : ComponentActivity() {
                         state = ServiceSetupUiState(
                             service = SetupService.Spotify,
                             isManaging = true,
-                            existingProfileName = "Chen's Spotify",
+                            existingProfileName = "Chen",
+                            account = AccountFace(title = "Chen", avatarShape = sampleShapes.getValue("spotify")),
                             spotify = SpotifySetupState(clientId = "sample", needsReconnect = true),
                         ),
                         onBackClick = ::finish,
@@ -94,6 +102,9 @@ class SettingsPreviewActivity : ComponentActivity() {
         }
     }
 
+    private val sampleShapes =
+        assignAvatarShapes(listOf("home" to 1L, "spotify" to 2L, "backup" to 3L, "apple" to 4L))
+
     private val sampleCards = listOf(
         ProfileCard(
             id = "home",
@@ -101,22 +112,35 @@ class SettingsPreviewActivity : ComponentActivity() {
             subtitle = "music.home.arpa",
             provider = ProviderKind.SUBSONIC,
             isActive = true,
+            title = "chen",
+            avatarShape = sampleShapes.getValue("home"),
         ),
         ProfileCard(
             id = "spotify",
-            displayName = "Chen's Spotify",
-            subtitle = "Spotify account",
+            displayName = "Chen",
+            subtitle = null,
             provider = ProviderKind.SPOTIFY,
             isActive = false,
             unavailableReason = "Reconnect",
             requiresReconnect = true,
+            avatarShape = sampleShapes.getValue("spotify"),
         ),
         ProfileCard(
             id = "backup",
-            displayName = "Backup server",
+            displayName = "admin @ backup.example",
             subtitle = "backup.example",
             provider = ProviderKind.SUBSONIC,
             isActive = false,
+            title = "admin",
+            avatarShape = sampleShapes.getValue("backup"),
+        ),
+        ProfileCard(
+            id = "apple",
+            displayName = "Apple Music",
+            subtitle = null,
+            provider = ProviderKind.APPLE_MUSIC,
+            isActive = false,
+            avatarShape = sampleShapes.getValue("apple"),
         ),
     )
 }

@@ -8,11 +8,11 @@ import com.gpo.yoin.symbols.YoinSymbols
  * highlights, and the prerequisites. Deliberately NOT a support matrix — the
  * exhaustive per-feature status lives in `ServiceFeatureCatalog` for code, and
  * limits the UI can't act on are hidden rather than explained (design.md).
+ * The service's glyph and colour come from its `ServiceIdentity`.
  */
 internal data class ServiceIntro(
     val name: String,
     val tagline: String,
-    val icon: ImageVector,
     val highlights: List<Highlight>,
     val requirements: List<String>,
     /** Short badge next to the name — e.g. "Preview" for connection-test-only services. */
@@ -31,7 +31,6 @@ internal val SetupService.intro: ServiceIntro
 private val SubsonicIntro = ServiceIntro(
     name = "Subsonic",
     tagline = "Your own music server — Navidrome, Airsonic, Gonic or anything OpenSubsonic.",
-    icon = YoinSymbols.Cloud,
     highlights = listOf(
         ServiceIntro.Highlight(
             YoinSymbols.Equalizer,
@@ -60,7 +59,6 @@ private val SubsonicIntro = ServiceIntro(
 private val SpotifyIntro = ServiceIntro(
     name = "Spotify",
     tagline = "Your Spotify library in Yoin, played through the Spotify app.",
-    icon = YoinSymbols.Headphones,
     highlights = listOf(
         ServiceIntro.Highlight(
             YoinSymbols.Library,
@@ -89,7 +87,6 @@ private val SpotifyIntro = ServiceIntro(
 private val AppleMusicIntro = ServiceIntro(
     name = "Apple Music",
     tagline = "Your Apple Music library and catalog, played in Yoin.",
-    icon = YoinSymbols.MusicNote,
     badge = "Preview",
     highlights = listOf(
         ServiceIntro.Highlight(

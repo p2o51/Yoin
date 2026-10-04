@@ -64,6 +64,9 @@ class SpotifyMusicSource(
     private var followedArtistsCache: List<SpotifyArtistObject>? = null
     private val playlistTrackOffsetsById = mutableMapOf<String, List<Int>>()
 
+    /** The signed-in account's Spotify profile picture, if it has one. */
+    suspend fun profilePictureUrl(): String? = apiClient.getMe().avatarUrl
+
     private val library = object : MusicLibrary {
         override suspend fun ping(): Boolean {
             apiClient.getMe()

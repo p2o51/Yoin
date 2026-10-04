@@ -14,6 +14,7 @@ import com.gpo.yoin.data.profile.AndroidKeyStoreCredentialsCipher
 import com.gpo.yoin.data.profile.EncryptedProfileCredentialsCodec
 import com.gpo.yoin.data.profile.FileBackedProfileCredentialsStore
 import com.gpo.yoin.data.profile.PlaintextProfileCredentialsCodec
+import com.gpo.yoin.data.profile.ProfileAvatarStore
 import com.gpo.yoin.data.profile.ProfileCredentialsCodec
 import com.gpo.yoin.data.profile.ProfileCredentialsStore
 import com.gpo.yoin.data.profile.ProfileManager
@@ -282,6 +283,9 @@ class AppContainer(private val context: Context) {
             initialValue = SpotifyProviderStatus.Ready,
         )
     }
+
+    /** Account pictures from their services (Spotify profile photos), by profile id. */
+    val profileAvatarStore: ProfileAvatarStore by lazy { ProfileAvatarStore(context) }
 
     val profileManager: ProfileManager by lazy {
         ProfileManager(

@@ -32,11 +32,14 @@ enum class SetupService(val key: String) {
  *   instead of adding a new one.
  * @param focusClientId deep-link from the "No Client ID" snackbar: open the
  *   Spotify developer setup and focus its field.
+ * @param face the tapped account's face (name, where, avatar shape — no
+ *   secrets), so the page's first frame already shows the right avatar.
  */
 data class ServiceSetupRequest(
     val service: SetupService,
     val profileId: String? = null,
     val focusClientId: Boolean = false,
+    val face: AccountFace? = null,
 )
 
 /**
@@ -50,6 +53,12 @@ class ServiceSetupContract : ActivityResultContract<ServiceSetupRequest, String?
             putExtra(EXTRA_SERVICE, input.service.key)
             putExtra(EXTRA_PROFILE_ID, input.profileId)
             putExtra(EXTRA_FOCUS_CLIENT_ID, input.focusClientId)
+            input.face?.let { face ->
+                putExtra(EXTRA_FACE_TITLE, face.title)
+                putExtra(EXTRA_FACE_DETAIL, face.detail)
+                putExtra(EXTRA_FACE_AVATAR_SHAPE, face.avatarShape)
+                putExtra(EXTRA_FACE_PHOTO_URL, face.photoUrl)
+            }
         }
 
     override fun parseResult(resultCode: Int, intent: Intent?): String? =
@@ -60,11 +69,23 @@ class ServiceSetupContract : ActivityResultContract<ServiceSetupRequest, String?
         internal const val EXTRA_PROFILE_ID = "profileId"
         internal const val EXTRA_FOCUS_CLIENT_ID = "focusClientId"
         internal const val EXTRA_ACTIVATE_PROFILE_ID = "activateProfileId"
+        private const val EXTRA_FACE_TITLE = "faceTitle"
+        private const val EXTRA_FACE_DETAIL = "faceDetail"
+        private const val EXTRA_FACE_AVATAR_SHAPE = "faceAvatarShape"
+        private const val EXTRA_FACE_PHOTO_URL = "facePhotoUrl"
 
         internal fun readRequest(intent: Intent): ServiceSetupRequest = ServiceSetupRequest(
             service = SetupService.fromKey(intent.getStringExtra(EXTRA_SERVICE)),
             profileId = intent.getStringExtra(EXTRA_PROFILE_ID),
             focusClientId = intent.getBooleanExtra(EXTRA_FOCUS_CLIENT_ID, false),
+            face = intent.getStringExtra(EXTRA_FACE_TITLE)?.let { title ->
+                AccountFace(
+                    title = title,
+                    detail = intent.getStringExtra(EXTRA_FACE_DETAIL),
+                    avatarShape = intent.getIntExtra(EXTRA_FACE_AVATAR_SHAPE, 0),
+                    photoUrl = intent.getStringExtra(EXTRA_FACE_PHOTO_URL),
+                )
+            },
         )
     }
 }
