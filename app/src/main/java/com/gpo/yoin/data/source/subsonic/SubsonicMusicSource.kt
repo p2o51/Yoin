@@ -67,10 +67,10 @@ class SubsonicMusicSource(
 
         override suspend fun getPlaylists(): List<Playlist> =
             unwrap(api.getPlaylists(username = null))
-                .playlists?.playlist.orEmpty().map { it.toPlaylist() }
+                .playlists?.playlist.orEmpty().map { it.toPlaylist(currentUsername = credentials.username) }
 
         override suspend fun getPlaylist(id: MediaId): Playlist? =
-            unwrap(api.getPlaylist(id.requireSubsonic())).playlist?.toPlaylist()
+            unwrap(api.getPlaylist(id.requireSubsonic())).playlist?.toPlaylist(currentUsername = credentials.username)
 
         override suspend fun getStarred(): Starred =
             unwrap(api.getStarred2()).starred2?.toStarred() ?: Starred()
@@ -135,7 +135,7 @@ class SubsonicMusicSource(
             if (!description.isNullOrBlank()) {
                 unwrap(api.updatePlaylist(playlistId = created.id, comment = description))
             }
-            created.toPlaylist()
+            created.toPlaylist(currentUsername = credentials.username)
         }
 
         override suspend fun renamePlaylist(

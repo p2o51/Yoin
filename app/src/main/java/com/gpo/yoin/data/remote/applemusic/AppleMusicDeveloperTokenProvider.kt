@@ -44,9 +44,15 @@ class AppleMusicDeveloperTokenProvider(
                             "Developer token service unavailable (${response.code})"
                         )
                     }
-                    Json.parseToJsonElement(response.body.string()).jsonObject
-                        .get("developerToken")?.jsonPrimitive?.contentOrNull
-                        ?: throw IOException("Developer token service returned no token")
+                    val body = response.body.string()
+                    try {
+                        Json.parseToJsonElement(body).jsonObject
+                            .get("developerToken")?.jsonPrimitive?.contentOrNull
+                            ?: throw IOException("Developer token service returned no token")
+                    } catch (_: IllegalArgumentException) {
+                        // JSON parser errors may quote the token service's response body.
+                        throw IOException("Developer token service returned an invalid response")
+                    }
                 }
         }
         // Local validation is only a freshness/shape check. Apple verifies the JWT signature.

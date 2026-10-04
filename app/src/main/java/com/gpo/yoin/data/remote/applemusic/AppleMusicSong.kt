@@ -40,12 +40,18 @@ data class AppleMusicSong(
         userRating = null,
         // Library membership is deliberately not represented as favorite/heart.
         extras = buildMap {
-            libraryId?.let { put("appleMusicLibraryId", it) }
-            catalogId?.let { put("appleMusicCatalogId", it) }
+            libraryId?.let { put(EXTRA_LIBRARY_ID, it) }
+            catalogId?.let { put(EXTRA_CATALOG_ID, it) }
         }
     )
 
     companion object {
+        const val EXTRA_LIBRARY_ID = "appleMusicLibraryId"
+        const val EXTRA_CATALOG_ID = "appleMusicCatalogId"
+
+        /** Present when the album load resolved the user's library, so a missing library id means "not added". */
+        const val EXTRA_LIBRARY_CHECKED = "appleMusicLibraryChecked"
+
         fun fromJson(resource: JsonObject): AppleMusicSong {
             val id = requireNotNull(resource.string("id"))
             val type = resource.string("type")
@@ -53,9 +59,13 @@ data class AppleMusicSong(
             val attributes = resource["attributes"]?.jsonObject
             val catalog = resource["relationships"]?.jsonObject?.get("catalog")?.jsonObject
                 ?.get("data")?.jsonArray?.firstOrNull()?.jsonObject
+            val library = resource["relationships"]?.jsonObject?.get("library")?.jsonObject
+                ?.get("data")?.jsonArray?.firstOrNull()?.jsonObject
             return AppleMusicSong(
                 resourceId = id,
-                libraryId = id.takeIf { type == "library-songs" },
+                libraryId = if (type == "library-songs") id else {
+                    library?.takeIf { it.string("type") == "library-songs" }?.string("id")
+                },
                 catalogId = if (type == "songs") {
                     id
                 } else {

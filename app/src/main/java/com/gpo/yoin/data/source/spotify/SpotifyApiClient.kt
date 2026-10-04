@@ -208,7 +208,7 @@ class SpotifyApiClient(
                 .newBuilder()
                 .addQueryParameter("q", query)
                 .addQueryParameter("type", "track,album,artist,playlist")
-                .addQueryParameter("limit", limitPerType.toString())
+                .addQueryParameter("limit", limitPerType.coerceIn(0, MAX_SEARCH_LIMIT).toString())
                 .build(),
             deserializer = SpotifySearchResponse.serializer(),
         )
@@ -352,12 +352,10 @@ class SpotifyApiClient(
      * playlist removes it from `/me/playlists`, which is the product
      * behaviour callers want.
      */
-    suspend fun unfollowPlaylist(id: String) = withContext(Dispatchers.IO) {
-        executeWithJsonBodyIgnoringResponse(
-            method = "DELETE",
-            url = apiUrl("v1", "playlists", id, "followers"),
-            jsonBody = null,
-        )
+    suspend fun unfollowPlaylist(id: String) {
+        // The legacy /playlists/{id}/followers endpoint was removed for
+        // Development Mode apps in the February 2026 migration.
+        removeFromLibrary("spotify:playlist:$id")
     }
 
     /**
@@ -640,7 +638,8 @@ class SpotifyApiClient(
         private const val RECENTLY_PLAYED_LIMIT = 50
         private const val DEFAULT_COLLECTION_LIMIT = 200
         private const val DEFAULT_TRACKS_LIMIT = 300
-        private const val DEFAULT_SEARCH_LIMIT = 12
+        private const val MAX_SEARCH_LIMIT = 10
+        private const val DEFAULT_SEARCH_LIMIT = MAX_SEARCH_LIMIT
         private val EMPTY_BODY = ByteArray(0).toRequestBody()
         private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
 

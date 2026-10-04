@@ -48,6 +48,7 @@ import com.gpo.yoin.data.model.ArtistIndex
 import com.gpo.yoin.data.model.CoverRef
 import com.gpo.yoin.data.model.LyricLine
 import com.gpo.yoin.data.model.Lyrics
+import com.gpo.yoin.data.model.LibraryMembership
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.Playlist
 import com.gpo.yoin.data.model.PlaylistItemRef
@@ -65,6 +66,7 @@ import com.gpo.yoin.data.source.spotify.SpotifyRateLimitGate
 import com.gpo.yoin.data.source.spotify.toSpotifyLibraryTrackCache
 import com.gpo.yoin.data.source.spotify.toTrack
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.SupervisorJob
@@ -80,6 +82,7 @@ import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.decodeFromString
@@ -309,6 +312,68 @@ class YoinRepository(
     /** Striped per-track lock so rapid favorite taps on the same track serialize. */
     private val favoriteMutexes = Array(64) { Mutex() }
 
+    private data class LibraryStateKey(val profileId: String, val trackId: MediaId)
+    private val libraryStates = MutableStateFlow<Map<LibraryStateKey, LibraryMembership>>(emptyMap())
+    private val libraryMutexes = Array(64) { Mutex() }
+    private val libraryRevisions = MutableStateFlow<Map<String, Long>>(emptyMap())
+    val libraryRevision: Flow<Long> = combine(activeProfileId, libraryRevisions) { profileId, revisions ->
+        revisions[profileId] ?: 0L
+    }.distinctUntilChanged()
+
+    /** Membership belongs to an account, even when two accounts share the same catalog ID. */
+    val trackLibraryStates: Flow<Map<MediaId, LibraryMembership>> =
+        combine(activeProfileId, libraryStates) { profileId, states ->
+            states.filterKeys { it.profileId == profileId }.mapKeys { it.key.trackId }
+        }.distinctUntilChanged()
+
+    fun observeLibraryMembership(id: MediaId): Flow<LibraryMembership> =
+        trackLibraryStates.map { it[id] ?: LibraryMembership.Unknown }.distinctUntilChanged()
+
+    suspend fun refreshLibraryMembership(track: Track): Result<LibraryMembership> =
+        updateLibraryMembership(track, add = false)
+
+    suspend fun addToLibrary(track: Track): Result<LibraryMembership> =
+        updateLibraryMembership(track, add = true)
+
+    private suspend fun updateLibraryMembership(track: Track, add: Boolean): Result<LibraryMembership> {
+        val source = activeSource.value
+            ?: return Result.failure(IllegalStateException("No music account selected"))
+        val profileId = activeProfileId.value
+            ?: return Result.failure(IllegalStateException("No music account selected"))
+        if (source.id != track.id.provider || Capability.LIBRARY_ADD !in source.capabilities) {
+            return Result.failure(UnsupportedOperationException("This service cannot add this song to its library"))
+        }
+        val key = LibraryStateKey(profileId, track.id)
+        return libraryMutexes[(key.hashCode() and Int.MAX_VALUE) % libraryMutexes.size].withLock {
+            // A queued tap must never mutate the outgoing account after switching profiles.
+            if (activeSource.value !== source || activeProfileId.value != profileId) {
+                return@withLock Result.failure(IllegalStateException("The music account changed"))
+            }
+            val result = try {
+                if (add) source.writeActions().addToLibrary(track.id)
+                else source.writeActions().libraryMembership(track.id)
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                Result.failure(error)
+            }
+            result.exceptionOrNull()?.let { if (it is CancellationException) throw it }
+            if (activeSource.value === source && activeProfileId.value == profileId) {
+                result.onSuccess { membership ->
+                    val previous = libraryStates.value[key]
+                    libraryStates.update { it + (key to membership) }
+                    if (membership == LibraryMembership.Added && previous != LibraryMembership.Added &&
+                        (add || previous == LibraryMembership.Pending)
+                    ) {
+                        libraryRevisions.update { it + (profileId to ((it[profileId] ?: 0L) + 1L)) }
+                        track.albumId?.let(::invalidateAlbumDetail)
+                    }
+                }
+            }
+            result
+        }
+    }
+
     /**
      * Capability set of the currently active [MusicSource], or empty when no
      * profile is active. Single source of truth for UI gating — feature
@@ -336,6 +401,7 @@ class YoinRepository(
 
     /** Synchronous snapshot of the active profile id. */
     fun currentProfileId(): String? = activeProfileId.value
+    val currentProfileIdFlow: Flow<String?> = activeProfileId
 
     private fun requireSource(): MusicSource = activeSource.value
         ?: throw SubsonicException(
@@ -488,10 +554,48 @@ class YoinRepository(
         mem = albumDetailCache,
         baseKey = id.toString(),
         diskFreshMs = detailDiskFreshMs,
-        diskRead = { profileId -> detailCacheStore?.readAlbum(profileId, id.toString()) },
+        diskRead = { profileId ->
+            detailCacheStore?.readAlbum(profileId, id.toString())?.let { cached ->
+                // Apple Music albums cached before the catalog-album/membership
+                // format (no library-checked marker) must be re-fetched, not served.
+                if (id.provider == MediaId.PROVIDER_APPLE_MUSIC) {
+                    Cached(cached.cachedAt) { cached.value()?.takeUnless(::isPreMembershipAppleAlbum) }
+                } else {
+                    cached
+                }
+            }
+        },
         diskWrite = { profileId, value -> detailCacheStore?.writeAlbum(profileId, id.toString(), value) },
         fetch = { requireSource().library().getAlbum(id) },
-    )
+    )?.also(::seedLibraryMembership)
+
+    private fun isPreMembershipAppleAlbum(album: Album): Boolean =
+        album.tracks.isNotEmpty() && album.tracks.none { it.extras.containsKey("appleMusicLibraryChecked") }
+
+    /**
+     * An Apple Music album load already resolved the user's library copy, so its
+     * tracks carry confirmed membership (see AppleMusicSong.EXTRA_LIBRARY_CHECKED).
+     * Seed the shared membership state from it; a Pending write is never overridden.
+     */
+    private fun seedLibraryMembership(album: Album) {
+        if (album.id.provider != MediaId.PROVIDER_APPLE_MUSIC) return
+        val profileId = activeProfileId.value ?: return
+        val seeded = album.tracks.filter { it.extras["appleMusicLibraryChecked"] == "true" }
+        if (seeded.isEmpty()) return
+        libraryStates.update { states ->
+            val next = states.toMutableMap()
+            seeded.forEach { track ->
+                val key = LibraryStateKey(profileId, track.id)
+                if (next[key] == LibraryMembership.Pending) return@forEach
+                next[key] = if (track.extras["appleMusicLibraryId"] != null) {
+                    LibraryMembership.Added
+                } else {
+                    LibraryMembership.NotAdded
+                }
+            }
+            next
+        }
+    }
 
     // ── Artists ────────────────────────────────────────────────────────
 
@@ -526,6 +630,12 @@ class YoinRepository(
 
     suspend fun search(query: String): SearchResults =
         requireSource().library().search(query)
+
+    suspend fun searchCurrentLibrary(query: String): SearchResults =
+        requireSource().library().searchLibrary(query)
+
+    suspend fun getLibrarySongs(size: Int = 100, offset: Int = 0): List<Track> =
+        requireSource().library().getLibrarySongs(size, offset)
 
     // ── Favorites ──────────────────────────────────────────────────────
 
@@ -1338,6 +1448,16 @@ class YoinRepository(
         val provider = activeSource.value?.id ?: return emptyList()
         val profileId = activeProfileId.value ?: return emptyList()
         return songNoteDao.getRecent(provider = provider, profileId = profileId, limit = limit)
+    }
+
+    /**
+     * Total non-blank notes (song + album) for the active profile on the active
+     * provider; null when unscoped (caller keeps its previous value).
+     */
+    suspend fun countNotes(): Int? {
+        val provider = activeSource.value?.id ?: return null
+        val profileId = activeProfileId.value?.takeIf { it.isNotBlank() } ?: return null
+        return songNoteDao.countNonBlankNotes(provider = provider, profileId = profileId)
     }
 
     /**

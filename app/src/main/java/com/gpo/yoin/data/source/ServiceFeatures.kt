@@ -30,6 +30,7 @@ data class ServiceFeatures(
     val removeLabel: String = "Remove from favorites"
 ) {
     val supportsFavorites: Boolean get() = Capability.FAVORITES in capabilities
+    val supportsLibraryAdd: Boolean get() = Capability.LIBRARY_ADD in capabilities
 }
 
 /** Shared by MusicSource implementations and service explanations. No credentials or live account state. */
@@ -95,6 +96,7 @@ object ServiceFeatureCatalog {
         capabilities = setOf(
             Capability.FAVORITES,
             Capability.SEARCH,
+            Capability.CATALOG_SEARCH,
             Capability.RANDOM_SONGS,
             Capability.PLAYLISTS_READ,
             Capability.PLAYLISTS_WRITE
@@ -147,7 +149,10 @@ object ServiceFeatureCatalog {
         name = "Apple Music",
         summary = "Plays in Yoin with MusicKit · Subscription required",
         integrated = true,
-        capabilities = setOf(Capability.SEARCH, Capability.PLAYLISTS_READ),
+        capabilities = setOf(
+            Capability.SEARCH, Capability.CATALOG_SEARCH, Capability.LIBRARY_ADD,
+            Capability.LIBRARY_SONGS, Capability.PLAYLISTS_READ,
+        ),
         features = listOf(
             ServiceFeature(
                 "Playback",
@@ -158,12 +163,12 @@ object ServiceFeatureCatalog {
             ServiceFeature(
                 "Library & search",
                 FeatureSupport.AVAILABLE,
-                "Browse your library albums, artists and playlists, and search the Apple Music catalog."
+                "Browse library songs, albums, artists and playlists. Search your library or the Apple Music catalog."
             ),
             ServiceFeature(
-                "Favorites & library changes",
-                FeatureSupport.NOT_IMPLEMENTED,
-                "Manage favorites and add or remove library items in Apple Music. " +
+                "Add to library",
+                FeatureSupport.AVAILABLE,
+                "Add catalog songs to your library; Yoin confirms membership before showing a checkmark. " +
                     "Library membership is separate from favorites."
             ),
             ServiceFeature(

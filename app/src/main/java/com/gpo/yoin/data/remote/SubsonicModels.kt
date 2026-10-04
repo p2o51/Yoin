@@ -136,6 +136,7 @@ data class Playlist(
     val name: String,
     val owner: String? = null,
     @SerialName("public") val isPublic: Boolean? = null,
+    @SerialName("readonly") val isReadOnly: Boolean? = null,
     val comment: String? = null,
     val created: String? = null,
     val changed: String? = null,

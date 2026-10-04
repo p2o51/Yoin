@@ -105,7 +105,7 @@ internal fun SubsonicArtistIndex.toArtistIndex(): ArtistIndex = ArtistIndex(
     artists = artist.map { it.toArtist() },
 )
 
-internal fun SubsonicPlaylist.toPlaylist(): NeutralPlaylist = NeutralPlaylist(
+internal fun SubsonicPlaylist.toPlaylist(currentUsername: String? = null): NeutralPlaylist = NeutralPlaylist(
     id = MediaId.subsonic(id),
     name = name,
     owner = owner,
@@ -113,10 +113,11 @@ internal fun SubsonicPlaylist.toPlaylist(): NeutralPlaylist = NeutralPlaylist(
     songCount = songCount,
     durationSec = duration,
     tracks = entry.map { it.toTrack() },
-    // `getPlaylists.view` with no `username` param returns only the
-    // authenticated user's own playlists — always writable. Subsonic has
-    // no snapshot/etag concurrency token, so snapshotId stays null.
-    canWrite = true,
+    // getPlaylists returns playable playlists, including public playlists
+    // owned by other users. An explicit OpenSubsonic readonly flag wins;
+    // legacy servers may omit the optional owner and readonly fields.
+    canWrite = isReadOnly != true &&
+        (owner.isNullOrBlank() || owner == currentUsername),
     snapshotId = null,
     comment = comment,
 )

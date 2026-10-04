@@ -6,6 +6,7 @@ import com.gpo.yoin.data.model.ArtistDetail
 import com.gpo.yoin.data.model.ArtistIndex
 import com.gpo.yoin.data.model.CoverRef
 import com.gpo.yoin.data.model.Lyrics
+import com.gpo.yoin.data.model.LibraryMembership
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.PlaybackHandle
 import com.gpo.yoin.data.model.Playlist
@@ -15,6 +16,8 @@ import com.gpo.yoin.data.model.Starred
 import com.gpo.yoin.data.model.Track
 import com.gpo.yoin.data.profile.ProfileCredentials
 import com.gpo.yoin.data.remote.applemusic.AppleMusicApiClient
+import com.gpo.yoin.data.remote.applemusic.AppleMusicApiException
+import com.gpo.yoin.data.remote.applemusic.AppleMusicApiFailure
 import com.gpo.yoin.data.remote.applemusic.AppleMusicDeveloperTokenProvider
 import com.gpo.yoin.data.remote.applemusic.AppleMusicSong
 import com.gpo.yoin.data.source.Capability
@@ -23,6 +26,11 @@ import com.gpo.yoin.data.source.MusicMetadata
 import com.gpo.yoin.data.source.MusicPlayback
 import com.gpo.yoin.data.source.MusicSource
 import com.gpo.yoin.data.source.MusicWriteActions
+import java.util.concurrent.ConcurrentHashMap
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.intOrNull
@@ -39,11 +47,19 @@ class AppleMusicSource(
     private val api: AppleMusicApiClient = AppleMusicApiClient(tokenProvider::token, { credentials.musicUserToken })
 ) : MusicSource, MusicLibrary, MusicMetadata, MusicWriteActions, MusicPlayback {
     override val id = MediaId.PROVIDER_APPLE_MUSIC
-    override val capabilities = setOf(Capability.SEARCH, Capability.PLAYLISTS_READ)
+    override val capabilities = setOf(
+        Capability.SEARCH,
+        Capability.CATALOG_SEARCH,
+        Capability.LIBRARY_ADD,
+        Capability.LIBRARY_SONGS,
+        Capability.PLAYLISTS_READ
+    )
 
     @Volatile var playbackDeveloperToken: String = ""
         private set
     private var storefront: String? = null
+    private val libraryMutationMutex = Mutex()
+    private val pendingLibraryAdds = ConcurrentHashMap.newKeySet<String>()
 
     suspend fun refreshPlaybackToken() {
         playbackDeveloperToken = tokenProvider.token()
@@ -66,8 +82,12 @@ class AppleMusicSource(
             listOfNotNull(mediaId?.rawId?.removePrefix("library:"))
     }
 
-    private suspend fun page(path: List<String>, query: Map<String, String> = emptyMap(), next: String? = null) =
-        api.resourcePage(path, path.getOrNull(1) == "me", query, next)
+    private suspend fun page(
+        path: List<String>,
+        query: Map<String, String> = emptyMap(),
+        next: String? = null,
+        personal: Boolean = path.getOrNull(1) == "me"
+    ) = api.resourcePage(path, personal, query, next)
 
     private suspend fun all(path: List<String>, query: Map<String, String> = emptyMap()): List<JsonObject> {
         val result = mutableListOf<JsonObject>()
@@ -87,7 +107,12 @@ class AppleMusicSource(
         // recently-added is a mixed, server-paginated collection. Filter before applying album offsets.
         val recent = type == "newest"
         val requestPath = if (recent) listOf("v1", "me", "library", "recently-added") else path("albums")
-        val query = if (recent) emptyMap() else mapOf("limit" to "100", "offset" to offset.coerceAtLeast(0).toString())
+        // The catalog relationship lets a library album open as the full catalog album.
+        val query = if (recent) {
+            emptyMap()
+        } else {
+            mapOf("include" to "catalog", "limit" to "100", "offset" to offset.coerceAtLeast(0).toString())
+        }
         val albums = mutableListOf<Album>()
         val visited = mutableSetOf<String>()
         val skip = if (recent) offset.coerceAtLeast(0) else 0
@@ -101,21 +126,72 @@ class AppleMusicSource(
         return albums.drop(skip).take(size)
     }
 
+    /**
+     * A library album opens as its FULL catalog album (Spotify parity): the library
+     * album's own tracks only mark which catalog tracks the user has added. Library
+     * albums Apple cannot match to the catalog (imported music) keep their library
+     * tracklist. Tracks are deduplicated by identity: Apple may hold two library songs
+     * for one catalog song, which would otherwise collide as one list key.
+     */
     override suspend fun getAlbum(id: MediaId): Album? {
+        if (!id.rawId.startsWith("library:")) return catalogAlbum(id, libraryAlbumPath = null)
         val path = path("albums", id)
-        val resource = page(path, mapOf("include" to "artists")).resources().firstOrNull() ?: return null
-        val mappedAlbum = album(resource)
-        val tracks = all(path + "tracks", trackQuery(id)).songTracks().map { track ->
-            track.copy(albumId = track.albumId ?: id, artistId = track.artistId ?: mappedAlbum.artistId)
+        val resource = page(path, mapOf("include" to "artists,catalog")).resources().firstOrNull() ?: return null
+        val catalog = resource.related("catalog").firstOrNull { it.text("type") == "albums" }
+        if (catalog != null) {
+            catalogAlbum(catalog.mediaId(), libraryAlbumPath = path)?.let { return it }
         }
-        return mappedAlbum.copy(
-            tracks = tracks,
-            songCount = tracks.size,
-            durationSec = tracks.sumOf {
-                it.durationSec ?: 0
-            }
-        )
+        val mappedAlbum = album(resource)
+        val tracks = all(path + "tracks", mapOf("include" to "catalog")).songTracks()
+            .map { track -> track.copy(albumId = track.albumId ?: id, artistId = track.artistId ?: mappedAlbum.artistId) }
+            .distinctBy { it.id }
+        return mappedAlbum.withTracks(tracks)
     }
+
+    private suspend fun catalogAlbum(id: MediaId, libraryAlbumPath: List<String>?): Album? {
+        val path = path("albums", id)
+        // `library` is the user's copy of this catalog album; it needs the Music User Token.
+        var libraryKnown = true
+        val resource = try {
+            page(path, mapOf("include" to "artists,library"), personal = true).resources().firstOrNull()
+        } catch (error: AppleMusicApiException) {
+            if (error.failure != AppleMusicApiFailure.Http(400)) throw error
+            libraryKnown = false
+            page(path, mapOf("include" to "artists")).resources().firstOrNull()
+        } ?: return null
+        val mappedAlbum = album(resource)
+        val libraryPath = libraryAlbumPath
+            ?: resource.related("library").firstOrNull { it.text("type") == "library-albums" }
+                ?.let { path("albums", it.mediaId()) }
+        // First library copy wins when Apple holds two library songs for one catalog song.
+        val libraryIdsByCatalogId = mutableMapOf<String, String>()
+        libraryPath?.let { libraryTracks ->
+            all(libraryTracks + "tracks", mapOf("include" to "catalog")).songTracks().forEach { track ->
+                val catalogId = track.extras[AppleMusicSong.EXTRA_CATALOG_ID] ?: return@forEach
+                val libraryId = track.extras[AppleMusicSong.EXTRA_LIBRARY_ID] ?: return@forEach
+                libraryIdsByCatalogId.putIfAbsent(catalogId, libraryId)
+            }
+        }
+        val tracks = all(path + "tracks", mapOf("include" to "albums,artists")).songTracks()
+            .distinctBy { it.id }
+            .map { track ->
+                val extras = track.extras.toMutableMap()
+                libraryIdsByCatalogId[track.id.rawId]?.let { extras[AppleMusicSong.EXTRA_LIBRARY_ID] = it }
+                if (libraryKnown || libraryAlbumPath != null) extras[AppleMusicSong.EXTRA_LIBRARY_CHECKED] = "true"
+                track.copy(
+                    albumId = track.albumId ?: id,
+                    artistId = track.artistId ?: mappedAlbum.artistId,
+                    extras = extras
+                )
+            }
+        return mappedAlbum.withTracks(tracks)
+    }
+
+    private fun Album.withTracks(tracks: List<Track>) = copy(
+        tracks = tracks,
+        songCount = tracks.size,
+        durationSec = tracks.sumOf { it.durationSec ?: 0 }
+    )
 
     override suspend fun getArtists(): List<ArtistIndex> = all(path("artists")).map(::artist)
         .groupBy { it.name.firstOrNull()?.uppercase() ?: "#" }.toSortedMap()
@@ -162,6 +238,107 @@ class AppleMusicSource(
         )
     }
 
+    override suspend fun searchLibrary(query: String): SearchResults {
+        if (query.isBlank()) return SearchResults()
+        val results = page(
+            listOf("v1", "me", "library", "search"),
+            mapOf(
+                "term" to query,
+                "types" to "library-songs,library-albums,library-artists,library-playlists",
+                "limit" to "25"
+            )
+        )["results"]?.jsonObject ?: return SearchResults()
+        return SearchResults(
+            tracks = results["library-songs"]?.jsonObject?.resources().orEmpty().songTracks(),
+            albums = results["library-albums"]?.jsonObject?.resources().orEmpty().map(::album),
+            artists = results["library-artists"]?.jsonObject?.resources().orEmpty().map(::artist),
+            playlists = results["library-playlists"]?.jsonObject?.resources().orEmpty().map(::playlist)
+        )
+    }
+
+    override suspend fun getLibrarySongs(size: Int, offset: Int): List<Track> {
+        if (size <= 0) return emptyList()
+        val tracks = mutableListOf<Track>()
+        val visited = mutableSetOf<String>()
+        var next: String? = null
+        do {
+            val response = page(
+                path("songs"),
+                mapOf(
+                    "include" to "catalog,albums,artists",
+                    "limit" to minOf(size, 100).toString(),
+                    "offset" to offset.coerceAtLeast(0).toString()
+                ),
+                next
+            )
+            tracks += response.resources().songTracks()
+            next = response.text("next")
+            check(next == null || visited.add(next)) { "Apple Music repeated a pagination link" }
+        } while (next != null && tracks.distinctBy { it.id }.size < size)
+        return tracks.distinctBy { it.id }.take(size)
+    }
+
+    override suspend fun libraryMembership(trackId: MediaId): Result<LibraryMembership> = cancellableResult {
+        require(trackId.provider == id)
+        if (trackId.rawId.startsWith("library:")) {
+            LibraryMembership.Added
+        } else {
+            membership(catalogSongId(trackId))
+        }
+    }
+
+    override suspend fun addToLibrary(trackId: MediaId): Result<LibraryMembership> = cancellableResult {
+        require(trackId.provider == id)
+        if (trackId.rawId.startsWith("library:")) {
+            return@cancellableResult LibraryMembership.Added
+        }
+        val catalogId = catalogSongId(trackId)
+        libraryMutationMutex.withLock {
+            if (membership(catalogId) == LibraryMembership.Added) {
+                return@withLock LibraryMembership.Added
+            }
+            // Rechecking an accepted addition must not send a second mutation.
+            if (catalogId !in pendingLibraryAdds) {
+                api.addSongToLibrary(catalogId)
+                pendingLibraryAdds += catalogId
+            }
+            for (waitMs in listOf(0L, 500L, 1_000L, 2_000L, 4_000L)) {
+                delay(waitMs)
+                val confirmed = try {
+                    membership(catalogId) == LibraryMembership.Added
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (_: Exception) {
+                    // Apple accepted the write; failed confirmation cannot turn it into success.
+                    return@withLock LibraryMembership.Pending
+                }
+                if (confirmed) return@withLock LibraryMembership.Added
+            }
+            LibraryMembership.Pending
+        }
+    }
+
+    private suspend fun membership(catalogId: String): LibraryMembership {
+        if (api.librarySongId(storefront(), catalogId) != null) {
+            pendingLibraryAdds -= catalogId
+            return LibraryMembership.Added
+        }
+        return if (catalogId in pendingLibraryAdds) LibraryMembership.Pending else LibraryMembership.NotAdded
+    }
+
+    private fun catalogSongId(trackId: MediaId): String {
+        require(trackId.rawId.matches(Regex("[0-9]+"))) { "A catalog song ID is required" }
+        return trackId.rawId
+    }
+
+    private suspend fun <T> cancellableResult(block: suspend () -> T): Result<T> = try {
+        Result.success(block())
+    } catch (cancelled: CancellationException) {
+        throw cancelled
+    } catch (error: Exception) {
+        Result.failure(error)
+    }
+
     // Library membership is not an Apple Music favorite. Unsupported mutations never fake success.
     override suspend fun getStarred() = Starred()
     override suspend fun getRandomSongs(size: Int) = emptyList<Track>()
@@ -203,6 +380,8 @@ class AppleMusicSource(
     companion object {
         private fun JsonObject.text(key: String) = get(key)?.jsonPrimitive?.contentOrNull
         private fun JsonObject.resources() = get("data")?.jsonArray.orEmpty().map { it.jsonObject }
+        private fun JsonObject.related(name: String) =
+            get("relationships")?.jsonObject?.get(name)?.jsonObject?.resources().orEmpty()
         private fun JsonObject.attributes() = get("attributes")?.jsonObject ?: JsonObject(emptyMap())
         private fun JsonObject.mediaId() = MediaId(
             MediaId.PROVIDER_APPLE_MUSIC,
@@ -213,9 +392,10 @@ class AppleMusicSource(
         )?.jsonObject?.text("url")?.replace("{w}", "600")?.replace("{h}", "600")?.let(CoverRef::Url)
         internal fun album(resource: JsonObject): Album {
             val a = resource.attributes()
-            val artist = resource["relationships"]?.jsonObject?.get("artists")?.jsonObject?.resources()?.firstOrNull()
+            val artist = resource.related("artists").firstOrNull()
+            val catalog = resource.related("catalog").firstOrNull { it.text("type") == "albums" }
             return Album(
-                resource.mediaId(), a.text("name").orEmpty(), a.text("artistName"), artist?.mediaId(), a.cover(),
+                catalog?.mediaId() ?: resource.mediaId(), a.text("name").orEmpty(), a.text("artistName"), artist?.mediaId(), a.cover(),
                 a["trackCount"]?.jsonPrimitive?.intOrNull, null, a.text("releaseDate")?.take(4)?.toIntOrNull(),
                 a["genreNames"]?.jsonArray?.firstOrNull()?.jsonPrimitive?.contentOrNull, addedAt = a.text("dateAdded")
             )

@@ -8,13 +8,46 @@ import com.gpo.yoin.data.remote.Song as SubsonicSong
 import com.gpo.yoin.data.remote.StructuredLyrics
 import com.gpo.yoin.data.remote.SyncedLine
 import com.gpo.yoin.data.remote.LyricsList as SubsonicLyricsList
+import com.gpo.yoin.data.remote.Playlist as SubsonicPlaylist
+import kotlinx.serialization.json.Json
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class SubsonicMappersTest {
+
+    @Test
+    fun should_allowPlaylistEdits_when_authenticatedUserOwnsPlaylist() {
+        val playlist = SubsonicPlaylist(id = "pl1", name = "Owned", owner = "alice")
+
+        assertTrue(playlist.toPlaylist(currentUsername = "alice").canWrite)
+    }
+
+    @Test
+    fun should_hidePlaylistEdits_when_publicPlaylistBelongsToAnotherUser() {
+        val playlist = SubsonicPlaylist(id = "pl1", name = "Shared", owner = "bob", isPublic = true)
+
+        assertFalse(playlist.toPlaylist(currentUsername = "alice").canWrite)
+    }
+
+    @Test
+    fun should_hidePlaylistEdits_when_serverMarksOwnedPlaylistReadonly() {
+        val playlist = Json.decodeFromString<SubsonicPlaylist>(
+            """{"id":"pl1","name":"Smart","owner":"alice","readonly":true}""",
+        )
+
+        assertFalse(playlist.toPlaylist(currentUsername = "alice").canWrite)
+    }
+
+    @Test
+    fun should_preserveLegacyPlaylistEditing_when_serverOmitsOptionalAccessFields() {
+        val playlist = Json.decodeFromString<SubsonicPlaylist>("""{"id":"pl1","name":"Legacy"}""")
+
+        assertTrue(playlist.toPlaylist(currentUsername = "alice").canWrite)
+    }
 
     @Test
     fun should_namespace_all_ids_with_subsonic_provider_when_mapping_song() {

@@ -4,7 +4,10 @@ import java.io.IOException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -84,6 +87,43 @@ class AppleMusicApiClient(
         return AppleMusicLibraryMutation.AcceptedPendingConfirmation
     }
 
+    /**
+     * The authenticated catalog → library relationship is the authoritative membership check.
+     * A missing/malformed collection is an error, never evidence that the song is absent.
+     */
+    suspend fun librarySongId(storefront: String, catalogId: String): String? {
+        require(storefront.matches(Regex("[a-z]{2}")))
+        require(catalogId.matches(Regex("[0-9]+"))) { "A catalog song ID is required" }
+        val response = try {
+            get(url("v1", "catalog", storefront, "songs", catalogId, "library"), personal = true)
+        } catch (error: AppleMusicApiException) {
+            if (error.failure != AppleMusicApiFailure.Http(404)) throw error
+            // Observed on the subscribed Pixel Tablet account (2026-10-01): an unsaved
+            // song's library relationship returns 404. Interpret only that status as absence,
+            // and only after a public 200 confirms the exact catalog song still exists.
+            val catalog = get(url("v1", "catalog", storefront, "songs", catalogId), personal = false)
+            val catalogResources = catalog["data"] as? JsonArray
+                ?: throw IOException("Apple Music returned no matching catalog song")
+            val exactSongExists = catalogResources.any { item ->
+                val song = item as? JsonObject ?: return@any false
+                (song["type"] as? JsonPrimitive)?.contentOrNull == "songs" &&
+                    (song["id"] as? JsonPrimitive)?.contentOrNull == catalogId
+            }
+            if (!exactSongExists) throw IOException("Apple Music returned no matching catalog song")
+            return null
+        }
+        val resources = response["data"] as? JsonArray
+            ?: throw IOException("Apple Music returned no library relationship")
+        if (resources.isEmpty()) return null
+        val resource = resources.first() as? JsonObject
+            ?: throw IOException("Apple Music returned an invalid library relationship")
+        val libraryId = (resource["id"] as? JsonPrimitive)?.contentOrNull?.takeIf(String::isNotBlank)
+        if ((resource["type"] as? JsonPrimitive)?.contentOrNull != "library-songs" || libraryId == null) {
+            throw IOException("Apple Music returned an invalid library relationship")
+        }
+        return libraryId
+    }
+
     /** All request paths are constructed by this provider, never by a cover or external URL. */
     suspend fun resourcePage(
         segments: List<String>,
@@ -112,8 +152,15 @@ class AppleMusicApiClient(
     private fun songs(page: JsonObject): List<AppleMusicSong> =
         page["data"]?.jsonArray.orEmpty().map { AppleMusicSong.fromJson(it.jsonObject) }
 
-    private suspend fun get(target: HttpUrl, personal: Boolean): JsonObject =
-        Json.parseToJsonElement(request(target, personal, expectedStatus = 200)).jsonObject
+    private suspend fun get(target: HttpUrl, personal: Boolean): JsonObject {
+        val body = request(target, personal, expectedStatus = 200)
+        return try {
+            Json.parseToJsonElement(body).jsonObject
+        } catch (_: IllegalArgumentException) {
+            // Parser exceptions can quote response content; keep it out of user-visible errors.
+            throw IOException("Apple Music returned an invalid JSON response")
+        }
+    }
 
     private suspend fun request(
         target: HttpUrl,

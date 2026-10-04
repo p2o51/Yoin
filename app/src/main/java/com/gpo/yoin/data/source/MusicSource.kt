@@ -5,6 +5,7 @@ import com.gpo.yoin.data.model.ArtistDetail
 import com.gpo.yoin.data.model.ArtistIndex
 import com.gpo.yoin.data.model.CoverRef
 import com.gpo.yoin.data.model.Lyrics
+import com.gpo.yoin.data.model.LibraryMembership
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.PlaybackHandle
 import com.gpo.yoin.data.model.Playlist
@@ -61,6 +62,9 @@ interface MusicSource {
 enum class Capability {
     FAVORITES,
     SEARCH,
+    CATALOG_SEARCH,
+    LIBRARY_ADD,
+    LIBRARY_SONGS,
     RANDOM_SONGS,
     PLAYLISTS_READ,
     PLAYLISTS_WRITE,
@@ -83,6 +87,12 @@ interface MusicLibrary {
     suspend fun getRandomSongs(size: Int = 20): List<Track>
 
     suspend fun search(query: String): SearchResults
+
+    /** Search saved content, distinct from a subscription provider's catalog. */
+    suspend fun searchLibrary(query: String): SearchResults = search(query)
+
+    suspend fun getLibrarySongs(size: Int = 100, offset: Int = 0): List<Track> =
+        throw UnsupportedOperationException("Library song browsing is unavailable")
 }
 
 interface MusicMetadata {
@@ -90,6 +100,13 @@ interface MusicMetadata {
 }
 
 interface MusicWriteActions {
+    suspend fun libraryMembership(trackId: MediaId): Result<LibraryMembership> =
+        Result.failure(UnsupportedOperationException("Library membership is unavailable"))
+
+    /** Added is returned only after membership has been confirmed. */
+    suspend fun addToLibrary(trackId: MediaId): Result<LibraryMembership> =
+        Result.failure(UnsupportedOperationException("Adding to the library is unavailable"))
+
     /** Favourite / like / star — semantics vary, but the UI concept is boolean. */
     suspend fun setFavorite(id: MediaId, favorite: Boolean): Result<Unit>
 

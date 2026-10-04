@@ -6,6 +6,7 @@ import kotlinx.coroutines.test.runTest
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.fail
 import org.junit.Test
 
@@ -41,6 +42,20 @@ class AppleMusicDeveloperTokenProviderTest {
             } catch (_: IOException) {
                 assertEquals(1, server.requestCount)
             }
+        }
+    }
+
+    @Test
+    fun should_hideResponseBody_when_tokenServiceReturnsMalformedJson() = runTest {
+        MockWebServer().use { server ->
+            server.start()
+            val provider = AppleMusicDeveloperTokenProvider(server.url("/token"), nowEpochSeconds = { 1000 })
+            server.enqueue(MockResponse().setBody("""{"developerToken":"private-token",broken}"""))
+            val error = runCatching { provider.token() }.exceptionOrNull()
+            assertEquals("Developer token service returned an invalid response", error?.message)
+            val causalMessages = generateSequence(error) { it.cause }.take(10).joinToString { it.message.orEmpty() }
+            assertFalse(causalMessages.contains("private-token"))
+            assertFalse(causalMessages.contains("broken"))
         }
     }
 

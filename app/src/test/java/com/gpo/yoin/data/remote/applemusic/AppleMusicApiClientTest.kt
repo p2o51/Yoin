@@ -9,6 +9,7 @@ import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Before
 import org.junit.Test
@@ -55,6 +56,95 @@ class AppleMusicApiClientTest {
         assertEquals("POST", request.method)
         assertEquals("123", request.requestUrl!!.queryParameter("ids[songs]"))
         assertEquals(0L, request.bodySize)
+    }
+
+    @Test
+    fun should_sendUserTokenToCatalogRelationship_when_confirmingLibraryMembership() = runTest {
+        server.enqueue(
+            MockResponse().setBody("""{"data":[{"id":"i.saved","type":"library-songs"}]}""")
+        )
+        assertEquals("i.saved", client.librarySongId("jp", "123"))
+        val request = server.takeRequest()
+        assertEquals("/v1/catalog/jp/songs/123/library", request.path)
+        assertEquals("Bearer developer", request.getHeader("Authorization"))
+        assertEquals("user", request.getHeader("Music-User-Token"))
+    }
+
+    @Test
+    fun should_onlyReportAbsentFromCompleteResponse_when_checkingLibraryMembership() = runTest {
+        server.enqueue(MockResponse().setBody("""{"data":[]}"""))
+        assertNull(client.librarySongId("jp", "123"))
+        for (body in listOf("{}", """{"data":[{"id":"123","type":"songs"}]}""", """{"data":["invalid-resource"]}""")) {
+            server.enqueue(MockResponse().setBody(body))
+            assertTrue(runCatching { client.librarySongId("jp", "123") }.isFailure)
+        }
+    }
+
+    @Test
+    fun should_requireUserAuthorization_when_confirmingLibraryMembership() = runTest {
+        val unauthorized = AppleMusicApiClient({ "developer" }, { null }, baseUrl = server.url("/"))
+        val failure = runCatching { unauthorized.librarySongId("jp", "123") }.exceptionOrNull()
+        assertTrue(failure is AppleMusicApiException)
+        assertEquals(AppleMusicApiFailure.UserAuthorizationRequired, (failure as AppleMusicApiException).failure)
+        assertEquals(0, server.requestCount)
+    }
+
+    @Test
+    fun should_confirmExactCatalogSongBeforeReportingAbsence_when_libraryRelationshipReturns404() = runTest {
+        server.enqueue(MockResponse().setResponseCode(404))
+        server.enqueue(MockResponse().setBody("""{"data":[{"id":"123","type":"songs"}]}"""))
+        assertNull(client.librarySongId("jp", "123"))
+        val relationship = server.takeRequest()
+        assertEquals("/v1/catalog/jp/songs/123/library", relationship.path)
+        assertEquals("user", relationship.getHeader("Music-User-Token"))
+        val catalog = server.takeRequest()
+        assertEquals("/v1/catalog/jp/songs/123", catalog.path)
+        assertNull(catalog.getHeader("Music-User-Token"))
+    }
+
+    @Test
+    fun should_propagateMissingCatalogSong_when_libraryRelationshipAndCatalogReturn404() = runTest {
+        server.enqueue(MockResponse().setResponseCode(404))
+        server.enqueue(MockResponse().setResponseCode(404))
+        val error = runCatching { client.librarySongId("jp", "123") }.exceptionOrNull()
+        assertTrue(error is AppleMusicApiException)
+        assertEquals(AppleMusicApiFailure.Http(404), (error as AppleMusicApiException).failure)
+        assertEquals(2, server.requestCount)
+    }
+
+    @Test
+    fun should_preserveAccessFailureWithoutCatalogFallback_when_relationshipIsForbidden() = runTest {
+        server.enqueue(MockResponse().setResponseCode(403))
+        val error = runCatching { client.librarySongId("jp", "123") }.exceptionOrNull()
+        assertTrue(error is AppleMusicApiException)
+        assertEquals(AppleMusicApiFailure.AccessDenied, (error as AppleMusicApiException).failure)
+        assertEquals(1, server.requestCount)
+    }
+
+    @Test
+    fun should_preserveCatalogAccessFailure_when_missingRelationshipNeedsCatalogConfirmation() = runTest {
+        server.enqueue(MockResponse().setResponseCode(404))
+        server.enqueue(MockResponse().setResponseCode(403))
+        val error = runCatching { client.librarySongId("jp", "123") }.exceptionOrNull()
+        assertTrue(error is AppleMusicApiException)
+        assertEquals(AppleMusicApiFailure.AccessDenied, (error as AppleMusicApiException).failure)
+        assertEquals(2, server.requestCount)
+    }
+
+    @Test
+    fun should_rejectMismatchedCatalogIdentity_when_confirmingMissingLibraryRelationship() = runTest {
+        server.enqueue(MockResponse().setResponseCode(404))
+        server.enqueue(MockResponse().setBody("""{"data":[{"id":"456","type":"songs"}]}"""))
+        val error = runCatching { client.librarySongId("jp", "123") }.exceptionOrNull()
+        assertEquals("Apple Music returned no matching catalog song", error?.message)
+    }
+
+    @Test
+    fun should_notExposeResponseContent_when_apiReturnsInvalidJson() = runTest {
+        server.enqueue(MockResponse().setBody("sensitive-response-content"))
+        val error = runCatching { client.librarySongId("jp", "123") }.exceptionOrNull()
+        assertEquals("Apple Music returned an invalid JSON response", error?.message)
+        assertNull(error?.cause)
     }
 
     @Test
@@ -123,6 +213,19 @@ class AppleMusicApiClientTest {
         assertEquals(catalog.toTrack().id, library.toTrack().id)
         assertEquals("i.abc", library.libraryId)
         assertFalse(library.toTrack().isStarred)
+    }
+
+    @Test
+    fun should_keepMembershipSeparateFromFavorite_when_catalogHasLibraryRelationship() {
+        val catalog = song(
+            """{
+              "id":"123","type":"songs","attributes":{"name":"Title"},
+              "relationships":{"library":{"data":[{"id":"i.saved","type":"library-songs"}]}}
+            }"""
+        )
+        assertEquals("i.saved", catalog.toTrack().extras["appleMusicLibraryId"])
+        assertEquals("123", catalog.toTrack().id.rawId)
+        assertFalse(catalog.toTrack().isStarred)
     }
 
     @Test

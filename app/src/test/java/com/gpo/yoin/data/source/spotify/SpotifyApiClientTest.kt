@@ -255,9 +255,9 @@ class SpotifyApiClientTest {
     }
 
     @Test
-    fun unfollowPlaylist_hits_followers_with_DELETE() = runTest {
+    fun should_removePlaylistLibraryUri_when_unfollowingPlaylist() = runTest {
         val responses = mutableMapOf(
-            "/v1/playlists/pl1/followers" to ArrayDeque(
+            "/v1/me/library?uris=spotify%3Aplaylist%3Apl1" to ArrayDeque(
                 listOf(MockResponse().setResponseCode(200)),
             ),
         )
@@ -267,7 +267,35 @@ class SpotifyApiClientTest {
         client.unfollowPlaylist("pl1")
         val req = server.takeRequest()
         assertEquals("DELETE", req.method)
-        assertEquals("/v1/playlists/pl1/followers", req.path)
+        assertEquals("/v1/me/library", req.requestUrl?.encodedPath)
+        assertEquals("spotify:playlist:pl1", req.requestUrl?.queryParameter("uris"))
+    }
+
+    @Test
+    fun should_useSupportedSearchLimit_when_searchingCatalogWithDefaultLimit() = runTest {
+        server.enqueue(MockResponse().setResponseCode(200).setBody("{}"))
+        val client = newClient(credentials("t1", "r1", fakeNow + 10 * 60_000L))
+
+        client.search("Miles Davis")
+
+        val request = server.takeRequest()
+        assertEquals("/v1/search", request.requestUrl?.encodedPath)
+        assertEquals("Miles Davis", request.requestUrl?.queryParameter("q"))
+        assertEquals("track,album,artist,playlist", request.requestUrl?.queryParameter("type"))
+        assertEquals("10", request.requestUrl?.queryParameter("limit"))
+    }
+
+    @Test
+    fun should_clampSearchLimit_when_callerExceedsSpotifyRange() = runTest {
+        server.enqueue(MockResponse().setResponseCode(200).setBody("{}"))
+        server.enqueue(MockResponse().setResponseCode(200).setBody("{}"))
+        val client = newClient(credentials("t1", "r1", fakeNow + 10 * 60_000L))
+
+        client.search("Doxy", limitPerType = 50)
+        client.search("Doxy", limitPerType = -1)
+
+        assertEquals("10", server.takeRequest().requestUrl?.queryParameter("limit"))
+        assertEquals("0", server.takeRequest().requestUrl?.queryParameter("limit"))
     }
 
     @Test
