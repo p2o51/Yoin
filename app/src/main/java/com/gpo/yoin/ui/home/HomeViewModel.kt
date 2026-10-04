@@ -7,6 +7,7 @@ import com.gpo.yoin.AppContainer
 import com.gpo.yoin.data.home.HomeLayoutStore
 import com.gpo.yoin.data.local.ActivityEntityType
 import com.gpo.yoin.data.local.ActivityEvent
+import com.gpo.yoin.data.memory.AlbumMemoryCandidate
 import com.gpo.yoin.data.memory.deterministicMemoryTitle
 import com.gpo.yoin.data.model.Album
 import com.gpo.yoin.data.model.CoverRef
@@ -53,6 +54,12 @@ class HomeViewModel(
 
     private val _uiState = MutableStateFlow<HomeUiState>(HomeUiState.Loading)
     val uiState: StateFlow<HomeUiState> = _uiState.asStateFlow()
+
+    // Which provider|profile the Content in [_uiState] belongs to. The live
+    // observers only splice into content of the CURRENT scope: right after a
+    // profile switch the screen may still hold the old profile's feed (until
+    // refresh repaints), and a tick must never graft one profile onto another.
+    private var contentScopeKey: String? = null
 
     /**
      * The active profile's home layout (which sections show, in what order),
@@ -106,6 +113,7 @@ class HomeViewModel(
             _uiState.value = cachedHomeContent
                 ?: cachedSpotifyContent
                 ?: HomeUiState.Loading
+            contentScopeKey = scopeKey
 
             try {
                 val freshContent = when {
@@ -117,6 +125,7 @@ class HomeViewModel(
                 if (!matchesCurrentScope(providerId, profileId)) return@launch
                 homeContentCache[scopeKey] = freshContent
                 _uiState.value = freshContent
+                contentScopeKey = scopeKey
             } catch (e: Exception) {
                 if (!matchesCurrentScope(providerId, profileId)) return@launch
                 if (cachedSpotifyContent == null) {
@@ -128,15 +137,24 @@ class HomeViewModel(
         }
     }
 
+    /** The pill last shown for the current scope — kept when a fresh read can't resolve one. */
+    private fun cachedMemoryPill(): HomeMemoryPill? =
+        homeContentCache[homeScopeKey(repository.currentProviderId(), activeProfileId.value)]?.memoryPill
+
     fun buildCoverArtUrl(coverArtId: String): String =
         repository.resolveSubsonicCoverUrl(coverArtId, size = 320).orEmpty()
 
     private suspend fun loadHomeContent(): HomeUiState.Content =
         coroutineScope {
             val activitiesDeferred = async {
-                repository.getRecentActivities(limit = 20).first()
+                repository.getRecentActivities(limit = HOME_ACTIVITY_LIMIT).first()
             }
-            val widgetGridDeferred = async { resolveWidgetGrid(localOnly = false) }
+            // One candidate build feeds both the header pill and the grid's
+            // memory card.
+            val signalsDeferred = async { loadMemorySignals() }
+            val widgetGridDeferred = async {
+                resolveWidgetGrid(localOnly = false, signals = signalsDeferred.await())
+            }
             val recentlyAddedDeferred = async { loadRecentlyAdded() }
             // Parallel with the grid/shelf loads: on a cold detail cache this can
             // be a network fetch, and it must not serialize the first paint.
@@ -151,6 +169,7 @@ class HomeViewModel(
                 widgetGrid = widgetGridDeferred.await(),
                 recentlyAddedTracks = recentlyAdded.tracks,
                 recentlyAddedAlbums = recentlyAdded.albums,
+                memoryPill = signalsDeferred.await()?.pill ?: cachedMemoryPill(),
             )
         }
 
@@ -189,11 +208,14 @@ class HomeViewModel(
      */
     private suspend fun loadCachedSpotifyHomeContent(): HomeUiState.Content? = coroutineScope {
         val activitiesDeferred = async {
-            repository.getRecentActivities(limit = 20).first()
+            repository.getRecentActivities(limit = HOME_ACTIVITY_LIMIT).first()
         }
+        val signalsDeferred = async { loadMemorySignals() }
         // Instant pre-paint: pools of any age from disk, never the network.
         // The fresh load right behind this rotates them only if expired.
-        val widgetGridDeferred = async { resolveWidgetGrid(localOnly = true) }
+        val widgetGridDeferred = async {
+            resolveWidgetGrid(localOnly = true, signals = signalsDeferred.await())
+        }
 
         val activities = activitiesDeferred.await()
         val widgetGrid = widgetGridDeferred.await()
@@ -203,13 +225,17 @@ class HomeViewModel(
             HomeUiState.Content(
                 activities = activities,
                 widgetGrid = widgetGrid,
+                memoryPill = signalsDeferred.await()?.pill ?: cachedMemoryPill(),
             )
         }
     }
 
     private suspend fun loadSpotifyHomeContent(): HomeUiState.Content = coroutineScope {
         val activitiesDeferred = async { resolveSpotifyActivities() }
-        val widgetGridDeferred = async { resolveWidgetGrid(localOnly = false) }
+        val signalsDeferred = async { loadMemorySignals() }
+        val widgetGridDeferred = async {
+            resolveWidgetGrid(localOnly = false, signals = signalsDeferred.await())
+        }
         val recentlyAddedDeferred = async { loadRecentlyAdded() }
 
         val (activities, activitiesFromRemote) = activitiesDeferred.await()
@@ -222,6 +248,7 @@ class HomeViewModel(
             widgetGrid = widgetGridDeferred.await(),
             recentlyAddedTracks = recentlyAdded.tracks,
             recentlyAddedAlbums = recentlyAdded.albums,
+            memoryPill = signalsDeferred.await()?.pill ?: cachedMemoryPill(),
         )
     }
 
@@ -236,7 +263,7 @@ class HomeViewModel(
      */
     private suspend fun resolveSpotifyActivities(): Pair<List<ActivityEvent>, Boolean> {
         val remote = try {
-            repository.getSpotifyRecentActivities(limit = 20)
+            repository.getSpotifyRecentActivities(limit = HOME_ACTIVITY_LIMIT)
         } catch (cancellation: CancellationException) {
             throw cancellation
         } catch (_: Exception) {
@@ -245,7 +272,7 @@ class HomeViewModel(
         return if (!remote.isNullOrEmpty()) {
             remote to true
         } else {
-            repository.getRecentActivities(limit = 20).first() to false
+            repository.getRecentActivities(limit = HOME_ACTIVITY_LIMIT).first() to false
         }
     }
 
@@ -255,9 +282,13 @@ class HomeViewModel(
             // Room re-emits on every activity_events insert — i.e. every track
             // change and every detail-page visit. Debounce coalesces those
             // bursts so a rapid skip-through doesn't rebuild per song.
-            repository.getRecentActivities(limit = 20)
+            repository.getRecentActivities(limit = HOME_ACTIVITY_LIMIT)
                 .debounce(RECENT_HISTORY_DEBOUNCE_MS)
                 .collectLatest { localActivities ->
+                    val providerId = repository.currentProviderId()
+                    val profileId = activeProfileId.value
+                    val scopeKey = homeScopeKey(providerId, profileId)
+                    if (contentScopeKey != scopeKey) return@collectLatest
                     val currentContent = _uiState.value as? HomeUiState.Content ?: return@collectLatest
                     // The recently-played endpoint owns the Spotify feed ONLY when
                     // the activities actually came from it; on the local fallback
@@ -276,28 +307,36 @@ class HomeViewModel(
                     val oldHero = selectHomeHeroActivity(currentContent.activities)
                     val heroUnchanged = newHero?.entityType == oldHero?.entityType &&
                         newHero?.entityId == oldHero?.entityId
-                    val nextContent = currentContent.copy(
+                    val footnote = if (heroUnchanged) {
+                        currentContent.activityHeroFootnote
+                    } else {
+                        loadActivityHeroFootnote(effectiveActivities)
+                    }
+                    // Apply to the LATEST content, owning only the activity
+                    // fields: a snapshot write would revert a pill / grid
+                    // update that landed while the footnote loaded.
+                    if (!matchesCurrentScope(providerId, profileId) || contentScopeKey != scopeKey) {
+                        return@collectLatest
+                    }
+                    val latest = _uiState.value as? HomeUiState.Content ?: return@collectLatest
+                    val nextContent = latest.copy(
                         activities = effectiveActivities,
                         activitiesFromRemote = keepEndpointFeed,
-                        activityHeroFootnote = if (heroUnchanged) {
-                            currentContent.activityHeroFootnote
-                        } else {
-                            loadActivityHeroFootnote(effectiveActivities)
-                        },
+                        activityHeroFootnote = footnote,
                     )
-                    homeContentCache[homeScopeKey(repository.currentProviderId(), activeProfileId.value)] = nextContent
+                    homeContentCache[scopeKey] = nextContent
                     _uiState.value = nextContent
                 }
         }
     }
 
     /**
-     * Keep the widget grid's two memory-flavoured cards live. Note / track
-     * rating / album review writes create NO activity event (they go straight
-     * to their Room tables from Now Playing and the detail pages), so the grid
-     * listens to the tables' change stamps directly and splices refreshed wide
-     * cards into the current grid — plain recommendation cards stay as loaded;
-     * only a full refresh re-rolls those.
+     * Keep the widget grid's two memory-flavoured cards and the header's
+     * Memories pill live. Note / track rating / album review writes create NO
+     * activity event (they go straight to their Room tables from Now Playing
+     * and the detail pages), so Home listens to the tables' change stamps
+     * directly and splices refreshed wide cards into the current grid — plain
+     * recommendation cards stay as loaded; only a full refresh re-rolls those.
      */
     @OptIn(FlowPreview::class)
     private fun observeMemorySignals() {
@@ -305,11 +344,36 @@ class HomeViewModel(
             repository.observeMemorySignalStamp()
                 .debounce(RECENT_HISTORY_DEBOUNCE_MS)
                 .collectLatest {
+                    // The tick belongs to the scope it started in; if that
+                    // moves while it builds, it is dropped, never "kept".
+                    val providerId = repository.currentProviderId()
+                    val profileId = activeProfileId.value
+                    val scopeKey = homeScopeKey(providerId, profileId)
+                    if (contentScopeKey != scopeKey) return@collectLatest
                     val currentContent = _uiState.value as? HomeUiState.Content ?: return@collectLatest
-                    val refreshedGrid = refreshWidgetGridSignalCards(currentContent.widgetGrid)
-                    if (refreshedGrid == currentContent.widgetGrid) return@collectLatest
-                    val nextContent = currentContent.copy(widgetGrid = refreshedGrid)
-                    homeContentCache[homeScopeKey(repository.currentProviderId(), activeProfileId.value)] = nextContent
+                    // Live splices keep the grid's memory album while it still
+                    // qualifies — writing on it shouldn't reshuffle the grid.
+                    val shownMemoryAlbum = currentContent.widgetGrid
+                        .firstOrNull { it.target is HomeWidgetTarget.MemoryFocus }
+                        ?.let(::memoryCardAlbumId)
+                    val signals = loadMemorySignals(preferJbiRawAlbumId = shownMemoryAlbum?.rawId)
+                    val refreshedGrid = refreshWidgetGridSignalCards(currentContent.widgetGrid, signals)
+                    if (!matchesCurrentScope(providerId, profileId) || contentScopeKey != scopeKey) {
+                        return@collectLatest
+                    }
+                    val latest = _uiState.value as? HomeUiState.Content ?: return@collectLatest
+                    // Unscoped / failed build: keep what's on screen rather
+                    // than flashing an empty pill.
+                    val refreshedPill = signals?.pill ?: latest.memoryPill
+                    // A refresh that landed meanwhile already rebuilt the grid
+                    // with fresh signal cards; don't splice an older grid over it.
+                    val nextGrid = if (latest.widgetGrid == currentContent.widgetGrid) refreshedGrid else latest.widgetGrid
+                    if (nextGrid == latest.widgetGrid && refreshedPill == latest.memoryPill) return@collectLatest
+                    val nextContent = latest.copy(
+                        widgetGrid = nextGrid,
+                        memoryPill = refreshedPill,
+                    )
+                    homeContentCache[scopeKey] = nextContent
                     _uiState.value = nextContent
                 }
         }
@@ -318,12 +382,19 @@ class HomeViewModel(
     /**
      * Recompute just the memory-album and noted-track 1×2 cards and re-pack
      * them with the existing compact cards (deduping any compact that the new
-     * wide cards now cover), preserving the 12-cell budget.
+     * wide cards now cover), preserving the 12-cell budget. A null [signals]
+     * (unscoped / failed build) keeps the memory card already on screen.
      */
     private suspend fun refreshWidgetGridSignalCards(
         current: List<HomeWidgetCard>,
+        signals: MemorySignals?,
     ): List<HomeWidgetCard> {
-        val memory = loadMemoryAlbumCard()
+        val memory = if (signals != null) {
+            signals.memoryCard
+        } else {
+            current.firstOrNull { it.target is HomeWidgetTarget.MemoryFocus }
+                ?.let { card -> card to memoryCardAlbumId(card) }
+        }
         val note = loadNotedTrackCard()
         val wideCards = listOfNotNull(memory?.first, note?.first)
         if (wideCards.isEmpty() && current.none { it.expanded }) return current
@@ -340,7 +411,7 @@ class HomeViewModel(
                     else -> false
                 }
             }
-        return wideCards + compacts.take(GRID_TOTAL_CELLS - wideCards.size * 2)
+        return wideCards + compacts.take(GRID_MAX_COMPACTS)
     }
 
     // ── Widget grid (Jump Back In × memories) ────────────────────────────
@@ -353,14 +424,17 @@ class HomeViewModel(
      * and never touches the network. The memory / noted signal cards are
      * always resolved live regardless of pool age.
      */
-    private suspend fun resolveWidgetGrid(localOnly: Boolean): List<HomeWidgetCard> {
+    private suspend fun resolveWidgetGrid(
+        localOnly: Boolean,
+        signals: MemorySignals?,
+    ): List<HomeWidgetCard> {
         val fresh = guardedOrNull { repository.getCachedHomeGridPools(maxAgeMs = GRID_POOLS_TTL_MS) }
-        if (fresh != null) return buildWidgetGrid(fresh)
+        if (fresh != null) return buildWidgetGrid(fresh, signals)
         if (localOnly) {
             val stale = guardedOrNull { repository.getCachedHomeGridPools(maxAgeMs = null) }
-            return stale?.let { buildWidgetGrid(it) } ?: emptyList()
+            return stale?.let { buildWidgetGrid(it, signals) } ?: emptyList()
         }
-        return buildWidgetGrid(fetchAndPersistGridPools())
+        return buildWidgetGrid(fetchAndPersistGridPools(), signals)
     }
 
     /**
@@ -384,9 +458,12 @@ class HomeViewModel(
                 tracks = tracksDeferred.await()
                     .distinctBy { track -> track.id }
                     .take(GRID_POOL_TRACKS),
+                // Artless playlists only make the cut when there aren't
+                // enough with artwork (see buildWidgetGrid).
                 playlists = playlistsDeferred.await()
                     .distinctBy { playlist -> playlist.id }
                     .shuffled()
+                    .sortedBy { playlist -> playlist.coverArt == null }
                     .take(GRID_POOL_PLAYLISTS),
                 cachedAt = System.currentTimeMillis(),
             )
@@ -416,23 +493,30 @@ class HomeViewModel(
      */
     private suspend fun buildWidgetGrid(
         pools: YoinRepository.HomeGridPoolSnapshot,
-    ): List<HomeWidgetCard> = coroutineScope {
-        val memoryDeferred = async { loadMemoryAlbumCard() }
-        val noteDeferred = async { loadNotedTrackCard() }
-
-        val memory = memoryDeferred.await()
-        val note = noteDeferred.await()
+        signals: MemorySignals?,
+    ): List<HomeWidgetCard> {
+        val memory = signals?.memoryCard
+        val note = loadNotedTrackCard()
+        // Covers first: an artless item (an Apple Music library playlist with
+        // no artwork) reads as a grey hole in the shelf, so it only fills in
+        // behind the ones with art — inside each pool here, and across the
+        // whole shelf below (so a spare album with art beats an artless
+        // playlist). Stable sorts: the persisted shuffle order holds within
+        // each group, and the 2+2+3+3+2 recipe is unchanged whenever there is
+        // enough art to fill it.
         val albumPool = pools.albums
             .filterNot { album -> album.id == memory?.second }
             .map { album -> album.toWidgetCard() }
+            .sortedBy { card -> card.coverArtUrl == null }
         val trackPool = pools.tracks
             .filterNot { track -> track.id == note?.second }
             .map { track -> track.toWidgetCard() }
+            .sortedBy { card -> card.coverArtUrl == null }
         val playlistPool = pools.playlists
             .map { playlist -> playlist.toWidgetCard() }
+            .sortedBy { card -> card.coverArtUrl == null }
 
         val wideCards = listOfNotNull(memory?.first, note?.first)
-        val compactBudget = GRID_TOTAL_CELLS - wideCards.size * 2
         val primary = interleaveCards(
             albumPool.take(3),
             trackPool.take(2),
@@ -443,22 +527,53 @@ class HomeViewModel(
             trackPool.drop(2),
             playlistPool.drop(3),
         )
-        wideCards + (primary + extras).take(compactBudget)
+        return wideCards + (primary + extras)
+            .sortedBy { card -> card.coverArtUrl == null }
+            .take(GRID_MAX_COMPACTS)
     }
 
     /**
-     * The rated/reviewed album 1×2: the top memory candidate that carries a
-     * written review (preferred — it feeds the serif copy) or any rating.
+     * ONE memory-candidate build per load / signal tick, shared by the header
+     * pill (latest memory + notes count) and the grid's memory 1×2. Null =
+     * unscoped, failed, or the scope moved mid-build — callers keep what they
+     * already show instead of flashing an empty pill.
+     */
+    private suspend fun loadMemorySignals(preferJbiRawAlbumId: String? = null): MemorySignals? {
+        val providerId = repository.currentProviderId() ?: return null
+        val profileId = activeProfileId.value?.takeIf { it.isNotBlank() } ?: return null
+        val candidates = try {
+            repository.getAlbumMemoryCandidates(limit = MEMORY_CANDIDATE_LIMIT)
+        } catch (cancellation: CancellationException) {
+            throw cancellation
+        } catch (_: Exception) {
+            return null
+        }
+        val noteCount = guardedOrNull { repository.countNotes() } ?: return null
+        if (!matchesCurrentScope(providerId, profileId)) return null
+        val pill = buildHomeMemoryPill(candidates, noteCount, scope = homeScopeKey(providerId, profileId))
+        val memoryCard = pickJbiMemoryCandidate(
+            candidates = candidates,
+            avoidRawAlbumId = pill.latest?.albumId?.rawId,
+            preferRawAlbumId = preferJbiRawAlbumId,
+        )?.let { candidate -> toMemoryCard(candidate) }
+        return MemorySignals(pill = pill, memoryCard = memoryCard)
+    }
+
+    /** The album a memory 1×2 points at, recovered from its stable id. */
+    private fun memoryCardAlbumId(card: HomeWidgetCard): MediaId? {
+        // stableId = "grid-memory:<provider>:<rawAlbumId>"; raw ids may hold ':'.
+        val rest = card.stableId.removePrefix("grid-memory:")
+        val provider = rest.substringBefore(':', missingDelimiterValue = "")
+        val rawId = rest.substringAfter(':', missingDelimiterValue = "")
+        return if (provider.isNotBlank() && rawId.isNotBlank()) MediaId(provider, rawId) else null
+    }
+
+    /**
+     * The rated/reviewed album 1×2 for [candidate] (see [pickJbiMemoryCandidate]).
      * Returns the card plus the album's [MediaId] so the plain-album pool can
      * exclude it. Tapping pushes into the Memories deck stopped on this album.
      */
-    private suspend fun loadMemoryAlbumCard(): Pair<HomeWidgetCard, MediaId>? {
-        val candidates = guardedList {
-            repository.getAlbumMemoryCandidates(limit = GRID_MEMORY_CANDIDATE_LIMIT)
-        }
-        val candidate = candidates.firstOrNull { it.hasAlbumReview }
-            ?: candidates.firstOrNull { it.albumRating != null || it.averageSongRating != null }
-            ?: return null
+    private suspend fun toMemoryCard(candidate: AlbumMemoryCandidate): Pair<HomeWidgetCard, MediaId> {
         val rawAlbumId = MediaId.storedRawId(candidate.provider, candidate.albumId)
         val albumId = MediaId(candidate.provider, rawAlbumId)
         val hasReview = candidate.hasAlbumReview
@@ -674,21 +789,32 @@ class HomeViewModel(
     }
 
     private companion object {
-        // The widget grid is a fixed 3-column × 4-row = 12-cell shelf; wide
-        // (1×2) cards take two cells. Bounded so the home feed can't balloon
-        // and so at most two cards ever do the extra review/note lookups.
-        private const val GRID_TOTAL_CELLS = 12
-        private const val GRID_ALBUM_REQUEST_SIZE = 18
-        private const val GRID_TRACK_REQUEST_SIZE = 12
-        private const val GRID_MEMORY_CANDIDATE_LIMIT = 12
+        // The widget grid: at most two wide signal cards (so at most two
+        // cards ever do the extra review/note lookups) plus up to 24 covers.
+        // A phone shows the first 12 cells (trimToPhoneShelf: the 3 × 4
+        // shelf, unchanged); a tablet template seats as many as its phone-
+        // sized columns take — 10 columns × 3 rows with no signal cards and
+        // two 2×2 features is the deepest, 24 covers (HomeJbiTemplate.kt).
+        private const val GRID_MAX_COMPACTS = 24
 
-        // Persisted pool sizes (enough to fill 12 cells even when both wide
-        // cards are missing and dedup bites) and the rotation cadence: the
-        // shelf re-rolls at most every 6 hours, otherwise it reads from disk
-        // with zero network.
-        private const val GRID_POOL_ALBUMS = 8
-        private const val GRID_POOL_TRACKS = 6
-        private const val GRID_POOL_PLAYLISTS = 6
+        // Recent activities the feed keeps (unique entities, songs included —
+        // the bento drops songs). The widest unit bento seats 13 plus a hero,
+        // so 20 often ran it on its degrade path once songs were filtered out.
+        private const val HOME_ACTIVITY_LIMIT = 40
+        private const val GRID_ALBUM_REQUEST_SIZE = 24
+        private const val GRID_TRACK_REQUEST_SIZE = 16
+        // Same pool as the Memories deck (its ensureCandidates uses 48), so
+        // what the pill shows is what the deck holds. The builder scans 48
+        // seeds either way; only the final take() differs.
+        private const val MEMORY_CANDIDATE_LIMIT = 48
+
+        // Persisted pool sizes (enough for GRID_MAX_COMPACTS covers even when
+        // dedup bites and a library is short on playlists) and the rotation
+        // cadence: the shelf re-rolls at most every 6 hours, otherwise it
+        // reads from disk with zero network.
+        private const val GRID_POOL_ALBUMS = 12
+        private const val GRID_POOL_TRACKS = 8
+        private const val GRID_POOL_PLAYLISTS = 8
         private const val GRID_POOLS_TTL_MS = 6L * 60L * 60L * 1000L
 
         // "Recently Added" home shelf: library items added within the last week.
@@ -728,6 +854,39 @@ private fun parseAddedAtMillis(addedAt: String?): Long? {
             LocalDate.parse(addedAt).atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli()
         }
         .getOrNull()
+}
+
+/** The shared memory read: header pill + the grid's memory 1×2 (card, album id). */
+private data class MemorySignals(
+    val pill: HomeMemoryPill,
+    val memoryCard: Pair<HomeWidgetCard, MediaId?>?,
+)
+
+/**
+ * The grid's memory 1×2 keeps the owner's recipe — the strongest memory with
+ * a review, else with any rating — but prefers a different album than the
+ * header pill already shows; the same album only when nothing else qualifies.
+ * [preferRawAlbumId] (the album a live splice already shows) wins while it
+ * still qualifies, so a write on it updates the card in place instead of
+ * swapping albums under the user.
+ */
+internal fun pickJbiMemoryCandidate(
+    candidates: List<AlbumMemoryCandidate>,
+    avoidRawAlbumId: String?,
+    preferRawAlbumId: String? = null,
+): AlbumMemoryCandidate? {
+    fun AlbumMemoryCandidate.rawAlbumId(): String = MediaId.storedRawId(provider, albumId)
+    fun AlbumMemoryCandidate.qualifies(): Boolean =
+        hasAlbumReview || albumRating != null || averageSongRating != null
+    fun pick(pool: List<AlbumMemoryCandidate>): AlbumMemoryCandidate? =
+        pool.firstOrNull { it.hasAlbumReview }
+            ?: pool.firstOrNull { it.albumRating != null || it.averageSongRating != null }
+    if (preferRawAlbumId != null) {
+        candidates.firstOrNull { it.rawAlbumId() == preferRawAlbumId && it.qualifies() }
+            ?.let { return it }
+    }
+    val others = candidates.filterNot { candidate -> candidate.rawAlbumId() == avoidRawAlbumId }
+    return pick(others) ?: pick(candidates)
 }
 
 /** Recently-added library split by kind for the two halves of the shelf. */

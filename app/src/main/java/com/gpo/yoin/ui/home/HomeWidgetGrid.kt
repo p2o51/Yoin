@@ -1,5 +1,15 @@
 package com.gpo.yoin.ui.home
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.ContentTransform
+import androidx.compose.animation.EnterExitState
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.togetherWith
+import com.gpo.yoin.ui.experience.LocalMotionProfile
+import com.gpo.yoin.ui.experience.MotionProfile
+import com.gpo.yoin.ui.theme.YoinMotion
+import com.gpo.yoin.ui.theme.YoinMotionRole
 import androidx.compose.foundation.background
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.isSystemInDarkTheme
@@ -8,6 +18,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -27,11 +38,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.gpo.yoin.symbols.YoinSymbols
+import com.gpo.yoin.ui.component.ExpressiveBackdropColors
 import com.gpo.yoin.ui.component.ExpressiveMediaArtwork
 import com.gpo.yoin.ui.component.rememberPressMorphShape
 import com.gpo.yoin.ui.component.elasticPress
@@ -39,7 +52,6 @@ import com.gpo.yoin.ui.component.noRippleClickable
 import com.gpo.yoin.ui.component.rememberExpressiveBackdropColors
 import com.gpo.yoin.ui.component.seamDissolve
 import com.gpo.yoin.ui.component.seamFade
-import com.gpo.yoin.ui.experience.LayoutMode
 import com.gpo.yoin.ui.experience.LocalYoinWindowInfo
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
 import com.gpo.yoin.ui.memories.MemoryEntityType
@@ -51,17 +63,13 @@ import com.gpo.yoin.ui.theme.withTabularFigures
 // The compact "1×1" cover is 100dp wide in the Figma; the backdrop shape fills
 // it while the artwork sits at ~73/100 in the bottom-right so the shape peeks
 // out around it. The wide "1×2" card reuses that same 100dp cover on the left.
+// Panes of 3+ feed units size it off the column instead (HomeWidgetGridAdaptive.kt).
 private val WidgetCoverSize = 100.dp
 private const val WidgetArtworkFraction = 0.72f
 
-// Masonry column counts: a Compact pane keeps the Figma 3-column grid; Medium
-// (and Tabletop, staying in its old `!= Compact` bucket) re-packs the SAME
-// 12-cell budget (GRID_TOTAL_CELLS) into 4 columns, and a full-window Wide
-// canvas into 6 — 12 % 4 == 0 and 12 % 6 == 0, so every wide-card count still
-// fills its rows exactly.
-private const val WidgetGridColumns = 3
-private const val WidgetGridColumnsExpanded = 4
-private const val WidgetGridColumnsDesktop = 6
+// Column counts (jbiGridSpec): a phone keeps the Figma 3-column, 12-cell
+// grid; panes of 3+ feed units seat a deeper shelf on a seeded template of
+// phone-sized columns (HomeJbiTemplate.kt).
 
 /**
  * Which backdrop shape sits behind a cover — the "题材" mapping recovered from
@@ -99,12 +107,13 @@ internal fun HomeSectionTitle(
 }
 
 /**
- * The home widget grid (Figma node 405:361, "Memories" visual language): a
- * masonry over a 3-column grid (4 columns in Medium/Tabletop panes, 6 on a
- * full-window Wide canvas) where a wide "1×2"
- * card spans two columns and shares its row with compact "1×1" covers;
- * unpaired covers fill full rows. Cards are plain taps — album/playlist push
- * their detail, songs play, memory cards push into the Memories deck. No
+ * The home widget grid (Figma node 405:361, "Memories" visual language). On a
+ * phone: a masonry over a 3-column grid where a wide "1×2" card spans two
+ * columns and shares its row with compact "1×1" covers; unpaired covers fill
+ * full rows. On panes of 3+ feed units: a seeded template of phone-sized
+ * columns mixing 2×2 features, standing / lying signal cards and covers
+ * (HomeJbiTemplate.kt). Cards are plain taps — album/playlist push their
+ * detail, songs play, memory cards push into the Memories deck. No
  * predictive-back choreography.
  */
 @Composable
@@ -116,60 +125,179 @@ internal fun HomeWidgetGridSection(
     modifier: Modifier = Modifier,
 ) {
     if (cards.isEmpty()) return
-    // Pane-relative columns: inside an embedded split each Activity sees its
-    // own pane width, so a phone-sized pane stays on the 3-column grid
-    // byte-for-byte; a Medium pane (and Tabletop — its old `!= Compact`
-    // bucket, preserved verbatim) re-packs the same cards into 4 columns, and
-    // a full-window Wide canvas spreads them across 6.
-    val layoutMode = LocalYoinWindowInfo.current.layoutMode
-    val columns = when (layoutMode) {
-        LayoutMode.Compact -> WidgetGridColumns
-        LayoutMode.Wide -> WidgetGridColumnsDesktop
-        else -> WidgetGridColumnsExpanded
+    // Columns and path follow the container (HomeFeedDensity: jbiGridSpec) —
+    // not LayoutMode: panes of 3+ feed units get as many phone-sized cover
+    // columns as fit. Phones (≤ 2 units) and a landscape handset keep the
+    // Row + weights + 100dp path below, byte for byte. Legacy100 is the hint
+    // trial's before shot.
+    val windowInfo = LocalYoinWindowInfo.current
+    val coverFit = LocalHomeHintVariant.current.coverFit
+    val gridSpec = when {
+        coverFit == JbiCoverFit.Legacy100 ->
+            legacyJbiGridSpec(windowInfo.feedUnits, windowInfo.isCompactHeight).copy(followColumn = false)
+        else -> jbiGridSpec(windowInfo.feedUnits, windowInfo.feedCoverColumns, windowInfo.isCompactHeight)
     }
-    val rows = remember(cards, columns) { packWidgetRows(cards, columns) }
+    // Panes of 3+ feed units seat the shelf on a seeded template (HomeJbiTemplate.kt):
+    // the same cards always land the same way. Null = too few cards for even two
+    // rows — the plain column grid below takes them.
+    val layout = remember(cards, gridSpec) {
+        if (gridSpec.templated) {
+            jbiLayout(
+                cards = cards,
+                columns = gridSpec.columns,
+                rows = gridSpec.rows,
+                seed = jbiLayoutSeed(cards),
+            )
+        } else {
+            null
+        }
+    }
+    val content = JbiContent(gridSpec, cards, layout)
+    val reduced = LocalMotionProfile.current == MotionProfile.AdaptiveReduced
+    val heightSpec = YoinMotion.spatialSpring<Float>()
 
     Column(
         modifier = modifier,
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         HomeSectionTitle(text = title)
-        rows.forEach { row ->
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                // A 1×2 is taller than the 1×1 beside it; top-align so the cover
-                // block hangs from the same line and the review copy runs below.
-                verticalAlignment = Alignment.Top,
-            ) {
-                var units = 0
-                row.forEach { card ->
+        // A column-count, template or path change re-packs the grid: crossfade
+        // it, with the section's height on a spatial spring — never a hard cut.
+        AnimatedContent(
+            targetState = content,
+            contentKey = { it.key },
+            transitionSpec = {
+                if (reduced) {
+                    ContentTransform(EnterTransition.None, ExitTransition.None, sizeTransform = null)
+                } else {
+                    // No SizeTransform: its animated WIDTH lags a container
+                    // that is shrinking under a column spring, and the parent
+                    // centres the overflow. springHeight eases the height.
+                    YoinMotion.fadeIn(role = YoinMotionRole.Standard) togetherWith
+                        YoinMotion.fadeOut(role = YoinMotionRole.Standard) using null
+                }
+            },
+            label = "jbiGrid",
+            modifier = Modifier.springHeight(spec = heightSpec, key = content.key, enabled = !reduced),
+        ) { state ->
+            val columns = state.spec.columns
+            val followColumn = state.spec.followColumn
+            val seated = state.layout
+            // The packed paths keep the phone's 12-cell shelf; the VM supplies
+            // a deeper list for the templates.
+            val cards = remember(state.cards) { trimToPhoneShelf(state.cards) }
+            val rows = remember(cards, columns) { packWidgetRows(cards, columns) }
+            Box(Modifier.heightOfIncomingOnly { transition.targetState == EnterExitState.PostExit }) {
+            if (seated != null) {
+                // Phone-sized columns, phone-sized covers: the column's
+                // rhythm, but never past 128dp (a very wide window gets more
+                // room per column once the 10 columns run out).
+                val templateFit = if (coverFit == JbiCoverFit.PhoneRhythm) JbiCoverFit.Capped128 else coverFit
+                val coverRequestPx = with(LocalDensity.current) { JbiCoverMax.roundToPx() }
+                JbiSpanGrid(layout = seated, fit = templateFit, modifier = Modifier.fillMaxWidth()) { cell ->
+                    val card = cell.card
+                    when (cell.piece.kind) {
+                        JbiPieceKind.TallSignal, JbiPieceKind.WideSignal -> WidgetCard12(
+                            card = card,
+                            extractBackdropColors = extractBackdropColors,
+                            onClick = { onCardClick(card.target) },
+                            followColumn = true,
+                            tall = cell.piece.kind == JbiPieceKind.TallSignal,
+                            coverFit = templateFit,
+                            coverRequestPx = coverRequestPx,
+                        )
+                        JbiPieceKind.Cover -> WidgetCoverBlock(
+                            card = card,
+                            extractBackdropColors = extractBackdropColors,
+                            onClick = { onCardClick(card.target) },
+                            artworkModifier = Modifier.jbiCoverSquare(templateFit),
+                            artworkRequestSizePx = coverRequestPx,
+                        )
+                    }
+                }
+            } else if (followColumn) {
+                // Decode at the largest cover the column can grow to.
+                val coverRequestPx = with(LocalDensity.current) { JbiCoverMax.roundToPx() }
+                JbiColumnGrid(
+                    rows = rows,
+                    columns = columns,
+                    modifier = Modifier.fillMaxWidth(),
+                ) { card ->
                     if (card.expanded) {
-                        units += 2
                         WidgetCard12(
                             card = card,
                             extractBackdropColors = extractBackdropColors,
                             onClick = { onCardClick(card.target) },
-                            modifier = Modifier.weight(2f),
+                            followColumn = true,
+                            coverRequestPx = coverRequestPx,
                         )
                     } else {
-                        units += 1
                         WidgetCoverBlock(
                             card = card,
                             extractBackdropColors = extractBackdropColors,
                             onClick = { onCardClick(card.target) },
-                            modifier = Modifier.weight(1f),
+                            artworkModifier = Modifier.jbiCoverSquare(coverFit),
+                            artworkRequestSizePx = coverRequestPx,
                         )
                     }
                 }
-                // Pad short rows so cards keep their column width instead of
-                // stretching across the leftover space.
-                repeat(columns - units) {
-                    Spacer(modifier = Modifier.weight(1f))
+            } else {
+                // The phone path, as before (its rows in their own 16dp stack).
+                Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                    rows.forEach { row ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            // A 1×2 is taller than the 1×1 beside it; top-align so the cover
+                            // block hangs from the same line and the review copy runs below.
+                            verticalAlignment = Alignment.Top,
+                        ) {
+                            var units = 0
+                            row.forEach { card ->
+                                if (card.expanded) {
+                                    units += 2
+                                    WidgetCard12(
+                                        card = card,
+                                        extractBackdropColors = extractBackdropColors,
+                                        onClick = { onCardClick(card.target) },
+                                        modifier = Modifier.weight(2f),
+                                    )
+                                } else {
+                                    units += 1
+                                    WidgetCoverBlock(
+                                        card = card,
+                                        extractBackdropColors = extractBackdropColors,
+                                        onClick = { onCardClick(card.target) },
+                                        modifier = Modifier.weight(1f),
+                                    )
+                                }
+                            }
+                            // Pad short rows so cards keep their column width instead of
+                            // stretching across the leftover space.
+                            repeat(columns - units) {
+                                Spacer(modifier = Modifier.weight(1f))
+                            }
+                        }
+                    }
                 }
+            }
             }
         }
     }
+}
+
+/**
+ * One grid composition with the cards it seats — the outgoing layer keeps its
+ * own while it fades. [key] is what a crossfade answers to: the template when
+ * there is one (a re-seat on the same template updates in place), else the
+ * packed path's spec.
+ */
+private data class JbiContent(
+    val spec: JbiGridSpec,
+    val cards: List<HomeWidgetCard>,
+    val layout: JbiLayout?,
+) {
+    val key: Any get() = layout?.template ?: spec
 }
 
 /**
@@ -180,7 +308,7 @@ internal fun HomeWidgetGridSection(
  * fill full rows. Order otherwise follows the incoming ranking, so the
  * strongest cards still lead.
  *
- * GOLDEN INVARIANT: at [WidgetGridColumns] (3) this reproduces the shipped
+ * GOLDEN INVARIANT: at 3 columns this reproduces the shipped
  * phone packing exactly — one compact per wide row, same alternation — pinned
  * by `HomeWidgetGridPackTest`. Do not drift the 3-column output.
  */
@@ -213,6 +341,8 @@ internal fun packWidgetRows(
  * The wide "1×2" card: the 1×1 cover block on the left, and a column on the
  * right with the rating (tinted to the cover), what it's based on, and — when
  * present — the review/note copy in a serif face echoing the Figma.
+ * [followColumn] (Medium+ panes) sizes the cover off the column instead of the
+ * fixed 100dp — see [JbiWideCardLayout].
  */
 @Composable
 private fun WidgetCard12(
@@ -220,6 +350,12 @@ private fun WidgetCard12(
     extractBackdropColors: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    followColumn: Boolean = false,
+    // Standing (templated grids): the cover block over its copy, one column
+    // and two rows, instead of side by side.
+    tall: Boolean = false,
+    coverFit: JbiCoverFit = LocalHomeHintVariant.current.coverFit,
+    coverRequestPx: Int? = null,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val backdropColors = rememberExpressiveBackdropColors(
@@ -229,12 +365,49 @@ private fun WidgetCard12(
         enabled = extractBackdropColors,
     )
     val haptics = rememberYoinHaptics()
+    val cardModifier = modifier
+        .noRippleClickable(interactionSource = interactionSource) {
+            haptics.performContextClick()
+            onClick()
+        }
+    if (tall) {
+        Column(modifier = cardModifier) {
+            WidgetCoverBlock(
+                card = card,
+                extractBackdropColors = extractBackdropColors,
+                interactionSource = interactionSource,
+                artworkModifier = Modifier.jbiCoverSquare(coverFit),
+                artworkRequestSizePx = coverRequestPx,
+            )
+            Spacer(modifier = Modifier.height(JbiTallCopyGap))
+            WidgetRatingColumn(
+                card = card,
+                backdropColors = backdropColors,
+                commentMaxLines = JbiTallCommentMaxLines,
+            )
+        }
+        return
+    }
+    if (followColumn) {
+        JbiWideCardLayout(
+            fit = coverFit,
+            modifier = cardModifier,
+        ) {
+            WidgetCoverBlock(
+                card = card,
+                extractBackdropColors = extractBackdropColors,
+                interactionSource = interactionSource,
+                artworkModifier = Modifier
+                    .fillMaxWidth()
+                    .aspectRatio(1f),
+                artworkRequestSizePx = coverRequestPx,
+            )
+            WidgetRatingColumn(card = card, backdropColors = backdropColors)
+        }
+        return
+    }
     Row(
-        modifier = modifier
-            .noRippleClickable(interactionSource = interactionSource) {
-                haptics.performContextClick()
-                onClick()
-            },
+        modifier = cardModifier,
         horizontalArrangement = Arrangement.spacedBy(16.dp),
         // Hang the rating from the cover's top edge (Figma), not the row centre.
         verticalAlignment = Alignment.Top,
@@ -245,63 +418,76 @@ private fun WidgetCard12(
             interactionSource = interactionSource,
             modifier = Modifier.width(WidgetCoverSize),
         )
-        Column(
-            modifier = Modifier
-                .weight(1f)
-                .seamFade(),
-            // The rating's own line box already carries generous leading —
-            // 3dp keeps the comment visually attached to its score.
-            verticalArrangement = Arrangement.spacedBy(3.dp),
-        ) {
-            card.ratingText?.let { rating ->
-                // The palette's base tone (L* capped at 0.62) reads fine on a
-                // light surface but sinks into a dark one — use the brighter
-                // accent tone there, same hue family.
-                val ratingColor = if (isSystemInDarkTheme()) {
-                    backdropColors.accentColor
-                } else {
-                    backdropColors.baseColor
-                }
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalAlignment = Alignment.Bottom,
-                ) {
-                    Text(
-                        text = rating,
-                        style = MaterialTheme.typography.headlineSmall.copy(
-                            fontWeight = FontWeight.Bold,
-                        ).withTabularFigures(),
-                        color = ratingColor,
-                    )
-                    card.ratingBasis?.let { basis ->
-                        Text(
-                            text = basis,
-                            style = MaterialTheme.typography.labelSmall.withTabularFigures(),
-                            color = ratingColor.copy(alpha = 0.85f),
-                            modifier = Modifier.padding(bottom = 3.dp),
-                        )
-                    }
-                }
+        WidgetRatingColumn(
+            card = card,
+            backdropColors = backdropColors,
+            modifier = Modifier.weight(1f),
+        )
+    }
+}
+
+/** The right half of a [WidgetCard12]: the tinted rating, its basis, and the copy. */
+@Composable
+private fun WidgetRatingColumn(
+    card: HomeWidgetCard,
+    backdropColors: ExpressiveBackdropColors,
+    modifier: Modifier = Modifier,
+    commentMaxLines: Int = 3,
+) {
+    Column(
+        modifier = modifier.seamFade(),
+        // The rating's own line box already carries generous leading —
+        // 3dp keeps the comment visually attached to its score.
+        verticalArrangement = Arrangement.spacedBy(3.dp),
+    ) {
+        card.ratingText?.let { rating ->
+            // The palette's base tone (L* capped at 0.62) reads fine on a
+            // light surface but sinks into a dark one — use the brighter
+            // accent tone there, same hue family.
+            val ratingColor = if (isSystemInDarkTheme()) {
+                backdropColors.accentColor
+            } else {
+                backdropColors.baseColor
             }
-            card.comment?.let { comment ->
-                // AI 拟题保留宋体；首页笔记正文继承主题的 Google Sans Flex。
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.Bottom,
+            ) {
                 Text(
-                    text = comment,
-                    style = if (card.commentIsHeadline) {
-                        MaterialTheme.typography.titleMedium.copy(
-                            fontWeight = FontWeight.SemiBold,
-                            fontFamily = YoinSerifTitle,
-                            fontSize = 17.sp,
-                            lineHeight = 24.sp,
-                        )
-                    } else {
-                        MaterialTheme.typography.bodyMedium
-                    },
-                    color = MaterialTheme.colorScheme.onSurface,
-                    maxLines = 3,
-                    overflow = TextOverflow.Ellipsis,
+                    text = rating,
+                    style = MaterialTheme.typography.headlineSmall.copy(
+                        fontWeight = FontWeight.Bold,
+                    ).withTabularFigures(),
+                    color = ratingColor,
                 )
+                card.ratingBasis?.let { basis ->
+                    Text(
+                        text = basis,
+                        style = MaterialTheme.typography.labelSmall.withTabularFigures(),
+                        color = ratingColor.copy(alpha = 0.85f),
+                        modifier = Modifier.padding(bottom = 3.dp),
+                    )
+                }
             }
+        }
+        card.comment?.let { comment ->
+            // AI 拟题保留宋体；首页笔记正文继承主题的 Google Sans Flex。
+            Text(
+                text = comment,
+                style = if (card.commentIsHeadline) {
+                    MaterialTheme.typography.titleMedium.copy(
+                        fontWeight = FontWeight.SemiBold,
+                        fontFamily = YoinSerifTitle,
+                        fontSize = 17.sp,
+                        lineHeight = 24.sp,
+                    )
+                } else {
+                    MaterialTheme.typography.bodyMedium
+                },
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = commentMaxLines,
+                overflow = TextOverflow.Ellipsis,
+            )
         }
     }
 }
@@ -309,7 +495,8 @@ private fun WidgetCard12(
 /**
  * The 1×1 cover: an entity-type backdrop shape with the artwork nested inside
  * it, then the title and subtitle. Used standalone in the grid and as the left
- * half of a [WidgetCard12].
+ * half of a [WidgetCard12]. [artworkModifier] sizes the backdrop: the fixed
+ * 100dp cover, or a column-following square on Medium+ panes.
  */
 @Composable
 private fun WidgetCoverBlock(
@@ -318,6 +505,8 @@ private fun WidgetCoverBlock(
     modifier: Modifier = Modifier,
     interactionSource: MutableInteractionSource? = null,
     onClick: (() -> Unit)? = null,
+    artworkModifier: Modifier = Modifier.size(WidgetCoverSize),
+    artworkRequestSizePx: Int? = null,
 ) {
     val ownInteractionSource = interactionSource ?: remember { MutableInteractionSource() }
     val haptics = rememberYoinHaptics()
@@ -343,9 +532,18 @@ private fun WidgetCoverBlock(
             contentDescription = card.title,
             extractBackdropColors = extractBackdropColors,
             interactionSource = ownInteractionSource,
-            modifier = Modifier.size(WidgetCoverSize),
+            modifier = artworkModifier,
+            requestSizePx = artworkRequestSizePx,
         )
         Spacer(modifier = Modifier.height(5.dp))
+        WidgetCoverCaption(card = card)
+    }
+}
+
+/** A cover's title + subtitle, flush — one text cluster (see [WidgetCoverBlock]). */
+@Composable
+private fun WidgetCoverCaption(card: HomeWidgetCard) {
+    Column {
         // 歌曲/专辑名加大一档（用户裁决）；字体维持 GSF —— 宋体只属于 AI 拟题。
         Text(
             text = card.title,
@@ -387,6 +585,9 @@ internal fun WidgetBackdropArtwork(
     extractBackdropColors: Boolean,
     modifier: Modifier = Modifier,
     interactionSource: MutableInteractionSource? = null,
+    // Fixed decode size for a cover whose size moves with its column, so it
+    // never stays at the (smaller) size it first laid out at.
+    requestSizePx: Int? = null,
 ) {
     // Artists render as a clean full circle — the app-wide portrait convention
     // (Library grid/list, Artist detail) — NOT the album/song/playlist
@@ -403,6 +604,7 @@ internal fun WidgetBackdropArtwork(
             interactionSource = interactionSource,
             tonalElevation = 1.dp,
             shadowElevation = 0.dp,
+            requestSizePx = requestSizePx,
         )
         return
     }
@@ -455,6 +657,7 @@ internal fun WidgetBackdropArtwork(
             fallbackIcon = widgetFallbackIcon(kind),
             tonalElevation = 1.dp,
             shadowElevation = 0.dp,
+            requestSizePx = requestSizePx,
         )
     }
 }

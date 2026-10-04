@@ -40,6 +40,7 @@ import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.Track
 // VisualizerData intentionally removed: HomeScreen consumes a pre-smoothed
 // playbackSignal from AudioVisualizerManager instead.
+import com.gpo.yoin.ui.component.ExpressivePageBackground
 import com.gpo.yoin.ui.component.YoinLoadingIndicator
 import com.gpo.yoin.ui.experience.ReportMotionPressure
 import com.gpo.yoin.ui.experience.RevealState
@@ -111,6 +112,7 @@ fun HomeScreen(
         onArtistClick = onArtistClick,
         onPlaylistClick = onPlaylistClick,
         onSongClick = onSongClick,
+        homeCovered = suppressBackHandling,
         onRetry = viewModel::refresh,
         buildCoverArtUrl = viewModel::buildCoverArtUrl,
         sharedTransitionScope = sharedTransitionScope,
@@ -140,6 +142,8 @@ fun HomeContent(
     onArtistClick: (artistId: String) -> Unit,
     onPlaylistClick: (playlistId: String) -> Unit,
     onSongClick: (Track) -> Unit,
+    // Something above Home owns the screen (Now Playing, the detail column).
+    homeCovered: Boolean = false,
     onRetry: () -> Unit,
     buildCoverArtUrl: (String) -> String,
     sharedTransitionScope: SharedTransitionScope? = null,
@@ -152,10 +156,10 @@ fun HomeContent(
     )
 
     ProvideYoinMotionRole(role = YoinMotionRole.Expressive) {
-        Surface(
-            modifier = modifier.fillMaxSize(),
-            color = MaterialTheme.colorScheme.background,
-        ) {
+        // The same page gradient as Library (surfaceContainer → background →
+        // surfaceContainerLow): a flat background read as a different app
+        // beside it, and left the Now Playing panel's reveal bare.
+        ExpressivePageBackground(modifier = modifier.fillMaxSize()) {
             val isLoading = uiState is HomeUiState.Loading
             val isContent = uiState is HomeUiState.Content
             val contentEntranceOffsetPx = with(LocalDensity.current) { HomeInitialEntranceOffset.toPx() }
@@ -259,6 +263,8 @@ fun HomeContent(
                                     activityHeroFootnote = uiState.activityHeroFootnote,
                                     recentlyAddedTracks = uiState.recentlyAddedTracks,
                                     recentlyAddedAlbums = uiState.recentlyAddedAlbums,
+                                    memoryPill = uiState.memoryPill,
+                                    homeCovered = homeCovered,
                                     sections = sections,
                                     onNavigateToSettings = onNavigateToSettings,
                                     onNavigateToMemories = onNavigateToMemories,

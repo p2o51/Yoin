@@ -1,9 +1,12 @@
 package com.gpo.yoin.ui.home
 
+import androidx.compose.runtime.Immutable
 import com.gpo.yoin.data.local.ActivityEvent
 import com.gpo.yoin.data.model.Album
+import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.Track
 import com.gpo.yoin.ui.memories.MemoryEntityType
+import com.gpo.yoin.ui.memories.MemoryScoreKind
 
 sealed interface HomeUiState {
     data object Loading : HomeUiState
@@ -29,6 +32,10 @@ sealed interface HomeUiState {
         // half; both empty hides the whole section.
         val recentlyAddedTracks: List<Track> = emptyList(),
         val recentlyAddedAlbums: List<Album> = emptyList(),
+        // The header's Memories pill (latest memory + notes count). Null =
+        // not resolved yet (or unscoped): the header keeps today's bare
+        // chevron instead of flashing an "empty" pill.
+        val memoryPill: HomeMemoryPill? = null,
     ) : HomeUiState
 
     data class Error(val message: String) : HomeUiState
@@ -49,9 +56,10 @@ sealed interface HomeWidgetTarget {
 /**
  * One card in the home widget grid, following the Figma Widget 1×1 / 1×2
  * components: a cover on an entity-type backdrop shape, expanding to the wide
- * "1×2" variant when it carries a rating/review/note. The grid packs to
- * 3 columns × 4 rows = 12 cells (a 1×2 spans two cells), with the expanded
- * count bounded upstream so the shelf can't balloon.
+ * "1×2" variant when it carries a rating/review/note. A phone packs the
+ * first 3 columns × 4 rows = 12 cells (a 1×2 spans two cells); a tablet
+ * template seats more of the list (HomeJbiTemplate.kt). The expanded count is
+ * bounded upstream so the shelf can't balloon.
  */
 data class HomeWidgetCard(
     val stableId: String,
@@ -74,3 +82,36 @@ data class HomeWidgetCard(
     val expanded: Boolean = false,
     val target: HomeWidgetTarget,
 )
+
+/**
+ * What the header's Memories pill shows: the most recently written memory
+ * (cover + score) and how many notes the profile has kept. [latest] null with
+ * a zero [noteCount] = nothing kept yet (the dashed "Memories" pill).
+ */
+@Immutable
+data class HomeMemoryPill(
+    val latest: Latest?,
+    val noteCount: Int,
+    // provider|profile — whose memories these are (the bubble's "seen" mark
+    // is kept per profile).
+    val scope: String = "",
+    // Changes whenever something new is written: the latest memory's write
+    // time or the note count. The Memories bubble speaks when it differs from
+    // the last one it showed (HomeMemoryBubble.kt).
+    val newsKey: String = "",
+) {
+    @Immutable
+    data class Latest(
+        // Candidate sessionId → HomeWidgetTarget.MemoryFocus: tapping the pill
+        // opens the deck stopped on this album.
+        val sessionId: Long,
+        val albumId: MediaId,
+        val albumName: String,
+        val artistName: String?,
+        val coverArtUrl: String?,
+        // Same rule as the Memories seal: album rating > track average > none.
+        val scoreKind: MemoryScoreKind,
+        // "%.1f" (Locale.US), the seal's own format; null for NONE.
+        val scoreText: String?,
+    )
+}

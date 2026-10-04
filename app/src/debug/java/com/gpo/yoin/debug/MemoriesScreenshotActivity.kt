@@ -7,8 +7,11 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import com.gpo.yoin.data.local.ActivityActionType
 import com.gpo.yoin.data.local.ActivityEntityType
@@ -18,10 +21,20 @@ import com.gpo.yoin.data.model.CoverRef
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.Track
 import com.gpo.yoin.enableYoinEdgeToEdge
+import com.gpo.yoin.ui.component.ExpressivePageBackground
 import com.gpo.yoin.ui.home.HomeEditorialContent
+import com.gpo.yoin.ui.home.HomeHintVariant
+import com.gpo.yoin.ui.home.HomeMemoryPill
 import com.gpo.yoin.ui.home.HomeWidgetCard
 import com.gpo.yoin.ui.home.HomeWidgetTarget
+import com.gpo.yoin.ui.home.LocalHomeHintVariant
+import com.gpo.yoin.ui.home.InMemoryMemoryBubbleSeenStore
+import com.gpo.yoin.ui.home.LocalMemoryBubbleIdleMs
+import com.gpo.yoin.ui.home.LocalMemoryBubbleSeenStore
+import com.gpo.yoin.ui.home.MemoryBubbleIdleMs
 import com.gpo.yoin.ui.memories.MemoryEntityType
+import com.gpo.yoin.ui.memories.MemoryScoreKind
+import kotlinx.coroutines.delay
 import androidx.compose.runtime.CompositionLocalProvider
 import com.gpo.yoin.ui.experience.LocalYoinWindowInfo
 import com.gpo.yoin.ui.experience.rememberYoinWindowInfo
@@ -34,27 +47,101 @@ import java.io.File
  * Added shelf — with fixed fake data. Not exported in release. Stand-in covers
  * are solid-colour bitmaps written to cacheDir on first launch so the backdrop
  * palette tints each shape (and card) the way real album art would. Launch:
- *   adb shell am start -n com.gpo.yoin/com.gpo.yoin.debug.MemoriesScreenshotActivity
+ *   adb shell am start -S -n com.gpo.yoin/com.gpo.yoin.debug.MemoriesScreenshotActivity
+ *
+ * Home hint trial extras (-S so the once-per-process launch reveal replays):
+ *   --es variant  Recommended | Sticker | QuietEmpty | HierarchyCap | Baseline
+ *   --es pill     unresolved | empty | notes | none | average | album (default)
+ *   --ei notes    note count (default 12; 0 hides it; 1234 shows the 999+ cap)
+ *   --es grid     full (default: both 1×2 signal cards) | plain (12 1×1, two artless)
+ *   --ez recent   false hides Recently Added (Apple Music never has it)
+ *   --el pillDelayMs  start unresolved, resolve the pill after this delay
+ *   --ez cycle    loop empty → none → average → album every 2.5s
+ *   --ei rotate   rotate the fake activities by N, so a different hero leads and
+ *                 the unit bento picks a different staggered composition
+ *
+ * Jump Back In stagger trial (owner 2026-10-04):
+ *   --ei shelf    rotate the shelf's covers by N — a different leading cover,
+ *                 so the template seed (and layout) changes
+ *   --ei signals  how many 1×2 signal cards to keep (default 2)
+ *   --ez activities false hides the Activities bento (Jump Back In leads)
+ *
+ * Memories speech bubble (owner 2026-10-04):
+ *   --es bubble   news (default: the pill is untold news, the bubble speaks
+ *                 after the reveal) | seen (only the arrow until idle)
+ *   --el idleMs   the idle threshold (default 15000)
  */
 class MemoriesScreenshotActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableYoinEdgeToEdge()
+        val variant = intent.getStringExtra("variant")
+            ?.let { name -> HomeHintVariant.entries.firstOrNull { it.name.equals(name, ignoreCase = true) } }
+            ?: HomeHintVariant.Recommended
+        val pillKey = intent.getStringExtra("pill") ?: "album"
+        val noteCount = intent.getIntExtra("notes", 12)
+        val plainGrid = intent.getStringExtra("grid") == "plain"
+        val showRecent = intent.getBooleanExtra("recent", true)
+        val pillDelayMs = intent.getLongExtra("pillDelayMs", 0L)
+        val cycle = intent.getBooleanExtra("cycle", false)
+        val rotate = intent.getIntExtra("rotate", 0)
+        val shelfShift = intent.getIntExtra("shelf", 0)
+        val signalCount = intent.getIntExtra("signals", 2)
+        val showActivities = intent.getBooleanExtra("activities", true)
+        val bubbleSeen = intent.getStringExtra("bubble") == "seen"
+        val idleMs = intent.getLongExtra("idleMs", MemoryBubbleIdleMs)
+        val bubbleStore = InMemoryMemoryBubbleSeenStore()
         setContent {
             // 对齐生产环境：QA 台也提供窗口信息，Medium/Wide 分支才可验。
             val windowInfo = rememberYoinWindowInfo()
-            CompositionLocalProvider(LocalYoinWindowInfo provides windowInfo) {
+            if (bubbleSeen) {
+                remember { fakeMemoryPill(pillKey, noteCount)?.let { bubbleStore.markSeen(it.scope, it.newsKey) } }
+            }
+            var pill by remember {
+                mutableStateOf(if (pillDelayMs > 0L || cycle) null else fakeMemoryPill(pillKey, noteCount))
+            }
+            LaunchedEffect(Unit) {
+                if (cycle) {
+                    val steps = listOf("empty", "none", "average", "album")
+                    var index = 0
+                    while (true) {
+                        pill = fakeMemoryPill(steps[index % steps.size], noteCount)
+                        index++
+                        delay(2_500L)
+                    }
+                } else if (pillDelayMs > 0L) {
+                    delay(pillDelayMs)
+                    pill = fakeMemoryPill(pillKey, noteCount)
+                }
+            }
+            CompositionLocalProvider(
+                LocalYoinWindowInfo provides windowInfo,
+                LocalHomeHintVariant provides variant,
+                LocalMemoryBubbleSeenStore provides bubbleStore,
+                LocalMemoryBubbleIdleMs provides idleMs,
+            ) {
             YoinTheme {
-                Surface(
-                    modifier = Modifier.fillMaxSize(),
-                    color = MaterialTheme.colorScheme.background,
-                ) {
+                // Production's page gradient (HomeScreen), so the pill and the
+                // seams are judged on the background they really sit on.
+                ExpressivePageBackground(modifier = Modifier.fillMaxSize()) {
                     HomeEditorialContent(
-                        activities = fakeActivities(),
-                        widgetGrid = fakeWidgetGrid(),
+                        activities = if (!showActivities) emptyList() else fakeActivities().let { list ->
+                            // Newest-first is the feed's contract: rotate, then
+                            // re-stamp the times so order and recency agree.
+                            val shift = Math.floorMod(rotate, list.size)
+                            val rotated = list.drop(shift) + list.take(shift)
+                            rotated.zip(list) { event, slot -> event.copy(timestamp = slot.timestamp) }
+                        },
+                        widgetGrid = (if (plainGrid) fakePlainWidgetGrid() else fakeWidgetGrid()).let { cards ->
+                            val signals = cards.filter { it.expanded }.take(signalCount)
+                            val covers = cards.filterNot { it.expanded }
+                            val shift = Math.floorMod(shelfShift, covers.size.coerceAtLeast(1))
+                            signals + covers.drop(shift) + covers.take(shift)
+                        },
                         activityHeroFootnote = "2024 · 12 songs · 44 min",
-                        recentlyAddedTracks = fakeRecentlyAddedTracks(),
-                        recentlyAddedAlbums = fakeRecentlyAddedAlbums(),
+                        recentlyAddedTracks = if (showRecent) fakeRecentlyAddedTracks() else emptyList(),
+                        recentlyAddedAlbums = if (showRecent) fakeRecentlyAddedAlbums() else emptyList(),
+                        memoryPill = pill,
                         onNavigateToSettings = {},
                         onNavigateToMemories = {},
                         onAlbumClick = { _, _ -> },
@@ -207,8 +294,126 @@ class MemoriesScreenshotActivity : ComponentActivity() {
                 coverArtId = swatchCover("teal", 0xFF1D9E75.toInt()),
                 timestamp = now - 6L * 24 * 60 * 60 * 1000,
             ),
+            // 12-17: enough for the widest unit bento (13 slots) — feed units
+            // follow the width now (HomeFeedDensity), up to 13 on a 1280dp canvas.
+            ActivityEvent(
+                id = 12,
+                entityType = ActivityEntityType.ALBUM.name,
+                actionType = ActivityActionType.PLAYED.name,
+                entityId = "a7",
+                title = "Pang",
+                subtitle = "Caroline Polachek",
+                coverArtId = swatchCover("amber", 0xFFD89A2E.toInt()),
+                albumId = "a7",
+                timestamp = now - 7L * 24 * 60 * 60 * 1000,
+            ),
+            ActivityEvent(
+                id = 13,
+                entityType = ActivityEntityType.ARTIST.name,
+                actionType = ActivityActionType.VISITED.name,
+                entityId = "ar4",
+                title = "Mom",
+                subtitle = "Artist",
+                coverArtId = swatchCover("coral", 0xFFD85A30.toInt()),
+                timestamp = now - 8L * 24 * 60 * 60 * 1000,
+            ),
+            ActivityEvent(
+                id = 14,
+                entityType = ActivityEntityType.ALBUM.name,
+                actionType = ActivityActionType.PLAYED.name,
+                entityId = "a8",
+                title = "AIと刹那のポリティクス",
+                subtitle = "Mom",
+                coverArtId = swatchCover("blue", 0xFF378ADD.toInt()),
+                albumId = "a8",
+                timestamp = now - 9L * 24 * 60 * 60 * 1000,
+            ),
+            ActivityEvent(
+                id = 15,
+                entityType = ActivityEntityType.PLAYLIST.name,
+                actionType = ActivityActionType.PLAYED.name,
+                entityId = "p3",
+                title = "My Angelist #101",
+                subtitle = "Playlist",
+                coverArtId = swatchCover("mint", 0xFF3DAE77.toInt()),
+                timestamp = now - 10L * 24 * 60 * 60 * 1000,
+            ),
+            ActivityEvent(
+                id = 16,
+                entityType = ActivityEntityType.ALBUM.name,
+                actionType = ActivityActionType.PLAYED.name,
+                entityId = "a9",
+                title = "Gemini Rights",
+                subtitle = "Steve Lacy",
+                coverArtId = swatchCover("violet", 0xFF7F77DD.toInt()),
+                albumId = "a9",
+                timestamp = now - 11L * 24 * 60 * 60 * 1000,
+            ),
+            ActivityEvent(
+                id = 17,
+                entityType = ActivityEntityType.ARTIST.name,
+                actionType = ActivityActionType.VISITED.name,
+                entityId = "ar5",
+                title = "Steve Lacy",
+                subtitle = "Artist",
+                coverArtId = swatchCover("pink", 0xFFD4537E.toInt()),
+                timestamp = now - 12L * 24 * 60 * 60 * 1000,
+            ),
         )
     }
+
+    private fun fakeMemoryPill(key: String, noteCount: Int): HomeMemoryPill? {
+        // A different album than the grid's memory 1×2 — the real pipeline
+        // keeps them apart (pickJbiMemoryCandidate).
+        val latest = HomeMemoryPill.Latest(
+            sessionId = 2L,
+            albumId = MediaId.subsonic("pang"),
+            albumName = "Pang",
+            artistName = "Caroline Polachek",
+            coverArtUrl = swatchCover("amber", 0xFFD89A2E.toInt()),
+            scoreKind = MemoryScoreKind.ALBUM_RATING,
+            scoreText = "8.4",
+        )
+        return fakePillByKey(key, noteCount, latest)?.let { pill ->
+            pill.copy(scope = "fake", newsKey = "fake-$key-$noteCount")
+        }
+    }
+
+    private fun fakePillByKey(key: String, noteCount: Int, latest: HomeMemoryPill.Latest): HomeMemoryPill? {
+        return when (key) {
+            "unresolved" -> null
+            "empty" -> HomeMemoryPill(latest = null, noteCount = 0)
+            "notes" -> HomeMemoryPill(latest = null, noteCount = noteCount.coerceAtLeast(1))
+            "none" -> HomeMemoryPill(
+                latest = latest.copy(scoreKind = MemoryScoreKind.NONE, scoreText = null),
+                noteCount = noteCount,
+            )
+            "average" -> HomeMemoryPill(
+                latest = latest.copy(scoreKind = MemoryScoreKind.AVERAGE_TRACK_RATING, scoreText = "7.6"),
+                noteCount = noteCount,
+            )
+            else -> HomeMemoryPill(latest = latest, noteCount = noteCount)
+        }
+    }
+
+    /**
+     * The Apple Music profile's shape: no notes / ratings → no 1×2 signal
+     * cards, only albums and playlists, the last two playlists artless.
+     */
+    private fun fakePlainWidgetGrid(): List<HomeWidgetCard> = listOf(
+        fakeAlbumCard("Ajala (Single Edit)", "Ezra Collective", swatchCover("coral", 0xFFD85A30.toInt())),
+        fakePlaylistCard("Endless Natsu", "51", swatchCover("teal", 0xFF1D9E75.toInt())),
+        fakeAlbumCard("Abracadabra", "Lady Gaga", swatchCover("navy", 0xFF185FA5.toInt())),
+        fakePlaylistCard("Atypical 1", "51", swatchCover("salmon", 0xFFE0705A.toInt())),
+        fakeAlbumCard("Addison", "Addison Rae", swatchCover("amber", 0xFFD89A2E.toInt())),
+        fakePlaylistCard("繼續唱歌給你聽", "51", swatchCover("pink", 0xFFD4537E.toInt())),
+        fakeAlbumCard("A Night To Remember", "beabadoobee", swatchCover("blue", 0xFF378ADD.toInt())),
+        fakePlaylistCard("游戏电台 1", "51", swatchCover("magenta", 0xFFC2447F.toInt())),
+        fakeAlbumCard("After LIKE", "IVE", swatchCover("mint", 0xFF3DAE77.toInt())),
+        fakeAlbumCard("Absolution", "Muse", swatchCover("violet", 0xFF7F77DD.toInt())),
+        fakePlaylistCard("todo", "51", null),
+        fakePlaylistCard("路灯下", "51", null),
+    )
 
     private fun fakeWidgetGrid(): List<HomeWidgetCard> {
         // The design composition: 2+2+3+3+2 = 12 cells.
@@ -246,6 +451,23 @@ class MemoriesScreenshotActivity : ComponentActivity() {
             fakePlaylistCard("My Angelist #101", "HESSBEN", swatchCover("mint", 0xFF3DAE77.toInt())),
             fakeAlbumCard("Freakout/Release", "Hot Chip", swatchCover("salmon", 0xFFE0705A.toInt())),
             fakePlaylistCard("305tilidie", "Camila Cabello", swatchCover("navy", 0xFF185FA5.toInt())),
+            // The deeper tablet shelf (a template seats up to 24 covers).
+            fakeAlbumCard("This Infinite", "Vitesse X", swatchCover("amber", 0xFFD89A2E.toInt())),
+            fakeSongCard("Mom", "Rachel Chinouriri", swatchCover("magenta", 0xFFC2447F.toInt())),
+            fakePlaylistCard("Late Trains", "51", swatchCover("teal2", 0xFF2A8C8C.toInt())),
+            fakeAlbumCard("天国の部屋", "坂口諒之介", swatchCover("indigo", 0xFF4B4FA8.toInt())),
+            fakeSongCard("Describe", "Hannah Jadagu", swatchCover("lime", 0xFF8DB33A.toInt())),
+            fakePlaylistCard("Rainy Bus", "51", swatchCover("slate", 0xFF52707F.toInt())),
+            fakeAlbumCard("Aftertaste", "Hannah Jadagu", swatchCover("rose", 0xFFC9566B.toInt())),
+            fakeSongCard("Gemini Rights", "Steve Lacy", swatchCover("ochre", 0xFFB7862D.toInt())),
+            fakePlaylistCard("Sunday Tape", "51", swatchCover("plum", 0xFF7A4E8C.toInt())),
+            fakeAlbumCard("Abracadabra", "Lady Gaga", swatchCover("sky", 0xFF4F9BD6.toInt())),
+            fakeSongCard("After LIKE", "IVE", swatchCover("mint2", 0xFF56B894.toInt())),
+            fakePlaylistCard("Atypical 1", "51", swatchCover("brick", 0xFFB5523C.toInt())),
+            fakeAlbumCard("Absolution", "Muse", swatchCover("violet2", 0xFF6A5ACD.toInt())),
+            fakeSongCard("Ajala", "Ezra Collective", swatchCover("coral2", 0xFFE07B4F.toInt())),
+            fakePlaylistCard("游戏电台 1", "51", swatchCover("pink2", 0xFFE06C9F.toInt())),
+            fakeAlbumCard("A Night To Remember", "beabadoobee", swatchCover("blue2", 0xFF2F6FB8.toInt())),
         )
     }
 
@@ -298,7 +520,7 @@ class MemoriesScreenshotActivity : ComponentActivity() {
             target = HomeWidgetTarget.PlaySong(fakeTrack("s-$title", title, artist, cover)),
         )
 
-    private fun fakePlaylistCard(title: String, owner: String, cover: String): HomeWidgetCard =
+    private fun fakePlaylistCard(title: String, owner: String, cover: String?): HomeWidgetCard =
         HomeWidgetCard(
             stableId = "grid-playlist:$title",
             entityType = MemoryEntityType.PLAYLIST,

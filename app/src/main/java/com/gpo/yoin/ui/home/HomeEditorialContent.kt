@@ -1,13 +1,28 @@
 package com.gpo.yoin.ui.home
 
 import androidx.compose.animation.AnimatedVisibilityScope
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.ContentTransform
+import androidx.compose.animation.EnterExitState
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.togetherWith
+import androidx.compose.runtime.key
+import androidx.compose.ui.layout.Layout
+import androidx.compose.ui.layout.Placeable
+import androidx.compose.ui.layout.layout
+import androidx.compose.ui.unit.Constraints
+import androidx.compose.ui.unit.constrainHeight
+import com.gpo.yoin.ui.experience.LocalMotionProfile
+import com.gpo.yoin.ui.experience.MotionProfile
+import com.gpo.yoin.ui.experience.feedFrameClass
+import com.gpo.yoin.ui.theme.YoinMotionRole
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -85,14 +100,15 @@ import com.gpo.yoin.ui.component.noRippleClickable
 import com.gpo.yoin.ui.component.rememberExpressiveBackdropColors
 import com.gpo.yoin.ui.component.rememberStagedReveal
 import com.gpo.yoin.ui.component.seamDissolve
+import com.gpo.yoin.ui.component.expressivePageSeamBackground
 import com.gpo.yoin.ui.component.seamDissolveViewport
 import com.gpo.yoin.ui.component.seamFade
 import com.gpo.yoin.ui.component.seamRemainingPx
 import com.gpo.yoin.ui.component.seamScrolledPx
 import com.gpo.yoin.ui.component.seamTide
 import com.gpo.yoin.ui.component.stagedBeat
-import com.gpo.yoin.ui.component.yoinPageContentWidth
 import com.gpo.yoin.ui.experience.LayoutMode
+import com.gpo.yoin.ui.experience.LocalPaneWidthInMotion
 import com.gpo.yoin.ui.experience.LocalYoinWindowInfo
 import com.gpo.yoin.ui.experience.RevealState
 import com.gpo.yoin.ui.experience.rememberRevealState
@@ -125,6 +141,18 @@ private data class HomeMomentEntry(
     val target: HomeEntryTarget,
 )
 
+/**
+ * The entry's entity identity (not its activity row): replaying the same album
+ * keeps the same key, so the bento's stagger doesn't reshuffle on a replay.
+ */
+private val HomeMomentEntry.layoutKey: String
+    get() = entityType + ":" + when (val t = target) {
+        is HomeEntryTarget.Album -> t.albumId
+        is HomeEntryTarget.Artist -> t.artistId
+        is HomeEntryTarget.Playlist -> t.playlistId
+        is HomeEntryTarget.SongTarget -> t.song.id.toString()
+    }
+
 private const val HomeBackdropPaletteWarmupDelayMillis = 350L
 
 @OptIn(ExperimentalSharedTransitionApi::class)
@@ -135,6 +163,11 @@ internal fun HomeEditorialContent(
     activityHeroFootnote: String? = null,
     recentlyAddedTracks: List<Track> = emptyList(),
     recentlyAddedAlbums: List<Album> = emptyList(),
+    // The header's Memories pill; null keeps today's bare chevron.
+    memoryPill: HomeMemoryPill? = null,
+    // Something above Home owns the screen (Now Playing, the detail column):
+    // the Memories bubble keeps quiet.
+    homeCovered: Boolean = false,
     sections: List<HomeSectionState> = HomeLayout.Default.sections,
     onNavigateToSettings: () -> Unit,
     onNavigateToMemories: () -> Unit,
@@ -161,7 +194,8 @@ internal fun HomeEditorialContent(
     var isCommittedToMemories by remember { mutableStateOf(false) }
     // Visual hint = how far open the reveal is, capped at 1 so rubber-band
     // overshoot doesn't inflate the chevron.
-    val memoriesHintProgress = (1f - memoriesRevealState.fraction).coerceIn(0f, 1f)
+    // Read in the hint's draw phase only: a pull frame must not recompose Home.
+    val memoriesHintProgress: () -> Float = { (1f - memoriesRevealState.fraction).coerceIn(0f, 1f) }
     var allowBackdropPalette by remember { mutableStateOf(false) }
     val pullToMemoriesConnection = remember(listState, memoriesRevealState) {
         object : NestedScrollConnection {
@@ -261,9 +295,15 @@ internal fun HomeEditorialContent(
     // against the loading spinner is a reveal nobody sees.
     val firstReveal = rememberStagedReveal(
         key = "home-feed",
+        // A resolved Memories pill counts too: on a profile with nothing in
+        // the feed yet, it is the one thing to reveal.
         ready = activityEntries.isNotEmpty() || widgetGrid.isNotEmpty() ||
-            recentlyAddedTracks.isNotEmpty() || recentlyAddedAlbums.isNotEmpty(),
+            recentlyAddedTracks.isNotEmpty() || recentlyAddedAlbums.isNotEmpty() ||
+            memoryPill != null,
     )
+    // Jump Back In's height follows the pane width on Medium / Wide: while
+    // that width moves, sections place 1:1 instead of chasing it on a spring.
+    val paneWidthInMotion = LocalPaneWidthInMotion.current
 
     val navBarBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
     // Wide 全窗桌面态（owner A-prime 裁决 2026-07-28）：feed 不再夹 720dp
@@ -274,24 +314,32 @@ internal fun HomeEditorialContent(
     // 横屏档 —— 844 宽读成 Wide 也不能落到桌面档。
     val windowInfo = LocalYoinWindowInfo.current
     val isLandscapePhone = windowInfo.isCompactHeight
-    val isDesktopWide = !isLandscapePhone && windowInfo.layoutMode == LayoutMode.Wide
-    val pageHorizontalPadding = when {
-        isLandscapePhone -> 24.dp
-        isDesktopWide -> 32.dp
-        else -> 16.dp
-    }
+    // The page frame (Home density rules, owner 2026-10-03): the list runs the
+    // container's full width and the margins are its content padding — 16dp
+    // with the content capped at 688dp, 32dp on a Wide canvas, 24dp on a
+    // landscape handset — so a shelf bleeds to the container's real edge.
+    // Margins follow the live width in the layout pass (HomeFeedFrame).
+    val feedFrame = rememberHomeFeedFrame(feedFrameClass(windowInfo))
     // Seams (dissolve-final §1.3, §3): the status bar gets the tide line —
     // content sinks under two waves of page colour, text fades out just below
     // it — and the bottom bar gets the halftone field. Both read one set of
     // scroll followers.
     val seamFlow = remember { SeamFlow() }
-    val pageColor = MaterialTheme.colorScheme.background
-    val seamBackground = remember(pageColor) { SeamBackground(listOf(pageColor)) }
+    // The page runs the same gradient as Library (ExpressivePageBackground in
+    // HomeScreen), so both seams ease toward those stops, not a flat colour.
+    val seamBackground = expressivePageSeamBackground()
+    // The tide line washes with the gradient's TOP stop, where it lives.
+    val pageColor = MaterialTheme.colorScheme.surfaceContainer
     val statusBarTop = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
     val statusBarPx = with(LocalDensity.current) { statusBarTop.toPx() }
+    // The Memories entry (owner 2026-10-04): a safe-area arrow with a speech
+    // bubble (HomeMemoryBubble.kt), or the trial's header pill / chevron.
+    val memoryEntry = LocalHomeHintVariant.current.entry
+    val bubbleController = if (memoryEntry == MemoryEntryStyle.Bubble) remember { MemoryBubbleController() } else null
     Box(
         modifier = modifier
             .fillMaxSize()
+            .watchMemoryBubbleTouches(bubbleController)
             .seamTide(
                 flow = seamFlow,
                 color = pageColor,
@@ -302,10 +350,7 @@ internal fun HomeEditorialContent(
             state = listState,
             modifier = Modifier
                 .fillMaxSize()
-                // 大屏限宽:夹的是内容列本身;高度不受影响,所以下面
-                // onSizeChanged 喂给 reveal settle 的 containerHeightPx 语义不变。
-                // Wide 桌面态例外:不夹,直接满宽(then(Modifier) 即无操作)。
-                .then(if (isDesktopWide || isLandscapePhone) Modifier else Modifier.yoinPageContentWidth())
+                .feedFrameWidth(feedFrame)
                 .onSizeChanged { containerHeightPx = it.height.toFloat().coerceAtLeast(1f) }
                 .seamDissolveViewport(
                     top = SeamTop.FadeText,
@@ -326,14 +371,15 @@ internal fun HomeEditorialContent(
                         },
                     )
                 },
-            contentPadding = PaddingValues(
-                start = pageHorizontalPadding,
-                end = pageHorizontalPadding,
-                top = 4.dp,
-                // The landscape Button Group lives in the left cutout band, not
-                // at the bottom: only the nav bar needs clearing there.
-                bottom = (if (isLandscapePhone) 16.dp else 108.dp) + navBarBottom,
-            ),
+            // The landscape Button Group lives in the left cutout band, not at
+            // the bottom: only the nav bar needs clearing there.
+            contentPadding = remember(feedFrame, isLandscapePhone, navBarBottom) {
+                FeedFramePadding(
+                    frame = feedFrame,
+                    top = 4.dp,
+                    bottom = (if (isLandscapePhone) 16.dp else 108.dp) + navBarBottom,
+                )
+            },
             verticalArrangement = Arrangement.spacedBy(if (isLandscapePhone) 10.dp else 18.dp),
         ) {
             // The page header (title + nav icons) is pinned above the reorderable
@@ -344,9 +390,15 @@ internal fun HomeEditorialContent(
                     // the header can't borrow the first section's name anymore.
                     title = "Home",
                     compact = isLandscapePhone,
+                    bubbleController = bubbleController,
                     onNavigateToSettings = onNavigateToSettings,
                     onNavigateToMemories = onNavigateToMemories,
                     memoriesHintProgress = memoriesHintProgress,
+                    memoryPill = memoryPill,
+                    // The pill surfaces on the feed's last launch beat.
+                    memoryPillReveal = { firstReveal.payload },
+                    extractBackdropColors = shouldExtractBackdropColors,
+                    onOpenMemoryFocus = { sessionId -> onOpenMemoryFocusState.value(sessionId) },
                     modifier = Modifier.fillMaxWidth(),
                 )
             }
@@ -358,37 +410,21 @@ internal fun HomeEditorialContent(
                 when (sectionState.section) {
                     HomeSection.Activities -> item(key = "section-activities") {
                         if (activityEntries.isNotEmpty()) {
-                            // 渲染三档（owner A-prime 2026-07-28）：Compact = 手机
-                            // 原样；Medium 与 Tabletop 沿用旧 `!= Compact` 密档
-                            // （6 条，构图不动）；Wide 全窗桌面 = 10 条三行
-                            // tapestry。层级递减的构图仍是 Yoin 自己的，Spotify
-                            // 参照只取「多列多条目」的思路（owner 修正 2026-07-27）。
-                            val tier = when {
-                                isLandscapePhone -> ActivityBentoTier.Landscape
-                                else -> when (LocalYoinWindowInfo.current.layoutMode) {
-                                    LayoutMode.Compact -> ActivityBentoTier.Phone
-                                    LayoutMode.Wide -> ActivityBentoTier.Desktop
-                                    else -> ActivityBentoTier.Dense
-                                }
-                            }
-                            val bentoEntries = when (tier) {
-                                ActivityBentoTier.Phone,
-                                ActivityBentoTier.Landscape,
-                                -> activityEntries
-                                ActivityBentoTier.Dense -> remember(activities, buildCoverArtUrl) {
+                            // Density by width (owner 2026-10-03): the bento's
+                            // recipe and item count follow the container's feed
+                            // units (HomeFeedDensity.kt), not LayoutMode. The
+                            // phone and landscape compositions are today's.
+                            val unitsRecipe = !isLandscapePhone && windowInfo.feedUnits >= 3
+                            val bentoEntries = if (unitsRecipe) {
+                                remember(activities, buildCoverArtUrl) {
                                     buildActivityEntries(
                                         activities = activities,
                                         buildCoverArtUrl = buildCoverArtUrl,
-                                        limit = ActivityBentoDenseMaxItems,
+                                        limit = ActivityBentoUnitsMaxEntries,
                                     )
                                 }
-                                ActivityBentoTier.Desktop -> remember(activities, buildCoverArtUrl) {
-                                    buildActivityEntries(
-                                        activities = activities,
-                                        buildCoverArtUrl = buildCoverArtUrl,
-                                        limit = ActivityBentoDesktopMaxItems,
-                                    )
-                                }
+                            } else {
+                                activityEntries
                             }
                             // Hero slot = first album/playlist; artists fill the
                             // smaller cards in recency order.
@@ -396,12 +432,18 @@ internal fun HomeEditorialContent(
                                 entry.entityType == ActivityEntityType.ALBUM.name ||
                                     entry.entityType == ActivityEntityType.PLAYLIST.name
                             }
+                            // The stagger is seeded by the hero's identity: the
+                            // same feed lays out the same way every time.
+                            val bentoSpec = activityBentoSpec(
+                                feedUnits = windowInfo.feedUnits,
+                                isCompactHeight = isLandscapePhone,
+                                seed = activityLayoutSeed(heroEntry?.layoutKey),
+                                hasHero = heroEntry != null,
+                            )
                             ActivityBento(
                                 hero = heroEntry,
-                                supporting = bentoEntries
-                                    .filterNot { it === heroEntry }
-                                    .take(tier.supportingSlots),
-                                tier = tier,
+                                candidates = bentoEntries.filterNot { it === heroEntry },
+                                spec = bentoSpec,
                                 heroFootnoteExtra = activityHeroFootnote,
                                 extractBackdropColors = shouldExtractBackdropColors,
                                 onEntryClick = onEntryClick,
@@ -409,7 +451,7 @@ internal fun HomeEditorialContent(
                                     .fillMaxWidth()
                                     .animateItem(
                                         fadeInSpec = YoinMotion.effectsSpring(),
-                                        placementSpec = YoinMotion.spatialSpring(),
+                                        placementSpec = if (paneWidthInMotion.value || feedFrame.isBlending) null else YoinMotion.spatialSpring(),
                                         fadeOutSpec = YoinMotion.effectsSpring(),
                                     )
                                     .stagedBeat(
@@ -426,7 +468,7 @@ internal fun HomeEditorialContent(
                                     .fillMaxWidth()
                                     .animateItem(
                                         fadeInSpec = YoinMotion.effectsSpring(),
-                                        placementSpec = YoinMotion.spatialSpring(),
+                                        placementSpec = if (paneWidthInMotion.value || feedFrame.isBlending) null else YoinMotion.spatialSpring(),
                                         fadeOutSpec = YoinMotion.effectsSpring(),
                                     ),
                             )
@@ -446,7 +488,7 @@ internal fun HomeEditorialContent(
                                     .fillMaxWidth()
                                     .animateItem(
                                         fadeInSpec = YoinMotion.effectsSpring(),
-                                        placementSpec = YoinMotion.spatialSpring(),
+                                        placementSpec = if (paneWidthInMotion.value || feedFrame.isBlending) null else YoinMotion.spatialSpring(),
                                         fadeOutSpec = YoinMotion.effectsSpring(),
                                     )
                                     .stagedBeat(
@@ -471,13 +513,13 @@ internal fun HomeEditorialContent(
                                         onEntryClick(HomeEntryTarget.Album(album.id.toString(), null))
                                     },
                                     buildCoverArtUrl = buildCoverArtUrl,
-                                    pageHorizontalPadding = pageHorizontalPadding,
+                                    frame = feedFrame,
                                     singleRowShelf = isLandscapePhone,
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .animateItem(
                                             fadeInSpec = YoinMotion.effectsSpring(),
-                                            placementSpec = YoinMotion.spatialSpring(),
+                                            placementSpec = if (paneWidthInMotion.value || feedFrame.isBlending) null else YoinMotion.spatialSpring(),
                                             fadeOutSpec = YoinMotion.effectsSpring(),
                                         )
                                         .stagedBeat(
@@ -490,6 +532,21 @@ internal fun HomeEditorialContent(
                 }
             }
         }
+        if (bubbleController != null) {
+            MemoryBubbleOverlay(
+                pill = memoryPill,
+                controller = bubbleController,
+                hintProgress = memoriesHintProgress,
+                // It speaks once the feed's launch reveal has landed.
+                revealProgress = { firstReveal.payload },
+                scrolledPx = { listState.seamScrolledPx() },
+                covered = homeCovered,
+                extractBackdropColors = shouldExtractBackdropColors,
+                onOpenMemoryFocus = { sessionId -> onOpenMemoryFocusState.value(sessionId) },
+                onNavigateToMemories = onNavigateToMemories,
+                modifier = Modifier.matchParentSize(),
+            )
+        }
     }
 }
 
@@ -498,8 +555,15 @@ private fun HomeContentHeader(
     title: String,
     onNavigateToSettings: () -> Unit,
     onNavigateToMemories: () -> Unit,
-    memoriesHintProgress: Float,
+    memoriesHintProgress: () -> Float,
     modifier: Modifier = Modifier,
+    // Non-null = the Memories entry is the safe-area bubble overlay: the
+    // header only reports the span it leaves between the title and Settings.
+    bubbleController: MemoryBubbleController? = null,
+    memoryPill: HomeMemoryPill? = null,
+    memoryPillReveal: () -> Float = { 1f },
+    extractBackdropColors: Boolean = false,
+    onOpenMemoryFocus: (sessionId: Long) -> Unit = {},
     // Landscape handset: a 28sp title (LandscapeHome).
     compact: Boolean = false,
 ) {
@@ -508,7 +572,6 @@ private fun HomeContentHeader(
         modifier = modifier
             .statusBarsPadding()
             .padding(top = 8.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
         val titleStyle = MaterialTheme.typography.let { if (compact) it.headlineMedium else it.headlineLarge }
@@ -518,41 +581,43 @@ private fun HomeContentHeader(
             text = title,
             style = titleStyle,
             color = MaterialTheme.colorScheme.onBackground,
-            modifier = Modifier.seamFade(fontSize = titleStyle.fontSize),
+            modifier = Modifier
+                .padding(end = HomeHeaderTitleBreathing)
+                .seamFade(fontSize = titleStyle.fontSize),
         )
-        Row(
+        if (bubbleController != null) {
+            // The bubble overlay hangs inside this span.
+            Spacer(modifier = Modifier.weight(1f).memoryBubbleFreeSpan(bubbleController))
+        } else {
+            // The Memories entry takes whatever the title and Settings leave, and
+            // picks the pill form that fits it (HomeMemoryPill's fit rule).
+            Box(
+                modifier = Modifier.weight(1f),
+                contentAlignment = Alignment.CenterEnd,
+            ) {
+                HomeMemoryEntry(
+                    pill = memoryPill,
+                    hintProgress = memoriesHintProgress,
+                    revealProgress = memoryPillReveal,
+                    extractBackdropColors = extractBackdropColors,
+                    onOpenMemoryFocus = onOpenMemoryFocus,
+                    onNavigateToMemories = onNavigateToMemories,
+                )
+            }
+        }
+        Spacer(modifier = Modifier.width(2.dp))
+        IconButton(
+            onClick = {
+                haptics.performContextClick()
+                onNavigateToSettings()
+            },
             modifier = Modifier.seamFade(),
-            horizontalArrangement = Arrangement.spacedBy(2.dp),
-            verticalAlignment = Alignment.CenterVertically,
         ) {
-            IconButton(
-                onClick = {
-                    haptics.performContextClick()
-                    onNavigateToMemories()
-                },
-                modifier = Modifier.graphicsLayer {
-                    translationY = memoriesHintProgress * 4f
-                    alpha = 0.62f + memoriesHintProgress * 0.38f
-                },
-            ) {
-                Icon(
-                    imageVector = YoinSymbols.ChevronDown,
-                    contentDescription = "Memories",
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            IconButton(
-                onClick = {
-                    haptics.performContextClick()
-                    onNavigateToSettings()
-                },
-            ) {
-                Icon(
-                    imageVector = YoinSymbols.Settings,
-                    contentDescription = "Settings",
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
+            Icon(
+                imageVector = YoinSymbols.Settings,
+                contentDescription = "Settings",
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
     }
 }
@@ -564,49 +629,32 @@ private fun HomeContentHeader(
 // container is tonally derived from its own cover art, echoing the mockup's
 // per-card colour washes.
 
-/**
- * Activities bento 渲染三档。[supportingSlots] = hero 之外的支撑卡位数。
- * Tabletop 归入 [Dense] —— 沿用旧 `!= Compact` 档，观感逐字节不变
- * （owner A-prime 2026-07-28）。
- */
-private enum class ActivityBentoTier(val supportingSlots: Int) {
-    /** Compact：手机构图（hero 整行 + small/wide 行 + 单 strip）。 */
-    Phone(3),
+/** One bento composition with the entries it seats — the outgoing layer keeps its own while it fades. */
+private data class BentoContent(
+    val spec: ActivityBentoSpec,
+    val hero: HomeMomentEntry?,
+    val candidates: List<HomeMomentEntry>,
+)
 
-    /** Medium（含 Tabletop）：hero 1:1 行 + 支撑行 + 双 strip。 */
-    Dense(5),
-
-    /** Wide 全窗桌面：3:2:1 行 + 1:2:1:2 行 + 三 strip。 */
-    Desktop(9),
-
-    /** 手机横屏（高 < 480，LandscapeHome）：单行三卡 hero 2 : small 1 : wide 1.4。 */
-    Landscape(2),
-}
-
-/** Medium（含 Tabletop）密度上限：hero 1:1 行（2）+ 支撑行（2）+ 双 strip（2）= 6。 */
-private const val ActivityBentoDenseMaxItems = 6
-
-/** Wide 桌面上限：3:2:1 行（3）+ 1:2:1:2 行（4）+ 三 strip（3）= 10。 */
-private const val ActivityBentoDesktopMaxItems = 10
+/** Enough recent entries to fill the widest bento (13 slots) and still find an album / playlist hero. */
+private const val ActivityBentoUnitsMaxEntries = 16
 
 @Composable
 private fun ActivityBento(
     // The hero slot only carries an album / playlist (or nothing); the
-    // supporting cards take the rest in recency order.
-    // Phone: [0] small square, [1] wide, [2] strip.
-    // Dense (owner 裁决 2026-07-27)：hero 不再独占整行 ——
-    // [hero ½ | [0] wide ½] 1:1 对半，支撑收回一行 [1] small + [2] wide，
-    // [3][4] 并排双 strip。section 变矮，信息量 6 条。
-    // Desktop (owner A-prime 2026-07-28)：1:1 拉成 3:2:1 锥形 ——
-    // [hero 3 | [0] wide 2 | [1] small 1]，第二行 [2] small + [3] wide +
-    // [4] small + [5] wide 交错，[6][7][8] 三 strip。信息量 10 条。
+    // supporting cards take the rest in recency order. [candidates] is every
+    // supporting entry on offer — each composition takes the share its own
+    // [spec] seats, so an outgoing composition keeps its cards while it fades.
+    // Phone: [0] small square, [1] wide, [2] strip. Units (feed units ≥ 3,
+    // owner 2026-10-03): the count follows the width and the rows stagger —
+    // see HomeFeedDensity.kt.
     hero: HomeMomentEntry?,
-    supporting: List<HomeMomentEntry>,
+    candidates: List<HomeMomentEntry>,
+    spec: ActivityBentoSpec,
     heroFootnoteExtra: String?,
     extractBackdropColors: Boolean,
     onEntryClick: (HomeEntryTarget) -> Unit,
     modifier: Modifier = Modifier,
-    tier: ActivityBentoTier = ActivityBentoTier.Phone,
 ) {
     Column(
         modifier = modifier,
@@ -620,65 +668,42 @@ private fun ActivityBento(
         // would crash here — MarqueeTitle's BoxWithConstraints is a
         // SubcomposeLayout, which cannot answer intrinsic measurements.
         val fontScale = LocalDensity.current.fontScale.coerceAtLeast(1f)
-        if (tier == ActivityBentoTier.Landscape) {
-            // One row, so the first screen keeps Recently Added in view.
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(124.dp * fontScale),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                hero?.let { entry ->
-                    ActivityHeroCard(
-                        entry = entry,
-                        footnoteExtra = heroFootnoteExtra,
-                        extractBackdropColors = extractBackdropColors,
-                        onClick = { onEntryClick(entry.target) },
-                        modifier = Modifier
-                            .weight(2f)
-                            .fillMaxHeight(),
-                    )
+        val reduced = LocalMotionProfile.current == MotionProfile.AdaptiveReduced
+        val heightSpec = YoinMotion.spatialSpring<Float>()
+        // A width class (or the stagger seed) changes the composition: the old
+        // one fades out — with its OWN entries — while the new fades in, and
+        // the section's height springs between them — never a hard cut. Data
+        // changes inside one composition update in place (contentKey).
+        AnimatedContent(
+            targetState = BentoContent(spec, hero, candidates),
+            contentKey = { it.spec },
+            transitionSpec = {
+                if (reduced) {
+                    ContentTransform(EnterTransition.None, ExitTransition.None, sizeTransform = null)
+                } else {
+                    // No SizeTransform: its animated WIDTH lags a container
+                    // that is shrinking under a column spring, and the parent
+                    // centres the overflow. springHeight eases the height.
+                    YoinMotion.fadeIn(role = YoinMotionRole.Standard) togetherWith
+                        YoinMotion.fadeOut(role = YoinMotionRole.Standard) using null
                 }
-                supporting.getOrNull(0)?.let { small ->
-                    ActivitySmallCard(
-                        entry = small,
-                        extractBackdropColors = extractBackdropColors,
-                        onClick = { onEntryClick(small.target) },
-                        modifier = Modifier
-                            .weight(1f)
-                            .fillMaxHeight(),
-                    )
-                } ?: Spacer(modifier = Modifier.weight(1f))
-                supporting.getOrNull(1)?.let { wide ->
-                    ActivityWideCard(
-                        entry = wide,
-                        extractBackdropColors = extractBackdropColors,
-                        onClick = { onEntryClick(wide.target) },
-                        modifier = Modifier
-                            .weight(1.4f)
-                            .fillMaxHeight(),
-                    )
-                } ?: Spacer(modifier = Modifier.weight(1.4f))
-            }
-        } else if (tier == ActivityBentoTier.Desktop) {
-            ActivityBentoDesktopRows(
-                hero = hero,
-                supporting = supporting,
-                heroFootnoteExtra = heroFootnoteExtra,
-                extractBackdropColors = extractBackdropColors,
-                onEntryClick = onEntryClick,
-                fontScale = fontScale,
-            )
-        } else {
-            // Phone / Dense：原有两档，除缩进外逐字节保留。
-            val dense = tier == ActivityBentoTier.Dense
-            if (dense) {
-                // hero 行 1:1：124dp = hero 卡自身高（96dp 封面 + 14dp 内边距 ×2）。
+            },
+            label = "activityBento",
+            modifier = Modifier.springHeight(spec = heightSpec, key = spec, enabled = !reduced),
+        ) { state ->
+            val s = state.spec
+            val hero = state.hero
+            // Without a hero, row 1's lead slot is a supporting entry too.
+            val supporting = state.candidates.take(seatedSupportingCount(s, hasHero = hero != null))
+            Box(Modifier.heightOfIncomingOnly { transition.targetState == EnterExitState.PostExit }) {
+            when (s.recipe) {
+                BentoRecipe.Landscape -> {
+                // One row, so the first screen keeps Recently Added in view.
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(124.dp * fontScale),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
                     hero?.let { entry ->
                         ActivityHeroCard(
@@ -687,43 +712,11 @@ private fun ActivityBento(
                             extractBackdropColors = extractBackdropColors,
                             onClick = { onEntryClick(entry.target) },
                             modifier = Modifier
-                                .weight(1f)
+                                .weight(2f)
                                 .fillMaxHeight(),
                         )
                     }
-                    supporting.getOrNull(0)?.let { wide ->
-                        ActivityWideCard(
-                            entry = wide,
-                            extractBackdropColors = extractBackdropColors,
-                            onClick = { onEntryClick(wide.target) },
-                            modifier = Modifier
-                                .weight(1f)
-                                .fillMaxHeight(),
-                        )
-                    } ?: Spacer(modifier = Modifier.weight(1f))
-                }
-            } else {
-                hero?.let { entry ->
-                    ActivityHeroCard(
-                        entry = entry,
-                        footnoteExtra = heroFootnoteExtra,
-                        extractBackdropColors = extractBackdropColors,
-                        onClick = { onEntryClick(entry.target) },
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                }
-            }
-            // 支撑行：Compact 用 [0][1]，dense 下 [0] 已被 hero 行吃掉，用 [1][2]。
-            val rowSmall = if (dense) supporting.getOrNull(1) else supporting.getOrNull(0)
-            val rowWide = if (dense) supporting.getOrNull(2) else supporting.getOrNull(1)
-            if (rowSmall != null || rowWide != null) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(118.dp * fontScale),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                ) {
-                    rowSmall?.let { small ->
+                    supporting.getOrNull(0)?.let { small ->
                         ActivitySmallCard(
                             entry = small,
                             extractBackdropColors = extractBackdropColors,
@@ -732,8 +725,103 @@ private fun ActivityBento(
                                 .weight(1f)
                                 .fillMaxHeight(),
                         )
-                    }
-                    rowWide?.let { wide ->
+                    } ?: Spacer(modifier = Modifier.weight(1f))
+                    supporting.getOrNull(1)?.let { wide ->
+                        ActivityWideCard(
+                            entry = wide,
+                            extractBackdropColors = extractBackdropColors,
+                            onClick = { onEntryClick(wide.target) },
+                            modifier = Modifier
+                                .weight(1.4f)
+                                .fillMaxHeight(),
+                        )
+                    } ?: Spacer(modifier = Modifier.weight(1.4f))
+                }
+                }
+                BentoRecipe.Phone,
+                BentoRecipe.PhoneNarrow,
+                -> ActivityBentoPhone(
+                    hero = hero,
+                    supporting = supporting,
+                    narrow = s.recipe == BentoRecipe.PhoneNarrow,
+                    heroFootnoteExtra = heroFootnoteExtra,
+                    extractBackdropColors = extractBackdropColors,
+                    onEntryClick = onEntryClick,
+                    fontScale = fontScale,
+                )
+                BentoRecipe.Units -> ActivityUnitGrid(
+                    spec = s,
+                    hero = hero,
+                    supporting = supporting,
+                    heroFootnoteExtra = heroFootnoteExtra,
+                    extractBackdropColors = extractBackdropColors,
+                    onEntryClick = onEntryClick,
+                    fontScale = fontScale,
+                )
+            }
+            }
+        }
+    }
+}
+
+/**
+ * The phone composition (feed units 2), unchanged: a full-width hero, a small
+ * square + wide row, one strip. [narrow] (feed units 1 — a ~330dp column beside
+ * the Now Playing panel on a foldable) splits the supporting row into two equal
+ * smalls instead, so the small never shrinks to ~96dp.
+ */
+@Composable
+private fun ActivityBentoPhone(
+    hero: HomeMomentEntry?,
+    supporting: List<HomeMomentEntry>,
+    narrow: Boolean,
+    heroFootnoteExtra: String?,
+    extractBackdropColors: Boolean,
+    onEntryClick: (HomeEntryTarget) -> Unit,
+    fontScale: Float,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        hero?.let { entry ->
+            ActivityHeroCard(
+                entry = entry,
+                footnoteExtra = heroFootnoteExtra,
+                extractBackdropColors = extractBackdropColors,
+                onClick = { onEntryClick(entry.target) },
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
+        val rowSmall = supporting.getOrNull(0)
+        val rowSecond = supporting.getOrNull(1)
+        if (rowSmall != null || rowSecond != null) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(118.dp * fontScale),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                rowSmall?.let { small ->
+                    ActivitySmallCard(
+                        entry = small,
+                        extractBackdropColors = extractBackdropColors,
+                        onClick = { onEntryClick(small.target) },
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxHeight(),
+                    )
+                }
+                if (narrow) {
+                    rowSecond?.let { small ->
+                        ActivitySmallCard(
+                            entry = small,
+                            extractBackdropColors = extractBackdropColors,
+                            onClick = { onEntryClick(small.target) },
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxHeight(),
+                        )
+                    } ?: Spacer(modifier = Modifier.weight(1f))
+                } else {
+                    rowSecond?.let { wide ->
                         ActivityWideCard(
                             entry = wide,
                             extractBackdropColors = extractBackdropColors,
@@ -749,52 +837,29 @@ private fun ActivityBento(
                     }
                 }
             }
-            if (dense) {
-                val strips = listOfNotNull(supporting.getOrNull(3), supporting.getOrNull(4))
-                if (strips.isNotEmpty()) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    ) {
-                        strips.forEach { strip ->
-                            ActivityStripCard(
-                                entry = strip,
-                                extractBackdropColors = extractBackdropColors,
-                                onClick = { onEntryClick(strip.target) },
-                                modifier = Modifier.weight(1f),
-                            )
-                        }
-                        if (strips.size == 1) {
-                            Spacer(modifier = Modifier.weight(1f))
-                        }
-                    }
-                }
-            } else {
-                supporting.getOrNull(2)?.let { strip ->
-                    ActivityStripCard(
-                        entry = strip,
-                        extractBackdropColors = extractBackdropColors,
-                        onClick = { onEntryClick(strip.target) },
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                }
-            }
+        }
+        supporting.getOrNull(2)?.let { strip ->
+            ActivityStripCard(
+                entry = strip,
+                extractBackdropColors = extractBackdropColors,
+                onClick = { onEntryClick(strip.target) },
+                modifier = Modifier.fillMaxWidth(),
+            )
         }
     }
 }
 
 /**
- * Wide 桌面 tapestry 的三行卡阵。节标题由 [ActivityBento] 供给；这里发出的
- * 多个同级 Row 直接落进外层 Column，行距吃它的 spacedBy(10dp)。构图沿
- * hero-never-owns-a-row 裁决从 Medium 的 1:1 拉成锥形（mock 行高 128/118）：
- *   行 1 @128dp：[hero 3 | [0] wide 2 | [1] small 1]
- *   行 2 @118dp：[2] small 1 + [3] wide 2 + [4] small 1 + [5] wide 2 交错
- *   行 3：[6][7][8] 三条等宽 strip
- * 条目不足时从底部逐行退化（supporting 是前缀列表：先空 strip，再空行 2），
- * 缺位的槽照 dense 的做法补同权重 Spacer，在场的卡不越位拉伸。
+ * The bento on true feed units (feed units ≥ 3): each card sits on the unit
+ * grid ([activityUnitSlots]) — a small on one unit, a wide (or the hero) on two
+ * or three — at fixed row heights (row 1 [ActivityBentoSpec.row1Height], row 2
+ * 118dp, × fontScale), strips sharing the last row equally. One layout node per
+ * card; widths come from the live width in the measure pass only, so a column
+ * or side-panel spring never recomposes the bento.
  */
 @Composable
-private fun ActivityBentoDesktopRows(
+private fun ActivityUnitGrid(
+    spec: ActivityBentoSpec,
     hero: HomeMomentEntry?,
     supporting: List<HomeMomentEntry>,
     heroFootnoteExtra: String?,
@@ -802,117 +867,94 @@ private fun ActivityBentoDesktopRows(
     onEntryClick: (HomeEntryTarget) -> Unit,
     fontScale: Float,
 ) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(128.dp * fontScale),
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
-    ) {
-        hero?.let { entry ->
-            ActivityHeroCard(
-                entry = entry,
-                footnoteExtra = heroFootnoteExtra,
-                extractBackdropColors = extractBackdropColors,
-                onClick = { onEntryClick(entry.target) },
-                modifier = Modifier
-                    .weight(3f)
-                    .fillMaxHeight(),
-            )
-        }
-        supporting.getOrNull(0)?.let { wide ->
-            ActivityWideCard(
-                entry = wide,
-                extractBackdropColors = extractBackdropColors,
-                onClick = { onEntryClick(wide.target) },
-                modifier = Modifier
-                    .weight(2f)
-                    .fillMaxHeight(),
-            )
-        } ?: Spacer(modifier = Modifier.weight(2f))
-        supporting.getOrNull(1)?.let { small ->
-            ActivitySmallCard(
-                entry = small,
-                extractBackdropColors = extractBackdropColors,
-                onClick = { onEntryClick(small.target) },
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxHeight(),
-            )
-        } ?: Spacer(modifier = Modifier.weight(1f))
+    val slots = remember(spec, hero != null, supporting.size) {
+        activityUnitSlots(spec, hasHero = hero != null, supportingCount = supporting.size)
     }
-    if (supporting.size > 2) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(118.dp * fontScale),
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            supporting.getOrNull(2)?.let { small ->
-                ActivitySmallCard(
-                    entry = small,
-                    extractBackdropColors = extractBackdropColors,
-                    onClick = { onEntryClick(small.target) },
-                    modifier = Modifier
-                        .weight(1f)
-                        .fillMaxHeight(),
-                )
-            } ?: Spacer(modifier = Modifier.weight(1f))
-            supporting.getOrNull(3)?.let { wide ->
-                ActivityWideCard(
-                    entry = wide,
-                    extractBackdropColors = extractBackdropColors,
-                    onClick = { onEntryClick(wide.target) },
-                    modifier = Modifier
-                        .weight(2f)
-                        .fillMaxHeight(),
-                )
-            } ?: Spacer(modifier = Modifier.weight(2f))
-            supporting.getOrNull(4)?.let { small ->
-                ActivitySmallCard(
-                    entry = small,
-                    extractBackdropColors = extractBackdropColors,
-                    onClick = { onEntryClick(small.target) },
-                    modifier = Modifier
-                        .weight(1f)
-                        .fillMaxHeight(),
-                )
-            } ?: Spacer(modifier = Modifier.weight(1f))
-            supporting.getOrNull(5)?.let { wide ->
-                ActivityWideCard(
-                    entry = wide,
-                    extractBackdropColors = extractBackdropColors,
-                    onClick = { onEntryClick(wide.target) },
-                    modifier = Modifier
-                        .weight(2f)
-                        .fillMaxHeight(),
-                )
-            } ?: Spacer(modifier = Modifier.weight(2f))
-        }
+    val placed = slots.mapNotNull { slot ->
+        val entry = if (slot.kind == SlotKind.Hero) hero else supporting.getOrNull(slot.entryIndex)
+        entry?.let { slot to it }
     }
-    val strips = listOfNotNull(
-        supporting.getOrNull(6),
-        supporting.getOrNull(7),
-        supporting.getOrNull(8),
-    )
-    if (strips.isNotEmpty()) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            strips.forEach { strip ->
-                ActivityStripCard(
-                    entry = strip,
-                    extractBackdropColors = extractBackdropColors,
-                    onClick = { onEntryClick(strip.target) },
-                    modifier = Modifier.weight(1f),
-                )
+    Layout(
+        content = {
+            placed.forEach { (slot, entry) ->
+                key(entry.stableId) {
+                    val onClick = { onEntryClick(entry.target) }
+                    when (slot.kind) {
+                        SlotKind.Hero -> ActivityHeroCard(
+                            entry = entry,
+                            footnoteExtra = heroFootnoteExtra,
+                            extractBackdropColors = extractBackdropColors,
+                            onClick = onClick,
+                        )
+                        SlotKind.Wide -> ActivityWideCard(
+                            entry = entry,
+                            extractBackdropColors = extractBackdropColors,
+                            onClick = onClick,
+                        )
+                        SlotKind.Small -> ActivitySmallCard(
+                            entry = entry,
+                            extractBackdropColors = extractBackdropColors,
+                            onClick = onClick,
+                        )
+                        SlotKind.Strip -> ActivityStripCard(
+                            entry = entry,
+                            extractBackdropColors = extractBackdropColors,
+                            onClick = onClick,
+                        )
+                    }
+                }
             }
-            repeat(3 - strips.size) {
-                Spacer(modifier = Modifier.weight(1f))
+        },
+    ) { measurables, constraints ->
+        val width = if (constraints.hasBoundedWidth) constraints.maxWidth else constraints.minWidth
+        val gapPx = ActivityBentoGap.toPx()
+        val gap = ActivityBentoGap.roundToPx()
+        val pitch = jbiColumnPitch(width.toFloat(), spec.units, gapPx)
+        val rowHeights = intArrayOf(
+            (spec.row1Height * fontScale).roundToPx(),
+            (118.dp * fontScale).roundToPx(),
+        )
+        // Strips share the last row on the same snapped lines as the units,
+        // so the row ends exactly on the unit rows' edge.
+        val strips = spec.strips.coerceAtLeast(1)
+        val stripPitch = jbiColumnPitch(width.toFloat(), strips, gapPx)
+        val placeables = arrayOfNulls<Placeable>(measurables.size)
+        val xs = IntArray(measurables.size)
+        val ys = IntArray(measurables.size)
+        var y = 0
+        var index = 0
+        for (row in 0..2) {
+            val inRow = placed.indices.filter { placed[it].first.row == row }
+            if (inRow.isEmpty()) continue
+            if (index > 0) y += gap
+            var rowHeight = 0
+            inRow.forEach { i ->
+                val slot = placed[i].first
+                val placeable = if (row < 2) {
+                    val cell = JbiCellPlacement(startColumn = slot.startUnit, span = slot.span)
+                    xs[i] = cell.cellLeft(pitch)
+                    val w = cell.cellWidth(pitch, gapPx).coerceAtLeast(0)
+                    measurables[i].measure(Constraints.fixed(w, rowHeights[row]))
+                } else {
+                    val cell = JbiCellPlacement(startColumn = slot.startUnit, span = 1)
+                    xs[i] = cell.cellLeft(stripPitch)
+                    val w = cell.cellWidth(stripPitch, gapPx).coerceAtLeast(0)
+                    measurables[i].measure(Constraints(minWidth = w, maxWidth = w))
+                }
+                placeables[i] = placeable
+                ys[i] = y
+                rowHeight = maxOf(rowHeight, placeable.height)
             }
+            y += rowHeight
+            index += inRow.size
+        }
+        layout(width, constraints.constrainHeight(y)) {
+            placeables.forEachIndexed { i, placeable -> placeable?.placeRelative(xs[i], ys[i]) }
         }
     }
 }
+
+private val ActivityBentoGap = 10.dp
 
 private data class ActivityCardColors(
     val container: Color,
@@ -1255,7 +1297,6 @@ private fun widgetShapeKindForActivity(entityType: String): WidgetShapeKind = wh
 // covers and the album shrink together to hold the height match). Still clearly
 // smaller than the album cover, matching the mock ratio.
 private val RecentlyAddedTrackCover = 52.dp
-private val RecentlyAddedLandscapeGridMax = 340.dp
 private val RecentlyAddedAlbumCover = 82.dp
 
 @Composable
@@ -1266,9 +1307,10 @@ private fun RecentlyAddedSection(
     onTrackClick: (Track) -> Unit,
     onAlbumClick: (Album) -> Unit,
     buildCoverArtUrl: (String) -> String,
-    // 页边距由 feed 统一供给（Compact/Medium/Tabletop 16dp、Wide 桌面
-    // 32dp）——出血宽度与 contentPadding 必须同源，否则静止边对不齐页边。
-    pageHorizontalPadding: Dp = 16.dp,
+    // The feed's frame supplies the live margins: the shelf bleeds past them
+    // to the container's edge and pads its content by the same amounts, so
+    // resting items stay on the page margin (no-midpage-truncation).
+    frame: HomeFeedFrame,
     // Landscape handset: the track grid gives up width so the album covers
     // read as one row across the page (LandscapeHome).
     singleRowShelf: Boolean = false,
@@ -1282,51 +1324,53 @@ private fun RecentlyAddedSection(
         // ONE shelf: the 2×2 track grid is the shelf's first card and the
         // albums follow it, all panning together (user call — the albums
         // scrolling alone under a pinned grid read as two disjoint widgets).
-        // Full-bleed with page-margin content padding; content clips hard at
-        // the screen edge — no edge-fade scrim here (2026-07-18 ruling: the
-        // translucent mask read as clutter on this shelf; the seamless cut
-        // wins).
-        BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
-            // The grid keeps its old resting share of the viewport (2.6 of
-            // 3.6 weight units) so the resting frame is unchanged: grid left,
-            // ~1.5 album cards peeking on the right.
-            val trackGridWidth = if (singleRowShelf) {
-                minOf((maxWidth - 14.dp) * 0.45f, RecentlyAddedLandscapeGridMax)
-            } else {
-                (maxWidth - 14.dp) * (2.6f / 3.6f)
-            }
-            val shelfState = rememberLazyListState()
-            LazyRow(
-                state = shelfState,
-                modifier = Modifier
-                    .ignoreParentHorizontalPadding(pageHorizontalPadding),
-                contentPadding = PaddingValues(horizontal = pageHorizontalPadding),
-                horizontalArrangement = Arrangement.spacedBy(14.dp),
-                // Both halves hang from the top. The track covers are sized
-                // so a tight 2×2 lands at roughly the album card's height.
-                verticalAlignment = Alignment.Top,
-            ) {
-                if (tracks.isNotEmpty()) {
-                    item(key = "recently-added-tracks") {
-                        RecentlyAddedTrackGrid(
-                            tracks = tracks,
-                            onTrackClick = onTrackClick,
-                            buildCoverArtUrl = buildCoverArtUrl,
-                            modifier = Modifier.width(trackGridWidth),
-                        )
-                    }
-                }
-                items(
-                    items = albums,
-                    key = { album -> "recently-added-album:${album.id}" },
-                ) { album ->
-                    RecentlyAddedAlbumCard(
-                        album = album,
-                        extractBackdropColors = extractBackdropColors,
-                        onClick = { onAlbumClick(album) },
+        // Full-bleed to the container's edge with page-margin content
+        // padding; content clips hard at the screen edge — no edge-fade scrim
+        // here (2026-07-18 ruling: the translucent mask read as clutter on this
+        // shelf; the seamless cut wins).
+        val shelfState = rememberLazyListState()
+        val sidePadding = remember(frame) { FeedFrameSidePadding(frame) }
+        LazyRow(
+            state = shelfState,
+            modifier = Modifier
+                .fillMaxWidth()
+                .ignoreParentHorizontalPadding(start = { frame.start }, end = { frame.end }),
+            contentPadding = sidePadding,
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
+            // Both halves hang from the top. The track covers are sized
+            // so a tight 2×2 lands at roughly the album card's height.
+            verticalAlignment = Alignment.Top,
+        ) {
+            if (tracks.isNotEmpty()) {
+                item(key = "recently-added-tracks") {
+                    RecentlyAddedTrackGrid(
+                        tracks = tracks,
+                        onTrackClick = onTrackClick,
                         buildCoverArtUrl = buildCoverArtUrl,
+                        // The grid's width follows the feed's content width,
+                        // capped (HomeFeedDensity: recentlyAddedGridWidth) —
+                        // read in the layout pass only, so a column spring
+                        // never re-subcomposes the shelf.
+                        modifier = Modifier.layout { measurable, constraints ->
+                            val width = recentlyAddedGridWidth(frame.contentWidth, singleRowShelf).roundToPx()
+                            val placeable = measurable.measure(
+                                constraints.copy(minWidth = width, maxWidth = width),
+                            )
+                            layout(placeable.width, placeable.height) { placeable.placeRelative(0, 0) }
+                        },
                     )
                 }
+            }
+            items(
+                items = albums,
+                key = { album -> "recently-added-album:${album.id}" },
+            ) { album ->
+                RecentlyAddedAlbumCard(
+                    album = album,
+                    extractBackdropColors = extractBackdropColors,
+                    onClick = { onAlbumClick(album) },
+                    buildCoverArtUrl = buildCoverArtUrl,
+                )
             }
         }
     }
@@ -1564,10 +1608,9 @@ private fun homeActivityDedupKey(activity: ActivityEvent): String {
 private fun buildActivityEntries(
     activities: List<ActivityEvent>,
     buildCoverArtUrl: (String) -> String,
-    // 6 = the bento's historical cap (hero + 3 supporting from the top 6);
-    // the dense bento (Medium/Tabletop) asks for [ActivityBentoDenseMaxItems]
-    // and the Wide desktop tapestry for [ActivityBentoDesktopMaxItems]. The
-    // default keeps the Compact pipeline byte-identical.
+    // 6 = the phone bento's historical cap (hero + 3 supporting from the top
+    // 6); the unit bento (feed units ≥ 3) asks for [ActivityBentoUnitsMaxEntries].
+    // The default keeps the phone pipeline byte-identical.
     limit: Int = 6,
 ): List<HomeMomentEntry> = selectHomeActivities(activities).take(limit).map { activity ->
     val stableId = "activity:${activity.id}:${activity.entityType}:${activity.entityId}:${activity.actionType}"
