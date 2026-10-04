@@ -49,6 +49,42 @@ data class MemoryPalette(
     companion object {
         /** OKLab L of the dark playhead highlight: on-surface (#E7E0E8) is .915, so a lit line never reads dimmer. */
         const val DarkHighlightLightness = 0.92
+
+        /** HSL lightness window of a backdrop-built base: ink on the light page, and a pill white can sit on. */
+        const val BackdropBaseMinLightness = 0.22
+        const val BackdropBaseMaxLightness = 0.46
+
+        /** Where the fixtures' deep / soft anchors sit relative to base (m1: deep ≈ base × .45, soft ≈ .8 white). */
+        const val BackdropDeepMix = 0.55
+        const val BackdropSoftMix = 0.8
+
+        /**
+         * A palette from a cover's extracted backdrop colours (`rememberExpressiveBackdropColors`): the real
+         * deck has no hand-picked anchors, so [base] is held inside the ink lightness window and deep / soft
+         * are lerped from it toward black / white — a direct sRGB lerp, never `fromSeed`.
+         */
+        fun fromBackdrop(base: Color, accent: Color): MemoryPalette {
+            val held = holdLightness(base, BackdropBaseMinLightness, BackdropBaseMaxLightness)
+            return MemoryPalette(
+                base = held,
+                accent = accent.copy(alpha = 1f),
+                deep = mixSrgb(held, Color.Black, BackdropDeepMix),
+                soft = mixSrgb(held, Color.White, BackdropSoftMix),
+            )
+        }
+    }
+}
+
+/** [color] moved straight toward black or white until its HSL lightness is inside [min]…[max]. */
+internal fun holdLightness(color: Color, min: Double, max: Double): Color {
+    val c = color.copy(alpha = 1f)
+    val hi = maxOf(c.red, c.green, c.blue).toDouble()
+    val lo = minOf(c.red, c.green, c.blue).toDouble()
+    val lightness = (hi + lo) / 2
+    return when {
+        lightness > max -> mixSrgb(c, Color.Black, 1 - max / lightness)
+        lightness < min -> mixSrgb(c, Color.White, (min - lightness) / (1 - lightness))
+        else -> c
     }
 }
 
@@ -143,10 +179,11 @@ private fun lin(v8: Double): Double {
 
 private fun gam(v: Double): Double = 255.0 * if (v <= 0.0031308) 12.92 * v else 1.055 * v.pow(1 / 2.4) - 0.055
 
-/** The four sample albums of the handoff (`data.js` m1–m4), for previews, the debug harness and tests. */
+/** The sample albums of the handoff (`data.js` m1–m4, twostate4's m5), for previews, the debug harness and tests. */
 internal object MemoryPaletteSamples {
     val M1 = MemoryPalette(Color(0xFF3B2D8F), Color(0xFFE2C27A), Color(0xFF1B1554), Color(0xFFD9D2F4))
     val M2 = MemoryPalette(Color(0xFF7A5A14), Color(0xFF9CC7E8), Color(0xFF3D2E07), Color(0xFFEFE4C4))
     val M3 = MemoryPalette(Color(0xFF1F4F8F), Color(0xFFE5A07C), Color(0xFF0B2448), Color(0xFFD3E2F6))
     val M4 = MemoryPalette(Color(0xFF8F1D3A), Color(0xFF7FE0C4), Color(0xFF4A0B1C), Color(0xFFF5D4DC))
+    val M5 = MemoryPalette(Color(0xFF2F6A4F), Color(0xFFE8B86A), Color(0xFF123826), Color(0xFFD3EADC))
 }

@@ -42,7 +42,9 @@ import kotlinx.coroutines.launch
  * (AGENTS: cancel and commit share one token family).
  *
  * P2 ships the controller and its pure rules ([diaryPullToMorph],
- * [diaryMorphToPull], [chooseDiaryReleaseTarget]); the diary UI wires it in P5.
+ * [diaryMorphToPull], [chooseDiaryReleaseTarget]). P5a feeds it the card's
+ * pull-down (rubber band only, capped at the card); the diary UI wires the
+ * rest in P5b.
  */
 @Stable
 class MemoriesDiaryState internal constructor(
@@ -63,6 +65,7 @@ class MemoriesDiaryState internal constructor(
     private var pullTravelPx = 0f
     private var pullBanded = false
     private var pullFromScrolled = false
+    private var pullCeiling = 1f
 
     private val minFraction: Float
         get() = if (morphDistancePx > 0f) -rubberBandFloorPx / morphDistancePx else 0f
@@ -91,11 +94,16 @@ class MemoriesDiaryState internal constructor(
      * diary text (its first [pullBandPx] past the top run at half speed);
      * [fromScrolled] = that text was scrolled when the finger went down (its
      * release inside the band stays in the diary — see [chooseDiaryReleaseTarget]).
+     * [ceiling] caps p for this pull (never below the p it caught): the
+     * card's own pull-down passes 0f, so a finger that turns back up stops
+     * at the card and never opens the diary (that is the Diary button's job).
      */
-    fun startPull(banded: Boolean, fromScrolled: Boolean) {
+    fun startPull(banded: Boolean, fromScrolled: Boolean, ceiling: Float = 1f) {
         stop()
         pullBanded = banded
         pullFromScrolled = banded && fromScrolled
+        // never below where p already is: a pull that catches a spring above the ceiling must not jump
+        pullCeiling = maxOf(ceiling.coerceIn(0f, 1f), _fraction.coerceAtMost(1f))
         pullTravelPx = diaryMorphToPull(
             morphPx = _fraction * morphDistancePx,
             distancePx = morphDistancePx,
@@ -114,7 +122,13 @@ class MemoriesDiaryState internal constructor(
     fun pullBy(deltaPx: Float): Float {
         settleJob?.cancel()
         settleJob = null
-        val maxTravel = morphDistancePx
+        val maxTravel = diaryMorphToPull(
+            morphPx = pullCeiling * morphDistancePx,
+            distancePx = morphDistancePx,
+            bandPx = pullBandPx,
+            banded = pullBanded,
+            rubberBand = rubberBand,
+        )
         val minTravel = diaryMorphToPull(
             morphPx = minFraction * morphDistancePx,
             distancePx = morphDistancePx,

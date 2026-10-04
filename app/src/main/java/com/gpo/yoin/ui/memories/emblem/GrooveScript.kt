@@ -1,6 +1,7 @@
 package com.gpo.yoin.ui.memories.emblem
 
 import androidx.compose.runtime.Immutable
+import com.gpo.yoin.ui.memories.copy.MemoryScores
 import com.gpo.yoin.ui.memories.showcase.jsRound
 import com.gpo.yoin.ui.memories.showcase.toFixed
 import kotlin.math.ceil
@@ -112,7 +113,7 @@ data class GrooveBeat(
 /** Prototype `tierOf`: 0 unrated · 1 below 6 · 2 6–8 · 3 8–10 · 4 exactly 10.0, on the displayed one-decimal score. */
 fun grooveTierOf(kind: GrooveKind, score: Double?): Int {
     if (kind == GrooveKind.Unrated || score == null) return 0
-    val tenths = jsRound(score * 10)
+    val tenths = MemoryScores.tenths(score)
     return when {
         tenths >= 100 -> 4
         tenths >= 80 -> 3

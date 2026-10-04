@@ -343,7 +343,8 @@ class MemoriesDeckCoordinatorTest {
         assertEquals(MemoryTitleKind.MOTIF, memory.memoryTitleKind)
         assertEquals("Three days, two notes", memory.memoryTitle)
         assertEquals(MemoryProseLanguage.EN, memory.proseLanguage)
-        assertEquals("Two notes in three days; the latest was on Song 3.", memory.yoinNarration)
+        // the motif already said the count and the span: the narration only adds the latest note
+        assertEquals("The latest was on Song 3.", memory.yoinNarration)
         assertEquals("Put together, what would you say about the album?", memory.yoinQuestion)
         // the excerpt opens with the first song note in album order
         assertEquals("The intro hums", memory.excerptCandidates.first().text)
@@ -414,7 +415,8 @@ class MemoriesDeckCoordinatorTest {
         }
         val memory = coordinator.ensureDeck().single()
 
-        assertEquals("Two notes in three days; the latest was on Song 3.", memory.yoinNarration)
+        // the local template, under the notes motif ("Three days, two notes"): only the latest note
+        assertEquals("The latest was on Song 3.", memory.yoinNarration)
         assertEquals("Put together, what would you say about the album?", memory.yoinQuestion)
     }
 

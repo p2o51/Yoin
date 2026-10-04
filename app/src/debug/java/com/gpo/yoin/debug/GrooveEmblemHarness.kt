@@ -112,7 +112,7 @@ internal data class GrooveHarnessOptions(
 }
 
 /** The prototype's theme tokens (memories-showcase-v4.html :root / dark), so neutral colours compare 1:1. */
-private fun prototypeScheme(dark: Boolean): ColorScheme = if (dark) {
+internal fun prototypeScheme(dark: Boolean): ColorScheme = if (dark) {
     darkColorScheme(
         background = Color(0xFF141218),
         surface = Color(0xFF1D1B20),
@@ -121,6 +121,7 @@ private fun prototypeScheme(dark: Boolean): ColorScheme = if (dark) {
         outline = Color(0xFF958E99),
         outlineVariant = Color(0xFF4A4550),
         onBackground = Color(0xFFE7E0E8),
+        surfaceContainerHigh = Color(0xFF2B2930),
     )
 } else {
     lightColorScheme(
@@ -131,6 +132,7 @@ private fun prototypeScheme(dark: Boolean): ColorScheme = if (dark) {
         outline = Color(0xFF7B7581),
         outlineVariant = Color(0xFFCBC4CF),
         onBackground = Color(0xFF1D1B20),
+        surfaceContainerHigh = Color(0xFFEBE5EC),
     )
 }
 

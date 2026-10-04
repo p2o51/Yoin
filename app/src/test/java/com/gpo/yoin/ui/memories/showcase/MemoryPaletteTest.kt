@@ -86,4 +86,19 @@ class MemoryPaletteTest {
         assertEquals(0.38, toFixed(0.375, 2), 0.0)
         assertEquals(6.0, toFixed(5.95, 1), 0.0)
     }
+
+    @Test
+    fun should_hold_backdrop_base_inside_ink_lightness_when_building_palette() {
+        fun hslLightness(c: Color) = (maxOf(c.red, c.green, c.blue) + minOf(c.red, c.green, c.blue)) / 2f
+        // a pale extracted swatch is pulled down to ink, a near-black one lifted; a mid tone stays as is
+        val pale = MemoryPalette.fromBackdrop(hex("#e8d9a0"), hex("#9cc7e8"))
+        assertEquals(0.46f, hslLightness(pale.base), 0.01f)
+        val dark = MemoryPalette.fromBackdrop(hex("#0a0a14"), hex("#9cc7e8"))
+        assertEquals(0.22f, hslLightness(dark.base), 0.01f)
+        val m1 = MemoryPalette.fromBackdrop(hex("#3b2d8f"), hex("#e2c27a"))
+        assertArrayEquals(hex("#3b2d8f").rgb8(), m1.base.rgb8())
+        // deep / soft sit where the fixtures' hand-picked anchors do: darker than base, lighter than base
+        assertTrue(m1.deep.luminance() < m1.base.luminance())
+        assertTrue(m1.soft.luminance() > 0.6f)
+    }
 }

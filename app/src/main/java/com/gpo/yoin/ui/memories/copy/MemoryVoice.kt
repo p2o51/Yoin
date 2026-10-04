@@ -366,13 +366,21 @@ object MemoryVoice {
         // ① notes, nothing rated
         if (signals.notes >= 2 && noteDays != null && input.ratedTracks == 0 && input.albumScore == null) {
             val track = signals.latest?.track?.title
-            val narration = if (zh) {
-                "${num(noteDays, language)}天里记了${num(signals.notes, language)}条笔记，" +
-                    (track?.let { "最近一条写在《$it》。" } ?: "最近一条写给整张专辑。")
-            } else {
-                "${num(signals.notes, language, capitalize = true)} notes in ${num(noteDays, language)} " +
-                    "day${if (noteDays > 1) "s" else ""}; " +
-                    (track?.let { "the latest was on $it." } ?: "the latest was about the whole album.")
+            // The prototype's `said` rule, applied here too: the notes motif ("四天，四条笔记") already
+            // said the count and the span, so only the latest note is left to say (fix past the
+            // prototype, which restated both under that title).
+            val narration = when {
+                MemoryFact.NOTES in said && zh ->
+                    track?.let { "最近一条写在《$it》。" } ?: "最近一条写给整张专辑。"
+                MemoryFact.NOTES in said ->
+                    track?.let { "The latest was on $it." } ?: "The latest was about the whole album."
+                zh ->
+                    "${num(noteDays, language)}天里记了${num(signals.notes, language)}条笔记，" +
+                        (track?.let { "最近一条写在《$it》。" } ?: "最近一条写给整张专辑。")
+                else ->
+                    "${num(signals.notes, language, capitalize = true)} notes in ${num(noteDays, language)} " +
+                        "day${if (noteDays > 1) "s" else ""}; " +
+                        (track?.let { "the latest was on $it." } ?: "the latest was about the whole album.")
             }
             return Told(
                 narration = narration,
@@ -460,8 +468,8 @@ object MemoryVoice {
         return parts.joinToString(if (language == MemoryProseLanguage.ZH) "" else " ")
     }
 
-    /** One decimal, like the prototype's toFixed(1): 9.0, 8.5. */
-    internal fun score(value: Float): String = String.format(Locale.US, "%.1f", value)
+    /** One decimal with the shared Memories rounding ([MemoryScores]): 9.0, 8.5, and 9.95 → 10.0. */
+    internal fun score(value: Float): String = MemoryScores.text(value)
 
     // Deviation from the prototype, which always wrote "a 8.5": English takes "an" before eight.
     private fun article(scoreText: String): String = if (scoreText.startsWith("8")) "an" else "a"

@@ -1,6 +1,7 @@
 package com.gpo.yoin.ui.memories.emblem
 
 import androidx.compose.runtime.Immutable
+import com.gpo.yoin.ui.memories.copy.MemoryScores
 import com.gpo.yoin.ui.memories.showcase.MemoryPalette
 import com.gpo.yoin.ui.memories.showcase.jsRound
 import kotlin.math.PI
@@ -46,9 +47,9 @@ data class GrooveModel(
             return "${tenths / 10}.${tenths % 10}"
         }
 
-    /** The displayed score in tenths (JS `Math.round(score * 10)`), null when unrated. */
+    /** The displayed score in tenths ([MemoryScores], JS `Math.round(score * 10)`), null when unrated. */
     val scoreTenths: Long?
-        get() = if (kind == GrooveKind.Unrated || score == null) null else jsRound(score * 10).toLong()
+        get() = if (kind == GrooveKind.Unrated || score == null) null else MemoryScores.tenths(score)
 
     val contentDescription: String
         get() = when {

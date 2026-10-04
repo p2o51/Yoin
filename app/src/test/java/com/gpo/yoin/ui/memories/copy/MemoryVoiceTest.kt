@@ -34,7 +34,15 @@ class MemoryVoiceTest {
             if (voice.titleKind != MemoryTitleKind.AI || case.text("lang") == "zh") {
                 assertEquals(label, title.text("text"), voice.title)
             }
-            assertEquals(label, CopyGolden.withArticleFix(case.optText("nar")), voice.narration)
+            assertEquals(
+                label,
+                CopyGolden.withNotesMotifDedup(
+                    CopyGolden.withArticleFix(case.optText("nar")),
+                    title.text("kind"),
+                    title.text("text"),
+                ),
+                voice.narration,
+            )
             assertEquals(label, CopyGolden.withArticleFix(case.optText("ask")), voice.question)
             assertEquals(
                 label,
@@ -93,6 +101,39 @@ class MemoryVoiceTest {
         val m5 = MemoryVoice.compose(CopyGolden.inputs.getValue("m5/no-review"), TODAY)
         assertEquals(MemoryTitleKind.AI, m5.titleKind)
         assertEquals("你跨了三个季节回来听，最高分是《Snowline》的 9.5。", m5.narration)
+    }
+
+    @Test
+    fun should_not_restate_note_count_when_notes_motif_titles_the_card() {
+        // m2 without its AI title: the motif says "四天，四条笔记", so narration ① only says the latest note
+        val m2 = CopyGolden.inputs.getValue("m2/as-is").copy(aiTitle = null)
+        val zh = MemoryVoice.compose(m2, TODAY)
+        assertEquals(MemoryTitleKind.MOTIF, zh.titleKind)
+        assertEquals("四天，四条笔记", zh.title)
+        assertEquals("最近一条写在《序曲》。", zh.narration)
+        assertFalse(zh.narration!!.contains("四条笔记"))
+        assertEquals("合起来看，这张专辑你会怎么说？", zh.question)
+        assertEquals(setOf(MemoryFact.NOTES), zh.said)
+
+        val en = MemoryVoice.composeIn(m2, TODAY, MemoryProseLanguage.EN)
+        assertEquals("Four days, four notes", en.title)
+        assertEquals("The latest was on 序曲.", en.narration)
+
+        // with an AI title nothing was said yet: ① keeps the count and the span
+        val titled = MemoryVoice.compose(CopyGolden.inputs.getValue("m2/as-is"), TODAY)
+        assertEquals("四天里记了四条笔记，最近一条写在《序曲》。", titled.narration)
+    }
+
+    @Test
+    fun should_show_9_95_as_10_0_when_formatting_scores() {
+        assertEquals("10.0", MemoryScores.text(9.95))
+        assertEquals("10.0", MemoryScores.text(9.95f))
+        assertEquals("6.1", MemoryScores.text(6.05f))
+        assertEquals("9.9", MemoryScores.text(9.94f))
+        assertEquals("8.5", MemoryScores.text(8.5f))
+        // the average of 10 and 9.9 lands on 9.95 too
+        assertEquals("10.0", MemoryScores.text(listOf(10f, 9.9f).average().toFloat()))
+        assertEquals("10.0", MemoryVoice.score(9.95f))
     }
 
     @Test

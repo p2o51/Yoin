@@ -14,6 +14,7 @@ import com.gpo.yoin.ui.memories.copy.MemoryCopyTrack
 import com.gpo.yoin.ui.memories.copy.MemoryDates
 import com.gpo.yoin.ui.memories.copy.MemoryExcerpt
 import com.gpo.yoin.ui.memories.copy.MemoryListening
+import com.gpo.yoin.ui.memories.copy.MemoryScores
 import com.gpo.yoin.ui.memories.copy.MemoryVoice
 import java.time.ZoneId
 import kotlinx.coroutines.CancellationException
@@ -23,7 +24,6 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.first
-import java.util.Locale
 import kotlin.random.Random
 
 class MemoriesDeckCoordinator(
@@ -718,8 +718,9 @@ internal fun diaryTracks(tracks: List<MemoryTrack>, writings: List<MemoryWriting
     }
 }
 
+/** The card's score with the shared Memories rounding ([MemoryScores]: 9.95 → "10.0"); "N/A" when unrated. */
 internal fun Float?.formatScore(): String = if (this != null && this > 0f) {
-    String.format(Locale.US, "%.1f", this)
+    MemoryScores.text(this)
 } else {
     "N/A"
 }
@@ -729,7 +730,7 @@ internal fun List<LocalRating>.averageScoreText(): String =
         .filter { rating -> rating > 0f }
         .takeIf(List<Float>::isNotEmpty)
         ?.average()
-        ?.let { average -> String.format(Locale.US, "%.1f", average) }
+        ?.let(MemoryScores::text)
         ?: "N/A"
 
 internal fun ratedSummaryText(
