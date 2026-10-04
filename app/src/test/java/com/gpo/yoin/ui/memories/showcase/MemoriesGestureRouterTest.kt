@@ -195,6 +195,89 @@ class MemoriesGestureRouterTest {
     }
 
     @Test
+    fun should_fire_once_per_crossing_either_way() {
+        val line = ThresholdCrossing(threshold = 112f, initial = 0f)
+        assertFalse(line.update(60f))
+        assertTrue(line.update(112f))
+        assertTrue(line.isPast)
+        // staying past it is silent; only going back fires again
+        assertFalse(line.update(180f))
+        assertTrue(line.update(100f))
+        assertFalse(line.isPast)
+        assertFalse(line.update(20f))
+        // a drag that starts already past it is armed: nothing until it goes back
+        val armed = ThresholdCrossing(threshold = 0.5f, initial = 0.8f)
+        assertFalse(armed.update(0.9f))
+        assertTrue(armed.update(0.3f))
+    }
+
+    @Test
+    fun should_tick_when_dismiss_drag_crosses_threshold_and_again_when_back() = runTest {
+        val f = fixture()
+        val ticks = mutableListOf<String>()
+        f.router.onThresholdCrossed = { ticks += it }
+        // the body's 112dp of finger, 104 of page after an 8dp slop
+        val drag = f.router.begin(MemoriesDragZone.Card, -8f)
+        f.router.drag(drag, -100f)
+        assertEquals(0, ticks.size)
+        f.router.drag(drag, -5f)
+        assertEquals(1, ticks.size)
+        f.router.drag(drag, -40f)
+        assertEquals(1, ticks.size)
+        // back under the line: a second tick (a release now springs back)
+        f.router.drag(drag, 60f)
+        assertEquals(2, ticks.size)
+        // the bar's line is 56dp
+        val bar = fixture()
+        var barTicks = 0
+        bar.router.onThresholdCrossed = { barTicks++ }
+        val barDrag = bar.router.begin(MemoriesDragZone.Bar, -8f)
+        bar.router.drag(barDrag, -50f)
+        assertEquals(1, barTicks)
+    }
+
+    @Test
+    fun should_tick_when_diary_handle_crosses_half() = runTest {
+        val f = fixture()
+        var ticks = 0
+        f.router.onThresholdCrossed = { ticks++ }
+        f.diary.snapTo(1f)
+        val route = f.router.begin(MemoriesDragZone.Bar, 8f)
+        // 1:1 on the 320 morph: p .5 is 160dp down
+        f.router.drag(route, 150f)
+        assertEquals(0, ticks)
+        f.router.drag(route, 20f)
+        assertEquals(1, ticks)
+        f.router.drag(route, -40f)
+        assertEquals(2, ticks)
+        // the card's own rubber band never reaches the line
+        val card = fixture()
+        var cardTicks = 0
+        card.router.onThresholdCrossed = { cardTicks++ }
+        val band = card.router.begin(MemoriesDragZone.Card, 8f)
+        card.router.drag(band, 400f)
+        assertEquals(0, cardTicks)
+    }
+
+    @Test
+    fun should_split_spread_into_home_page_and_diary_page() = runTest {
+        val f = fixture()
+        // the bar's bottom at 88, a 589 left page
+        f.router.spreadLeftPagePx = 589f
+        assertTrue(f.router.isSpread)
+        assertEquals(MemoriesDragZone.Card, f.router.zoneAt(androidx.compose.ui.geometry.Offset(300f, 400f)))
+        assertEquals(MemoriesDragZone.Diary, f.router.zoneAt(androidx.compose.ui.geometry.Offset(700f, 400f)))
+        // the left page is all Home: down is no rubber band (no card face), and no diary level even with p open
+        f.diary.snapTo(1f)
+        assertEquals(MemoriesVerticalRoute.Dismiss(fromBar = false), f.router.begin(MemoriesDragZone.Card, 8f))
+        assertEquals(MemoriesVerticalRoute.Dismiss(fromBar = true), f.router.begin(MemoriesDragZone.Bar, 8f))
+        // the right page scrolls itself
+        assertEquals(MemoriesVerticalRoute.DiaryScroll, f.router.begin(MemoriesDragZone.Diary, -8f))
+        f.router.onContentGone()
+        assertFalse(f.router.isSpread)
+    }
+
+    @Test
     fun should_lock_axis_after_slop_with_ties_going_vertical() {
         assertNull(decideDragAxis(dx = 5f, dy = 5f, slopPx = 8f))
         assertEquals(MemoriesDragAxis.Horizontal, decideDragAxis(dx = 9f, dy = 2f, slopPx = 8f))

@@ -20,6 +20,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -28,8 +29,11 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.Placeable
 import androidx.compose.ui.layout.SubcomposeLayout
 import androidx.compose.ui.layout.onPlaced
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.ExperimentalTextApi
 import androidx.compose.ui.text.PlatformTextStyle
 import androidx.compose.ui.text.SpanStyle
@@ -39,6 +43,7 @@ import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontVariation
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.LineBreak
 import androidx.compose.ui.text.style.LineHeightStyle
 import androidx.compose.ui.text.style.TextAlign
@@ -65,6 +70,7 @@ import com.gpo.yoin.ui.theme.GoogleSansFlex
 import com.gpo.yoin.ui.theme.YoinArtworkShapes
 import com.gpo.yoin.ui.theme.YoinSerifTitle
 import com.gpo.yoin.ui.theme.YoinTheme
+import kotlin.math.roundToInt
 
 /*
  * The card state of one memory (twostate4 `.ts-a`): two clusters and the air between them.
@@ -80,21 +86,13 @@ import com.gpo.yoin.ui.theme.YoinTheme
  * arrow. Colours are the album palette's direct lerp ([MemoryPaletteTones]).
  */
 
-/** Card face geometry (prototype layoutFor + `.ts-S`). Layout constants, not motion tokens. */
+/**
+ * Card face geometry (prototype `.ts-a` + `.ts-S` + `.ts-T-medium`). Layout constants, not motion tokens;
+ * the exhibit's sizes come from the container budget ([memoriesLayoutFor]).
+ */
 internal object MemoryCardTokens {
-    /** Below this container height the 16:9 rhythm applies (smaller exhibit, tighter spacing). */
-    val ShortBelow: Dp = 760.dp
-
-    /** From this container width the card sits in a 480 column (P6 brings the real Medium layout). */
-    val ColumnFrom: Dp = 600.dp
+    /** Medium: the card sits in a 480 column. */
     val Column: Dp = YoinPageWidths.Card
-
-    val Cover: Dp = 256.dp
-    val CoverShort: Dp = 168.dp
-    val Seal: Dp = 96.dp
-    val SealShort: Dp = 72.dp
-    val Air1: Dp = 59.dp
-    val Air1Short: Dp = 24.dp
     val SidePadding: Dp = 28.dp
 
     /** The emblem hangs off the cover's lower-right corner by these fractions of its own size. */
@@ -121,27 +119,106 @@ internal data class MemoryCardMetrics(
     val seal: Dp,
     val short: Boolean,
     val air1: Dp,
-    /** The container is Medium-wide: the card sits in a 480 column and takes the capped teaser excerpt. */
+    /** The container is Medium: the card sits in a 480 column and takes the capped teaser excerpt. */
     val wide: Boolean,
+    /** Under the teaser (Medium: plus half the slack over the 120dp air cap, [balanceMedium]). */
+    val bottomPadding: Dp = if (short) 22.dp else 30.dp,
 ) {
     val titleTop: Dp get() = if (short) 22.dp else 30.dp
     val albumTop: Dp get() = if (short) 16.dp else 20.dp
     val swipeTop: Dp get() = if (short) 8.dp else 14.dp
-    val bottomPadding: Dp get() = if (short) 22.dp else 30.dp
     val titleMaxWidth: Dp get() = if (wide) 424.dp else 340.dp
     val excerptMaxWidth: Dp get() = if (wide) 400.dp else 324.dp
 }
 
 /** The card for a container of [width] × [height] (the page's own size, never the device's). */
-internal fun memoryCardMetrics(width: Dp, height: Dp): MemoryCardMetrics {
-    val short = height < MemoryCardTokens.ShortBelow
-    return MemoryCardMetrics(
-        cover = if (short) MemoryCardTokens.CoverShort else MemoryCardTokens.Cover,
-        seal = if (short) MemoryCardTokens.SealShort else MemoryCardTokens.Seal,
-        short = short,
-        air1 = if (short) MemoryCardTokens.Air1Short else MemoryCardTokens.Air1,
-        wide = width >= MemoryCardTokens.ColumnFrom,
-    )
+internal fun memoryCardMetrics(width: Dp, height: Dp): MemoryCardMetrics =
+    memoryCardMetrics(memoriesLayoutFor(width, height))
+
+/** The card for a container budget, before the Medium balance. */
+internal fun memoryCardMetrics(layout: MemoriesLayout): MemoryCardMetrics = MemoryCardMetrics(
+    cover = layout.cover,
+    seal = layout.seal,
+    short = layout.short,
+    air1 = layout.air1,
+    wide = layout.tier != MemoriesTier.Phone,
+)
+
+/**
+ * The card's metrics for the deck in its container. On a Medium the gap between the exhibit and the teaser
+ * (air2) is capped at 120dp: every card is measured with TextMeasurer (its title, album row, the excerpt the
+ * slot picks and the teaser — adaptive principle 6) and the slack over the cap, from the card with the least,
+ * goes 1:1 to the top air and the bottom ([balanceMedium]), so every card keeps the same cover top and the
+ * same button row. Phone: the budget's metrics as they are.
+ */
+@Composable
+internal fun rememberCardMetrics(
+    memories: List<MemoryEntry>,
+    layout: MemoriesLayout,
+    width: Dp,
+    height: Dp,
+    statusTop: Dp,
+    navBottom: Dp,
+): MemoryCardMetrics {
+    val base = memoryCardMetrics(layout)
+    if (layout.tier != MemoriesTier.Medium) return base
+    val measurer = rememberTextMeasurer(cacheSize = 64)
+    val density = LocalDensity.current
+    val titleStyles = MemoryTitleKind.entries.associateWith { cardTitleStyle(it) }
+    val albumStyle = cardAlbumStyle()
+    val artistStyle = cardArtistStyle()
+    val excerptStyles = MemoryExcerptSize.entries.associateWith { excerptStyle(it) }
+    val attribution = attributionStyle()
+    val swipe = swipeCueStyle()
+    return remember(memories, base, width, height, statusTop, navBottom, density, titleStyles, excerptStyles) {
+        with(density) {
+            val inner = (minOf(width, MemoryCardTokens.Column) - MemoryCardTokens.SidePadding * 2).toPx()
+            val titleWidth = minOf(inner, base.titleMaxWidth.toPx()).roundToInt().coerceAtLeast(1)
+            val excerptWidth = minOf(inner, base.excerptMaxWidth.toPx()).roundToInt().coerceAtLeast(1)
+            fun h(text: String, style: TextStyle, w: Int, maxLines: Int = Int.MAX_VALUE): Float {
+                val measured = measurer.measure(
+                    text = text,
+                    style = style,
+                    maxLines = maxLines,
+                    constraints = Constraints(maxWidth = w),
+                )
+                return measured.size.height.toDp().value
+            }
+            val bottom = maxOf(base.bottomPadding, navBottom)
+            val teaser = MemoryCardTokens.ButtonHeight.value + base.swipeTop.value + SwipeCueIcon.value +
+                if (base.short) 0f else h("Swipe up for Home", swipe, inner.roundToInt())
+            val avail = (height - statusTop - MemoriesTopBarTokens.Height - bottom).value
+            val gap = MemoryCardTokens.ExcerptGap.value
+            val clear = MemoryCardTokens.ExcerptClear.value
+            val slacks = memories.map { memory ->
+                val kind = memory.cardTitleKind()
+                val title = memory.memoryTitle?.takeIf(String::isNotBlank) ?: memory.title
+                val artist = h(memory.supportingText, artistStyle, titleWidth)
+                val row = if (kind == MemoryTitleKind.ALBUM) {
+                    6f + artist
+                } else {
+                    base.albumTop.value + h(memory.title, albumStyle, titleWidth, maxLines = 2) + 2f + artist
+                }
+                val exhibit = base.air1.value + base.cover.value +
+                    base.seal.value * MemoryCardTokens.SealOverhangBottom +
+                    base.titleTop.value + h(title, titleStyles.getValue(kind), titleWidth) + row
+                val candidates = memory.excerptCandidatesMedium
+                val heights = HashMap<Int, Float>()
+                fun block(i: Int): Float = heights.getOrPut(i) {
+                    val c = candidates[i]
+                    val quote = c.text?.let { text ->
+                        h("“$text”", excerptStyles.getValue(c.size), excerptWidth) + ExcerptAttributionGap.value
+                    } ?: 0f
+                    quote + h(c.attribution, attribution, excerptWidth)
+                }
+                val slot = avail - teaser - gap - exhibit - clear
+                val excerpt = pickExcerpt(candidates, slot.roundToInt()) { block(it).roundToInt() }?.let(::block) ?: 0f
+                avail - exhibit - excerpt - gap - teaser
+            }
+            val (air1, balancedBottom) = balanceMedium(base.air1.value, bottom.value, slacks)
+            base.copy(air1 = air1.dp, bottomPadding = balancedBottom.dp)
+        }
+    }
 }
 
 /** The emblem's offset inside the cover's box (right −0.3s, bottom −0.24s). */
@@ -200,7 +277,9 @@ internal fun MemoryCardFace(
     } else {
         Modifier
     }
-    SubcomposeLayout(modifier = modifier.then(face).fillMaxSize()) { constraints ->
+    // the diary is open: the card is behind it and carries no semantics (TalkBack reads the diary)
+    val inert = if (interactive) Modifier else Modifier.clearAndSetSemantics { }
+    SubcomposeLayout(modifier = modifier.then(inert).then(face).fillMaxSize()) { constraints ->
         val width = constraints.maxWidth
         val height = constraints.maxHeight
         val inner = Constraints(maxWidth = (width - MemoryCardTokens.SidePadding.roundToPx() * 2).coerceAtLeast(0))
@@ -269,48 +348,77 @@ private fun CardExhibit(
     val rowLayer = morph?.let { m -> Modifier.graphicsLayer { with(m) { albumRow() } } } ?: Modifier
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Spacer(Modifier.height(metrics.air1))
-        val (sealX, sealY) = sealOffset(metrics.cover, metrics.seal)
-        val exhibitHeight = metrics.cover + metrics.seal * MemoryCardTokens.SealOverhangBottom
-        Box(Modifier.size(width = metrics.cover, height = exhibitHeight)) {
-            // bare art: the Hero corner, no border, no shadow (in flight, its circular twin per frame)
-            cover(Modifier.size(metrics.cover).then(coverLayer ?: Modifier.clip(YoinArtworkShapes.Hero)))
-            emblem(Modifier.offset(x = sealX, y = sealY).size(metrics.seal).then(sealLayer ?: Modifier))
-        }
+        MemoryExhibitShow(
+            cover = metrics.cover,
+            seal = metrics.seal,
+            coverContent = { m -> cover(m.then(coverLayer ?: Modifier.clip(YoinArtworkShapes.Hero))) },
+            emblem = { m -> emblem(m.then(sealLayer ?: Modifier)) },
+        )
         Spacer(Modifier.height(metrics.titleTop))
         Text(
             text = title,
-            style = cardTitleStyle(titleKind, metrics.short),
+            style = cardTitleStyle(titleKind),
             color = MaterialTheme.colorScheme.onSurface,
-            modifier = Modifier.widthIn(max = metrics.titleMaxWidth).then(titleLayer ?: Modifier),
+            modifier = Modifier
+                .widthIn(max = metrics.titleMaxWidth)
+                .semantics { heading() }
+                .then(titleLayer ?: Modifier),
         )
-        if (titleKind == MemoryTitleKind.ALBUM) {
-            // fallback A: the title already is the album name; the row keeps only the artist line
-            Spacer(Modifier.height(6.dp))
-        } else {
-            Spacer(Modifier.height(metrics.albumTop))
+        // the album row reads as one line: "album, artist · year"
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            modifier = Modifier.semantics(mergeDescendants = true) { },
+        ) {
+            if (titleKind == MemoryTitleKind.ALBUM) {
+                // fallback A: the title already is the album name; the row keeps only the artist line
+                Spacer(Modifier.height(6.dp))
+            } else {
+                Spacer(Modifier.height(metrics.albumTop))
+                Text(
+                    text = memory.title,
+                    style = cardAlbumStyle(),
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.widthIn(max = metrics.titleMaxWidth).then(rowLayer),
+                )
+                Spacer(Modifier.height(2.dp))
+            }
             Text(
-                text = memory.title,
-                style = cardText(GoogleSansFlex, FontWeight.SemiBold, 17.sp, 1.3f),
-                color = MaterialTheme.colorScheme.onSurface,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
+                text = memory.supportingText,
+                style = cardArtistStyle(),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.widthIn(max = metrics.titleMaxWidth).then(rowLayer),
             )
-            Spacer(Modifier.height(2.dp))
         }
-        Text(
-            text = memory.supportingText,
-            style = cardText(GoogleSansFlex, FontWeight.Medium, 13.sp, 1.35f),
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.widthIn(max = metrics.titleMaxWidth).then(rowLayer),
-        )
+    }
+}
+
+/**
+ * The exhibit: the cover with the groove emblem pinned to its lower-right corner (right −0.3s, bottom −0.24s;
+ * the overhang below is the box's own height). Bare art — the Hero corner, no border, no shadow. Shared by the
+ * card and the spread's left page.
+ */
+@Composable
+internal fun MemoryExhibitShow(
+    cover: Dp,
+    seal: Dp,
+    coverContent: @Composable (Modifier) -> Unit,
+    emblem: @Composable (Modifier) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val (sealX, sealY) = sealOffset(cover, seal)
+    Box(modifier.size(width = cover, height = cover + seal * MemoryCardTokens.SealOverhangBottom)) {
+        coverContent(Modifier.size(cover))
+        emblem(Modifier.offset(x = sealX, y = sealY).size(seal))
     }
 }
 
 @Composable
 private fun CardExcerpt(candidate: MemoryExcerptCandidate, maxWidth: Dp, modifier: Modifier = Modifier) {
     Column(
-        modifier = modifier.widthIn(max = maxWidth),
+        // the quote and its signature are one reading
+        modifier = modifier.widthIn(max = maxWidth).semantics(mergeDescendants = true) { },
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         val text = candidate.text
@@ -321,11 +429,11 @@ private fun CardExcerpt(candidate: MemoryExcerptCandidate, maxWidth: Dp, modifie
                 style = excerptStyle(candidate.size),
                 color = MaterialTheme.colorScheme.onSurface,
             )
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(ExcerptAttributionGap))
         }
         Text(
             text = candidate.attribution,
-            style = cardText(GoogleSansFlex, FontWeight.Medium, 12.sp, 1.3f).copy(letterSpacing = 0.1.sp),
+            style = attributionStyle(),
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
@@ -427,12 +535,12 @@ private fun CardTeaser(
                 imageVector = YoinSymbols.ChevronUp,
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(20.dp),
+                modifier = Modifier.size(SwipeCueIcon),
             )
             if (!metrics.short) {
                 Text(
                     text = "Swipe up for Home",
-                    style = cardText(GoogleSansFlex, FontWeight.Medium, 11.5.sp, 1.2f),
+                    style = swipeCueStyle(),
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
@@ -445,23 +553,51 @@ internal fun MemoryEntry.cardTitleKind(): MemoryTitleKind =
     if (memoryTitle.isNullOrBlank()) MemoryTitleKind.ALBUM else memoryTitleKind
 
 /** The card title's font size (the morph scales it to the diary title by this ratio). */
-internal fun cardTitleSize(kind: MemoryTitleKind, short: Boolean): TextUnit = when (kind) {
-    MemoryTitleKind.AI -> if (short) 24.sp else 26.sp
-    MemoryTitleKind.MOTIF, MemoryTitleKind.ALBUM -> 24.sp
+internal fun cardTitleSize(kind: MemoryTitleKind, type: MemoriesTypeScale): TextUnit = when (kind) {
+    MemoryTitleKind.AI -> type.cardTitleAi
+    MemoryTitleKind.MOTIF, MemoryTitleKind.ALBUM -> type.cardTitleMotif
 }
 
-/** The title: the AI title in the serif (the only serif on the card), the motif in GSF ROND 60. */
+/**
+ * The title: the AI title in the serif (the only serif on the card), the motif in GSF ROND 60. Sizes from
+ * the tier ([LocalMemoriesType]: 26 / 24 phone, 24 short, 30 / 27 on a Medium that isn't short).
+ */
 @Composable
-private fun cardTitleStyle(kind: MemoryTitleKind, short: Boolean): TextStyle = when (kind) {
-    MemoryTitleKind.AI ->
-        cardText(YoinSerifTitle, FontWeight.SemiBold, if (short) 24.sp else 26.sp, 1.36f, heading = true)
-    MemoryTitleKind.MOTIF -> cardText(ShowcaseType.rounded(600), FontWeight.SemiBold, 24.sp, 1.3f, heading = true)
-    MemoryTitleKind.ALBUM -> cardText(GoogleSansFlex, FontWeight.SemiBold, 24.sp, 1.3f, heading = true)
+internal fun cardTitleStyle(kind: MemoryTitleKind): TextStyle {
+    val size = cardTitleSize(kind, LocalMemoriesType.current)
+    return when (kind) {
+        MemoryTitleKind.AI -> cardText(YoinSerifTitle, FontWeight.SemiBold, size, 1.36f, heading = true)
+        MemoryTitleKind.MOTIF -> cardText(ShowcaseType.rounded(600), FontWeight.SemiBold, size, 1.3f, heading = true)
+        MemoryTitleKind.ALBUM -> cardText(GoogleSansFlex, FontWeight.SemiBold, size, 1.3f, heading = true)
+    }
 }
+
+/** The album row: the album name (17 / 19 Medium) over the artist line (13 / 14). */
+@Composable
+internal fun cardAlbumStyle(): TextStyle =
+    cardText(GoogleSansFlex, FontWeight.SemiBold, LocalMemoriesType.current.cardAlbum, 1.3f)
+
+@Composable
+internal fun cardArtistStyle(): TextStyle =
+    cardText(GoogleSansFlex, FontWeight.Medium, LocalMemoriesType.current.cardArtist, 1.35f)
+
+/** The signature under a quote ("Your review · Jul 26"). */
+@Composable
+internal fun attributionStyle(): TextStyle =
+    cardText(GoogleSansFlex, FontWeight.Medium, 12.sp, 1.3f).copy(letterSpacing = 0.1.sp)
+
+@Composable
+internal fun swipeCueStyle(): TextStyle = cardText(GoogleSansFlex, FontWeight.Medium, 11.5.sp, 1.2f)
+
+/** Between a quote and its signature. */
+internal val ExcerptAttributionGap: Dp = 8.dp
+
+/** The swipe cue's chevron. */
+internal val SwipeCueIcon: Dp = 20.dp
 
 /** The user's own words, in the system face (never the serif): three sizes by length. */
 @Composable
-private fun excerptStyle(size: MemoryExcerptSize): TextStyle = when (size) {
+internal fun excerptStyle(size: MemoryExcerptSize): TextStyle = when (size) {
     MemoryExcerptSize.SHORT -> cardText(FontFamily.Default, FontWeight.Medium, 22.sp, 1.4f, paragraph = true)
     MemoryExcerptSize.MEDIUM -> cardText(FontFamily.Default, FontWeight.Normal, 17.sp, 1.65f, paragraph = true)
     MemoryExcerptSize.LONG -> cardText(FontFamily.Default, FontWeight.Normal, 16.sp, 1.7f, paragraph = true)
@@ -469,7 +605,7 @@ private fun excerptStyle(size: MemoryExcerptSize): TextStyle = when (size) {
 
 /** A centred card text style with a CSS line box (half-leading, no font padding). */
 @Composable
-private fun cardText(
+internal fun cardText(
     family: FontFamily,
     weight: FontWeight,
     size: TextUnit,

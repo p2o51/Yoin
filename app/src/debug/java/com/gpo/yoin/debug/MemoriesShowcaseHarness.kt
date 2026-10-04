@@ -50,6 +50,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.gpo.yoin.ui.experience.rememberRevealState
+import com.gpo.yoin.ui.experience.rememberYoinHaptics
 import com.gpo.yoin.ui.memories.MemoryEntityType
 import com.gpo.yoin.ui.memories.MemoryEntry
 import com.gpo.yoin.ui.memories.MemoryScoreKind
@@ -70,10 +71,12 @@ import com.gpo.yoin.ui.memories.formatScore
 import com.gpo.yoin.ui.memories.memoryCopyInput
 import com.gpo.yoin.ui.memories.memoryLitNoteId
 import com.gpo.yoin.ui.memories.memoryPlayHistory
+import com.gpo.yoin.ui.memories.rememberMemoriesHomeBehind
 import com.gpo.yoin.ui.memories.showcase.MemoriesDiaryDeck
 import com.gpo.yoin.ui.memories.showcase.MemoriesDiaryHost
 import com.gpo.yoin.ui.memories.showcase.MemoriesShowcase
 import com.gpo.yoin.ui.memories.showcase.MemoriesShowcaseFixtures
+import com.gpo.yoin.ui.memories.showcase.MemoriesSpreadDeck
 import com.gpo.yoin.ui.memories.showcase.MemoryPalette
 import com.gpo.yoin.ui.memories.showcase.MemoryPaletteSamples
 import com.gpo.yoin.ui.memories.showcase.memoriesGestures
@@ -155,15 +158,6 @@ internal fun MemoriesShowcaseHarness(options: ShowcaseHarnessOptions) {
         CompositionLocalProvider(LocalHapticTrace provides trace) {
             var opens by remember { mutableIntStateOf(0) }
             Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surfaceContainerHigh)) {
-                // Home, behind the overlay
-                Text(
-                    text = "Home",
-                    style = MaterialTheme.typography.headlineMedium,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier
-                        .windowInsetsPadding(WindowInsets.statusBars)
-                        .padding(start = 22.dp, top = 32.dp),
-                )
                 key(opens) {
                     HarnessDeck(
                         memories = fixtures.first,
@@ -233,10 +227,16 @@ private fun HarnessDeck(
             onClosed()
         }
     }
+    val haptics = rememberYoinHaptics()
     SideEffect {
         router.awards = awards
         router.cardPresent = true
         router.onDismissed = { reopen() }
+        // CLOCK_TICK as a drag crosses its commit line; the tablet has no vibrator, so the trace shows it
+        router.onThresholdCrossed = { what ->
+            haptics.performTick()
+            trace.lifecycle("CLOCK_TICK · $what")
+        }
         awards.debugLog = trace::lifecycle
         router.debugLog = trace::lifecycle
     }
@@ -246,7 +246,7 @@ private fun HarnessDeck(
     }
     MemoriesPredictiveBack(
         enabled = true,
-        level = if (diaryLevel) MemoriesBackLevel.Diary else MemoriesBackLevel.Card,
+        level = if (diaryLevel && !router.isSpread) MemoriesBackLevel.Diary else MemoriesBackLevel.Card,
         reveal = reveal,
         containerHeightPx = { router.heightPx },
         onDismiss = {
@@ -260,15 +260,25 @@ private fun HarnessDeck(
         onCardBackStarted = router::onBackStarted,
         onCardBackFinished = router::onBackFinished,
     )
+    // the host's pose, as YoinNavHost's: the page translates by q (reduced motion: fades in place)
+    // Home, behind the overlay: the host's pose (0.94 / 0.5 → 1 / 1 as Memories retreats)
+    HarnessHome(Modifier.fillMaxSize().then(rememberMemoriesHomeBehind(reveal)))
     Box(
         Modifier
             .fillMaxSize()
-            .graphicsLayer { translationY = -reveal.fraction * size.height },
+            .graphicsLayer {
+                if (reduced) {
+                    translationY = 0f
+                    alpha = 1f - reveal.fraction
+                } else {
+                    translationY = -reveal.fraction * size.height
+                }
+            },
     ) {
         Box(
             Modifier
                 .fillMaxSize()
-                .memoriesDismissCorners(reveal) { router.cornerThresholdPx }
+                .then(if (reduced) Modifier else Modifier.memoriesDismissCorners(reveal) { router.cornerThresholdPx })
                 .background(MaterialTheme.colorScheme.background)
                 .onPlaced(router::onRootPlaced)
                 .memoriesGestures(router),
@@ -305,7 +315,12 @@ private fun HarnessDeck(
                     delay(LongStartDelayMs)
                     trace.lifecycle("scroll ${options.scrollDp}dp")
                     val px = with(density) { options.scrollDp.dp.toPx() }
-                    (router.diaryProbe as? MemoriesDiaryDeck)?.current()?.scroll?.scrollTo(px.roundToInt())
+                    val scroll = when (val probe = router.diaryProbe) {
+                        is MemoriesDiaryDeck -> probe.current()?.scroll
+                        is MemoriesSpreadDeck -> probe.current()
+                        else -> null
+                    }
+                    scroll?.scrollTo(px.roundToInt())
                 }
             }
         }
@@ -313,6 +328,38 @@ private fun HarnessDeck(
 }
 
 private const val LongStartDelayMs = 450L
+
+/** twostate4 `homeHTML`: Home's head and three tinted blocks, enough to see it come up behind the deck. */
+@Composable
+private fun HarnessHome(modifier: Modifier = Modifier) {
+    Column(
+        modifier = modifier
+            .windowInsetsPadding(WindowInsets.statusBars)
+            .padding(horizontal = 16.dp),
+    ) {
+        Text(
+            text = "Home",
+            style = MaterialTheme.typography.headlineMedium,
+            color = MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.padding(start = 6.dp, top = 32.dp),
+        )
+        Text(
+            text = "Activities",
+            style = MaterialTheme.typography.titleMedium,
+            color = MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.padding(start = 6.dp, top = 24.dp, bottom = 12.dp),
+        )
+        with(MemoryPaletteSamples) { listOf(M1, M3, M2, M4, M5, M1, M3) }.forEach { p ->
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 12.dp)
+                    .height(140.dp)
+                    .background(p.base.copy(alpha = 0.24f), RoundedCornerShape(26.dp)),
+            )
+        }
+    }
+}
 
 // ---------------------------------------------------------------- the diary's host (playhead, writing)
 

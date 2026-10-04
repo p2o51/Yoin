@@ -116,6 +116,8 @@ import com.gpo.yoin.ui.memories.MemoriesScreen
 import com.gpo.yoin.ui.memories.MemoriesViewModel
 import com.gpo.yoin.ui.memories.MemoryEntityType
 import com.gpo.yoin.ui.memories.MemoryEntry
+import com.gpo.yoin.ui.memories.rememberMemoriesHomeBehind
+import com.gpo.yoin.ui.memories.rememberMemoriesHostPose
 import com.gpo.yoin.ui.navigation.back.OverlayChromeVisibility
 import com.gpo.yoin.ui.navigation.back.ShellBackOwner
 import com.gpo.yoin.ui.navigation.back.rememberDetailBackEnteringModifier
@@ -875,6 +877,8 @@ private fun YoinShell(
                                 // the cutout band (§6).
                                 modifier = Modifier
                                     .fillMaxSize()
+                                    // Behind Memories: 0.94 / 0.5 → 1 / 1 as it retreats (q, layer only).
+                                    .then(rememberMemoriesHomeBehind(memoriesReveal))
                                     .then(edgeContentPadding),
                             )
 
@@ -882,9 +886,8 @@ private fun YoinShell(
                                 Box(
                                     modifier = Modifier
                                         .fillMaxSize()
-                                        .graphicsLayer {
-                                            translationY = -memoriesReveal.fraction * size.height
-                                        },
+                                        // −q·H, or a fade in place under reduced motion (layer only).
+                                        .then(rememberMemoriesHostPose(memoriesReveal)),
                                 ) {
                                     MemoriesScreen(
                                         viewModel = memoriesViewModel,
@@ -894,6 +897,13 @@ private fun YoinShell(
                                         // (card level: q scrubs toward Home) here,
                                         // where the plain BackHandler used to be.
                                         backEnabled = shellBackOwner == ShellBackOwner.Memories,
+                                        // The detail column keeps the bar up (it carries the
+                                        // column's Play): the deck stays clear of it.
+                                        bottomInset = if (paneOpen) {
+                                            shellChromeInsets.calculateBottomPadding()
+                                        } else {
+                                            0.dp
+                                        },
                                         // 印章卡唯一的导航出口：走 shell 的标准
                                         // detail 前进推入（隐藏底栏不参与 morph 交接）。
                                         // 不 dismiss —— Memories 留在原地，back

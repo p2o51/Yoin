@@ -354,6 +354,12 @@ internal class MemoriesDiaryDeck(
     private var scrolledAtDown = false
     private var pulling = false
 
+    /** The live pull's p .5 line (CLOCK_TICK when a release would start to close the diary, and back). */
+    private var closeLine: ThresholdCrossing? = null
+
+    /** A pull past the top of the text crossed p .5 (either way): the deck's CLOCK_TICK. */
+    var onThresholdCrossed: (what: String) -> Unit = {}
+
     override fun onFingerDown() {
         scrolledAtDown = (current()?.scroll?.value ?: 0) > 0
         pulling = false
@@ -371,6 +377,16 @@ internal class MemoriesDiaryDeck(
         // every pull that starts in the diary text has the 24dp half-speed band; one that started
         // scrolled stays in the diary when released inside it (chooseDiaryReleaseTarget)
         diary.startPull(banded = true, fromScrolled = scrolledAtDown)
+        closeLine = ThresholdCrossing(DiaryCloseThreshold, 1f - diary.fraction)
+    }
+
+    private fun pull(deltaY: Float): Float {
+        val consumed = diary.pullBy(deltaY)
+        if (closeLine?.update(1f - diary.fraction) == true) {
+            val past = closeLine?.isPast == true
+            onThresholdCrossed(if (past) "past p .5, release closes the diary" else "back over p .5")
+        }
+        return consumed
     }
 
     /**
@@ -383,18 +399,19 @@ internal class MemoriesDiaryDeck(
             if (source != NestedScrollSource.UserInput || available.y == 0f) return Offset.Zero
             if (diary.fraction >= 1f) return Offset.Zero
             ensurePull()
-            return Offset(0f, diary.pullBy(available.y))
+            return Offset(0f, pull(available.y))
         }
 
         override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset {
             if (source != NestedScrollSource.UserInput || available.y <= 0f) return Offset.Zero
             ensurePull()
-            return Offset(0f, diary.pullBy(available.y))
+            return Offset(0f, pull(available.y))
         }
 
         override suspend fun onPreFling(available: Velocity): Velocity {
             if (!pulling) return Velocity.Zero
             pulling = false
+            closeLine = null
             if (diary.fraction >= 1f) return Velocity.Zero
             val velocity = available.y
             scope.launch { diary.releasePull(velocity) }
@@ -452,6 +469,9 @@ internal class MemoryPageMorph(
     var statusTopPx = 0f
     var barTitleWidthPx = 0f
     var barTitleFontPx = 0f
+
+    /** Where the bar's slots sit for this container's tier (the bar cover and slot B follow the pill). */
+    var barInsets: MemoriesBarInsets = MemoriesBarInsets.Phone
 
     private var pageWidthPx = 0f
     private var page0: LayoutCoordinates? = null
@@ -548,7 +568,7 @@ internal class MemoryPageMorph(
                 headAt.y + headC.size.height - viewportTop
             }
             val barTop = statusTopPx
-            val slotBStart = MemoriesTopBarTokens.SlotBStart.toPx()
+            val slotBStart = barInsets.slotBStart.toPx()
             val barLines = BarTitleLineHeight.toPx() + BarArtistLineHeight.toPx()
             val next = MemoryMorphAnchors(
                 coverCenter = coverAt + Offset(coverC.size.width / 2f, coverC.size.height / 2f),
@@ -564,7 +584,7 @@ internal class MemoryPageMorph(
                     null
                 },
                 barCoverCenter = Offset(
-                    (MemoriesTopBarTokens.BarCoverStart + MemoriesTopBarTokens.BarCover / 2).toPx(),
+                    (barInsets.barCoverStart + MemoriesTopBarTokens.BarCover / 2).toPx(),
                     barTop + MemoriesTopBarTokens.Height.toPx() / 2f,
                 ),
                 barTitle = TextAnchor(

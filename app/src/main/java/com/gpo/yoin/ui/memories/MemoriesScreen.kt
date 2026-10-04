@@ -34,11 +34,14 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.layout.onPlaced
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -95,6 +98,9 @@ fun MemoriesScreen(
     // The shell grants back while Memories owns it (ShellBackResolver). Off
     // by default so a test or harness host never intercepts back.
     backEnabled: Boolean = false,
+    // Chrome the host keeps over this page's bottom edge (the shell bar while
+    // the detail column is open): the deck's content stays clear of it.
+    bottomInset: Dp = 0.dp,
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val sessionState by viewModel.sessionState.collectAsStateWithLifecycle()
@@ -117,6 +123,8 @@ fun MemoriesScreen(
         router.awards = awards
         router.onDismissed = onDismissed
         router.onCommitted = haptics::performConfirm
+        // CLOCK_TICK as a drag crosses its commit line (56 / 112dp, p .5), and back
+        router.onThresholdCrossed = { haptics.performTick() }
     }
     // Derived: each flips twice per motion, never per frame (invariant 10).
     val dismissMoving by remember(revealState) {
@@ -127,7 +135,8 @@ fun MemoriesScreen(
 
     MemoriesPredictiveBack(
         enabled = backEnabled,
-        level = if (diaryLevel) MemoriesBackLevel.Diary else MemoriesBackLevel.Card,
+        // a spread has one level: its diary is always open beside the exhibit, so back goes Home
+        level = if (diaryLevel && !router.isSpread) MemoriesBackLevel.Diary else MemoriesBackLevel.Card,
         reveal = revealState,
         containerHeightPx = { router.heightPx },
         onDismiss = {
@@ -234,7 +243,14 @@ fun MemoriesScreen(
     ProvideYoinMotionRole(role = YoinMotionRole.Expressive) {
         ExpressivePageBackground(
             modifier = modifier
-                .memoriesDismissCorners(revealState) { router.cornerThresholdPx }
+                // reduced motion: the host fades the page in place, so no retreating corners either
+                .then(
+                    if (reducedMotion) {
+                        Modifier
+                    } else {
+                        Modifier.memoriesDismissCorners(revealState) { router.cornerThresholdPx }
+                    },
+                )
                 .voteHighFrameRate(dismissMoving || diaryMoving)
                 .onPlaced(router::onRootPlaced)
                 // The page's one gesture input. Being a pointer node on the
@@ -293,6 +309,7 @@ fun MemoriesScreen(
                             onCurrentPageChange = viewModel::setCurrentPage,
                             diaryHost = diaryHost,
                             reducedMotion = reducedMotion,
+                            bottomInset = bottomInset,
                         )
                     }
                 }
@@ -307,6 +324,52 @@ fun MemoriesScreen(
         }
     }
 }
+
+/**
+ * The host's pose for Memories (ShellOverlayUp), for the Box the shell mounts it in: the page rides q up and
+ * out — translationY = −q·H, its only displacement — or, under reduced motion, fades out in place
+ * (alpha 1 − q) on the same q. Read only in the layer.
+ */
+@Composable
+fun rememberMemoriesHostPose(reveal: RevealState): Modifier {
+    val reduced = rememberGrooveReducedMotion()
+    return remember(reveal, reduced) {
+        Modifier.graphicsLayer {
+            val q = reveal.fraction
+            if (reduced) {
+                alpha = 1f - q.coerceIn(0f, 1f)
+            } else {
+                translationY = -q * size.height
+            }
+        }
+    }
+}
+
+/**
+ * Home behind Memories (prototype `.ts-home`): it waits at scale 0.94 / alpha 0.5 under the open deck and
+ * comes up to 1 / 1 as Memories retreats (q 0 → 1), scaled from its top centre; reduced motion keeps the
+ * alpha only. Identity once Memories is closed. Read only in the layer.
+ */
+@Composable
+fun rememberMemoriesHomeBehind(reveal: RevealState): Modifier {
+    val reduced = rememberGrooveReducedMotion()
+    return remember(reveal, reduced) {
+        Modifier.graphicsLayer {
+            val q = reveal.fraction.coerceIn(0f, 1f)
+            if (q >= 1f) return@graphicsLayer
+            if (!reduced) {
+                val scale = HomeBehindScale + (1f - HomeBehindScale) * q
+                scaleX = scale
+                scaleY = scale
+                transformOrigin = TransformOrigin(0.5f, 0f)
+            }
+            alpha = HomeBehindAlpha + (1f - HomeBehindAlpha) * q
+        }
+    }
+}
+
+private const val HomeBehindScale = 0.94f
+private const val HomeBehindAlpha = 0.5f
 
 @Composable
 private fun MemoriesEmptyState() {
@@ -378,6 +441,7 @@ private fun MemoriesContent(
     onCurrentPageChange: (Int) -> Unit,
     diaryHost: MemoriesDiaryHost,
     reducedMotion: Boolean,
+    bottomInset: Dp,
 ) {
     // Derived: the deck's pull frames flip this once, not per frame.
     val auroraVisible by remember(revealState) { derivedStateOf { revealState.fraction < 0.999f } }
@@ -507,6 +571,7 @@ private fun MemoriesContent(
                 diaryHost = diaryHost,
                 router = router,
                 awardBlocked = { router.backBusy },
+                bottomInset = bottomInset,
             )
         }
 

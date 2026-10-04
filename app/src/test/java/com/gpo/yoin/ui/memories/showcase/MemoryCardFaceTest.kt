@@ -32,9 +32,12 @@ class MemoryCardFaceTest {
         assertEquals(24.dp, short.air1)
         assertTrue(short.short)
 
-        // a tablet before P6: the phone card, centred in the 480 column, with the teaser cap
-        assertTrue(memoryCardMetrics(800.dp, 1280.dp).wide)
-        assertEquals(256.dp, memoryCardMetrics(1280.dp, 800.dp).cover)
+        // a tablet: Medium A, the phone card enlarged in the 480 column (with the teaser cap)
+        val medium = memoryCardMetrics(800.dp, 1280.dp)
+        assertTrue(medium.wide)
+        assertEquals(360.dp, medium.cover)
+        assertEquals(124.dp, medium.seal)
+        assertEquals(104.dp, medium.air1)
     }
 
     @Test

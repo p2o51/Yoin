@@ -47,8 +47,10 @@ import androidx.compose.ui.platform.InspectorInfo
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -89,12 +91,14 @@ import kotlin.math.roundToInt
  * (pager position, p) is read in layout or draw only.
  */
 
-/** Top bar geometry (prototype layoutFor, phone tier). Layout constants, not motion tokens. */
+/**
+ * Top bar geometry (prototype layoutFor). Layout constants, not motion tokens. The pill's start and the dots'
+ * end move with the tier ([MemoriesBarInsets]: 16 / 12 phone, 24 / 18 Medium, 32 / 26 spread); the slots
+ * and the diary's bar cover follow the pill.
+ */
 internal object MemoriesTopBarTokens {
     /** Under the status bar. */
     val Height: Dp = 64.dp
-    val PillStart: Dp = 16.dp
-    val DotsEnd: Dp = 12.dp
     val PillHeight: Dp = 36.dp
     val PillWidth: Dp = 88.dp
 
@@ -112,14 +116,11 @@ internal object MemoriesTopBarTokens {
     val DotSize: Dp = 7.dp
     val DotSizeCurrent: Dp = 12.dp
 
-    /** Slot A: 100dp past the pill's start; its right edge stays 12dp clear of the first dot box. */
-    val SlotAStart: Dp = 116.dp
+    /** Slot A's right edge stays 12dp clear of the first dot box. */
     val SlotClearOfDots: Dp = 12.dp
 
-    /** Diary state: the 40dp cover after the pill, then slot B 14dp after it (header breathing). */
-    val BarCoverStart: Dp = 64.dp
+    /** Diary state: the 40dp cover after the pill (slot B 14dp after it, [MemoriesBarInsets]). */
     val BarCover: Dp = 40.dp
-    val SlotBStart: Dp = 118.dp
 }
 
 /** Smoothstep, prototype `ss(a, b, x)`. */
@@ -135,9 +136,10 @@ internal fun nearestDot(x: Float, count: Int, pitchPx: Float, firstCentrePx: Flo
 }
 
 /** The end inset of the per-page slots: clear of the dot cluster by [MemoriesTopBarTokens.SlotClearOfDots]. */
-internal fun slotEndInset(dotCount: Int): Dp = with(MemoriesTopBarTokens) {
-    DotsEnd + DotPitch * dotCount + DotOverhang + SlotClearOfDots
-}
+internal fun slotEndInset(dotCount: Int, insets: MemoriesBarInsets = MemoriesBarInsets.Phone): Dp =
+    with(MemoriesTopBarTokens) {
+        insets.dotsEnd + DotPitch * dotCount + DotOverhang + SlotClearOfDots
+    }
 
 /**
  * The shared bar: Home pill + dots. [diaryProgress] (the current page's cover flight fp, 0 card … 1 diary)
@@ -155,6 +157,8 @@ internal fun MemoriesTopBar(
     onDot: (Int) -> Unit,
     modifier: Modifier = Modifier,
     edgeHint: DeckIndicatorTransitionState? = null,
+    insets: MemoriesBarInsets = MemoriesBarInsets.Phone,
+    currentDot: Int = -1,
 ) {
     Box(modifier = modifier.fillMaxWidth().height(MemoriesTopBarTokens.Height).shareTouchesWithSiblings()) {
         HomePill(
@@ -162,16 +166,17 @@ internal fun MemoriesTopBar(
             onClick = onHome,
             modifier = Modifier
                 .align(Alignment.CenterStart)
-                .padding(start = MemoriesTopBarTokens.PillStart - MemoriesTopBarTokens.PillHitMargin),
+                .padding(start = insets.pillStart - MemoriesTopBarTokens.PillHitMargin),
         )
         PageDots(
             colors = dotColors,
             labels = dotLabels,
             position = position,
             onDot = onDot,
+            current = currentDot,
             modifier = Modifier
                 .align(Alignment.CenterEnd)
-                .padding(end = MemoriesTopBarTokens.DotsEnd - MemoriesTopBarTokens.DotOverhang)
+                .padding(end = insets.dotsEnd - MemoriesTopBarTokens.DotOverhang)
                 .graphicsLayer {
                     if (edgeHint != null) {
                         translationX = edgeHint.translationXPx
@@ -199,14 +204,21 @@ private fun HomePill(diaryProgress: () -> Float, onClick: () -> Unit, modifier: 
                 val placeable = measurable.measure(Constraints.fixed(w, h))
                 layout(w, h) { placeable.place(0, 0) }
             }
+            // one node for TalkBack: "Home, button" (the chevron and the fading label are drawing only)
+            .clearAndSetSemantics {
+                contentDescription = "Home"
+                role = Role.Button
+                onClick(label = "Close Memories, back to Home") {
+                    onClick()
+                    true
+                }
+            }
             .clickable(
                 interactionSource = interaction,
                 indication = null,
                 role = Role.Button,
-                onClickLabel = "Back to Home",
                 onClick = onClick,
             )
-            .semantics { contentDescription = "Back to Home" }
             .padding(
                 horizontal = MemoriesTopBarTokens.PillHitMargin,
                 vertical = (MemoriesTopBarTokens.HitHeight - MemoriesTopBarTokens.PillHeight) / 2,
@@ -249,6 +261,7 @@ private fun PageDots(
     labels: List<String>,
     position: () -> Float,
     onDot: (Int) -> Unit,
+    current: Int,
     modifier: Modifier = Modifier,
 ) {
     val count = colors.size
@@ -279,9 +292,10 @@ private fun PageDots(
             labels.forEachIndexed { i, label ->
                 Box(
                     Modifier.semantics {
-                        role = Role.Button
+                        role = Role.Tab
                         contentDescription = label
-                        onClick {
+                        selected = i == current
+                        onClick(label = "Show this memory") {
                             onDot(i)
                             true
                         }
@@ -321,8 +335,9 @@ internal fun MemoryPageBarSlots(
     morph: MemoryPageMorph? = null,
     reducedMotion: Boolean = false,
     settled: () -> Boolean = { true },
+    insets: MemoriesBarInsets = MemoriesBarInsets.Phone,
 ) {
-    val slotEnd = slotEndInset(dotCount)
+    val slotEnd = slotEndInset(dotCount, insets)
     val inDiaryMorph by remember { derivedStateOf { diaryProgress() > 0.001f } }
     // a neighbour's controls (parked over this bar by the parallax, invisible) take no taps
     val onShow by remember { derivedStateOf { barVisibility(relative()) >= 0.5f } }
@@ -344,9 +359,13 @@ internal fun MemoryPageBarSlots(
             modifier = Modifier
                 .fillMaxHeight()
                 .fillMaxWidth()
-                .padding(start = MemoriesTopBarTokens.SlotAStart, end = slotEnd)
+                .padding(start = insets.slotAStart, end = slotEnd)
+                // the page's heading while the card shows; gone with the diary (slot B speaks then)
                 .clearAndSetSemantics {
-                    if (shown) contentDescription = listOfNotNull("Memories", lastHeard).joinToString(", ")
+                    if (shown && !diaryOpen) {
+                        contentDescription = listOfNotNull("Memories", lastHeard).joinToString(", ")
+                        heading()
+                    }
                 }
                 .graphicsLayer {
                     val p = diaryProgress().coerceIn(0f, 1f)
@@ -379,16 +398,14 @@ internal fun MemoryPageBarSlots(
         }
         if (inDiaryMorph) {
             val interactive = diaryOpen && shown
-            val tapToCard = if (interactive) {
-                Modifier.clickable(onClickLabel = "Close diary, back to the card", onClick = onCloseDiary)
-            } else {
-                Modifier.clearAndSetSemantics { }
-            }
+            val tapToCard = if (interactive) Modifier.clickable(onClick = onCloseDiary) else Modifier
             Box(
                 modifier = Modifier
                     .align(Alignment.CenterStart)
-                    .offset(x = MemoriesTopBarTokens.BarCoverStart - BarCoverHitMargin)
+                    .offset(x = insets.barCoverStart - BarCoverHitMargin)
                     .size(MemoriesTopBarTokens.HitHeight)
+                    // the same action as slot B beside it: one TalkBack stop, not two
+                    .clearAndSetSemantics { }
                     .then(tapToCard),
                 contentAlignment = Alignment.Center,
             ) {
@@ -412,7 +429,17 @@ internal fun MemoryPageBarSlots(
                 modifier = Modifier
                     .fillMaxHeight()
                     .fillMaxWidth()
-                    .padding(start = MemoriesTopBarTokens.SlotBStart, end = slotEnd)
+                    .padding(start = insets.slotBStart, end = slotEnd)
+                    .clearAndSetSemantics {
+                        if (interactive) {
+                            contentDescription = "$album, $artistLine"
+                            role = Role.Button
+                            onClick(label = "Close the diary, back to the card") {
+                                onCloseDiary()
+                                true
+                            }
+                        }
+                    }
                     .then(tapToCard)
                     .graphicsLayer {
                         if (reducedMotion) {

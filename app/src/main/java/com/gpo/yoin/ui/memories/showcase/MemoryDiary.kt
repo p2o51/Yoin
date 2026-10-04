@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -33,6 +34,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
@@ -49,19 +51,22 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.onClick
+import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.PlatformTextStyle
-import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.LineBreak
 import androidx.compose.ui.text.style.LineHeightStyle
-import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.isSpecified
 import androidx.compose.ui.unit.sp
 import com.gpo.yoin.ui.component.MarqueeText
 import com.gpo.yoin.ui.component.SeamTop
@@ -161,6 +166,19 @@ internal class DiaryHaptics(
         player.play(listOf(GrooveBeat(0, GroovePrimitive.TICK, scale, GrooveFallback.Tick, what)), scope, "diary")
     }
 
+    /** CLOCK_TICK: a drag crossed its commit line (and again when it goes back). */
+    fun clockTick(what: String) {
+        haptics.performTick()
+        trace?.onBeat(
+            GrooveHapticTraceEvent(
+                tag = "diary",
+                beat = GrooveBeat(0, GroovePrimitive.TICK, 0.5f, GrooveFallback.Tick, "CLOCK_TICK · $what"),
+                firedAtMs = 0L,
+                route = GrooveHapticRoute.ViewFallback,
+            ),
+        )
+    }
+
     fun confirm(what: String) {
         haptics.performConfirm()
         trace?.onBeat(
@@ -192,7 +210,6 @@ internal object MemoryDiaryTokens {
     val HeadGap = 28.dp
     val HeadGapWithAsk = 24.dp
     val ParagraphTop = 10.dp
-    val LinerColumn = 40.dp
     val RowMin = 48.dp
     val RowBleed = 12.dp
     val NotedGroupGap = 8.dp
@@ -230,17 +247,109 @@ internal fun MemoryDiary(
     emblem: @Composable (Modifier) -> Unit,
     onOpenAlbum: () -> Unit,
     modifier: Modifier = Modifier,
+    /** Medium: the diary's column (min(640, W − 32)), centred in the full-width scroll; phone: the page. */
+    column: Dp = Dp.Unspecified,
 ) {
-    val draft = host.reviewDraft(memory)
+    val type = LocalMemoriesType.current
     val yoinTitle = memory.memoryTitleKind != MemoryTitleKind.ALBUM && !memory.memoryTitle.isNullOrBlank()
-    val paragraph = rememberHeldParagraph(memory, deck)
+    val paragraph = rememberHeldParagraph(memory) { deck.p <= 0f }
+    val side = if (type.large) type.diarySide else MemoryDiaryTokens.SideInset
+
+    BoxWithConstraints(
+        modifier = modifier
+            .fillMaxSize()
+            // closed (or a neighbour's): the diary lies under the card and is not read (the page's pane
+            // title announces it opening and closing)
+            .then(if (interactive) Modifier else Modifier.clearAndSetSemantics { })
+            .graphicsLayer { with(morph) { diaryViewport() } },
+    ) {
+        val viewportPx = constraints.maxHeight
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .onPlaced(morph::onViewport)
+                .imePadding()
+                .nestedScroll(deck.connection)
+                .seamDissolveViewport(top = SeamTop.Chrome) { scroll.value.toFloat() }
+                .verticalEdgeFadeOnScroll(scroll, bottom = MemoryDiaryTokens.BottomFade)
+                .verticalScroll(scroll, enabled = interactive, overscrollEffect = null)
+                .graphicsLayer { with(morph) { diaryBody() } }
+                .onPlaced(morph::onDiaryInner),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Column(
+                modifier = Modifier
+                    .then(if (column.isSpecified) Modifier.width(column) else Modifier.fillMaxWidth())
+                    .padding(
+                        start = side,
+                        end = side,
+                        top = MemoryDiaryTokens.TopInset,
+                        bottom = MemoryDiaryTokens.BottomInset + navBottom,
+                    ),
+            ) {
+                val paragraphBlock = if (paragraph != null) 0 else -1
+                DiaryHead(
+                    memory = memory,
+                    yoinTitle = yoinTitle,
+                    paragraph = paragraph,
+                    paragraphBlock = paragraphBlock,
+                    morph = morph,
+                    emblem = emblem,
+                )
+                DiaryBlocks(
+                    memory = memory,
+                    tones = tones,
+                    today = today,
+                    zone = zone,
+                    interactive = interactive,
+                    settled = settled,
+                    host = host,
+                    haptics = haptics,
+                    onOpenAlbum = onOpenAlbum,
+                    firstBlock = paragraphBlock + 1,
+                    block = { k -> Modifier.diaryBlock(morph, k) },
+                    optical = DiaryOptical(viewportPx = viewportPx, topInset = MemoryDiaryTokens.TopInset),
+                )
+            }
+        }
+    }
+}
+
+/** The optical line's frame for a lone short review (the phone diary's viewport); null = no optical slot. */
+internal class DiaryOptical(val viewportPx: Int, val topInset: Dp)
+
+/**
+ * The diary from your entry on — the review or today's blank page, • • • (or air), the liner, the run-out
+ * groove and the foot. Shared by the two-state diary and the spread's right page. [block] gives the k-th
+ * block its layer, k counting from [firstBlock] (the morph's staggered rise; nothing in the spread). [showGo]: the foot ends with Go to album
+ * (the spread has it on the left page instead). [optical]: a lone short review rests on the view's optical
+ * line (the two states; the spread centres its whole right page instead).
+ */
+@Composable
+internal fun DiaryBlocks(
+    memory: MemoryEntry,
+    tones: MemoryPaletteTones,
+    today: LocalDate,
+    zone: ZoneId,
+    interactive: Boolean,
+    settled: Boolean,
+    host: MemoriesDiaryHost,
+    haptics: DiaryHaptics,
+    onOpenAlbum: () -> Unit,
+    firstBlock: Int,
+    block: (Int) -> Modifier,
+    optical: DiaryOptical?,
+    showGo: Boolean = true,
+) {
+    var k = firstBlock
+    val draft = host.reviewDraft(memory)
     val liner = memory.diaryAlbumNotes.isNotEmpty() || memory.diaryTracks.isNotEmpty()
     val review = memory.review
     val history = memory.playsInYoin?.takeIf { it > 0 }?.let { plays ->
         memory.firstHeardAt?.let { first -> MemoryDates.footer(plays, MemoryDates.localDate(first, zone), today) }
     }
     // a lone short review (and nothing after it) rests on the optical line
-    val optical = review != null && review.text.length <= ShortReviewMax && !liner
+    val opticalOn = optical != null && review != null && review.text.length <= ShortReviewMax && !liner
 
     // the note tapped: its TICK lands with the highlight (or, unanchored, when its track is current)
     var pendingLight by remember { mutableStateOf<PendingLight?>(null) }
@@ -254,113 +363,78 @@ internal fun MemoryDiary(
         pendingLight = null
     }
 
-    BoxWithConstraints(
-        modifier = modifier
-            .fillMaxSize()
-            .graphicsLayer { with(morph) { diaryViewport() } },
+    val entryBlock = block(k++)
+    OpticalSlot(
+        enabled = opticalOn,
+        viewportPx = optical?.viewportPx ?: 0,
+        topInsetPx = with(LocalDensity.current) { (optical?.topInset ?: 0.dp).roundToPx() },
     ) {
-        val viewportPx = constraints.maxHeight
-        var k = 0
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .onPlaced(morph::onViewport)
-                .imePadding()
-                .nestedScroll(deck.connection)
-                .seamDissolveViewport(top = SeamTop.Chrome) { scroll.value.toFloat() }
-                .verticalEdgeFadeOnScroll(scroll, bottom = MemoryDiaryTokens.BottomFade)
-                .verticalScroll(scroll, enabled = interactive, overscrollEffect = null)
-                .graphicsLayer { with(morph) { diaryBody() } }
-                .onPlaced(morph::onDiaryInner)
-                .padding(
-                    start = MemoryDiaryTokens.SideInset,
-                    end = MemoryDiaryTokens.SideInset,
-                    top = MemoryDiaryTokens.TopInset,
-                    bottom = MemoryDiaryTokens.BottomInset + navBottom,
-                ),
-        ) {
-            val paragraphBlock = if (paragraph != null) k++ else -1
-            DiaryHead(
-                memory = memory,
-                yoinTitle = yoinTitle,
-                paragraph = paragraph,
-                paragraphBlock = paragraphBlock,
-                morph = morph,
-                emblem = emblem,
-            )
-            val entryBlock = k++
-            OpticalSlot(
-                enabled = optical,
-                viewportPx = viewportPx,
-                topInsetPx = with(LocalDensity.current) { MemoryDiaryTokens.TopInset.roundToPx() },
-            ) {
-                MemoryDiaryEntry(
-                    review = review,
-                    today = today,
-                    zone = zone,
-                    tones = tones,
-                    draft = draft,
-                    enabled = interactive,
-                    onSave = { text -> host.saveReview(memory, text) },
-                    onConfirm = { haptics.confirm("review saved") },
-                    modifier = Modifier.diaryBlock(morph, entryBlock),
-                )
-            }
-            if (liner) {
-                if (review != null) {
-                    DiarySeparator(tones, Modifier.diaryBlock(morph, k++))
-                } else {
-                    Spacer(Modifier.height(MemoryDiaryTokens.BlankLinerGap))
-                }
-                DiaryLiner(
-                    memory = memory,
-                    tones = tones,
-                    interactive = interactive,
-                    settled = settled,
-                    host = host,
-                    onNote = { track, note ->
-                        pendingLight = PendingLight(track.trackId, note.noteId.takeIf { note.positionMs != null })
-                        host.playNote(memory, track, note)
-                    },
-                    onTrack = { track ->
-                        haptics.tick(TrackTickScale, "track row")
-                        host.playTrack(memory, track)
-                    },
-                    modifier = Modifier.diaryBlock(morph, k++),
-                )
-            }
-            Spacer(Modifier.height(MemoryDiaryTokens.EndGap))
-            DiaryRunOut(tones, Modifier.diaryBlock(morph, k++))
-            DiaryFoot(
-                memory = memory,
-                tones = tones,
-                history = history,
-                interactive = interactive,
-                host = host,
-                onOpenAlbum = onOpenAlbum,
-                modifier = Modifier.diaryBlock(morph, k++),
-            )
-        }
+        MemoryDiaryEntry(
+            review = review,
+            today = today,
+            zone = zone,
+            tones = tones,
+            draft = draft,
+            enabled = interactive,
+            onSave = { text -> host.saveReview(memory, text) },
+            onConfirm = { haptics.confirm("review saved") },
+            modifier = entryBlock,
+        )
     }
+    if (liner) {
+        if (review != null) {
+            DiarySeparator(tones, block(k++))
+        } else {
+            Spacer(Modifier.height(MemoryDiaryTokens.BlankLinerGap))
+        }
+        DiaryLiner(
+            memory = memory,
+            tones = tones,
+            interactive = interactive,
+            settled = settled,
+            host = host,
+            onNote = { track, note ->
+                pendingLight = PendingLight(track.trackId, note.noteId.takeIf { note.positionMs != null })
+                host.playNote(memory, track, note)
+            },
+            onTrack = { track ->
+                haptics.tick(TrackTickScale, "track row")
+                host.playTrack(memory, track)
+            },
+            modifier = block(k++),
+        )
+    }
+    Spacer(Modifier.height(MemoryDiaryTokens.EndGap))
+    DiaryRunOut(tones, block(k++))
+    DiaryFoot(
+        memory = memory,
+        tones = tones,
+        history = history,
+        interactive = interactive,
+        host = host,
+        onOpenAlbum = onOpenAlbum,
+        showGo = showGo,
+        modifier = block(k),
+    )
 }
 
 private data class PendingLight(val trackId: String?, val noteId: String?)
 
 /**
- * Yoin's paragraph (narration + question), held while the diary is open: a review saved on the blank page
- * drops it from the refreshed card, but the open page keeps it until the diary closes, so the new entry
- * stays where it was written.
+ * Yoin's paragraph (narration + question), held while it is being read: a review saved on the blank page
+ * drops it from the refreshed card, but the open page keeps it until [released] (the diary closed, or the
+ * spread's page left), so the new entry stays where it was written.
  */
 @Composable
-private fun rememberHeldParagraph(memory: MemoryEntry, deck: MemoriesDiaryDeck): YoinParagraph? {
+internal fun rememberHeldParagraph(memory: MemoryEntry, released: () -> Boolean): YoinParagraph? {
     val live = YoinParagraph.of(memory)
     var held by remember(memory.stableId) { mutableStateOf(live) }
+    val currentReleased by rememberUpdatedState(released)
     LaunchedEffect(memory.stableId, live) {
         if (live != null) {
             held = live
         } else {
-            // wait until the diary is closed to let it go
-            snapshotFlow { deck.p <= 0f }.first { it }
+            snapshotFlow { currentReleased() }.first { it }
             held = null
         }
     }
@@ -368,7 +442,7 @@ private fun rememberHeldParagraph(memory: MemoryEntry, deck: MemoriesDiaryDeck):
 }
 
 @Immutable
-private data class YoinParagraph(val narration: String?, val question: String?, val language: MemoryProseLanguage) {
+internal data class YoinParagraph(val narration: String?, val question: String?, val language: MemoryProseLanguage) {
     companion object {
         fun of(memory: MemoryEntry): YoinParagraph? {
             val n = memory.yoinNarration?.takeIf(String::isNotBlank)
@@ -412,6 +486,7 @@ private fun DiaryHead(
                     color = MaterialTheme.colorScheme.onSurface,
                     modifier = Modifier
                         .weight(1f, fill = false)
+                        .semantics { heading() }
                         .padding(end = MemoryDiaryTokens.EmblemGap)
                         .onPlaced { morph.onDiaryTitle(it) }
                         .graphicsLayer { with(morph) { diaryTitle() } }
@@ -452,26 +527,28 @@ private fun DiaryHead(
     }
 }
 
+/**
+ * Yoin's paragraph: how you listened (GSF ROND 60, on-surface-variant), the question in the same breath
+ * (on-surface 500). [size] defaults to the tier's; [centred] sets it as the spread's citation (balanced).
+ */
 @Composable
-private fun YoinParagraphText(paragraph: YoinParagraph, modifier: Modifier = Modifier) {
-    val base = diaryText(ShowcaseType.rounded(400), FontWeight.Normal, 16.sp, 1.6f, paragraph = true)
+internal fun YoinParagraphText(
+    paragraph: YoinParagraph,
+    modifier: Modifier = Modifier,
+    size: TextUnit = LocalMemoriesType.current.paragraph,
+    centred: Boolean = false,
+) {
+    val base = diaryText(
+        family = ShowcaseType.rounded(400),
+        weight = FontWeight.Normal,
+        size = size,
+        lineHeight = 1.6f,
+        heading = centred,
+        paragraph = !centred,
+    )
+        .let { if (centred) it.copy(textAlign = TextAlign.Center) else it }
     Text(
-        text = buildAnnotatedString {
-            paragraph.narration?.let { append(it) }
-            val spaced = paragraph.language != MemoryProseLanguage.ZH
-            if (paragraph.narration != null && paragraph.question != null && spaced) {
-                append(' ')
-            }
-            paragraph.question?.let { q ->
-                withStyle(
-                    SpanStyle(
-                        fontFamily = ShowcaseType.rounded(500),
-                        fontWeight = FontWeight.Medium,
-                        color = MaterialTheme.colorScheme.onSurface,
-                    ),
-                ) { append(q) }
-            }
-        },
+        text = yoinParagraphString(paragraph, yoinQuestionSpan(MaterialTheme.colorScheme.onSurface)),
         style = base,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
         modifier = modifier.seamFade(base.fontSize),
@@ -507,10 +584,11 @@ private fun OpticalSlot(enabled: Boolean, viewportPx: Int, topInsetPx: Int, cont
 
 @Composable
 private fun DiarySeparator(tones: MemoryPaletteTones, modifier: Modifier = Modifier) {
+    val type = LocalMemoriesType.current
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .padding(top = 30.dp, bottom = 24.dp)
+            .padding(top = type.separatorTop, bottom = type.separatorBottom)
             .clearAndSetSemantics { },
         horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterHorizontally),
     ) {
@@ -535,7 +613,8 @@ private fun DiaryLiner(
     onTrack: (MemoryTrack) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Column(modifier = modifier.fillMaxWidth()) {
+    // on a wide column the score stops at 520, not across the page (prototype .ts-lg .ts-liner)
+    Column(modifier = modifier.widthIn(max = LocalMemoriesType.current.linerMaxWidth).fillMaxWidth()) {
         memory.diaryAlbumNotes.forEach { note -> AlbumNoteRow(note) }
         var previousNoted = false
         memory.diaryTracks.forEach { group ->
@@ -557,15 +636,17 @@ private fun DiaryLiner(
 /** The album's own note leads, not a button: a hollow 6dp bead in the number column. */
 @Composable
 private fun AlbumNoteRow(note: MemoryWriting) {
-    val lineHeight = NoteLineHeight
+    val type = LocalMemoriesType.current
+    val lineHeight = type.noteLine
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .heightIn(min = MemoryDiaryTokens.RowMin)
+            .semantics(mergeDescendants = true) { contentDescription = "Album note: ${note.text}" }
             .padding(top = 8.dp, bottom = 10.dp),
         verticalAlignment = Alignment.Top,
     ) {
-        Box(Modifier.width(MemoryDiaryTokens.LinerColumn)) {
+        Box(Modifier.width(type.linerColumn)) {
             Box(
                 Modifier
                     .padding(top = (lineHeight - 6.dp) / 2)
@@ -576,9 +657,9 @@ private fun AlbumNoteRow(note: MemoryWriting) {
         }
         Text(
             text = note.text,
-            style = diaryUserText(15.5.sp, NoteLineHeightRatio(15.5f)),
+            style = noteTextStyle(type),
             color = MaterialTheme.colorScheme.onSurface,
-            modifier = Modifier.weight(1f).seamFade(15.5.sp),
+            modifier = Modifier.weight(1f).seamFade(type.note),
         )
     }
 }
@@ -593,9 +674,17 @@ private fun TrackGroup(
     onNote: (MemoryTrack, MemoryWriting) -> Unit,
     onTrack: (MemoryTrack) -> Unit,
 ) {
+    val type = LocalMemoriesType.current
     val track = group.track
     val playing = track.trackId != null && host.playingTrackId == track.trackId
     val rated = track.rating != null
+    val playLabel = "Play ${track.title}"
+    // one TalkBack stop per row, spoken as a reading: "Track 3, Thin Ice, rated 8.5"
+    val rowDescription = listOfNotNull(
+        track.number?.let { "Track $it" },
+        track.title,
+        track.rating?.let { "rated ${MemoryScores.text(it)}" },
+    ).joinToString(", ")
     val numberColor by animateColorAsState(
         targetValue = if (playing) tones.highlight else MaterialTheme.colorScheme.onSurfaceVariant,
         animationSpec = YoinMotion.defaultEffectsSpec(),
@@ -607,25 +696,26 @@ private fun TrackGroup(
                 .bleed(MemoryDiaryTokens.RowBleed)
                 .heightIn(min = MemoryDiaryTokens.RowMin)
                 .clip(YoinContainerShapes.ListRow)
-                .then(
+                .clearAndSetSemantics {
+                    contentDescription = rowDescription
+                    if (playing) stateDescription = "Playing"
                     if (interactive) {
-                        Modifier.clickable(
-                            role = Role.Button,
-                            onClickLabel = "Play ${track.title}" +
-                                (track.rating?.let { ", rated ${MemoryScores.text(it)}" } ?: ""),
-                        ) { onTrack(track) }
-                    } else {
-                        Modifier
-                    },
-                )
+                        role = Role.Button
+                        onClick(label = playLabel) {
+                            onTrack(track)
+                            true
+                        }
+                    }
+                }
+                .then(if (interactive) Modifier.clickable(role = Role.Button) { onTrack(track) } else Modifier)
                 .padding(horizontal = MemoryDiaryTokens.RowBleed),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
                 text = (track.number ?: 0).toString(),
-                style = diaryUiText(13.sp, FontWeight.Medium, 1f).tabular(),
+                style = diaryUiText(type.trackNumber, FontWeight.Medium, 1f).tabular(),
                 color = numberColor,
-                modifier = Modifier.width(MemoryDiaryTokens.LinerColumn).seamFade(13.sp),
+                modifier = Modifier.width(type.linerColumn).seamFade(type.trackNumber),
             )
             MarqueeText(
                 text = track.title,
@@ -649,10 +739,10 @@ private fun TrackGroup(
                 lit = note.noteId != null && host.litNoteId == note.noteId,
                 tones = tones,
                 interactive = interactive,
-                onClick = { onNote(track, note) },
+                onPlay = { onNote(track, note) },
                 label = note.positionMs
                     ?.let { "Play ${track.title} from ${formatNotePosition(it)}" }
-                    ?: "Play ${track.title}",
+                    ?: playLabel,
             )
         }
     }
@@ -665,7 +755,7 @@ private fun NoteRow(
     lit: Boolean,
     tones: MemoryPaletteTones,
     interactive: Boolean,
-    onClick: () -> Unit,
+    onPlay: () -> Unit,
     label: String,
 ) {
     val stamp by animateColorAsState(
@@ -678,36 +768,49 @@ private fun NoteRow(
         animationSpec = YoinMotion.defaultEffectsSpec(),
         label = "diaryNoteWords",
     )
+    val type = LocalMemoriesType.current
+    val at = note.positionMs?.let(::formatNotePosition)
     Row(
         modifier = Modifier
             .bleed(MemoryDiaryTokens.RowBleed)
             .heightIn(min = MemoryDiaryTokens.RowMin)
             .clip(YoinContainerShapes.ListRow)
-            .then(
+            // "Note at 2:05: …", lit while the playhead is inside it
+            .clearAndSetSemantics {
+                contentDescription = if (at != null) "Note at $at: ${note.text}" else "Note: ${note.text}"
+                if (lit) stateDescription = "Playing"
                 if (interactive) {
-                    Modifier.clickable(role = Role.Button, onClickLabel = label, onClick = onClick)
-                } else {
-                    Modifier
-                },
-            )
+                    role = Role.Button
+                    onClick(label = label) {
+                        onPlay()
+                        true
+                    }
+                }
+            }
+            .then(if (interactive) Modifier.clickable(role = Role.Button, onClick = onPlay) else Modifier)
             .padding(start = MemoryDiaryTokens.RowBleed, end = MemoryDiaryTokens.RowBleed, top = 8.dp, bottom = 10.dp),
     ) {
         Text(
-            text = note.positionMs?.let(::formatNotePosition).orEmpty(),
-            style = diaryUiText(12.5.sp, FontWeight.Medium, NoteLineHeightRatio(12.5f))
+            text = at.orEmpty(),
+            style = diaryUiText(type.stamp, FontWeight.Medium, type.noteLine.value / type.stamp.value)
                 .tabular()
                 .copy(letterSpacing = 0.1.sp),
             color = stamp,
-            modifier = Modifier.width(MemoryDiaryTokens.LinerColumn).alignByBaseline().seamFade(12.5.sp),
+            modifier = Modifier.width(type.linerColumn).alignByBaseline().seamFade(type.stamp),
         )
         Text(
             text = note.text,
-            style = diaryUserText(15.5.sp, NoteLineHeightRatio(15.5f)),
+            style = noteTextStyle(type),
             color = words,
-            modifier = Modifier.weight(1f).alignByBaseline().seamFade(15.5.sp),
+            modifier = Modifier.weight(1f).alignByBaseline().seamFade(type.note),
         )
     }
 }
+
+/** A note's words: the user's face, the tier's size, on the shared note line box (stamp and words meet). */
+@Composable
+private fun noteTextStyle(type: MemoriesTypeScale): TextStyle =
+    diaryUserText(type.note, type.noteLine.value / type.note.value)
 
 /** The end mark: the record's run-out groove, three hairline rings, only at the very end. */
 @Composable
@@ -737,6 +840,7 @@ private fun DiaryFoot(
     interactive: Boolean,
     host: MemoriesDiaryHost,
     onOpenAlbum: () -> Unit,
+    showGo: Boolean,
     modifier: Modifier = Modifier,
 ) {
     Column(modifier = modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
@@ -747,29 +851,37 @@ private fun DiaryFoot(
             }
         }
         if (memory.entityType == MemoryEntityType.ALBUM) {
-            Box(
-                modifier = Modifier
-                    .padding(top = if (history != null) MemoryDiaryTokens.GoTop else 0.dp)
-                    .height(48.dp)
-                    .clip(RoundedCornerShape(percent = 50))
-                    .background(tones.button)
-                    .then(if (interactive) Modifier.clickable(role = Role.Button, onClick = onOpenAlbum) else Modifier)
-                    .padding(horizontal = 24.dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    text = "Go to album",
-                    style = diaryUiText(15.sp, FontWeight.SemiBold, 1f),
-                    color = tones.onButton,
-                    maxLines = 1,
-                    softWrap = false,
-                )
+            if (showGo) {
+                Box(
+                    modifier = Modifier
+                        .padding(top = if (history != null) MemoryDiaryTokens.GoTop else 0.dp)
+                        .height(48.dp)
+                        .clip(RoundedCornerShape(percent = 50))
+                        .background(tones.button)
+                        .then(
+                            if (interactive) {
+                                Modifier.clickable(role = Role.Button, onClick = onOpenAlbum)
+                            } else {
+                                Modifier
+                            },
+                        )
+                        .padding(horizontal = 24.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        text = "Go to album",
+                        style = diaryUiText(15.sp, FontWeight.SemiBold, 1f),
+                        color = tones.onButton,
+                        maxLines = 1,
+                        softWrap = false,
+                    )
+                }
             }
             if (host.neoDbConfigured) {
                 val syncing = host.neoDbSyncing(memory)
                 Box(
                     modifier = Modifier
-                        .padding(top = 8.dp)
+                        .padding(top = if (showGo || history == null) 8.dp else MemoryDiaryTokens.GoTop)
                         .height(48.dp)
                         .clip(RoundedCornerShape(percent = 50))
                         .then(
@@ -795,15 +907,16 @@ private fun DiaryFoot(
 
 @Composable
 private fun Stat(numeral: String, caption: String) {
+    val size = LocalMemoriesType.current.stat
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = Modifier.semantics(mergeDescendants = true) { contentDescription = "$numeral $caption" },
     ) {
         Text(
             text = numeral,
-            style = diaryText(ShowcaseType.rounded(500, rond = 40f), FontWeight.Medium, 34.sp, 1f).tabular(),
+            style = diaryText(ShowcaseType.rounded(500, rond = 40f), FontWeight.Medium, size, 1f).tabular(),
             color = MaterialTheme.colorScheme.onSurface,
-            modifier = Modifier.seamFade(34.sp),
+            modifier = Modifier.seamFade(size),
         )
         Spacer(Modifier.height(8.dp))
         Text(
@@ -817,15 +930,19 @@ private fun Stat(numeral: String, caption: String) {
     }
 }
 
-/** The diary title: the AI title in the serif (22), the motif in GSF ROND 60 (21). */
+/** The diary title: the AI title in the serif (22, Medium 24), the motif in GSF ROND 60 (21, Medium 23). */
 @Composable
-internal fun diaryTitleStyle(kind: MemoryTitleKind): TextStyle = when (kind) {
-    MemoryTitleKind.AI -> diaryText(YoinSerifTitle, FontWeight.SemiBold, DiaryTitleSizeAi, 1.4f, heading = true)
-    else -> diaryText(ShowcaseType.rounded(600), FontWeight.SemiBold, DiaryTitleSizeMotif, 1.3f, heading = true)
+internal fun diaryTitleStyle(kind: MemoryTitleKind): TextStyle {
+    val type = LocalMemoriesType.current
+    return when (kind) {
+        MemoryTitleKind.AI -> diaryText(YoinSerifTitle, FontWeight.SemiBold, type.diaryTitleAi, 1.4f, heading = true)
+        else -> diaryText(ShowcaseType.rounded(600), FontWeight.SemiBold, type.diaryTitleMotif, 1.3f, heading = true)
+    }
 }
 
-internal val DiaryTitleSizeAi: TextUnit = 22.sp
-internal val DiaryTitleSizeMotif: TextUnit = 21.sp
+/** The diary title's size for a kind (the morph scales the card title to it). */
+internal fun diaryTitleSize(kind: MemoryTitleKind, type: MemoriesTypeScale): TextUnit =
+    if (kind == MemoryTitleKind.AI) type.diaryTitleAi else type.diaryTitleMotif
 
 /** A start-aligned diary text style with a CSS line box (half-leading, no font padding). */
 @Composable
@@ -852,11 +969,6 @@ internal fun diaryText(
 )
 
 private fun TextStyle.tabular(): TextStyle = copy(fontFeatureSettings = "tnum")
-
-/** Note rows share one 25.6dp line box (stamp and words), so their first baselines meet. */
-private val NoteLineHeight = 25.6.dp
-
-private fun NoteLineHeightRatio(sizeSp: Float): Float = 25.6f / sizeSp
 
 /** A row whose press ground reaches [amount] past the column on both sides (the content stays aligned). */
 private fun Modifier.bleed(amount: Dp): Modifier = layout { measurable, constraints ->

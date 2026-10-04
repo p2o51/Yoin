@@ -130,6 +130,27 @@ internal fun DismissRule.afterSlop(slopUpPx: Float): DismissRule =
     copy(commitPx = (commitPx - slopUpPx).coerceAtLeast(0f))
 
 /**
+ * A drag's armed state against one threshold (prototype `qArm` / `pArm`): [update] is true on the frame the
+ * value crosses it, either way, so the CLOCK_TICK lands as a release would start to commit, and again if the
+ * finger takes it back. [initial] is where the value was when the drag locked (already past: armed).
+ */
+internal class ThresholdCrossing(private val threshold: Float, initial: Float) {
+    private var past = initial >= threshold
+
+    val isPast: Boolean get() = past
+
+    fun update(value: Float): Boolean {
+        val now = value >= threshold
+        if (now == past) return false
+        past = now
+        return true
+    }
+}
+
+/** The p a diary pull must cross to close on release (prototype pArm, p .5). */
+internal const val DiaryCloseThreshold = 0.5f
+
+/**
  * The router's state: the page geometry it reads at gesture time (plain fields, written from placement and
  * never read in composition) and the two controllers it feeds. Releases settle on [scope], an outer scope,
  * so a settle outlives the gesture coroutine (invariant 7).
@@ -163,10 +184,29 @@ class MemoriesGestureRouter internal constructor(
     /** Runs the moment a release commits (the confirm haptic). */
     var onCommitted: () -> Unit = {}
 
+    /**
+     * Runs when a drag crosses its commit line — q past the dismiss threshold (56dp bar / 112dp body, as page
+     * travel after the slop), p past .5 on the diary's handle — and again when it goes back (CLOCK_TICK).
+     * [what] names the crossing for the debug trace.
+     */
+    var onThresholdCrossed: (what: String) -> Unit = {}
+
     /** Debug builds' trace: one line per locked drag and release. Null in the product. */
     var debugLog: ((String) -> Unit)? = null
 
     private var root: LayoutCoordinates? = null
+
+    /** The showcase's left edge in page px (a horizontal cutout / nav-bar inset moves it). */
+    private var showcaseLeftPx = 0f
+
+    /**
+     * The spread's left page width in px, or null in the two states. In a spread the left page is card body
+     * (a vertical drag is Home's), the right page is the diary's scroll, and there is no diary level: back and
+     * the bar never reach p. Snapshot state: the back handler's level reads it.
+     */
+    var spreadLeftPagePx: Float? by mutableStateOf(null)
+
+    val isSpread: Boolean get() = spreadLeftPagePx != null
 
     /** A committed retreat rides out untouched: drags are ignored until it lands. */
     private var committing = false
@@ -176,6 +216,10 @@ class MemoriesGestureRouter internal constructor(
 
     /** Upward travel the slop ate before the current drag locked (negative = it locked going down). */
     private var slopUpPx = 0f
+
+    /** The live drag's commit line: q (px of page travel) for a dismiss, p for the diary's handle. */
+    private var qCrossing: ThresholdCrossing? = null
+    private var pCrossing: ThresholdCrossing? = null
 
     /**
      * The commit distance of whatever drives q now, as page travel (56dp bar, 112dp body and back, less the
@@ -204,10 +248,18 @@ class MemoriesGestureRouter internal constructor(
         barBottomPx = page.localPositionOf(bar, Offset(0f, bar.size.height.toFloat())).y
     }
 
-    /** The content state left: no bar, no card face. */
+    /** The showcase was placed: its left edge splits the spread's pages (with [spreadLeftPagePx]). */
+    fun onShowcasePlaced(showcase: LayoutCoordinates) {
+        val page = root?.takeIf { it.isAttached } ?: return
+        if (!showcase.isAttached) return
+        showcaseLeftPx = page.localPositionOf(showcase, Offset.Zero).x
+    }
+
+    /** The content state left: no bar, no card face, no spread. */
     fun onContentGone() {
         barBottomPx = 0f
         cardPresent = false
+        spreadLeftPagePx = null
     }
 
     /** System back drives q on the body rule's corner (MemoriesPredictiveBack's onCardBackStarted). */
@@ -221,10 +273,15 @@ class MemoriesGestureRouter internal constructor(
         backBusy = false
     }
 
-    internal fun zoneAt(y: Float): MemoriesDragZone = when {
-        y < barBottomPx -> MemoriesDragZone.Bar
-        cardPresent && diary.isDiaryLevel -> MemoriesDragZone.Diary
-        else -> MemoriesDragZone.Card
+    internal fun zoneAt(position: Offset): MemoriesDragZone {
+        val split = spreadLeftPagePx
+        return when {
+            position.y < barBottomPx -> MemoriesDragZone.Bar
+            cardPresent && split != null ->
+                if (position.x - showcaseLeftPx < split) MemoriesDragZone.Card else MemoriesDragZone.Diary
+            cardPresent && diary.isDiaryLevel -> MemoriesDragZone.Diary
+            else -> MemoriesDragZone.Card
+        }
     }
 
     internal fun press() {
@@ -247,19 +304,27 @@ class MemoriesGestureRouter internal constructor(
      * applied (the page follows from here on), but q's commit distance still counts it.
      */
     internal fun begin(zone: MemoriesDragZone, deltaY: Float): MemoriesVerticalRoute {
+        // a spread has no card face to rubber-band and no diary level: its left page is all Home
         val route = routeVerticalDrag(
             zone = zone,
             deltaY = deltaY,
-            cardPresent = cardPresent,
-            diaryLevel = diary.isDiaryLevel,
+            cardPresent = cardPresent && !isSpread,
+            diaryLevel = !isSpread && diary.isDiaryLevel,
             diaryAtEnd = diaryAtEndAtDown,
         )
         slopUpPx = -deltaY
+        qCrossing = null
+        pCrossing = null
         when (route) {
-            is MemoriesVerticalRoute.Dismiss ->
+            is MemoriesVerticalRoute.Dismiss -> {
                 cornerThresholdPx = rules.ruleFor(route).afterSlop(slopUpPx).commitPx
+                qCrossing = ThresholdCrossing(cornerThresholdPx, reveal.fraction * heightPx)
+            }
             MemoriesVerticalRoute.CardRubberBand -> diary.startPull(banded = false, fromScrolled = false, ceiling = 0f)
-            MemoriesVerticalRoute.DiaryHandle -> diary.startPull(banded = false, fromScrolled = false)
+            MemoriesVerticalRoute.DiaryHandle -> {
+                diary.startPull(banded = false, fromScrolled = false)
+                pCrossing = ThresholdCrossing(DiaryCloseThreshold, 1f - diary.fraction)
+            }
             MemoriesVerticalRoute.DiaryScroll -> Unit
         }
         awards?.onDragStart()
@@ -270,8 +335,22 @@ class MemoriesGestureRouter internal constructor(
     /** [deltaY] in px, positive = finger moving down. */
     internal fun drag(route: MemoriesVerticalRoute, deltaY: Float) {
         when (route) {
-            is MemoriesVerticalRoute.Dismiss -> if (!committing) reveal.dragBy(deltaY, heightPx)
-            MemoriesVerticalRoute.CardRubberBand, MemoriesVerticalRoute.DiaryHandle -> diary.pullBy(deltaY)
+            is MemoriesVerticalRoute.Dismiss -> if (!committing) {
+                reveal.dragBy(deltaY, heightPx)
+                if (qCrossing?.update(reveal.fraction * heightPx) == true) {
+                    val past = qCrossing?.isPast == true
+                    onThresholdCrossed(if (past) "past the dismiss line, release goes Home" else "back under the line")
+                }
+            }
+            MemoriesVerticalRoute.CardRubberBand -> diary.pullBy(deltaY)
+            MemoriesVerticalRoute.DiaryHandle -> {
+                diary.pullBy(deltaY)
+                // measured from the diary side: 1 − p past .5 = a release closes the diary
+                if (pCrossing?.update(1f - diary.fraction) == true) {
+                    val past = pCrossing?.isPast == true
+                    onThresholdCrossed(if (past) "past p .5, release closes the diary" else "back over p .5")
+                }
+            }
             MemoriesVerticalRoute.DiaryScroll -> Unit
         }
     }
@@ -334,7 +413,7 @@ internal fun Modifier.memoriesGestures(router: MemoriesGestureRouter): Modifier 
     awaitEachGesture {
         val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
         router.press()
-        val zone = router.zoneAt(down.position.y)
+        val zone = router.zoneAt(down.position)
         val slop = viewConfiguration.touchSlop
         val tracker = VelocityTracker()
         tracker.addPointerInputChange(down)

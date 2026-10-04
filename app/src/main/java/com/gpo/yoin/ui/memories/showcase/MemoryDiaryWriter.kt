@@ -45,7 +45,9 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -115,6 +117,7 @@ internal fun MemoryDiaryEntry(
 ) {
     // A review that appears here (a save) keeps the body size it was typed at; only a review that was
     // already there when the page composed takes the large short-review size.
+    val type = LocalMemoriesType.current
     val bornBlank = remember { review == null }
     val blank = review == null
     var writing by rememberSaveable { mutableStateOf(draft != null && blank) }
@@ -183,7 +186,10 @@ internal fun MemoryDiaryEntry(
                             onClickLabel = "Write a review",
                             onClick = open,
                         )
-                        .semantics { contentDescription = "Write a review" }
+                        .semantics {
+                            contentDescription = "Write a review"
+                            role = Role.Button
+                        }
                 } else {
                     Modifier
                 },
@@ -207,13 +213,19 @@ internal fun MemoryDiaryEntry(
             // the spatial spring may overshoot past 0: padding never goes negative (as CSS clamps it)
             Column(Modifier.fillMaxWidth().padding(start = inset.coerceAtLeast(0.dp))) {
                 if (review != null) {
-                    ReviewBody(text = review.text, large = !bornBlank && review.text.length <= ShortReviewMax)
+                    ReviewBody(
+                        text = review.text,
+                        large = !bornBlank && review.text.length <= ShortReviewMax,
+                        type = type,
+                    )
                 } else {
                     BasicTextField(
                         value = text,
                         onValueChange = { text = it },
                         enabled = enabled,
-                        textStyle = diaryUserText(16.sp, 1.85f).copy(color = MaterialTheme.colorScheme.onSurface),
+                        textStyle = diaryUserText(type.review, type.reviewLine).copy(
+                            color = MaterialTheme.colorScheme.onSurface,
+                        ),
                         cursorBrush = SolidColor(tones.ink),
                         modifier = Modifier
                             .fillMaxWidth()
@@ -223,13 +235,13 @@ internal fun MemoryDiaryEntry(
                                 if (state.isFocused) writing = true
                             }
                             .semantics { contentDescription = "Your review" }
-                            .seamFade(16.sp),
+                            .seamFade(type.review),
                         decorationBox = { inner ->
                             Box {
                                 if (text.isEmpty()) {
                                     Text(
                                         text = "Write a few lines…",
-                                        style = diaryUserText(16.sp, 1.85f),
+                                        style = diaryUserText(type.review, type.reviewLine),
                                         color = MaterialTheme.colorScheme.onSurfaceVariant.copy(
                                             alpha = DiaryWriterTokens.PlaceholderAlpha,
                                         ),
@@ -256,11 +268,12 @@ internal fun MemoryDiaryEntry(
                 Box(
                     modifier = Modifier
                         .height(DiaryWriterTokens.RowHit)
-                        .noRippleClickable(interactionSource = cancelInteraction, onClickLabel = "Cancel") {
+                        .noRippleClickable(interactionSource = cancelInteraction, onClickLabel = "Discard the draft") {
                             text = ""
                             writing = false
                             focusManager.clearFocus()
                         }
+                        .semantics { role = Role.Button }
                         .padding(horizontal = 16.dp),
                     contentAlignment = Alignment.Center,
                 ) {
@@ -284,7 +297,10 @@ internal fun MemoryDiaryEntry(
                                 focusManager.clearFocus()
                             }
                         }
-                        .semantics { this.contentDescription = "Save" },
+                        .semantics {
+                            this.contentDescription = "Save"
+                            role = Role.Button
+                        },
                     contentAlignment = Alignment.Center,
                 ) {
                     JournalSavePill(
@@ -328,18 +344,18 @@ private fun EntryHeader(date: LocalDate, label: String, tones: MemoryPaletteTone
     }
 }
 
-/** Your review: no quotes, no signature; paragraphs .85em apart; a short one set large (26 / 500). */
+/** Your review: no quotes, no signature; paragraphs .85em apart; a short one set large (26 / 30 tablet, 500). */
 @Composable
-private fun ReviewBody(text: String, large: Boolean) {
+private fun ReviewBody(text: String, large: Boolean, type: MemoriesTypeScale) {
     val style = if (large) {
-        diaryUserText(26.sp, 1.5f, FontWeight.Medium)
+        diaryUserText(type.reviewShort, type.reviewShortLine, FontWeight.Medium)
     } else {
-        diaryUserText(16.sp, 1.85f)
+        diaryUserText(type.review, type.reviewLine)
     }
     val paragraphs = text.split('\n').filter(String::isNotBlank)
     Column(Modifier.semantics(mergeDescendants = true) {}) {
         paragraphs.forEachIndexed { i, paragraph ->
-            if (i > 0) Spacer(Modifier.height((16 * 0.85f).dp))
+            if (i > 0) Spacer(Modifier.height((type.review.value * 0.85f).dp))
             Text(
                 text = paragraph,
                 style = style,
