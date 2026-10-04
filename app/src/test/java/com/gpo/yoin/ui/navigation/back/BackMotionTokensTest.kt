@@ -13,4 +13,15 @@ class BackMotionTokensTest {
         assertEquals(28.dp, BackMotionTokens.PopPageCornerRadius)
     }
 
+    @Test
+    fun should_keep_memories_back_tokens_stable() {
+        // Owner-approved showcase v4 (twostate4 Q_BODY / Q_BAR, releaseQ, releaseV, d.D, BAND).
+        assertEquals(112.dp, BackMotionTokens.MemoriesDismissTrigger)
+        assertEquals(56.dp, BackMotionTokens.MemoriesBarDismissTrigger)
+        assertEquals(600.dp, BackMotionTokens.MemoriesDismissFling)
+        assertEquals(450.dp, BackMotionTokens.MemoriesBarDismissFling)
+        assertEquals(350.dp, BackMotionTokens.MemoriesFlickBack)
+        assertEquals(320.dp, BackMotionTokens.MemoriesDiaryMorphDistance)
+        assertEquals(24.dp, BackMotionTokens.MemoriesDiaryPullBand)
+    }
 }

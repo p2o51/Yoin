@@ -61,6 +61,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.toShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -83,7 +84,10 @@ import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.LayoutCoordinates
+import androidx.compose.ui.layout.onPlaced
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
@@ -106,6 +110,7 @@ import com.gpo.yoin.ui.component.formatTrackDuration
 import com.gpo.yoin.ui.component.rememberExpressiveBackdropColors
 import com.gpo.yoin.ui.component.yoinPageContentWidth
 import com.gpo.yoin.ui.experience.DeckIndicatorTransitionState
+import com.gpo.yoin.ui.experience.DismissRule
 import com.gpo.yoin.ui.experience.EdgeAdvanceDirection
 import com.gpo.yoin.ui.experience.LayoutMode
 import com.gpo.yoin.ui.experience.LocalYoinWindowInfo
@@ -118,7 +123,12 @@ import com.gpo.yoin.ui.experience.RevealState
 import com.gpo.yoin.ui.experience.rememberDeckIndicatorTransitionState
 import com.gpo.yoin.ui.experience.rememberEdgeAdvanceState
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
+import com.gpo.yoin.ui.experience.voteHighFrameRate
 import com.gpo.yoin.ui.navigation.back.BackMotionTokens
+import com.gpo.yoin.ui.navigation.back.MemoriesBackLevel
+import com.gpo.yoin.ui.navigation.back.MemoriesPredictiveBack
+import com.gpo.yoin.ui.navigation.back.memoriesDismissCorners
+import com.gpo.yoin.ui.navigation.back.rememberMemoriesDismissRules
 import com.gpo.yoin.ui.theme.ContinuousRoundedCornerShape
 import com.gpo.yoin.ui.theme.ExpressiveColorSchemeFactory
 import com.gpo.yoin.ui.theme.ProvideYoinMotionRole
@@ -139,6 +149,32 @@ import kotlinx.coroutines.launch
 private val MemoriesAdjacentDeckTrigger = 72.dp
 private val MemoriesDeckEnterOffset = 44.dp
 
+/**
+ * Plain (non-snapshot) geometry the page's dismiss drag reads at gesture
+ * time: written from placement and pointer callbacks, never read in
+ * composition, so none of it recomposes anything.
+ */
+private class MemoriesDismissGeometry {
+    var root: LayoutCoordinates? = null
+    var heightPx = 0f
+
+    /** Bottom of the top bar (header + the inset above it) in page px; 0 = no bar. */
+    var barBottomPx = 0f
+
+    /** Where the current lone finger went down, page px. */
+    var downY = Float.MAX_VALUE
+    var rule = DismissRule(commitPx = 0f, flingPxPerSec = 0f, flickBackPxPerSec = 0f)
+
+    /** A release committed: the retreat rides out and the drag ignores fingers. */
+    var committing = false
+
+    fun onHeaderPlaced(header: LayoutCoordinates) {
+        val page = root?.takeIf { it.isAttached } ?: return
+        if (!header.isAttached) return
+        barBottomPx = page.localPositionOf(header, Offset(0f, header.size.height.toFloat())).y
+    }
+}
+
 @Composable
 fun MemoriesScreen(
     viewModel: MemoriesViewModel,
@@ -148,11 +184,43 @@ fun MemoriesScreen(
     onOpenAlbum: (MemoryEntry) -> Unit,
     onNavigateToNeoDbSettings: () -> Unit = {},
     modifier: Modifier = Modifier,
+    // The shell grants back while Memories owns it (ShellBackResolver). Off
+    // by default so a test or harness host never intercepts back.
+    backEnabled: Boolean = false,
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val sessionState by viewModel.sessionState.collectAsStateWithLifecycle()
     val syncingIds by viewModel.syncingEntityIds.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
+    val haptics = rememberYoinHaptics()
+
+    // ── Retreat to Home (the outer q, RevealState) ──
+    // One vertical drag on the whole page, judged in dp: from the top bar
+    // 56dp / 450dp/s, from anywhere else 112dp / 600dp/s; a 350dp/s flick
+    // back returns even past the threshold. System back scrubs the same q.
+    val dismissRules = rememberMemoriesDismissRules()
+    val dismissGeometry = remember { MemoriesDismissGeometry() }
+    // The commit distance of whatever drives q now; the bottom corners are
+    // full exactly there. Read only inside the corner layer.
+    var cornerThresholdPx by remember(dismissRules) { mutableFloatStateOf(dismissRules.body.commitPx) }
+    val dismissDragState = rememberDraggableState { delta ->
+        if (!dismissGeometry.committing) {
+            revealState.dragBy(delta, dismissGeometry.heightPx)
+        }
+    }
+    // Derived: flips twice per motion, never per frame (invariant 10).
+    val dismissMoving by remember(revealState) {
+        derivedStateOf { revealState.fraction > 0.001f && revealState.fraction < 0.999f }
+    }
+
+    MemoriesPredictiveBack(
+        enabled = backEnabled,
+        level = MemoriesBackLevel.Card,
+        reveal = revealState,
+        containerHeightPx = { dismissGeometry.heightPx },
+        onDismiss = onDismissed,
+        onCardBackStarted = { cornerThresholdPx = dismissRules.body.commitPx },
+    )
 
     LaunchedEffect(viewModel) {
         viewModel.ensureLoaded()
@@ -200,18 +268,62 @@ fun MemoriesScreen(
     ProvideYoinMotionRole(role = YoinMotionRole.Expressive) {
         ExpressivePageBackground(
             modifier = modifier
+                .memoriesDismissCorners(revealState) { cornerThresholdPx }
+                .voteHighFrameRate(dismissMoving)
+                .onPlaced { coordinates ->
+                    dismissGeometry.root = coordinates
+                    dismissGeometry.heightPx = coordinates.size.height.toFloat()
+                }
                 // Hit-test shield. Without any pointer node on the root, a tap
                 // on blank page (the header band) falls through to Home's
                 // settings gear underneath. Merely being a pointer node makes
                 // the page the hit target, so siblings below are never hit
                 // tested; nothing is consumed, so the deck's own gestures are
                 // untouched. It rides the host's translation, so the strip of
-                // Home a half-open reveal uncovers stays tappable.
+                // Home a half-open reveal uncovers stays tappable. It also
+                // notes where a lone finger went down: that picks the dismiss
+                // rule (bar or body) once the drag passes slop.
                 .pointerInput(Unit) {
                     awaitPointerEventScope {
-                        while (true) awaitPointerEvent(PointerEventPass.Initial)
+                        while (true) {
+                            val event = awaitPointerEvent(PointerEventPass.Initial)
+                            if (event.type == PointerEventType.Press) {
+                                val down = event.changes.singleOrNull { it.pressed }
+                                if (down != null) dismissGeometry.downY = down.position.y
+                            }
+                        }
                     }
-                },
+                }
+                // The page's one vertical drag. The pager takes the other
+                // axis; nothing in the deck scrolls vertically.
+                .draggable(
+                    state = dismissDragState,
+                    orientation = Orientation.Vertical,
+                    onDragStarted = {
+                        val fromBar = dismissGeometry.downY < dismissGeometry.barBottomPx
+                        dismissGeometry.rule = if (fromBar) dismissRules.bar else dismissRules.body
+                        cornerThresholdPx = dismissGeometry.rule.commitPx
+                    },
+                    onDragStopped = { velocity ->
+                        if (revealState.fraction > 0f) {
+                            try {
+                                val target = revealState.settleDismiss(
+                                    velocityPxPerSec = velocity,
+                                    containerPx = dismissGeometry.heightPx,
+                                    rule = dismissGeometry.rule,
+                                    // A committed retreat rides out untouched.
+                                    onCommit = { dismissGeometry.committing = true },
+                                )
+                                if (target >= 1f) {
+                                    haptics.performConfirm()
+                                    onDismissed()
+                                }
+                            } finally {
+                                dismissGeometry.committing = false
+                            }
+                        }
+                    },
+                ),
         ) {
             AnimatedContent(
                 targetState = uiState,
@@ -248,7 +360,7 @@ fun MemoriesScreen(
                             contentState = state,
                             sessionState = sessionState,
                             revealState = revealState,
-                            onDismissed = onDismissed,
+                            dismissGeometry = dismissGeometry,
                             onPlayMemoryTrack = onPlayMemoryTrack,
                             onOpenAlbum = onOpenAlbum,
                             onAdvanceDeck = viewModel::advanceDeck,
@@ -332,7 +444,7 @@ private fun MemoriesContent(
     contentState: MemoriesUiState.Content,
     sessionState: MemoriesSessionState,
     revealState: RevealState,
-    onDismissed: () -> Unit,
+    dismissGeometry: MemoriesDismissGeometry,
     onPlayMemoryTrack: (MemoryEntry, Int) -> Unit,
     onOpenAlbum: (MemoryEntry) -> Unit,
     onAdvanceDeck: (MemoryDeckDirection) -> Unit,
@@ -352,9 +464,13 @@ private fun MemoriesContent(
     LaunchedEffect(contentState.deckRevision) {
         edgeAdvanceState.reset()
     }
+    // Only the content state has a top bar (the header); without it the whole
+    // page is card body.
+    DisposableEffect(dismissGeometry) {
+        onDispose { dismissGeometry.barBottomPx = 0f }
+    }
 
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
-        val containerHeightPx = with(density) { maxHeight.toPx().coerceAtLeast(1f) }
         // Breakpoints (断点交接 §6), height first: a landscape handset splits
         // the one card into two columns; a Wide full window opens it as a
         // spread; a 16:9 screen (the card face needs ~765dp without its
@@ -395,8 +511,6 @@ private fun MemoriesContent(
                 pageCount = { memories.size },
             )
             val coroutineScope = rememberCoroutineScope()
-            var isCommittedToDismiss by remember(deckState.deckRevision) { mutableStateOf(false) }
-            var latestContainerHeightPx by remember { mutableFloatStateOf(containerHeightPx) }
             val selectedIndex = pagerState.currentPage.coerceIn(0, memories.lastIndex)
             val selectedMemory = memories[selectedIndex]
             val adjacentDeckDirection = edgeAdvanceState.direction?.toMemoryDeckDirection()
@@ -410,10 +524,6 @@ private fun MemoriesContent(
                 fallbackBaseColor = MaterialTheme.colorScheme.primaryContainer,
                 fallbackAccentColor = MaterialTheme.colorScheme.tertiaryContainer,
             )
-
-            LaunchedEffect(containerHeightPx) {
-                latestContainerHeightPx = containerHeightPx
-            }
 
             LaunchedEffect(pagerState, memories) {
                 snapshotFlow { pagerState.currentPage to pagerState.currentPageOffsetFraction }
@@ -496,6 +606,9 @@ private fun MemoriesContent(
                     adjacentDeckDirection = adjacentDeckDirection,
                     modifier = Modifier
                         .fillMaxWidth()
+                        // The header band (with the inset above it) is the
+                        // top bar: a dismiss that starts here uses the bar rule.
+                        .onPlaced(dismissGeometry::onHeaderPlaced)
                         .padding(horizontal = 20.dp),
                 )
 
@@ -526,12 +639,7 @@ private fun MemoriesContent(
                         fallbackAccentColor = MaterialTheme.colorScheme.primary,
                     )
                     // 单视口固定栈：卡内没有任何竖向滚动，竖向手势整段归
-                    // dismiss。draggable 与 pager 的横向手势各占一轴。
-                    val dismissDragState = rememberDraggableState { delta ->
-                        if (!isCommittedToDismiss) {
-                            revealState.dragBy(delta, latestContainerHeightPx)
-                        }
-                    }
+                    // 页面根上的 dismiss draggable，与 pager 的横向手势各占一轴。
                     MemorySealCard(
                         memory = memory,
                         layout = cardLayout,
@@ -546,29 +654,7 @@ private fun MemoriesContent(
                             haptics.performClick()
                             onOpenAlbum(memory)
                         },
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .draggable(
-                                state = dismissDragState,
-                                orientation = Orientation.Vertical,
-                                onDragStopped = { velocity ->
-                                    if (revealState.fraction > 0f) {
-                                        isCommittedToDismiss = true
-                                        try {
-                                            val target = revealState.settle(
-                                                velocityPxPerSec = velocity,
-                                                containerPx = latestContainerHeightPx,
-                                            )
-                                            if (target >= 1f) {
-                                                haptics.performConfirm()
-                                                onDismissed()
-                                            }
-                                        } finally {
-                                            isCommittedToDismiss = false
-                                        }
-                                    }
-                                },
-                            ),
+                        modifier = Modifier.fillMaxSize(),
                     )
                 }
             }

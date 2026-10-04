@@ -3,6 +3,7 @@ package com.gpo.yoin.ui.experience
 import androidx.compose.animation.core.AnimationSpec
 import androidx.compose.animation.core.animate
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -86,6 +87,42 @@ class RevealState internal constructor(
     }
 
     /**
+     * Release with a rule judged in px and px/s — the same physical distance
+     * and speed on every screen — instead of [settle]'s fraction/velocity
+     * rule. [velocityPxPerSec] has [settle]'s convention (positive = finger
+     * moving down = opening). The target comes from [chooseDismissTarget];
+     * [onCommit] runs synchronously the moment the release commits (target 1),
+     * before the spring starts, so the caller can lock its input for the ride.
+     *
+     * Same single settle owner as [settle]: the spring runs on settleSpec with
+     * the finger's velocity (a commit never starts moving backwards), a drag
+     * cancels it and the calling coroutine, so nothing after an interrupted
+     * settle runs as if it landed. Returns the endpoint (0f open, 1f closed).
+     */
+    suspend fun settleDismiss(
+        velocityPxPerSec: Float,
+        containerPx: Float,
+        rule: DismissRule,
+        onCommit: () -> Unit = {},
+    ): Float {
+        val dismissVelocityPxPerSec = -velocityPxPerSec
+        val target = chooseDismissTarget(
+            dismissedPx = _fraction * containerPx,
+            dismissVelocityPxPerSec = dismissVelocityPxPerSec,
+            commitPx = rule.commitPx,
+            flingPxPerSec = rule.flingPxPerSec,
+            flickBackPxPerSec = rule.flickBackPxPerSec,
+        )
+        val velocityFractionPerSec = if (containerPx > 0f) dismissVelocityPxPerSec / containerPx else 0f
+        if (target >= 1f) onCommit()
+        animateInternal(
+            target = target,
+            initialVelocity = if (target >= 1f) velocityFractionPerSec.coerceAtLeast(0f) else velocityFractionPerSec,
+        )
+        return target
+    }
+
+    /**
      * Programmatic open (0f) or close (1f). Interruptible like [settle]:
      * a drag cancels the calling coroutine. Fire-and-forget call sites
      * (state-driven side effects) should prefer [launchAnimateTo].
@@ -154,6 +191,41 @@ class RevealState internal constructor(
     private companion object {
         const val VisibilityEpsilon = 0.001f
     }
+}
+
+/**
+ * A dismiss release rule in px and px/s, built from dp tokens (see
+ * `BackMotionTokens.Memories*`): commit past [commitPx] of travel or at
+ * [flingPxPerSec] toward the closed end; a flick back the other way at
+ * [flickBackPxPerSec] returns, even past [commitPx].
+ */
+@Immutable
+data class DismissRule(
+    val commitPx: Float,
+    val flingPxPerSec: Float,
+    val flickBackPxPerSec: Float,
+)
+
+/**
+ * The dismiss decision of [RevealState.settleDismiss], pure. [dismissedPx] is
+ * how far the surface has travelled toward closed; [dismissVelocityPxPerSec]
+ * is positive toward closed (finger up for a top-anchored sheet). Order
+ * matters and follows the approved prototype (twostate4 `releaseQ`):
+ * - a flick back at least [flickBackPxPerSec] the other way → 0f (stay open),
+ *   even past the commit distance;
+ * - past [commitPx], or at least [flingPxPerSec] toward closed → 1f;
+ * - otherwise → 0f.
+ */
+internal fun chooseDismissTarget(
+    dismissedPx: Float,
+    dismissVelocityPxPerSec: Float,
+    commitPx: Float,
+    flingPxPerSec: Float,
+    flickBackPxPerSec: Float,
+): Float = when {
+    dismissVelocityPxPerSec <= -flickBackPxPerSec -> 0f
+    dismissedPx >= commitPx || dismissVelocityPxPerSec >= flingPxPerSec -> 1f
+    else -> 0f
 }
 
 /**

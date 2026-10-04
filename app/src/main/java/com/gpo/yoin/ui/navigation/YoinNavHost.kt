@@ -879,9 +879,6 @@ private fun YoinShell(
                             )
 
                             if (memoriesMounted) {
-                                BackHandler(enabled = shellBackOwner == ShellBackOwner.Memories) {
-                                    closeMemories()
-                                }
                                 Box(
                                     modifier = Modifier
                                         .fillMaxSize()
@@ -893,6 +890,10 @@ private fun YoinShell(
                                         viewModel = memoriesViewModel,
                                         revealState = memoriesReveal,
                                         onDismissed = closeMemories,
+                                        // Memories mounts its own predictive back
+                                        // (card level: q scrubs toward Home) here,
+                                        // where the plain BackHandler used to be.
+                                        backEnabled = shellBackOwner == ShellBackOwner.Memories,
                                         // 印章卡唯一的导航出口：走 shell 的标准
                                         // detail 前进推入（隐藏底栏不参与 morph 交接）。
                                         // 不 dismiss —— Memories 留在原地，back

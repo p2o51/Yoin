@@ -1,0 +1,186 @@
+package com.gpo.yoin.ui.navigation.back
+
+import androidx.activity.compose.PredictiveBackHandler
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.RectangleShape
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalDensity
+import com.gpo.yoin.ui.experience.DismissRule
+import com.gpo.yoin.ui.experience.RevealState
+import com.gpo.yoin.ui.memories.showcase.MemoriesDiaryState
+import com.gpo.yoin.ui.theme.YoinMotion
+import kotlinx.coroutines.CancellationException
+
+/**
+ * Memories' back infrastructure (ShellOverlayUp, Pattern C). Two levels, two
+ * controllers, one handler:
+ *
+ * - [MemoriesBackLevel.Card]: back = retreat to Home. The outer q
+ *   ([RevealState.fraction]) is scrubbed from wherever it is (q0) toward the
+ *   [BackMotionTokens.MemoriesDismissTrigger] pose through
+ *   [YoinMotion.backGestureEasing] — the preview's full travel IS the
+ *   finger's commit distance. Commit → [onDismiss] (the host's surface
+ *   effect springs q to 1); cancel → q springs to 0. Both on RevealState's
+ *   settle spring.
+ * - [MemoriesBackLevel.Diary]: back = diary → card. The inner p is scrubbed
+ *   p0·(1 − ease(progress)) over the full range — no cap, no chase — from
+ *   where a running spring was caught. Commit → 0, cancel → 1, on the same
+ *   morph spring.
+ *
+ * Three-button / a11y back sends no progress events: the empty flow commits
+ * directly (invariant 8). Settles run on an outer scope; the handler's
+ * CancellationException is rethrown (invariant 7). Mount it where the shell's
+ * Memories BackHandler used to be and gate [enabled] on
+ * `shellBackOwner == ShellBackOwner.Memories` — ShellBackResolver's
+ * priority (NowPlaying > HomeEdit > DetailPane > Memories) is expressed only
+ * by that gate (invariant 9).
+ */
+enum class MemoriesBackLevel { Card, Diary }
+
+/**
+ * Memories' system back, both levels. [containerHeightPx] is read when a gesture starts.
+ * [onCardBackStarted] runs once per card-level gesture, before the first
+ * preview frame (the page uses it to key its corner rule to the back driver).
+ * [diary] may stay null until the diary exists; [MemoriesBackLevel.Diary]
+ * without it falls back to the card level.
+ */
+@Composable
+fun MemoriesPredictiveBack(
+    enabled: Boolean,
+    level: MemoriesBackLevel,
+    reveal: RevealState,
+    containerHeightPx: () -> Float,
+    onDismiss: () -> Unit,
+    diary: MemoriesDiaryState? = null,
+    onCardBackStarted: () -> Unit = {},
+) {
+    val scope = rememberCoroutineScope()
+    val triggerPx = with(LocalDensity.current) { BackMotionTokens.MemoriesDismissTrigger.toPx() }
+    val currentOnDismiss by rememberUpdatedState(onDismiss)
+    val currentOnCardBackStarted by rememberUpdatedState(onCardBackStarted)
+    PredictiveBackHandler(enabled = enabled) { events ->
+        // Captured once per gesture: a level never changes under a live back.
+        val diaryState = diary?.takeIf { level == MemoriesBackLevel.Diary }
+        if (diaryState != null) {
+            // Catch a running open/close spring where it is — never a jump to 1.
+            val p0 = diaryState.stop().coerceIn(0f, 1f)
+            try {
+                events.collect { event ->
+                    diaryState.snapTo(MemoriesBackMath.diaryFraction(p0, event.progress))
+                }
+                diaryState.launchAnimateTo(scope, 0f)
+            } catch (e: CancellationException) {
+                diaryState.launchAnimateTo(scope, 1f)
+                throw e
+            }
+        } else {
+            // snapTo(current) stops any settle in flight (open spring, return
+            // spring, a released drag) so the scrub starts from the page on
+            // screen; the finger then owns q 1:1 (invariant 2).
+            val q0 = reveal.fraction.coerceIn(0f, 1f)
+            reveal.snapTo(q0)
+            currentOnCardBackStarted()
+            val heightPx = containerHeightPx()
+            val triggerFraction = if (heightPx > 0f) triggerPx / heightPx else 0f
+            try {
+                events.collect { event ->
+                    reveal.snapTo(MemoriesBackMath.cardFraction(q0, triggerFraction, event.progress))
+                }
+                // Commit (also the button path with no events): the host's
+                // surface effect is the one owner of the close spring.
+                currentOnDismiss()
+            } catch (e: CancellationException) {
+                reveal.launchAnimateTo(scope, 0f)
+                throw e
+            }
+        }
+    }
+}
+
+/** Memories' two dismiss release rules in px and px/s, from [BackMotionTokens]. */
+@Immutable
+class MemoriesDismissRules(
+    /** The card body (and the diary's end): 112dp / 600dp/s, 350dp/s flick back. */
+    val body: DismissRule,
+    /** The top bar: 56dp / 450dp/s, 350dp/s flick back. */
+    val bar: DismissRule,
+)
+
+@Composable
+fun rememberMemoriesDismissRules(): MemoriesDismissRules {
+    val density = LocalDensity.current
+    return remember(density) {
+        with(density) {
+            val flickBack = BackMotionTokens.MemoriesFlickBack.toPx()
+            MemoriesDismissRules(
+                body = DismissRule(
+                    commitPx = BackMotionTokens.MemoriesDismissTrigger.toPx(),
+                    flingPxPerSec = BackMotionTokens.MemoriesDismissFling.toPx(),
+                    flickBackPxPerSec = flickBack,
+                ),
+                bar = DismissRule(
+                    commitPx = BackMotionTokens.MemoriesBarDismissTrigger.toPx(),
+                    flingPxPerSec = BackMotionTokens.MemoriesBarDismissFling.toPx(),
+                    flickBackPxPerSec = flickBack,
+                ),
+            )
+        }
+    }
+}
+
+/**
+ * The retreating page's bottom corners: [BackMotionTokens.PopPageCornerRadius]
+ * · smoothstep(0, threshold / H, q), where threshold is the commit distance of
+ * whatever drives q (56dp bar, 112dp body and back) — full exactly when a
+ * release would commit. Flat, no shadow. Reads q and the threshold only here,
+ * inside the layer (invariant 6); clips only while a corner exists.
+ */
+fun Modifier.memoriesDismissCorners(reveal: RevealState, cornerThresholdPx: () -> Float): Modifier = graphicsLayer {
+    val radius = MemoriesBackMath.cornerRadius(
+        fraction = reveal.fraction,
+        thresholdPx = cornerThresholdPx(),
+        heightPx = size.height,
+        maxRadiusPx = BackMotionTokens.PopPageCornerRadius.toPx(),
+    )
+    if (radius > 0f) {
+        shape = RoundedCornerShape(topStart = 0f, topEnd = 0f, bottomEnd = radius, bottomStart = radius)
+        clip = true
+    } else {
+        shape = RectangleShape
+        clip = false
+    }
+}
+
+/** Pure back-preview math (MemoriesBackMathTest). Progress is the raw system 0..1. */
+internal object MemoriesBackMath {
+    /**
+     * Card level: q = q0 + (max(Δ, q0) − q0) · ease(progress), Δ = trigger / H.
+     * From rest that is the plan's q0 + (Δ − q0)·ease — progress 1 parks the
+     * page at the commit distance. A back that catches the page already past
+     * Δ (an open or close spring mid-flight) holds it there rather than
+     * pulling it back down under the preview.
+     */
+    fun cardFraction(q0: Float, triggerFraction: Float, progress: Float): Float {
+        val target = maxOf(triggerFraction, q0)
+        return q0 + (target - q0) * YoinMotion.backGestureEasing.transform(progress.coerceIn(0f, 1f))
+    }
+
+    /** Diary level: p = p0 · (1 − ease(progress)), full range from where the gesture caught p. */
+    fun diaryFraction(p0: Float, progress: Float): Float =
+        p0 * (1f - YoinMotion.backGestureEasing.transform(progress.coerceIn(0f, 1f)))
+
+    /** See [memoriesDismissCorners]. */
+    fun cornerRadius(fraction: Float, thresholdPx: Float, heightPx: Float, maxRadiusPx: Float): Float {
+        if (fraction <= 0f) return 0f
+        if (heightPx <= 0f || thresholdPx <= 0f) return maxRadiusPx
+        val t = (fraction / (thresholdPx / heightPx)).coerceIn(0f, 1f)
+        return maxRadiusPx * t * t * (3f - 2f * t)
+    }
+}
