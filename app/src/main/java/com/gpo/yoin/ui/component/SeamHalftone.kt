@@ -20,8 +20,9 @@ import kotlin.math.sqrt
  * element; every dot is evaluated against each active seam and keeps the
  * smallest radius (and that seam's swirl):
  *
- *  - [Top]: curve C under fixed chrome. The radius follows the dot's distance
- *    below the seam (zero at the seam, whole at band + front).
+ *  - [Top]: curve C under fixed chrome — the Dots top seam, one of the
+ *    user's choices ([SeamTopStyle.Dots]). The radius follows the dot's
+ *    distance below the seam (zero at the seam, whole at band + front).
  *  - [Tail]: the bottom field. Content opens up over the approach, runs on
  *    under the bar as a still lattice to the screen's bottom edge, and dots
  *    whose lightness is close to the bar's give way next to it.

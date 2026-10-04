@@ -29,6 +29,7 @@ import androidx.compose.ui.graphics.RenderEffect
 import androidx.compose.ui.graphics.asComposeRenderEffect
 import androidx.compose.ui.graphics.drawscope.ContentDrawScope
 import androidx.compose.ui.graphics.drawscope.clipPath
+import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.layer.GraphicsLayer
@@ -58,6 +59,7 @@ import androidx.compose.ui.node.invalidateDraw
 import androidx.compose.ui.node.requireDensity
 import androidx.compose.ui.node.requireGraphicsContext
 import androidx.compose.ui.node.requireLayoutCoordinates
+import androidx.compose.ui.node.requireView
 import androidx.compose.ui.platform.InspectorInfo
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Density
@@ -78,28 +80,40 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 
 /*
- * Soft seams where scrolling content meets Yoin's own chrome (dissolve-final).
- * Nothing is painted over a seam: each item carries its own mask. Graphics
- * (covers, avatars, thumbnails, tinted cards) break into a halftone print
- * anchored to the item; text, icons and numbers never become dots.
+ * Soft seams where scrolling content meets Yoin's own chrome (dissolve-final;
+ * top seams re-decided 2026-10-04). Text, icons and numbers never become dots.
  *
  *  - TOP, under fixed chrome (Library's chips, a detail page's docked band):
- *    curve C — graphics are whole until ~11dp from the seam at rest and gone
- *    exactly at it; text fades over its last max(10dp, 0.75 × its size).
- *  - BOTTOM, around the floating bar: a field. Graphics start to open 20dp
- *    above the bar, finish the approach behind it, and run on under and
- *    beside it as a still lattice to the screen's bottom edge. Text passes
- *    under the bar untouched.
+ *    the user's choice in Settings › Motion ([SeamTopStyle]), text fading
+ *    over its last max(10dp, 0.75 × its size) in every style:
+ *     - Tide line (the default): as on Home's status bar (SeamTide.kt). Two
+ *       waves cut the content away as a mask — whatever is really behind
+ *       shows through, so it is right on accent-tinted detail pages too —
+ *       and content sinks under the water line; text fades below the line.
+ *     - Dots: the original curve C — graphics are whole until ~11dp from the
+ *       seam at rest and gone exactly at it.
+ *     - Cookie wave (SeamCookie.kt): each graphic's top edge is one wave lip
+ *       that morphs Cookie → sine → SoftBurst over its exit.
+ *  - BOTTOM, around the floating bar: a field. Graphics (covers, avatars,
+ *    thumbnails, tinted cards) break into a halftone print anchored to the
+ *    item: they start to open 20dp above the bar, finish the approach behind
+ *    it, and run on under and beside it as a still lattice to the screen's
+ *    bottom edge. Text passes under the bar untouched.
  *
- * Both breathe with scroll speed (静紧动松: wider while flung, back within the
- * afterglow) and both settle onto the lattice at rest (静整动乱, §1.7).
- * Mark the scroll container with [seamDissolveViewport], then opt in per
- * element with [seamDissolve] (graphics) and [seamFade] (text). Both are no-ops
- * outside a viewport, so shared components carry them everywhere.
+ * Both breathe with scroll speed (静紧动松: taller waves / a wider field while
+ * flung, back within the afterglow); the field settles onto its lattice at
+ * rest (静整动乱, §1.7). Mark the scroll container with [seamDissolveViewport],
+ * then opt in per element with [seamDissolve] (graphics) and [seamFade]
+ * (text). Both are no-ops outside a viewport, so shared components carry them
+ * everywhere.
  */
 
 internal object SeamDissolveTokens {
-    /** Curve C band G: the dots go from whole print to nothing over it. At rest / fully stretched. */
+    /**
+     * Curve C band G (the Dots top seam): the dots go from whole print to
+     * nothing over it. At rest / fully stretched. Also scales the flow's lag
+     * cap ([FlowLag] × this), which every seam's afterglow reads.
+     */
     val Band = 12.dp
     val BandStretched = 34.dp
 
@@ -119,13 +133,13 @@ internal object SeamDissolveTokens {
     const val DotRadius = .64f
     const val DotGamma = .8f
 
-    /** Scroll it takes for the top band to grow from nothing at rest (and the field to shrink at the end). */
+    /** Scroll it takes for the top seam to come in from nothing at rest (and the field to shrink at the end). */
     val RevealDistance = 40.dp
 
     /** Same screen frequency as the cover-swap [ArtworkHalftone]. */
     val Pitch = 6.dp
 
-    /** Most the halftone flow may trail the content, as a fraction of G. */
+    /** Most the halftone flow may trail the content, as a fraction of G ([Band]). */
     const val FlowLag = .5f
 
     /** Stretch = smoothstep((speed − onset) / span): nothing below 150dp/s, full from 1450dp/s. */
@@ -169,8 +183,8 @@ internal object SeamDissolveTokens {
     /** Items whose bottom is within this of the window's bottom edge watch the field. */
     val FieldWatch = 240.dp
 
-    // ── Home's tide line (§1.3, SeamTide.kt) ──
-    /** The line rests this far below the status bar once the page has scrolled. */
+    // ── The tide line (§1.3, SeamTide.kt): Home's status bar, and the chrome seam's default ──
+    /** The line rests this far below the status bar (or the chrome's seam) once the page has scrolled. */
     val TideRest = 2.dp
 
     /** Before the first 40dp of scroll the line hides this far above the screen. */
@@ -189,6 +203,74 @@ internal object SeamDissolveTokens {
     val TidePhaseTravel = 88.dp
     const val TideHarmonic = .18f
     val TideStep = 3.dp
+
+    // ── 曲奇浪口: the Cookie wave top seam (SeamCookie.kt) ──
+    /** Band G at rest / fully stretched; below [CookieMinBand] (revealing) there is no lip. */
+    val CookieBand = 12.dp
+    val CookieBandStretched = 22.dp
+    val CookieMinBand = .05.dp
+
+    /** The front's mean depth below the seam, as a fraction of G. */
+    const val CookieRest = .45f
+
+    /** Lobes of about this width, at least [CookieMinLobes] per item. */
+    val CookieLobe = 30.dp
+    const val CookieMinLobes = 2
+
+    /** Wave height at rest / fully stretched, capped at these fractions of G and of a lobe. */
+    val CookieAmplitude = 4.dp
+    val CookieAmplitudeStretched = 6.dp
+    const val CookieAmplitudeOfBand = .34f
+    const val CookieAmplitudeOfLobe = .2f
+
+    /** The exit progress q starts this far before the item's top reaches the seam. */
+    val CookieEntry = 12.dp
+
+    /** The envelope E(q): in over q 0..[CookieEnvelopeIn], out over [CookieEnvelopeOut]..1. */
+    const val CookieEnvelopeIn = .1f
+    const val CookieEnvelopeOut = .9f
+
+    /** Character p: Cookie at the start, SoftBurst at the end, morphing over q [CookieMorphFrom]..[CookieMorphTo]. */
+    const val CookieCharacterFrom = .5f
+    const val CookieCharacterTo = 1.8f
+    const val CookieMorphFrom = .2f
+    const val CookieMorphTo = .8f
+
+    /** No tip sharper than this radius; ε lifts the notches off a cusp. */
+    val CookieTipRadius = 4.dp
+    const val CookieNotch = .08f
+
+    /** Phase: a quarter roll per lobe over the exit, the afterglow's lag (in G) and a coherent row ripple × D. */
+    const val CookieRoll = .25f
+    const val CookieLagPhase = .5f
+    const val CookieRipple = .12f
+    val CookieRippleWavelength = 260.dp
+    val CookieRippleTravel = 480.dp
+
+    /** Squares' shoulders: .2G deep at the side edges, [CookieShoulderReach] wide, in over q 0..[CookieShoulderIn]. */
+    const val CookieShoulder = .2f
+    const val CookieShoulderIn = .15f
+    val CookieShoulderReach = 10.dp
+
+    /** The lip flattens as the item's own bottom edge comes within this of the rest line. */
+    val CookieGuard = 16.dp
+
+    /** The square silhouette's corner. */
+    val CookieCorner = 4.dp
+
+    /**
+     * Where a square box's round item is told apart, as a fraction of its
+     * width on both axes: outside a circle (its 45° edge is at .146w), inside
+     * a square pressed to .97 and its 4dp / 8dp corner.
+     */
+    const val CookieProbe = .1f
+
+    /** The front's anti-aliased half width. */
+    val CookieEdge = .6.dp
+
+    /** Tip veil: this far toward the page colour at the seam, gone at [CookieVeilDepth] × G. */
+    const val CookieVeil = .5f
+    const val CookieVeilDepth = .55f
 }
 
 /**
@@ -270,10 +352,14 @@ internal class SeamBackground(val colors: List<Color>) {
 
 /** What a viewport does at its top edge. */
 internal enum class SeamTop {
-    /** Fixed chrome above: graphics dissolve (curve C), text fades. */
-    Dissolve,
+    /**
+     * Fixed chrome above (Library's chips, a detail page's docked band): the
+     * top seam in the user's style ([SeamTopStyle]) — the tide line cut by the
+     * viewport (the default), curve C dots, or the Cookie wave; text fades.
+     */
+    Chrome,
 
-    /** Graphics pass under something else (Home's tide); only text fades. */
+    /** Graphics pass under something else (Home's status-bar tide); only text fades. */
     FadeText,
 
     /** Nothing at the top. */
@@ -293,7 +379,7 @@ internal enum class SeamTop {
  * reveal distance), [background] the page colour the field eases toward.
  */
 internal fun Modifier.seamDissolveViewport(
-    top: SeamTop = SeamTop.Dissolve,
+    top: SeamTop = SeamTop.Chrome,
     topInset: Dp = 0.dp,
     flow: SeamFlow? = null,
     background: SeamBackground? = null,
@@ -340,6 +426,7 @@ private class SeamViewportNode(
 ) : DelegatingNode(),
     TraversableNode,
     LayoutAwareModifierNode,
+    DrawModifierNode,
     CompositionLocalConsumerModifierNode {
     override val traverseKey: Any get() = SeamViewportKey
     var coordinates: LayoutCoordinates? = null
@@ -355,6 +442,8 @@ private class SeamViewportNode(
     private var pendingDelta = 0f
     private var pendingTravel = 0f
     private var follower: Job? = null
+    private val tidePath = Path()
+    private val tidePaint = Paint()
 
     init {
         delegate(
@@ -385,8 +474,77 @@ private class SeamViewportNode(
 
     fun topInsetPx(): Float = with(requireDensity()) { topInset.toPx() }
 
+    /**
+     * The look of this viewport's chrome seam; null when it has none. Snapshot
+     * reads (the user can change it in Settings at any time) — call it from
+     * draw or layer blocks only.
+     */
+    val topStyle: SeamTopStyle? get() = if (top == SeamTop.Chrome) SeamTopPreference.style else null
+
+    /** This node draws the tide line at its top and text fades below the line's rest. A snapshot read. */
+    val tideActive: Boolean get() = topStyle == SeamTopStyle.Tide
+
+    /** Where the seam line sits down the window (0..1), for the page colour behind it. */
+    fun seamRootFraction(): Float {
+        val coordinates = coordinates?.takeIf { it.isAttached } ?: return 0f
+        val rootHeight = coordinates.findRootCoordinates().size.height
+        if (rootHeight <= 0) return 0f
+        return (coordinates.positionInRoot().y + topInsetPx()) / rootHeight
+    }
+
+    override fun onAttach() {
+        // The View's context, not LocalContext: only the application context
+        // is read, once per process.
+        SeamTopPreference.ensureLoaded(requireView().context)
+    }
+
     override fun onPlaced(coordinates: LayoutCoordinates) {
         this.coordinates = coordinates
+    }
+
+    // The tide as a mask, not paint: the band is drawn into a small layer and
+    // the waves cut it (the back one half clear), so whatever is really behind
+    // — Library's gradient, a detail page's accent wash — shows through.
+    // Same as painting the page colour, without having to know it.
+    override fun ContentDrawScope.draw() {
+        if (!tideActive) {
+            drawContent()
+            return
+        }
+        val reveal = seamReveal(scrolledPx(), SeamDissolveTokens.RevealDistance.toPx())
+        val reduced = reducedMotion()
+        val amplitude = tideAmplitudePx(flow, reduced)
+        val inset = topInset.toPx()
+        // Unlike Home, nothing paints above the line here, so a crest over the
+        // viewport top would leave a straight cut against the chrome: the rest
+        // sits a crest lower. Hidden clears the back wave too, so reveal 0 is
+        // no cut at all and the first scroll pixel adds none.
+        val base = tideBase(
+            restPx = inset + SeamDissolveTokens.TideRest.toPx() + tideCrestPx(amplitude),
+            hiddenPx = max(SeamDissolveTokens.TideHidden.toPx(), tideDepthPx(amplitude) + 1f) - inset,
+            reveal = reveal,
+        )
+        val depth = min(size.height, ceil(base + tideDepthPx(amplitude) + 1f))
+        if (reveal <= 0f || depth <= 0f) {
+            drawContent()
+            return
+        }
+        // Below the band the content draws straight through (sideways bleed kept).
+        val outside = max(size.width, size.height)
+        clipRect(-outside, depth, size.width + outside, size.height + outside) {
+            this@draw.drawContent()
+        }
+        drawIntoCanvas { it.saveLayer(Rect(0f, 0f, size.width, depth), tidePaint) }
+        clipRect(0f, 0f, size.width, depth) { this@draw.drawContent() }
+        drawTideWaves(tidePath, base, amplitude, tidePhase(flow, reduced)) { back ->
+            drawPath(
+                path = tidePath,
+                color = Color.Black,
+                alpha = if (back) SeamDissolveTokens.TideBackAlpha else 1f,
+                blendMode = BlendMode.DstOut,
+            )
+        }
+        drawIntoCanvas { it.restore() }
     }
 
     override fun onDetach() {
@@ -476,13 +634,14 @@ internal fun LazyGridState.seamRemainingPx(): Float {
 
 internal fun ScrollState.seamRemainingPx(): Float = (maxValue - value).toFloat()
 
-/** Artwork: dissolves into a halftone print at the seams. */
+/** Artwork: dissolves into a halftone print in the bottom field, and takes the chrome seam's dots or lip. */
 internal fun Modifier.seamDissolve(): Modifier = this then SeamPrintElement then SeamDissolveElement
 
 /**
- * Text: fades out as it rises into a top seam, never breaks into dots, and
- * passes under the bar untouched. [fontSize] lengthens the fade for display
- * type (0.75 × size), so a large title fades instead of looking sliced.
+ * Text: fades out as it rises into a top seam (below the tide line under
+ * fixed chrome), never breaks into dots, and passes under the bar untouched.
+ * [fontSize] lengthens the fade for display type (0.75 × size), so a large
+ * title fades instead of looking sliced.
  */
 internal fun Modifier.seamFade(fontSize: TextUnit = TextUnit.Unspecified): Modifier =
     this then SeamFadeElement(fontSize)
@@ -553,10 +712,10 @@ private abstract class SeamNode :
     }
 
     /** How far below the top seam this element can still be touched by it, px. */
-    abstract fun Density.topReach(): Float
+    open fun Density.topReach(): Float = 0f
 
     /** Whether this element takes the top seam at all, for the viewport's mode. */
-    abstract fun takesTop(top: SeamTop): Boolean
+    open fun takesTop(top: SeamTop): Boolean = false
 
     /** Whether this element takes the bottom field. */
     open val takesField: Boolean get() = false
@@ -581,11 +740,11 @@ private abstract class SeamNode :
         rootTop = position.y
         nearTop = top
         nearField = field
-        onNearChanged(top || field)
+        onNearChanged(top, field)
         if (wasNear || top || field) onMovedNear()
     }
 
-    open fun onNearChanged(near: Boolean) = Unit
+    open fun onNearChanged(top: Boolean, field: Boolean) = Unit
 
     /** This element moved while near a seam (or just left one): redraw what depends on its place. */
     open fun onMovedNear() = invalidateDraw()
@@ -600,10 +759,13 @@ private abstract class SeamNode :
 }
 
 /**
- * Graphics. A dissolving element nested inside another one (a cover on a
- * tinted card) defers to it: the card breaks up as one print. Text inside a
- * dissolving element ([seamFade]) is lifted out of the print and drawn on top
- * of it, so it never becomes dots.
+ * Graphics. At the chrome seam they take the user's style: under the tide
+ * the viewport masks them (nothing to do here); Dots break them into the
+ * curve C print; the Cookie wave cuts each one's top edge into its lip. A
+ * dissolving element nested inside another one (a cover on a tinted card)
+ * defers to it: the card breaks up as one print. Text inside a dissolving
+ * element ([seamFade]) is lifted out of the print and drawn on top of it, so
+ * it never becomes dots.
  */
 private class SeamDissolveNode :
     SeamNode(),
@@ -611,6 +773,7 @@ private class SeamDissolveNode :
     // Varies the dissolve front between items; stable for the node's life.
     private val seed = (System.identityHashCode(this) % 1000) / 100f
     private var shader: Any? = null
+    private var cookieShader: Any? = null
 
     // API 33+: the halftone is a RenderEffect on the content's own placement
     // layer, set from the layer block. A scroll only updates the effect (a
@@ -624,7 +787,10 @@ private class SeamDissolveNode :
     private val dot = FloatArray(3)
     private val topSeam = SeamHalftone.Top()
     private val tail = SeamHalftone.Tail()
+    private val lip = SeamCookie.Lip()
+    private val cut = Path()
     private val fadePaint = Paint()
+    private val lipPaint = Paint()
 
     /** This element's own print (the node just before it in the chain). */
     private var print: SeamPrintNode? = null
@@ -634,7 +800,9 @@ private class SeamDissolveNode :
 
     override val takesField: Boolean get() = !deferred
 
-    override fun takesTop(top: SeamTop): Boolean = !deferred && top == SeamTop.Dissolve
+    // Every style is tracked alike, so switching it in Settings repaints items
+    // at rest: the style itself is read in the draw / layer block.
+    override fun takesTop(top: SeamTop): Boolean = !deferred && top == SeamTop.Chrome
 
     override fun Density.topReach(): Float =
         (SeamDissolveTokens.BandStretched + SeamDissolveTokens.FrontStretched + SeamDissolveTokens.Pitch * 2).toPx()
@@ -643,9 +811,10 @@ private class SeamDissolveNode :
         print = findNearestAncestor(SeamHostKey) as? SeamPrintNode
     }
 
-    override fun onNearChanged(near: Boolean) {
+    override fun onNearChanged(top: Boolean, field: Boolean) {
         val print = print ?: return
-        if (print.lifting != near) print.lifting = near
+        if (print.liftForTop != top) print.liftForTop = top
+        if (print.liftForField != field) print.liftForField = field
     }
 
     override fun onMovedNear() {
@@ -681,11 +850,13 @@ private class SeamDissolveNode :
         } else {
             val viewport = viewport()
             val top = if (viewport != null && nearTop) configureTop(viewport, size) else null
+            val cookie = if (viewport != null && nearTop) configureCookie(viewport, size) else null
             val field = if (viewport != null && nearField) configureTail(viewport, size) else null
             when {
-                top == null && field == null -> drawContent()
+                top == null && cookie == null && field == null -> drawContent()
                 // Wholly above the seam: already gone. (The viewport clips here too.)
-                top != null && field == null && offsetFromSeam + size.height <= 0f -> Unit
+                (top != null || cookie != null) && field == null && offsetFromSeam + size.height <= 0f -> Unit
+                cookie != null -> drawWithLip(cookie, field, viewport?.flow?.disorder ?: 0f)
                 else -> drawWithPath(
                     SeamHalftone.lattice(size.width, SeamDissolveTokens.Pitch.toPx()),
                     top,
@@ -696,8 +867,9 @@ private class SeamDissolveNode :
         }
     }
 
+    /** Curve C, when the chrome seam is in the Dots style. */
     private fun Density.configureTop(viewport: SeamViewportNode, size: Size): SeamHalftone.Top? {
-        if (viewport.top != SeamTop.Dissolve) return null
+        if (viewport.topStyle != SeamTopStyle.Dots) return null
         val reveal = seamReveal(viewport.scrolledPx(), SeamDissolveTokens.RevealDistance.toPx())
         val stretch = viewport.flow.stretch
         val band = bandAt(stretch).toPx() * reveal
@@ -708,6 +880,33 @@ private class SeamDissolveNode :
         topSeam.flowShift = viewport.flow.lagPx / band
         // Wholly below the seam's reach: untouched.
         return if (topSeam.seam + topSeam.solid + SeamDissolveTokens.Pitch.toPx() < 0f) null else topSeam
+    }
+
+    /** The lip, when the chrome seam is in the Cookie style. */
+    private fun Density.configureCookie(viewport: SeamViewportNode, size: Size): SeamCookie.Lip? {
+        if (viewport.topStyle != SeamTopStyle.Cookie) return null
+        val reduced = viewport.reducedMotion()
+        val flow = viewport.flow
+        val touched = with(SeamCookie) {
+            configure(
+                lip = lip,
+                seam = -offsetFromSeam,
+                width = size.width,
+                height = size.height,
+                centreX = rootLeft + size.width / 2f,
+                stretch = flow.stretch,
+                disorder = flow.disorder,
+                lagPx = flow.lagPx,
+                travelPx = flow.travelPx,
+                reveal = seamReveal(viewport.scrolledPx(), SeamDissolveTokens.RevealDistance.toPx()),
+                reduced = reduced,
+            )
+        }
+        if (!touched) return null
+        val page = viewport.background
+        lip.page = page?.at(viewport.seamRootFraction()) ?: Color.Transparent
+        if (page == null) lip.veil = 0f
+        return lip
     }
 
     private fun Density.configureTail(viewport: SeamViewportNode, size: Size): SeamHalftone.Tail? {
@@ -762,17 +961,31 @@ private class SeamDissolveNode :
 
     private var tailPage = Color.Transparent
 
-    /** The halftone as a RenderEffect for this element's layer; null when no seam touches it. */
+    /** The halftone (and the lip) as a RenderEffect for this element's layer; null when no seam touches it. */
     private fun GraphicsLayerScope.shaderEffect(size: Size): RenderEffect? {
         placed.intValue
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return null
         if (deferred || size.isEmpty()) return null
         val viewport = viewport() ?: return null
         val top = if (nearTop) configureTop(viewport, size) else null
+        val cookie = if (nearTop) configureCookie(viewport, size) else null
         val field = if (nearField) configureTail(viewport, size) else null
-        if (top == null && field == null) return null
+        if (top == null && cookie == null && field == null) return null
         val lattice = SeamHalftone.lattice(size.width, SeamDissolveTokens.Pitch.toPx())
-        return runtimeEffect(lattice, size, top, field, viewport.flow.disorder)
+        val halftone = if (top != null || field != null) {
+            runtimeEffect(lattice, size, top, field, viewport.flow.disorder)
+        } else {
+            null
+        }
+        if (cookie == null) return halftone?.asComposeRenderEffect()
+        val lipEffect = cookieEffect(size, cookie)
+        // The lip cuts the print, when an item is in both seams at once.
+        val effect = if (halftone != null) {
+            android.graphics.RenderEffect.createChainEffect(lipEffect, halftone)
+        } else {
+            lipEffect
+        }
+        return effect.asComposeRenderEffect()
     }
 
     // One pass on the GPU: each pixel finds the dots that can reach it.
@@ -783,7 +996,7 @@ private class SeamDissolveNode :
         top: SeamHalftone.Top?,
         field: SeamHalftone.Tail?,
         disorder: Float,
-    ): RenderEffect {
+    ): android.graphics.RenderEffect {
         val runtimeShader = shader as? RuntimeShader ?: RuntimeShader(SeamHalftone.AGSL).also { shader = it }
         runtimeShader.setFloatUniform("size", size.width, size.height)
         runtimeShader.setFloatUniform("cell", lattice.cellWidth, lattice.rowHeight)
@@ -813,9 +1026,62 @@ private class SeamDissolveNode :
         runtimeShader.setFloatUniform("fadeEnd", tail.fadeEnd)
         runtimeShader.setColorUniform("page", tailPage.toArgb())
         // The effect captures the uniforms as they are now.
-        return android.graphics.RenderEffect
-            .createRuntimeShaderEffect(runtimeShader, "content")
-            .asComposeRenderEffect()
+        return android.graphics.RenderEffect.createRuntimeShaderEffect(runtimeShader, "content")
+    }
+
+    // The lip on the GPU: per band pixel one cos, one pow and the content's eval.
+    @RequiresApi(Build.VERSION_CODES.TIRAMISU)
+    private fun Density.cookieEffect(size: Size, lip: SeamCookie.Lip): android.graphics.RenderEffect {
+        val runtimeShader = cookieShader as? RuntimeShader
+            ?: RuntimeShader(SeamCookie.AGSL).also { cookieShader = it }
+        runtimeShader.setFloatUniform("size", size.width, size.height)
+        runtimeShader.setFloatUniform("seam", lip.seam)
+        runtimeShader.setFloatUniform("rest", lip.rest)
+        runtimeShader.setFloatUniform("lobes", lip.lobes)
+        runtimeShader.setFloatUniform("amplitude", lip.amplitude)
+        runtimeShader.setFloatUniform("character", lip.character)
+        runtimeShader.setFloatUniform("phase", lip.phase)
+        runtimeShader.setFloatUniform("shoulder", lip.shoulder)
+        runtimeShader.setFloatUniform("shape", lip.shoulderReach, lip.guard, lip.corner, lip.edge)
+        val probe = size.width * SeamDissolveTokens.CookieProbe
+        runtimeShader.setFloatUniform("probe", probe, probe)
+        runtimeShader.setFloatUniform("roundable", if (SeamCookie.roundable(size.width, size.height)) 1f else 0f)
+        runtimeShader.setFloatUniform("veil", lip.veil, max(1f, lip.veilDepth))
+        runtimeShader.setFloatUniform("reach", lip.reach)
+        runtimeShader.setColorUniform("page", lip.page.toArgb())
+        return android.graphics.RenderEffect.createRuntimeShaderEffect(runtimeShader, "content")
+    }
+
+    // Pre-33 lip: the same front as the shader, cut away with DstOut, and the
+    // tip veil as a SrcAtop ramp onto the item's own pixels. It cannot read
+    // the content, so every item keeps its shoulders; square boxes guard
+    // with the ellipse (SeamCookie.buildCut).
+    private fun ContentDrawScope.drawWithLip(lip: SeamCookie.Lip, field: SeamHalftone.Tail?, disorder: Float) {
+        val outside = max(size.width, size.height)
+        drawIntoCanvas { it.saveLayer(Rect(0f, 0f, size.width, size.height), lipPaint) }
+        if (field != null) {
+            drawWithPath(SeamHalftone.lattice(size.width, SeamDissolveTokens.Pitch.toPx()), null, field, disorder)
+        } else {
+            drawContent()
+        }
+        if (lip.veil > 0f) {
+            drawRect(
+                brush = Brush.verticalGradient(
+                    colorStops = Array(LipVeilStops) { index ->
+                        val u = index / (LipVeilStops - 1f)
+                        u to lip.page.copy(alpha = SeamCookie.veil(lip, u * lip.veilDepth))
+                    },
+                    startY = lip.seam,
+                    endY = lip.seam + lip.veilDepth,
+                ),
+                topLeft = Offset(0f, lip.seam),
+                size = Size(size.width, lip.veilDepth),
+                blendMode = BlendMode.SrcAtop,
+            )
+        }
+        SeamCookie.buildCut(cut, lip, size.width, size.height, 1.dp.toPx(), outside)
+        drawPath(cut, Color.Black, blendMode = BlendMode.DstOut)
+        drawIntoCanvas { it.restore() }
     }
 
     // Pre-33 fallback: the same geometry as the shader, as a Path mask. It
@@ -901,8 +1167,16 @@ private class SeamPrintNode :
     var outer: SeamPrintNode? = null
         private set
 
-    /** The element is near a seam: the text in it draws through [lifted]. Read in draw by both sides. */
-    var lifting by mutableStateOf(false)
+    /** The element is near the chrome seam / the bottom field. */
+    var liftForTop by mutableStateOf(false)
+    var liftForField by mutableStateOf(false)
+
+    /**
+     * The print is breaking up: the text in it draws through [lifted]. Under
+     * the tide it stays whole, so its text stays in it. Snapshot reads — read
+     * in draw by both sides.
+     */
+    val lifting: Boolean get() = liftForField || (liftForTop && SeamTopPreference.style.liftsText)
     val lifted = LinkedHashSet<SeamFadeNode>()
 
     override fun onAttach() {
@@ -911,7 +1185,8 @@ private class SeamPrintNode :
 
     override fun onDetach() {
         outer = null
-        lifting = false
+        liftForTop = false
+        liftForField = false
     }
 
     override fun ContentDrawScope.draw() {
@@ -987,7 +1262,9 @@ private class SeamFadeNode(var fontSize: TextUnit) : SeamNode() {
         val stretch = viewport.flow.stretch
         val band = lerp(SeamDissolveTokens.TextBand, SeamDissolveTokens.TextBandStretched, stretch).toPx()
         val length = max(band, fontPx() * SeamDissolveTokens.TextSizeFraction) * reveal
-        val seam = -offset
+        // Under the tide, text fades below the line, as on Home — moving down
+        // with its reveal to the rest.
+        val seam = -offset + if (viewport.tideActive) tideTextSeamPx(reveal) else 0f
         if (length < .5f || seam + length <= 0f) return null
         // A little slack so ascenders and marquee edges fade instead of clipping.
         val slack = 4.dp.toPx()
@@ -1017,12 +1294,15 @@ private class SeamFadeNode(var fontSize: TextUnit) : SeamNode() {
 
 private class TextFade(val bounds: Rect, val seam: Float, val length: Float)
 
+/** Stops of the Path fallback's tip veil (the shader evaluates it exactly). */
+private const val LipVeilStops = 10
+
+private val NoTail = SeamHalftone.Tail()
+
 private val TextFadeStops: Array<Pair<Float, Color>> =
     floatArrayOf(0f, .05f, .12f, .2f, .3f, .42f, .56f, .72f, .86f, 1f)
         .map { x -> x to Color.Black.copy(alpha = seamTextAlpha(x)) }
         .toTypedArray()
-
-private val NoTail = SeamHalftone.Tail()
 
 /** Hooks for the visual QA harnesses (androidTest). */
 internal object SeamDissolveDebug {

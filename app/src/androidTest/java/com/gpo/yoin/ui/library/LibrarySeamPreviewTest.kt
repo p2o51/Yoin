@@ -10,6 +10,8 @@ import com.gpo.yoin.ui.component.SeamDissolveDebug
 import com.gpo.yoin.ui.component.SeamFrameHarness
 import com.gpo.yoin.ui.component.SeamQa
 import com.gpo.yoin.ui.component.SeamQaWindow
+import com.gpo.yoin.ui.component.SeamTopPreference
+import com.gpo.yoin.ui.component.SeamTopStyle
 import java.io.File
 import org.junit.After
 import org.junit.Assume.assumeTrue
@@ -17,7 +19,8 @@ import org.junit.Test
 
 /**
  * Deterministic 60fps frames of the Library seams for visual review — the
- * curve C seam under the chips and the bottom field around the floating bar.
+ * top seam under the chips (`-e seamStyle tide | dots | cookie`, default
+ * tide; shown, not stored) and the bottom field around the floating bar.
  * Scroll and every time-based animation (marquee titles, entrances, the
  * afterglow) advance on the same paused clock, so the frames play back
  * exactly as the device would show them — unlike scrubbed screencaps, which
@@ -30,6 +33,7 @@ class LibrarySeamPreviewTest {
     @After
     fun restore() {
         SeamDissolveDebug.forcePathFallback = false
+        SeamTopPreference.preview(null)
     }
 
     @Test
@@ -39,6 +43,7 @@ class LibrarySeamPreviewTest {
         val dark = SeamQa.dark(arguments)
         val reduced = SeamQa.reduced(arguments)
         SeamDissolveDebug.forcePathFallback = SeamQa.path(arguments)
+        SeamTopPreference.preview(SeamTopStyle.fromKey(arguments.getString("seamStyle")))
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val directory = File(context.getExternalFilesDir(null), "library-seam").apply { mkdirs() }
         val covers = SeamQa.covers(

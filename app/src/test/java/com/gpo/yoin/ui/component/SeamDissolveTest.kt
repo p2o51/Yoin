@@ -21,7 +21,7 @@ class SeamDissolveTest {
         }
 
     /** A field whose approach runs 120..240 (yb), the bar's top at 200, the screen's edge at 400. */
-    private fun tail(reveal: Float = 1f, length: Float = 120f) = SeamHalftone.Tail().also {
+    private fun tail(reveal: Float = 1f, length: Float = 120f, flowShift: Float = 0f) = SeamHalftone.Tail().also {
         it.yb = 240f
         it.len = length
         it.y0 = it.yb - length
@@ -31,6 +31,7 @@ class SeamDissolveTest {
         it.k1 = it.k0 * SeamDissolveTokens.FieldThinning
         it.front = 9f
         it.frontNear = 30f
+        it.flowShift = flowShift
         it.reveal = reveal
         it.barLeft = 40f
         it.barTop = 200f
@@ -201,8 +202,8 @@ class SeamDissolveTest {
     @Test
     fun should_leaveNoPinholes_when_dotsAreWhole() {
         // A staggered lattice is fully covered once each dot reaches the
-        // cell's covering radius (cell width / √3) — both the whole print and
-        // curve C's end of band.
+        // cell's covering radius (cell width / √3) — both the whole print the
+        // field grows back to and curve C's end of band.
         assertTrue(lattice.fullRadius >= lattice.cellWidth / sqrt(3f))
         assertTrue(SeamDissolveTokens.DotRadius * lattice.cellWidth >= lattice.cellWidth / sqrt(3f))
     }
@@ -248,6 +249,32 @@ class SeamDissolveTest {
         }
         // Between the whole-print start (0.62 cells) and the field (k0).
         assertTrue(radius < .62f * lattice.cellWidth && radius > field.k0 * lattice.cellWidth)
+    }
+
+    @Test
+    fun should_swirlAndRagTheApproach_when_scrolling() {
+        val field = tail()
+        val row = rowNear(field.y0 + field.len * .5f)
+        val radii = HashSet<Float>()
+        var moved = false
+        for (column in 0 until lattice.columns) {
+            dotAt(row, column, seed = 4.2f, disorder = 1f, tail = field)
+            radii += out[2]
+            if (out[1] != siteY(row)) moved = true
+        }
+        assertTrue(moved)
+        assertTrue(radii.size > 1)
+    }
+
+    @Test
+    fun should_moveDotsButKeepTheirSize_when_theFieldsFlowCoasts() {
+        val row = rowNear(tail().y0 + tail().len * .5f)
+        dotAt(row, 7, disorder = 1f, tail = tail())
+        val still = out[2].also { assertTrue(it > 0f) }
+        val stillCentre = out[0] to out[1]
+        dotAt(row, 7, disorder = 1f, tail = tail(flowShift = .4f))
+        assertEquals(still, out[2], 0f)
+        assertTrue(stillCentre != (out[0] to out[1]))
     }
 
     @Test

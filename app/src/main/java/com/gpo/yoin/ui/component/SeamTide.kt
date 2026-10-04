@@ -8,11 +8,13 @@ import androidx.compose.ui.MotionDurationScale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.ContentDrawScope
+import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.node.CompositionLocalConsumerModifierNode
 import androidx.compose.ui.node.DrawModifierNode
 import androidx.compose.ui.node.ModifierNodeElement
 import androidx.compose.ui.node.currentValueOf
 import androidx.compose.ui.platform.InspectorInfo
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import com.gpo.yoin.ui.experience.LocalMotionProfile
 import com.gpo.yoin.ui.experience.MotionProfile
@@ -20,7 +22,9 @@ import kotlin.math.PI
 import kotlin.math.sin
 
 /*
- * 潮线 (dissolve-final §1.3): Home's status bar seam. No screen at all — two
+ * 潮线 (dissolve-final §1.3): Home's status bar seam — and, since 2026-10-04,
+ * the default look of every top seam under fixed chrome ([SeamTop.Chrome] in
+ * [SeamTopStyle.Tide], cut by the viewport as a mask). No screen at all — two
  * waves of the page's own colour wash down from above the status bar, the
  * back one half clear, and content sinks under the water line. Over bare page
  * the fill is invisible; it only shows where content goes under. The phase
@@ -81,49 +85,117 @@ private class SeamTideNode(
         val reveal = seamReveal(scrolledPx(), SeamDissolveTokens.RevealDistance.toPx())
         if (reveal <= 0f) return
         val reduced = reducedMotion()
-        val stretch = if (reduced) 0f else flow.stretch
-        val amplitude = (SeamDissolveTokens.TideAmplitude + SeamDissolveTokens.TideAmplitudeStretched * stretch).toPx()
-        val phase = if (reduced) 0f else (flow.travelPx + flow.lagPx) / SeamDissolveTokens.TidePhaseTravel.toPx()
+        val amplitude = tideAmplitudePx(flow, reduced)
+        val phase = tidePhase(flow, reduced)
         val rest = statusBarPx + SeamDissolveTokens.TideRest.toPx()
-        val base = rest * reveal - SeamDissolveTokens.TideHidden.toPx() * (1f - reveal)
-        // Back layer first, half clear; then the front line.
-        wave(
-            base = base + SeamDissolveTokens.TideBackDrop.toPx(),
-            amplitude = amplitude * SeamDissolveTokens.TideBackAmplitude,
-            wavelength = SeamDissolveTokens.TideBackWavelength.toPx(),
-            phase = .37f - phase * .7f,
-        )
-        drawPath(path, color.copy(alpha = color.alpha * SeamDissolveTokens.TideBackAlpha))
-        wave(
-            base = base,
-            amplitude = amplitude,
-            wavelength = SeamDissolveTokens.TideFrontWavelength.toPx(),
-            phase = phase,
-        )
-        drawPath(path, color)
-    }
-
-    /** Closes [path] from above the screen's top edge down to the wave line. */
-    private fun ContentDrawScope.wave(base: Float, amplitude: Float, wavelength: Float, phase: Float) {
-        val margin = 20.dp.toPx()
-        val step = SeamDissolveTokens.TideStep.toPx()
-        path.rewind()
-        path.moveTo(-margin, -margin)
-        var x = -margin
-        while (true) {
-            val y = base + amplitude * (
-                sin(((x / wavelength) + phase) * TAU) +
-                    SeamDissolveTokens.TideHarmonic * sin(((x / (wavelength * .5f)) - phase * 1.7f + .3f) * TAU)
-                )
-            path.lineTo(x, y)
-            if (x >= size.width + margin) break
-            x = minOf(x + step, size.width + margin)
+        val base = tideBase(rest, SeamDissolveTokens.TideHidden.toPx(), reveal)
+        drawTideWaves(path, base, amplitude, phase) { back ->
+            drawPath(path, if (back) color.copy(alpha = color.alpha * SeamDissolveTokens.TideBackAlpha) else color)
         }
-        path.lineTo(size.width + margin, -margin)
-        path.close()
-    }
-
-    private companion object {
-        const val TAU = (PI * 2).toFloat()
     }
 }
+
+// Shared with the chrome seam's tide ([SeamTopStyle.Tide], drawn by the
+// viewport): one wave law, so the two lines are the same water.
+
+/** The waves' height for the flow's stretch; the base height under reduced motion. */
+internal fun Density.tideAmplitudePx(flow: SeamFlow, reduced: Boolean): Float {
+    val stretch = if (reduced) 0f else flow.stretch
+    return (SeamDissolveTokens.TideAmplitude + SeamDissolveTokens.TideAmplitudeStretched * stretch).toPx()
+}
+
+/** The waves' phase: the scroll travelled plus the afterglow; still under reduced motion. */
+internal fun Density.tidePhase(flow: SeamFlow, reduced: Boolean): Float =
+    if (reduced) 0f else (flow.travelPx + flow.lagPx) / SeamDissolveTokens.TidePhaseTravel.toPx()
+
+/** The front line's base: [restPx] once revealed, [hiddenPx] above the top edge before. */
+internal fun tideBase(restPx: Float, hiddenPx: Float, reveal: Float): Float =
+    restPx * reveal - hiddenPx * (1f - reveal)
+
+/** How far the front line's crests rise above [base], px. */
+internal fun tideCrestPx(amplitude: Float): Float = amplitude * (1f + SeamDissolveTokens.TideHarmonic)
+
+/** The lowest the back wave can reach below [base], px (for a layer that must hold both waves). */
+internal fun Density.tideDepthPx(amplitude: Float): Float =
+    SeamDissolveTokens.TideBackDrop.toPx() +
+        amplitude * SeamDissolveTokens.TideBackAmplitude * (1f + SeamDissolveTokens.TideHarmonic)
+
+/**
+ * Where text under a chrome seam starts to fade, px below the seam: the
+ * line's rest at the base height, following the line's reveal (the viewport's
+ * rest/hidden law, less its inset) and never above the seam — so while the
+ * line is still above the screen, text is not cut in open water.
+ */
+internal fun Density.tideTextSeamPx(reveal: Float): Float {
+    val amplitude = SeamDissolveTokens.TideAmplitude.toPx()
+    return tideBase(
+        restPx = SeamDissolveTokens.TideRest.toPx() + tideCrestPx(amplitude),
+        hiddenPx = maxOf(SeamDissolveTokens.TideHidden.toPx(), tideDepthPx(amplitude) + 1f),
+        reveal = reveal,
+    ).coerceAtLeast(0f)
+}
+
+/**
+ * Builds the back wave into [path] and calls [drawWave] (back = true), then
+ * the front line (back = false). Each wave closes from above the top edge
+ * down to its line; the caller paints or masks with it.
+ */
+internal inline fun DrawScope.drawTideWaves(
+    path: Path,
+    base: Float,
+    amplitude: Float,
+    phase: Float,
+    drawWave: (back: Boolean) -> Unit,
+) {
+    val margin = 20.dp.toPx()
+    val step = SeamDissolveTokens.TideStep.toPx()
+    // Back layer first, half clear; then the front line.
+    path.setTideWave(
+        width = size.width,
+        base = base + SeamDissolveTokens.TideBackDrop.toPx(),
+        amplitude = amplitude * SeamDissolveTokens.TideBackAmplitude,
+        wavelength = SeamDissolveTokens.TideBackWavelength.toPx(),
+        phase = .37f - phase * .7f,
+        margin = margin,
+        step = step,
+    )
+    drawWave(true)
+    path.setTideWave(
+        width = size.width,
+        base = base,
+        amplitude = amplitude,
+        wavelength = SeamDissolveTokens.TideFrontWavelength.toPx(),
+        phase = phase,
+        margin = margin,
+        step = step,
+    )
+    drawWave(false)
+}
+
+/** Closes this path from above the top edge down to the wave line. */
+internal fun Path.setTideWave(
+    width: Float,
+    base: Float,
+    amplitude: Float,
+    wavelength: Float,
+    phase: Float,
+    margin: Float,
+    step: Float,
+) {
+    rewind()
+    moveTo(-margin, -margin)
+    var x = -margin
+    while (true) {
+        val y = base + amplitude * (
+            sin(((x / wavelength) + phase) * TideTau) +
+                SeamDissolveTokens.TideHarmonic * sin(((x / (wavelength * .5f)) - phase * 1.7f + .3f) * TideTau)
+            )
+        lineTo(x, y)
+        if (x >= width + margin) break
+        x = minOf(x + step, width + margin)
+    }
+    lineTo(width + margin, -margin)
+    close()
+}
+
+private const val TideTau = (PI * 2).toFloat()
