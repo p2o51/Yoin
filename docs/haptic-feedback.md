@@ -5,6 +5,8 @@
 > `HapticFeedbackConstants` 语义化成 `performClick/performTick/performConfirm/performReject/`
 > `performLongPress/performContextClick/performLightTick`（低 API 各有降级路径），
 > 由 `rememberYoinHaptics()` 取用；当前 23 个 UI 文件（不含 `Haptics.kt` 本身）、80 处调用点。
+> 2026-10-04 为 Home 编辑态新增 `performDragStart/performSegmentTick/performThreshold/performToggle(on)`
+> （API 34 常量，低版本回退见 §F），编辑态只经 `HomeEditFeedback` 调用。
 > 本文保留为场景映射与设计意图的原始依据，不再是待办。
 
 震动反馈能够显著提升应用的操作质感，帮助用户在不完全依赖视觉的情况下确认操作结果。基于 Yoin 当前的 UI 架构（包含正在播放页、首页、详情页、资料库等），本提案建议结合 Android 提供的 `HapticFeedbackConstants` 为不同的交互场景赋予层次分明的震动体验。
@@ -55,8 +57,8 @@
 
 | 组件 / 动作 | 推荐震动类型 (HapticFeedbackConstants) | 设计意图 |
 | --- | --- | --- |
-| **点击专辑/歌曲卡片 (Album/Song Card)** | *无震动* 或极轻微 `VIRTUAL_KEY` | 避免浏览过程中高频点击产生的烦躁感，仅在网络延迟导致无视觉即时响应时才作为补偿。 |
-| **长按卡片 (呼出上下文菜单)** | `LONG_PRESS` | 明确长按手势已被识别。 |
+| **点击专辑/歌曲卡片 (Album/Song Card)** | *无震动* 或极轻微 `VIRTUAL_KEY` | 避免浏览过程中高频点击产生的烦躁感，仅在网络延迟导致无视觉即时响应时才作为补偿。Home 的 Jump Back In 卡片原有的点按 `performContextClick` 已于 2026-10-04 删除，Home 上点卡片一律不震。 |
+| **长按卡片** | `LONG_PRESS` | 明确长按手势已被识别。**长按 Home 的卡片进入 Home 编辑态**，并拿起所在 section（见 §F）；其它页面仍是各自的长按动作（如呼出上下文菜单、加入歌单）。 |
 | **展开折叠菜单 (MoreVert/Dropdown)** | `CLOCK_TICK` | 菜单弹出的机械感反馈。 |
 
 ### E. 破坏性操作与错误反馈 (Settings, Delete)
@@ -65,6 +67,25 @@
 | --- | --- | --- |
 | **删除歌单 / 删除账户 (Delete)** | `REJECT` 或长且重的 `LONG_PRESS` | 增加确认的心理阻力，提示操作的严重性。 |
 | **操作失败 / 错误重试 (Error / Retry)** | `REJECT` | 如果网络失败或连接报错（如 NeoDB 登录失败），给出警告性质的连震。 |
+
+### F. Home 编辑态（2026-10-04）
+
+Home 编辑态的触感总表（来自 `docs/handoff/home-edit-mode/spec.md` §2.8）。编辑态的触感只经 `HomeEditFeedback` 发出，底栏在编辑态不再自己震。Pixel Tablet 没有振动马达，所以每一行都有一个能看到的等价动效（视觉孪生），触感本身只能在手机上验收。
+
+| 时机 | 方法 | 常量（API） | 低版本回退 | 视觉孪生 |
+| --- | --- | --- | --- | --- |
+| 普通态长按到阈值（进入编辑） | `performLongPress()` | `LONG_PRESS` | — | 块放大到 1.02，底板从按点长出来 |
+| 编辑态拿起一块 | `performDragStart()` | `DRAG_START`（34） | `CONTEXT_CLICK` | 放大 + 阴影 |
+| 签条每换一格；TalkBack 的 Move up / Move down | `performSegmentTick()` | `SEGMENT_TICK`（34） | `CLOCK_TICK` | 邻居让位，落点的洞跟着移动 |
+| 签条第一次越过首尾 | `performThreshold()` | `GESTURE_THRESHOLD_ACTIVATE`（34） | `TEXT_HANDLE_MOVE`（27，即 `performLightTick()`） | 橡皮筋阻尼 |
+| 放下且顺序变了；Done | `performConfirm()` | `CONFIRM`（30） | `KEYBOARD_TAP` | 展开 + 放下时的 kick；底栏变回导航 |
+| 原地放下、点块、滚动 | 无 | — | — | 0.5Θ 的 kick + 把手脉冲 |
+| 隐藏 / 显示 | `performToggle(on)` | `TOGGLE_OFF` / `TOGGLE_ON`（34） | `CONTEXT_CLICK` | 缩放淡出 / 淡入 + 0.35Θ 的 kick |
+| Reset Home | `performReject()` | `REJECT`（30） | `LONG_PRESS` | 各块回到默认位置 |
+| 底栏 Undo / Add | `performClick()` | `KEYBOARD_TAP` | — | 按钮的按压形变 |
+| 系统返回（= Done） | 无 | — | — | 底栏变回导航 |
+
+一次进入只震一次，就是阈值那一下；点卡片不震（§D）。底栏 Home 键长按进入编辑属于 P1，尚未实现。
 
 ## 3. 技术落地建议
 

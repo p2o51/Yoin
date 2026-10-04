@@ -69,6 +69,7 @@ import com.gpo.yoin.ui.component.rememberExpressiveBackdropColors
 import com.gpo.yoin.ui.experience.LocalMotionProfile
 import com.gpo.yoin.ui.experience.MotionProfile
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
+import com.gpo.yoin.ui.experience.smoothstep
 import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinMotionRole
 import kotlinx.coroutines.awaitCancellation
@@ -298,6 +299,14 @@ internal fun Modifier.watchMemoryBubbleTouches(controller: MemoryBubbleControlle
             }
     }
 
+/**
+ * What a tap on the arrow does right now: nothing once the feed has scrolled
+ * it away, or while Home is being edited — the root's watcher then leaves
+ * those downs to the feed (and to edit mode's own gestures).
+ */
+internal fun memoryArrowTap(scrolledAway: Boolean, editing: Boolean, tap: () -> Unit): (() -> Unit)? =
+    if (scrolledAway || editing) null else tap
+
 /** Put on the header's spacer between the title and Settings: the bubble stays inside it. */
 internal fun Modifier.memoryBubbleFreeSpan(controller: MemoryBubbleController?): Modifier =
     if (controller == null) {
@@ -399,7 +408,9 @@ private enum class BubbleReason { News, Idle }
  * [scrolledPx] is the feed's scroll distance (draw phase), [hintProgress] the
  * pull-to-Memories hint, [revealProgress] the once-per-process launch reveal.
  * [covered] = something above Home owns the screen (Now Playing, the detail
- * column): the bubble keeps quiet and tucks away.
+ * column): the bubble keeps quiet and tucks away. [editing] = Home is being
+ * edited: the same, and the arrow takes no taps and fades out over the first
+ * half of [editProgress] (draw phase).
  */
 @Composable
 internal fun MemoryBubbleOverlay(
@@ -413,6 +424,8 @@ internal fun MemoryBubbleOverlay(
     onOpenMemoryFocus: (sessionId: Long) -> Unit,
     onNavigateToMemories: () -> Unit,
     modifier: Modifier = Modifier,
+    editProgress: () -> Float = { 0f },
+    editing: Boolean = false,
 ) {
     val haptics = rememberYoinHaptics()
     val density = LocalDensity.current
@@ -425,7 +438,7 @@ internal fun MemoryBubbleOverlay(
     val currentHint by rememberUpdatedState(hintProgress)
     val currentReveal by rememberUpdatedState(revealProgress)
     val currentScrolled by rememberUpdatedState(scrolledPx)
-    val currentCovered by rememberUpdatedState(covered)
+    val currentCovered by rememberUpdatedState(covered || editing)
     val fadePx = with(density) { ArrowScrollFade.toPx() }
     // It may only speak where it can be read: Home on top, the feed at its
     // top (the arrow is there), nobody pulling Memories open.
@@ -511,8 +524,9 @@ internal fun MemoryBubbleOverlay(
     val scrolledAway by remember { derivedStateOf { scrolledPx() > with(density) { ArrowScrollFade.toPx() } } }
     // The root routes taps (watchMemoryBubbleTouches): keep it told what each does now.
     SideEffect {
-        controller.onArrowTap = if (scrolledAway) null else tapArrow
-        controller.onBubbleTap = if (speaking) tapBubble else null
+        controller.onArrowTap = memoryArrowTap(scrolledAway = scrolledAway, editing = editing, tap = tapArrow)
+        // A bubble still tucking away as edit mode starts claims nothing either.
+        controller.onBubbleTap = if (speaking && !editing) tapBubble else null
     }
 
     Layout(
@@ -524,7 +538,10 @@ internal fun MemoryBubbleOverlay(
                 speaking = { presence.value },
                 hintProgress = hintProgress,
                 scrolledPx = scrolledPx,
-                enabled = !scrolledAway,
+                editProgress = editProgress,
+                // Editing, it is gone for readers too: Memories never opens
+                // over edit mode.
+                enabled = !scrolledAway && !editing,
                 onClick = tapArrow,
                 modifier = Modifier.layoutId(BubbleSlot.Arrow),
             )
@@ -600,12 +617,16 @@ internal fun MemoryBubbleOverlay(
     }
 }
 
-/** The safe-area chevron: always there, answering the pull, fading as the feed scrolls away. */
+/**
+ * The safe-area chevron: always there, answering the pull, fading as the feed
+ * scrolls away and over the first half of Home's edit progress.
+ */
 @Composable
 private fun MemoryArrow(
     speaking: () -> Float,
     hintProgress: () -> Float,
     scrolledPx: () -> Float,
+    editProgress: () -> Float,
     enabled: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
@@ -638,7 +659,7 @@ private fun MemoryArrow(
                     translationY = hint * ArrowPullNudge.toPx()
                     // Inside a speaking bubble the arrow is part of it — full ink.
                     val rest = 0.62f + (1f - 0.62f) * maxOf(hint, speaking().coerceIn(0f, 1f))
-                    alpha = rest * fade
+                    alpha = rest * fade * (1f - smoothstep(0f, 0.5f, editProgress()))
                 },
         )
     }

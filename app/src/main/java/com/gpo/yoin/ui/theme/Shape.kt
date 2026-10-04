@@ -80,6 +80,9 @@ object YoinContainerShapes {
     /** Large section panels (empty states, section wrappers). */
     val Panel = ContinuousRoundedCornerShape(20.dp)
 
+    /** Circular twin of [Panel] for clips resized per frame (the Home edit plate growing from the press point). */
+    val PanelAnimated = RoundedCornerShape(20.dp)
+
     /**
      * Press/ripple bounds of full-width list rows. Circular on purpose: it is
      * mostly invisible (transparent rows) and rows are the most numerous

@@ -1,8 +1,10 @@
 package com.gpo.yoin.ui.home
 
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.coerceAtLeast
 import androidx.compose.ui.unit.coerceIn
 import androidx.compose.ui.unit.dp
+import com.gpo.yoin.data.memory.REDISCOVER_LIMIT
 
 // Home feed density: a wider container gets MORE cards and columns, never
 // bigger ones — every card's insides (Activities 96/80/48 covers, the JBI 1×1
@@ -350,3 +352,39 @@ internal fun recentlyAddedGridWidth(contentWidth: Dp, isCompactHeight: Boolean):
 } else {
     ((contentWidth - 14.dp) * (2.6f / 3.6f)).coerceIn(RecentlyAddedGridMin, RecentlyAddedGridMax)
 }
+
+// ---- Rediscover ----
+
+/** The phone shelf's next card peeks past the edge: each card is this share of the content width. */
+private const val RediscoverShelfCardFraction = 0.86f
+
+/** The most Rediscover cards that sit side by side; only the phone shelf shows more. */
+private const val RediscoverMaxSideBySide = 3
+
+/**
+ * How many Rediscover cards show: the phone (N ≤ 2) scrolls a shelf of the
+ * whole selection ([REDISCOVER_LIMIT]); the landscape phone and N 3–4 seat 2
+ * side by side, N ≥ 5 seats 3.
+ */
+internal fun rediscoverVisibleCount(units: Int, landscapePhone: Boolean): Int = when {
+    landscapePhone -> 2
+    units <= 2 -> REDISCOVER_LIMIT
+    units <= 4 -> 2
+    else -> RediscoverMaxSideBySide
+}
+
+/** True for the phone's scrolling shelf (more cards than ever sit side by side). */
+internal fun isRediscoverShelf(visibleCount: Int): Boolean = visibleCount > RediscoverMaxSideBySide
+
+/**
+ * One Rediscover card's width for content width [contentWidth]. The phone
+ * shelf peeks the next card (0.86 × content); a lone card there fills the
+ * content and can't scroll. Side by side, [visibleCount] cards split the
+ * content evenly whatever [itemCount] is, so a card never grows when there
+ * are fewer of them.
+ */
+internal fun rediscoverCardWidth(contentWidth: Dp, visibleCount: Int, itemCount: Int, gap: Dp): Dp = when {
+    !isRediscoverShelf(visibleCount) -> (contentWidth - gap * (visibleCount - 1)) / visibleCount
+    itemCount <= 1 -> contentWidth
+    else -> contentWidth * RediscoverShelfCardFraction
+}.coerceAtLeast(0.dp)

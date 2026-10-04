@@ -36,6 +36,9 @@ sealed interface HomeUiState {
         // not resolved yet (or unscoped): the header keeps today's bare
         // chevron instead of flashing an "empty" pill.
         val memoryPill: HomeMemoryPill? = null,
+        // Rediscover: rated 8+, not played in Yoin for 90+ days, best first.
+        // Empty = the section isn't rendered.
+        val rediscover: List<HomeRediscoverItem> = emptyList(),
     ) : HomeUiState
 
     data class Error(val message: String) : HomeUiState
@@ -81,6 +84,28 @@ data class HomeWidgetCard(
     // True renders the wide "1×2" card (2 grid cells), false the "1×1" cover.
     val expanded: Boolean = false,
     val target: HomeWidgetTarget,
+)
+
+/**
+ * One Rediscover card: an album you rated high that hasn't played in Yoin for
+ * a while. Every time field comes from play history only (visits never
+ * count), which is why the copy says "in Yoin".
+ */
+@Immutable
+data class HomeRediscoverItem(
+    // Raw id (legacy `provider:` prefix stripped). Tap → onAlbumClick(albumId.toString(), null);
+    // the shelf keys cards "rediscover:$albumId".
+    val albumId: MediaId,
+    val albumName: String,
+    val artistName: String?,
+    val coverArtUrl: String?,
+    val score: Float,
+    // "%.1f" (Locale.US), the seal's own format.
+    val scoreText: String,
+    val scoreKind: MemoryScoreKind,
+    val lastPlayedAt: Long,
+    val firstPlayedAt: Long?,
+    val playCount: Int,
 )
 
 /**

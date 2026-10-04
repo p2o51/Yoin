@@ -1,12 +1,9 @@
 package com.gpo.yoin.ui.home
 
-import androidx.activity.compose.BackHandler
-import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -45,13 +42,13 @@ import com.gpo.yoin.ui.component.YoinLoadingIndicator
 import com.gpo.yoin.ui.experience.ReportMotionPressure
 import com.gpo.yoin.ui.experience.RevealState
 import com.gpo.yoin.ui.experience.rememberRevealState
+import com.gpo.yoin.ui.home.edit.HomeEditController
 import com.gpo.yoin.ui.memories.MemoryEntityType
 import com.gpo.yoin.ui.theme.ProvideYoinMotionRole
 import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinMotionRole
 import com.gpo.yoin.ui.theme.YoinTheme
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.drop
 
 private const val HomeLoadingIndicatorDelayMillis = 180L
 private val HomeInitialEntranceOffset = 16.dp
@@ -63,11 +60,12 @@ fun HomeScreen(
     isPlaying: Boolean,
     playbackSignal: Float,
     activeSongId: String? = null,
-    // True while an overlay above Home (Now Playing) owns back. The layout
-    // editor's BackHandler registers AFTER the shell's NP handlers (composition
-    // order) and would otherwise win the dispatcher's LIFO priority and eat
-    // back presses meant to collapse Now Playing.
-    suppressBackHandling: Boolean = false,
+    // Something above Home owns the screen (Now Playing, the detail column):
+    // the Memories bubble keeps quiet and the edit wiggle stops.
+    homeCovered: Boolean = false,
+    // Home edit mode's controller, hoisted in the shell so back, the bar and
+    // every exit trigger reach it (edit mode is in place, in the feed).
+    editController: HomeEditController? = null,
     onNavigateToSettings: () -> Unit,
     onNavigateToMemories: () -> Unit,
     onOpenMemoryFocus: (sessionId: Long) -> Unit = {},
@@ -83,23 +81,14 @@ fun HomeScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val homeLayout by viewModel.homeLayout.collectAsState()
-    var isEditMode by rememberSaveable { mutableStateOf(false) }
-    // Close the editor if the active profile changes underneath it — its draft
-    // belongs to the old profile and must not be written into the new one.
-    // drop(1) skips the value already current at subscription, so rotation
-    // (which restarts this effect) doesn't kick the user out of edit mode.
-    LaunchedEffect(Unit) {
-        viewModel.activeProfileId.drop(1).collect { isEditMode = false }
-    }
-    BackHandler(enabled = isEditMode && !suppressBackHandling) { isEditMode = false }
+    // A section new since the last edit session waits in the tray (Q6a).
+    val unseenNewSections by viewModel.unseenNewSections.collectAsState()
 
     HomeContent(
         uiState = uiState,
         sections = homeLayout.sections,
-        isEditMode = isEditMode,
-        onEnterEditMode = { isEditMode = true },
-        onExitEditMode = { isEditMode = false },
-        onLayoutChange = viewModel::setHomeLayout,
+        editController = editController,
+        footerNewBadge = unseenNewSections.isNotEmpty(),
         isPlaying = isPlaying,
         playbackSignal = playbackSignal,
         activeSongId = activeSongId,
@@ -112,7 +101,7 @@ fun HomeScreen(
         onArtistClick = onArtistClick,
         onPlaylistClick = onPlaylistClick,
         onSongClick = onSongClick,
-        homeCovered = suppressBackHandling,
+        homeCovered = homeCovered,
         onRetry = viewModel::refresh,
         buildCoverArtUrl = viewModel::buildCoverArtUrl,
         sharedTransitionScope = sharedTransitionScope,
@@ -126,10 +115,10 @@ fun HomeScreen(
 fun HomeContent(
     uiState: HomeUiState,
     sections: List<HomeSectionState> = HomeLayout.Default.sections,
-    isEditMode: Boolean = false,
-    onEnterEditMode: () -> Unit = {},
-    onExitEditMode: () -> Unit = {},
-    onLayoutChange: (HomeLayout) -> Unit = {},
+    // Home edit mode's shell controller; null = a standalone one (previews, tests).
+    editController: HomeEditController? = null,
+    // The feed's "Edit Home" footer is badged "New" (D5).
+    footerNewBadge: Boolean = false,
     isPlaying: Boolean,
     playbackSignal: Float,
     activeSongId: String? = null,
@@ -235,54 +224,33 @@ fun HomeContent(
                                 translationY = (1f - contentOffsetProgress) * contentEntranceOffsetPx
                             },
                     ) {
-                        AnimatedContent(
-                            targetState = isEditMode,
-                            transitionSpec = {
-                                (
-                                    YoinMotion.fadeIn(role = YoinMotionRole.Expressive) +
-                                        YoinMotion.scaleIn(
-                                            role = YoinMotionRole.Expressive,
-                                            initialScale = 0.98f,
-                                        )
-                                    )
-                                    .togetherWith(YoinMotion.fadeOut(role = YoinMotionRole.Expressive))
-                            },
-                            label = "homeEditMode",
-                        ) { editing ->
-                            if (editing) {
-                                HomeLayoutEditor(
-                                    sections = sections,
-                                    onLayoutChange = onLayoutChange,
-                                    onDone = onExitEditMode,
-                                    modifier = Modifier.fillMaxSize(),
-                                )
-                            } else {
-                                HomeEditorialContent(
-                                    activities = uiState.activities,
-                                    widgetGrid = uiState.widgetGrid,
-                                    activityHeroFootnote = uiState.activityHeroFootnote,
-                                    recentlyAddedTracks = uiState.recentlyAddedTracks,
-                                    recentlyAddedAlbums = uiState.recentlyAddedAlbums,
-                                    memoryPill = uiState.memoryPill,
-                                    homeCovered = homeCovered,
-                                    sections = sections,
-                                    onNavigateToSettings = onNavigateToSettings,
-                                    onNavigateToMemories = onNavigateToMemories,
-                                    onEnterEditMode = onEnterEditMode,
-                                    onOpenMemoryFocus = onOpenMemoryFocus,
-                                    memoriesRevealState = memoriesRevealState,
-                                    onCommitMemoriesReveal = onCommitMemoriesReveal,
-                                    onAlbumClick = onAlbumClick,
-                                    onArtistClick = onArtistClick,
-                                    onPlaylistClick = onPlaylistClick,
-                                    onSongClick = onSongClick,
-                                    buildCoverArtUrl = buildCoverArtUrl,
-                                    sharedTransitionScope = sharedTransitionScope,
-                                    animatedVisibilityScope = animatedVisibilityScope,
-                                    modifier = Modifier.fillMaxSize(),
-                                )
-                            }
-                        }
+                        // Edit mode happens in place, inside the feed (HomeEditorialContent).
+                        HomeEditorialContent(
+                            activities = uiState.activities,
+                            widgetGrid = uiState.widgetGrid,
+                            activityHeroFootnote = uiState.activityHeroFootnote,
+                            recentlyAddedTracks = uiState.recentlyAddedTracks,
+                            recentlyAddedAlbums = uiState.recentlyAddedAlbums,
+                            rediscover = uiState.rediscover,
+                            memoryPill = uiState.memoryPill,
+                            homeCovered = homeCovered,
+                            sections = sections,
+                            onNavigateToSettings = onNavigateToSettings,
+                            onNavigateToMemories = onNavigateToMemories,
+                            editController = editController,
+                            footerNewBadge = footerNewBadge,
+                            onOpenMemoryFocus = onOpenMemoryFocus,
+                            memoriesRevealState = memoriesRevealState,
+                            onCommitMemoriesReveal = onCommitMemoriesReveal,
+                            onAlbumClick = onAlbumClick,
+                            onArtistClick = onArtistClick,
+                            onPlaylistClick = onPlaylistClick,
+                            onSongClick = onSongClick,
+                            buildCoverArtUrl = buildCoverArtUrl,
+                            sharedTransitionScope = sharedTransitionScope,
+                            animatedVisibilityScope = animatedVisibilityScope,
+                            modifier = Modifier.fillMaxSize(),
+                        )
                     }
                 }
             }

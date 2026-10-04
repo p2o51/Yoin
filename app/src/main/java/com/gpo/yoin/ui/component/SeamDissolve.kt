@@ -330,6 +330,12 @@ internal class SeamFlow {
     val stretch: Float get() = seamStretch(speedDp)
     val disorder: Float get() = seamDisorder(speedDp)
 
+    /**
+     * While true the followers ignore scrolling (Home's edit-mode fold): the
+     * deltas still pass through, but feed no lag, speed or travel.
+     */
+    var held by mutableStateOf(false)
+
     internal fun reset() {
         lagPx = 0f
         speedDp = 0f
@@ -562,7 +568,7 @@ private class SeamViewportNode(
 
     private fun onContentScrolled(delta: Float) {
         if (delta == 0f || !isAttached) return
-        if (reducedMotion()) return
+        if (reducedMotion() || flow.held) return
         pendingDelta += delta
         pendingTravel += abs(delta)
         flow.travelPx -= delta
@@ -1227,11 +1233,22 @@ private class SeamFadeNode(var fontSize: TextUnit) : SeamNode() {
         var print = findNearestAncestor(SeamHostKey) as? SeamPrintNode
         while (print?.outer != null) print = print.outer
         host = print?.also { it.lifted += this }
+        // The layer exists before the print first draws lifted text: the print
+        // can draw ahead of this node in the same frame, and a print that drew
+        // no layer for it is not redrawn when the layer appears, so the text
+        // would stay lifted out and never drawn (seen after Home's strip unfold).
+        if (host != null && liftedLayer == null) liftedLayer = requireGraphicsContext().createGraphicsLayer()
+        // The print draws in its own layer, outside the placement layer this text
+        // lives in, so it is not redrawn when text joins or leaves it: text that
+        // attaches under a print already lifting would stay undrawn, and text that
+        // leaves would linger in the print's last recording.
+        host?.invalidateDraw()
     }
 
     override fun onDetach() {
         super.onDetach()
         host?.lifted?.remove(this)
+        host?.invalidateDraw()
         host = null
         liftedLayer?.let { requireGraphicsContext().releaseGraphicsLayer(it) }
         liftedLayer = null

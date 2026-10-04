@@ -190,6 +190,17 @@ MD3 Expressive 不是 M4，而是 M3 的扩展进化。
 - 辅助可视化区域（当有曲目播放时，显示实时音频可视化效果）
 - Memory teaser 只显示一条轻提示，点入 shell-owned Memories surface；Feed 不承载重型 Memory 卡片流
 - 右上角 ⚙️ 设置入口
+- **版块与布局**：Activities、Jump Back In、Recently Added、Rediscover，顺序和开关按 profile 存（`home_layout`）。只在真的改变时写入；改回默认就删掉这一行，等于「从未定制」。定制过的用户遇到新版块时，新版块以关闭状态追加进托盘并标 "New"；没定制过的按各版块的默认开关（Rediscover 默认开、排在最后）。
+- **久别重逢 Rediscover（2026-10-04）**：评分 ≥ 8（专辑评分；没有时用曲目平均分，须 ≥ 60% 曲目有评分），且在 Yoin 里 90 天以上没播放过的专辑，高分在前，同分时久别在前。时间只看播放历史，浏览不算，所以文案写 "in Yoin"。和 JBI 的 memory 卡、记忆胶囊去重，本次会话里播放过的专辑离开货架。点按进专辑详情，不进 Memories。所有宽度都是横滑货架：N ≤ 2 最多 6 张，N 3–4 和手机横屏 2 张，N ≥ 5 3 张。没有数据就不渲染，编辑态显示占位说明。
+- **就地编辑（2026-10-04，P0）**：取代 2026-07-02 的列表编辑器（`HomeLayoutEditor` 已删除）。
+  - **进入**：在页面任意处长按，页边也算。按在卡片上，进入编辑并拿起这张卡所在的 section，底板从按点长出来；按在空白处只进入、不拿起。按住过半时，被按的块先轻微缩小、底板预显。其它入口：鼠标右键；feed 末尾常驻的 "Edit Home"（托盘里有没见过的新版块时带 "New"）；TalkBack 里卡片的长按和 section 标题上的「Edit Home」动作。header 的 Memories 入口、设置齿轮和气泡是排除区，长按不进入。
+  - **编辑态**：标题交叉淡化成 "Edit Home"，前 2 次编辑在放得下时旁边显示 "Drag to reorder"。每块加底板、隐藏键和拖动把手（只剩一块时没有把手）。卡片级轻摆：约 1°、2.4Hz，6 秒没有触摸就渐停，任何触摸恢复；交界带内振幅为 0，省电模式和「移除动画」下不摆。卡片不可点，空 section 显示占位块，Memories 的下拉和气泡关闭。
+  - **排序**：按住把手，或在块上按住片刻，拿起这一块；一开始拖动，所有块收成带 3 张真实封面的签条，在手指下短距离排序，松手后展开落位。结算途中可以再次抓住。参数按原型 `proto.js` 原样移植。
+  - **隐藏与恢复**：隐藏的块缩放淡出，进 feed 末尾的 "Hidden" 托盘；托盘每行点 + 回到原来的位置，"Reset Home" 回到默认。每一步立即保存，可以 Undo（最多 20 步，退出即清空）。全部隐藏时，普通态显示 "Your Home is empty" 卡。
+  - **退出**：Done、系统返回（= Done，离散，不震；返回进度预览是 P1）、点空白处。切 section、打开 Now Playing 或详情、进设置、App 退到后台时直接收起。状态是 `HomeSurface.Edit`，由 shell 持有的 `HomeEditController` 独占写入；返回归 `ShellBackOwner.HomeEdit`，优先级 NowPlaying > HomeEdit > DetailPane > Memories。
+  - **无障碍**：编辑态每块是一个 TalkBack 停留点，播报 "Section j of N"，带 Move up / Move down / Hide 动作；托盘行带 Show。
+  - **触感**见 `docs/haptic-feedback.md` §F。Pixel Tablet 没有振动马达，每个触感时刻都有能看到的等价动效。
+- **底栏编辑姿态**：随编辑进度变形，正在播放 pill 在所有形态下都折起，编辑期间不能从底栏打开 Now Playing。竖屏底栏和居中底栏是 `[Undo|Add] [Done]`：Home 槽换成 Undo（有可撤销的步骤时）或 Add（托盘非空时，滚到托盘），两者都没有时是变暗的 Undo；Library 槽换成主色的 Done。合体形态是 `[Undo|Add][Done][Play▾][随机播放]`；只剩图标的形态只显示图标；分离式挖孔带同构。Undo 暂用文字标签，所有形态都显示文字，等 Yoin Symbols 发布 Undo 符号后再换成图标。
 
 ### Album Memory
 

@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.ButtonColors
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.MaterialTheme
@@ -39,6 +40,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.layout.layout
@@ -64,6 +66,9 @@ import kotlin.math.sin
  *
  * The shared-element hooks (cover / np_title / np_artist) only engage when the
  * caller passes both scopes — the shell does, detail Activities don't.
+ *
+ * [enabled] false (the pill fading out of the bar's Home edit pose) takes no
+ * press, click or haptic, and looks exactly the same.
  */
 @OptIn(ExperimentalFoundationApi::class, ExperimentalSharedTransitionApi::class)
 @Composable
@@ -80,6 +85,7 @@ fun NowPlayingPill(
     sharedTransitionScope: SharedTransitionScope? = null,
     animatedVisibilityScope: AnimatedVisibilityScope? = null,
     interactionSource: MutableInteractionSource? = null,
+    enabled: Boolean = true,
 ) {
     val haptics = rememberYoinHaptics()
     // Theme tokens already share one app-wide wash. Only animate the local
@@ -142,13 +148,11 @@ fun NowPlayingPill(
             onClick()
         },
         modifier = modifier,
+        enabled = enabled,
         interactionSource = interactionSource,
         shape = MaterialTheme.shapes.extraLarge,
         contentPadding = PaddingValues(0.dp),
-        colors = ButtonDefaults.filledTonalButtonColors(
-            containerColor = containerColor,
-            contentColor = contentColor,
-        ),
+        colors = pillButtonColors(containerColor, contentColor),
     ) {
         // Fill the whole button, not just the content: the bar forces a 48dp
         // height while the content row is ~42dp — a wrap-content Box here lets
@@ -320,6 +324,7 @@ fun NowPlayingPill(
  *
  * Only the cover keeps its shared element: sideways text has no bounds worth
  * morphing, and the cover is the anchor Now Playing rises from and settles to.
+ * [enabled] as on [NowPlayingPill].
  */
 @OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
@@ -335,6 +340,7 @@ fun NowPlayingPillVertical(
     modifier: Modifier = Modifier,
     sharedTransitionScope: SharedTransitionScope? = null,
     animatedVisibilityScope: AnimatedVisibilityScope? = null,
+    enabled: Boolean = true,
 ) {
     val haptics = rememberYoinHaptics()
     val trackPresence by animateFloatAsState(
@@ -380,12 +386,10 @@ fun NowPlayingPillVertical(
             onClick()
         },
         modifier = modifier,
+        enabled = enabled,
         shape = shape,
         contentPadding = PaddingValues(0.dp),
-        colors = ButtonDefaults.filledTonalButtonColors(
-            containerColor = containerColor,
-            contentColor = contentColor,
-        ),
+        colors = pillButtonColors(containerColor, contentColor),
     ) {
         Box(modifier = Modifier.fillMaxSize()) {
             if (currentTrackTitle != null && clampedProgress > 0f) {
@@ -472,6 +476,16 @@ fun NowPlayingPillVertical(
         }
     }
 }
+
+/** Both pills' colours, the same when disabled: a disabled pill is only fading out. */
+@Composable
+private fun pillButtonColors(container: Color, content: Color): ButtonColors =
+    ButtonDefaults.filledTonalButtonColors(
+        containerColor = container,
+        contentColor = content,
+        disabledContainerColor = container,
+        disabledContentColor = content,
+    )
 
 /**
  * Lays its content out sideways, reading bottom-to-top: measured against the

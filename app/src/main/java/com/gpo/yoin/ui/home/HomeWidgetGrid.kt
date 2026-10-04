@@ -53,7 +53,9 @@ import com.gpo.yoin.ui.component.rememberExpressiveBackdropColors
 import com.gpo.yoin.ui.component.seamDissolve
 import com.gpo.yoin.ui.component.seamFade
 import com.gpo.yoin.ui.experience.LocalYoinWindowInfo
-import com.gpo.yoin.ui.experience.rememberYoinHaptics
+import com.gpo.yoin.ui.home.edit.homeEditCard
+import com.gpo.yoin.ui.home.edit.homeEditInteractive
+import com.gpo.yoin.ui.home.edit.homeEditSectionTitle
 import com.gpo.yoin.ui.memories.MemoryEntityType
 import com.gpo.yoin.ui.theme.GoogleSansFlex
 import com.gpo.yoin.ui.theme.YoinArtworkShapes
@@ -88,7 +90,11 @@ internal fun MemoryEntityType.toWidgetShapeKind(): WidgetShapeKind = when (this)
     MemoryEntityType.PLAYLIST -> WidgetShapeKind.Playlist
 }
 
-/** The design-language section heading shared by the home feed sections. */
+/**
+ * The design-language section heading shared by the home feed sections.
+ * Inside a Home edit block it offers TalkBack "Edit Home" outside edit mode;
+ * anywhere else it is plain text.
+ */
 @Composable
 internal fun HomeSectionTitle(
     text: String,
@@ -102,7 +108,9 @@ internal fun HomeSectionTitle(
             fontSize = 18.sp,
         ),
         color = MaterialTheme.colorScheme.onSurface,
-        modifier = modifier.seamFade(),
+        modifier = modifier
+            .homeEditSectionTitle()
+            .seamFade(),
     )
 }
 
@@ -187,6 +195,8 @@ internal fun HomeWidgetGridSection(
             // a deeper list for the templates.
             val cards = remember(state.cards) { trimToPhoneShelf(state.cards) }
             val rows = remember(cards, columns) { packWidgetRows(cards, columns) }
+            // Edit-mode card order on the packed paths: row-major.
+            val rowEditIndex = remember(rows) { rows.flatten().editCardIndex { it } }
             Box(Modifier.heightOfIncomingOnly { transition.targetState == EnterExitState.PostExit }) {
             if (seated != null) {
                 // Phone-sized columns, phone-sized covers: the column's
@@ -194,13 +204,17 @@ internal fun HomeWidgetGridSection(
                 // room per column once the 10 columns run out).
                 val templateFit = if (coverFit == JbiCoverFit.PhoneRhythm) JbiCoverFit.Capped128 else coverFit
                 val coverRequestPx = with(LocalDensity.current) { JbiCoverMax.roundToPx() }
+                // Edit-mode card order = the template's reading order.
+                val editIndex = remember(seated) { seated.cells.editCardIndex { it.card } }
                 JbiSpanGrid(layout = seated, fit = templateFit, modifier = Modifier.fillMaxWidth()) { cell ->
                     val card = cell.card
+                    val editCard = Modifier.homeEditCard(editIndex[card.stableId] ?: 0)
                     when (cell.piece.kind) {
                         JbiPieceKind.TallSignal, JbiPieceKind.WideSignal -> WidgetCard12(
                             card = card,
                             extractBackdropColors = extractBackdropColors,
                             onClick = { onCardClick(card.target) },
+                            modifier = editCard,
                             followColumn = true,
                             tall = cell.piece.kind == JbiPieceKind.TallSignal,
                             coverFit = templateFit,
@@ -210,6 +224,7 @@ internal fun HomeWidgetGridSection(
                             card = card,
                             extractBackdropColors = extractBackdropColors,
                             onClick = { onCardClick(card.target) },
+                            modifier = editCard,
                             artworkModifier = Modifier.jbiCoverSquare(templateFit),
                             artworkRequestSizePx = coverRequestPx,
                         )
@@ -223,11 +238,13 @@ internal fun HomeWidgetGridSection(
                     columns = columns,
                     modifier = Modifier.fillMaxWidth(),
                 ) { card ->
+                    val editCard = Modifier.homeEditCard(rowEditIndex[card.stableId] ?: 0)
                     if (card.expanded) {
                         WidgetCard12(
                             card = card,
                             extractBackdropColors = extractBackdropColors,
                             onClick = { onCardClick(card.target) },
+                            modifier = editCard,
                             followColumn = true,
                             coverRequestPx = coverRequestPx,
                         )
@@ -236,6 +253,7 @@ internal fun HomeWidgetGridSection(
                             card = card,
                             extractBackdropColors = extractBackdropColors,
                             onClick = { onCardClick(card.target) },
+                            modifier = editCard,
                             artworkModifier = Modifier.jbiCoverSquare(coverFit),
                             artworkRequestSizePx = coverRequestPx,
                         )
@@ -254,13 +272,14 @@ internal fun HomeWidgetGridSection(
                         ) {
                             var units = 0
                             row.forEach { card ->
+                                val editCard = Modifier.homeEditCard(rowEditIndex[card.stableId] ?: 0)
                                 if (card.expanded) {
                                     units += 2
                                     WidgetCard12(
                                         card = card,
                                         extractBackdropColors = extractBackdropColors,
                                         onClick = { onCardClick(card.target) },
-                                        modifier = Modifier.weight(2f),
+                                        modifier = editCard.weight(2f),
                                     )
                                 } else {
                                     units += 1
@@ -268,7 +287,7 @@ internal fun HomeWidgetGridSection(
                                         card = card,
                                         extractBackdropColors = extractBackdropColors,
                                         onClick = { onCardClick(card.target) },
-                                        modifier = Modifier.weight(1f),
+                                        modifier = editCard.weight(1f),
                                     )
                                 }
                             }
@@ -299,6 +318,10 @@ private data class JbiContent(
 ) {
     val key: Any get() = layout?.template ?: spec
 }
+
+/** Each card's edit-mode index (wiggle parity, tap target) by stable id, in this list's order. */
+private inline fun <T> List<T>.editCardIndex(card: (T) -> HomeWidgetCard): Map<String, Int> =
+    withIndex().associate { (index, item) -> card(item).stableId to index }
 
 /**
  * Pack the grid into rows of [columns] units — a 1×2 is two units, a 1×1 is
@@ -364,12 +387,14 @@ private fun WidgetCard12(
         fallbackAccentColor = MaterialTheme.colorScheme.tertiary,
         enabled = extractBackdropColors,
     )
-    val haptics = rememberYoinHaptics()
+    // No tap haptic: browsing taps stay silent (haptic-feedback.md §D); the
+    // press and the page it opens are the answer.
     val cardModifier = modifier
-        .noRippleClickable(interactionSource = interactionSource) {
-            haptics.performContextClick()
-            onClick()
-        }
+        .noRippleClickable(
+            interactionSource = interactionSource,
+            enabled = homeEditInteractive(),
+            onClick = onClick,
+        )
     if (tall) {
         Column(modifier = cardModifier) {
             WidgetCoverBlock(
@@ -509,12 +534,14 @@ private fun WidgetCoverBlock(
     artworkRequestSizePx: Int? = null,
 ) {
     val ownInteractionSource = interactionSource ?: remember { MutableInteractionSource() }
-    val haptics = rememberYoinHaptics()
+    // Only a standalone block takes its own tap (no haptic, as WidgetCard12);
+    // nested in a 1×2 the card's own clickable answers.
     val clickModifier = if (onClick != null) {
-        Modifier.noRippleClickable(interactionSource = ownInteractionSource) {
-            haptics.performContextClick()
-            onClick()
-        }
+        Modifier.noRippleClickable(
+            interactionSource = ownInteractionSource,
+            enabled = homeEditInteractive(),
+            onClick = onClick,
+        )
     } else {
         Modifier
     }

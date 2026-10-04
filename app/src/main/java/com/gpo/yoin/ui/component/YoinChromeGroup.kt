@@ -29,7 +29,8 @@ import com.gpo.yoin.ui.navigation.YoinSection
  * [exitProgress] rides the whole group off-screen 1:1 — down for the bar
  * forms, left for the capsules (detail pages opened over Now Playing).
  * [paneProgress] is the Wide shell's merged pose while its detail column is
- * open (adaptive principle 2: one window, one bar).
+ * open (adaptive principle 2: one window, one bar). [editPose] is the
+ * shell's Home edit pose, `[Undo|Add] [Done]`.
  */
 @OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
@@ -55,6 +56,9 @@ fun YoinChromeGroup(
     isPlaying: Boolean = false,
     chromeProgress: () -> Float = { 0f },
     exitProgress: () -> Float = { 0f },
+    // Home edit pose for either form; off everywhere but the shell.
+    editPose: BarEditPose? = null,
+    editing: Boolean = false,
     playSplitActions: BarPlaySplitActions? = null,
     onLibraryLongClick: () -> Unit = onLibraryClick,
     sharedTransitionScope: SharedTransitionScope? = null,
@@ -100,6 +104,8 @@ fun YoinChromeGroup(
             isPlaying = isPlaying,
             chromeProgress = chromeProgress,
             playSplitActions = animatedPlaySplitActions,
+            editPose = editPose,
+            editing = editing,
             onHomeClick = onHomeClick,
             onNowPlayingClick = onNowPlayingClick,
             onLibraryClick = onLibraryClick,
@@ -140,6 +146,8 @@ fun YoinChromeGroup(
             wideMargin = wide,
             navOnly = navOnly,
             paneProgress = paneProgress,
+            editPose = editPose,
+            editing = editing,
             // Its own height plus spare covers the nav-bar inset the scaffold
             // carries internally.
             modifier = modifier.graphicsLayer {
@@ -204,6 +212,38 @@ private fun YoinChromeGroupCenteredNavPreview() {
             currentTrackCoverArtUrl = null,
             isPlaybackReady = true,
             connectionErrorMessage = null,
+            onHomeClick = {},
+            onNowPlayingClick = {},
+            onLibraryClick = {},
+        )
+    }
+}
+
+@androidx.compose.ui.tooling.preview.Preview(
+    name = "Centred bar · editing Home",
+    widthDp = 800,
+    heightDp = 160,
+    showBackground = true,
+)
+@Composable
+private fun YoinChromeGroupCenteredEditPreview() {
+    com.gpo.yoin.ui.theme.YoinTheme {
+        YoinChromeGroup(
+            form = ShellChromeForm.CenteredBar,
+            selectedSection = YoinSection.HOME,
+            currentTrackId = "1",
+            currentTrackTitle = "RUNNING TO YOU",
+            currentTrackArtist = "Blusher",
+            currentTrackCoverArtUrl = null,
+            isPlaybackReady = true,
+            connectionErrorMessage = null,
+            editPose = BarEditPose(
+                progress = { 1f },
+                leftSlot = { BarEditLeftSlot.Add },
+                onLeftSlotClick = {},
+                onDone = {},
+            ),
+            editing = true,
             onHomeClick = {},
             onNowPlayingClick = {},
             onLibraryClick = {},

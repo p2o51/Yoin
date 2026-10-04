@@ -62,6 +62,11 @@ object YoinMotion {
     // makes the post-gesture release read as a continuation, not a slow snap.
     private const val StageSettleDamping = 0.85f
     private const val StageSettleStiffness = 700f
+    // Home edit mode's kick: a light, ringing spring (3.2Hz, each swing 0.37×
+    // the last). Values are normalised so a kick of v = a·31.6/s peaks at a.
+    private const val HomeEditKickDamping = 0.3f
+    private const val HomeEditKickStiffness = 450f
+    private const val HomeEditKickThreshold = 0.01f
     // Artwork needs time for its fine texture to emerge before it joins up.
     // Critical damping keeps the reveal moving forward without reopening holes.
     private const val ArtworkDissolveStiffness = 45f
@@ -258,6 +263,17 @@ object YoinMotion {
     fun <T> stageSettleSpring(): FiniteAnimationSpec<T> = spring(
         dampingRatio = StageSettleDamping,
         stiffness = StageSettleStiffness,
+    )
+
+    /**
+     * The Home edit mode kick (the wiggle's impulse). Role-free and
+     * underdamped on purpose: it rings out in about 0.8s. Its threshold is
+     * on the spring itself, in normalised kick units.
+     */
+    fun homeEditKickSpring(): FiniteAnimationSpec<Float> = spring(
+        dampingRatio = HomeEditKickDamping,
+        stiffness = HomeEditKickStiffness,
+        visibilityThreshold = HomeEditKickThreshold,
     )
 
     fun fadeIn(

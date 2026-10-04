@@ -1,8 +1,12 @@
 package com.gpo.yoin.ui.home
 
+import app.cash.turbine.test
+import com.gpo.yoin.data.home.FakeHomeLayoutDao
 import com.gpo.yoin.data.home.HomeLayoutStore
+import com.gpo.yoin.data.home.HomeSectionPref
 import com.gpo.yoin.data.local.ActivityEvent
 import com.gpo.yoin.data.local.AlbumRating
+import com.gpo.yoin.data.local.PlayHistory
 import com.gpo.yoin.data.local.SongNote
 import com.gpo.yoin.data.memory.AlbumMemoryCandidate
 import com.gpo.yoin.data.model.Album
@@ -10,6 +14,7 @@ import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.Playlist
 import com.gpo.yoin.data.source.Capability
 import com.gpo.yoin.ui.memories.MemoryEntityType
+import com.gpo.yoin.ui.memories.MemoryScoreKind
 import com.gpo.yoin.data.model.Starred
 import com.gpo.yoin.data.model.Track
 import com.gpo.yoin.data.repository.YoinRepository
@@ -26,12 +31,15 @@ import io.mockk.mockk
 import io.mockk.runs
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -195,7 +203,7 @@ class HomeViewModelTest {
         } just runs
 
         // One reviewed memory candidate (album a1) → the memory 1×2 card.
-        coEvery { repository.getAlbumMemoryCandidates(any()) } returns listOf(
+        coEvery { repository.getAlbumMemoryCandidates(any(), any()) } returns listOf(
             AlbumMemoryCandidate(
                 profileId = "subsonic-grid",
                 provider = MediaId.PROVIDER_SUBSONIC,
@@ -325,7 +333,7 @@ class HomeViewModelTest {
     @Test
     fun should_exposeMemoryPill_when_candidatesExist() = runTest {
         val repository = memorySignalRepository(profile = "subsonic-pill")
-        coEvery { repository.getAlbumMemoryCandidates(any()) } returns listOf(
+        coEvery { repository.getAlbumMemoryCandidates(any(), any()) } returns listOf(
             memoryCandidate("strong", profile = "subsonic-pill", review = true, lastWrittenAt = 1_000L),
             memoryCandidate("fresh", profile = "subsonic-pill", lastWrittenAt = 9_000L, albumRating = null, average = 7.4f),
         )
@@ -344,7 +352,7 @@ class HomeViewModelTest {
     @Test
     fun should_fetchMemoryCandidatesOnce_when_loadingContent() = runTest {
         val repository = memorySignalRepository(profile = "subsonic-once")
-        coEvery { repository.getAlbumMemoryCandidates(any()) } returns listOf(
+        coEvery { repository.getAlbumMemoryCandidates(any(), any()) } returns listOf(
             memoryCandidate("a1", profile = "subsonic-once", review = true),
         )
         coEvery { repository.countNotes() } returns 1
@@ -353,7 +361,7 @@ class HomeViewModelTest {
         advanceUntilIdle()
 
         // Pill and the grid's memory 1×2 share ONE build, at the deck's pool size.
-        coVerify(exactly = 1) { repository.getAlbumMemoryCandidates(48) }
+        coVerify(exactly = 1) { repository.getAlbumMemoryCandidates(48, true) }
     }
 
     @Test
@@ -361,7 +369,7 @@ class HomeViewModelTest {
         val repository = memorySignalRepository(profile = "subsonic-jbi")
         // The plain recipe would crown "latest" (the only review) for the 1×2
         // too; the pill already shows it, so the grid takes "older".
-        coEvery { repository.getAlbumMemoryCandidates(any()) } returns listOf(
+        coEvery { repository.getAlbumMemoryCandidates(any(), any()) } returns listOf(
             memoryCandidate("latest", profile = "subsonic-jbi", review = true, lastWrittenAt = 9_000L),
             memoryCandidate("older", profile = "subsonic-jbi", lastWrittenAt = 1_000L),
         )
@@ -384,7 +392,7 @@ class HomeViewModelTest {
             memoryCandidate("a", profile = "subsonic-sticky", review = true, lastWrittenAt = 9_000L),
             memoryCandidate("b", profile = "subsonic-sticky", lastWrittenAt = 1_000L),
         )
-        coEvery { repository.getAlbumMemoryCandidates(any()) } answers { candidates }
+        coEvery { repository.getAlbumMemoryCandidates(any(), any()) } answers { candidates }
         coEvery { repository.countNotes() } returns 0
 
         val viewModel = homeViewModel(repository, "subsonic-sticky")
@@ -413,7 +421,7 @@ class HomeViewModelTest {
     fun should_refreshNoteCount_when_signalStampMoves() = runTest {
         val stamp = MutableStateFlow(0L)
         val repository = memorySignalRepository(profile = "subsonic-stamp", stamp = stamp)
-        coEvery { repository.getAlbumMemoryCandidates(any()) } returns emptyList()
+        coEvery { repository.getAlbumMemoryCandidates(any(), any()) } returns emptyList()
         var notes = 3
         coEvery { repository.countNotes() } answers { notes }
 
@@ -435,7 +443,7 @@ class HomeViewModelTest {
         val stamp = MutableStateFlow(0L)
         val repository = memorySignalRepository(profile = "subsonic-keep", stamp = stamp)
         var fail = false
-        coEvery { repository.getAlbumMemoryCandidates(any()) } answers {
+        coEvery { repository.getAlbumMemoryCandidates(any(), any()) } answers {
             if (fail) error("cold cache") else listOf(memoryCandidate("a1", profile = "subsonic-keep"))
         }
         coEvery { repository.countNotes() } returns 2
@@ -456,7 +464,7 @@ class HomeViewModelTest {
     fun should_keepPreviousPill_when_noteCountIsUnscopedDuringTick() = runTest {
         val stamp = MutableStateFlow(0L)
         val repository = memorySignalRepository(profile = "subsonic-unscoped", stamp = stamp)
-        coEvery { repository.getAlbumMemoryCandidates(any()) } returns listOf(
+        coEvery { repository.getAlbumMemoryCandidates(any(), any()) } returns listOf(
             memoryCandidate("a1", profile = "subsonic-unscoped"),
         )
         // countNotes() answers null when the repository has no active scope.
@@ -478,7 +486,7 @@ class HomeViewModelTest {
     fun should_keepPreviousPill_when_refreshCannotResolveSignals() = runTest {
         val repository = memorySignalRepository(profile = "subsonic-refresh-keep")
         var fail = false
-        coEvery { repository.getAlbumMemoryCandidates(any()) } answers {
+        coEvery { repository.getAlbumMemoryCandidates(any(), any()) } answers {
             if (fail) error("cold cache") else listOf(memoryCandidate("a1", profile = "subsonic-refresh-keep"))
         }
         coEvery { repository.countNotes() } returns 2
@@ -498,7 +506,7 @@ class HomeViewModelTest {
     @Test
     fun should_sortCoverlessPoolItemsLast_when_buildingGrid() = runTest {
         val repository = memorySignalRepository(profile = "subsonic-covers")
-        coEvery { repository.getAlbumMemoryCandidates(any()) } returns emptyList()
+        coEvery { repository.getAlbumMemoryCandidates(any(), any()) } returns emptyList()
         coEvery { repository.countNotes() } returns 0
         // Playlists p1/p2 have no artwork, p3/p4 do.
         coEvery { repository.getPlaylists() } returns listOf("p1", "p2", "p3", "p4").map { rawId ->
@@ -531,7 +539,7 @@ class HomeViewModelTest {
         // which 2 are artless → the phone's 12 cells are all art, and the two
         // artless ones trail the deeper list.
         val repository = memorySignalRepository(profile = "applemusic-art")
-        coEvery { repository.getAlbumMemoryCandidates(any()) } returns emptyList()
+        coEvery { repository.getAlbumMemoryCandidates(any(), any()) } returns emptyList()
         coEvery { repository.countNotes() } returns 0
         coEvery { repository.getAlbumList("random", any(), any()) } returns
             (1..8).map { album("al$it", "Album $it").copy(coverArt = com.gpo.yoin.data.model.CoverRef.Url("https://x/al$it")) }
@@ -558,16 +566,483 @@ class HomeViewModelTest {
         assertTrue(grid.takeLast(2).all { it.coverArtUrl == null })
     }
 
+    // ── Layout writes ──────────────────────────────────────────────────
+
+    @Test
+    fun should_notWriteLayout_when_layoutUnchanged() = runTest {
+        val repository = memorySignalRepository(profile = "subsonic-layout-same")
+        val dao = FakeHomeLayoutDao()
+        val homeLayoutStore = HomeLayoutStore(dao)
+        homeLayoutStore.setLayout("subsonic-layout-same", HomeLayout.Default.moved(HomeSection.Rediscover, 0).toPrefs())
+        val viewModel = homeViewModel(repository, "subsonic-layout-same", homeLayoutStore = homeLayoutStore)
+        advanceUntilIdle()
+
+        viewModel.setHomeLayout(viewModel.homeLayout.value)
+        viewModel.setHomeLayout(viewModel.homeLayout.value.copy(newSections = emptySet()))
+        advanceUntilIdle()
+
+        assertEquals(1, dao.upserts)
+    }
+
+    @Test
+    fun should_clearLayout_when_layoutEqualsDefault() = runTest {
+        val repository = memorySignalRepository(profile = "subsonic-layout-default")
+        val dao = FakeHomeLayoutDao()
+        val homeLayoutStore = HomeLayoutStore(dao)
+        homeLayoutStore.setLayout("subsonic-layout-default", legacyPrefs())
+        val viewModel = homeViewModel(repository, "subsonic-layout-default", homeLayoutStore = homeLayoutStore)
+        advanceUntilIdle()
+        assertEquals(setOf(HomeSection.Rediscover), viewModel.homeLayout.value.newSections)
+
+        viewModel.setHomeLayout(viewModel.homeLayout.value.reset())
+        advanceUntilIdle()
+
+        // Back to "never customized": Rediscover follows its default again.
+        assertNull(dao.raw("subsonic-layout-default"))
+        assertEquals(HomeLayout.Default, viewModel.homeLayout.value)
+    }
+
+    @Test
+    fun should_carryRetainedIds_when_layoutArrivesWithout() = runTest {
+        val repository = memorySignalRepository(profile = "subsonic-layout-retained")
+        val dao = FakeHomeLayoutDao()
+        val homeLayoutStore = HomeLayoutStore(dao)
+        homeLayoutStore.setLayout(
+            "subsonic-layout-retained",
+            HomeLayout.Default.toPrefs() + HomeSectionPref(id = "your_tracks", enabled = true),
+        )
+        val viewModel = homeViewModel(repository, "subsonic-layout-retained", homeLayoutStore = homeLayoutStore)
+        advanceUntilIdle()
+
+        // The old editor rebuilds HomeLayout(sections) and drops retained ids.
+        val moved = HomeLayout.Default.moved(HomeSection.Activities, 3)
+        viewModel.setHomeLayout(HomeLayout(moved.sections))
+        advanceUntilIdle()
+
+        assertEquals(
+            moved.toPrefs() + HomeSectionPref(id = "your_tracks", enabled = true),
+            homeLayoutStore.layoutFlow("subsonic-layout-retained").first(),
+        )
+
+        // Default sections with a retained id are still a customization: kept, not cleared.
+        viewModel.setHomeLayout(HomeLayout.Default)
+        advanceUntilIdle()
+
+        assertEquals(
+            HomeLayout.Default.toPrefs() + HomeSectionPref(id = "your_tracks", enabled = true),
+            homeLayoutStore.layoutFlow("subsonic-layout-retained").first(),
+        )
+    }
+
+    // ── Edit-mode freeze ───────────────────────────────────────────────
+
+    @Test
+    fun should_queueContent_when_editing() = runTest {
+        val stamp = MutableStateFlow(0L)
+        val repository = memorySignalRepository(profile = "subsonic-freeze", stamp = stamp)
+        coEvery { repository.getAlbumMemoryCandidates(any(), any()) } returns emptyList()
+        var notes = 1
+        coEvery { repository.countNotes() } answers { notes }
+        val viewModel = homeViewModel(repository, "subsonic-freeze")
+        advanceUntilIdle()
+
+        viewModel.uiState.test {
+            assertEquals(1, (awaitItem() as HomeUiState.Content).memoryPill?.noteCount)
+
+            viewModel.setEditing(true)
+            notes = 2
+            stamp.value = 1L
+            advanceUntilIdle()
+            expectNoEvents()
+
+            viewModel.setEditing(false)
+            assertEquals(2, (awaitItem() as HomeUiState.Content).memoryPill?.noteCount)
+        }
+    }
+
+    @Test
+    fun should_publishLatestQueued_when_editingEnds() = runTest {
+        val stamp = MutableStateFlow(0L)
+        val activities = MutableStateFlow(emptyList<ActivityEvent>())
+        val repository = memorySignalRepository(profile = "subsonic-thaw", stamp = stamp)
+        every { repository.getRecentActivities(limit = any()) } returns activities
+        coEvery { repository.getAlbumMemoryCandidates(any(), any()) } returns emptyList()
+        var notes = 1
+        coEvery { repository.countNotes() } answers { notes }
+        val viewModel = homeViewModel(repository, "subsonic-thaw")
+        advanceUntilIdle()
+
+        viewModel.uiState.test {
+            awaitItem()
+            viewModel.setEditing(true)
+            // Three splices while frozen, each building on the queued one.
+            notes = 2
+            stamp.value = 1L
+            advanceUntilIdle()
+            activities.value = listOf(artistVisit("ar1"))
+            advanceUntilIdle()
+            notes = 3
+            stamp.value = 2L
+            advanceUntilIdle()
+            expectNoEvents()
+
+            viewModel.setEditing(false)
+            val published = awaitItem() as HomeUiState.Content
+            assertEquals(3, published.memoryPill?.noteCount)
+            assertEquals(listOf("ar1"), published.activities.map { it.entityId })
+            expectNoEvents()
+        }
+    }
+
+    // ── Edit-session hints ─────────────────────────────────────────────
+
+    @Test
+    fun should_snapshotHintsBeforeRecording_when_editSessionStarts() = runTest {
+        val repository = memorySignalRepository(profile = "subsonic-hints")
+        val homeLayoutStore = mockk<HomeLayoutStore>(relaxed = true)
+        every { homeLayoutStore.layoutFlow(any()) } returns flowOf(legacyPrefs())
+        val hintStore = HomeEditHintStore.InMemory().apply { recordEditSession() }
+        val viewModel = homeViewModel(
+            repository,
+            "subsonic-hints",
+            homeLayoutStore = homeLayoutStore,
+            homeEditHintStore = hintStore,
+        )
+        advanceUntilIdle()
+
+        // One session so far → this one still shows the hint; Rediscover is unseen.
+        assertEquals(
+            HomeEditSessionHints(showHeaderHint = true, newBadges = setOf(HomeSection.Rediscover)),
+            viewModel.onEditSessionStarted(),
+        )
+        assertEquals(2, hintStore.editSessionCount())
+        assertEquals(setOf("rediscover"), hintStore.seenSectionIds())
+
+        assertEquals(HomeEditSessionHints(), viewModel.onEditSessionStarted())
+        // Entering edit never writes the layout (Q6a).
+        coVerify(exactly = 0) { homeLayoutStore.setLayout(any(), any()) }
+        coVerify(exactly = 0) { homeLayoutStore.clearLayout(any()) }
+    }
+
+    @Test
+    fun should_reemitUnseenNewSections_when_editSessionMarksThemSeen() = runTest {
+        val repository = memorySignalRepository(profile = "subsonic-unseen")
+        val homeLayoutStore = mockk<HomeLayoutStore>(relaxed = true)
+        every { homeLayoutStore.layoutFlow(any()) } returns flowOf(legacyPrefs())
+        val viewModel = homeViewModel(repository, "subsonic-unseen", homeLayoutStore = homeLayoutStore)
+        advanceUntilIdle()
+
+        viewModel.unseenNewSections.test {
+            assertEquals(setOf(HomeSection.Rediscover), awaitItem())
+
+            viewModel.onEditSessionStarted()
+
+            assertEquals(emptySet<HomeSection>(), awaitItem())
+        }
+    }
+
+    // ── Rediscover ─────────────────────────────────────────────────────
+
+    @Test
+    fun should_feedPillAndJbiFromEligibleOnly_when_poolHasIneligible() = runTest {
+        val profile = "subsonic-rd-eligible"
+        val repository = memorySignalRepository(profile = profile)
+        // "loud" is the newest write but not a Memory: neither the pill nor the
+        // grid's 1×2 may see it, though the build now includes it.
+        coEvery { repository.getAlbumMemoryCandidates(any(), any()) } returns listOf(
+            rediscoverCandidate(
+                "loud",
+                profile,
+                eligible = false,
+                lastPlayedFromHistoryAt = null,
+                lastWrittenAt = 99_000L,
+            ),
+            memoryCandidate("kept", profile = profile, review = true, lastWrittenAt = 1_000L),
+        )
+        coEvery { repository.countNotes() } returns 0
+
+        val viewModel = homeViewModel(repository, profile, nowMillis = { NOW })
+        advanceUntilIdle()
+
+        val content = viewModel.uiState.value as HomeUiState.Content
+        assertEquals("kept", content.memoryPill?.latest?.albumId?.rawId)
+        val memoryCard = content.widgetGrid.single { it.target is HomeWidgetTarget.MemoryFocus }
+        assertEquals("grid-memory:${MediaId.PROVIDER_SUBSONIC}:kept", memoryCard.stableId)
+        coVerify(exactly = 1) { repository.getAlbumMemoryCandidates(48, true) }
+    }
+
+    @Test
+    fun should_exposeRediscover_when_poolHasStaleHighRatedAlbum() = runTest {
+        val profile = "subsonic-rd-expose"
+        val repository = memorySignalRepository(profile = profile)
+        coEvery { repository.getAlbumMemoryCandidates(any(), any()) } returns listOf(
+            rediscoverCandidate("stale", profile, albumRating = 9f, cover = "https://x/stale"),
+            rediscoverCandidate("recent", profile, albumRating = 9.5f, lastPlayedFromHistoryAt = NOW - 10 * DAY),
+            rediscoverCandidate("low", profile, albumRating = 7.5f),
+        )
+        coEvery { repository.countNotes() } returns 0
+
+        val viewModel = homeViewModel(repository, profile, nowMillis = { NOW })
+        advanceUntilIdle()
+
+        assertEquals(
+            listOf(
+                HomeRediscoverItem(
+                    albumId = MediaId.subsonic("stale"),
+                    albumName = "Album stale",
+                    artistName = "Artist",
+                    coverArtUrl = "https://x/stale",
+                    score = 9f,
+                    scoreText = "9.0",
+                    scoreKind = MemoryScoreKind.ALBUM_RATING,
+                    lastPlayedAt = NOW - 200 * DAY,
+                    firstPlayedAt = NOW - 600 * DAY,
+                    playCount = 23,
+                ),
+            ),
+            (viewModel.uiState.value as HomeUiState.Content).rediscover,
+        )
+    }
+
+    @Test
+    fun should_dedupeRediscoverAgainstPillAndJbiMemory() = runTest {
+        val profile = "subsonic-rd-dedupe"
+        val repository = memorySignalRepository(profile = profile)
+        // All three are stale and rated high; the pill shows "pillAlbum" (newest
+        // write) and the grid's 1×2 takes "jbiAlbum", so only "free" is left.
+        coEvery { repository.getAlbumMemoryCandidates(any(), any()) } returns listOf(
+            rediscoverCandidate(
+                "pillAlbum",
+                profile,
+                albumRating = 9.5f,
+                eligible = true,
+                review = true,
+                lastWrittenAt = 9_000L,
+            ),
+            rediscoverCandidate("jbiAlbum", profile, albumRating = 9f, eligible = true, lastWrittenAt = 1_000L),
+            rediscoverCandidate("free", profile, albumRating = 8f),
+        )
+        coEvery { repository.countNotes() } returns 0
+
+        val viewModel = homeViewModel(repository, profile, nowMillis = { NOW })
+        advanceUntilIdle()
+
+        val content = viewModel.uiState.value as HomeUiState.Content
+        assertEquals("pillAlbum", content.memoryPill?.latest?.albumId?.rawId)
+        assertEquals(
+            "grid-memory:${MediaId.PROVIDER_SUBSONIC}:jbiAlbum",
+            content.widgetGrid.single { it.target is HomeWidgetTarget.MemoryFocus }.stableId,
+        )
+        assertEquals(listOf("free"), content.rediscover.map { it.albumId.rawId })
+    }
+
+    @Test
+    fun should_removeRediscoverCard_when_itsAlbumPlays() = runTest {
+        val profile = "subsonic-rd-remove"
+        val plays = MutableStateFlow<PlayHistory?>(null)
+        val repository = memorySignalRepository(profile = profile, plays = plays)
+        coEvery { repository.getAlbumMemoryCandidates(any(), any()) } returns listOf(
+            rediscoverCandidate("a", profile, albumRating = 9f),
+            rediscoverCandidate("b", profile, albumRating = 8.5f),
+        )
+        coEvery { repository.countNotes() } returns 0
+        val viewModel = homeViewModel(repository, profile, nowMillis = { NOW })
+        advanceUntilIdle()
+        assertEquals(listOf("a", "b"), rediscoverIds(viewModel))
+
+        plays.value = play(id = 1, albumId = "a", profile = profile, playedAt = NOW + 1_000L)
+        advanceUntilIdle()
+
+        assertEquals(listOf("b"), rediscoverIds(viewModel))
+    }
+
+    @Test
+    fun should_ignoreExistingLatestPlay_when_subscriptionStarts() = runTest {
+        val profile = "subsonic-rd-existing"
+        // The newest row already in history (a returning user's last play,
+        // months ago) is on the shelf's album: it must stay.
+        val plays = MutableStateFlow<PlayHistory?>(
+            play(id = 1, albumId = "a", profile = profile, playedAt = NOW - 200 * DAY),
+        )
+        val repository = memorySignalRepository(profile = profile, plays = plays)
+        coEvery { repository.getAlbumMemoryCandidates(any(), any()) } returns listOf(
+            rediscoverCandidate("a", profile, albumRating = 9f),
+        )
+        coEvery { repository.countNotes() } returns 0
+
+        val viewModel = homeViewModel(repository, profile, nowMillis = { NOW })
+        advanceUntilIdle()
+
+        assertEquals(listOf("a"), rediscoverIds(viewModel))
+    }
+
+    @Test
+    fun should_notResurrectPlayedCard_when_staleTickLands() = runTest {
+        val profile = "subsonic-rd-resurrect"
+        val stamp = MutableStateFlow(0L)
+        val plays = MutableStateFlow<PlayHistory?>(null)
+        val repository = memorySignalRepository(profile = profile, stamp = stamp, plays = plays)
+        // The builder still reports "a" as unplayed: its history hasn't caught
+        // up with the play yet.
+        coEvery { repository.getAlbumMemoryCandidates(any(), any()) } returns listOf(
+            rediscoverCandidate("a", profile, albumRating = 9f),
+        )
+        var notes = 1
+        coEvery { repository.countNotes() } answers { notes }
+        val viewModel = homeViewModel(repository, profile, nowMillis = { NOW })
+        advanceUntilIdle()
+        assertEquals(listOf("a"), rediscoverIds(viewModel))
+
+        plays.value = play(id = 1, albumId = "a", profile = profile, playedAt = NOW + 1_000L)
+        advanceUntilIdle()
+        notes = 2
+        stamp.value = 1L
+        advanceUntilIdle()
+
+        val content = viewModel.uiState.value as HomeUiState.Content
+        assertEquals(2, content.memoryPill?.noteCount)
+        assertEquals(emptyList<String>(), content.rediscover.map { it.albumId.rawId })
+
+        viewModel.refresh()
+        advanceUntilIdle()
+        assertEquals(emptyList<String>(), rediscoverIds(viewModel))
+    }
+
+    @Test
+    fun should_queueRediscoverRemoval_when_editing() = runTest {
+        val profile = "subsonic-rd-queue"
+        val plays = MutableStateFlow<PlayHistory?>(null)
+        val repository = memorySignalRepository(profile = profile, plays = plays)
+        coEvery { repository.getAlbumMemoryCandidates(any(), any()) } returns listOf(
+            rediscoverCandidate("a", profile, albumRating = 9f),
+            rediscoverCandidate("b", profile, albumRating = 8.5f),
+        )
+        coEvery { repository.countNotes() } returns 0
+        val viewModel = homeViewModel(repository, profile, nowMillis = { NOW })
+        advanceUntilIdle()
+
+        viewModel.uiState.test {
+            assertEquals(listOf("a", "b"), (awaitItem() as HomeUiState.Content).rediscover.map { it.albumId.rawId })
+
+            viewModel.setEditing(true)
+            plays.value = play(id = 1, albumId = "a", profile = profile, playedAt = NOW + 1_000L)
+            advanceUntilIdle()
+            expectNoEvents()
+
+            viewModel.setEditing(false)
+            assertEquals(listOf("b"), (awaitItem() as HomeUiState.Content).rediscover.map { it.albumId.rawId })
+        }
+    }
+
+    @Test
+    fun should_applyQueuedContent_when_editingEnds() = runTest {
+        val profile = "subsonic-rd-thaw"
+        val stamp = MutableStateFlow(0L)
+        val plays = MutableStateFlow<PlayHistory?>(null)
+        val repository = memorySignalRepository(profile = profile, stamp = stamp, plays = plays)
+        coEvery { repository.getAlbumMemoryCandidates(any(), any()) } returns listOf(
+            rediscoverCandidate("a", profile, albumRating = 9f),
+            rediscoverCandidate("b", profile, albumRating = 8.5f),
+        )
+        var notes = 1
+        coEvery { repository.countNotes() } answers { notes }
+        val viewModel = homeViewModel(repository, profile, nowMillis = { NOW })
+        advanceUntilIdle()
+
+        viewModel.uiState.test {
+            awaitItem()
+            viewModel.setEditing(true)
+            // A removal, then a signal tick that builds on the queued state.
+            plays.value = play(id = 1, albumId = "a", profile = profile, playedAt = NOW + 1_000L)
+            advanceUntilIdle()
+            notes = 2
+            stamp.value = 1L
+            advanceUntilIdle()
+            expectNoEvents()
+
+            viewModel.setEditing(false)
+            val published = awaitItem() as HomeUiState.Content
+            assertEquals(listOf("b"), published.rediscover.map { it.albumId.rawId })
+            assertEquals(2, published.memoryPill?.noteCount)
+            expectNoEvents()
+        }
+    }
+
+    @Test
+    fun should_keepRediscover_when_tickCannotResolveSignals() = runTest {
+        val profile = "subsonic-rd-keep"
+        val stamp = MutableStateFlow(0L)
+        val repository = memorySignalRepository(profile = profile, stamp = stamp)
+        var fail = false
+        coEvery { repository.getAlbumMemoryCandidates(any(), any()) } answers {
+            if (fail) error("cold cache") else listOf(rediscoverCandidate("a", profile, albumRating = 9f))
+        }
+        coEvery { repository.countNotes() } returns 0
+        val viewModel = homeViewModel(repository, profile, nowMillis = { NOW })
+        advanceUntilIdle()
+        assertEquals(listOf("a"), rediscoverIds(viewModel))
+
+        fail = true
+        stamp.value = 1L
+        advanceUntilIdle()
+        assertEquals(listOf("a"), rediscoverIds(viewModel))
+
+        viewModel.refresh()
+        advanceUntilIdle()
+        assertEquals(listOf("a"), rediscoverIds(viewModel))
+    }
+
+    @Test
+    fun should_snapshotNewBadgesAndMarkSeen_when_editSessionStarts() = runTest {
+        val profile = "subsonic-rd-badges"
+        val repository = memorySignalRepository(profile = profile)
+        val homeLayoutStore = mockk<HomeLayoutStore>(relaxed = true)
+        every { homeLayoutStore.layoutFlow(any()) } returns flowOf(legacyPrefs())
+        val hintStore = HomeEditHintStore.InMemory()
+        val viewModel = homeViewModel(
+            repository,
+            profile,
+            homeLayoutStore = homeLayoutStore,
+            homeEditHintStore = hintStore,
+        )
+        advanceUntilIdle()
+        assertEquals(setOf(HomeSection.Rediscover), viewModel.unseenNewSections.value)
+
+        assertEquals(setOf(HomeSection.Rediscover), viewModel.onEditSessionStarted().newBadges)
+        advanceUntilIdle()
+
+        assertEquals(setOf("rediscover"), hintStore.seenSectionIds())
+        assertEquals(emptySet<HomeSection>(), viewModel.unseenNewSections.value)
+        // Seen once is seen: the next session badges nothing.
+        assertEquals(emptySet<HomeSection>(), viewModel.onEditSessionStarted().newBadges)
+    }
+
+    @Test
+    fun should_showHeaderHintOnlyFirstTwoSessions_when_editSessionsStart() = runTest {
+        val profile = "subsonic-rd-hint"
+        val repository = memorySignalRepository(profile = profile)
+        val hintStore = HomeEditHintStore.InMemory()
+        val viewModel = homeViewModel(repository, profile, homeEditHintStore = hintStore)
+        advanceUntilIdle()
+
+        val shown = List(3) { viewModel.onEditSessionStarted().showHeaderHint }
+
+        assertEquals(listOf(true, true, false), shown)
+        assertEquals(3, hintStore.editSessionCount())
+    }
+
     /** A Subsonic-scoped relaxed repository with an empty feed and no pools. */
     private fun memorySignalRepository(
         profile: String,
-        stamp: kotlinx.coroutines.flow.Flow<Long> = flowOf(),
+        stamp: Flow<Long> = flowOf(),
+        plays: Flow<PlayHistory?> = flowOf(),
     ): YoinRepository {
         val repository = mockk<YoinRepository>(relaxed = true)
         every { repository.currentProviderId() } returns MediaId.PROVIDER_SUBSONIC
         every { repository.currentCapabilities() } returns emptySet()
         every { repository.getRecentActivities(limit = any()) } returns flowOf(emptyList<ActivityEvent>())
         every { repository.observeMemorySignalStamp() } returns stamp
+        every { repository.observeMostRecentPlay() } returns plays
         every { repository.resolveCoverUrl(any(), any()) } returns null
         every { repository.getRating(any()) } returns flowOf(null)
         coEvery { repository.getRecentSongNotes(any()) } returns emptyList()
@@ -585,15 +1060,83 @@ class HomeViewModelTest {
         return repository
     }
 
-    private fun homeViewModel(repository: YoinRepository, profile: String): HomeViewModel {
-        val homeLayoutStore = mockk<HomeLayoutStore>(relaxed = true)
-        every { homeLayoutStore.layoutFlow(any()) } returns flowOf(null)
-        return HomeViewModel(
-            repository = repository,
-            activeProfileId = MutableStateFlow(profile),
-            homeLayoutStore = homeLayoutStore,
-        )
-    }
+    private fun homeViewModel(
+        repository: YoinRepository,
+        profile: String,
+        homeLayoutStore: HomeLayoutStore = mockk<HomeLayoutStore>(relaxed = true).also { store ->
+            every { store.layoutFlow(any()) } returns flowOf(null)
+        },
+        homeEditHintStore: HomeEditHintStore = HomeEditHintStore.InMemory(),
+        nowMillis: () -> Long = System::currentTimeMillis,
+    ): HomeViewModel = HomeViewModel(
+        repository = repository,
+        activeProfileId = MutableStateFlow(profile),
+        homeLayoutStore = homeLayoutStore,
+        homeEditHintStore = homeEditHintStore,
+        nowMillis = nowMillis,
+    )
+
+    private fun rediscoverIds(viewModel: HomeViewModel): List<String> =
+        (viewModel.uiState.value as HomeUiState.Content).rediscover.map { it.albumId.rawId }
+
+    /**
+     * A candidate as the ineligible-inclusive build returns it: by default rated
+     * 9, last played 200 days before [NOW], first played 600 days before, 23
+     * plays — and not a Memory.
+     */
+    private fun rediscoverCandidate(
+        albumId: String,
+        profile: String,
+        albumRating: Float? = 9f,
+        eligible: Boolean = false,
+        review: Boolean = false,
+        lastWrittenAt: Long? = null,
+        lastPlayedFromHistoryAt: Long? = NOW - 200 * DAY,
+        cover: String? = null,
+    ): AlbumMemoryCandidate = memoryCandidate(
+        albumId = albumId,
+        profile = profile,
+        review = review,
+        albumRating = albumRating,
+        lastWrittenAt = lastWrittenAt,
+    ).copy(
+        isMemoryEligible = eligible,
+        coverArtUrl = cover,
+        firstPlayedFromHistoryAt = lastPlayedFromHistoryAt?.let { NOW - 600 * DAY },
+        lastPlayedFromHistoryAt = lastPlayedFromHistoryAt,
+        playCountFromHistory = if (lastPlayedFromHistoryAt != null) 23 else 0,
+    )
+
+    private fun play(id: Long, albumId: String, profile: String, playedAt: Long): PlayHistory = PlayHistory(
+        id = id,
+        songId = "song-$id",
+        profileId = profile,
+        provider = MediaId.PROVIDER_SUBSONIC,
+        title = "Song $id",
+        artist = "Artist",
+        album = "Album $albumId",
+        albumId = albumId,
+        coverArtId = null,
+        playedAt = playedAt,
+        durationMs = 200_000L,
+        completedPercent = 0f,
+    )
+
+    /** A layout customized before Rediscover shipped: reconcile appends it hidden and new. */
+    private fun legacyPrefs(): List<HomeSectionPref> = listOf(
+        HomeSectionPref(id = "activities", enabled = true),
+        HomeSectionPref(id = "jump_back_in", enabled = true),
+        HomeSectionPref(id = "recently_added", enabled = true),
+    )
+
+    private fun artistVisit(rawId: String): ActivityEvent = ActivityEvent(
+        entityType = "ARTIST",
+        actionType = "VISITED",
+        entityId = rawId,
+        profileId = "subsonic-thaw",
+        title = "Artist $rawId",
+        subtitle = "Artist",
+    )
 
     private fun memoryCandidate(
         albumId: String,
@@ -626,6 +1169,12 @@ class HomeViewModelTest {
         durationSeconds = null,
         coverArtUrl = null,
     )
+
+    private companion object {
+        // Rediscover's fixed clock.
+        const val NOW = 1_800_000_000_000L
+        const val DAY = 24L * 60 * 60 * 1000
+    }
 
     private fun savedTrack(rawId: String, addedAt: String): Track = Track(
         id = MediaId.spotify(rawId),

@@ -1,11 +1,15 @@
 package com.gpo.yoin.ui.home
 
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import com.gpo.yoin.data.memory.AlbumMemoryCandidate
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.ui.memories.MemoryScoreKind
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -124,6 +128,24 @@ class HomeMemoryBubbleTest {
         )
         assertFalse(under)
         assertEquals((128f + 300f - 136f) / 2f + 30f, x)
+    }
+
+    // ---- Who takes the tap ----
+
+    @Test
+    fun should_notClaimArrowTap_when_editing() {
+        val controller = MemoryBubbleController()
+        controller.arrowBounds = Rect(100f, 0f, 148f, 48f)
+        val tap = {}
+        val onArrow = Offset(124f, 24f)
+
+        controller.onArrowTap = memoryArrowTap(scrolledAway = false, editing = true, tap = tap)
+        assertNull(controller.tapTargetAt(onArrow))
+        // Scrolled away it is not claimed either; in place and not editing it is.
+        controller.onArrowTap = memoryArrowTap(scrolledAway = true, editing = false, tap = tap)
+        assertNull(controller.tapTargetAt(onArrow))
+        controller.onArrowTap = memoryArrowTap(scrolledAway = false, editing = false, tap = tap)
+        assertSame(tap, controller.tapTargetAt(onArrow))
     }
 
     private fun candidate(lastWrittenAt: Long?) = AlbumMemoryCandidate(

@@ -24,7 +24,9 @@ import com.gpo.yoin.enableYoinEdgeToEdge
 import com.gpo.yoin.ui.component.ExpressivePageBackground
 import com.gpo.yoin.ui.home.HomeEditorialContent
 import com.gpo.yoin.ui.home.HomeHintVariant
+import com.gpo.yoin.ui.home.HomeLayout
 import com.gpo.yoin.ui.home.HomeMemoryPill
+import com.gpo.yoin.ui.home.HomeRediscoverItem
 import com.gpo.yoin.ui.home.HomeWidgetCard
 import com.gpo.yoin.ui.home.HomeWidgetTarget
 import com.gpo.yoin.ui.home.LocalHomeHintVariant
@@ -32,11 +34,19 @@ import com.gpo.yoin.ui.home.InMemoryMemoryBubbleSeenStore
 import com.gpo.yoin.ui.home.LocalMemoryBubbleIdleMs
 import com.gpo.yoin.ui.home.LocalMemoryBubbleSeenStore
 import com.gpo.yoin.ui.home.MemoryBubbleIdleMs
+import com.gpo.yoin.ui.home.edit.HomeWiggleMode
+import com.gpo.yoin.ui.home.edit.HomeWiggleStyle
+import com.gpo.yoin.ui.home.edit.HomeWiggleTarget
+import com.gpo.yoin.ui.home.edit.LocalHomeWiggleStyle
+import com.gpo.yoin.ui.home.edit.rememberStandaloneHomeEditController
+import com.gpo.yoin.ui.home.rediscoverScoreText
 import com.gpo.yoin.ui.memories.MemoryEntityType
 import com.gpo.yoin.ui.memories.MemoryScoreKind
 import kotlinx.coroutines.delay
 import androidx.compose.runtime.CompositionLocalProvider
+import com.gpo.yoin.ui.experience.LocalMotionProfile
 import com.gpo.yoin.ui.experience.LocalYoinWindowInfo
+import com.gpo.yoin.ui.experience.MotionProfile
 import com.gpo.yoin.ui.experience.rememberYoinWindowInfo
 import com.gpo.yoin.ui.theme.YoinTheme
 import java.io.File
@@ -64,12 +74,23 @@ import java.io.File
  *   --ei shelf    rotate the shelf's covers by N — a different leading cover,
  *                 so the template seed (and layout) changes
  *   --ei signals  how many 1×2 signal cards to keep (default 2)
- *   --ez activities false hides the Activities bento (Jump Back In leads)
+ *   --ez activities false empties the Activities bento (its empty card leads)
  *
  * Memories speech bubble (owner 2026-10-04):
  *   --es bubble   news (default: the pill is untold news, the bubble speaks
  *                 after the reveal) | seen (only the arrow until idle)
  *   --el idleMs   the idle threshold (default 15000)
+ *
+ * Rediscover (P0-9):
+ *   --ez rediscover true  adds the shelf: months away, a long title, years
+ *                 away and a single play
+ *   --ei rediscoverCount  keep only the first N cards (1 = the lone full-width card)
+ *
+ * Home edit mode (P0, in place; a standalone controller, so no bar):
+ *   --ez edit     true starts in edit mode (a blank tap leaves it)
+ *   --es wiggle   IdleSettle (default) | Kick | Continuous
+ *   --es wiggleTarget  Card (default) | Block
+ *   --ez reduced  true runs the page as AdaptiveReduced (no charge, sway or kicks)
  */
 class MemoriesScreenshotActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -90,6 +111,22 @@ class MemoriesScreenshotActivity : ComponentActivity() {
         val showActivities = intent.getBooleanExtra("activities", true)
         val bubbleSeen = intent.getStringExtra("bubble") == "seen"
         val idleMs = intent.getLongExtra("idleMs", MemoryBubbleIdleMs)
+        val rediscover = if (intent.getBooleanExtra("rediscover", false)) {
+            fakeRediscover().take(intent.getIntExtra("rediscoverCount", Int.MAX_VALUE).coerceAtLeast(0))
+        } else {
+            emptyList()
+        }
+        val startEditing = intent.getBooleanExtra("edit", false)
+        val wiggleStyle = HomeWiggleStyle(
+            mode = intent.getStringExtra("wiggle")
+                ?.let { name -> HomeWiggleMode.entries.firstOrNull { it.name.equals(name, ignoreCase = true) } }
+                ?: HomeWiggleMode.IdleSettle,
+            target = intent.getStringExtra("wiggleTarget")
+                ?.let { name -> HomeWiggleTarget.entries.firstOrNull { it.name.equals(name, ignoreCase = true) } }
+                ?: HomeWiggleTarget.Card,
+        )
+        val motionProfile =
+            if (intent.getBooleanExtra("reduced", false)) MotionProfile.AdaptiveReduced else MotionProfile.Full
         val bubbleStore = InMemoryMemoryBubbleSeenStore()
         setContent {
             // 对齐生产环境：QA 台也提供窗口信息，Medium/Wide 分支才可验。
@@ -119,8 +156,15 @@ class MemoriesScreenshotActivity : ComponentActivity() {
                 LocalHomeHintVariant provides variant,
                 LocalMemoryBubbleSeenStore provides bubbleStore,
                 LocalMemoryBubbleIdleMs provides idleMs,
+                LocalHomeWiggleStyle provides wiggleStyle,
+                LocalMotionProfile provides motionProfile,
             ) {
             YoinTheme {
+                // The page's own controller, so the harness can open in edit mode.
+                val editController = rememberStandaloneHomeEditController(HomeLayout.Default)
+                LaunchedEffect(editController) {
+                    if (startEditing) editController.enter(null, lifted = false)
+                }
                 // Production's page gradient (HomeScreen), so the pill and the
                 // seams are judged on the background they really sit on.
                 ExpressivePageBackground(modifier = Modifier.fillMaxSize()) {
@@ -141,9 +185,11 @@ class MemoriesScreenshotActivity : ComponentActivity() {
                         activityHeroFootnote = "2024 · 12 songs · 44 min",
                         recentlyAddedTracks = if (showRecent) fakeRecentlyAddedTracks() else emptyList(),
                         recentlyAddedAlbums = if (showRecent) fakeRecentlyAddedAlbums() else emptyList(),
+                        rediscover = rediscover,
                         memoryPill = pill,
                         onNavigateToSettings = {},
                         onNavigateToMemories = {},
+                        editController = editController,
                         onAlbumClick = { _, _ -> },
                         onArtistClick = {},
                         onPlaylistClick = {},
@@ -486,6 +532,47 @@ class MemoriesScreenshotActivity : ComponentActivity() {
         fakeAlbum("ra4", "Freakout/Release", "Hot Chip", swatchCover("violet", 0xFF7F77DD.toInt())),
         fakeAlbum("ra5", "天国の部屋", "坂口諒之介", swatchCover("navy", 0xFF185FA5.toInt())),
     )
+
+    private fun fakeRediscover(): List<HomeRediscoverItem> {
+        val now = System.currentTimeMillis()
+        val day = 24L * 60 * 60 * 1000
+        fun item(
+            rawId: String,
+            name: String,
+            artist: String,
+            cover: String,
+            score: Float,
+            daysAway: Long,
+            firstDaysAgo: Long,
+            plays: Int,
+        ) = HomeRediscoverItem(
+            albumId = MediaId.subsonic(rawId),
+            albumName = name,
+            artistName = artist,
+            coverArtUrl = cover,
+            score = score,
+            scoreText = rediscoverScoreText(score),
+            scoreKind = MemoryScoreKind.ALBUM_RATING,
+            lastPlayedAt = now - daysAway * day,
+            firstPlayedAt = now - firstDaysAgo * day,
+            playCount = plays,
+        )
+        return listOf(
+            item("rd1", "Emotion", "Carly Rae Jepsen", swatchCover("rose", 0xFFE4577A.toInt()), 9.0f, 214, 700, 23),
+            item(
+                "rd2",
+                "Para que salgamos bien en la foto (Edición Deluxe)",
+                "Rakky Ripper",
+                swatchCover("blue", 0xFF378ADD.toInt()),
+                8.5f,
+                160,
+                420,
+                41,
+            ),
+            item("rd3", "Blonde", "Frank Ocean", swatchCover("amber", 0xFFD89A2E.toInt()), 8.0f, 800, 1500, 17),
+            item("rd4", "Little House", "Rachel Chinouriri", swatchCover("moss", 0xFF639922.toInt()), 8.2f, 95, 95, 1),
+        )
+    }
 
     private fun fakeAlbum(rawId: String, name: String, artist: String, cover: String): Album =
         Album(

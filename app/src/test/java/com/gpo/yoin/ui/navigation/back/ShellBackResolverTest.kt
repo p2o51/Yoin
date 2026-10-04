@@ -54,6 +54,62 @@ class ShellBackResolverTest {
     }
 
     @Test
+    fun should_returnHomeEdit_when_editingOnHome() {
+        val owner = resolveShellBackOwner(
+            showNowPlaying = false,
+            selectedSection = YoinSection.HOME,
+            homeSurface = HomeSurface.Edit,
+        )
+
+        assertEquals(ShellBackOwner.HomeEdit, owner)
+    }
+
+    @Test
+    fun should_keepNowPlayingFirst_when_homeEditingBesideThePanel() {
+        val owner = resolveShellBackOwner(
+            showNowPlaying = true,
+            selectedSection = YoinSection.HOME,
+            homeSurface = HomeSurface.Edit,
+            detailPaneOpen = true,
+        )
+
+        assertEquals(ShellBackOwner.NowPlaying, owner)
+    }
+
+    @Test
+    fun should_giveHomeEditBack_when_theDetailPaneIsAlsoOpen() {
+        val owner = resolveShellBackOwner(
+            showNowPlaying = false,
+            selectedSection = YoinSection.HOME,
+            homeSurface = HomeSurface.Edit,
+            detailPaneOpen = true,
+        )
+
+        assertEquals(ShellBackOwner.HomeEdit, owner)
+    }
+
+    @Test
+    fun should_ignoreEditSurface_when_libraryIsSelected() {
+        assertEquals(
+            ShellBackOwner.None,
+            resolveShellBackOwner(
+                showNowPlaying = false,
+                selectedSection = YoinSection.LIBRARY,
+                homeSurface = HomeSurface.Edit,
+            ),
+        )
+        assertEquals(
+            ShellBackOwner.DetailPane,
+            resolveShellBackOwner(
+                showNowPlaying = false,
+                selectedSection = YoinSection.LIBRARY,
+                homeSurface = HomeSurface.Edit,
+                detailPaneOpen = true,
+            ),
+        )
+    }
+
+    @Test
     fun should_return_none_when_no_shell_overlay_owns_back() {
         val owner = resolveShellBackOwner(
             showNowPlaying = false,

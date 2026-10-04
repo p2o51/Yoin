@@ -3,6 +3,7 @@ package com.gpo.yoin.ui.home
 import androidx.compose.ui.unit.dp
 import kotlin.math.abs
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import com.gpo.yoin.ui.experience.LayoutMode
 import com.gpo.yoin.ui.experience.feedUnitsFor
@@ -11,8 +12,8 @@ import org.junit.Test
 /**
  * Pure-function tests for Home feed density ([activityBentoSpec],
  * [activityUnitSlots], [activityLayoutSeed], [jbiGridSpec],
- * [recentlyAddedGridWidth]). `feedUnits` itself (width → N) is pinned by
- * FeedUnitsTest; here N is an input.
+ * [recentlyAddedGridWidth], [rediscoverVisibleCount], [rediscoverCardWidth]).
+ * `feedUnits` itself (width → N) is pinned by FeedUnitsTest; here N is an input.
  */
 class HomeFeedDensityTest {
 
@@ -496,5 +497,68 @@ class HomeFeedDensityTest {
             assertTrue("C=$content", current - previous in 0f..maxSlope)
             previous = current
         }
+    }
+
+    // ---- Rediscover ----
+
+    @Test
+    fun should_showSixInShelf_when_compact() {
+        for (units in 1..2) {
+            assertEquals(6, rediscoverVisibleCount(units, landscapePhone = false))
+            assertTrue(isRediscoverShelf(rediscoverVisibleCount(units, landscapePhone = false)))
+        }
+    }
+
+    @Test
+    fun should_showTwo_when_threeUnits() {
+        assertEquals(2, rediscoverVisibleCount(3, landscapePhone = false))
+    }
+
+    @Test
+    fun should_showTwo_when_medium() {
+        // Medium / Tabletop panes run N 3–4 (the tablet portrait is 4).
+        for (units in 3..4) {
+            assertEquals(2, rediscoverVisibleCount(units, landscapePhone = false))
+            assertFalse(isRediscoverShelf(rediscoverVisibleCount(units, landscapePhone = false)))
+        }
+    }
+
+    @Test
+    fun should_showThree_when_wide() {
+        for (units in 5..8) {
+            assertEquals(3, rediscoverVisibleCount(units, landscapePhone = false))
+        }
+    }
+
+    @Test
+    fun should_showTwo_when_landscapePhone() {
+        // A short window side by side, whatever its width reads as.
+        for (units in 1..8) {
+            assertEquals(2, rediscoverVisibleCount(units, landscapePhone = true))
+        }
+    }
+
+    @Test
+    fun should_peekNextCard_when_shelfHoldsSeveral() {
+        val width = rediscoverCardWidth(328.dp, visibleCount = 6, itemCount = 3, gap = 12.dp)
+        assertEquals(328f * 0.86f, width.value, 0.001f)
+    }
+
+    @Test
+    fun should_fillContent_when_shelfHoldsOne() {
+        assertEquals(328f, rediscoverCardWidth(328.dp, visibleCount = 6, itemCount = 1, gap = 12.dp).value, 0f)
+    }
+
+    @Test
+    fun should_splitContentEvenly_when_sideBySide() {
+        assertEquals(338f, rediscoverCardWidth(688.dp, visibleCount = 2, itemCount = 2, gap = 12.dp).value, 0.001f)
+        assertEquals(400f, rediscoverCardWidth(1224.dp, visibleCount = 3, itemCount = 3, gap = 12.dp).value, 0.001f)
+        // Fewer items never widen a card.
+        assertEquals(338f, rediscoverCardWidth(688.dp, visibleCount = 2, itemCount = 1, gap = 12.dp).value, 0.001f)
+    }
+
+    @Test
+    fun should_neverGoNegative_when_contentCollapses() {
+        assertEquals(0f, rediscoverCardWidth(0.dp, visibleCount = 3, itemCount = 3, gap = 12.dp).value, 0f)
     }
 }

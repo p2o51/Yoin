@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButtonDefaults
@@ -33,6 +34,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -85,6 +88,10 @@ fun YoinEdgeSplitGroup(
     isPlaying: Boolean = false,
     chromeProgress: () -> Float = { 0f },
     playSplitActions: BarPlaySplitActions? = null,
+    // Home edit pose: Home → Undo/Add, Library → Done, the pill capsule steps
+    // out as when idle. Clicks route on the discrete [editing].
+    editPose: BarEditPose? = null,
+    editing: Boolean = false,
     onHomeClick: () -> Unit,
     onNowPlayingClick: () -> Unit,
     onLibraryClick: () -> Unit,
@@ -127,22 +134,26 @@ fun YoinEdgeSplitGroup(
                     selectedSection = selectedSection,
                     chromeProgress = chromeProgress,
                     playSplitActions = playSplitActions,
+                    editPose = editPose,
+                    editing = editing,
                     onHomeClick = onHomeClick,
                     onLibraryClick = onLibraryClick,
                     onLibraryLongClick = onLibraryLongClick,
                 )
             }
 
-            // Nothing playing: the lower capsule steps out (the portrait bar's
-            // idle pose retires its pill the same way). Detail chrome keeps it.
+            // Nothing playing, or Home being edited: the lower capsule steps
+            // out (the portrait bar's idle pose retires its pill the same
+            // way). Detail chrome keeps it.
             val morph = chromeProgress().coerceIn(0f, 1f)
-            if (idleProgress < 0.995f || morph > 0.005f) {
+            val idleLike = maxOf(idleProgress, editPose?.progress()?.coerceIn(0f, 1f) ?: 0f)
+            if (idleLike < 0.995f || morph > 0.005f) {
                 EdgeCapsule(
                     x = x,
                     top = segments.lowerTop,
                     height = segments.lowerHeight,
                     modifier = Modifier.graphicsLayer {
-                        val hide = if (morph > 0.005f) 0f else idleProgress
+                        val hide = if (morph > 0.005f) 0f else idleLike
                         alpha = 1f - hide
                         // Steps out over its own edge.
                         translationX = if (side == EdgeSplitSide.Right) {
@@ -161,6 +172,9 @@ fun YoinEdgeSplitGroup(
                         playbackProgress = playbackProgress,
                         isPlaying = isPlaying,
                         onClick = onNowPlayingClick,
+                        // Stepping out but still composed on the way into
+                        // edit: no press, click or haptic.
+                        enabled = !editing,
                         sharedTransitionScope = sharedTransitionScope,
                         animatedVisibilityScope = animatedVisibilityScope,
                         modifier = Modifier
@@ -204,6 +218,7 @@ private fun EdgeCapsule(
     }
 }
 
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun UpperCapsuleContent(
     innerHeight: Dp,
@@ -212,6 +227,8 @@ private fun UpperCapsuleContent(
     selectedSection: YoinSection,
     chromeProgress: () -> Float,
     playSplitActions: BarPlaySplitActions?,
+    editPose: BarEditPose?,
+    editing: Boolean,
     onHomeClick: () -> Unit,
     onLibraryClick: () -> Unit,
     onLibraryLongClick: () -> Unit,
@@ -234,7 +251,17 @@ private fun UpperCapsuleContent(
     val morph = chromeProgress().coerceIn(0f, 1f)
     val navAlpha = (1f - morph / 0.6f).coerceIn(0f, 1f)
     val splitAlpha = ((morph - 0.4f) / 0.6f).coerceIn(0f, 1f)
+    // Edit pose, as in the bar: icons swap over the middle of P, Done's
+    // container tints linearly in P.
+    val edit = editPose?.progress()?.coerceIn(0f, 1f) ?: 0f
+    val editSwap = barEditSwap(edit)
+    val editLeftSlot = editPose?.leftSlot() ?: BarEditLeftSlot.UndoDisabled
+    val editSlotAlphas = rememberBarEditSlotAlphas(editLeftSlot)
     var showLibrarySearchHint by remember { mutableStateOf(false) }
+    // Library is Done while editing: entering edit clears a showing hint.
+    LaunchedEffect(editing) {
+        if (editing) showLibrarySearchHint = false
+    }
 
     Box(modifier = Modifier.fillMaxSize()) {
         if (morph < 0.99f) {
@@ -252,27 +279,51 @@ private fun UpperCapsuleContent(
             ) {
                 FilledIconButton(
                     onClick = {
-                        haptics.performClick()
-                        onHomeClick()
+                        // Edit haptics belong to the controller alone.
+                        if (editing) {
+                            editPose?.onLeftSlotClick()
+                        } else {
+                            haptics.performClick()
+                            onHomeClick()
+                        }
                     },
-                    shape = RoundedCornerShape(EdgeNavCornerRadius),
+                    // Editing: M3 Expressive's pressed shape is the press echo.
+                    shapes = barEditIconButtonShapes(
+                        shape = RoundedCornerShape(EdgeNavCornerRadius),
+                        pressMorph = editing && editLeftSlot != BarEditLeftSlot.UndoDisabled,
+                    ),
                     colors = IconButtonDefaults.filledIconButtonColors(
-                        containerColor = homeContainer,
+                        containerColor = lerp(homeContainer, colors.surfaceContainerHighest, editSwap),
                         contentColor = homeContent,
                     ),
                     modifier = Modifier
                         .width(EdgeSplitButtonWidth)
-                        .height(homeHeight),
+                        .height(homeHeight)
+                        .barEditLeftSlotSemantics(editing, editLeftSlot),
                 ) {
-                    Icon(
-                        imageVector = if (selectedSection == YoinSection.HOME) {
-                            YoinSymbols.HomeFilled
-                        } else {
-                            YoinSymbols.Home
-                        },
-                        contentDescription = "Home",
-                        modifier = Modifier.size(EdgeNavIconSize),
-                    )
+                    Box(contentAlignment = Alignment.Center) {
+                        if (editSwap < 0.99f) {
+                            Icon(
+                                imageVector = if (selectedSection == YoinSection.HOME) {
+                                    YoinSymbols.HomeFilled
+                                } else {
+                                    YoinSymbols.Home
+                                },
+                                contentDescription = if (editing) null else "Home",
+                                modifier = Modifier
+                                    .size(EdgeNavIconSize)
+                                    .graphicsLayer { alpha = 1f - editSwap },
+                            )
+                        }
+                        if (editSwap > 0.01f) {
+                            BarEditLeftSlotLayers(
+                                editSwap = editSwap,
+                                alphas = editSlotAlphas,
+                                labelAlpha = 0f,
+                                iconSize = EdgeNavIconSize,
+                            )
+                        }
+                    }
                 }
                 LaunchedEffect(showLibrarySearchHint) {
                     if (showLibrarySearchHint) {
@@ -281,9 +332,13 @@ private fun UpperCapsuleContent(
                     }
                 }
                 Surface(
-                    shape = RoundedCornerShape(EdgeNavCornerRadius),
-                    color = libraryContainer,
-                    contentColor = libraryContent,
+                    shape = rememberBarEditPressShape(
+                        rest = RoundedCornerShape(EdgeNavCornerRadius),
+                        interactionSource = libraryInteraction,
+                        active = editing,
+                    ),
+                    color = lerp(libraryContainer, colors.primary, edit),
+                    contentColor = lerp(libraryContent, colors.onPrimary, edit),
                     modifier = Modifier
                         .width(EdgeSplitButtonWidth)
                         .height(libraryHeight)
@@ -291,26 +346,48 @@ private fun UpperCapsuleContent(
                             interactionSource = libraryInteraction,
                             indication = null,
                             onClick = {
-                                haptics.performClick()
-                                onLibraryClick()
+                                if (editing) {
+                                    editPose?.onDone()
+                                } else {
+                                    haptics.performClick()
+                                    onLibraryClick()
+                                }
                             },
-                            onLongClick = {
-                                showLibrarySearchHint = true
-                                haptics.performContextClick()
-                                onLibraryLongClick()
+                            onLongClick = if (editing) {
+                                null
+                            } else {
+                                {
+                                    showLibrarySearchHint = true
+                                    haptics.performContextClick()
+                                    onLibraryLongClick()
+                                }
                             },
-                        ),
+                        )
+                        .then(if (editing) Modifier.semantics { contentDescription = "Done" } else Modifier),
                 ) {
                     Box(contentAlignment = Alignment.Center) {
-                        Icon(
-                            imageVector = if (selectedSection == YoinSection.LIBRARY) {
-                                YoinSymbols.LibraryFilled
-                            } else {
-                                YoinSymbols.Library
-                            },
-                            contentDescription = "Library",
-                            modifier = Modifier.size(EdgeNavIconSize),
-                        )
+                        if (editSwap < 0.99f) {
+                            Icon(
+                                imageVector = if (selectedSection == YoinSection.LIBRARY) {
+                                    YoinSymbols.LibraryFilled
+                                } else {
+                                    YoinSymbols.Library
+                                },
+                                contentDescription = if (editing) null else "Library",
+                                modifier = Modifier
+                                    .size(EdgeNavIconSize)
+                                    .graphicsLayer { alpha = 1f - editSwap },
+                            )
+                        }
+                        if (editSwap > 0.01f) {
+                            Icon(
+                                imageVector = YoinSymbols.Check,
+                                contentDescription = null,
+                                modifier = Modifier
+                                    .size(EdgeNavIconSize)
+                                    .graphicsLayer { alpha = editSwap },
+                            )
+                        }
                     }
                 }
             }
@@ -415,6 +492,39 @@ private fun YoinEdgeSplitGroupRoomyPreview() {
                 bottomInset = 0.dp,
                 leftCutoutTop = null,
                 leftCutoutBottom = null,
+            ),
+        )
+    }
+}
+
+@Preview(name = "Edge split · editing Home", widthDp = 844, heightDp = 390, showBackground = true)
+@Composable
+private fun YoinEdgeSplitGroupEditPreview() {
+    YoinTheme {
+        YoinEdgeSplitGroup(
+            selectedSection = YoinSection.HOME,
+            currentTrackId = "1",
+            currentTrackTitle = "RUNNING TO YOU",
+            currentTrackArtist = "Blusher",
+            currentTrackCoverArtUrl = null,
+            connectionErrorMessage = null,
+            playbackProgress = 0.4f,
+            editPose = BarEditPose(
+                progress = { 1f },
+                leftSlot = { BarEditLeftSlot.Undo },
+                onLeftSlotClick = {},
+                onDone = {},
+            ),
+            editing = true,
+            onHomeClick = {},
+            onNowPlayingClick = {},
+            onLibraryClick = {},
+            segmentsOverride = computeEdgeSplitSegments(
+                windowHeight = 390.dp,
+                topInset = 0.dp,
+                bottomInset = 0.dp,
+                leftCutoutTop = 176.dp,
+                leftCutoutBottom = 212.dp,
             ),
         )
     }

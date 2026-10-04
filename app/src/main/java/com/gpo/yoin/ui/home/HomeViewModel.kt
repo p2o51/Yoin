@@ -8,7 +8,10 @@ import com.gpo.yoin.data.home.HomeLayoutStore
 import com.gpo.yoin.data.local.ActivityEntityType
 import com.gpo.yoin.data.local.ActivityEvent
 import com.gpo.yoin.data.memory.AlbumMemoryCandidate
+import com.gpo.yoin.data.memory.RediscoverPick
 import com.gpo.yoin.data.memory.deterministicMemoryTitle
+import com.gpo.yoin.data.memory.memoryEligible
+import com.gpo.yoin.data.memory.selectRediscover
 import com.gpo.yoin.data.model.Album
 import com.gpo.yoin.data.model.CoverRef
 import com.gpo.yoin.data.model.MediaId
@@ -17,6 +20,7 @@ import com.gpo.yoin.data.model.Track
 import com.gpo.yoin.data.repository.YoinRepository
 import com.gpo.yoin.data.source.Capability
 import com.gpo.yoin.ui.memories.MemoryEntityType
+import com.gpo.yoin.ui.memories.MemoryScoreKind
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.FlowPreview
@@ -27,7 +31,10 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
@@ -45,21 +52,36 @@ import java.util.Locale
 
 class HomeViewModel(
     private val repository: YoinRepository,
-    // Public so the edit-mode UI can watch for profile switches: an open layout
-    // editor must close when the profile changes, or its draft (belonging to
-    // the old profile) would be persisted into the new one.
+    // Public so the shell can exit edit mode on profile switch: the edit
+    // draft belongs to the old profile and must never be persisted into the
+    // new one.
     val activeProfileId: StateFlow<String?>,
     private val homeLayoutStore: HomeLayoutStore,
+    private val homeEditHintStore: HomeEditHintStore = HomeEditHintStore.InMemory(),
+    // Rediscover's clock (the 90-day rule, plays observed since subscription).
+    private val nowMillis: () -> Long = System::currentTimeMillis,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow<HomeUiState>(HomeUiState.Loading)
     val uiState: StateFlow<HomeUiState> = _uiState.asStateFlow()
+
+    // Edit-mode freeze: while Home is being edited, content updates queue in
+    // [frozenState] instead of reshaping the feed under the user's hands.
+    // Every publish goes through [emit] and every splice reads
+    // [currentContent], so splices made while frozen build on each other.
+    private var editing = false
+    private var frozenState: HomeUiState? = null
 
     // Which provider|profile the Content in [_uiState] belongs to. The live
     // observers only splice into content of the CURRENT scope: right after a
     // profile switch the screen may still hold the old profile's feed (until
     // refresh repaints), and a tick must never graft one profile onto another.
     private var contentScopeKey: String? = null
+
+    // Albums played since this VM started, per provider|profile: Rediscover
+    // drops them, so a candidate build that began before the play can't put a
+    // removed card back.
+    private val playedRediscoverRawIds = mutableMapOf<String, MutableSet<String>>()
 
     /**
      * The active profile's home layout (which sections show, in what order),
@@ -80,20 +102,78 @@ class HomeViewModel(
             }
             .stateIn(viewModelScope, SharingStarted.Eagerly, HomeLayout.Default)
 
+    // SharedPreferences isn't observable: [onEditSessionStarted] re-reads the
+    // store into this after marking, which re-emits [unseenNewSections].
+    private val seenSectionIds = MutableStateFlow(homeEditHintStore.seenSectionIds())
+
+    /**
+     * Sections appended hidden to this profile's customized layout that the
+     * user hasn't met in the edit tray yet (drives the "Edit Home" badge).
+     */
+    val unseenNewSections: StateFlow<Set<HomeSection>> =
+        combine(homeLayout, seenSectionIds) { layout, seen -> unseenNewSectionsOf(layout, seen) }
+            .stateIn(viewModelScope, SharingStarted.Eagerly, emptySet())
+
     init {
         refresh()
         observeRecentHistory()
         observeMemorySignals()
+        observeRediscoverRemovals()
     }
 
-    /** Persist a new home layout for the active profile (no-op with no profile). */
+    /**
+     * Persist a new home layout for the active profile (no-op with no profile).
+     * A layout that arrives without retained ids keeps the current ones, and one
+     * equal to the catalog defaults clears the row — back to "never customized",
+     * so new sections follow their defaults again. The store skips a write that
+     * matches the stored row.
+     */
     fun setHomeLayout(layout: HomeLayout) {
-        val profileId = activeProfileId.value
-        if (profileId.isNullOrBlank()) return
+        val profileId = activeProfileId.value?.takeIf { it.isNotBlank() } ?: return
+        val next = if (layout.retained.isEmpty()) layout.copy(retained = homeLayout.value.retained) else layout
         viewModelScope.launch {
-            homeLayoutStore.setLayout(profileId, layout.toPrefs())
+            if (next.isDefault && next.retained.isEmpty()) {
+                homeLayoutStore.clearLayout(profileId)
+            } else {
+                homeLayoutStore.setLayout(profileId, next.toPrefs())
+            }
         }
     }
+
+    /** Freeze the feed while Home is in edit mode; unfreezing publishes the latest queued state. */
+    fun setEditing(editing: Boolean) {
+        if (this.editing == editing) return
+        this.editing = editing
+        if (!editing) {
+            frozenState?.let { _uiState.value = it }
+            frozenState = null
+        }
+    }
+
+    /**
+     * Called once when an edit session starts: snapshots this session's hints,
+     * then records the session and marks its "New" sections seen. Writes no
+     * home layout.
+     */
+    fun onEditSessionStarted(): HomeEditSessionHints {
+        val hints = HomeEditSessionHints(
+            showHeaderHint = showEditHeaderHint(homeEditHintStore.editSessionCount()),
+            newBadges = unseenNewSectionsOf(homeLayout.value, seenSectionIds.value),
+        )
+        homeEditHintStore.recordEditSession()
+        if (hints.newBadges.isNotEmpty()) {
+            homeEditHintStore.markSectionsSeen(hints.newBadges.map { it.id })
+            seenSectionIds.value = homeEditHintStore.seenSectionIds()
+        }
+        return hints
+    }
+
+    private fun emit(state: HomeUiState) {
+        if (editing) frozenState = state else _uiState.value = state
+    }
+
+    /** The newest content, queued or published. */
+    private fun currentContent(): HomeUiState.Content? = (frozenState ?: _uiState.value) as? HomeUiState.Content
 
     fun refresh() {
         val providerId = repository.currentProviderId()
@@ -110,9 +190,11 @@ class HomeViewModel(
                 null
             }
 
-            _uiState.value = cachedHomeContent
-                ?: cachedSpotifyContent
-                ?: HomeUiState.Loading
+            emit(
+                cachedHomeContent
+                    ?: cachedSpotifyContent
+                    ?: HomeUiState.Loading,
+            )
             contentScopeKey = scopeKey
 
             try {
@@ -124,13 +206,15 @@ class HomeViewModel(
                 }
                 if (!matchesCurrentScope(providerId, profileId)) return@launch
                 homeContentCache[scopeKey] = freshContent
-                _uiState.value = freshContent
+                emit(freshContent)
                 contentScopeKey = scopeKey
             } catch (e: Exception) {
                 if (!matchesCurrentScope(providerId, profileId)) return@launch
                 if (cachedSpotifyContent == null) {
-                    _uiState.value = HomeUiState.Error(
-                        e.message ?: "Failed to load home content",
+                    emit(
+                        HomeUiState.Error(
+                            e.message ?: "Failed to load home content",
+                        ),
                     )
                 }
             }
@@ -140,6 +224,10 @@ class HomeViewModel(
     /** The pill last shown for the current scope — kept when a fresh read can't resolve one. */
     private fun cachedMemoryPill(): HomeMemoryPill? =
         homeContentCache[homeScopeKey(repository.currentProviderId(), activeProfileId.value)]?.memoryPill
+
+    /** Rediscover as last shown for the current scope — kept when a fresh read can't resolve signals. */
+    private fun cachedRediscover(): List<HomeRediscoverItem> =
+        homeContentCache[homeScopeKey(repository.currentProviderId(), activeProfileId.value)]?.rediscover.orEmpty()
 
     fun buildCoverArtUrl(coverArtId: String): String =
         repository.resolveSubsonicCoverUrl(coverArtId, size = 320).orEmpty()
@@ -163,13 +251,17 @@ class HomeViewModel(
             }
 
             val recentlyAdded = recentlyAddedDeferred.await()
+            val signals = signalsDeferred.await()
+            val widgetGrid = widgetGridDeferred.await()
+            val pill = signals?.pill ?: cachedMemoryPill()
             HomeUiState.Content(
                 activities = activitiesDeferred.await(),
                 activityHeroFootnote = heroFootnoteDeferred.await(),
-                widgetGrid = widgetGridDeferred.await(),
+                widgetGrid = widgetGrid,
                 recentlyAddedTracks = recentlyAdded.tracks,
                 recentlyAddedAlbums = recentlyAdded.albums,
-                memoryPill = signalsDeferred.await()?.pill ?: cachedMemoryPill(),
+                memoryPill = pill,
+                rediscover = rediscoverFor(signals, widgetGrid, pill, cachedRediscover()),
             )
         }
 
@@ -222,10 +314,13 @@ class HomeViewModel(
         if (activities.isEmpty() && widgetGrid.isEmpty()) {
             null
         } else {
+            val signals = signalsDeferred.await()
+            val pill = signals?.pill ?: cachedMemoryPill()
             HomeUiState.Content(
                 activities = activities,
                 widgetGrid = widgetGrid,
-                memoryPill = signalsDeferred.await()?.pill ?: cachedMemoryPill(),
+                memoryPill = pill,
+                rediscover = rediscoverFor(signals, widgetGrid, pill, cachedRediscover()),
             )
         }
     }
@@ -241,14 +336,18 @@ class HomeViewModel(
         val (activities, activitiesFromRemote) = activitiesDeferred.await()
         val heroFootnoteDeferred = async { loadActivityHeroFootnote(activities) }
         val recentlyAdded = recentlyAddedDeferred.await()
+        val signals = signalsDeferred.await()
+        val widgetGrid = widgetGridDeferred.await()
+        val pill = signals?.pill ?: cachedMemoryPill()
         HomeUiState.Content(
             activities = activities,
             activitiesFromRemote = activitiesFromRemote,
             activityHeroFootnote = heroFootnoteDeferred.await(),
-            widgetGrid = widgetGridDeferred.await(),
+            widgetGrid = widgetGrid,
             recentlyAddedTracks = recentlyAdded.tracks,
             recentlyAddedAlbums = recentlyAdded.albums,
-            memoryPill = signalsDeferred.await()?.pill ?: cachedMemoryPill(),
+            memoryPill = pill,
+            rediscover = rediscoverFor(signals, widgetGrid, pill, cachedRediscover()),
         )
     }
 
@@ -289,7 +388,7 @@ class HomeViewModel(
                     val profileId = activeProfileId.value
                     val scopeKey = homeScopeKey(providerId, profileId)
                     if (contentScopeKey != scopeKey) return@collectLatest
-                    val currentContent = _uiState.value as? HomeUiState.Content ?: return@collectLatest
+                    val currentContent = currentContent() ?: return@collectLatest
                     // The recently-played endpoint owns the Spotify feed ONLY when
                     // the activities actually came from it; on the local fallback
                     // (scope missing / no recent plays) the feed must keep
@@ -318,14 +417,14 @@ class HomeViewModel(
                     if (!matchesCurrentScope(providerId, profileId) || contentScopeKey != scopeKey) {
                         return@collectLatest
                     }
-                    val latest = _uiState.value as? HomeUiState.Content ?: return@collectLatest
+                    val latest = currentContent() ?: return@collectLatest
                     val nextContent = latest.copy(
                         activities = effectiveActivities,
                         activitiesFromRemote = keepEndpointFeed,
                         activityHeroFootnote = footnote,
                     )
                     homeContentCache[scopeKey] = nextContent
-                    _uiState.value = nextContent
+                    emit(nextContent)
                 }
         }
     }
@@ -350,7 +449,7 @@ class HomeViewModel(
                     val profileId = activeProfileId.value
                     val scopeKey = homeScopeKey(providerId, profileId)
                     if (contentScopeKey != scopeKey) return@collectLatest
-                    val currentContent = _uiState.value as? HomeUiState.Content ?: return@collectLatest
+                    val currentContent = currentContent() ?: return@collectLatest
                     // Live splices keep the grid's memory album while it still
                     // qualifies — writing on it shouldn't reshuffle the grid.
                     val shownMemoryAlbum = currentContent.widgetGrid
@@ -361,22 +460,87 @@ class HomeViewModel(
                     if (!matchesCurrentScope(providerId, profileId) || contentScopeKey != scopeKey) {
                         return@collectLatest
                     }
-                    val latest = _uiState.value as? HomeUiState.Content ?: return@collectLatest
+                    val latest = currentContent() ?: return@collectLatest
                     // Unscoped / failed build: keep what's on screen rather
                     // than flashing an empty pill.
                     val refreshedPill = signals?.pill ?: latest.memoryPill
                     // A refresh that landed meanwhile already rebuilt the grid
                     // with fresh signal cards; don't splice an older grid over it.
                     val nextGrid = if (latest.widgetGrid == currentContent.widgetGrid) refreshedGrid else latest.widgetGrid
-                    if (nextGrid == latest.widgetGrid && refreshedPill == latest.memoryPill) return@collectLatest
+                    // Picked against the grid and pill being published, so its
+                    // dedupe always matches what's on screen.
+                    val refreshedRediscover = rediscoverFor(signals, nextGrid, refreshedPill, latest.rediscover)
+                    if (
+                        nextGrid == latest.widgetGrid &&
+                        refreshedPill == latest.memoryPill &&
+                        refreshedRediscover == latest.rediscover
+                    ) {
+                        return@collectLatest
+                    }
                     val nextContent = latest.copy(
                         widgetGrid = nextGrid,
                         memoryPill = refreshedPill,
+                        rediscover = refreshedRediscover,
                     )
                     homeContentCache[scopeKey] = nextContent
-                    _uiState.value = nextContent
+                    emit(nextContent)
                 }
         }
+    }
+
+    /**
+     * Take a Rediscover card off the shelf once its album plays. Watches the
+     * newest play_history row on its own (folding it into the memory stamp
+     * would rebuild every candidate on each track change) and only acts on
+     * plays from subscription on: the row that exists already may be months
+     * old, and for a returning user its album can rightly be on the shelf.
+     * Goes through [emit], so a removal queues while Home is being edited.
+     */
+    private fun observeRediscoverRemovals() {
+        viewModelScope.launch {
+            val observedSince = nowMillis()
+            repository.observeMostRecentPlay()
+                .filterNotNull()
+                .filter { play -> play.playedAt >= observedSince && play.albumId.isNotBlank() }
+                .collect { play ->
+                    val scopeKey = homeScopeKey(play.provider, play.profileId)
+                    val rawAlbumId = MediaId.storedRawId(play.provider, play.albumId)
+                    playedRediscoverRawIds.getOrPut(scopeKey) { mutableSetOf() } += rawAlbumId
+                    if (contentScopeKey != scopeKey) return@collect
+                    val latest = currentContent() ?: return@collect
+                    if (latest.rediscover.none { item -> item.albumId.rawId == rawAlbumId }) return@collect
+                    val nextContent = latest.copy(
+                        rediscover = latest.rediscover.filterNot { item -> item.albumId.rawId == rawAlbumId },
+                    )
+                    homeContentCache[scopeKey] = nextContent
+                    emit(nextContent)
+                }
+        }
+    }
+
+    /**
+     * Rediscover for the content about to publish. Dedupes against what that
+     * content shows — the grid's memory 1×2 and the pill's latest — and drops
+     * albums played this session. A null [signals] (unscoped / failed build)
+     * keeps [fallback], minus anything played since.
+     */
+    private fun rediscoverFor(
+        signals: MemorySignals?,
+        grid: List<HomeWidgetCard>,
+        pill: HomeMemoryPill?,
+        fallback: List<HomeRediscoverItem>,
+    ): List<HomeRediscoverItem> {
+        val played = playedRediscoverRawIds[homeScopeKey(repository.currentProviderId(), activeProfileId.value)]
+            .orEmpty()
+        if (signals == null) return fallback.filterNot { item -> item.albumId.rawId in played }
+        val exclude = buildSet {
+            grid.firstOrNull { it.target is HomeWidgetTarget.MemoryFocus }
+                ?.let(::memoryCardAlbumId)
+                ?.let { add(it.rawId) }
+            pill?.latest?.albumId?.rawId?.let(::add)
+            addAll(played)
+        }
+        return selectRediscover(signals.pool, nowMillis(), exclude).mapNotNull(::toRediscoverItem)
     }
 
     /**
@@ -534,20 +698,23 @@ class HomeViewModel(
 
     /**
      * ONE memory-candidate build per load / signal tick, shared by the header
-     * pill (latest memory + notes count) and the grid's memory 1×2. Null =
-     * unscoped, failed, or the scope moved mid-build — callers keep what they
-     * already show instead of flashing an empty pill.
+     * pill (latest memory + notes count), the grid's memory 1×2 and
+     * Rediscover. The build includes ineligible albums for Rediscover; the
+     * pill and the 1×2 read only its eligible subset, which is exactly the
+     * Memory pool. Null = unscoped, failed, or the scope moved mid-build —
+     * callers keep what they already show instead of flashing an empty pill.
      */
     private suspend fun loadMemorySignals(preferJbiRawAlbumId: String? = null): MemorySignals? {
         val providerId = repository.currentProviderId() ?: return null
         val profileId = activeProfileId.value?.takeIf { it.isNotBlank() } ?: return null
-        val candidates = try {
-            repository.getAlbumMemoryCandidates(limit = MEMORY_CANDIDATE_LIMIT)
+        val pool = try {
+            repository.getAlbumMemoryCandidates(limit = MEMORY_CANDIDATE_LIMIT, includeIneligible = true)
         } catch (cancellation: CancellationException) {
             throw cancellation
         } catch (_: Exception) {
             return null
         }
+        val candidates = pool.memoryEligible(MEMORY_CANDIDATE_LIMIT)
         val noteCount = guardedOrNull { repository.countNotes() } ?: return null
         if (!matchesCurrentScope(providerId, profileId)) return null
         val pill = buildHomeMemoryPill(candidates, noteCount, scope = homeScopeKey(providerId, profileId))
@@ -556,7 +723,7 @@ class HomeViewModel(
             avoidRawAlbumId = pill.latest?.albumId?.rawId,
             preferRawAlbumId = preferJbiRawAlbumId,
         )?.let { candidate -> toMemoryCard(candidate) }
-        return MemorySignals(pill = pill, memoryCard = memoryCard)
+        return MemorySignals(pill = pill, memoryCard = memoryCard, pool = pool)
     }
 
     /** The album a memory 1×2 points at, recovered from its stable id. */
@@ -785,6 +952,7 @@ class HomeViewModel(
                 repository = container.repository,
                 activeProfileId = container.profileManager.activeProfileId,
                 homeLayoutStore = container.homeLayoutStore,
+                homeEditHintStore = container.homeEditHintStore,
             ) as T
     }
 
@@ -856,11 +1024,40 @@ private fun parseAddedAtMillis(addedAt: String?): Long? {
         .getOrNull()
 }
 
-/** The shared memory read: header pill + the grid's memory 1×2 (card, album id). */
+/**
+ * The shared memory read: header pill + the grid's memory 1×2 (card, album
+ * id), plus the whole candidate build (ineligible albums included) that
+ * Rediscover picks from.
+ */
 private data class MemorySignals(
     val pill: HomeMemoryPill,
     val memoryCard: Pair<HomeWidgetCard, MediaId?>?,
+    val pool: List<AlbumMemoryCandidate> = emptyList(),
 )
+
+/** A Rediscover pick as a card; null when the album has no usable raw id. */
+private fun toRediscoverItem(pick: RediscoverPick): HomeRediscoverItem? {
+    val candidate = pick.candidate
+    val rawAlbumId = MediaId.storedRawId(candidate.provider, candidate.albumId)
+    if (rawAlbumId.isBlank() || candidate.provider.isBlank()) return null
+    return HomeRediscoverItem(
+        albumId = MediaId(candidate.provider, rawAlbumId),
+        albumName = candidate.albumName,
+        artistName = candidate.artistName?.takeIf { it.isNotBlank() },
+        coverArtUrl = candidate.coverArtUrl,
+        score = pick.score,
+        scoreText = rediscoverScoreText(pick.score),
+        // rediscoverScore's own order: a set album rating wins.
+        scoreKind = if ((candidate.albumRating ?: 0f) > 0f) {
+            MemoryScoreKind.ALBUM_RATING
+        } else {
+            MemoryScoreKind.AVERAGE_TRACK_RATING
+        },
+        lastPlayedAt = pick.lastPlayedAt,
+        firstPlayedAt = candidate.firstPlayedFromHistoryAt,
+        playCount = candidate.playCountFromHistory,
+    )
+}
 
 /**
  * The grid's memory 1×2 keeps the owner's recipe — the strongest memory with
@@ -888,6 +1085,10 @@ internal fun pickJbiMemoryCandidate(
     val others = candidates.filterNot { candidate -> candidate.rawAlbumId() == avoidRawAlbumId }
     return pick(others) ?: pick(candidates)
 }
+
+/** [layout]'s appended-hidden sections whose ids aren't in [seenIds], in layout order. */
+private fun unseenNewSectionsOf(layout: HomeLayout, seenIds: Set<String>): Set<HomeSection> =
+    layout.newSections.filterTo(LinkedHashSet()) { it.id !in seenIds }
 
 /** Recently-added library split by kind for the two halves of the shelf. */
 private data class RecentlyAdded(

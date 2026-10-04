@@ -74,6 +74,12 @@ enum class NowPlayingPresentation {
     Tabletop,
 }
 
+/**
+ * Whether Now Playing opening in [presentation] covers Home. Only the side
+ * panel leaves Home usable beside it; every other frame hides it.
+ */
+fun nowPlayingCoversHome(presentation: NowPlayingPresentation): Boolean = presentation != NowPlayingPresentation.Panel
+
 /** Panel width: half the window, clamped to phone widths (fold 690 → 360, tablet 800 → 400). */
 fun nowPlayingPanelWidth(windowWidth: Dp): Dp = (windowWidth * 0.5f).coerceIn(PanelMinWidth, PanelMaxWidth)
 

@@ -10,9 +10,13 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 
+/** What the Home section shows. Only `HomeEditController` writes [Edit]. */
 enum class HomeSurface {
     Feed,
     Memories,
+
+    /** Home's in-place edit mode (long-press). */
+    Edit,
 }
 
 data class MemoryScrollPosition(
@@ -55,6 +59,13 @@ class ExperienceSessionStore {
     // animation; the incoming detail reads it until its back controller takes
     // over. Keeping the Animatable here avoids a delayed per-frame copy.
     internal val shellBarChromeMorph = Animatable(0f)
+
+    /**
+     * Home edit mode's progress P, beside the surface it animates. Only
+     * `HomeEditController` writes it (and [HomeSurface.Edit]); Home and the
+     * bar read it in draw and layout.
+     */
+    val homeEditProgress = HomeEditProgress()
 
     // ── Detail predictive-back pose bridge ─────────────────────────────────
     // Snapshot states, NOT part of [state]: written per gesture FRAME by the

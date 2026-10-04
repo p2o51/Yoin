@@ -83,6 +83,7 @@ import com.gpo.yoin.data.source.Capability
 import com.gpo.yoin.player.PlaybackEvent
 import com.gpo.yoin.player.SpotifyConnectFailure
 import com.gpo.yoin.ui.component.AddToPlaylistSheet
+import com.gpo.yoin.ui.component.BarEditPose
 import com.gpo.yoin.ui.component.BarPlaySplitActions
 import com.gpo.yoin.ui.component.ExpressivePageBackground
 import com.gpo.yoin.ui.component.LocalSharedPageBackground
@@ -109,6 +110,8 @@ import com.gpo.yoin.ui.experience.rememberRevealState
 import com.gpo.yoin.ui.experience.voteHighFrameRate
 import com.gpo.yoin.ui.home.HomeScreen
 import com.gpo.yoin.ui.home.HomeViewModel
+import com.gpo.yoin.ui.home.edit.HomeEditExitReason
+import com.gpo.yoin.ui.home.edit.rememberHomeEditController
 import com.gpo.yoin.ui.library.LibraryScreen
 import com.gpo.yoin.ui.library.LibrarySearchScope
 import com.gpo.yoin.ui.library.LibraryViewModel
@@ -147,6 +150,7 @@ import com.gpo.yoin.ui.nowplaying.NowPlayingScreen
 import com.gpo.yoin.ui.nowplaying.NowPlayingStageMode
 import com.gpo.yoin.ui.nowplaying.NowPlayingViewModel
 import com.gpo.yoin.ui.nowplaying.besideNowPlayingPanel
+import com.gpo.yoin.ui.nowplaying.nowPlayingCoversHome
 import com.gpo.yoin.ui.nowplaying.canOpenNowPlayingPanel
 import com.gpo.yoin.ui.nowplaying.rememberNowPlayingFrame
 import com.gpo.yoin.ui.nowplaying.rememberNowPlayingPanelInset
@@ -412,6 +416,18 @@ private fun YoinShell(
     val memoriesVisible by remember(memoriesReveal) { derivedStateOf { memoriesReveal.isVisible } }
     val memoriesMounted = homeSurface == HomeSurface.Memories || memoriesVisible
     val shellScope = rememberCoroutineScope()
+    // Home edit mode: the only writer of the Edit surface and its progress P.
+    // Hoisted here so back, the bar and every exit trigger below reach it.
+    val homeEdit = rememberHomeEditController(experienceSessionStore, homeViewModel)
+    LaunchedEffect(homeEdit) {
+        homeViewModel.homeLayout.collect(homeEdit::onVmLayout)
+    }
+    // A profile switch ends edit mode: the draft belongs to the old profile.
+    // Not musicConfigurationRevision — that also ticks on credential edits and
+    // replays on every recreated shell.
+    LaunchedEffect(homeEdit) {
+        homeViewModel.activeProfileId.drop(1).collect { homeEdit.onProfileSwitched() }
+    }
 
     val coverArtUrl = currentTrack?.coverArt?.let { coverArt ->
         app.container.repository.resolveCoverUrl(coverArt)
@@ -501,11 +517,43 @@ private fun YoinShell(
         }
     }
     val pushPane: (DetailPaneRoute) -> Unit = { route -> paneStack.add(route) }
-    val closePane = { if (paneHasEntries) paneState.closing = true }
+    // Opening or closing the column re-tiers the shell — never mid-edit: edit
+    // mode animates out first (P settles at 0), then the column moves.
+    val currentOpenPane by rememberUpdatedState(openPane)
+    val openPaneFromShell: (DetailPaneRoute) -> Unit = { route ->
+        if (homeEdit.isEditing) {
+            shellScope.launch {
+                homeEdit.commitAndExitAndAwait()
+                currentOpenPane(route)
+            }
+        } else {
+            openPane(route)
+        }
+    }
+    val closePane: () -> Unit = {
+        if (homeEdit.isEditing) {
+            shellScope.launch {
+                homeEdit.commitAndExitAndAwait()
+                if (paneStack.isNotEmpty()) paneState.closing = true
+            }
+        } else if (paneHasEntries) {
+            paneState.closing = true
+        }
+    }
     val popPaneEntry = {
         if (paneStack.size > 1) paneStack.removeLastOrNull() else closePane()
     }
-    val memoriesActive = selectedSection == YoinSection.HOME && homeSurface == HomeSurface.Memories
+    val homeEditing = selectedSection == YoinSection.HOME && homeSurface == HomeSurface.Edit
+    // The shell bar's [Undo|Add] [Done] pose: it reads P and the left slot
+    // from the controller and acts only through its two clicks.
+    val barEditPose = remember(homeEdit) {
+        BarEditPose(
+            progress = homeEdit.progressReader,
+            leftSlot = { homeEdit.leftSlot },
+            onLeftSlotClick = homeEdit::barLeftSlotClick,
+            onDone = homeEdit::barDone,
+        )
+    }
     // Memories is a Home-owned overlay. If we leave Home for another shell
     // surface while it is active, collapse it first so closing the new
     // surface returns to Feed instead of unexpectedly revealing Memories.
@@ -516,6 +564,7 @@ private fun YoinShell(
     }
     val navigateToSettingsFromShell: (String?) -> Unit = { focusSection ->
         dismissMemoriesIfActive()
+        homeEdit.snapExit()
         onNavigateToSettings(focusSection)
     }
     // Flip the bar to detail chrome the moment the tap lands — the nav→split
@@ -548,6 +597,8 @@ private fun YoinShell(
                         detailLaunchSawPause = false
                     }
                 }
+                // Returning to the app never finds Home still in edit mode.
+                Lifecycle.Event.ON_STOP -> homeEdit.snapExit()
                 else -> Unit
             }
         }
@@ -574,6 +625,9 @@ private fun YoinShell(
         } == true
     }
     val armDetailChrome = {
+        // Edit mode never meets detail chrome (its morph forces the pill to
+        // compose, and the hand-off needs the plain nav pose): snap out first.
+        homeEdit.snapExit()
         // INVARIANT: cross-window bar choreography exists ONLY when both
         // windows draw the SAME group geometry and the shell will be fully
         // covered: the portrait bar (Compact, not Tabletop) or the edge-split
@@ -589,7 +643,7 @@ private fun YoinShell(
     }
     val navigateToAlbumFromShell: (String, String?) -> Unit = { albumId, sharedTransitionKey ->
         if (hasDetailPane) {
-            openPane(DetailPaneRoute.Album(albumId))
+            openPaneFromShell(DetailPaneRoute.Album(albumId))
         } else if (canLaunchDetail()) {
             detailLaunchPending = true
             try {
@@ -605,7 +659,7 @@ private fun YoinShell(
     }
     val navigateToArtistFromShell: (String, String?) -> Unit = { artistId, sharedTransitionKey ->
         if (hasDetailPane) {
-            openPane(DetailPaneRoute.Artist(artistId))
+            openPaneFromShell(DetailPaneRoute.Artist(artistId))
         } else if (canLaunchDetail()) {
             detailLaunchPending = true
             try {
@@ -621,7 +675,7 @@ private fun YoinShell(
     }
     val navigateToPlaylistFromShell: (String, String?) -> Unit = { playlistId, sharedTransitionKey ->
         if (hasDetailPane) {
-            openPane(DetailPaneRoute.Playlist(playlistId))
+            openPaneFromShell(DetailPaneRoute.Playlist(playlistId))
         } else if (canLaunchDetail()) {
             detailLaunchPending = true
             try {
@@ -750,15 +804,24 @@ private fun YoinShell(
             HomeSurface.Memories -> if (memoriesReveal.fraction > 0.001f) {
                 memoriesReveal.launchAnimateTo(this, 0f)
             }
-            HomeSurface.Feed -> if (memoriesReveal.fraction < 0.999f) {
+            HomeSurface.Feed, HomeSurface.Edit -> if (memoriesReveal.fraction < 0.999f) {
                 memoriesReveal.launchAnimateTo(this, 1f)
             }
         }
+    }
+    // Consistency heal: whatever replaced the Edit surface ends the session —
+    // without writing the surface back over it. Reads the live surface, not
+    // this effect's key: an enter() that lands before the effect runs is
+    // already Edit again and must survive.
+    LaunchedEffect(homeSurface) {
+        val live = experienceSessionStore.state.value.homeSurface
+        if (live != HomeSurface.Edit && homeEdit.isEditing) homeEdit.onSurfaceLost()
     }
 
     LaunchedEffect(selectedSection) {
         if (selectedSection != YoinSection.HOME) {
             memoriesReveal.snapTo(1f)
+            if (homeEdit.isEditing) homeEdit.snapExit()
         }
     }
 
@@ -839,23 +902,34 @@ private fun YoinShell(
                                 isPlaying = isPlaying,
                                 playbackSignal = if (isPlaying) playbackSignal else 0f,
                                 activeSongId = currentTrack?.id?.toString(),
-                                // Gated, not mount-ordered: anything ranked above
-                                // Home (Now Playing, the detail column) owns back.
-                                suppressBackHandling = shellBackOwner == ShellBackOwner.NowPlaying ||
-                                    shellBackOwner == ShellBackOwner.DetailPane,
+                                // Something above Home owns the screen (Now
+                                // Playing, the detail column): Home keeps quiet
+                                // and leaves back to it.
+                                homeCovered = showNowPlaying || paneOpen,
+                                editController = homeEdit,
                                 onNavigateToSettings = { navigateToSettingsFromShell(null) },
+                                // Memories never opens over edit mode (the surface
+                                // heal would end the edit under the deck).
                                 onNavigateToMemories = {
-                                    experienceSessionStore.setHomeSurface(HomeSurface.Memories)
+                                    if (!homeEdit.isEditing) {
+                                        experienceSessionStore.setHomeSurface(HomeSurface.Memories)
+                                    }
                                 },
                                 onOpenMemoryFocus = { sessionId ->
-                                    // Park the focus, then open — MemoriesViewModel's
-                                    // observer builds the deck stopped on this album.
-                                    experienceSessionStore.requestMemoriesFocus(sessionId)
-                                    experienceSessionStore.setHomeSurface(HomeSurface.Memories)
+                                    if (!homeEdit.isEditing) {
+                                        // Park the focus, then open — MemoriesViewModel's
+                                        // observer builds the deck stopped on this album.
+                                        experienceSessionStore.requestMemoriesFocus(sessionId)
+                                        experienceSessionStore.setHomeSurface(HomeSurface.Memories)
+                                    }
                                 },
                                 memoriesRevealState = memoriesReveal,
                                 onCommitMemoriesReveal = {
-                                    experienceSessionStore.setHomeSurface(HomeSurface.Memories)
+                                    if (homeEdit.isEditing) {
+                                        memoriesReveal.launchAnimateTo(shellScope, 1f)
+                                    } else {
+                                        experienceSessionStore.setHomeSurface(HomeSurface.Memories)
+                                    }
                                 },
                                 onAlbumClick = navigateToAlbumFromShell,
                                 onArtistClick = { artistId -> navigateToArtistFromShell(artistId, null) },
@@ -1097,6 +1171,12 @@ private fun YoinShell(
                 onClose = closePane,
             )
         }
+        // Home edit mode: back is a discrete Done without the haptic. On the
+        // ROOT dispatcher, outside the section and column content, so it is
+        // live whenever the resolver names it.
+        BackHandler(enabled = shellBackOwner == ShellBackOwner.HomeEdit) {
+            homeEdit.commitAndExit(HomeEditExitReason.Back)
+        }
 
         // ── Now Playing overlay (scrim + slide-up + back layering) ───────
         NowPlayingOverlayHost(
@@ -1241,6 +1321,10 @@ private fun YoinShell(
                         // nav on the shell's side, the column's page Play on
                         // its side — on the column's own open/close spring.
                         paneProgress = { paneState.openFraction.value },
+                        // Home edit mode: [Undo|Add] [Done] on P; clicks route
+                        // on the discrete editing flag.
+                        editPose = barEditPose,
+                        editing = homeEditing,
                         playSplitActions = paneBarActions,
                         selectedSection = selectedSection,
                         // Single settle owner for the group pose: open/restore
@@ -1266,7 +1350,17 @@ private fun YoinShell(
                         },
                         onNowPlayingClick = {
                             dismissMemoriesIfActive()
-                            experienceSessionStore.setNowPlayingExpanded(true)
+                            if (homeEdit.isEditing && !nowPlayingCoversHome(npFrame.presentation)) {
+                                // The side panel leaves Home in view: animate out
+                                // of edit, then open once P has settled.
+                                shellScope.launch {
+                                    homeEdit.commitAndExitAndAwait()
+                                    experienceSessionStore.setNowPlayingExpanded(true)
+                                }
+                            } else {
+                                homeEdit.snapExit()
+                                experienceSessionStore.setNowPlayingExpanded(true)
+                            }
                         },
                         onLibraryClick = {
                             libraryViewModel.showLibraryHome()

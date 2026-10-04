@@ -62,6 +62,12 @@ private object ExpressiveBackdropPaletteCache {
     }
 }
 
+/**
+ * The palette a card already resolved for [model], read synchronously; null
+ * when it hasn't (no extraction is started). Home edit strips tint with it.
+ */
+internal fun cachedBackdropColors(model: String): ExpressiveBackdropColors? = ExpressiveBackdropPaletteCache.get(model)
+
 @Composable
 internal fun rememberExpressiveBackdropColors(
     model: String?,

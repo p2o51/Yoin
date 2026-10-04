@@ -29,6 +29,13 @@ class ShellDetailOriginTest {
     }
 
     @Test
+    fun should_keepBottomBarHandoff_whenHomeEditing() {
+        // Edit mode keeps the bar on screen (in its edit pose); the shell snaps
+        // out of it before arming the detail chrome.
+        assertFalse(ExperienceSessionState(homeSurface = HomeSurface.Edit).hasOverlayHidingBottomBar)
+    }
+
+    @Test
     fun should_skipBottomBarHandoff_whenReturningToNowPlaying() {
         for (section in YoinSection.entries) {
             assertTrue(

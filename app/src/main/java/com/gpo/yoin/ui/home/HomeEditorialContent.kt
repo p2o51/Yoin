@@ -1,11 +1,13 @@
 package com.gpo.yoin.ui.home
 
+import android.os.SystemClock
 import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.ContentTransform
 import androidx.compose.animation.EnterExitState
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.core.FiniteAnimationSpec
 import androidx.compose.animation.togetherWith
 import androidx.compose.runtime.key
 import androidx.compose.ui.layout.Layout
@@ -19,10 +21,14 @@ import com.gpo.yoin.ui.experience.feedFrameClass
 import com.gpo.yoin.ui.theme.YoinMotionRole
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionScope
-import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.animateScrollBy
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -33,6 +39,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -42,43 +49,69 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialShapes
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.toShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.structuralEqualityPolicy
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.FrameRateCategory
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.preferredFrameRate
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.LayoutCoordinates
+import androidx.compose.ui.layout.onPlaced
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.gpo.yoin.data.local.ActivityEntityType
 import com.gpo.yoin.data.local.ActivityEvent
 import com.gpo.yoin.data.model.Album
@@ -88,6 +121,7 @@ import com.gpo.yoin.data.model.Track
 import com.gpo.yoin.symbols.YoinSymbols
 import com.gpo.yoin.ui.component.ExpressiveMediaArtwork
 import com.gpo.yoin.ui.component.ExpressiveSectionPanel
+import com.gpo.yoin.ui.component.LocalSeamBarField
 import com.gpo.yoin.ui.component.MarqueeText
 import com.gpo.yoin.ui.component.SeamBackground
 import com.gpo.yoin.ui.component.SeamDissolveTokens
@@ -113,13 +147,64 @@ import com.gpo.yoin.ui.experience.LocalYoinWindowInfo
 import com.gpo.yoin.ui.experience.RevealState
 import com.gpo.yoin.ui.experience.rememberRevealState
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
+import com.gpo.yoin.ui.home.edit.AllHiddenKey
+import com.gpo.yoin.ui.home.edit.FooterEntryKey
+import com.gpo.yoin.ui.home.edit.GatedPlacementSpec
+import com.gpo.yoin.ui.home.edit.HomeCarryEngine
+import com.gpo.yoin.ui.home.edit.HomeCarryStack
+import com.gpo.yoin.ui.home.edit.HomeEditBlock
+import com.gpo.yoin.ui.home.edit.HomeEditChange
+import com.gpo.yoin.ui.home.edit.HomeEditClock
+import com.gpo.yoin.ui.home.edit.HomeEditController
+import com.gpo.yoin.ui.home.edit.HomeEditDeps
+import com.gpo.yoin.ui.home.edit.HomeEditExitReason
+import com.gpo.yoin.ui.home.edit.HomeEditHeaderHint
+import com.gpo.yoin.ui.home.edit.HomeEditHeaderTitle
+import com.gpo.yoin.ui.home.edit.HomeEditHitTester
+import com.gpo.yoin.ui.home.edit.HomeEditLayer
+import com.gpo.yoin.ui.home.edit.HomeEditMotion
+import com.gpo.yoin.ui.home.edit.HomeEditPressState
+import com.gpo.yoin.ui.home.edit.HomeEditSafeArea
+import com.gpo.yoin.ui.home.edit.HomeEditTargets
+import com.gpo.yoin.ui.home.edit.HomeEditTokens
+import com.gpo.yoin.ui.home.edit.LocalHomeWiggleStyle
+import com.gpo.yoin.ui.home.edit.StripCover
+import com.gpo.yoin.ui.home.edit.StripWarmFrames
+import com.gpo.yoin.ui.home.edit.StripWarmth
+import com.gpo.yoin.ui.home.edit.stripWarmth
+import com.gpo.yoin.ui.home.edit.TrayFooterKey
+import com.gpo.yoin.ui.home.edit.TrayTitleKey
+import com.gpo.yoin.ui.home.edit.asHomeEditFeedback
+import com.gpo.yoin.ui.home.edit.feedFoldWash
+import com.gpo.yoin.ui.home.edit.carryItemKey
+import com.gpo.yoin.ui.home.edit.homeAllHiddenItem
+import com.gpo.yoin.ui.home.edit.homeEditCard
+import com.gpo.yoin.ui.home.edit.homeEditExclusion
+import com.gpo.yoin.ui.home.edit.homeEditFooterEntry
+import com.gpo.yoin.ui.home.edit.homeEditGestures
+import com.gpo.yoin.ui.home.edit.homeEditHeaderIcon
+import com.gpo.yoin.ui.home.edit.homeEditInteractive
+import com.gpo.yoin.ui.home.edit.homeEditTrayItems
+import com.gpo.yoin.ui.home.edit.homeEditTrayRowKey
+import com.gpo.yoin.ui.home.edit.plateOutsetVDp
+import com.gpo.yoin.ui.home.edit.rememberHomeEditIconsEnabled
+import com.gpo.yoin.ui.home.edit.rememberHomeEditReducedMotion
+import com.gpo.yoin.ui.home.edit.rememberHomeEditSpecs
+import com.gpo.yoin.ui.home.edit.rememberLazyListCarryHost
+import com.gpo.yoin.ui.home.edit.rememberStandaloneHomeEditController
+import com.gpo.yoin.ui.home.edit.stripCover
 import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinShapeTokens
 import com.gpo.yoin.ui.theme.YoinArtworkShapes
 import com.gpo.yoin.ui.theme.YoinContainerShapes
 import com.gpo.yoin.ui.theme.withTabularFigures
+import kotlin.math.roundToInt
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.launch
 
 internal sealed interface HomeEntryTarget {
     data class Album(val albumId: String, val sharedTransitionKey: String?) : HomeEntryTarget
@@ -155,6 +240,17 @@ private val HomeMomentEntry.layoutKey: String
 
 private const val HomeBackdropPaletteWarmupDelayMillis = 350L
 
+/**
+ * Home's feed: the header, the user's sections in their order, then the
+ * "Edit Home" footer, or the Hidden tray while editing. Home edit mode
+ * happens here, in place (plan §2.1, §2.5): every section is a
+ * [HomeEditBlock], one Initial-pass detector over the whole page enters and
+ * drives it, and the strip stack folds over the feed while a block is
+ * carried. [editController] is the shell's (null: a standalone one, for
+ * previews and the debug harness); while it edits, its draft overrides
+ * [sections]. [footerNewBadge] badges the footer while a new section waits
+ * in the tray.
+ */
 @OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
 internal fun HomeEditorialContent(
@@ -163,6 +259,7 @@ internal fun HomeEditorialContent(
     activityHeroFootnote: String? = null,
     recentlyAddedTracks: List<Track> = emptyList(),
     recentlyAddedAlbums: List<Album> = emptyList(),
+    rediscover: List<HomeRediscoverItem> = emptyList(),
     // The header's Memories pill; null keeps today's bare chevron.
     memoryPill: HomeMemoryPill? = null,
     // Something above Home owns the screen (Now Playing, the detail column):
@@ -171,8 +268,8 @@ internal fun HomeEditorialContent(
     sections: List<HomeSectionState> = HomeLayout.Default.sections,
     onNavigateToSettings: () -> Unit,
     onNavigateToMemories: () -> Unit,
-    // Long-press anywhere on the feed enters the home layout editor.
-    onEnterEditMode: () -> Unit = {},
+    editController: HomeEditController? = null,
+    footerNewBadge: Boolean = false,
     // Memory-flavoured grid cards open the deck stopped on a specific album
     // (by candidate sessionId). The chevron + pull-to-reveal stay generic via
     // onNavigateToMemories.
@@ -190,6 +287,51 @@ internal fun HomeEditorialContent(
 ) {
     val listState = rememberLazyListState()
     val haptics = rememberYoinHaptics()
+    val scope = rememberCoroutineScope()
+    val density = LocalDensity.current
+
+    // ── Edit mode (plan §2.1): the shell's controller; this page's specs,
+    // motion, press, carry and hit targets. Specs resolve here, in the
+    // Expressive role, and the motion is built for them: a reduced-motion
+    // flip gives the page a fresh edit layer.
+    val controller = editController ?: rememberStandaloneHomeEditController(HomeLayout(sections))
+    val editReduced = rememberHomeEditReducedMotion()
+    val currentEditReduced by rememberUpdatedState(editReduced)
+    val specs = rememberHomeEditSpecs(editReduced)
+    val editFeedback = remember(haptics) { haptics.asHomeEditFeedback() }
+    val wiggleStyle = LocalHomeWiggleStyle.current
+    val motion = remember(controller, specs, wiggleStyle, editFeedback) {
+        HomeEditMotion(
+            scope = scope,
+            specs = specs,
+            style = wiggleStyle,
+            reduced = { currentEditReduced },
+            progress = controller.progressReader,
+            editing = { controller.isEditing },
+            feedback = editFeedback,
+            entering = { controller.isEditing && controller.progress.isAnimating },
+        )
+    }
+    val press = remember { HomeEditPressState() }
+    val engine = remember(controller, motion, density) {
+        HomeCarryEngine(
+            scope = scope,
+            specs = specs,
+            motion = motion,
+            feedback = editFeedback,
+            density = density,
+            commitOrder = controller::commitOrder,
+            finishDeferredExit = controller::finishDeferredExit,
+        )
+    }
+    val targets = remember { HomeEditTargets() }
+    val editDeps = remember(controller, motion, press, engine, targets, specs) {
+        HomeEditDeps(controller, motion, press, engine, targets, specs)
+    }
+    val feedRefs = remember { HomeFeedRefs() }
+    val editing = controller.isEditing
+    val currentController by rememberUpdatedState(controller)
+
     var containerHeightPx by remember { mutableFloatStateOf(0f) }
     var isCommittedToMemories by remember { mutableStateOf(false) }
     // Visual hint = how far open the reveal is, capped at 1 so rubber-band
@@ -200,6 +342,8 @@ internal fun HomeEditorialContent(
     val pullToMemoriesConnection = remember(listState, memoriesRevealState) {
         object : NestedScrollConnection {
             override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+                // Editing: a pull at the top only scrolls; Memories stays shut.
+                if (currentController.isEditing) return Offset.Zero
                 if (source != NestedScrollSource.UserInput) {
                     return Offset.Zero
                 }
@@ -260,7 +404,6 @@ internal fun HomeEditorialContent(
     val onPlaylistClickState = rememberUpdatedState(onPlaylistClick)
     val onSongClickState = rememberUpdatedState(onSongClick)
     val onOpenMemoryFocusState = rememberUpdatedState(onOpenMemoryFocus)
-    val onEnterEditModeState = rememberUpdatedState(onEnterEditMode)
     val onEntryClick = remember {
         { target: HomeEntryTarget ->
             when (target) {
@@ -299,8 +442,11 @@ internal fun HomeEditorialContent(
         // the feed yet, it is the one thing to reveal.
         ready = activityEntries.isNotEmpty() || widgetGrid.isNotEmpty() ||
             recentlyAddedTracks.isNotEmpty() || recentlyAddedAlbums.isNotEmpty() ||
-            memoryPill != null,
+            rediscover.isNotEmpty() || memoryPill != null,
     )
+    // Rediscover's "Not played in Yoin for …" is read against the moment its
+    // list arrived; day-scale copy doesn't need a ticking clock.
+    val rediscoverNowMillis = remember(rediscover) { System.currentTimeMillis() }
     // Jump Back In's height follows the pane width on Medium / Wide: while
     // that width moves, sections place 1:1 instead of chasing it on a spring.
     val paneWidthInMotion = LocalPaneWidthInMotion.current
@@ -320,6 +466,7 @@ internal fun HomeEditorialContent(
     // landscape handset — so a shelf bleeds to the container's real edge.
     // Margins follow the live width in the layout pass (HomeFeedFrame).
     val feedFrame = rememberHomeFeedFrame(feedFrameClass(windowInfo))
+    val itemSpacing = if (isLandscapePhone) 10.dp else 18.dp
     // Seams (dissolve-final §1.3, §3): the status bar gets the tide line —
     // content sinks under two waves of page colour, text fades out just below
     // it — and the bottom bar gets the halftone field. Both read one set of
@@ -336,175 +483,427 @@ internal fun HomeEditorialContent(
     // bubble (HomeMemoryBubble.kt), or the trial's header pill / chevron.
     val memoryEntry = LocalHomeHintVariant.current.entry
     val bubbleController = if (memoryEntry == MemoryEntryStyle.Bubble) remember { MemoryBubbleController() } else null
+
+    // ── Edit geometry, all in the page Box's px (the list sits at its origin).
+    // The safe area runs from below the status tide to above the bar (port
+    // sheet §3.4); one plate outset serves the hit tester, the carry and the blocks.
+    val barField = LocalSeamBarField.current
+    val safeGapPx = with(density) { HomeEditTokens.SafeGap.toPx() }
+    val safeTopPx = with(density) { statusBarTop.toPx() + SeamDissolveTokens.TideRest.toPx() } + safeGapPx
+    val safeBottomInsetPx = with(density) { navBarBottom.toPx() }
+    val safeArea: () -> HomeEditSafeArea = remember(feedRefs, barField, safeTopPx, safeBottomInsetPx, safeGapPx) {
+        {
+            val box = feedRefs.box?.takeIf { it.isAttached }
+            val barTop = barField?.takeIf { it.attached }?.bounds?.top
+            val bottom = if (box != null && barTop != null) {
+                barTop - box.positionInRoot().y
+            } else {
+                (box?.size?.height?.toFloat() ?: 0f) - safeBottomInsetPx
+            }
+            HomeEditSafeArea(top = safeTopPx, bottom = bottom - safeGapPx)
+        }
+    }
+    val plateOutsetPx: () -> Size = remember(density, itemSpacing) {
+        val outset = with(density) {
+            Size(HomeEditTokens.PlateOutsetH.toPx(), plateOutsetVDp(itemSpacing.value).dp.toPx())
+        }
+        ({ outset })
+    }
+    val sectionTop: (HomeSection) -> Float? = remember(listState) {
+        { section -> listState.sectionItemTop(section) }
+    }
+    val hitTester = remember(listState, targets, controller, motion, feedFrame, density, plateOutsetPx) {
+        HomeEditHitTester(
+            listState = listState,
+            targets = targets,
+            contentBounds = {
+                val start = with(density) { feedFrame.start.toPx() }
+                start..(start + with(density) { feedFrame.contentWidth.toPx() })
+            },
+            plateOutsetPx = plateOutsetPx,
+            editing = { controller.isEditing },
+            isHiding = { it in motion.hiding },
+        )
+    }
+    val carryHost = rememberLazyListCarryHost(
+        listState = listState,
+        feedFrame = feedFrame,
+        // The draft's order, never what happens to be laid out (critique 1).
+        order = { controller.draft?.enabledSections.orEmpty() },
+        emittedKeys = { feedRefs.keys },
+        safeArea = safeArea,
+        plateOutsetPx = plateOutsetPx,
+    )
+    val isFlingInProgress: () -> Boolean = remember(listState) { { listState.isScrollInProgress } }
+    // P on the move, a carry, or a charge: vote the panel's high rate for exactly as long.
+    // Read only in HomeFrameRateVote's scope: a flip (a charge, a carry starting or
+    // ending, P settling) must not recompose the feed and every section in it.
+    val editAnimating: () -> Boolean = remember(controller, engine, press) {
+        val animating = derivedStateOf {
+            val p = controller.progress.value
+            (p > EditAnimatingFloor && p < 1f - EditAnimatingFloor) || engine.session != null || press.charge.isRunning
+        }
+        ({ animating.value })
+    }
+    // Strips folding, or a carry: sections place 1:1 under the strips (port sheet §4.5).
+    // While editing the feed places through one stable spec that reads this gate when
+    // the list starts a move, so a fold never recomposes the sections (no composition read).
+    val editPlacement = remember(engine, specs) {
+        GatedPlacementSpec(specs.placement) { engine.fold.value > 0f || engine.session != null }
+    }
+    val sectionPlacement: () -> FiniteAnimationSpec<IntOffset>? =
+        remember(controller, feedFrame, paneWidthInMotion, specs, editPlacement) {
+            {
+                when {
+                    paneWidthInMotion.value || feedFrame.isBlending -> null
+                    controller.isEditing -> editPlacement
+                    else -> specs.placement
+                }
+            }
+        }
+
+    // ── What the feed renders (plan §2.5): the controller's layout, the
+    // sections with something to show (placeholders while editing), then the
+    // tray or the footer. The keys go out in this order for the carry's anchor.
+    val layout = controller.layoutToRender(HomeLayout(sections))
+    val enabledOrder = layout.enabledSections
+    // Derived, by value: a motion flag that leaves the blocks as they are (the
+    // placeholders above a lifted block opening with none held back) recomposes nothing.
+    val blocks by remember(layout, editing, motion, widgetGrid, recentlyAddedTracks, recentlyAddedAlbums, rediscover) {
+        derivedStateOf(structuralEqualityPolicy()) {
+            homeFeedBlocks(
+                layout = layout,
+                hiding = motion.hiding,
+                editing = editing,
+                held = motion.heldSection,
+                placeholdersAboveOpen = motion.placeholdersAboveOpen,
+                hasContent = { section ->
+                    when (section) {
+                        // Always there: its empty card says so.
+                        HomeSection.Activities -> true
+                        HomeSection.JumpBackIn -> widgetGrid.isNotEmpty()
+                        HomeSection.RecentlyAdded -> recentlyAddedTracks.isNotEmpty() || recentlyAddedAlbums.isNotEmpty()
+                        HomeSection.Rediscover -> rediscover.isNotEmpty()
+                    }
+                },
+            )
+        }
+    }
+    val trayMounted = motion.trayMounted
+    val hiddenSections = layout.hiddenSections
+    val allHidden = enabledOrder.isEmpty()
+    val feedKeys = homeFeedKeys(blocks, trayMounted, hiddenSections, allHidden)
+    SideEffect {
+        val displayed = blocks.map { it.section }
+        if (motion.displayed != displayed) motion.displayed = displayed
+        feedRefs.keys = feedKeys
+    }
+
+    // The Home layer the controller drives (plan C4); a layer that arrives
+    // while editing (an Activity recreation, a new motion) starts its session.
+    val currentSafeArea by rememberUpdatedState(safeArea)
+    DisposableEffect(controller, motion, engine, press) {
+        val layer = object : HomeEditLayer {
+            override val isCarrying: Boolean get() = engine.isCarrying
+
+            override fun onEnter(origin: HomeSection?, lifted: Boolean) = motion.onEnter(origin, lifted)
+
+            override fun onExit(reason: HomeEditExitReason) = engine.onExit(reason, press)
+
+            override fun onSnapExit() = engine.onSnapExit(press)
+
+            override fun onTouch() = motion.touch()
+
+            override fun onLayoutChange(change: HomeEditChange) =
+                motion.onLayoutChange(change) { section -> listState.sectionInSafeArea(section, currentSafeArea()) }
+
+            override fun deferExit(reason: HomeEditExitReason) = engine.deferExit(reason)
+
+            override fun abortCarry() = engine.abortNow()
+
+            override fun scrollToTray() {
+                feedRefs.trayScroll?.cancel()
+                feedRefs.trayScroll = scope.launch {
+                    val index = feedRefs.keys.indexOf(TrayTitleKey)
+                    if (index < 0) return@launch
+                    val offsetPx = with(density) { HomeEditTokens.ScrollToTrayOffset.toPx() }
+                    val info = listState.layoutInfo
+                    val tray = info.visibleItemsInfo.firstOrNull { it.key == TrayTitleKey }
+                    if (tray != null) {
+                        listState.animateScrollBy(tray.offset - info.viewportStartOffset - offsetPx, specs.settlePx)
+                    } else {
+                        listState.animateScrollToItem(index, -offsetPx.roundToInt())
+                    }
+                }
+            }
+        }
+        controller.layer = layer
+        if (controller.isEditing) layer.onEnter(null, lifted = false)
+        onDispose { controller.detachLayer(layer) }
+    }
+    DisposableEffect(engine, carryHost) {
+        engine.host = carryHost
+        onDispose { if (engine.host === carryHost) engine.host = null }
+    }
+    LaunchedEffect(motion) { motion.runEntryEffects() }
+    HomeEditClock(motion)
+    // The wiggle clock runs only while Home is on screen: resumed and not under Now Playing or the detail column.
+    val lifecycleOwner = LocalLifecycleOwner.current
+    val currentHomeCovered by rememberUpdatedState(homeCovered)
+    LaunchedEffect(motion, lifecycleOwner) {
+        lifecycleOwner.lifecycle.currentStateFlow
+            .combine(snapshotFlow { currentHomeCovered }) { state, covered ->
+                state.isAtLeast(Lifecycle.State.RESUMED) && !covered
+            }
+            .collect { motion.visible = it }
+    }
+    // The seam followers ignore the scroll the anchor makes under the strips.
+    LaunchedEffect(engine, seamFlow) {
+        snapshotFlow { engine.fold.value > 0f }.collect { seamFlow.held = it }
+    }
+    // A new width class or a resize mid-drag invalidates the strips: let go where it is.
+    LaunchedEffect(engine, feedFrame) {
+        snapshotFlow { Pair(feedFrame.to, feedFrame.containerWidth) }
+            .drop(1)
+            .collect {
+                if (engine.session != null) engine.release(cancelled = true, uptimeMs = SystemClock.uptimeMillis())
+            }
+    }
+    // The strips compose once entering has settled, ahead of any carry, one
+    // label a frame, and leave once an exit has: composed in a fold's first
+    // frame they would stall it (HomeCarryStack).
+    val stripsWarm = produceState(initialValue = 0, controller) {
+        snapshotFlow { stripWarmth(editing = controller.isEditing, moving = controller.progress.isAnimating) }
+            .collectLatest { warmth ->
+                when (warmth) {
+                    StripWarmth.Warm -> {
+                        // Past the entry's own frames first.
+                        repeat(StripWarmFrames) { withFrameNanos { } }
+                        while (value < HomeSection.entries.size) {
+                            value++
+                            withFrameNanos { }
+                        }
+                    }
+                    StripWarmth.Keep -> Unit
+                    StripWarmth.Cold -> value = 0
+                }
+            }
+    }
+    val warmSections = remember(enabledOrder) { enabledOrder }
+    val stripShapes = rememberHomeStripShapes()
+    val stripCovers: (HomeSection) -> List<StripCover> = remember(
+        activityEntries,
+        widgetGrid,
+        recentlyAddedAlbums,
+        recentlyAddedTracks,
+        rediscover,
+        buildCoverArtUrl,
+        stripShapes,
+    ) {
+        { section ->
+            homeStripCovers(
+                section = section,
+                activityEntries = activityEntries,
+                widgetGrid = widgetGrid,
+                albums = recentlyAddedAlbums,
+                tracks = recentlyAddedTracks,
+                rediscover = rediscover,
+                buildCoverArtUrl = buildCoverArtUrl,
+                shapes = stripShapes,
+            )
+        }
+    }
+
     Box(
         modifier = modifier
             .fillMaxSize()
+            .onPlaced { coordinates ->
+                targets.attachBox(coordinates)
+                feedRefs.box = coordinates
+            }
+            // Any press stops the bar's scroll to the tray.
+            .pointerInput(feedRefs) {
+                awaitEachGesture {
+                    awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+                    feedRefs.trayScroll?.cancel()
+                }
+            }
             .watchMemoryBubbleTouches(bubbleController)
+            .homeEditGestures(
+                controller = controller,
+                motion = motion,
+                press = press,
+                engine = engine,
+                hitTester = hitTester,
+                feedback = editFeedback,
+                isFlingInProgress = isFlingInProgress,
+                specs = specs,
+            )
             .seamTide(
                 flow = seamFlow,
                 color = pageColor,
                 statusBarPx = statusBarPx,
             ) { listState.seamScrolledPx() },
     ) {
-        LazyColumn(
-            state = listState,
-            modifier = Modifier
-                .fillMaxSize()
-                .feedFrameWidth(feedFrame)
-                .onSizeChanged { containerHeightPx = it.height.toFloat().coerceAtLeast(1f) }
-                .seamDissolveViewport(
-                    top = SeamTop.FadeText,
-                    topInset = statusBarTop + SeamDissolveTokens.TideRest,
-                    flow = seamFlow,
-                    background = seamBackground,
-                    remainingPx = { listState.seamRemainingPx() },
-                ) { listState.seamScrolledPx() }
-                .nestedScroll(pullToMemoriesConnection)
-                // Long-press → layout editor. Cards only consume taps
-                // (noRippleClickable), so the press passes through them; any scroll
-                // movement cancels it before the timeout.
-                .pointerInput(Unit) {
-                    detectTapGestures(
-                        onLongPress = {
-                            haptics.performLongPress()
-                            onEnterEditModeState.value()
-                        },
+        // The vote's flag is read in its own scope (see editAnimating).
+        HomeFrameRateVote(active = editAnimating, modifier = Modifier.fillMaxSize()) {
+            LazyColumn(
+                state = listState,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .feedFoldWashOver(engine, listState, seamBackground)
+                    .feedFrameWidth(feedFrame)
+                    .onSizeChanged { containerHeightPx = it.height.toFloat().coerceAtLeast(1f) }
+                    .seamDissolveViewport(
+                        top = SeamTop.FadeText,
+                        topInset = statusBarTop + SeamDissolveTokens.TideRest,
+                        flow = seamFlow,
+                        background = seamBackground,
+                        remainingPx = { listState.seamRemainingPx() },
+                    ) { listState.seamScrolledPx() }
+                    .nestedScroll(pullToMemoriesConnection),
+                // The landscape Button Group lives in the left cutout band, not at
+                // the bottom: only the nav bar needs clearing there. No top
+                // padding: the header carries it, so the carry's anchor can keep
+                // the header out by item index alone.
+                contentPadding = remember(feedFrame, isLandscapePhone, navBarBottom) {
+                    FeedFramePadding(
+                        frame = feedFrame,
+                        top = 0.dp,
+                        bottom = (if (isLandscapePhone) 16.dp else 108.dp) + navBarBottom,
                     )
                 },
-            // The landscape Button Group lives in the left cutout band, not at
-            // the bottom: only the nav bar needs clearing there.
-            contentPadding = remember(feedFrame, isLandscapePhone, navBarBottom) {
-                FeedFramePadding(
-                    frame = feedFrame,
-                    top = 4.dp,
-                    bottom = (if (isLandscapePhone) 16.dp else 108.dp) + navBarBottom,
-                )
-            },
-            verticalArrangement = Arrangement.spacedBy(if (isLandscapePhone) 10.dp else 18.dp),
-        ) {
-            // The page header (title + nav icons) is pinned above the reorderable
-            // sections — it's chrome, not a section.
-            item(key = "home-header") {
-                HomeContentHeader(
-                    // Page-level title: sections below it are user-reorderable, so
-                    // the header can't borrow the first section's name anymore.
-                    title = "Home",
-                    compact = isLandscapePhone,
-                    bubbleController = bubbleController,
-                    onNavigateToSettings = onNavigateToSettings,
-                    onNavigateToMemories = onNavigateToMemories,
-                    memoriesHintProgress = memoriesHintProgress,
-                    memoryPill = memoryPill,
-                    // The pill surfaces on the feed's last launch beat.
-                    memoryPillReveal = { firstReveal.payload },
-                    extractBackdropColors = shouldExtractBackdropColors,
-                    onOpenMemoryFocus = { sessionId -> onOpenMemoryFocusState.value(sessionId) },
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            }
+                verticalArrangement = Arrangement.spacedBy(itemSpacing),
+            ) {
+                // The page header (title + nav icons) is pinned above the reorderable
+                // sections — it's chrome, not a section.
+                item(key = HomeHeaderKey) {
+                    HomeContentHeader(
+                        compact = isLandscapePhone,
+                        bubbleController = bubbleController,
+                        onNavigateToSettings = onNavigateToSettings,
+                        onNavigateToMemories = onNavigateToMemories,
+                        memoriesHintProgress = memoriesHintProgress,
+                        memoryPill = memoryPill,
+                        // The pill surfaces on the feed's last launch beat.
+                        memoryPillReveal = { firstReveal.payload },
+                        extractBackdropColors = shouldExtractBackdropColors,
+                        onOpenMemoryFocus = { sessionId -> onOpenMemoryFocusState.value(sessionId) },
+                        editProgress = controller.progressReader,
+                        editTargets = targets,
+                        editHint = controller.sessionHints.showHeaderHint,
+                        onEnterEdit = { controller.enter(null, lifted = false) },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
 
-            // Data-driven feed: render each enabled section in the user's chosen
-            // order.
-            for (sectionState in sections) {
-                if (!sectionState.enabled) continue
-                when (sectionState.section) {
-                    HomeSection.Activities -> item(key = "section-activities") {
-                        if (activityEntries.isNotEmpty()) {
-                            // Density by width (owner 2026-10-03): the bento's
-                            // recipe and item count follow the container's feed
-                            // units (HomeFeedDensity.kt), not LayoutMode. The
-                            // phone and landscape compositions are today's.
-                            val unitsRecipe = !isLandscapePhone && windowInfo.feedUnits >= 3
-                            val bentoEntries = if (unitsRecipe) {
-                                remember(activities, buildCoverArtUrl) {
-                                    buildActivityEntries(
-                                        activities = activities,
-                                        buildCoverArtUrl = buildCoverArtUrl,
-                                        limit = ActivityBentoUnitsMaxEntries,
+                // Data-driven feed: each section the user keeps on, in their order,
+                // each one an edit block.
+                for (block in blocks) {
+                    val section = block.section
+                    item(key = sectionItemKey(section)) {
+                        HomeEditBlock(
+                            section = section,
+                            displayIndex = enabledOrder.indexOf(section).coerceAtLeast(0),
+                            displayCount = enabledOrder.size,
+                            deps = editDeps,
+                            placeholder = block.placeholder,
+                            // No cards to sway: the block turns as one.
+                            wholeBlockWiggle = block.placeholder ||
+                                (section == HomeSection.Activities && activityEntries.isEmpty()),
+                            itemSpacing = itemSpacing,
+                            blockTopInBox = { sectionTop(section) },
+                            safeArea = safeArea,
+                            modifier = Modifier.animateItem(
+                                // A section edit mode shows fades in by its own alpha (critique 10).
+                                fadeInSpec = if (section in motion.showing) null else specs.effectsIn,
+                                placementSpec = sectionPlacement(),
+                                fadeOutSpec = specs.effectsOut,
+                            ),
+                        ) {
+                            when (section) {
+                                HomeSection.Activities -> if (activityEntries.isNotEmpty()) {
+                                    // Density by width (owner 2026-10-03): the bento's
+                                    // recipe and item count follow the container's feed
+                                    // units (HomeFeedDensity.kt), not LayoutMode. The
+                                    // phone and landscape compositions are today's.
+                                    val unitsRecipe = !isLandscapePhone && windowInfo.feedUnits >= 3
+                                    val bentoEntries = if (unitsRecipe) {
+                                        remember(activities, buildCoverArtUrl) {
+                                            buildActivityEntries(
+                                                activities = activities,
+                                                buildCoverArtUrl = buildCoverArtUrl,
+                                                limit = ActivityBentoUnitsMaxEntries,
+                                            )
+                                        }
+                                    } else {
+                                        activityEntries
+                                    }
+                                    // Hero slot = first album/playlist; artists fill the
+                                    // smaller cards in recency order.
+                                    val heroEntry = bentoEntries.firstOrNull { entry -> entry.isHeroCandidate }
+                                    // The stagger is seeded by the hero's identity: the
+                                    // same feed lays out the same way every time.
+                                    // Remembered, like every argument below: the feed
+                                    // recomposes on edit-mode flags, and fresh lists, specs
+                                    // or modifiers would recompose the whole bento with it.
+                                    val bentoSpec = remember(windowInfo.feedUnits, isLandscapePhone, heroEntry) {
+                                        activityBentoSpec(
+                                            feedUnits = windowInfo.feedUnits,
+                                            isCompactHeight = isLandscapePhone,
+                                            seed = activityLayoutSeed(heroEntry?.layoutKey),
+                                            hasHero = heroEntry != null,
+                                        )
+                                    }
+                                    val candidates = remember(bentoEntries, heroEntry) {
+                                        bentoEntries.filterNot { it === heroEntry }
+                                    }
+                                    val bentoModifier = remember(firstReveal) {
+                                        Modifier
+                                            .fillMaxWidth()
+                                            .stagedBeat(
+                                                progress = { firstReveal.hero },
+                                                rise = 18.dp,
+                                                scaleFrom = 0.97f,
+                                            )
+                                    }
+                                    ActivityBento(
+                                        hero = heroEntry,
+                                        candidates = candidates,
+                                        spec = bentoSpec,
+                                        heroFootnoteExtra = activityHeroFootnote,
+                                        extractBackdropColors = shouldExtractBackdropColors,
+                                        onEntryClick = onEntryClick,
+                                        modifier = bentoModifier,
+                                    )
+                                } else {
+                                    HomeEmptyCard(
+                                        title = "No recent activity yet",
+                                        supporting = "Once you listen or visit albums and artists, this feed will start filling in.",
+                                        modifier = Modifier.fillMaxWidth(),
                                     )
                                 }
-                            } else {
-                                activityEntries
-                            }
-                            // Hero slot = first album/playlist; artists fill the
-                            // smaller cards in recency order.
-                            val heroEntry = bentoEntries.firstOrNull { entry ->
-                                entry.entityType == ActivityEntityType.ALBUM.name ||
-                                    entry.entityType == ActivityEntityType.PLAYLIST.name
-                            }
-                            // The stagger is seeded by the hero's identity: the
-                            // same feed lays out the same way every time.
-                            val bentoSpec = activityBentoSpec(
-                                feedUnits = windowInfo.feedUnits,
-                                isCompactHeight = isLandscapePhone,
-                                seed = activityLayoutSeed(heroEntry?.layoutKey),
-                                hasHero = heroEntry != null,
-                            )
-                            ActivityBento(
-                                hero = heroEntry,
-                                candidates = bentoEntries.filterNot { it === heroEntry },
-                                spec = bentoSpec,
-                                heroFootnoteExtra = activityHeroFootnote,
-                                extractBackdropColors = shouldExtractBackdropColors,
-                                onEntryClick = onEntryClick,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .animateItem(
-                                        fadeInSpec = YoinMotion.effectsSpring(),
-                                        placementSpec = if (paneWidthInMotion.value || feedFrame.isBlending) null else YoinMotion.spatialSpring(),
-                                        fadeOutSpec = YoinMotion.effectsSpring(),
-                                    )
-                                    .stagedBeat(
-                                        progress = { firstReveal.hero },
-                                        rise = 18.dp,
-                                        scaleFrom = 0.97f,
-                                    ),
-                            )
-                        } else {
-                            HomeEmptyCard(
-                                title = "No recent activity yet",
-                                supporting = "Once you listen or visit albums and artists, this feed will start filling in.",
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .animateItem(
-                                        fadeInSpec = YoinMotion.effectsSpring(),
-                                        placementSpec = if (paneWidthInMotion.value || feedFrame.isBlending) null else YoinMotion.spatialSpring(),
-                                        fadeOutSpec = YoinMotion.effectsSpring(),
-                                    ),
-                            )
-                        }
-                    }
 
-                    // The merged Jump Back In × memories widget grid. Empty means
-                    // nothing resolved from any source — skip the section entirely.
-                    HomeSection.JumpBackIn -> if (widgetGrid.isNotEmpty()) {
-                        item(key = "section-widget-grid") {
-                            HomeWidgetGridSection(
-                                title = "Jump Back In",
-                                cards = widgetGrid,
-                                extractBackdropColors = shouldExtractBackdropColors,
-                                onCardClick = onWidgetCardClick,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .animateItem(
-                                        fadeInSpec = YoinMotion.effectsSpring(),
-                                        placementSpec = if (paneWidthInMotion.value || feedFrame.isBlending) null else YoinMotion.spatialSpring(),
-                                        fadeOutSpec = YoinMotion.effectsSpring(),
-                                    )
-                                    .stagedBeat(
-                                        progress = { firstReveal.meta },
-                                        rise = 16.dp,
-                                    ),
-                            )
-                        }
-                    }
+                                // The merged Jump Back In × memories widget grid.
+                                // Empty, it only shows (as a placeholder) while editing.
+                                HomeSection.JumpBackIn -> HomeWidgetGridSection(
+                                    title = "Jump Back In",
+                                    cards = widgetGrid,
+                                    extractBackdropColors = shouldExtractBackdropColors,
+                                    onCardClick = onWidgetCardClick,
+                                    modifier = remember(firstReveal) {
+                                        Modifier
+                                            .fillMaxWidth()
+                                            .stagedBeat(
+                                                progress = { firstReveal.meta },
+                                                rise = 16.dp,
+                                            )
+                                    },
+                                )
 
-                    // Only render when there's something added this week — an empty
-                    // "recently added" shelf is noise, not information.
-                    HomeSection.RecentlyAdded ->
-                        if (recentlyAddedTracks.isNotEmpty() || recentlyAddedAlbums.isNotEmpty()) {
-                            item(key = "section-recently-added") {
-                                RecentlyAddedSection(
+                                // Only with something added this week — an empty
+                                // "recently added" shelf is noise, not information.
+                                HomeSection.RecentlyAdded -> RecentlyAddedSection(
                                     tracks = recentlyAddedTracks,
                                     albums = recentlyAddedAlbums,
                                     extractBackdropColors = shouldExtractBackdropColors,
@@ -515,48 +914,310 @@ internal fun HomeEditorialContent(
                                     buildCoverArtUrl = buildCoverArtUrl,
                                     frame = feedFrame,
                                     singleRowShelf = isLandscapePhone,
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .animateItem(
-                                            fadeInSpec = YoinMotion.effectsSpring(),
-                                            placementSpec = if (paneWidthInMotion.value || feedFrame.isBlending) null else YoinMotion.spatialSpring(),
-                                            fadeOutSpec = YoinMotion.effectsSpring(),
-                                        )
-                                        .stagedBeat(
-                                            progress = { firstReveal.payload },
-                                            rise = 16.dp,
-                                        ),
+                                    shelfScrollEnabled = !editing,
+                                    modifier = remember(firstReveal) {
+                                        Modifier
+                                            .fillMaxWidth()
+                                            .stagedBeat(
+                                                progress = { firstReveal.payload },
+                                                rise = 16.dp,
+                                            )
+                                    },
+                                )
+
+                                // Only with something to bring back: an empty
+                                // Rediscover is no information either.
+                                HomeSection.Rediscover -> RediscoverSection(
+                                    items = rediscover,
+                                    frame = feedFrame,
+                                    nowMillis = rediscoverNowMillis,
+                                    extractBackdropColors = shouldExtractBackdropColors,
+                                    scrollEnabled = !editing,
+                                    onAlbumClick = { albumId, sharedTransitionKey ->
+                                        onEntryClick(HomeEntryTarget.Album(albumId, sharedTransitionKey))
+                                    },
+                                    modifier = remember(firstReveal) {
+                                        Modifier
+                                            .fillMaxWidth()
+                                            .stagedBeat(
+                                                progress = { firstReveal.payload },
+                                                rise = 16.dp,
+                                            )
+                                    },
                                 )
                             }
                         }
+                    }
+                }
+
+                // Editing: the Hidden tray, Show and Reset. Otherwise the way in,
+                // after the all-hidden card when nothing is left on.
+                if (trayMounted) {
+                    homeEditTrayItems(
+                        hidden = hiddenSections,
+                        newBadges = controller.sessionHints.newBadges,
+                        canReset = controller.canReset,
+                        deps = editDeps,
+                        placementSpec = sectionPlacement,
+                        itemSpacing = itemSpacing,
+                    )
+                } else {
+                    if (allHidden) homeAllHiddenItem(placementSpec = sectionPlacement, alpha = { motion.footerAlpha.value })
+                    homeEditFooterEntry(
+                        newBadge = footerNewBadge,
+                        deps = editDeps,
+                        onEnter = { controller.enter(motion.displayed.lastOrNull(), lifted = false) },
+                        placementSpec = sectionPlacement,
+                    )
                 }
             }
-        }
-        if (bubbleController != null) {
-            MemoryBubbleOverlay(
-                pill = memoryPill,
-                controller = bubbleController,
-                hintProgress = memoriesHintProgress,
-                // It speaks once the feed's launch reveal has landed.
-                revealProgress = { firstReveal.payload },
-                scrolledPx = { listState.seamScrolledPx() },
-                covered = homeCovered,
-                extractBackdropColors = shouldExtractBackdropColors,
-                onOpenMemoryFocus = { sessionId -> onOpenMemoryFocusState.value(sessionId) },
-                onNavigateToMemories = onNavigateToMemories,
-                modifier = Modifier.matchParentSize(),
+            // The strips fold over the feed, inside the tide (port sheet §0.2 item 10).
+            HomeCarryStack(
+                engine = engine,
+                covers = stripCovers,
+                sections = warmSections,
+                warmCount = { stripsWarm.value },
             )
+            if (bubbleController != null) {
+                MemoryBubbleOverlay(
+                    pill = memoryPill,
+                    controller = bubbleController,
+                    hintProgress = memoriesHintProgress,
+                    // It speaks once the feed's launch reveal has landed.
+                    revealProgress = { firstReveal.payload },
+                    scrolledPx = { listState.seamScrolledPx() },
+                    covered = homeCovered,
+                    extractBackdropColors = shouldExtractBackdropColors,
+                    onOpenMemoryFocus = { sessionId -> onOpenMemoryFocusState.value(sessionId) },
+                    onNavigateToMemories = onNavigateToMemories,
+                    modifier = Modifier.matchParentSize(),
+                    editProgress = controller.progressReader,
+                    editing = editing,
+                )
+            }
         }
+    }
+}
+
+// ── The feed's item model (plan §2.5) ────────────────────────────────────
+
+/** One section the feed renders; [placeholder] = empty, shown while editing (spec §2.4). */
+@Immutable
+internal data class HomeFeedBlock(val section: HomeSection, val placeholder: Boolean)
+
+/**
+ * The sections the feed renders, in [layout] order: the enabled ones, plus
+ * those still fading out after Hide ([hiding]). Outside edit mode a section
+ * with nothing to show is skipped ([hasContent]; Activities always has its
+ * empty card). While [editing] it becomes a placeholder — except one above
+ * the block lifted at entry ([held]) until [placeholdersAboveOpen], so the
+ * lifted block isn't pushed from under the finger (spec §2.1.4-7).
+ */
+internal fun homeFeedBlocks(
+    layout: HomeLayout,
+    hiding: Set<HomeSection>,
+    editing: Boolean,
+    held: HomeSection?,
+    placeholdersAboveOpen: Boolean,
+    hasContent: (HomeSection) -> Boolean,
+): List<HomeFeedBlock> {
+    val heldIndex = layout.sections.indexOfFirst { it.section == held }
+    return layout.sections.mapIndexedNotNull { index, state ->
+        val section = state.section
+        when {
+            !state.enabled && section !in hiding -> null
+            hasContent(section) -> HomeFeedBlock(section, placeholder = false)
+            !editing -> null
+            !placeholdersAboveOpen && index < heldIndex -> null
+            else -> HomeFeedBlock(section, placeholder = true)
+        }
+    }
+}
+
+/**
+ * The feed's item keys, in the order the list emits them: the header, the
+ * [blocks], then the tray while [trayMounted], else the all-hidden card (for
+ * [allHidden]) and the footer entry.
+ */
+internal fun homeFeedKeys(
+    blocks: List<HomeFeedBlock>,
+    trayMounted: Boolean,
+    hidden: List<HomeSection>,
+    allHidden: Boolean,
+): List<Any> = buildList {
+    add(HomeHeaderKey)
+    blocks.forEach { add(sectionItemKey(it.section)) }
+    if (trayMounted) {
+        add(TrayTitleKey)
+        hidden.forEach { add(homeEditTrayRowKey(it)) }
+        add(TrayFooterKey)
+    } else {
+        if (allHidden) add(AllHiddenKey)
+        add(FooterEntryKey)
+    }
+}
+
+/** A section's item key: edit mode reads the section back from it (`HomeSection.fromId`). */
+private fun sectionItemKey(section: HomeSection): String = carryItemKey(section)
+
+private const val HomeHeaderKey = "home-header"
+
+// P this close to rest counts as still (port sheet §2.5).
+private const val EditAnimatingFloor = .001f
+
+/**
+ * The feed fading under the folding strips (port sheet §4.5): a wash of the
+ * page's own gradient ([background], over the page's height) drawn over the
+ * sections and tray, from the header's bottom down; the header never fades.
+ * It stands in for each block's layer alpha (the blocks only switch off once
+ * it covers them, `feedFoldShown`), so a fade frame costs one gradient
+ * rect, not an offscreen pass per block. Drawn only mid-fade.
+ */
+private fun Modifier.feedFoldWashOver(
+    engine: HomeCarryEngine,
+    listState: LazyListState,
+    background: SeamBackground,
+): Modifier = drawWithCache {
+    val brush = Brush.verticalGradient(background.colors, startY = 0f, endY = size.height)
+    onDrawWithContent {
+        drawContent()
+        val wash = feedFoldWash(engine.fold.value)
+        if (wash <= 0f || wash >= 1f) return@onDrawWithContent
+        val top = listState.headerBottomPx().coerceIn(0f, size.height)
+        drawRect(brush, topLeft = Offset(0f, top), size = Size(size.width, size.height - top), alpha = wash)
+    }
+}
+
+/** The header's bottom in the list's px, 0 once it has scrolled away (the list sits at the Box origin). */
+private fun LazyListState.headerBottomPx(): Float {
+    val info = layoutInfo
+    val header = info.visibleItemsInfo.firstOrNull { it.key == HomeHeaderKey } ?: return 0f
+    return (header.offset - info.viewportStartOffset + header.size).toFloat()
+}
+
+/**
+ * The page's content under a high frame-rate vote while [active]. The flag
+ * is read here, in this scope only, so a flip never recomposes [content].
+ * The vote stays in the chain and only its category changes: adding or
+ * dropping it adds or drops a layer over the whole feed, which repaints it
+ * and resends its semantics (a long content-capture pass) right as a carry
+ * starts or ends.
+ */
+@Composable
+private fun HomeFrameRateVote(
+    active: () -> Boolean,
+    modifier: Modifier = Modifier,
+    content: @Composable BoxScope.() -> Unit,
+) {
+    val category = if (active()) FrameRateCategory.High else FrameRateCategory.Default
+    Box(modifier.preferredFrameRate(category), content = content)
+}
+
+/** Plain references the edit layer reads at events and in draw; never state, never composed. */
+private class HomeFeedRefs {
+    /** The page Box, the space every edit geometry lives in. */
+    var box: LayoutCoordinates? = null
+
+    /** The item keys the list emits, in order (published after each composition). */
+    var keys: List<Any> = emptyList()
+
+    /** The bar's Add scrolling to the tray; any press stops it. */
+    var trayScroll: Job? = null
+}
+
+/** [section]'s item top in the page Box, null when not laid out (the list sits at the Box origin). */
+private fun LazyListState.sectionItemTop(section: HomeSection): Float? {
+    val info = layoutInfo
+    val key = sectionItemKey(section)
+    return info.visibleItemsInfo.firstOrNull { it.key == key }?.let { (it.offset - info.viewportStartOffset).toFloat() }
+}
+
+/** [section]'s block shows between the status tide and the bar (proto inViewport). */
+private fun LazyListState.sectionInSafeArea(section: HomeSection, safe: HomeEditSafeArea): Boolean {
+    val info = layoutInfo
+    val key = sectionItemKey(section)
+    val item = info.visibleItemsInfo.firstOrNull { it.key == key } ?: return false
+    val top = (item.offset - info.viewportStartOffset).toFloat()
+    return top + item.size > safe.top && top < safe.bottom
+}
+
+private val HomeMomentEntry.isHeroCandidate: Boolean
+    get() = entityType == ActivityEntityType.ALBUM.name || entityType == ActivityEntityType.PLAYLIST.name
+
+/** The entity backdrop shapes a strip's covers sit in (the cards' own: Bun, Circle, Ghostish). */
+@Immutable
+private class HomeStripShapes(val album: Shape, val song: Shape, val playlist: Shape) {
+    fun of(kind: WidgetShapeKind): Shape = when (kind) {
+        WidgetShapeKind.Album -> album
+        WidgetShapeKind.Song -> song
+        WidgetShapeKind.Playlist -> playlist
+        WidgetShapeKind.Artist -> CircleShape
+    }
+}
+
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+private fun rememberHomeStripShapes(): HomeStripShapes {
+    val album = MaterialShapes.Bun.toShape()
+    val song = MaterialShapes.Circle.toShape()
+    val playlist = MaterialShapes.Ghostish.toShape()
+    return remember(album, song, playlist) { HomeStripShapes(album, song, playlist) }
+}
+
+/**
+ * A section's strip covers (port sheet §4.4): the first three it shows.
+ * Activities: the hero, then the next two entries; Jump Back In: the memory
+ * card, then the next two; Recently Added: its first albums, else its
+ * tracks (Thumb); Rediscover: its first three.
+ */
+private fun homeStripCovers(
+    section: HomeSection,
+    activityEntries: List<HomeMomentEntry>,
+    widgetGrid: List<HomeWidgetCard>,
+    albums: List<Album>,
+    tracks: List<Track>,
+    rediscover: List<HomeRediscoverItem>,
+    buildCoverArtUrl: (String) -> String,
+    shapes: HomeStripShapes,
+): List<StripCover> {
+    val count = HomeEditTokens.StripCoverCount
+    return when (section) {
+        HomeSection.Activities -> {
+            val hero = activityEntries.firstOrNull { it.isHeroCandidate }
+            (listOfNotNull(hero) + activityEntries.filterNot { it === hero }).take(count).map { entry ->
+                stripCover(entry.coverArtUrl, shapes.of(widgetShapeKindForActivity(entry.entityType)))
+            }
+        }
+        HomeSection.JumpBackIn -> {
+            val memory = widgetGrid.firstOrNull { it.target is HomeWidgetTarget.MemoryFocus }
+            (listOfNotNull(memory) + widgetGrid.filterNot { it === memory }).take(count).map { card ->
+                stripCover(card.coverArtUrl, shapes.of(card.entityType.toWidgetShapeKind()))
+            }
+        }
+        HomeSection.RecentlyAdded -> if (albums.isNotEmpty()) {
+            albums.take(count).map { stripCover(resolveHomeCoverArtUrl(it.coverArt, buildCoverArtUrl), shapes.album) }
+        } else {
+            tracks.take(count).map { track ->
+                stripCover(recentlyAddedTrackCoverUrl(track, buildCoverArtUrl), YoinArtworkShapes.Thumb)
+            }
+        }
+        HomeSection.Rediscover -> rediscover.take(count).map { stripCover(it.coverArtUrl, shapes.album) }
     }
 }
 
 @Composable
 private fun HomeContentHeader(
-    title: String,
     onNavigateToSettings: () -> Unit,
     onNavigateToMemories: () -> Unit,
     memoriesHintProgress: () -> Float,
+    // Edit mode's P (read in draw and layout only), its hit targets, and the
+    // TalkBack way in from the title.
+    editProgress: () -> Float,
+    editTargets: HomeEditTargets,
+    onEnterEdit: () -> Unit,
     modifier: Modifier = Modifier,
+    // The first edit sessions: "Drag to reorder" in the free span.
+    editHint: Boolean = false,
     // Non-null = the Memories entry is the safe-area bubble overlay: the
     // header only reports the span it leaves between the title and Settings.
     bubbleController: MemoryBubbleController? = null,
@@ -568,26 +1229,38 @@ private fun HomeContentHeader(
     compact: Boolean = false,
 ) {
     val haptics = rememberYoinHaptics()
+    // Edit mode fades the icons out over the first half of P; they stay
+    // composed (the row keeps its 48dp) and stop taking input and focus.
+    val iconsEnabled = rememberHomeEditIconsEnabled(editProgress)
+    val iconSemantics = if (iconsEnabled) Modifier else Modifier.clearAndSetSemantics {}
     Row(
         modifier = modifier
             .statusBarsPadding()
-            .padding(top = 8.dp),
+            // 8dp, plus the 4dp the list's top padding used to add.
+            .padding(top = 12.dp)
+            .heightIn(min = 48.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         val titleStyle = MaterialTheme.typography.let { if (compact) it.headlineMedium else it.headlineLarge }
-        // Display type fades over 0.75 × its size (≈24dp at 32sp) instead of
-        // looking sliced by the short text band.
-        Text(
-            text = title,
+        // "Home", and "Edit Home" over it through P. Display type fades over
+        // 0.75 × its size (≈24dp at 32sp) instead of looking sliced by the
+        // short text band.
+        HomeEditHeaderTitle(
+            progress = editProgress,
             style = titleStyle,
-            color = MaterialTheme.colorScheme.onBackground,
-            modifier = Modifier
-                .padding(end = HomeHeaderTitleBreathing)
-                .seamFade(fontSize = titleStyle.fontSize),
+            modifier = Modifier.padding(end = HomeHeaderTitleBreathing),
+            onEnterEdit = onEnterEdit,
         )
         if (bubbleController != null) {
-            // The bubble overlay hangs inside this span.
-            Spacer(modifier = Modifier.weight(1f).memoryBubbleFreeSpan(bubbleController))
+            // The bubble overlay hangs inside this span; the edit hint ends it.
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .memoryBubbleFreeSpan(bubbleController),
+                contentAlignment = Alignment.CenterEnd,
+            ) {
+                HomeEditHeaderHint(progress = editProgress, visible = editHint, titleStyle = titleStyle)
+            }
         } else {
             // The Memories entry takes whatever the title and Settings leave, and
             // picks the pill form that fits it (HomeMemoryPill's fit rule).
@@ -602,7 +1275,12 @@ private fun HomeContentHeader(
                     extractBackdropColors = extractBackdropColors,
                     onOpenMemoryFocus = onOpenMemoryFocus,
                     onNavigateToMemories = onNavigateToMemories,
+                    modifier = Modifier
+                        .homeEditExclusion(editTargets, MemoriesEntryTarget) { iconsEnabled }
+                        .homeEditHeaderIcon(editProgress)
+                        .then(iconSemantics),
                 )
+                HomeEditHeaderHint(progress = editProgress, visible = editHint, titleStyle = titleStyle)
             }
         }
         Spacer(modifier = Modifier.width(2.dp))
@@ -611,7 +1289,12 @@ private fun HomeContentHeader(
                 haptics.performContextClick()
                 onNavigateToSettings()
             },
-            modifier = Modifier.seamFade(),
+            enabled = iconsEnabled,
+            modifier = Modifier
+                .homeEditExclusion(editTargets, SettingsTarget) { iconsEnabled }
+                .homeEditHeaderIcon(editProgress)
+                .seamFade()
+                .then(iconSemantics),
         ) {
             Icon(
                 imageVector = YoinSymbols.Settings,
@@ -621,6 +1304,10 @@ private fun HomeContentHeader(
         }
     }
 }
+
+// The header's controls, as edit-mode exclusions: presses on them stay theirs.
+private const val SettingsTarget = "gear"
+private const val MemoriesEntryTarget = "memories"
 
 // ── Activities bento (Figma node 405:362) ──────────────────────────────
 //
@@ -705,6 +1392,7 @@ private fun ActivityBento(
                         .height(124.dp * fontScale),
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
+                    // Edit-mode card order: the row's slots, left to right.
                     hero?.let { entry ->
                         ActivityHeroCard(
                             entry = entry,
@@ -712,6 +1400,7 @@ private fun ActivityBento(
                             extractBackdropColors = extractBackdropColors,
                             onClick = { onEntryClick(entry.target) },
                             modifier = Modifier
+                                .homeEditCard(0)
                                 .weight(2f)
                                 .fillMaxHeight(),
                         )
@@ -722,6 +1411,7 @@ private fun ActivityBento(
                             extractBackdropColors = extractBackdropColors,
                             onClick = { onEntryClick(small.target) },
                             modifier = Modifier
+                                .homeEditCard(1)
                                 .weight(1f)
                                 .fillMaxHeight(),
                         )
@@ -732,6 +1422,7 @@ private fun ActivityBento(
                             extractBackdropColors = extractBackdropColors,
                             onClick = { onEntryClick(wide.target) },
                             modifier = Modifier
+                                .homeEditCard(2)
                                 .weight(1.4f)
                                 .fillMaxHeight(),
                         )
@@ -780,6 +1471,7 @@ private fun ActivityBentoPhone(
     onEntryClick: (HomeEntryTarget) -> Unit,
     fontScale: Float,
 ) {
+    // Edit-mode card order: hero 0, the row's two 1 and 2, the strip 3.
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         hero?.let { entry ->
             ActivityHeroCard(
@@ -787,7 +1479,9 @@ private fun ActivityBentoPhone(
                 footnoteExtra = heroFootnoteExtra,
                 extractBackdropColors = extractBackdropColors,
                 onClick = { onEntryClick(entry.target) },
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .homeEditCard(0)
+                    .fillMaxWidth(),
             )
         }
         val rowSmall = supporting.getOrNull(0)
@@ -805,6 +1499,7 @@ private fun ActivityBentoPhone(
                         extractBackdropColors = extractBackdropColors,
                         onClick = { onEntryClick(small.target) },
                         modifier = Modifier
+                            .homeEditCard(1)
                             .weight(1f)
                             .fillMaxHeight(),
                     )
@@ -816,6 +1511,7 @@ private fun ActivityBentoPhone(
                             extractBackdropColors = extractBackdropColors,
                             onClick = { onEntryClick(small.target) },
                             modifier = Modifier
+                                .homeEditCard(2)
                                 .weight(1f)
                                 .fillMaxHeight(),
                         )
@@ -827,6 +1523,7 @@ private fun ActivityBentoPhone(
                             extractBackdropColors = extractBackdropColors,
                             onClick = { onEntryClick(wide.target) },
                             modifier = Modifier
+                                .homeEditCard(2)
                                 .weight(2f)
                                 .fillMaxHeight(),
                         )
@@ -843,7 +1540,9 @@ private fun ActivityBentoPhone(
                 entry = strip,
                 extractBackdropColors = extractBackdropColors,
                 onClick = { onEntryClick(strip.target) },
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .homeEditCard(3)
+                    .fillMaxWidth(),
             )
         }
     }
@@ -876,30 +1575,36 @@ private fun ActivityUnitGrid(
     }
     Layout(
         content = {
-            placed.forEach { (slot, entry) ->
+            placed.forEachIndexed { index, (slot, entry) ->
                 key(entry.stableId) {
                     val onClick = { onEntryClick(entry.target) }
+                    // Edit-mode card order = placement order.
+                    val editCard = Modifier.homeEditCard(index)
                     when (slot.kind) {
                         SlotKind.Hero -> ActivityHeroCard(
                             entry = entry,
                             footnoteExtra = heroFootnoteExtra,
                             extractBackdropColors = extractBackdropColors,
                             onClick = onClick,
+                            modifier = editCard,
                         )
                         SlotKind.Wide -> ActivityWideCard(
                             entry = entry,
                             extractBackdropColors = extractBackdropColors,
                             onClick = onClick,
+                            modifier = editCard,
                         )
                         SlotKind.Small -> ActivitySmallCard(
                             entry = entry,
                             extractBackdropColors = extractBackdropColors,
                             onClick = onClick,
+                            modifier = editCard,
                         )
                         SlotKind.Strip -> ActivityStripCard(
                             entry = entry,
                             extractBackdropColors = extractBackdropColors,
                             onClick = onClick,
+                            modifier = editCard,
                         )
                     }
                 }
@@ -956,10 +1661,13 @@ private fun ActivityUnitGrid(
 
 private val ActivityBentoGap = 10.dp
 
-private data class ActivityCardColors(
+internal data class ActivityCardColors(
     val container: Color,
     val content: Color,
     val contentMuted: Color,
+    // The cover's own tone for an accent line (the JBI score rule): the
+    // palette base sinks on a dark surface, so dark mode takes the accent.
+    val ink: Color,
 )
 
 /**
@@ -971,7 +1679,7 @@ private data class ActivityCardColors(
  * on-surface roles, which hold contrast on the soft wash in both modes.
  */
 @Composable
-private fun rememberActivityCardColors(
+internal fun rememberActivityCardColors(
     coverArtUrl: String?,
     extractBackdropColors: Boolean,
 ): ActivityCardColors {
@@ -989,6 +1697,7 @@ private fun rememberActivityCardColors(
         ),
         content = MaterialTheme.colorScheme.onSurface,
         contentMuted = MaterialTheme.colorScheme.onSurfaceVariant,
+        ink = if (isSystemInDarkTheme()) backdrop.accentColor else backdrop.baseColor,
     )
 }
 
@@ -1020,7 +1729,11 @@ private fun ActivityHeroCard(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .noRippleClickable(interactionSource = interactionSource, onClick = onClick)
+                .noRippleClickable(
+                    interactionSource = interactionSource,
+                    enabled = homeEditInteractive(),
+                    onClick = onClick,
+                )
                 .padding(14.dp),
             horizontalArrangement = Arrangement.spacedBy(14.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -1095,7 +1808,11 @@ private fun ActivitySmallCard(
     ) {
         Column(
             modifier = Modifier
-                .noRippleClickable(interactionSource = interactionSource, onClick = onClick)
+                .noRippleClickable(
+                    interactionSource = interactionSource,
+                    enabled = homeEditInteractive(),
+                    onClick = onClick,
+                )
                 .padding(10.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
@@ -1171,7 +1888,11 @@ private fun ActivityWideCard(
     ) {
         Row(
             modifier = Modifier
-                .noRippleClickable(interactionSource = interactionSource, onClick = onClick)
+                .noRippleClickable(
+                    interactionSource = interactionSource,
+                    enabled = homeEditInteractive(),
+                    onClick = onClick,
+                )
                 .padding(12.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -1250,7 +1971,11 @@ private fun ActivityStripCard(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .noRippleClickable(interactionSource = interactionSource, onClick = onClick)
+                .noRippleClickable(
+                    interactionSource = interactionSource,
+                    enabled = homeEditInteractive(),
+                    onClick = onClick,
+                )
                 .padding(horizontal = 16.dp, vertical = 12.dp),
             horizontalArrangement = Arrangement.spacedBy(10.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -1299,6 +2024,9 @@ private fun widgetShapeKindForActivity(entityType: String): WidgetShapeKind = wh
 private val RecentlyAddedTrackCover = 52.dp
 private val RecentlyAddedAlbumCover = 82.dp
 
+/** The shelf's lead 2×2: at most four track tiles. */
+private const val RecentlyAddedTrackTiles = 4
+
 @Composable
 private fun RecentlyAddedSection(
     tracks: List<Track>,
@@ -1314,6 +2042,8 @@ private fun RecentlyAddedSection(
     // Landscape handset: the track grid gives up width so the album covers
     // read as one row across the page (LandscapeHome).
     singleRowShelf: Boolean = false,
+    // Off while Home is being edited: a drag on the shelf is edit mode's.
+    shelfScrollEnabled: Boolean = true,
     modifier: Modifier = Modifier,
 ) {
     Column(
@@ -1340,6 +2070,7 @@ private fun RecentlyAddedSection(
             // Both halves hang from the top. The track covers are sized
             // so a tight 2×2 lands at roughly the album card's height.
             verticalAlignment = Alignment.Top,
+            userScrollEnabled = shelfScrollEnabled,
         ) {
             if (tracks.isNotEmpty()) {
                 item(key = "recently-added-tracks") {
@@ -1361,15 +2092,17 @@ private fun RecentlyAddedSection(
                     )
                 }
             }
-            items(
+            // Edit-mode card order: the four track tiles, then the albums.
+            itemsIndexed(
                 items = albums,
-                key = { album -> "recently-added-album:${album.id}" },
-            ) { album ->
+                key = { _, album -> "recently-added-album:${album.id}" },
+            ) { index, album ->
                 RecentlyAddedAlbumCard(
                     album = album,
                     extractBackdropColors = extractBackdropColors,
                     onClick = { onAlbumClick(album) },
                     buildCoverArtUrl = buildCoverArtUrl,
+                    modifier = Modifier.homeEditCard(RecentlyAddedTrackTiles + index),
                 )
             }
         }
@@ -1391,18 +2124,20 @@ private fun RecentlyAddedTrackGrid(
         // rows with a hollow middle.
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        tracks.take(4).chunked(2).forEach { rowTracks ->
+        tracks.take(RecentlyAddedTrackTiles).chunked(2).forEachIndexed { row, rowTracks ->
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                rowTracks.forEach { track ->
+                rowTracks.forEachIndexed { column, track ->
                     RecentlyAddedTrackTile(
                         track = track,
                         onClick = { onTrackClick(track) },
                         buildCoverArtUrl = buildCoverArtUrl,
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier
+                            .homeEditCard(row * 2 + column)
+                            .weight(1f),
                     )
                 }
                 // Pad an odd final row so a lone tile keeps its column width
@@ -1423,11 +2158,14 @@ private fun RecentlyAddedTrackTile(
     modifier: Modifier = Modifier,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
-    val coverArtUrl = resolveHomeCoverArtUrl(track.coverArt, buildCoverArtUrl)
-        ?: track.albumId?.let { buildCoverArtUrl(it.rawId) }
+    val coverArtUrl = recentlyAddedTrackCoverUrl(track, buildCoverArtUrl)
     Row(
         modifier = modifier
-            .noRippleClickable(interactionSource = interactionSource, onClick = onClick)
+            .noRippleClickable(
+                interactionSource = interactionSource,
+                enabled = homeEditInteractive(),
+                onClick = onClick,
+            )
             .elasticPress(interactionSource),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -1487,7 +2225,11 @@ private fun RecentlyAddedAlbumCard(
     Column(
         modifier = modifier
             .width(RecentlyAddedAlbumCover)
-            .noRippleClickable(interactionSource = interactionSource, onClick = onClick)
+            .noRippleClickable(
+                interactionSource = interactionSource,
+                enabled = homeEditInteractive(),
+                onClick = onClick,
+            )
             .elasticPress(interactionSource),
     ) {
         WidgetBackdropArtwork(
@@ -1521,7 +2263,7 @@ private fun RecentlyAddedAlbumCard(
 }
 
 @Composable
-private fun HomeEmptyCard(
+internal fun HomeEmptyCard(
     title: String,
     supporting: String,
     modifier: Modifier = Modifier,
@@ -1692,6 +2434,10 @@ private fun resolveHomeCoverArtUrl(
     is CoverRef.Url -> ref.url
     is CoverRef.SourceRelative -> buildCoverArtUrl(ref.coverArtId)
 }
+
+/** A recently added track's cover: its own, else its album's. */
+private fun recentlyAddedTrackCoverUrl(track: Track, buildCoverArtUrl: (String) -> String): String? =
+    resolveHomeCoverArtUrl(track.coverArt, buildCoverArtUrl) ?: track.albumId?.let { buildCoverArtUrl(it.rawId) }
 
 private fun activityTypeLabel(entityType: String): String = when (entityType) {
     ActivityEntityType.ALBUM.name -> "Album"
