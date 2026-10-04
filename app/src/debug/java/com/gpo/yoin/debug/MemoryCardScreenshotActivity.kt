@@ -24,11 +24,19 @@ import com.gpo.yoin.ui.theme.YoinTheme
  * (portrait / 16:9 / landscape two-column / Wide spread, 断点交接 §6) with
  * fixed fake data. Launch:
  *   adb shell am start -n com.gpo.yoin/com.gpo.yoin.debug.MemoryCardScreenshotActivity
+ *
+ * `--es mode emblem` shows the groove emblem harness instead (gallery, award replays with a haptic trace;
+ * options in GrooveEmblemHarness.kt).
  */
 class MemoryCardScreenshotActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableYoinEdgeToEdge()
+        if (intent.getStringExtra("mode") == "emblem") {
+            val options = GrooveHarnessOptions.from(intent)
+            setContent { GrooveEmblemHarness(options) }
+            return
+        }
         setContent {
             val windowInfo = rememberYoinWindowInfo()
             CompositionLocalProvider(LocalYoinWindowInfo provides windowInfo) {
