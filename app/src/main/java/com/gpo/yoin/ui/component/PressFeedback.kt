@@ -30,11 +30,13 @@ import com.gpo.yoin.ui.theme.YoinMotionRole
 internal fun Modifier.noRippleClickable(
     interactionSource: MutableInteractionSource,
     enabled: Boolean = true,
+    onClickLabel: String? = null,
     onClick: () -> Unit,
 ): Modifier = clickable(
     interactionSource = interactionSource,
     indication = null,
     enabled = enabled,
+    onClickLabel = onClickLabel,
     onClick = onClick,
 )
 
@@ -106,6 +108,27 @@ internal fun Modifier.ignoreParentHorizontalPadding(horizontal: Dp): Modifier = 
     )
     layout(constraints.maxWidth, placeable.height) {
         placeable.place(x = -(extraPx / 2), y = 0)
+    }
+}
+
+/**
+ * [ignoreParentHorizontalPadding] for a parent whose side paddings differ and
+ * move (Home's feed frame): escapes [start] on the start edge and [end] on the
+ * end edge, read in the layout pass so a margin that springs never recomposes.
+ * Pair with the same values as the child's own content padding.
+ */
+internal fun Modifier.ignoreParentHorizontalPadding(
+    start: () -> Dp,
+    end: () -> Dp,
+): Modifier = layout { measurable, constraints ->
+    val startPx = start().roundToPx()
+    val endPx = end().roundToPx()
+    val placeable = measurable.measure(
+        constraints.copy(maxWidth = constraints.maxWidth + startPx + endPx),
+    )
+    layout(constraints.maxWidth, placeable.height) {
+        // placeRelative mirrors in RTL, where the start edge is on the right.
+        placeable.placeRelative(x = -startPx, y = 0)
     }
 }
 

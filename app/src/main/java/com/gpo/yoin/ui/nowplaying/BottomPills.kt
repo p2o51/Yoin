@@ -210,7 +210,10 @@ private fun rememberBottomPillsLayout(
                     .size.width.toDp() + CastConnectedChrome + PillsRowGap
                 else -> 0.dp
             }
-            val bare = maxOf(pillBareWidth(pillHeight), PillMinTouchWidth)
+            // A FilledTonalButton never measures narrower than M3's 58dp
+            // (ButtonDefaults.MinWidth): modelling the icon pill at 44 let
+            // ButtonGroup silently drop Write in a 170dp column.
+            val bare = maxOf(pillBareWidth(pillHeight), PillMinWidth)
             val gaps = PillGroupGap * (labels.size - 1)
             val iconOnly = castWidth + bare * labels.size + gaps
             val labelled = castWidth + labels.sumOf { label ->
@@ -232,7 +235,7 @@ private fun pillBareWidth(pillHeight: Dp): Dp = pillHeight * 0.36f + pillHeight 
 private val PillLabelGap = 4.dp
 private val PillGroupGap = 2.dp
 private val PillsRowGap = 6.dp
-private val PillMinTouchWidth = 44.dp
+private val PillMinWidth = ButtonDefaults.MinWidth
 private val CastIconWidth = 48.dp
 
 /** A tonal button's 24dp side padding + 18dp icon + 6dp gap. */

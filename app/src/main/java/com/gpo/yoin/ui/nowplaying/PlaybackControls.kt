@@ -337,7 +337,7 @@ internal fun PlaybackControls(
                 }
             }
 
-            Spacer(modifier = Modifier.height(4.dp))
+            Spacer(modifier = Modifier.height(TransportRowGap))
 
             BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
                 // Below ~360dp the ~96dp of inline time labels would starve the wave
@@ -345,7 +345,7 @@ internal fun PlaybackControls(
                 // the labels under the bar so it keeps full width. Compact/Tabletop
                 // (full width) stay inline exactly as before. The prev button + bar
                 // live in one Row in both cases — only the labels move.
-                val labelsInline = maxWidth >= 360.dp
+                val labelsInline = maxWidth >= PlaybackLabelsInlineMinWidth
                 Column(modifier = Modifier.fillMaxWidth()) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -488,7 +488,7 @@ internal fun fitPlaybackControls(
 }
 
 @Composable
-private fun rememberPlaybackControlsFit(
+internal fun rememberPlaybackControlsFit(
     maxWidth: Dp,
     controlSize: Dp,
     hasExpandToggle: Boolean,
@@ -509,6 +509,18 @@ private fun rememberPlaybackControlsFit(
         fitPlaybackControls(maxWidth, controlSize, playTextWidth, hasExpandToggle)
     }
 }
+
+/**
+ * The transport's height in a column [width] wide: two control rows, the
+ * gap, and the time-label row when the labels drop below the wave
+ * (height budgets size their slot from this, never from a guess).
+ */
+internal fun playbackControlsHeight(controlSize: Dp, width: Dp, labelLine: Dp): Dp =
+    controlSize * 2 + TransportRowGap + if (width >= PlaybackLabelsInlineMinWidth) 0.dp else labelLine
+
+/** Below this the inline time labels would starve the wave; they move under it. */
+internal val PlaybackLabelsInlineMinWidth = 360.dp
+private val TransportRowGap = 4.dp
 
 private val PlayRestPadding = 24.dp
 private val TransportGap = 8.dp
