@@ -27,6 +27,7 @@ import com.gpo.yoin.data.remote.GeminiService
 import com.gpo.yoin.data.repository.YoinRepository
 import com.gpo.yoin.data.source.spotify.SpotifyAuthConfig
 import com.gpo.yoin.data.source.spotify.SpotifyLibrarySyncCoordinator
+import com.gpo.yoin.data.sync.CloudSyncManager
 import com.gpo.yoin.data.source.spotify.SpotifyRateLimitGate
 import com.gpo.yoin.player.AudioVisualizerManager
 import com.gpo.yoin.player.CastManager
@@ -322,6 +323,18 @@ class AppContainer(private val context: Context) {
                 }
             }
         }
+    }
+
+    /** Optional Google Drive sync (docs/cloud-sync.md). Constructing it does no I/O. */
+    val cloudSync: CloudSyncManager by lazy {
+        CloudSyncManager(
+            context = context,
+            database = database,
+            profileManager = profileManager,
+            versionName = BuildConfig.VERSION_NAME,
+            versionCode = BuildConfig.VERSION_CODE,
+            spotifyHttpClient = { spotifyHttpClient },
+        )
     }
 
     val castManager: CastManager by lazy {

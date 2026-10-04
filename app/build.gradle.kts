@@ -191,6 +191,11 @@ dependencies {
     // Cast (Phase 14)
     implementation(libs.media3.cast)
     implementation(libs.cast.framework)
+    // Google authorization for optional Drive appDataFolder cloud sync
+    implementation(libs.play.services.auth) {
+        // Declared by the 22.0.0 POM but referenced by no Play services class; sync has its own Task.await().
+        exclude(group = "org.jetbrains.kotlinx", module = "kotlinx-coroutines-play-services")
+    }
 
     // Networking
     implementation(libs.okhttp)

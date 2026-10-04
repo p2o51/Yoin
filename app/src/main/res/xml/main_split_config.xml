@@ -37,5 +37,8 @@
         <SplitPairFilter
             window:primaryActivityName="com.gpo.yoin.ui.settings.SettingsActivity"
             window:secondaryActivityName="com.gpo.yoin.ui.settings.SettingsFeatureActivity" />
+        <SplitPairFilter
+            window:primaryActivityName="com.gpo.yoin.ui.settings.SettingsActivity"
+            window:secondaryActivityName="com.gpo.yoin.ui.settings.sync.CloudSyncActivity" />
     </SplitPairRule>
 </resources>

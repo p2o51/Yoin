@@ -26,6 +26,9 @@ lifecycleCompose = "2.9.0"
 media3 = "1.10.0"
 castFramework = "22.0.0"
 
+# Google authorization (Drive appDataFolder cloud sync)
+playServicesAuth = "22.0.0"
+
 # Networking
 okhttp = "5.0.0-alpha.14"
 retrofit = "2.11.0"
@@ -98,6 +101,9 @@ media3-ui = { group = "androidx.media3", name = "media3-ui", version.ref = "medi
 
 # Cast
 cast-framework = { group = "com.google.android.gms", name = "play-services-cast-framework", version.ref = "castFramework" }
+
+# Google authorization (cloud sync)
+play-services-auth = { group = "com.google.android.gms", name = "play-services-auth", version.ref = "playServicesAuth" }
 
 # Networking
 okhttp = { group = "com.squareup.okhttp3", name = "okhttp", version.ref = "okhttp" }

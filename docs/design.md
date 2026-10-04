@@ -84,7 +84,7 @@ MD3 Expressive 不是 M4，而是 M3 的扩展进化。
 7. **动效**：溶解程度只由位置、滚动速度和余韵决定。滚动时网点被搅乱，停下后在余韵的半秒里回到格点；静止时每个点都在格点上，完全不动。栏下面的点阵始终不流动。潮线的相位跟随滚动和余韵，停下即静止。省电模式和“移除动画”下，关掉余韵、随速度伸缩和无序。
 8. **性能**：只有栏周围的图形和交界处的文字重绘，静止时零开销。按亮度让位每个像素多一次采样，只在栏边 8.5dp 以内执行。潮线是两条路径，chrome 下的潮线多一个只有波浪高度的离屏层，几乎没有成本。
 
-- **顶部样式可选（2026-10-04）**：默认潮线；用户可在 设置 › Motion › Scroll edge 换成原版网点（曲线 C，与 36909fad 数值一致）或曲奇浪口。只换 chrome 下的顶部交界，底部网点场、Home 状态栏潮线和文字淡出都不变。选择存在本机（`SeamTopPreference`，认不出的值回到潮线），切换后已打开的页面立即重画。网点和曲奇浪口下文字按曲线 C 的文字带在交界处淡出。
+- **顶部样式可选（2026-10-04）**：默认潮线；用户可在 设置 › Motion › Scroll edge 换成原版网点（曲线 C，与 36909fad 数值一致）或曲奇浪口。只换 chrome 下的顶部交界，底部网点场、Home 状态栏潮线和文字淡出都不变。选择存在本机（`SeamTopPreference`，认不出的值回到潮线；开了云同步会跟着同步，见 `docs/cloud-sync.md`），切换后已打开的页面立即重画。网点和曲奇浪口下文字按曲线 C 的文字带在交界处淡出。
 - **曲奇浪口**：每张图形的顶缘是一道和 Now Playing 胶囊同源的波（每瓣约 30dp，至少两瓣，静止振幅 4dp），形状随这张图自己的离开进度 q 从 Cookie 圆齿、经正弦、到 SoftBurst 软尖，离开途中横滚四分之一圈；进出两端波是平的。尖端曲率半径不小于 4dp，尖端向页面底色退 50%。它是高度场，所以没有孔洞也没有孤岛；静止时只取决于 q，同一行完全对齐。快滑只放宽波带（12→22dp）和振幅（4→6dp），再加一道整排相干的涟漪，随余韵收回；省电模式和“移除动画”下不横滚、不放宽，形变和包络保留。方形图形两端有圆肩，圆形头像没有（API 33 以下 Path 兜底读不到像素，圆形头像也按方形加圆肩；方形框一律按椭圆做底边保护，所以圆形也不留孤岛）。
 - 回退开关：`YoinMotion.SeamSettleAtRest`（默认 `true` = 静整动乱；`false` = 上一版，无序度 D 恒为 1，静止时也打旋、前沿也起伏）。D 只在 `seamDisorder()` 一处计算。
 - 带底色的卡片内的文字从点阵里抬出、整块画在点阵之上（`seamFade` 自动处理）；嵌在另一个 `seamDissolve` 里的元素交给外层统一拆点。
@@ -335,6 +335,7 @@ NeoDB 同步以 album 为边界。第一阶段只有同时具备 album rating �
 - 管理已有账号（编辑 Subsonic、Spotify 重新登录、凭据缺失恢复）复用同一二级页的 manage 模式：跳过介绍，直接给表单/操作。Spotify Client ID 属于一次性开发者配置，收进二级页的 Developer setup 折叠行，仅在缺失时自动展开；「No Client ID」深链打开该页并聚焦输入框。
 - 返回：二级页是无共享 chrome 的全屏目的地 → Pattern A 原生跨 Activity 预测性返回，零 back 代码；新账号的切换由 Settings 在自己的 scope 里执行（二级页经 ActivityResult 回传 id）。
 - Apple Music 是可切换的正式 Profile：二级页通过开发者 Token 服务和 MusicKit 授权创建或重新连接加密账号。2026-09-29 已在 Pixel Tablet 订阅账号验证整曲与系统媒体控制；重新授权、删除和蓝牙硬件仍须分别验证。2026-10-01 的目录 / 资料库搜索和 + 加入资料库实现复用现有页面；+ 与喜爱心形分开，必须通过个人资料库关系查询确认后才显示稳定勾选。HTTP 202 只显示待确认，不能当成完成，新加入流程的真机验证须单独记录。
+- **云同步（2026-10-04，v1）**：Storage 组第一行「Cloud sync」（单色 Devices 图标，摘要 Off / On · Synced … / Paused · Reconnect Google…），打开 `CloudSyncActivity`（Pattern A，大屏在右栏打开、左栏行高亮）。可选、默认关闭、本地优先：存进用户自己 Google Drive 的 appDataFolder，只申请 `drive.appdata`。同步笔记 / 评分 / 专辑长评 / 首页布局 / 少量设置 / 付费 AI 歌词翻译，凭据与 API Key 永不出设备。关闭页 = 一句定位 + What you get（≤4）+ Good to know（如实说明不是端到端加密、占用户存储、服务器地址和用户名会同步）+ 按钮；开启页 = 状态 + Google 账号 + 每个音乐账号的同步状态 + Drive 里有本机没有的账号 + 设备 + 「在本设备关闭」/「删除云端数据」。产品规则和存储格式以 `docs/cloud-sync.md` 为准。
 - Apple Music 能力依据：[MusicKit](https://developer.apple.com/musickit/)、[添加资料库](https://developer.apple.com/documentation/applemusicapi/add-a-resource-to-a-library)、[喜爱限制](https://support.apple.com/en-us/111118)。接入时重新核验。
 
 ---

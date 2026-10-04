@@ -77,4 +77,6 @@ abstract class YoinDatabase : RoomDatabase() {
     abstract fun homeLayoutDao(): HomeLayoutDao
 
     abstract fun homeGridPoolDao(): HomeGridPoolDao
+
+    abstract fun syncDomainDao(): com.gpo.yoin.data.sync.domain.SyncDomainDao
 }

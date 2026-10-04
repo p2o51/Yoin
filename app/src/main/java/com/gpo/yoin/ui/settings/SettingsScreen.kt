@@ -111,6 +111,8 @@ import com.gpo.yoin.ui.experience.rememberYoinHaptics
 import com.gpo.yoin.ui.settings.service.ServiceSetupContract
 import com.gpo.yoin.ui.settings.service.ServiceSetupRequest
 import com.gpo.yoin.ui.settings.service.SetupService
+import com.gpo.yoin.ui.settings.sync.CloudSyncActivity
+import com.gpo.yoin.ui.settings.sync.CloudSyncSettingsRow
 import com.gpo.yoin.ui.theme.ProvideYoinMotionRole
 import com.gpo.yoin.ui.theme.YoinContainerShapes
 import com.gpo.yoin.ui.theme.YoinMotion
@@ -150,6 +152,7 @@ fun SettingsScreen(
     val listDetail = rememberIsActivityEmbedded()
     var openAccountId by rememberSaveable { mutableStateOf<String?>(null) }
     var openFeature by rememberSaveable { mutableStateOf<SettingsFeature?>(null) }
+    var cloudSyncOpen by rememberSaveable { mutableStateOf(false) }
     // The setup page hands back the id of a newly added account; the switch
     // runs here so it survives that page finishing.
     val serviceSetupLauncher = rememberLauncherForActivityResult(ServiceSetupContract()) { activateId ->
@@ -158,6 +161,7 @@ fun SettingsScreen(
     }
     val openService: (ServiceSetupRequest) -> Unit = { request ->
         openFeature = null
+        cloudSyncOpen = false
         openAccountId = request.profileId
         serviceSetupLauncher.launch(request)
     }
@@ -167,8 +171,12 @@ fun SettingsScreen(
     val context = LocalContext.current
     val openFeaturePage: (SettingsFeature) -> Unit = { feature ->
         openAccountId = null
+        cloudSyncOpen = false
         openFeature = feature
         featureLauncher.launch(SettingsFeatureActivity.intent(context, feature))
+    }
+    val cloudSyncLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+        cloudSyncOpen = false
     }
 
     LaunchedEffect(viewModel) {
@@ -227,6 +235,18 @@ fun SettingsScreen(
         openAccountId = openAccountId,
         openFeature = openFeature,
         onOpenFeature = openFeaturePage,
+        cloudSyncRow = {
+            CloudSyncSettingsRow(
+                showChevron = listDetail,
+                onClick = {
+                    openAccountId = null
+                    openFeature = null
+                    cloudSyncOpen = true
+                    cloudSyncLauncher.launch(CloudSyncActivity.intent(context))
+                },
+            )
+        },
+        cloudSyncSelected = cloudSyncOpen,
         modifier = modifier,
     )
 }
@@ -261,6 +281,9 @@ fun SettingsContent(
     openAccountId: String? = null,
     openFeature: SettingsFeature? = null,
     onOpenFeature: (SettingsFeature) -> Unit = {},
+    // Settings › Storage › Cloud sync; null in previews/tests that have no app container.
+    cloudSyncRow: (@Composable () -> Unit)? = null,
+    cloudSyncSelected: Boolean = false,
 ) {
     // Large title → app-bar title handoff (Pixel's collapsing header): the
     // positions land in plain float state and are read only in the bar
@@ -402,6 +425,11 @@ fun SettingsContent(
                                         item { ScrollEdgeItem() }
                                     }
                                     SettingsGroup(title = "Storage") {
+                                        cloudSyncRow?.let { row ->
+                                            item(key = "cloud-sync", paintsOwnSegment = listDetail) {
+                                                if (listDetail) SelectableSegment(selected = cloudSyncSelected) { row() } else row()
+                                            }
+                                        }
                                         item { CacheItem(state.cacheSizeBytes, onClearCache) }
                                     }
                                     SettingsGroup(title = "About") {

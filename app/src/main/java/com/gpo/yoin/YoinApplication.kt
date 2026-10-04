@@ -67,6 +67,7 @@ class YoinApplication : Application(), SingletonImageLoader.Factory {
             override fun onActivityStarted(activity: Activity) {
                 if (startedCount == 0) {
                     container.playbackManager.onHostStart(activity)
+                    container.cloudSync.onAppForeground()
                 }
                 startedCount++
             }
@@ -75,6 +76,7 @@ class YoinApplication : Application(), SingletonImageLoader.Factory {
                 startedCount--
                 if (startedCount == 0) {
                     container.playbackManager.onHostStop()
+                    container.cloudSync.onAppBackground()
                 }
             }
 

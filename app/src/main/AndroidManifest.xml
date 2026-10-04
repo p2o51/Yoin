@@ -82,6 +82,12 @@
             android:name=".ui.settings.SettingsFeatureActivity"
             android:exported="false"
             android:windowSoftInputMode="adjustResize" />
+        <!-- Settings › Cloud sync (Google Drive appDataFolder). Plain Activity:
+             native cross-Activity predictive back. -->
+        <activity
+            android:name=".ui.settings.sync.CloudSyncActivity"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize" />
         <!-- Settings list-detail 右栏占位面（tag="settings-placeholder" 的 SplitPlaceholderRule）。 -->
         <activity
             android:name=".ui.settings.SettingsPlaceholderActivity"
