@@ -1,10 +1,14 @@
 package com.gpo.yoin.ui.library
 
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -17,6 +21,11 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.width
@@ -70,6 +79,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
@@ -79,6 +89,8 @@ import coil3.compose.AsyncImage
 import com.gpo.yoin.data.model.Album
 import com.gpo.yoin.data.model.Artist
 import com.gpo.yoin.data.model.CoverRef
+import com.gpo.yoin.data.model.LibraryMembership
+import com.gpo.yoin.data.model.isUnplayableAppleImport
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.Playlist
 import com.gpo.yoin.data.model.SearchResults
@@ -94,6 +106,7 @@ import com.gpo.yoin.ui.component.ExpressivePageBackground
 import com.gpo.yoin.ui.component.ExpressiveSectionPanel
 import com.gpo.yoin.ui.component.ExpressiveSegmentedTabs
 import com.gpo.yoin.ui.component.SongListItem
+import com.gpo.yoin.ui.component.TrackLibraryButton
 import com.gpo.yoin.ui.component.YoinLoadingIndicator
 import com.gpo.yoin.ui.component.elasticPress
 import com.gpo.yoin.ui.component.expressiveEntrance
@@ -124,7 +137,7 @@ private const val MaxAnimatedLibraryItems = 10
 
 @Composable
 private fun floatingBottomGroupContentPadding(): Dp =
-    // Landscape handsets keep the Button Group in the left cutout band — the
+    // Landscape handsets keep the Button Group in the cutout band (either edge) — the
     // grid only clears the nav bar at the bottom (断点交接 §2.2).
     (
         if (LocalYoinWindowInfo.current.isCompactHeight) {
@@ -214,11 +227,10 @@ private fun KeepGridAnchorAcrossWidthChanges(state: LazyGridState) {
 private val LibraryGridLandscapeMinSize = 100.dp
 
 // 三档宽度策略(2026-07-28 A-prime 裁定):Compact/Medium/Tabletop 走原
-// yoinPageContentWidth 限宽链,逐字节不变;full-window Wide 桌面档不再夹
-// 720dp —— 内容铺满画布,外加 16dp 把子项自带的 16dp 页边抬成 32dp 桌面
-// gutter。分栏窗格里 LayoutMode 是 pane-relative(读到 Compact/Medium),
-// 永远走不进 Wide 分支 —— 这个 fork 只在无分栏的全窗 Wide(无 WM
-// Extensions 的平板、桌面窗口、debug 台)生效。
+// yoinPageContentWidth 限宽链,逐字节不变;Wide 桌面档不再夹 720dp ——
+// 内容铺满画布,外加 16dp 把子项自带的 16dp 页边抬成 32dp 桌面 gutter。
+// LayoutMode 读的是本页所在的列(适配原则 1):开着详情列时 shell 列通常
+// 是 Medium,把手把 shell 列拖到 ≥ 840 时就按设计进入桌面档。
 private fun Modifier.libraryPageWidth(isDesktopWide: Boolean): Modifier =
     if (isDesktopWide) {
         padding(horizontal = 16.dp)
@@ -257,10 +269,16 @@ fun LibraryScreen(
         onSongClick(track)
     },
     onAddSongToPlaylist: (Track) -> Unit = {},
+    // The Wide shell opens results as its detail column, BEHIND the
+    // full-window search dialog: a result tap must collapse the search (the
+    // query is kept) so the page it opened is seen.
+    collapseSearchOnOpen: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val notedSongIds by viewModel.notedSongIds.collectAsState()
+    val trackLibraryStates by viewModel.trackLibraryStates.collectAsState()
+    val workingLibraryTrackIds by viewModel.workingLibraryTrackIds.collectAsState()
 
     LibraryContent(
         uiState = uiState,
@@ -268,6 +286,8 @@ fun LibraryScreen(
         isPlaying = isPlaying,
         playbackSignal = playbackSignal,
         notedSongIds = notedSongIds,
+        trackLibraryStates = trackLibraryStates,
+        workingLibraryTrackIds = workingLibraryTrackIds,
         onTabSelected = viewModel::selectTab,
         onSearchScopeSelected = viewModel::selectSearchScope,
         onSearchQueryChanged = viewModel::search,
@@ -281,6 +301,8 @@ fun LibraryScreen(
         onSongClick = onSongClick,
         onFavoriteSongClick = onFavoriteSongClick,
         onAddSongToPlaylist = onAddSongToPlaylist,
+        collapseSearchOnOpen = collapseSearchOnOpen,
+        onAddSongToLibrary = viewModel::addSongToLibrary,
         onCreatePlaylist = viewModel::createPlaylist,
         onRetry = viewModel::refresh,
         coverArtUrlBuilder = viewModel::buildCoverArtUrl,
@@ -295,6 +317,8 @@ fun LibraryContent(
     isPlaying: Boolean = false,
     playbackSignal: Float = 0f,
     notedSongIds: Set<String> = emptySet(),
+    trackLibraryStates: Map<MediaId, LibraryMembership> = emptyMap(),
+    workingLibraryTrackIds: Set<MediaId> = emptySet(),
     onTabSelected: (LibraryTab) -> Unit,
     onSearchScopeSelected: (LibrarySearchScope) -> Unit = {},
     onSearchQueryChanged: (String) -> Unit,
@@ -309,7 +333,9 @@ fun LibraryContent(
     onFavoriteSongClick: (track: Track, queue: List<Track>, startIndex: Int) -> Unit = { track, _, _ ->
         onSongClick(track)
     },
+    collapseSearchOnOpen: Boolean = false,
     onAddSongToPlaylist: (Track) -> Unit = {},
+    onAddSongToLibrary: (Track) -> Unit = {},
     onCreatePlaylist: (name: String) -> Unit = {},
     onRetry: () -> Unit,
     coverArtUrlBuilder: ((String) -> String)?,
@@ -385,6 +411,8 @@ fun LibraryContent(
                             isPlaying = isPlaying,
                             playbackSignal = playbackSignal,
                             notedSongIds = notedSongIds,
+                            trackLibraryStates = trackLibraryStates,
+                            workingLibraryTrackIds = workingLibraryTrackIds,
                             onTabSelected = onTabSelected,
                             onSearchScopeSelected = onSearchScopeSelected,
                             onSearchQueryChanged = onSearchQueryChanged,
@@ -398,8 +426,10 @@ fun LibraryContent(
                             onSongClick = onSongClick,
                             onFavoriteSongClick = onFavoriteSongClick,
                             onAddSongToPlaylist = onAddSongToPlaylist,
+                            onAddSongToLibrary = onAddSongToLibrary,
                             onCreatePlaylist = onCreatePlaylist,
                             coverArtUrlBuilder = coverArtUrlBuilder,
+                            collapseSearchOnOpen = collapseSearchOnOpen,
                         )
                     }
                 }
@@ -416,6 +446,8 @@ private fun LibraryContentBody(
     isPlaying: Boolean = false,
     playbackSignal: Float = 0f,
     notedSongIds: Set<String>,
+    trackLibraryStates: Map<MediaId, LibraryMembership>,
+    workingLibraryTrackIds: Set<MediaId>,
     onTabSelected: (LibraryTab) -> Unit,
     onSearchScopeSelected: (LibrarySearchScope) -> Unit,
     onSearchQueryChanged: (String) -> Unit,
@@ -429,18 +461,24 @@ private fun LibraryContentBody(
     onSongClick: (Track) -> Unit,
     onFavoriteSongClick: (track: Track, queue: List<Track>, startIndex: Int) -> Unit,
     onAddSongToPlaylist: (Track) -> Unit,
+    onAddSongToLibrary: (Track) -> Unit,
     onCreatePlaylist: (name: String) -> Unit,
     coverArtUrlBuilder: ((String) -> String)?,
+    collapseSearchOnOpen: Boolean = false,
 ) {
     val haptics = rememberYoinHaptics()
     val scope = rememberCoroutineScope()
 
-    // Wide 桌面档(A-prime):LayoutMode 是 pane-relative,分栏窗格读不到
-    // Wide;这里为 true 就意味着整窗归本页,走桌面渲染档。
+    // Wide 桌面档(A-prime):LayoutMode 读本页所在列的宽度,列 ≥ 840 才是
+    // Wide —— 整窗、或被把手拖宽的 shell 列。
     // Height before width (断点交接 §4): landscape handsets get their own
     // one-row header whatever their width reads.
     val isLandscapePhone = LocalYoinWindowInfo.current.isCompactHeight
     val isDesktopWide = !isLandscapePhone && LocalYoinWindowInfo.current.layoutMode == LayoutMode.Wide
+    // Medium (tablet portrait, a 600–839 column): a left-anchored header —
+    // the page title, then the pill — instead of the phone's centred pill
+    // floating in a band far wider than itself.
+    val isMediumHeader = !isLandscapePhone && LocalYoinWindowInfo.current.layoutMode == LayoutMode.Medium
 
     // One remembered scroll state per tab, hoisted above the tab
     // AnimatedContent: exited tab content is disposed, so a lazy state
@@ -478,12 +516,26 @@ private fun LibraryContentBody(
             searchBarState.animateToExpanded()
         }
     }
-    // Collapsing the bar (back gesture / close) leaves the search context.
+    // Collapsing the bar (back gesture / close) leaves the search context —
+    // except when a result opened the Wide shell's detail column, which keeps
+    // the query for the way back.
+    var keepQueryOnCollapse by remember { mutableStateOf(false) }
     LaunchedEffect(searchBarState.currentValue) {
-        if (searchBarState.currentValue == SearchBarValue.Collapsed &&
-            state.searchQuery.isNotBlank()
-        ) {
-            onClearSearch()
+        if (searchBarState.currentValue == SearchBarValue.Collapsed) {
+            if (keepQueryOnCollapse) {
+                keepQueryOnCollapse = false
+            } else if (state.searchQuery.isNotBlank()) {
+                onClearSearch()
+            }
+        }
+    }
+    val fromSearch: ((String) -> Unit) -> (String) -> Unit = { open ->
+        { id ->
+            if (collapseSearchOnOpen && searchBarState.currentValue == SearchBarValue.Expanded) {
+                keepQueryOnCollapse = true
+                scope.launch { searchBarState.animateToCollapsed() }
+            }
+            open(id)
         }
     }
 
@@ -492,7 +544,7 @@ private fun LibraryContentBody(
             textFieldState = textFieldState,
             searchBarState = searchBarState,
             onSearch = { onSearchQueryChanged(it) },
-            placeholder = { Text(if (state.searchesAppleMusicCatalog) "Search Apple Music" else state.searchScope.placeholder()) },
+            placeholder = { Text(state.searchScope.placeholder()) },
             leadingIcon = {
                 if (expanded) {
                     IconButton(
@@ -565,6 +617,20 @@ private fun LibraryContentBody(
                 selectedTab = state.selectedTab,
                 onTabSelected = onTabSelected,
                 onNavigateToSettings = onNavigateToSettings,
+            )
+        } else if (isMediumHeader) {
+            // [Library][pill ———][settings]; the chips keep their own row
+            // below (a Medium column is too narrow for all of it in one).
+            LibraryWideHeaderRow(
+                searchBarState = searchBarState,
+                inputField = inputField,
+                tabs = state.availableTabs,
+                selectedTab = state.selectedTab,
+                onTabSelected = onTabSelected,
+                onNavigateToSettings = onNavigateToSettings,
+                showChips = false,
+                titleStyle = MaterialTheme.typography.headlineLarge,
+                topPadding = 8.dp,
             )
         } else {
             AppBarWithSearch(
@@ -653,8 +719,9 @@ private fun LibraryContentBody(
                             playbackSignal = playbackSignal,
                             notedSongIds = notedSongIds,
                             onSongClick = onSongClick,
-                            onAddSongToPlaylist = onAddSongToPlaylist,
+                            onAddSongToPlaylist = onAddSongToPlaylist.takeIf { state.canCreatePlaylists },
                             onReshuffle = onReshuffleSongs,
+                            canReshuffle = state.canReshuffleSongs,
                             coverArtUrlBuilder = coverArtUrlBuilder,
                         )
                         LibraryTab.Playlists -> PlaylistsTabContent(
@@ -675,7 +742,7 @@ private fun LibraryContentBody(
                             onAlbumClick = onAlbumClick,
                             onSongClick = onSongClick,
                             onFavoriteSongClick = onFavoriteSongClick,
-                            onAddSongToPlaylist = onAddSongToPlaylist,
+                            onAddSongToPlaylist = onAddSongToPlaylist.takeIf { state.canCreatePlaylists },
                             coverArtUrlBuilder = coverArtUrlBuilder,
                         )
                     }
@@ -685,12 +752,26 @@ private fun LibraryContentBody(
     }
 
     // Expanded: the full-screen search surface (scope chips + live results).
+    // Edge-to-edge like every page: the surface keeps the status bar and the
+    // cutouts clear (and yields to the keyboard), but NOT the bottom — the
+    // results list runs under the gesture bar with its own bottom padding
+    // instead of stopping on a hard inset line above it.
     ExpandedFullScreenSearchBar(
         state = searchBarState,
         inputField = inputField,
+        windowInsets = {
+            WindowInsets.safeDrawing
+                .only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal)
+                .union(WindowInsets.ime)
+        },
     ) {
-        if (state.canSearchSpotifyCatalog) {
+        if (state.canSearchSpotifyCatalog || state.canSearchAppleMusicCatalog) {
             LibrarySearchScopeChips(
+                catalogScope = if (state.canSearchAppleMusicCatalog) {
+                    LibrarySearchScope.AppleMusicGlobal
+                } else {
+                    LibrarySearchScope.SpotifyGlobal
+                },
                 selectedScope = state.searchScope,
                 onScopeSelected = onSearchScopeSelected,
                 modifier = Modifier
@@ -707,11 +788,16 @@ private fun LibraryContentBody(
             isPlaying = isPlaying,
             playbackSignal = playbackSignal,
             notedSongIds = notedSongIds,
-            onArtistClick = onArtistClick,
-            onAlbumClick = onAlbumClick,
-            onPlaylistClick = onPlaylistClick,
+            canAddToLibrary = state.canAddToLibrary,
+            trackLibraryStates = trackLibraryStates,
+            workingLibraryTrackIds = workingLibraryTrackIds,
+            libraryActionFeedback = state.libraryActionFeedback,
+            onArtistClick = fromSearch(onArtistClick),
+            onAlbumClick = fromSearch(onAlbumClick),
+            onPlaylistClick = fromSearch(onPlaylistClick),
             onSongClick = onSongClick,
-            onAddSongToPlaylist = onAddSongToPlaylist,
+            onAddSongToPlaylist = onAddSongToPlaylist.takeIf { state.canCreatePlaylists },
+            onAddSongToLibrary = onAddSongToLibrary,
             coverArtUrlBuilder = coverArtUrlBuilder,
             // 全屏搜索面是独立 surface,不在上面的限宽列里 —— 结果列表
             // 单独走同一套宽度策略(Wide 铺满、其余夹宽,helper 自带
@@ -748,13 +834,14 @@ private fun LibraryFilterChips(
 
 @Composable
 private fun LibrarySearchScopeChips(
+    catalogScope: LibrarySearchScope,
     selectedScope: LibrarySearchScope,
     onScopeSelected: (LibrarySearchScope) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     ExpressiveSegmentedTabs(
         items = listOf(
-            LibrarySearchScope.SpotifyGlobal,
+            catalogScope,
             LibrarySearchScope.CurrentLibrary,
         ),
         selectedItem = selectedScope,
@@ -768,8 +855,12 @@ private fun LibrarySearchScopeChips(
 // min width 也是 360dp,两者相等 → pill 恒为 360dp)。
 private val LibraryWideSearchBarMaxWidth = 360.dp
 
-// Wide 桌面档专属头排:[Library 标题][搜索 pill][tab chips][settings] 一行
-// 左对齐。全部由既有件重排组成 —— pill 是同一个 searchBarState/inputField
+/** Air under the last search result, past the gesture bar (no floating bar in the search surface). */
+private val SearchResultsBottomReserve = 24.dp
+
+// Wide 桌面档头排:[Library 标题][搜索 pill][tab chips][settings] 一行
+// 左对齐。Medium 用同一排去掉 chips(showChips = false):pill 占满标题与
+// 齿轮之间,chips 仍在下一行。全部由既有件重排组成 —— pill 是同一个 searchBarState/inputField
 // 的 M3 collapsed SearchBar(全屏搜索面照旧从它 morph 展开),chips 直接
 // 复用 LibraryFilterChips(weight 占满中段,内建横向滚动 + 边缘渐隐在
 // 840dp 一类窄 Wide 窗继续成立),齿轮与 AppBarWithSearch actions 里同款。
@@ -784,6 +875,9 @@ private fun LibraryWideHeaderRow(
     onNavigateToSettings: () -> Unit,
     modifier: Modifier = Modifier,
     showTitle: Boolean = true,
+    // Without the chips the pill takes the row between title and settings.
+    showChips: Boolean = true,
+    titleStyle: TextStyle = MaterialTheme.typography.headlineMedium,
     searchMaxWidth: Dp = LibraryWideSearchBarMaxWidth,
     horizontalPadding: Dp = 16.dp,
     topPadding: Dp = 16.dp,
@@ -802,7 +896,7 @@ private fun LibraryWideHeaderRow(
         if (showTitle) {
             Text(
                 text = "Library",
-                style = MaterialTheme.typography.headlineMedium,
+                style = titleStyle,
                 color = MaterialTheme.colorScheme.onSurface,
             )
         }
@@ -814,14 +908,16 @@ private fun LibraryWideHeaderRow(
             colors = SearchBarDefaults.colors(
                 containerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
             ),
-            modifier = Modifier.widthIn(max = searchMaxWidth),
+            modifier = if (showChips) Modifier.widthIn(max = searchMaxWidth) else Modifier.weight(1f),
         )
-        LibraryFilterChips(
-            tabs = tabs,
-            selectedTab = selectedTab,
-            onTabSelected = onTabSelected,
-            modifier = Modifier.weight(1f),
-        )
+        if (showChips) {
+            LibraryFilterChips(
+                tabs = tabs,
+                selectedTab = selectedTab,
+                onTabSelected = onTabSelected,
+                modifier = Modifier.weight(1f),
+            )
+        }
         IconButton(
             onClick = {
                 haptics.performContextClick()
@@ -839,11 +935,13 @@ private fun LibraryWideHeaderRow(
 
 private fun LibrarySearchScope.placeholder(): String = when (this) {
     LibrarySearchScope.SpotifyGlobal -> "Search Spotify"
+    LibrarySearchScope.AppleMusicGlobal -> "Search Apple Music"
     LibrarySearchScope.CurrentLibrary -> "Search library"
 }
 
 private fun LibrarySearchScope.chipLabel(): String = when (this) {
     LibrarySearchScope.SpotifyGlobal -> "Spotify"
+    LibrarySearchScope.AppleMusicGlobal -> "Apple Music"
     LibrarySearchScope.CurrentLibrary -> "Library"
 }
 
@@ -1148,8 +1246,9 @@ private fun SongsTabContent(
     playbackSignal: Float = 0f,
     notedSongIds: Set<String>,
     onSongClick: (Track) -> Unit,
-    onAddSongToPlaylist: (Track) -> Unit,
+    onAddSongToPlaylist: ((Track) -> Unit)?,
     onReshuffle: () -> Unit,
+    canReshuffle: Boolean = true,
     coverArtUrlBuilder: ((String) -> String)?,
     modifier: Modifier = Modifier,
 ) {
@@ -1162,14 +1261,16 @@ private fun SongsTabContent(
         // The tab is a random 50-song sample, not the whole library — say so,
         // and offer a reshuffle (the only way to redraw; favorite toggles
         // deliberately never reshuffle the visible list).
-        RandomMixHeader(
-            onReshuffle = {
-                onReshuffle()
-                // A fresh sample shares nothing with the old one; restoring
-                // the retained mid-list offset into it would be meaningless.
-                scope.launch { listState.scrollToItem(0) }
-            },
-        )
+        if (canReshuffle) {
+            RandomMixHeader(
+                onReshuffle = {
+                    onReshuffle()
+                    // A fresh sample shares nothing with the old one; restoring
+                    // the retained mid-list offset into it would be meaningless.
+                    scope.launch { listState.scrollToItem(0) }
+                },
+            )
+        }
         if (songs.isEmpty()) {
             EmptyState(message = "No songs found", modifier = Modifier.weight(1f))
         } else {
@@ -1202,11 +1303,12 @@ private fun SongsTabContent(
                         durationSeconds = song.durationSec,
                         coverArtUrl = libraryCoverArtUrl(song.coverArt, coverArtUrlBuilder),
                         onClick = { onSongClick(song) },
-                        onLongClick = { onAddSongToPlaylist(song) },
+                        onLongClick = onAddSongToPlaylist?.let { add -> { add(song) } },
                         isNowPlaying = isPlaying && song.id.toString() == activeSongId,
                         playbackSignal = playbackSignal,
                         extractBackdropColors = false,
                         hasNote = song.id.toString() in notedSongIds,
+                        isUnavailable = song.isUnplayableAppleImport,
                         modifier = Modifier
                             .animateItem(
                                 fadeInSpec = YoinMotion.effectsSpring(),
@@ -1493,7 +1595,7 @@ private fun FavoritesTabContent(
     onAlbumClick: (String) -> Unit,
     onSongClick: (Track) -> Unit,
     onFavoriteSongClick: (track: Track, queue: List<Track>, startIndex: Int) -> Unit,
-    onAddSongToPlaylist: (Track) -> Unit,
+    onAddSongToPlaylist: ((Track) -> Unit)?,
     coverArtUrlBuilder: ((String) -> String)?,
     modifier: Modifier = Modifier,
 ) {
@@ -1604,7 +1706,7 @@ private fun FavoritesTabContent(
                     onClick = {
                         onFavoriteSongClick(song, favorites.tracks, index)
                     },
-                    onLongClick = { onAddSongToPlaylist(song) },
+                    onLongClick = onAddSongToPlaylist?.let { add -> { add(song) } },
                     isNowPlaying = isPlaying && song.id.toString() == activeSongId,
                     playbackSignal = playbackSignal,
                     extractBackdropColors = false,
@@ -1698,11 +1800,16 @@ private fun SearchResultsContent(
     isPlaying: Boolean = false,
     playbackSignal: Float = 0f,
     notedSongIds: Set<String>,
+    canAddToLibrary: Boolean = false,
+    trackLibraryStates: Map<MediaId, LibraryMembership> = emptyMap(),
+    workingLibraryTrackIds: Set<MediaId> = emptySet(),
+    libraryActionFeedback: Map<MediaId, LibraryActionFeedback> = emptyMap(),
     onArtistClick: (String) -> Unit,
     onAlbumClick: (String) -> Unit,
     onPlaylistClick: (String) -> Unit,
     onSongClick: (Track) -> Unit,
-    onAddSongToPlaylist: (Track) -> Unit,
+    onAddSongToPlaylist: ((Track) -> Unit)?,
+    onAddSongToLibrary: (Track) -> Unit = {},
     coverArtUrlBuilder: ((String) -> String)?,
     modifier: Modifier = Modifier,
 ) {
@@ -1761,142 +1868,203 @@ private fun SearchResultsContent(
         return
     }
 
-    LazyColumn(
-        modifier = modifier.fillMaxSize(),
-        contentPadding = PaddingValues(
-            start = 0.dp,
-            top = 8.dp,
-            end = 0.dp,
-            bottom = floatingBottomGroupContentPadding(),
-        ),
-    ) {
-        if (searchResults.artists.isNotEmpty()) {
-            item {
-                SectionHeader(title = "Artists")
-            }
-            itemsIndexed(
-                items = searchResults.artists,
-                key = { _, artist -> "search-artist-${artist.id}" },
-            ) { index, artist ->
-                val entranceProgress = rememberLibraryItemEntrance(
-                    key = "search-artist-${artist.id}",
-                    index = index,
-                    delayStepMillis = 24L,
-                    enabled = false,
-                )
-                ArtistListItem(
-                    artist = artist,
-                    coverArtUrl = libraryCoverArtUrl(artist.coverArt, coverArtUrlBuilder),
-                    onClick = { onArtistClick(artist.id.toString()) },
-                    modifier = Modifier
-                        .animateItem(
-                            fadeInSpec = YoinMotion.effectsSpring(),
-                            placementSpec = YoinMotion.spatialSpring(),
-                            fadeOutSpec = YoinMotion.effectsSpring(),
-                        )
-                        .expressiveEntrance(entranceProgress),
-                )
-            }
+    BoxWithConstraints(modifier = modifier.fillMaxSize()) {
+        val windowInfo = LocalYoinWindowInfo.current
+        val minimumAlbumWidth = when {
+            windowInfo.isCompactHeight -> LibraryGridLandscapeMinSize
+            windowInfo.layoutMode == LayoutMode.Wide -> LibraryGridWideMinSize
+            else -> LibraryGridAdaptiveMinSize
         }
-        if (searchResults.albums.isNotEmpty()) {
-            item {
-                SectionHeader(title = "Albums")
+        // Match Library's grid: Compact keeps three columns, while larger
+        // search surfaces use their actual available width and the same cells.
+        val albumColumns = if (windowInfo.layoutMode == LayoutMode.Compact && !windowInfo.isCompactHeight) {
+            3
+        } else {
+            ((maxWidth - 32.dp + 12.dp) / (minimumAlbumWidth + 12.dp)).toInt().coerceAtLeast(1)
+        }
+        // Results dissolve into the chips above like every other Library
+        // list (seam-dissolve top); no floating bar lives in the search
+        // surface, so there is no bottom field — just the nav-bar reserve.
+        val listState = rememberLazyListState()
+        val navBarBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+        LazyColumn(
+            state = listState,
+            modifier = Modifier
+                .fillMaxSize()
+                .seamDissolveViewport { listState.seamScrolledPx() },
+            contentPadding = PaddingValues(
+                start = 0.dp,
+                top = 8.dp,
+                end = 0.dp,
+                bottom = navBarBottom + SearchResultsBottomReserve,
+            ),
+        ) {
+            if (searchResults.artists.isNotEmpty()) {
+                item {
+                    SectionHeader(title = "Artists")
+                }
+                itemsIndexed(
+                    items = searchResults.artists,
+                    key = { _, artist -> "search-artist-${artist.id}" },
+                ) { index, artist ->
+                    val entranceProgress = rememberLibraryItemEntrance(
+                        key = "search-artist-${artist.id}",
+                        index = index,
+                        delayStepMillis = 24L,
+                        enabled = false,
+                    )
+                    ArtistListItem(
+                        artist = artist,
+                        coverArtUrl = libraryCoverArtUrl(artist.coverArt, coverArtUrlBuilder),
+                        onClick = { onArtistClick(artist.id.toString()) },
+                        modifier = Modifier
+                            .animateItem(
+                                fadeInSpec = YoinMotion.effectsSpring(),
+                                placementSpec = YoinMotion.spatialSpring(),
+                                fadeOutSpec = YoinMotion.effectsSpring(),
+                            )
+                            .expressiveEntrance(entranceProgress),
+                    )
+                }
             }
-            // 3-up grid rows — full-width rows wasted the width on covers.
-            items(
-                items = searchResults.albums.chunked(3),
-                key = { row -> row.joinToString("|") { "search-album-${it.id}" } },
-            ) { row ->
-                Row(
-                    modifier = Modifier
-                        .animateItem(
-                            fadeInSpec = YoinMotion.effectsSpring(),
-                            placementSpec = YoinMotion.spatialSpring(),
-                            fadeOutSpec = YoinMotion.effectsSpring(),
-                        )
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    row.forEach { album ->
-                        AlbumGridItem(
-                            album = album,
-                            onClick = { onAlbumClick(album.id.toString()) },
-                            coverArtUrl =
-                                libraryCoverArtUrl(album.coverArt, coverArtUrlBuilder)
-                                    ?: album.id.takeIf { it.provider == MediaId.PROVIDER_SUBSONIC }
-                                        ?.rawId?.let { coverArtUrlBuilder?.invoke(it) },
-                            modifier = Modifier.weight(1f),
-                        )
-                    }
-                    repeat(3 - row.size) {
-                        Spacer(modifier = Modifier.weight(1f))
+            if (searchResults.albums.isNotEmpty()) {
+                item {
+                    SectionHeader(title = "Albums")
+                }
+                // Keep cover sizes consistent with the main Library grid.
+                items(
+                    items = searchResults.albums.chunked(albumColumns),
+                    key = { row -> row.joinToString("|") { "search-album-${it.id}" } },
+                ) { row ->
+                    Row(
+                        modifier = Modifier
+                            .animateItem(
+                                fadeInSpec = YoinMotion.effectsSpring(),
+                                placementSpec = YoinMotion.spatialSpring(),
+                                fadeOutSpec = YoinMotion.effectsSpring(),
+                            )
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        row.forEach { album ->
+                            AlbumGridItem(
+                                album = album,
+                                onClick = { onAlbumClick(album.id.toString()) },
+                                coverArtUrl =
+                                    libraryCoverArtUrl(album.coverArt, coverArtUrlBuilder)
+                                        ?: album.id.takeIf { it.provider == MediaId.PROVIDER_SUBSONIC }
+                                            ?.rawId?.let { coverArtUrlBuilder?.invoke(it) },
+                                modifier = Modifier.weight(1f),
+                            )
+                        }
+                        repeat(albumColumns - row.size) {
+                            Spacer(modifier = Modifier.weight(1f))
+                        }
                     }
                 }
             }
-        }
-        if (searchResults.playlists.isNotEmpty()) {
-            item {
-                SectionHeader(title = "Playlists")
+            if (searchResults.playlists.isNotEmpty()) {
+                item {
+                    SectionHeader(title = "Playlists")
+                }
+                itemsIndexed(
+                    items = searchResults.playlists,
+                    key = { _, playlist -> "search-playlist-${playlist.id}" },
+                ) { index, playlist ->
+                    val entranceProgress = rememberLibraryItemEntrance(
+                        key = "search-playlist-${playlist.id}",
+                        index = index,
+                        delayStepMillis = 24L,
+                        enabled = false,
+                    )
+                    PlaylistListItem(
+                        playlist = playlist,
+                        onClick = { onPlaylistClick(playlist.id.toString()) },
+                        coverArtUrl = playlistBackdropArtUrl(playlist, coverArtUrlBuilder),
+                        modifier = Modifier
+                            .animateItem(
+                                fadeInSpec = YoinMotion.effectsSpring(),
+                                placementSpec = YoinMotion.spatialSpring(),
+                                fadeOutSpec = YoinMotion.effectsSpring(),
+                            )
+                            .expressiveEntrance(entranceProgress),
+                    )
+                }
             }
-            itemsIndexed(
-                items = searchResults.playlists,
-                key = { _, playlist -> "search-playlist-${playlist.id}" },
-            ) { index, playlist ->
-                val entranceProgress = rememberLibraryItemEntrance(
-                    key = "search-playlist-${playlist.id}",
-                    index = index,
-                    delayStepMillis = 24L,
-                    enabled = false,
-                )
-                PlaylistListItem(
-                    playlist = playlist,
-                    onClick = { onPlaylistClick(playlist.id.toString()) },
-                    coverArtUrl = playlistBackdropArtUrl(playlist, coverArtUrlBuilder),
-                    modifier = Modifier
-                        .animateItem(
-                            fadeInSpec = YoinMotion.effectsSpring(),
-                            placementSpec = YoinMotion.spatialSpring(),
-                            fadeOutSpec = YoinMotion.effectsSpring(),
+            if (searchResults.tracks.isNotEmpty()) {
+                item {
+                    SectionHeader(title = "Songs")
+                }
+                itemsIndexed(
+                    items = searchResults.tracks,
+                    key = { _, song -> "search-song-${song.id}" },
+                ) { index, song ->
+                    val entranceProgress = rememberLibraryItemEntrance(
+                        key = "search-song-${song.id}",
+                        index = index,
+                        delayStepMillis = 20L,
+                        enabled = false,
+                    )
+                    val membership = trackLibraryStates[song.id] ?: LibraryMembership.Unknown
+                    val feedback = libraryActionFeedback[song.id]
+                    Column(
+                        modifier = Modifier
+                            .animateItem(
+                                fadeInSpec = YoinMotion.effectsSpring(),
+                                placementSpec = YoinMotion.spatialSpring(),
+                                fadeOutSpec = YoinMotion.effectsSpring(),
+                            )
+                            .expressiveEntrance(entranceProgress),
+                    ) {
+                        SongListItem(
+                            title = song.title.orEmpty(),
+                            artist = song.artist.orEmpty(),
+                            album = song.album.orEmpty(),
+                            durationSeconds = song.durationSec,
+                            coverArtUrl = libraryCoverArtUrl(song.coverArt, coverArtUrlBuilder),
+                            onClick = { onSongClick(song) },
+                            onLongClick = onAddSongToPlaylist?.let { add -> { add(song) } },
+                            isNowPlaying = isPlaying && song.id.toString() == activeSongId,
+                            playbackSignal = playbackSignal,
+                            extractBackdropColors = false,
+                            hasNote = song.id.toString() in notedSongIds,
+                            isUnavailable = song.isUnplayableAppleImport,
+                            trailingContent = if (canAddToLibrary && !song.isUnplayableAppleImport) {
+                                {
+                                    TrackLibraryButton(
+                                        membership = membership,
+                                        onClick = { onAddSongToLibrary(song) },
+                                        isWorking = song.id in workingLibraryTrackIds,
+                                    )
+                                }
+                            } else {
+                                null
+                            },
                         )
-                        .expressiveEntrance(entranceProgress),
-                )
-            }
-        }
-        if (searchResults.tracks.isNotEmpty()) {
-            item {
-                SectionHeader(title = "Songs")
-            }
-            itemsIndexed(
-                items = searchResults.tracks,
-                key = { _, song -> "search-song-${song.id}" },
-            ) { index, song ->
-                val entranceProgress = rememberLibraryItemEntrance(
-                    key = "search-song-${song.id}",
-                    index = index,
-                    delayStepMillis = 20L,
-                    enabled = false,
-                )
-                SongListItem(
-                    title = song.title.orEmpty(),
-                    artist = song.artist.orEmpty(),
-                    album = song.album.orEmpty(),
-                    durationSeconds = song.durationSec,
-                    coverArtUrl = libraryCoverArtUrl(song.coverArt, coverArtUrlBuilder),
-                    onClick = { onSongClick(song) },
-                    onLongClick = { onAddSongToPlaylist(song) },
-                    isNowPlaying = isPlaying && song.id.toString() == activeSongId,
-                    playbackSignal = playbackSignal,
-                    extractBackdropColors = false,
-                    hasNote = song.id.toString() in notedSongIds,
-                    modifier = Modifier
-                        .animateItem(
-                            fadeInSpec = YoinMotion.effectsSpring(),
-                            placementSpec = YoinMotion.spatialSpring(),
-                            fadeOutSpec = YoinMotion.effectsSpring(),
-                        )
-                        .expressiveEntrance(entranceProgress),
-                )
+                        AnimatedVisibility(
+                            visible = canAddToLibrary && feedback != null,
+                            enter = expandVertically(YoinMotion.spatialSpring()) +
+                                YoinMotion.fadeIn(role = YoinMotionRole.Standard),
+                            exit = shrinkVertically(YoinMotion.spatialSpring()) +
+                                YoinMotion.fadeOut(role = YoinMotionRole.Standard),
+                        ) {
+                            feedback?.let { action ->
+                                val added = membership == LibraryMembership.Added
+                                Text(
+                                    text = if (added) "Added to library" else action.message,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = when {
+                                        added -> MaterialTheme.colorScheme.primary
+                                        action.isError -> MaterialTheme.colorScheme.error
+                                        else -> MaterialTheme.colorScheme.onSurfaceVariant
+                                    },
+                                    modifier = Modifier.padding(start = 76.dp, end = 16.dp, bottom = 10.dp),
+                                )
+                            }
+                        }
+                    }
+                }
             }
         }
     }

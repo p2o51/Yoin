@@ -2,6 +2,7 @@ package com.gpo.yoin.ui.nowplaying
 
 
 import com.gpo.yoin.data.repository.ActivityContext
+import com.gpo.yoin.data.model.LibraryMembership
 import com.gpo.yoin.data.source.ServiceFeatureCatalog
 import com.gpo.yoin.data.source.ServiceFeatures
 import com.gpo.yoin.player.PlayMode
@@ -72,6 +73,8 @@ sealed interface NowPlayingUiState {
         val artistId: String?,
         val activityContext: ActivityContext,
         val serviceFeatures: ServiceFeatures = ServiceFeatureCatalog.subsonic,
+        val libraryMembership: LibraryMembership = LibraryMembership.Unknown,
+        val libraryActionInFlight: Boolean = false,
         /** The next song's timed lyrics, fetched ahead for the outro hand-over. */
         val upNextLyrics: UpNextLyrics? = null,
     ) : NowPlayingUiState

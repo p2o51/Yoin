@@ -4,6 +4,7 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
@@ -18,9 +19,13 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
@@ -47,8 +52,15 @@ fun SongListItem(
     hasNote: Boolean = false,
     modifier: Modifier = Modifier,
     trailingContent: (@Composable RowScope.() -> Unit)? = null,
+    /**
+     * Yoin cannot play this track (an Apple Music import with no catalog match). The row
+     * dims, a "?" sits on the cover, and tapping the row or the "?" explains why instead
+     * of attempting playback.
+     */
+    isUnavailable: Boolean = false,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
+    var showUnavailableReason by remember { mutableStateOf(false) }
 
     // We drop Surface's `onClick = ...` overload and handle both gestures on
     // the same clickable boundary via combinedClickable. Layering a separate
@@ -61,7 +73,7 @@ fun SongListItem(
             .combinedClickable(
                 interactionSource = interactionSource,
                 indication = ripple(),
-                onClick = onClick,
+                onClick = if (isUnavailable) ({ showUnavailableReason = !showUnavailableReason }) else onClick,
                 onLongClick = onLongClick,
             ),
         shape = YoinContainerShapes.ListRow,
@@ -69,30 +81,40 @@ fun SongListItem(
         tonalElevation = 0.dp,
         shadowElevation = 0.dp,
     ) {
+        Column {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 10.dp),
+                .padding(horizontal = 16.dp, vertical = 10.dp)
+                .alpha(if (isUnavailable) UnavailableTrackAlpha else 1f),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            ExpressiveBackdropArtwork(
-                model = coverArtUrl,
-                contentDescription = title,
-                variant = ExpressiveBackdropVariant.Circle,
-                // 48dp full-bleed: the old 54dp slot at 0.78 fill drew a ~42dp
-                // cover with ghost margins (leftovers of the removed backdrop
-                // shape) that never lined up with the 48dp artist avatars.
-                modifier = Modifier.size(48.dp).seamDissolve(),
-                shape = YoinArtworkShapes.Thumb,
-                fallbackIcon = YoinSymbols.MusicNote,
-                interactionSource = interactionSource,
-                isPlaybackActive = isNowPlaying,
-                playbackSignal = playbackSignal,
-                fillFraction = 1f,
-                tonalElevation = 0.dp,
-                extractBackdropColors = extractBackdropColors,
-            )
+            Box(modifier = Modifier.size(48.dp)) {
+                ExpressiveBackdropArtwork(
+                    model = coverArtUrl,
+                    contentDescription = title,
+                    variant = ExpressiveBackdropVariant.Circle,
+                    // 48dp full-bleed: the old 54dp slot at 0.78 fill drew a ~42dp
+                    // cover with ghost margins (leftovers of the removed backdrop
+                    // shape) that never lined up with the 48dp artist avatars.
+                    modifier = Modifier.size(48.dp).seamDissolve(),
+                    shape = YoinArtworkShapes.Thumb,
+                    fallbackIcon = YoinSymbols.MusicNote,
+                    interactionSource = interactionSource,
+                    isPlaybackActive = isNowPlaying,
+                    playbackSignal = playbackSignal,
+                    fillFraction = 1f,
+                    tonalElevation = 0.dp,
+                    extractBackdropColors = extractBackdropColors,
+                )
+                if (isUnavailable) {
+                    UnavailableTrackBadge(
+                        onClick = { showUnavailableReason = !showUnavailableReason },
+                        modifier = Modifier.align(Alignment.BottomStart),
+                    )
+                }
+            }
 
             // Title + subtitle flush — the line-height leading separates them.
             Column(
@@ -148,6 +170,8 @@ fun SongListItem(
                 Spacer(modifier = Modifier.width(2.dp))
                 trailingContent()
             }
+        }
+        UnavailableTrackReason(visible = isUnavailable && showUnavailableReason)
         }
     }
 }

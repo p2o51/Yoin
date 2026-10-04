@@ -2,6 +2,7 @@ package com.gpo.yoin.ui.library
 
 import com.gpo.yoin.data.model.Album
 import com.gpo.yoin.data.model.Artist
+import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.Playlist
 import com.gpo.yoin.data.model.SearchResults
 import com.gpo.yoin.data.model.Starred
@@ -35,7 +36,7 @@ sealed interface LibraryUiState {
         val searchError: String? = null,
         val searchScope: LibrarySearchScope = LibrarySearchScope.CurrentLibrary,
         val canSearchSpotifyCatalog: Boolean = false,
-        val searchesAppleMusicCatalog: Boolean = false,
+        val canSearchAppleMusicCatalog: Boolean = false,
         val searchFocusRequestId: Long = 0L,
         /**
          * Tabs the active source supports. When the provider lacks
@@ -50,6 +51,11 @@ sealed interface LibraryUiState {
          * [com.gpo.yoin.data.source.Capability.PLAYLISTS_WRITE].
          */
         val canCreatePlaylists: Boolean = true,
+        /** Library-only providers show saved songs without the random-mix header. */
+        val canReshuffleSongs: Boolean = true,
+        val canAddToLibrary: Boolean = false,
+        /** Visible inside full-screen search, above the shell's snackbar layer. */
+        val libraryActionFeedback: Map<MediaId, LibraryActionFeedback> = emptyMap(),
     ) : LibraryUiState
 
     data class Error(val message: String) : LibraryUiState
@@ -57,4 +63,6 @@ sealed interface LibraryUiState {
 
 enum class LibraryTab { Artists, Albums, Songs, Playlists, Favorites }
 
-enum class LibrarySearchScope { CurrentLibrary, SpotifyGlobal }
+enum class LibrarySearchScope { CurrentLibrary, SpotifyGlobal, AppleMusicGlobal }
+
+data class LibraryActionFeedback(val message: String, val isError: Boolean = false)

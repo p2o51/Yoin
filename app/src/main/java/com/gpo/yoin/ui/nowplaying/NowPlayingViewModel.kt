@@ -7,9 +7,11 @@ import com.gpo.yoin.AppContainer
 import com.gpo.yoin.data.local.SongNote
 import com.gpo.yoin.data.model.Lyrics as SourceLyrics
 import com.gpo.yoin.data.model.MediaId
+import com.gpo.yoin.data.model.LibraryMembership
 import com.gpo.yoin.data.model.YoinDevice
 import com.gpo.yoin.data.repository.YoinRepository
 import com.gpo.yoin.data.source.ServiceFeatureCatalog
+import com.gpo.yoin.data.source.Capability
 import com.gpo.yoin.data.source.spotify.SpotifyAuthException
 import com.gpo.yoin.player.CastManager
 import com.gpo.yoin.player.CastState
@@ -34,6 +36,7 @@ import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 /** Sentinel id a Spotify App Remote track gets when its uri is blank
@@ -83,6 +86,8 @@ class NowPlayingViewModel(
     val lyricsTranslationSwitchOffers: SharedFlow<LyricsTranslationSwitchOfferUi> =
         _lyricsTranslationSwitchOffers.asSharedFlow()
     private val _isStarred = MutableStateFlow(false)
+    private data class LibraryActionKey(val profileId: String, val trackId: MediaId)
+    private val _libraryActions = MutableStateFlow<Map<LibraryActionKey, Any>>(emptyMap())
 
     // Transient ask-bar state drives the fullscreen About UI animation — NOT
     // persisted. See [AskBarState].
@@ -107,10 +112,11 @@ class NowPlayingViewModel(
     private val _detailPage = MutableStateFlow(NowPlayingDetailPage.Lyrics)
     val detailPage: StateFlow<NowPlayingDetailPage> = _detailPage.asStateFlow()
 
-    // Medium windows: side panel (false) or the enlarged phone (true), 断点
-    // 交接 §3.4. Held here — not in the composition — so a detail Activity
-    // recreated by rotation keeps the user's choice (MainActivity never
-    // recreates; the model survives either way).
+    // Medium / Wide windows: side panel (false) or the Full state (true —
+    // the enlarged phone on Medium, the two columns on Wide), 断点交接 §3.4.
+    // Held here — not in the composition — so a detail Activity recreated by
+    // rotation keeps the user's choice (MainActivity never recreates; the
+    // model survives either way).
     private val _mediumFullscreen = MutableStateFlow(false)
     val mediumFullscreen: StateFlow<Boolean> = _mediumFullscreen.asStateFlow()
 
@@ -120,6 +126,16 @@ class NowPlayingViewModel(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     init {
+        viewModelScope.launch {
+            combine(currentSongId, repository.currentProfileIdFlow) { songId, profileId -> songId to profileId }
+                .distinctUntilChanged()
+                .collectLatest { (songId, _) ->
+                    val track = playbackManager.playbackState.value.currentTrack
+                    if (track != null && track.id == songId && Capability.LIBRARY_ADD in repository.currentCapabilities()) {
+                        repository.refreshLibraryMembership(track)
+                    }
+                }
+        }
         viewModelScope.launch {
             // collectLatest（不是 collect）：切歌时立刻取消前一首的 loadLyrics
             // —— 否则前一首的 provider fetch（10 秒 callTimeout）会把
@@ -239,6 +255,28 @@ class NowPlayingViewModel(
         songId?.let(overrides::get) ?: cachedFavorite ?: vmStarred
     }
 
+    private val libraryMembershipFlow = currentSongId.flatMapLatest { songId ->
+        if (songId == null) flowOf(null to LibraryMembership.Unknown)
+        else repository.observeLibraryMembership(songId).map { songId to it }
+    }
+
+    private data class TrackActionsState(
+        val isStarred: Boolean,
+        val membershipTrackId: MediaId?,
+        val membership: LibraryMembership,
+        val workingTrackIds: Set<MediaId>,
+    )
+
+    private val trackActionsFlow = combine(
+        favoriteFlow,
+        libraryMembershipFlow,
+        _libraryActions,
+        repository.currentProfileIdFlow,
+    ) { favorite, (membershipId, membership), operations, profileId ->
+        val workingIds = operations.keys.filter { it.profileId == profileId }.mapTo(linkedSetOf()) { it.trackId }
+        TrackActionsState(favorite, membershipId, membership, workingIds)
+    }
+
     val notesState: StateFlow<List<SongNote>> = currentSongId
         .flatMapLatest { songId ->
             if (songId != null) {
@@ -320,9 +358,9 @@ class NowPlayingViewModel(
         playbackAndContext,
         lyricsUiState,
         ratingFlow,
-        favoriteFlow,
+        trackActionsFlow,
         _upNextLyrics,
-    ) { (state, activityContext), lyricsState, rating, isStarred, upNext ->
+    ) { (state, activityContext), lyricsState, rating, trackActions, upNext ->
         val song = state.currentTrack
         val pending = state.pendingTrack
         when {
@@ -344,7 +382,10 @@ class NowPlayingViewModel(
                 durationMs = state.duration,
                 songId = song.id.toString(),
                 rating = rating,
-                isStarred = isStarred,
+                isStarred = trackActions.isStarred,
+                libraryMembership = if (trackActions.membershipTrackId == song.id) trackActions.membership
+                    else LibraryMembership.Unknown,
+                libraryActionInFlight = song.id in trackActions.workingTrackIds,
                 lyrics = if (lyricsState.ownerSongId == song.id.toString()) lyricsState.lyrics else emptyList(),
                 showLyricsTranslation = lyricsState.showTranslation &&
                     lyricsState.ownerSongId == song.id.toString(),
@@ -735,6 +776,38 @@ class NowPlayingViewModel(
                             ?: if (nextFavorite) "Couldn't save to favorites" else "Couldn't remove from favorites",
                     )
                 }
+        }
+    }
+
+    fun addCurrentToLibrary() {
+        val track = playbackManager.playbackState.value.currentTrack ?: return
+        val profileId = repository.currentProfileId() ?: return
+        val key = LibraryActionKey(profileId, track.id)
+        if (Capability.LIBRARY_ADD !in repository.currentCapabilities() || key in _libraryActions.value) return
+        if ((uiState.value as? NowPlayingUiState.Playing)?.libraryMembership == LibraryMembership.Added) return
+        val operation = Any()
+        _libraryActions.update { it + (key to operation) }
+        viewModelScope.launch {
+            try {
+                repository.addToLibrary(track)
+                    .onSuccess { membership ->
+                        if (repository.currentProfileId() != profileId) return@onSuccess
+                        _addToPlaylistMessages.tryEmit(
+                            if (membership == LibraryMembership.Added) "Added to Apple Music library"
+                            else "Apple Music accepted the addition. Tap check to confirm when it appears.",
+                        )
+                    }
+                    .onFailure { error ->
+                        if (repository.currentProfileId() != profileId) return@onFailure
+                        _addToPlaylistMessages.tryEmit(
+                            error.message?.takeIf { it.isNotBlank() } ?: "Couldn't add to Apple Music library",
+                        )
+                    }
+            } finally {
+                _libraryActions.update { operations ->
+                    if (operations[key] === operation) operations - key else operations
+                }
+            }
         }
     }
 

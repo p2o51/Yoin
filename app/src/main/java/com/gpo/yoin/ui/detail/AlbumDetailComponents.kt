@@ -11,6 +11,7 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -44,6 +45,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
@@ -68,6 +70,10 @@ import com.gpo.yoin.symbols.YoinSymbols
 import com.gpo.yoin.symbols.rememberEqualizerSymbolPainter
 import com.gpo.yoin.symbols.rememberFavoriteSymbolPainter
 import com.gpo.yoin.ui.component.YoinArmTransform
+import com.gpo.yoin.ui.component.TrackLibraryButton
+import com.gpo.yoin.ui.component.UnavailableTrackAlpha
+import com.gpo.yoin.ui.component.UnavailableTrackBadge
+import com.gpo.yoin.ui.component.UnavailableTrackReason
 import com.gpo.yoin.ui.component.YoinMark
 import com.gpo.yoin.ui.component.elasticPress
 import com.gpo.yoin.ui.component.formatTotalDuration
@@ -443,18 +449,21 @@ internal fun AlbumTrackRow(
     isPlaying: Boolean = false,
 ) {
     val haptics = rememberYoinHaptics()
+    var showUnavailableReason by remember { mutableStateOf(false) }
+    Column(modifier = modifier.fillMaxWidth()) {
     Row(
-        modifier = modifier
+        modifier = Modifier
             .fillMaxWidth()
             .clip(YoinContainerShapes.ListRow)
             .combinedClickable(
-                onClick = onClick,
+                onClick = if (song.isUnavailable) ({ showUnavailableReason = !showUnavailableReason }) else onClick,
                 onLongClick = {
                     haptics.performLongPress()
                     onLongClick()
                 },
             )
-            .padding(horizontal = 8.dp, vertical = 10.dp),
+            .padding(horizontal = 8.dp, vertical = 10.dp)
+            .alpha(if (song.isUnavailable) UnavailableTrackAlpha else 1f),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
@@ -523,15 +532,31 @@ internal fun AlbumTrackRow(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
-        if (com.gpo.yoin.data.source.ServiceFeatureCatalog.forProvider(
-                com.gpo.yoin.data.model.MediaId.parseOrNull(song.id)?.provider
-            ).supportsFavorites) {
-            AlbumCircleToggle(
+        val features = com.gpo.yoin.data.source.ServiceFeatureCatalog.forProvider(
+            com.gpo.yoin.data.model.MediaId.parseOrNull(song.id)?.provider
+        )
+        when {
+            song.isUnavailable -> UnavailableTrackBadge(
+                onClick = { showUnavailableReason = !showUnavailableReason },
+            )
+            features.supportsFavorites -> AlbumCircleToggle(
                 active = song.isStarred,
                 accent = accent,
                 onToggle = onToggleStar,
             )
+            // Apple Music: the full catalog album with a check on the songs already in
+            // the user's library; the same callback adds an unchecked song.
+            features.supportsLibraryAdd -> TrackLibraryButton(
+                membership = song.libraryMembership,
+                isWorking = song.libraryActionInFlight,
+                onClick = onToggleStar,
+            )
         }
+    }
+    UnavailableTrackReason(
+        visible = song.isUnavailable && showUnavailableReason,
+        contentPadding = PaddingValues(start = 38.dp, end = 14.dp, bottom = 10.dp),
+    )
     }
 }
 

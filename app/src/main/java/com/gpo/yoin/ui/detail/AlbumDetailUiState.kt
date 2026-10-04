@@ -1,5 +1,7 @@
 package com.gpo.yoin.ui.detail
 
+import com.gpo.yoin.data.model.LibraryMembership
+
 sealed interface AlbumDetailUiState {
     data object Loading : AlbumDetailUiState
 
@@ -83,4 +85,9 @@ data class AlbumSong(
      * 注意 Spotify 多歌手在 mapper 处已被收敛成首位主唱，这里只是个粗略信号。
      */
     val featArtist: String? = null,
+    /** Apple Music：是否已在用户资料库（与喜爱心形无关）。 */
+    val libraryMembership: LibraryMembership = LibraryMembership.Unknown,
+    val libraryActionInFlight: Boolean = false,
+    /** Yoin 放不了（Apple 资料库里没有目录对应的导入曲目）：行变灰并可展开原因。 */
+    val isUnavailable: Boolean = false,
 )

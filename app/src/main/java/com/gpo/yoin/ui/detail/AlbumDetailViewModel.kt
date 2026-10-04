@@ -6,9 +6,12 @@ import androidx.lifecycle.viewModelScope
 import com.gpo.yoin.AppContainer
 import com.gpo.yoin.data.model.Album
 import com.gpo.yoin.data.model.CoverRef
+import com.gpo.yoin.data.model.LibraryMembership
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.Track
+import com.gpo.yoin.data.model.isUnplayableAppleImport
 import com.gpo.yoin.data.repository.YoinRepository
+import com.gpo.yoin.data.source.ServiceFeatureCatalog
 import com.gpo.yoin.ui.component.toUserMessage
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -16,6 +19,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
@@ -74,9 +78,13 @@ class AlbumDetailViewModel(
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
+    /** Tracks with an Apple Music library write in flight; keyed by the track id string. */
+    private val workingLibraryTrackIds = MutableStateFlow<Set<String>>(emptySet())
+
     init {
         loadAlbum()
         observeFavoriteOverrides()
+        observeLibraryMembership()
     }
 
     fun getAlbumSongs(): List<Track> = albumSongs
@@ -109,7 +117,10 @@ class AlbumDetailViewModel(
                     year = album.year,
                     songCount = album.songCount,
                     totalDuration = album.durationSec,
-                    songs = albumSongs.map { song -> song.toAlbumSong(album.artist) },
+                    // Membership was seeded by the load itself (before Content existed), so
+                    // read it here; observeLibraryMembership only sees later changes.
+                    songs = albumSongs.map { song -> song.toAlbumSong(album.artist) }
+                        .withLibraryMembership(repository.trackLibraryStates.first(), workingLibraryTrackIds.value),
                 )
 
                 // 观察 album_ratings，把持久化状态 merge 回 Content —— 用户在
@@ -164,8 +175,18 @@ class AlbumDetailViewModel(
         }
     }
 
+    /**
+     * The row's trailing control. Providers with favorites toggle the heart; a
+     * library-add provider (Apple Music) adds the song to the user's library instead —
+     * the row renders a check, not a heart, and there is no removal.
+     */
     fun toggleStar(songId: String) {
         val track = albumSongs.find { it.id.toString() == songId } ?: return
+        val features = ServiceFeatureCatalog.forProvider(track.id.provider)
+        if (!features.supportsFavorites && features.supportsLibraryAdd) {
+            addToLibrary(track)
+            return
+        }
         val target = !track.isStarred
         // Optimistic locally, then revert if the write fails — the favoriteOverrides
         // observer can't revert (it bails when the override is cleared on failure).
@@ -194,6 +215,44 @@ class AlbumDetailViewModel(
                 applyFavoriteOverrides(overrides)
             }
         }
+    }
+
+    private fun addToLibrary(track: Track) {
+        val songId = track.id.toString()
+        if (songId in workingLibraryTrackIds.value) return
+        val current = _uiState.value as? AlbumDetailUiState.Content
+        if (current?.songs?.firstOrNull { it.id == songId }?.libraryMembership == LibraryMembership.Added) return
+        workingLibraryTrackIds.value += songId
+        viewModelScope.launch {
+            try {
+                // Membership itself arrives through observeLibraryMembership; only
+                // confirmed membership turns the control into a stable check.
+                repository.addToLibrary(track)
+            } finally {
+                workingLibraryTrackIds.value -= songId
+            }
+        }
+    }
+
+    private fun observeLibraryMembership() {
+        viewModelScope.launch {
+            combine(repository.trackLibraryStates, workingLibraryTrackIds) { states, working -> states to working }
+                .collectLatest { (states, working) ->
+                    val current = _uiState.value as? AlbumDetailUiState.Content ?: return@collectLatest
+                    _uiState.value = current.copy(songs = current.songs.withLibraryMembership(states, working))
+                }
+        }
+    }
+
+    private fun List<AlbumSong>.withLibraryMembership(
+        states: Map<MediaId, LibraryMembership>,
+        working: Set<String>,
+    ): List<AlbumSong> = map { song ->
+        val id = MediaId.parseOrNull(song.id) ?: return@map song
+        song.copy(
+            libraryMembership = states[id] ?: LibraryMembership.Unknown,
+            libraryActionInFlight = song.id in working,
+        )
     }
 
     private fun applyFavoriteOverrides(overrides: Map<MediaId, Boolean>) {
@@ -286,6 +345,7 @@ private fun Track.toAlbumSong(albumArtist: String?): AlbumSong = AlbumSong(
     trackNumber = trackNumber,
     duration = durationSec,
     isStarred = isStarred,
+    isUnavailable = isUnplayableAppleImport,
     featArtist = artist?.takeIf {
         it.isNotBlank() && !it.equals(albumArtist, ignoreCase = true)
     },

@@ -7,6 +7,7 @@ import com.gpo.yoin.AppContainer
 import com.gpo.yoin.data.model.Album
 import com.gpo.yoin.data.model.Artist
 import com.gpo.yoin.data.model.ArtistIndex
+import com.gpo.yoin.data.model.LibraryMembership
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.Playlist
 import com.gpo.yoin.data.model.SearchResults
@@ -16,7 +17,9 @@ import com.gpo.yoin.data.repository.YoinRepository
 import com.gpo.yoin.data.source.Capability
 import com.gpo.yoin.ui.component.toUserMessage
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.FlowPreview
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -25,6 +28,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filterNotNull
@@ -34,6 +38,8 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 
@@ -50,6 +56,15 @@ class LibraryViewModel(
     /** One-shot toasts for playlist mutations surfaced from Library tab. */
     val messages: SharedFlow<String> = _messages.asSharedFlow()
 
+    val trackLibraryStates: StateFlow<Map<MediaId, LibraryMembership>> = repository.trackLibraryStates
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
+
+    private val _workingLibraryTrackIds = MutableStateFlow<Set<MediaId>>(emptySet())
+    val workingLibraryTrackIds: StateFlow<Set<MediaId>> = _workingLibraryTrackIds.asStateFlow()
+    private data class LibraryOperationKey(val profileId: String, val trackId: MediaId)
+    private val libraryOperations = mutableMapOf<LibraryOperationKey, Long>()
+    private var libraryOperationToken = 0L
+
     private val searchRequestFlow = MutableStateFlow(
         LibrarySearchRequest("", LibrarySearchScope.CurrentLibrary),
     )
@@ -62,6 +77,10 @@ class LibraryViewModel(
     private var pendingSearchShortcutScope: LibrarySearchScope? = null
     private var searchFocusRequestCounter = 0L
     private var searchAttemptCounter = 0
+    private var libraryDataGeneration = 0L
+    private var initialLoadJob: Job? = null
+    private var tabLoadJob: Job? = null
+    private var reshuffleJob: Job? = null
 
     /** Monotonic id per selectTab load; a stale failure must not revert a newer selection. */
     private var tabLoadGeneration = 0L
@@ -95,9 +114,16 @@ class LibraryViewModel(
         observeCapabilities()
         observeProviderSearchAvailability()
         observeFavoriteOverrides()
+        observeSearchLibraryMembership()
+        observeProfileChanges()
+        observeLibraryRevision()
     }
 
-    fun refresh() {
+    fun refresh() = reloadLibrary(forceSpotifyRefresh = true)
+
+    private fun reloadLibrary(forceSpotifyRefresh: Boolean = false) {
+        cancelDataLoads()
+        libraryDataGeneration += 1
         _uiState.value = LibraryUiState.Loading
         cachedArtists = null
         cachedAlbums = null
@@ -105,11 +131,19 @@ class LibraryViewModel(
         cachedPlaylists = null
         cachedFavorites = null
         pendingSearchShortcutScope = null
-        loadInitialData(forceSpotifyRefresh = true)
+        searchAttemptCounter += 1
+        searchRequestFlow.value = LibrarySearchRequest(
+            "",
+            LibrarySearchScope.CurrentLibrary,
+            searchAttemptCounter,
+        )
+        loadInitialData(forceSpotifyRefresh)
     }
 
     private fun loadInitialData(forceSpotifyRefresh: Boolean = false) {
-        viewModelScope.launch {
+        initialLoadJob?.cancel()
+        val generation = libraryDataGeneration
+        initialLoadJob = viewModelScope.launch {
             // Cold-start race: the ProfileManager resolves the active profile and
             // builds its MusicSource asynchronously in its own init, so for a beat
             // after launch `activeSource` is null and the very first library load
@@ -122,14 +156,16 @@ class LibraryViewModel(
                     repository.activeProviderId.filterNotNull().first()
                 }
             }
+            val profileId = repository.currentProfileId()
             try {
                 if (isSpotifyProvider()) {
                     repository.refreshSpotifyLibrary(force = forceSpotifyRefresh)
                 }
                 val artists = loadArtistsFlat()
+                if (!isDataLoadCurrent(generation, profileId)) return@launch
                 cachedArtists = artists
                 val capabilities = repository.currentCapabilities()
-                val canSearchSpotifyCatalog = isSpotifyProvider()
+                val canSearchSpotifyCatalog = canSearchCatalog(MediaId.PROVIDER_SPOTIFY)
                 val hasPendingSearchShortcut = pendingSearchShortcutScope != null
                 val pendingScope = pendingSearchShortcutScope
                     ?.let(::normaliseSearchScope)
@@ -150,15 +186,23 @@ class LibraryViewModel(
                     isSearching = false,
                     searchScope = pendingScope,
                     canSearchSpotifyCatalog = canSearchSpotifyCatalog,
-                    searchesAppleMusicCatalog = repository.currentProviderId() == MediaId.PROVIDER_APPLE_MUSIC,
+                    canSearchAppleMusicCatalog = canSearchCatalog(MediaId.PROVIDER_APPLE_MUSIC),
                     searchFocusRequestId = if (hasPendingSearchShortcut) nextSearchFocusRequestId() else 0L,
                     availableTabs = visibleTabs(capabilities),
                     canCreatePlaylists = Capability.PLAYLISTS_WRITE in capabilities,
+                    canReshuffleSongs = canReshuffleSongs(capabilities),
+                    canAddToLibrary = Capability.LIBRARY_ADD in capabilities,
                 )
                 searchRequestFlow.value = LibrarySearchRequest("", pendingScope)
             } catch (e: Exception) {
-                if (isSpotifyProvider() && repository.hasSpotifyCachedData()) {
-                    val artists = cachedArtists ?: loadArtistsFlat().also { cachedArtists = it }
+                if (e is CancellationException) throw e
+                if (!isDataLoadCurrent(generation, profileId)) return@launch
+                val hasSpotifyCache = isSpotifyProvider() && repository.hasSpotifyCachedData()
+                if (!isDataLoadCurrent(generation, profileId)) return@launch
+                if (hasSpotifyCache) {
+                    val artists = cachedArtists ?: loadArtistsFlat()
+                    if (!isDataLoadCurrent(generation, profileId)) return@launch
+                    cachedArtists = artists
                     _uiState.value = LibraryUiState.Content(
                         selectedTab = LibraryTab.Artists,
                         artists = artists,
@@ -170,9 +214,11 @@ class LibraryViewModel(
                         searchResults = null,
                         isSearching = false,
                         searchScope = LibrarySearchScope.CurrentLibrary,
-                        canSearchSpotifyCatalog = true,
+                        canSearchSpotifyCatalog = canSearchCatalog(MediaId.PROVIDER_SPOTIFY),
                         availableTabs = visibleTabs(repository.currentCapabilities()),
                         canCreatePlaylists = Capability.PLAYLISTS_WRITE in repository.currentCapabilities(),
+                        canReshuffleSongs = canReshuffleSongs(repository.currentCapabilities()),
+                        canAddToLibrary = Capability.LIBRARY_ADD in repository.currentCapabilities(),
                     )
                 } else {
                     _uiState.value = LibraryUiState.Error(
@@ -196,6 +242,8 @@ class LibraryViewModel(
                     availableTabs = visible,
                     selectedTab = normalisedSelected,
                     canCreatePlaylists = Capability.PLAYLISTS_WRITE in capabilities,
+                    canReshuffleSongs = canReshuffleSongs(capabilities),
+                    canAddToLibrary = Capability.LIBRARY_ADD in capabilities,
                 )
             }
         }
@@ -203,64 +251,77 @@ class LibraryViewModel(
 
     /**
      * Playlists disappear from the tab row when the provider doesn't support
-     * reading them. Other tabs are universal across both Subsonic and Spotify
-     * today; they'll gain capability gates when we add providers that
-     * genuinely lack them.
+     * reading them. Songs can be either a saved-library list or a provider's
+     * random sample; favorite controls retain their own capability gate.
      */
     private fun visibleTabs(capabilities: Set<Capability>): List<LibraryTab> =
         LibraryTab.entries.filter { tab ->
             when (tab) {
                 LibraryTab.Playlists -> Capability.PLAYLISTS_READ in capabilities
                 LibraryTab.Favorites -> Capability.FAVORITES in capabilities
-                LibraryTab.Songs -> Capability.RANDOM_SONGS in capabilities
+                LibraryTab.Songs -> Capability.LIBRARY_SONGS in capabilities || Capability.RANDOM_SONGS in capabilities
                 else -> true
             }
         }
 
     fun selectTab(tab: LibraryTab) {
         val current = _uiState.value as? LibraryUiState.Content ?: return
+        if (tab !in current.availableTabs) return
         val previousTab = current.selectedTab
+        tabLoadJob?.cancel()
         val loadGeneration = ++tabLoadGeneration
+        val generation = libraryDataGeneration
+        val profileId = repository.currentProfileId()
+        fun isCurrent(): Boolean = isDataLoadCurrent(generation, profileId) &&
+            loadGeneration == tabLoadGeneration
         _uiState.value = current.copy(selectedTab = tab)
-        viewModelScope.launch {
+        tabLoadJob = viewModelScope.launch {
             try {
                 when (tab) {
                     LibraryTab.Artists -> {
-                        if (cachedArtists == null) {
-                            cachedArtists = loadArtistsFlat()
-                        }
+                        val artists = cachedArtists ?: loadArtistsFlat()
+                        if (!isCurrent()) return@launch
+                        cachedArtists = artists
                         updateContent { copy(artists = cachedArtists.orEmpty()) }
                     }
                     LibraryTab.Albums -> {
-                        if (cachedAlbums == null) {
-                            // 最近添加 newest-first — "newest" is recently ADDED on
-                            // both providers (Subsonic native; Spotify addedAt sort).
-                            cachedAlbums = repository.getAlbumList("newest", size = 500)
-                        }
+                        // 最近添加 newest-first — "newest" is recently ADDED on
+                        // both providers (Subsonic native; Spotify addedAt sort).
+                        val albums = cachedAlbums ?: repository.getAlbumList("newest", size = 500)
+                        if (!isCurrent()) return@launch
+                        cachedAlbums = albums
                         updateContent { copy(albums = cachedAlbums.orEmpty()) }
                     }
                     LibraryTab.Songs -> {
-                        if (cachedSongs == null) {
-                            cachedSongs = repository.getRandomSongs(size = 50)
-                                .applyFavoriteOverrides(repository.favoriteOverrides.value)
+                        val songs = cachedSongs ?: run {
+                            val loaded = if (Capability.LIBRARY_SONGS in repository.currentCapabilities()) {
+                                repository.getLibrarySongs(size = 500)
+                            } else {
+                                repository.getRandomSongs(size = 50)
+                            }
+                            loaded.applyFavoriteOverrides(repository.favoriteOverrides.value)
                         }
+                        if (!isCurrent()) return@launch
+                        cachedSongs = songs
                         updateContent { copy(songs = cachedSongs.orEmpty()) }
                     }
                     LibraryTab.Playlists -> {
-                        if (cachedPlaylists == null) {
-                            cachedPlaylists = repository.getPlaylists()
-                        }
+                        val playlists = cachedPlaylists ?: repository.getPlaylists()
+                        if (!isCurrent()) return@launch
+                        cachedPlaylists = playlists
                         updateContent { copy(playlists = cachedPlaylists.orEmpty()) }
                     }
                     LibraryTab.Favorites -> {
-                        if (cachedFavorites == null) {
-                            cachedFavorites = repository.getStarred()
-                                .applyFavoriteOverrides(repository.favoriteOverrides.value)
-                        }
+                        val favorites = cachedFavorites ?: repository.getStarred()
+                            .applyFavoriteOverrides(repository.favoriteOverrides.value)
+                        if (!isCurrent()) return@launch
+                        cachedFavorites = favorites
                         updateContent { copy(favorites = cachedFavorites) }
                     }
                 }
             } catch (e: Exception) {
+                if (e is CancellationException) throw e
+                if (!isCurrent()) return@launch
                 if (isSpotifyProvider() && hasSpotifyTabCache(tab)) {
                     return@launch
                 }
@@ -297,16 +358,23 @@ class LibraryViewModel(
      */
     fun reshuffleSongs() {
         val current = _uiState.value as? LibraryUiState.Content ?: return
-        if (current.selectedTab != LibraryTab.Songs) return
+        if (current.selectedTab != LibraryTab.Songs || !current.canReshuffleSongs) return
         val previousSongs = cachedSongs
+        val generation = libraryDataGeneration
+        val profileId = repository.currentProfileId()
+        reshuffleJob?.cancel()
         cachedSongs = null
         updateContent { copy(songs = null) }
-        viewModelScope.launch {
+        reshuffleJob = viewModelScope.launch {
             try {
-                cachedSongs = repository.getRandomSongs(size = 50)
+                val songs = repository.getRandomSongs(size = 50)
                     .applyFavoriteOverrides(repository.favoriteOverrides.value)
+                if (!isDataLoadCurrent(generation, profileId)) return@launch
+                cachedSongs = songs
                 updateContent { copy(songs = cachedSongs.orEmpty()) }
             } catch (e: Exception) {
+                if (e is CancellationException) throw e
+                if (!isDataLoadCurrent(generation, profileId)) return@launch
                 // Keep the sample the user already had rather than stranding
                 // the tab on its loading indicator.
                 cachedSongs = previousSongs
@@ -337,12 +405,14 @@ class LibraryViewModel(
     }
 
     fun openSearchShortcut(scope: LibrarySearchScope) {
-        val effectiveScope = normaliseSearchScope(scope)
         val current = _uiState.value as? LibraryUiState.Content
         if (current == null) {
-            pendingSearchShortcutScope = effectiveScope
+            // Keep the requested scope while the active source resolves;
+            // loadInitialData normalises it against the resulting provider.
+            pendingSearchShortcutScope = scope
             return
         }
+        val effectiveScope = normaliseSearchScope(scope)
         searchRequestFlow.value = LibrarySearchRequest("", effectiveScope)
         _uiState.value = current.copy(
             searchScope = effectiveScope,
@@ -439,10 +509,13 @@ class LibraryViewModel(
                         return@collectLatest
                     }
 
+                    val generation = libraryDataGeneration
+                    val profileId = repository.currentProfileId()
                     updateContent { copy(isSearching = true, searchError = null) }
                     try {
                         val results = searchWithScope(query, request.scope)
                             .applyFavoriteOverrides(repository.favoriteOverrides.value)
+                        if (!isDataLoadCurrent(generation, profileId)) return@collectLatest
                         updateContent {
                             if (
                                 searchQuery != query ||
@@ -459,6 +532,7 @@ class LibraryViewModel(
                         }
                     } catch (e: Exception) {
                         if (e is CancellationException) throw e
+                        if (!isDataLoadCurrent(generation, profileId)) return@collectLatest
                         _messages.tryEmit(
                             e.message?.takeIf { it.isNotBlank() }
                                 ?: "Search failed",
@@ -510,11 +584,16 @@ class LibraryViewModel(
                 // whole visible list on every toggle. Its heart icons are
                 // already updated in-place by applyFavoriteOverrides above.
                 if (current.selectedTab == LibraryTab.Favorites) {
+                    val generation = libraryDataGeneration
+                    val profileId = repository.currentProfileId()
                     try {
-                        cachedFavorites = repository.getStarred()
+                        val favorites = repository.getStarred()
                             .applyFavoriteOverrides(overrides)
+                        if (!isDataLoadCurrent(generation, profileId)) return@collectLatest
+                        cachedFavorites = favorites
                         updateContent { copy(favorites = cachedFavorites) }
-                    } catch (_: Exception) {
+                    } catch (error: Exception) {
+                        if (error is CancellationException) throw error
                         // Stale favorites cache remains visible; the override
                         // pass above already updated in-place state.
                     }
@@ -525,21 +604,22 @@ class LibraryViewModel(
 
     private fun observeProviderSearchAvailability() {
         viewModelScope.launch {
-            repository.activeProviderId
+            combine(repository.activeProviderId, repository.capabilities) { providerId, capabilities ->
+                providerId to capabilities
+            }
                 .distinctUntilChanged()
-                .collectLatest { providerId ->
-                    val canSearchSpotifyCatalog = providerId == MediaId.PROVIDER_SPOTIFY
+                .collectLatest { (providerId, capabilities) ->
+                    val canSearchSpotifyCatalog = providerId == MediaId.PROVIDER_SPOTIFY &&
+                        Capability.CATALOG_SEARCH in capabilities
+                    val canSearchAppleMusicCatalog = providerId == MediaId.PROVIDER_APPLE_MUSIC &&
+                        Capability.CATALOG_SEARCH in capabilities
                     val current = _uiState.value as? LibraryUiState.Content
                         ?: return@collectLatest
-                    val nextScope = if (canSearchSpotifyCatalog) {
-                        current.searchScope
-                    } else {
-                        LibrarySearchScope.CurrentLibrary
-                    }
+                    val nextScope = normaliseSearchScope(current.searchScope)
                     val scopeChanged = nextScope != current.searchScope
                     _uiState.value = current.copy(
                         canSearchSpotifyCatalog = canSearchSpotifyCatalog,
-                        searchesAppleMusicCatalog = providerId == MediaId.PROVIDER_APPLE_MUSIC,
+                        canSearchAppleMusicCatalog = canSearchAppleMusicCatalog,
                         searchScope = nextScope,
                         searchResults = current.searchResults.takeUnless { scopeChanged },
                         isSearching = if (scopeChanged) false else current.isSearching,
@@ -556,12 +636,12 @@ class LibraryViewModel(
         query: String,
         scope: LibrarySearchScope,
     ): SearchResults = when (normaliseSearchScope(scope)) {
-        LibrarySearchScope.SpotifyGlobal -> repository.search(query)
+        LibrarySearchScope.SpotifyGlobal, LibrarySearchScope.AppleMusicGlobal -> repository.search(query)
         LibrarySearchScope.CurrentLibrary -> {
             if (isSpotifyProvider()) {
                 searchSpotifySavedLibrary(query)
             } else {
-                repository.search(query)
+                repository.searchCurrentLibrary(query)
             }
         }
     }
@@ -594,6 +674,145 @@ class LibraryViewModel(
                 .filter { playlist -> playlist.matches(needle) }
                 .take(LOCAL_SEARCH_LIMIT_PER_TYPE),
         )
+    }
+
+    private fun observeSearchLibraryMembership() {
+        viewModelScope.launch {
+            val requests = Semaphore(3)
+            uiState.map { state ->
+                (state as? LibraryUiState.Content)
+                    ?.takeIf { it.canAddToLibrary }
+                    ?.searchResults?.tracks.orEmpty()
+            }.distinctUntilChanged().collectLatest { tracks ->
+                coroutineScope {
+                    tracks.forEach { track ->
+                        launch {
+                            requests.withPermit {
+                                repository.refreshLibraryMembership(track)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private fun observeProfileChanges() {
+        var previousProfileId = repository.currentProfileId()
+        viewModelScope.launch {
+            repository.currentProfileIdFlow.distinctUntilChanged().collectLatest { profileId ->
+                if (profileId != previousProfileId) {
+                    previousProfileId = profileId
+                    updateWorkingLibraryTrackIds()
+                    reloadLibrary()
+                }
+            }
+        }
+    }
+
+    private fun observeLibraryRevision() {
+        viewModelScope.launch {
+            var previous: Pair<String?, Long>? = null
+            combine(repository.currentProfileIdFlow, repository.libraryRevision) { profileId, revision ->
+                profileId to revision
+            }.distinctUntilChanged().collectLatest { currentRevision ->
+                val (profileId, revision) = currentRevision
+                val needsRefresh = previous?.let { (previousProfileId, previousRevision) ->
+                    previousProfileId == profileId && revision > previousRevision
+                } == true
+                previous = currentRevision
+                if (!needsRefresh) return@collectLatest
+                if (profileId != repository.currentProfileId()) return@collectLatest
+
+                val current = _uiState.value as? LibraryUiState.Content
+                cancelDataLoads()
+                libraryDataGeneration += 1
+                cachedArtists = null
+                cachedAlbums = null
+                cachedSongs = null
+                if (current == null) {
+                    loadInitialData()
+                } else {
+                    _uiState.value = current.copy(artists = null, albums = null, songs = null)
+                    selectTab(current.selectedTab)
+                    if (current.searchQuery.isNotBlank() &&
+                        (current.searchScope == LibrarySearchScope.CurrentLibrary || current.isSearching)
+                    ) {
+                        retrySearch()
+                    }
+                }
+            }
+        }
+    }
+
+    private fun cancelDataLoads() {
+        initialLoadJob?.cancel()
+        tabLoadJob?.cancel()
+        reshuffleJob?.cancel()
+        tabLoadGeneration += 1
+    }
+
+    private fun isDataLoadCurrent(generation: Long, profileId: String?): Boolean =
+        generation == libraryDataGeneration && profileId == repository.currentProfileId()
+
+    fun addSongToLibrary(track: Track) {
+        val current = _uiState.value as? LibraryUiState.Content ?: return
+        if (!current.canAddToLibrary) return
+        val profileId = repository.currentProfileId() ?: return
+        val operationKey = LibraryOperationKey(profileId, track.id)
+        if (operationKey in libraryOperations) return
+        if (trackLibraryStates.value[track.id] == LibraryMembership.Added) return
+        updateContent { copy(libraryActionFeedback = libraryActionFeedback - track.id) }
+        val operationToken = ++libraryOperationToken
+        libraryOperations[operationKey] = operationToken
+        updateWorkingLibraryTrackIds()
+        viewModelScope.launch {
+            try {
+                // A Pending result rechecks the accepted addition without
+                // posting it again; only confirmed membership earns a check.
+                repository.addToLibrary(track)
+                    .onSuccess { membership ->
+                        if (repository.currentProfileId() != profileId) return@onSuccess
+                        when (membership) {
+                            LibraryMembership.Added -> {
+                                showLibraryActionFeedback(track.id, "Added to library")
+                                _messages.tryEmit("Added to library")
+                            }
+                            LibraryMembership.Pending -> {
+                                val message = "Waiting for Apple Music to confirm. Tap again to check."
+                                showLibraryActionFeedback(track.id, message)
+                                _messages.tryEmit(message)
+                            }
+                            else -> Unit
+                        }
+                    }
+                    .onFailure { error ->
+                        if (error is CancellationException) throw error
+                        if (repository.currentProfileId() != profileId) return@onFailure
+                        val message = error.toUserMessage("Couldn't add this song to the library.")
+                        showLibraryActionFeedback(track.id, message, isError = true)
+                        _messages.tryEmit(message)
+                    }
+            } finally {
+                if (libraryOperations[operationKey] == operationToken) {
+                    libraryOperations.remove(operationKey)
+                    updateWorkingLibraryTrackIds()
+                }
+            }
+        }
+    }
+
+    private fun updateWorkingLibraryTrackIds() {
+        val profileId = repository.currentProfileId()
+        _workingLibraryTrackIds.value = libraryOperations.keys
+            .filter { it.profileId == profileId }
+            .mapTo(linkedSetOf()) { it.trackId }
+    }
+
+    private fun showLibraryActionFeedback(id: MediaId, message: String, isError: Boolean = false) {
+        updateContent {
+            copy(libraryActionFeedback = libraryActionFeedback + (id to LibraryActionFeedback(message, isError)))
+        }
     }
 
     private fun applyFavoriteOverrides(overrides: Map<MediaId, Boolean>) {
@@ -638,12 +857,16 @@ class LibraryViewModel(
         cachedPlaylists = null
         val current = _uiState.value as? LibraryUiState.Content ?: return
         if (current.selectedTab != LibraryTab.Playlists) return
+        val generation = libraryDataGeneration
+        val profileId = repository.currentProfileId()
         viewModelScope.launch {
             runCatching { repository.getPlaylists() }
                 .onSuccess { playlists ->
+                    if (!isDataLoadCurrent(generation, profileId)) return@onSuccess
                     cachedPlaylists = playlists
                     updateContent { copy(playlists = playlists) }
                 }
+                .onFailure { error -> if (error is CancellationException) throw error }
         }
     }
 
@@ -654,9 +877,12 @@ class LibraryViewModel(
     fun createPlaylist(name: String) {
         val trimmed = name.trim()
         if (trimmed.isEmpty()) return
+        val generation = libraryDataGeneration
+        val profileId = repository.currentProfileId()
         viewModelScope.launch {
             repository.createPlaylist(trimmed)
                 .onSuccess { created ->
+                    if (!isDataLoadCurrent(generation, profileId)) return@onSuccess
                     // Merge the newcomer into the cached list so the Playlists
                     // tab shows it immediately; a full refresh would wipe
                     // unrelated cached tabs.
@@ -668,17 +894,27 @@ class LibraryViewModel(
                     _messages.tryEmit("Created \"$trimmed\"")
                 }
                 .onFailure {
+                    if (it is CancellationException) throw it
+                    if (!isDataLoadCurrent(generation, profileId)) return@onFailure
                     _messages.tryEmit(it.message ?: "Couldn't create \"$trimmed\"")
                 }
         }
     }
 
-    private fun normaliseSearchScope(scope: LibrarySearchScope): LibrarySearchScope =
-        if (scope == LibrarySearchScope.SpotifyGlobal && !isSpotifyProvider()) {
-            LibrarySearchScope.CurrentLibrary
-        } else {
-            scope
-        }
+    private fun normaliseSearchScope(scope: LibrarySearchScope): LibrarySearchScope = when (scope) {
+        LibrarySearchScope.CurrentLibrary -> scope
+        LibrarySearchScope.SpotifyGlobal -> scope.takeIf { canSearchCatalog(MediaId.PROVIDER_SPOTIFY) }
+            ?: LibrarySearchScope.CurrentLibrary
+        LibrarySearchScope.AppleMusicGlobal -> scope.takeIf { canSearchCatalog(MediaId.PROVIDER_APPLE_MUSIC) }
+            ?: LibrarySearchScope.CurrentLibrary
+    }
+
+    private fun canSearchCatalog(providerId: String): Boolean =
+        repository.currentProviderId() == providerId &&
+            Capability.CATALOG_SEARCH in repository.currentCapabilities()
+
+    private fun canReshuffleSongs(capabilities: Set<Capability>): Boolean =
+        Capability.RANDOM_SONGS in capabilities && Capability.LIBRARY_SONGS !in capabilities
 
     private fun isSpotifyProvider(): Boolean =
         repository.currentProviderId() == MediaId.PROVIDER_SPOTIFY
