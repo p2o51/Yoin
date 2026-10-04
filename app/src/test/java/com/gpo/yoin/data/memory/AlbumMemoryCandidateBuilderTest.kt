@@ -1,5 +1,8 @@
 package com.gpo.yoin.data.memory
 
+import com.gpo.yoin.data.local.ActivityActionType
+import com.gpo.yoin.data.local.ActivityEntityType
+import com.gpo.yoin.data.local.ActivityEvent
 import com.gpo.yoin.data.local.ActivityEventDao
 import com.gpo.yoin.data.local.AlbumNoteCount
 import com.gpo.yoin.data.local.AlbumNoteDao
@@ -12,6 +15,7 @@ import com.gpo.yoin.data.local.AskRowCount
 import com.gpo.yoin.data.local.PlayHistoryDao
 import com.gpo.yoin.data.local.SongAboutEntry
 import com.gpo.yoin.data.local.SongAboutEntryDao
+import com.gpo.yoin.data.local.SongNote
 import com.gpo.yoin.data.local.SongNoteDao
 import com.gpo.yoin.data.model.Album
 import com.gpo.yoin.data.model.MediaId
@@ -22,6 +26,7 @@ import io.mockk.coVerify
 import io.mockk.mockk
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -184,6 +189,155 @@ class AlbumMemoryCandidateBuilderTest {
 
         assertTrue(candidates.isEmpty())
     }
+
+    @Test
+    fun should_setLastWrittenAtToNewestWrite_when_ratingsNotesAndReviewExist() = runTest {
+        val album = album(trackCount = 10)
+        stubBase(
+            album = album,
+            albumRatings = listOf(
+                AlbumRating(
+                    profileId = "profile-a",
+                    albumId = "album-1",
+                    provider = MediaId.PROVIDER_SUBSONIC,
+                    rating = 8f,
+                    review = "review",
+                    neoDbReviewUuid = null,
+                    updatedAt = 4_000L,
+                ),
+            ),
+        )
+        coEvery {
+            localRatingDao.getRatings(any(), MediaId.PROVIDER_SUBSONIC, "profile-a")
+        } returns listOf(
+            trackRating(trackIndex = 1, rating = 8f, updatedAt = 2_000L),
+            trackRating(trackIndex = 2, rating = 7f, updatedAt = 5_000L),
+        )
+        coEvery {
+            songNoteDao.getForTracks(any(), MediaId.PROVIDER_SUBSONIC, "profile-a")
+        } returns listOf(
+            songNote(id = "n1", trackIndex = 3, content = "the bridge", updatedAt = 6_000L),
+            songNote(id = "n2", trackIndex = 4, content = "opener", updatedAt = 3_000L),
+        )
+
+        val candidate = builder().build(limit = 6).single()
+
+        assertEquals(6_000L, candidate.lastWrittenAt)
+        assertEquals(2, candidate.noteCount)
+    }
+
+    @Test
+    fun should_ignoreBlankNotes_when_computingLastWrittenAt() = runTest {
+        val album = album(trackCount = 10)
+        stubBase(album)
+        coEvery {
+            localRatingDao.getRatings(any(), MediaId.PROVIDER_SUBSONIC, "profile-a")
+        } returns emptyList()
+        coEvery {
+            songNoteDao.getForTracks(any(), MediaId.PROVIDER_SUBSONIC, "profile-a")
+        } returns listOf(
+            songNote(id = "n1", trackIndex = 1, content = "first", updatedAt = 2_000L),
+            songNote(id = "n2", trackIndex = 2, content = "second", updatedAt = 3_000L),
+            songNote(id = "n3", trackIndex = 3, content = "   ", updatedAt = 9_000L),
+        )
+
+        val candidate = builder().build(limit = 6).single()
+
+        assertEquals(3_000L, candidate.lastWrittenAt)
+        // Count semantics unchanged: the blank note counts toward neither value.
+        assertEquals(2, candidate.noteCount)
+    }
+
+    @Test
+    fun should_ignoreEmptyAlbumRatingRow_when_computingLastWrittenAt() = runTest {
+        val album = album(trackCount = 10)
+        stubBase(
+            album = album,
+            albumRatings = listOf(
+                // A cleared row: no score, no review. Its updatedAt is not a write.
+                AlbumRating(
+                    profileId = "profile-a",
+                    albumId = "album-1",
+                    provider = MediaId.PROVIDER_SUBSONIC,
+                    rating = 0f,
+                    review = null,
+                    neoDbReviewUuid = null,
+                    updatedAt = 9_000L,
+                ),
+            ),
+        )
+        coEvery {
+            localRatingDao.getRatings(any(), MediaId.PROVIDER_SUBSONIC, "profile-a")
+        } returns (1..6).map { index ->
+            trackRating(trackIndex = index, rating = 8f, updatedAt = 1_000L * index)
+        }
+
+        val candidate = builder().build(limit = 6).single()
+
+        assertEquals(6_000L, candidate.lastWrittenAt)
+        assertNull(candidate.albumRating)
+    }
+
+    @Test
+    fun should_leaveLastWrittenAtNull_when_onlyPlaysExist() = runTest {
+        val album = album(trackCount = 10)
+        // Eligible through the album-note gate only: album notes carry no
+        // timestamp into lastWrittenAt (nothing writes them yet), so the album's
+        // remaining signals are plays (lastPlayedAt = 300) and a newer visit.
+        stubBase(
+            album = album,
+            noteCounts = listOf(
+                AlbumNoteCount(
+                    albumId = "album-1",
+                    provider = MediaId.PROVIDER_SUBSONIC,
+                    noteCount = 2,
+                ),
+            ),
+        )
+        coEvery {
+            activityEventDao.getRecentAlbumEvents("profile-a", MediaId.PROVIDER_SUBSONIC, any())
+        } returns listOf(
+            ActivityEvent(
+                entityType = ActivityEntityType.ALBUM.name,
+                actionType = ActivityActionType.VISITED.name,
+                entityId = "album-1",
+                profileId = "profile-a",
+                provider = MediaId.PROVIDER_SUBSONIC,
+                title = "Album One",
+                subtitle = "Artist One",
+                timestamp = 9_000L,
+            ),
+        )
+        coEvery {
+            localRatingDao.getRatings(any(), MediaId.PROVIDER_SUBSONIC, "profile-a")
+        } returns emptyList()
+
+        val candidate = builder().build(limit = 6).single()
+
+        assertNull(candidate.lastWrittenAt)
+        assertEquals(9_000L, candidate.lastPlayedAt)
+    }
+
+    private fun trackRating(trackIndex: Int, rating: Float, updatedAt: Long): LocalRating = LocalRating(
+        profileId = "profile-a",
+        songId = "track-$trackIndex",
+        provider = MediaId.PROVIDER_SUBSONIC,
+        rating = rating,
+        serverRating = 4,
+        updatedAt = updatedAt,
+    )
+
+    private fun songNote(id: String, trackIndex: Int, content: String, updatedAt: Long): SongNote = SongNote(
+        id = id,
+        profileId = "profile-a",
+        trackId = "track-$trackIndex",
+        provider = MediaId.PROVIDER_SUBSONIC,
+        content = content,
+        createdAt = updatedAt,
+        updatedAt = updatedAt,
+        title = "Track $trackIndex",
+        artist = "Artist One",
+    )
 
     private fun builder(): AlbumMemoryCandidateBuilder =
         AlbumMemoryCandidateBuilder(

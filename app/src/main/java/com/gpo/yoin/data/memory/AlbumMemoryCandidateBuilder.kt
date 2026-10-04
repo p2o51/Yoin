@@ -9,6 +9,7 @@ import com.gpo.yoin.data.local.LocalRatingDao
 import com.gpo.yoin.data.local.PlayHistoryDao
 import com.gpo.yoin.data.local.SongAboutEntry
 import com.gpo.yoin.data.local.SongAboutEntryDao
+import com.gpo.yoin.data.local.SongNote
 import com.gpo.yoin.data.local.SongNoteDao
 import com.gpo.yoin.data.model.Album
 import com.gpo.yoin.data.model.CoverRef
@@ -116,7 +117,17 @@ class AlbumMemoryCandidateBuilder(
         val albumRating = seed.albumRating
             ?: albumRatingDao.get(seed.albumId, provider, profileId)
         val hasAlbumReview = !albumRating?.review.isNullOrBlank()
-        val noteCount = seed.albumNoteCount + loadSongNoteCount(tracks)
+        val noteStats = loadSongNoteStats(tracks)
+        val noteCount = seed.albumNoteCount + noteStats.count
+        // Writes only — every input is a row already loaded above (zero extra
+        // queries). Plays / visits never count: VISITED events inflate
+        // lastPlayedAt. An empty album_ratings row (no score, no review) is not
+        // a write. Album notes are left out — nothing writes them yet.
+        val lastWrittenAt = listOfNotNull(
+            albumRating?.takeIf { it.rating > 0f || !it.review.isNullOrBlank() }?.updatedAt,
+            rated.maxOfOrNull(LocalRating::updatedAt),
+            noteStats.lastUpdatedAt,
+        ).maxOrNull()
         val askAiCount = countAskAiRows(tracks)
         val isEligible = ratingCoverage >= MEMORY_RATING_COVERAGE_GATE ||
             hasAlbumReview ||
@@ -138,6 +149,7 @@ class AlbumMemoryCandidateBuilder(
             askAiCount = askAiCount,
             firstPlayedAt = seed.firstPlayedAt,
             lastPlayedAt = seed.lastPlayedAt,
+            lastWrittenAt = lastWrittenAt,
             playCount = seed.playCount,
             neoDbSynced = albumRating.isSyncedToNeoDb(),
             isMemoryEligible = isEligible,
@@ -162,16 +174,25 @@ class AlbumMemoryCandidateBuilder(
             .associateBy { rating -> MediaId(rating.provider, rating.songId) }
     }
 
-    private suspend fun loadSongNoteCount(tracks: List<Track>): Int {
+    /**
+     * Count and newest edit time of the album's NON-BLANK song notes, from the
+     * same single [SongNoteDao.getForTracks] read. Blank notes contribute to
+     * neither value, so [SongNoteStats.count] keeps the old noteCount meaning.
+     */
+    private suspend fun loadSongNoteStats(tracks: List<Track>): SongNoteStats {
         val trackIds = tracks.map(Track::id).filter { id -> id.provider == provider }
-        if (trackIds.isEmpty()) return 0
-        return songNoteDao
+        if (trackIds.isEmpty()) return SongNoteStats(count = 0, lastUpdatedAt = null)
+        val notes = songNoteDao
             .getForTracks(
                 trackIds = trackIds.map(MediaId::rawId),
                 provider = provider,
                 profileId = profileId,
             )
-            .count { note -> note.content.isNotBlank() }
+            .filter { note -> note.content.isNotBlank() }
+        return SongNoteStats(
+            count = notes.size,
+            lastUpdatedAt = notes.maxOfOrNull(SongNote::updatedAt),
+        )
     }
 
     /**
@@ -218,6 +239,11 @@ class AlbumMemoryCandidateBuilder(
         var lastPlayedAt: Long? = null,
         var albumRating: AlbumRating? = null,
         var albumNoteCount: Int = 0,
+    )
+
+    private data class SongNoteStats(
+        val count: Int,
+        val lastUpdatedAt: Long?,
     )
 
     private companion object {

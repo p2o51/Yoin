@@ -16,6 +16,12 @@ data class AlbumMemoryCandidate(
     val askAiCount: Int,
     val firstPlayedAt: Long?,
     val lastPlayedAt: Long?,
+    /**
+     * Newest time the user WROTE something on this album: a non-empty album
+     * rating/review row, a track rating, or a non-blank song note. Plays and
+     * visits never count. Null when the album qualifies by plays alone.
+     */
+    val lastWrittenAt: Long? = null,
     val playCount: Int,
     val neoDbSynced: Boolean,
     val isMemoryEligible: Boolean,

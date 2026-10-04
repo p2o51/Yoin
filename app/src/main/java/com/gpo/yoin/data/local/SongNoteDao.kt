@@ -58,6 +58,19 @@ interface SongNoteDao {
     suspend fun getRecent(provider: String, profileId: String, limit: Int): List<SongNote>
 
     /**
+     * Non-blank notes the profile wrote on [provider]: song notes + album notes.
+     * Matches AlbumMemoryCandidate.noteCount's definition.
+     */
+    @Query(
+        "SELECT " +
+            "(SELECT COUNT(*) FROM song_notes " +
+            "WHERE profileId = :profileId AND provider = :provider AND TRIM(content) != '') + " +
+            "(SELECT COUNT(*) FROM album_notes " +
+            "WHERE profileId = :profileId AND provider = :provider AND TRIM(content) != '')",
+    )
+    suspend fun countNonBlankNotes(provider: String, profileId: String): Int
+
+    /**
      * Change stamp: re-emits whenever the profile's notes change. COUNT catches
      * deletes, MAX(updatedAt) catches inserts/edits — together any write moves
      * the value. Cheap enough to observe permanently.
