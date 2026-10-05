@@ -6,6 +6,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import com.gpo.yoin.ui.experience.LayoutMode
+import com.gpo.yoin.ui.experience.feedCoverColumnsFor
 import com.gpo.yoin.ui.experience.feedUnitsFor
 import org.junit.Test
 
@@ -496,6 +497,92 @@ class HomeFeedDensityTest {
             // Never jumps, never shrinks as the pane widens.
             assertTrue("C=$content", current - previous in 0f..maxSlope)
             previous = current
+        }
+    }
+
+    // ---- Recently Added: per-tier counts (owner 2026-10-05) ----
+
+    /** N and cover columns for a resting container, the way the runtime derives them. */
+    private fun tier(contentWidth: Float, layoutMode: LayoutMode): Pair<Int, Int> =
+        feedUnitsFor(contentWidth.dp, layoutMode) to feedCoverColumnsFor(contentWidth.dp)
+
+    @Test
+    fun should_keepPhoneTwoByTwo_when_phoneOrLandscapePhone() {
+        // Phones (C = W − 32) and the 600dp column / foldable.
+        for (content in listOf(328f, 361f, 380f, 447f, 484f, 568f)) {
+            val (units, cover) = tier(content, LayoutMode.Compact)
+            assertEquals("C=$content", 2, recentlyAddedTrackColumns(units, cover, isCompactHeight = false))
+        }
+        // The landscape phone whatever its width or N.
+        for (units in 1..8) {
+            assertEquals(2, recentlyAddedTrackColumns(units, coverColumns = 10, isCompactHeight = true))
+        }
+        assertEquals(12, recentlyAddedAlbumLimit(2))
+        assertEquals(4, 2 * RecentlyAddedTrackRows)
+    }
+
+    @Test
+    fun should_seatThreeColumns_when_tabletPortrait() {
+        // Pixel Tablet portrait: 800dp → Capped C = 688, N = 4, 5 cover columns.
+        val (units, cover) = tier(688f, LayoutMode.Medium)
+        assertEquals(4, units)
+        val columns = recentlyAddedTrackColumns(units, cover, isCompactHeight = false)
+        assertEquals(3, columns)
+        assertEquals(6, columns * RecentlyAddedTrackRows)
+        assertEquals(16, recentlyAddedAlbumLimit(columns))
+        // 3 × 166 + 2 × 8: the phone's own cell, three times.
+        assertEquals(514f, recentlyAddedGridWidth(688.dp, isCompactHeight = false, columns = columns).value, 0.001f)
+        // About 1.5 album cards (82dp + 14dp gaps) still show beside it.
+        val albumsShown = (688f - 514f - 14f) / (82f + 14f)
+        assertTrue("albums=$albumsShown", albumsShown in 1.4f..1.8f)
+    }
+
+    @Test
+    fun should_seatFourColumns_when_tabletLandscape() {
+        // Pixel Tablet landscape: 1280dp → Wide C = 1216, N = 8, 9 cover columns.
+        val (units, cover) = tier(1216f, LayoutMode.Wide)
+        assertEquals(8, units)
+        val columns = recentlyAddedTrackColumns(units, cover, isCompactHeight = false)
+        assertEquals(4, columns)
+        assertEquals(8, columns * RecentlyAddedTrackRows)
+        assertEquals(RecentlyAddedMaxTracks, columns * RecentlyAddedTrackRows)
+        assertEquals(20, recentlyAddedAlbumLimit(columns))
+        assertEquals(RecentlyAddedMaxAlbums, recentlyAddedAlbumLimit(columns))
+        assertEquals(688f, recentlyAddedGridWidth(1216.dp, isCompactHeight = false, columns = columns).value, 0.001f)
+    }
+
+    @Test
+    fun should_stepColumnsByCoverColumns_when_feedWidens() {
+        val expected = mapOf(3 to 2, 4 to 2, 5 to 3, 6 to 3, 7 to 3, 8 to 4, 9 to 4, 10 to 4)
+        for ((cover, columns) in expected) {
+            assertEquals(
+                "cover=$cover",
+                columns,
+                recentlyAddedTrackColumns(feedUnits = 5, coverColumns = cover, isCompactHeight = false),
+            )
+        }
+    }
+
+    @Test
+    fun should_useJustEnoughColumns_when_fewTracks() {
+        // A 2×2 stays a 2×2 even where 4 columns would fit.
+        assertEquals(2, recentlyAddedGridColumns(trackCount = 1, columns = 4))
+        assertEquals(2, recentlyAddedGridColumns(trackCount = 4, columns = 4))
+        assertEquals(3, recentlyAddedGridColumns(trackCount = 5, columns = 4))
+        assertEquals(3, recentlyAddedGridColumns(trackCount = 6, columns = 3))
+        assertEquals(4, recentlyAddedGridColumns(trackCount = 8, columns = 4))
+        // The phone ceiling never grows.
+        assertEquals(2, recentlyAddedGridColumns(trackCount = 8, columns = 2))
+    }
+
+    @Test
+    fun should_keepPhoneGridWidth_when_twoColumns() {
+        for (content in listOf(328f, 380f, 688f, 1216f)) {
+            assertEquals(
+                recentlyAddedGridWidth(content.dp, isCompactHeight = false).value,
+                recentlyAddedGridWidth(content.dp, isCompactHeight = false, columns = 2).value,
+                0f,
+            )
         }
     }
 

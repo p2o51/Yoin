@@ -32,6 +32,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.toShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -53,7 +54,10 @@ import com.gpo.yoin.ui.component.rememberExpressiveBackdropColors
 import com.gpo.yoin.ui.component.seamDissolve
 import com.gpo.yoin.ui.component.seamFade
 import com.gpo.yoin.ui.experience.LocalYoinWindowInfo
+import com.gpo.yoin.ui.home.edit.HomeRowsBody
+import com.gpo.yoin.ui.home.edit.LocalHomeEditCardScope
 import com.gpo.yoin.ui.home.edit.homeEditCard
+import com.gpo.yoin.ui.home.edit.homeRowsCard
 import com.gpo.yoin.ui.home.edit.homeEditInteractive
 import com.gpo.yoin.ui.home.edit.homeEditSectionTitle
 import com.gpo.yoin.ui.memories.MemoryEntityType
@@ -131,6 +135,8 @@ internal fun HomeWidgetGridSection(
     extractBackdropColors: Boolean,
     onCardClick: (HomeWidgetTarget) -> Unit,
     modifier: Modifier = Modifier,
+    // The row preset (D1, HomeRowPresets.kt); L is the composition from before presets.
+    rows: HomeRowPreset = HomeRowPreset.Default,
 ) {
     if (cards.isEmpty()) return
     // Columns and path follow the container (HomeFeedDensity: jbiGridSpec) —
@@ -147,7 +153,8 @@ internal fun HomeWidgetGridSection(
     }
     // Panes of 3+ feed units seat the shelf on a seeded template (HomeJbiTemplate.kt):
     // the same cards always land the same way. Null = too few cards for even two
-    // rows — the plain column grid below takes them.
+    // rows — the plain column grid below takes them. This is the L template;
+    // the other presets grow or trim it (jbiRowLadder).
     val layout = remember(cards, gridSpec) {
         if (gridSpec.templated) {
             jbiLayout(
@@ -160,9 +167,10 @@ internal fun HomeWidgetGridSection(
             null
         }
     }
-    val content = JbiContent(gridSpec, cards, layout)
+    val content = JbiContent(gridSpec, cards, layout, rows)
     val reduced = LocalMotionProfile.current == MotionProfile.AdaptiveReduced
     val heightSpec = YoinMotion.spatialSpring<Float>()
+    val cardScope = LocalHomeEditCardScope.current
 
     Column(
         modifier = modifier,
@@ -171,6 +179,7 @@ internal fun HomeWidgetGridSection(
         HomeSectionTitle(text = title)
         // A column-count, template or path change re-packs the grid: crossfade
         // it, with the section's height on a spatial spring — never a hard cut.
+        // A row preset updates in place (edit mode's resize interpolates it).
         AnimatedContent(
             targetState = content,
             contentKey = { it.key },
@@ -190,116 +199,180 @@ internal fun HomeWidgetGridSection(
         ) { state ->
             val columns = state.spec.columns
             val followColumn = state.spec.followColumn
-            val seated = state.layout
-            // The packed paths keep the phone's 12-cell shelf; the VM supplies
-            // a deeper list for the templates.
-            val cards = remember(state.cards) { trimToPhoneShelf(state.cards) }
-            val rows = remember(cards, columns) { packWidgetRows(cards, columns) }
-            // Edit-mode card order on the packed paths: row-major.
-            val rowEditIndex = remember(rows) { rows.flatten().editCardIndex { it } }
+            // The packed paths keep the phone's 3 × 4 shelf at L (rows × columns at
+            // the other presets); the VM supplies a deeper list for the templates.
+            val ladder = remember(state.spec, state.cards, state.layout) {
+                jbiRowLadder(state.spec, state.cards, state.layout)
+            }
             Box(Modifier.heightOfIncomingOnly { transition.targetState == EnterExitState.PostExit }) {
-            if (seated != null) {
-                // Phone-sized columns, phone-sized covers: the column's
-                // rhythm, but never past 128dp (a very wide window gets more
-                // room per column once the 10 columns run out).
-                val templateFit = if (coverFit == JbiCoverFit.PhoneRhythm) JbiCoverFit.Capped128 else coverFit
-                val coverRequestPx = with(LocalDensity.current) { JbiCoverMax.roundToPx() }
-                // Edit-mode card order = the template's reading order.
-                val editIndex = remember(seated) { seated.cells.editCardIndex { it.card } }
-                JbiSpanGrid(layout = seated, fit = templateFit, modifier = Modifier.fillMaxWidth()) { cell ->
-                    val card = cell.card
-                    val editCard = Modifier.homeEditCard(editIndex[card.stableId] ?: 0)
-                    when (cell.piece.kind) {
-                        JbiPieceKind.TallSignal, JbiPieceKind.WideSignal -> WidgetCard12(
-                            card = card,
+                HomeRowsBody(
+                    track = cardScope?.rows,
+                    engine = cardScope?.rowsEngine,
+                    ladder = ladder,
+                    preset = state.rows,
+                    reduced = reduced,
+                    owner = transition.targetState != EnterExitState.PostExit,
+                ) { stop ->
+                    when (val composition = stop.payload) {
+                        is JbiPresetLayout.Template -> JbiTemplateGrid(
+                            seated = composition.layout,
+                            coverFit = coverFit,
                             extractBackdropColors = extractBackdropColors,
-                            onClick = { onCardClick(card.target) },
-                            modifier = editCard,
-                            followColumn = true,
-                            tall = cell.piece.kind == JbiPieceKind.TallSignal,
-                            coverFit = templateFit,
-                            coverRequestPx = coverRequestPx,
+                            onCardClick = onCardClick,
                         )
-                        JbiPieceKind.Cover -> WidgetCoverBlock(
-                            card = card,
+                        is JbiPresetLayout.Packed -> JbiPackedGrid(
+                            rows = composition.rows,
+                            columns = columns,
+                            followColumn = followColumn,
+                            coverFit = coverFit,
                             extractBackdropColors = extractBackdropColors,
-                            onClick = { onCardClick(card.target) },
-                            modifier = editCard,
-                            artworkModifier = Modifier.jbiCoverSquare(templateFit),
-                            artworkRequestSizePx = coverRequestPx,
+                            onCardClick = onCardClick,
                         )
-                    }
-                }
-            } else if (followColumn) {
-                // Decode at the largest cover the column can grow to.
-                val coverRequestPx = with(LocalDensity.current) { JbiCoverMax.roundToPx() }
-                JbiColumnGrid(
-                    rows = rows,
-                    columns = columns,
-                    modifier = Modifier.fillMaxWidth(),
-                ) { card ->
-                    val editCard = Modifier.homeEditCard(rowEditIndex[card.stableId] ?: 0)
-                    if (card.expanded) {
-                        WidgetCard12(
-                            card = card,
-                            extractBackdropColors = extractBackdropColors,
-                            onClick = { onCardClick(card.target) },
-                            modifier = editCard,
-                            followColumn = true,
-                            coverRequestPx = coverRequestPx,
-                        )
-                    } else {
-                        WidgetCoverBlock(
-                            card = card,
-                            extractBackdropColors = extractBackdropColors,
-                            onClick = { onCardClick(card.target) },
-                            modifier = editCard,
-                            artworkModifier = Modifier.jbiCoverSquare(coverFit),
-                            artworkRequestSizePx = coverRequestPx,
-                        )
-                    }
-                }
-            } else {
-                // The phone path, as before (its rows in their own 16dp stack).
-                Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                    rows.forEach { row ->
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(12.dp),
-                            // A 1×2 is taller than the 1×1 beside it; top-align so the cover
-                            // block hangs from the same line and the review copy runs below.
-                            verticalAlignment = Alignment.Top,
-                        ) {
-                            var units = 0
-                            row.forEach { card ->
-                                val editCard = Modifier.homeEditCard(rowEditIndex[card.stableId] ?: 0)
-                                if (card.expanded) {
-                                    units += 2
-                                    WidgetCard12(
-                                        card = card,
-                                        extractBackdropColors = extractBackdropColors,
-                                        onClick = { onCardClick(card.target) },
-                                        modifier = editCard.weight(2f),
-                                    )
-                                } else {
-                                    units += 1
-                                    WidgetCoverBlock(
-                                        card = card,
-                                        extractBackdropColors = extractBackdropColors,
-                                        onClick = { onCardClick(card.target) },
-                                        modifier = editCard.weight(1f),
-                                    )
-                                }
-                            }
-                            // Pad short rows so cards keep their column width instead of
-                            // stretching across the leftover space.
-                            repeat(columns - units) {
-                                Spacer(modifier = Modifier.weight(1f))
-                            }
-                        }
                     }
                 }
             }
+        }
+    }
+}
+
+/** What a Jump Back In card renders as, for the row resize's matching (a cover, or a lying / standing signal card). */
+private enum class JbiCardLook { Cover, Wide, Tall }
+
+/** A seeded template of phone-sized columns (HomeJbiTemplate.kt). */
+@Composable
+private fun JbiTemplateGrid(
+    seated: JbiLayout,
+    coverFit: JbiCoverFit,
+    extractBackdropColors: Boolean,
+    onCardClick: (HomeWidgetTarget) -> Unit,
+) {
+    // Phone-sized columns, phone-sized covers: the column's
+    // rhythm, but never past 128dp (a very wide window gets more
+    // room per column once the 10 columns run out).
+    val templateFit = if (coverFit == JbiCoverFit.PhoneRhythm) JbiCoverFit.Capped128 else coverFit
+    val coverRequestPx = with(LocalDensity.current) { JbiCoverMax.roundToPx() }
+    // Edit-mode card order = the template's reading order.
+    val editIndex = remember(seated) { seated.cells.editCardIndex { it.card } }
+    JbiSpanGrid(layout = seated, fit = templateFit, modifier = Modifier.fillMaxWidth()) { cell ->
+        val card = cell.card
+        val look = when (cell.piece.kind) {
+            JbiPieceKind.TallSignal -> JbiCardLook.Tall
+            JbiPieceKind.WideSignal -> JbiCardLook.Wide
+            JbiPieceKind.Cover -> JbiCardLook.Cover
+        }
+        val editCard = Modifier
+            .homeRowsCard(card.stableId, look)
+            .homeEditCard(editIndex[card.stableId] ?: 0)
+        when (cell.piece.kind) {
+            JbiPieceKind.TallSignal, JbiPieceKind.WideSignal -> WidgetCard12(
+                card = card,
+                extractBackdropColors = extractBackdropColors,
+                onClick = { onCardClick(card.target) },
+                modifier = editCard,
+                followColumn = true,
+                tall = cell.piece.kind == JbiPieceKind.TallSignal,
+                coverFit = templateFit,
+                coverRequestPx = coverRequestPx,
+            )
+            JbiPieceKind.Cover -> WidgetCoverBlock(
+                card = card,
+                extractBackdropColors = extractBackdropColors,
+                onClick = { onCardClick(card.target) },
+                modifier = editCard,
+                artworkModifier = Modifier.jbiCoverSquare(templateFit),
+                artworkRequestSizePx = coverRequestPx,
+            )
+        }
+    }
+}
+
+/**
+ * The packed shelf ([packWidgetRows]): the phone's Row + weights + 100dp
+ * path, or (a pane too short on cards for its template, the pre-template
+ * trial) the true-column grid with covers following the column.
+ */
+@Composable
+private fun JbiPackedGrid(
+    rows: List<List<HomeWidgetCard>>,
+    columns: Int,
+    followColumn: Boolean,
+    coverFit: JbiCoverFit,
+    extractBackdropColors: Boolean,
+    onCardClick: (HomeWidgetTarget) -> Unit,
+) {
+    // Edit-mode card order on the packed paths: row-major.
+    val rowEditIndex = remember(rows) { rows.flatten().editCardIndex { it } }
+    fun Modifier.card(card: HomeWidgetCard): Modifier = this
+        .homeRowsCard(card.stableId, if (card.expanded) JbiCardLook.Wide else JbiCardLook.Cover)
+        .homeEditCard(rowEditIndex[card.stableId] ?: 0)
+    if (followColumn) {
+        // Decode at the largest cover the column can grow to.
+        val coverRequestPx = with(LocalDensity.current) { JbiCoverMax.roundToPx() }
+        JbiColumnGrid(
+            rows = rows,
+            columns = columns,
+            modifier = Modifier.fillMaxWidth(),
+        ) { card ->
+            if (card.expanded) {
+                WidgetCard12(
+                    card = card,
+                    extractBackdropColors = extractBackdropColors,
+                    onClick = { onCardClick(card.target) },
+                    modifier = Modifier.card(card),
+                    followColumn = true,
+                    coverRequestPx = coverRequestPx,
+                )
+            } else {
+                WidgetCoverBlock(
+                    card = card,
+                    extractBackdropColors = extractBackdropColors,
+                    onClick = { onCardClick(card.target) },
+                    modifier = Modifier.card(card),
+                    artworkModifier = Modifier.jbiCoverSquare(coverFit),
+                    artworkRequestSizePx = coverRequestPx,
+                )
+            }
+        }
+    } else {
+        // The phone path, as before (its rows in their own 16dp stack).
+        Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            rows.forEach { row ->
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    // A 1×2 is taller than the 1×1 beside it; top-align so the cover
+                    // block hangs from the same line and the review copy runs below.
+                    verticalAlignment = Alignment.Top,
+                ) {
+                    var units = 0
+                    row.forEach { card ->
+                        // Keyed so a preset's re-pack carries each card's state along.
+                        key(card.stableId) {
+                            if (card.expanded) {
+                                units += 2
+                                WidgetCard12(
+                                    card = card,
+                                    extractBackdropColors = extractBackdropColors,
+                                    onClick = { onCardClick(card.target) },
+                                    modifier = Modifier.card(card).weight(2f),
+                                )
+                            } else {
+                                units += 1
+                                WidgetCoverBlock(
+                                    card = card,
+                                    extractBackdropColors = extractBackdropColors,
+                                    onClick = { onCardClick(card.target) },
+                                    modifier = Modifier.card(card).weight(1f),
+                                )
+                            }
+                        }
+                    }
+                    // Pad short rows so cards keep their column width instead of
+                    // stretching across the leftover space.
+                    repeat(columns - units) {
+                        Spacer(modifier = Modifier.weight(1f))
+                    }
+                }
             }
         }
     }
@@ -307,14 +380,15 @@ internal fun HomeWidgetGridSection(
 
 /**
  * One grid composition with the cards it seats — the outgoing layer keeps its
- * own while it fades. [key] is what a crossfade answers to: the template when
- * there is one (a re-seat on the same template updates in place), else the
- * packed path's spec.
+ * own while it fades. [key] is what a crossfade answers to: the L template
+ * when there is one (a re-seat on the same template updates in place), else
+ * the packed path's spec — never the row preset, which updates in place.
  */
 private data class JbiContent(
     val spec: JbiGridSpec,
     val cards: List<HomeWidgetCard>,
     val layout: JbiLayout?,
+    val rows: HomeRowPreset,
 ) {
     val key: Any get() = layout?.template ?: spec
 }

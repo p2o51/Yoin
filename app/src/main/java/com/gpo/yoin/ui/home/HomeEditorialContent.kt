@@ -167,6 +167,12 @@ import com.gpo.yoin.ui.home.edit.HomeEditPressState
 import com.gpo.yoin.ui.home.edit.HomeEditSafeArea
 import com.gpo.yoin.ui.home.edit.HomeEditTargets
 import com.gpo.yoin.ui.home.edit.HomeEditTokens
+import com.gpo.yoin.ui.home.edit.HomeRowsAutoScroll
+import com.gpo.yoin.ui.home.edit.HomeRowsBody
+import com.gpo.yoin.ui.home.edit.HomeRowsEngine
+import com.gpo.yoin.ui.home.edit.HomeRowsTokens
+import com.gpo.yoin.ui.home.edit.homeRowsCard
+import com.gpo.yoin.ui.home.edit.homeRowsEdgeRamp
 import com.gpo.yoin.ui.home.edit.LocalHomeWiggleStyle
 import com.gpo.yoin.ui.home.edit.StripCover
 import com.gpo.yoin.ui.home.edit.StripWarmFrames
@@ -187,6 +193,13 @@ import com.gpo.yoin.ui.home.edit.homeEditInteractive
 import com.gpo.yoin.ui.home.edit.homeEditTrayItems
 import com.gpo.yoin.ui.home.edit.homeEditTrayRowKey
 import com.gpo.yoin.ui.home.edit.plateOutsetVDp
+import com.gpo.yoin.ui.home.edit.HomePlateLook
+import com.gpo.yoin.ui.home.edit.HomePlateSpacing
+import com.gpo.yoin.ui.home.edit.HomePlateSpacingAnchor
+import com.gpo.yoin.ui.home.edit.HomePlateVariant
+import com.gpo.yoin.ui.home.edit.LocalHomeEditCardScope
+import com.gpo.yoin.ui.home.edit.LocalHomePlateVariant
+import com.gpo.yoin.ui.home.edit.homeEditShelfClip
 import com.gpo.yoin.ui.home.edit.rememberHomeEditIconsEnabled
 import com.gpo.yoin.ui.home.edit.rememberHomeEditReducedMotion
 import com.gpo.yoin.ui.home.edit.rememberHomeEditSpecs
@@ -324,10 +337,21 @@ internal fun HomeEditorialContent(
             finishDeferredExit = controller::finishDeferredExit,
         )
     }
-    val targets = remember { HomeEditTargets() }
-    val editDeps = remember(controller, motion, press, engine, targets, specs) {
-        HomeEditDeps(controller, motion, press, engine, targets, specs)
+    // The row resize (D1 ②): one driver per Activities / Jump Back In block,
+    // written through the controller (persisted, one Undo step per change).
+    val rowsEngine = remember(controller, specs, editFeedback, density, engine) {
+        HomeRowsEngine(
+            scope = scope,
+            specs = specs,
+            feedback = editFeedback,
+            density = density,
+            editing = { controller.isEditing },
+            carrying = { engine.isCarrying || engine.liftSection != null },
+            currentPreset = { section -> controller.draft?.rowsOf(section) ?: HomeRowPreset.Default },
+            commit = controller::setRows,
+        )
     }
+    val targets = remember { HomeEditTargets() }
     val feedRefs = remember { HomeFeedRefs() }
     val editing = controller.isEditing
     val currentController by rememberUpdatedState(controller)
@@ -467,6 +491,42 @@ internal fun HomeEditorialContent(
     // Margins follow the live width in the layout pass (HomeFeedFrame).
     val feedFrame = rememberHomeFeedFrame(feedFrameClass(windowInfo))
     val itemSpacing = if (isLandscapePhone) 10.dp else 18.dp
+    // The edit-mode plate (HomePlateVariant.kt): production never provides the
+    // local, so this is the shipped V1; only the debug harness switches it.
+    val plateVariant = LocalHomePlateVariant.current
+    val spacingAnchor = remember { HomePlateSpacingAnchor() }
+    val plateLook = remember(plateVariant, controller, feedFrame, spacingAnchor) {
+        if (plateVariant == HomePlateVariant.V0) {
+            HomePlateLook.Legacy
+        } else {
+            HomePlateLook(
+                variant = plateVariant,
+                progress = { spacingAnchor.progress(controller.progress.value) },
+                pageMargin = { minOf(feedFrame.start, feedFrame.end) },
+            )
+        }
+    }
+    val editDeps = remember(controller, motion, press, engine, targets, specs, plateLook, rowsEngine) {
+        HomeEditDeps(controller, motion, press, engine, targets, specs, plateLook, rowsEngine)
+    }
+    // V1 grows the feed's spacing with P: a block the entering long-press lifted
+    // stays under the finger while it does (HomePlateSpacingAnchor), from the
+    // lift until the finger lifts, a carry starts or P comes to rest.
+    if (plateLook.variant == HomePlateVariant.V1) {
+        LaunchedEffect(spacingAnchor, plateLook, controller, motion, listState, density, itemSpacing) {
+            snapshotFlow {
+                motion.heldSection?.takeIf { !motion.placeholdersAboveOpen && controller.progress.isAnimating }
+            }.collectLatest { held ->
+                if (held == null) return@collectLatest
+                spacingAnchor.hold(
+                    live = controller.progressReader,
+                    spacingPx = { p -> with(density) { plateLook.spacingAt(itemSpacing, p).roundToPx() } },
+                    gapsAbove = { listState.gapsAboveSection(held) },
+                    scrollBy = { px -> listState.dispatchRawDelta(px) },
+                )
+            }
+        }
+    }
     // Seams (dissolve-final §1.3, §3): the status bar gets the tide line —
     // content sinks under two waves of page colour, text fades out just below
     // it — and the bottom bar gets the halftone field. Both read one set of
@@ -503,11 +563,16 @@ internal fun HomeEditorialContent(
             HomeEditSafeArea(top = safeTopPx, bottom = bottom - safeGapPx)
         }
     }
-    val plateOutsetPx: () -> Size = remember(density, itemSpacing) {
-        val outset = with(density) {
-            Size(HomeEditTokens.PlateOutsetH.toPx(), plateOutsetVDp(itemSpacing.value).dp.toPx())
+    val plateOutsetPx: () -> Size = remember(density, itemSpacing, plateLook) {
+        if (plateLook.variant == HomePlateVariant.V0) {
+            val outset = with(density) {
+                Size(HomeEditTokens.PlateOutsetH.toPx(), plateOutsetVDp(itemSpacing.value).dp.toPx())
+            }
+            ({ outset })
+        } else {
+            // V1's (and the QA variants') outsets move with P and the page margin: read at each use.
+            ({ with(density) { Size(plateLook.plateOutsetH().toPx(), plateLook.outsetV(itemSpacing).toPx()) } })
         }
-        ({ outset })
     }
     val sectionTop: (HomeSection) -> Float? = remember(listState) {
         { section -> listState.sectionItemTop(section) }
@@ -538,26 +603,38 @@ internal fun HomeEditorialContent(
     // P on the move, a carry, or a charge: vote the panel's high rate for exactly as long.
     // Read only in HomeFrameRateVote's scope: a flip (a charge, a carry starting or
     // ending, P settling) must not recompose the feed and every section in it.
-    val editAnimating: () -> Boolean = remember(controller, engine, press) {
+    val editAnimating: () -> Boolean = remember(controller, engine, press, rowsEngine) {
         val animating = derivedStateOf {
             val p = controller.progress.value
-            (p > EditAnimatingFloor && p < 1f - EditAnimatingFloor) || engine.session != null || press.charge.isRunning
+            (p > EditAnimatingFloor && p < 1f - EditAnimatingFloor) || engine.session != null ||
+                press.charge.isRunning || rowsEngine.resizing
         }
         ({ animating.value })
     }
     // Strips folding, or a carry: sections place 1:1 under the strips (port sheet §4.5).
     // While editing the feed places through one stable spec that reads this gate when
     // the list starts a move, so a fold never recomposes the sections (no composition read).
-    val editPlacement = remember(engine, specs) {
-        GatedPlacementSpec(specs.placement) { engine.fold.value > 0f || engine.session != null }
+    // A block resizing its rows pushes the feed 1:1 as well (d1-rows.md §3.2).
+    val editPlacement = remember(engine, specs, plateLook, rowsEngine) {
+        GatedPlacementSpec(specs.placement) {
+            engine.fold.value > 0f || engine.session != null || plateLook.spacingMoving() || rowsEngine.resizing
+        }
+    }
+    // The V1 plate springs the feed's spacing with P: sections follow it 1:1
+    // on the way out too, instead of chasing each frame on a spring.
+    // A block still settling its rows after Done keeps the feed 1:1 under it too.
+    val restPlacement = remember(specs, plateLook, rowsEngine) {
+        GatedPlacementSpec(specs.placement) {
+            (plateLook.variant == HomePlateVariant.V1 && plateLook.spacingMoving()) || rowsEngine.resizing
+        }
     }
     val sectionPlacement: () -> FiniteAnimationSpec<IntOffset>? =
-        remember(controller, feedFrame, paneWidthInMotion, specs, editPlacement) {
+        remember(controller, feedFrame, paneWidthInMotion, specs, editPlacement, restPlacement) {
             {
                 when {
                     paneWidthInMotion.value || feedFrame.isBlending -> null
                     controller.isEditing -> editPlacement
-                    else -> specs.placement
+                    else -> restPlacement
                 }
             }
         }
@@ -602,20 +679,29 @@ internal fun HomeEditorialContent(
     // The Home layer the controller drives (plan C4); a layer that arrives
     // while editing (an Activity recreation, a new motion) starts its session.
     val currentSafeArea by rememberUpdatedState(safeArea)
-    DisposableEffect(controller, motion, engine, press) {
+    DisposableEffect(controller, motion, engine, press, rowsEngine) {
         val layer = object : HomeEditLayer {
             override val isCarrying: Boolean get() = engine.isCarrying
 
             override fun onEnter(origin: HomeSection?, lifted: Boolean) = motion.onEnter(origin, lifted)
 
-            override fun onExit(reason: HomeEditExitReason) = engine.onExit(reason, press)
+            override fun onExit(reason: HomeEditExitReason) {
+                rowsEngine.onExit()
+                engine.onExit(reason, press)
+            }
 
-            override fun onSnapExit() = engine.onSnapExit(press)
+            override fun onSnapExit() {
+                rowsEngine.snapAll()
+                engine.onSnapExit(press)
+            }
 
             override fun onTouch() = motion.touch()
 
-            override fun onLayoutChange(change: HomeEditChange) =
+            override fun onLayoutChange(change: HomeEditChange) {
                 motion.onLayoutChange(change) { section -> listState.sectionInSafeArea(section, currentSafeArea()) }
+                // A changed preset (drop, step, Undo, Reset) springs its block to the new stop.
+                rowsEngine.onLayoutChange(change.previous, change.next)
+            }
 
             override fun deferExit(reason: HomeEditExitReason) = engine.deferExit(reason)
 
@@ -657,9 +743,36 @@ internal fun HomeEditorialContent(
             }
             .collect { motion.visible = it }
     }
-    // The seam followers ignore the scroll the anchor makes under the strips.
-    LaunchedEffect(engine, seamFlow) {
-        snapshotFlow { engine.fold.value > 0f }.collect { seamFlow.held = it }
+    // The seam followers ignore the scroll the anchor makes under the strips,
+    // and the one that keeps a held block under the finger (HomePlateSpacingAnchor).
+    LaunchedEffect(engine, seamFlow, spacingAnchor) {
+        snapshotFlow { engine.fold.value > 0f || spacingAnchor.holding }.collect { seamFlow.held = it }
+    }
+    // A carry folds every block into a strip: any row resize lands at rest first.
+    LaunchedEffect(engine, rowsEngine) {
+        snapshotFlow { engine.session != null || engine.liftSection != null }.collect { carrying ->
+            if (carrying) rowsEngine.snapAll()
+        }
+    }
+    // A held resize handle near the bar (or the status tide) scrolls the feed under it.
+    DisposableEffect(rowsEngine, listState, feedRefs, density) {
+        val edge = with(density) { HomeRowsTokens.AutoScrollEdge.toPx() }
+        val max = with(density) { HomeRowsTokens.AutoScrollMax.toPx() }
+        rowsEngine.autoScroll = object : HomeRowsAutoScroll {
+            override fun speed(fingerRootY: Float): Float {
+                val box = feedRefs.box?.takeIf { it.isAttached } ?: return 0f
+                val y = fingerRootY - box.positionInRoot().y
+                val safe = currentSafeArea()
+                return when {
+                    y > safe.bottom - edge -> max * homeRowsEdgeRamp((y - (safe.bottom - edge)) / edge)
+                    y < safe.top + edge -> -max * homeRowsEdgeRamp(((safe.top + edge) - y) / edge)
+                    else -> 0f
+                }
+            }
+
+            override fun scrollBy(px: Float): Float = listState.dispatchRawDelta(px)
+        }
+        onDispose { rowsEngine.autoScroll = null }
     }
     // A new width class or a resize mid-drag invalidates the strips: let go where it is.
     LaunchedEffect(engine, feedFrame) {
@@ -773,7 +886,13 @@ internal fun HomeEditorialContent(
                         bottom = (if (isLandscapePhone) 16.dp else 108.dp) + navBarBottom,
                     )
                 },
-                verticalArrangement = Arrangement.spacedBy(itemSpacing),
+                verticalArrangement = remember(plateLook, itemSpacing) {
+                    if (plateLook.variant == HomePlateVariant.V1) {
+                        HomePlateSpacing(plateLook, itemSpacing)
+                    } else {
+                        Arrangement.spacedBy(itemSpacing)
+                    }
+                },
             ) {
                 // The page header (title + nav icons) is pinned above the reorderable
                 // sections — it's chrome, not a section.
@@ -828,20 +947,27 @@ internal fun HomeEditorialContent(
                                     // units (HomeFeedDensity.kt), not LayoutMode. The
                                     // phone and landscape compositions are today's.
                                     val unitsRecipe = !isLandscapePhone && windowInfo.feedUnits >= 3
-                                    val bentoEntries = if (unitsRecipe) {
-                                        remember(activities, buildCoverArtUrl) {
-                                            buildActivityEntries(
-                                                activities = activities,
-                                                buildCoverArtUrl = buildCoverArtUrl,
-                                                limit = ActivityBentoUnitsMaxEntries,
-                                            )
-                                        }
-                                    } else {
-                                        activityEntries
+                                    // Deep enough for the XL preset; the hero is still
+                                    // found where it always was (the first 6 / 16), so
+                                    // every other preset seats exactly what it did.
+                                    val bentoEntries = remember(activities, buildCoverArtUrl, unitsRecipe) {
+                                        buildActivityEntries(
+                                            activities = activities,
+                                            buildCoverArtUrl = buildCoverArtUrl,
+                                            limit = if (unitsRecipe) {
+                                                ActivityBentoUnitsXlEntries
+                                            } else {
+                                                ActivityBentoPhoneXlEntries
+                                            },
+                                        )
                                     }
+                                    val heroWindow =
+                                        if (unitsRecipe) ActivityBentoUnitsMaxEntries else ActivityBentoPhoneEntries
                                     // Hero slot = first album/playlist; artists fill the
                                     // smaller cards in recency order.
-                                    val heroEntry = bentoEntries.firstOrNull { entry -> entry.isHeroCandidate }
+                                    val heroEntry = remember(bentoEntries, heroWindow) {
+                                        bentoEntries.take(heroWindow).firstOrNull { entry -> entry.isHeroCandidate }
+                                    }
                                     // The stagger is seeded by the hero's identity: the
                                     // same feed lays out the same way every time.
                                     // Remembered, like every argument below: the feed
@@ -871,6 +997,7 @@ internal fun HomeEditorialContent(
                                         hero = heroEntry,
                                         candidates = candidates,
                                         spec = bentoSpec,
+                                        preset = layout.rowsOf(HomeSection.Activities),
                                         heroFootnoteExtra = activityHeroFootnote,
                                         extractBackdropColors = shouldExtractBackdropColors,
                                         onEntryClick = onEntryClick,
@@ -889,6 +1016,7 @@ internal fun HomeEditorialContent(
                                 HomeSection.JumpBackIn -> HomeWidgetGridSection(
                                     title = "Jump Back In",
                                     cards = widgetGrid,
+                                    rows = layout.rowsOf(HomeSection.JumpBackIn),
                                     extractBackdropColors = shouldExtractBackdropColors,
                                     onCardClick = onWidgetCardClick,
                                     modifier = remember(firstReveal) {
@@ -936,6 +1064,7 @@ internal fun HomeEditorialContent(
                                     onAlbumClick = { albumId, sharedTransitionKey ->
                                         onEntryClick(HomeEntryTarget.Album(albumId, sharedTransitionKey))
                                     },
+                                    onSongClick = { song -> onEntryClick(HomeEntryTarget.SongTarget(song)) },
                                     modifier = remember(firstReveal) {
                                         Modifier
                                             .fillMaxWidth()
@@ -1132,6 +1261,16 @@ private fun LazyListState.sectionItemTop(section: HomeSection): Float? {
     return info.visibleItemsInfo.firstOrNull { it.key == key }?.let { (it.offset - info.viewportStartOffset).toFloat() }
 }
 
+/**
+ * The item gaps between the feed's first visible item (the one the list holds
+ * in place) and [section]'s block; 0 when the block isn't laid out.
+ */
+private fun LazyListState.gapsAboveSection(section: HomeSection): Int {
+    val key = sectionItemKey(section)
+    val item = layoutInfo.visibleItemsInfo.firstOrNull { it.key == key } ?: return 0
+    return (item.index - firstVisibleItemIndex).coerceAtLeast(0)
+}
+
 /** [section]'s block shows between the status tide and the bar (proto inViewport). */
 private fun LazyListState.sectionInSafeArea(section: HomeSection, safe: HomeEditSafeArea): Boolean {
     val info = layoutInfo
@@ -1201,7 +1340,9 @@ private fun homeStripCovers(
                 stripCover(recentlyAddedTrackCoverUrl(track, buildCoverArtUrl), YoinArtworkShapes.Thumb)
             }
         }
-        HomeSection.Rediscover -> rediscover.take(count).map { stripCover(it.coverArtUrl, shapes.album) }
+        HomeSection.Rediscover -> rediscover.take(count).map { item ->
+            stripCover(item.coverArtUrl, if (item.song != null) shapes.song else shapes.album)
+        }
     }
 }
 
@@ -1321,23 +1462,34 @@ private data class BentoContent(
     val spec: ActivityBentoSpec,
     val hero: HomeMomentEntry?,
     val candidates: List<HomeMomentEntry>,
+    // The row preset (D1). Not part of the crossfade's key: a preset change
+    // updates in place (edit mode's resize interpolates it card by card).
+    val preset: HomeRowPreset,
 )
 
 /** Enough recent entries to fill the widest bento (13 slots) and still find an album / playlist hero. */
 private const val ActivityBentoUnitsMaxEntries = 16
+
+/** The widest XL bento (a fourth row of up to four more) — the hero is still found in the first [ActivityBentoUnitsMaxEntries]. */
+private const val ActivityBentoUnitsXlEntries = 20
+
+/** The phone pipeline's cap (hero + 3 supporting from the top 6), and XL's (hero + 5 from the top 8). */
+private const val ActivityBentoPhoneEntries = 6
+private const val ActivityBentoPhoneXlEntries = 8
 
 @Composable
 private fun ActivityBento(
     // The hero slot only carries an album / playlist (or nothing); the
     // supporting cards take the rest in recency order. [candidates] is every
     // supporting entry on offer — each composition takes the share its own
-    // [spec] seats, so an outgoing composition keeps its cards while it fades.
-    // Phone: [0] small square, [1] wide, [2] strip. Units (feed units ≥ 3,
-    // owner 2026-10-03): the count follows the width and the rows stagger —
-    // see HomeFeedDensity.kt.
+    // [spec] and [preset] seat, so an outgoing composition keeps its cards
+    // while it fades. Phone: [0] small square, [1] wide, [2] strip at L. Units
+    // (feed units ≥ 3, owner 2026-10-03): the count follows the width and the
+    // rows stagger — see HomeFeedDensity.kt. Row presets: HomeRowPresets.kt.
     hero: HomeMomentEntry?,
     candidates: List<HomeMomentEntry>,
     spec: ActivityBentoSpec,
+    preset: HomeRowPreset,
     heroFootnoteExtra: String?,
     extractBackdropColors: Boolean,
     onEntryClick: (HomeEntryTarget) -> Unit,
@@ -1357,12 +1509,14 @@ private fun ActivityBento(
         val fontScale = LocalDensity.current.fontScale.coerceAtLeast(1f)
         val reduced = LocalMotionProfile.current == MotionProfile.AdaptiveReduced
         val heightSpec = YoinMotion.spatialSpring<Float>()
+        val cardScope = LocalHomeEditCardScope.current
         // A width class (or the stagger seed) changes the composition: the old
         // one fades out — with its OWN entries — while the new fades in, and
         // the section's height springs between them — never a hard cut. Data
-        // changes inside one composition update in place (contentKey).
+        // changes inside one composition update in place (contentKey), and so
+        // does a row preset.
         AnimatedContent(
-            targetState = BentoContent(spec, hero, candidates),
+            targetState = BentoContent(spec, hero, candidates, preset),
             contentKey = { it.spec },
             transitionSpec = {
                 if (reduced) {
@@ -1380,185 +1534,151 @@ private fun ActivityBento(
         ) { state ->
             val s = state.spec
             val hero = state.hero
-            // Without a hero, row 1's lead slot is a supporting entry too.
-            val supporting = state.candidates.take(seatedSupportingCount(s, hasHero = hero != null))
+            val ladder = remember(s, hero != null, state.candidates.size) {
+                activityRowLadder(s, hasHero = hero != null, supportingCount = state.candidates.size)
+            }
             Box(Modifier.heightOfIncomingOnly { transition.targetState == EnterExitState.PostExit }) {
-            when (s.recipe) {
-                BentoRecipe.Landscape -> {
-                // One row, so the first screen keeps Recently Added in view.
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(124.dp * fontScale),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    // Edit-mode card order: the row's slots, left to right.
-                    hero?.let { entry ->
-                        ActivityHeroCard(
-                            entry = entry,
-                            footnoteExtra = heroFootnoteExtra,
+                HomeRowsBody(
+                    track = cardScope?.rows,
+                    engine = cardScope?.rowsEngine,
+                    ladder = ladder,
+                    preset = state.preset,
+                    reduced = reduced,
+                    owner = transition.targetState != EnterExitState.PostExit,
+                ) { stop ->
+                    val composition = stop.payload
+                    // Without a hero, row 1's lead slot is a supporting entry too.
+                    val supporting = state.candidates.take(composition.seated)
+                    if (s.recipe == BentoRecipe.Units) {
+                        ActivityUnitGrid(
+                            spec = s,
+                            slots = composition.slots,
+                            hero = hero,
+                            supporting = supporting,
+                            heroFootnoteExtra = heroFootnoteExtra,
                             extractBackdropColors = extractBackdropColors,
-                            onClick = { onEntryClick(entry.target) },
-                            modifier = Modifier
-                                .homeEditCard(0)
-                                .weight(2f)
-                                .fillMaxHeight(),
+                            onEntryClick = onEntryClick,
+                            fontScale = fontScale,
+                        )
+                    } else {
+                        ActivityBentoRows(
+                            rows = composition.rows,
+                            hero = hero,
+                            supporting = supporting,
+                            heroFootnoteExtra = heroFootnoteExtra,
+                            extractBackdropColors = extractBackdropColors,
+                            onEntryClick = onEntryClick,
+                            fontScale = fontScale,
                         )
                     }
-                    supporting.getOrNull(0)?.let { small ->
-                        ActivitySmallCard(
-                            entry = small,
-                            extractBackdropColors = extractBackdropColors,
-                            onClick = { onEntryClick(small.target) },
-                            modifier = Modifier
-                                .homeEditCard(1)
-                                .weight(1f)
-                                .fillMaxHeight(),
-                        )
-                    } ?: Spacer(modifier = Modifier.weight(1f))
-                    supporting.getOrNull(1)?.let { wide ->
-                        ActivityWideCard(
-                            entry = wide,
-                            extractBackdropColors = extractBackdropColors,
-                            onClick = { onEntryClick(wide.target) },
-                            modifier = Modifier
-                                .homeEditCard(2)
-                                .weight(1.4f)
-                                .fillMaxHeight(),
-                        )
-                    } ?: Spacer(modifier = Modifier.weight(1.4f))
                 }
-                }
-                BentoRecipe.Phone,
-                BentoRecipe.PhoneNarrow,
-                -> ActivityBentoPhone(
-                    hero = hero,
-                    supporting = supporting,
-                    narrow = s.recipe == BentoRecipe.PhoneNarrow,
-                    heroFootnoteExtra = heroFootnoteExtra,
-                    extractBackdropColors = extractBackdropColors,
-                    onEntryClick = onEntryClick,
-                    fontScale = fontScale,
-                )
-                BentoRecipe.Units -> ActivityUnitGrid(
-                    spec = s,
-                    hero = hero,
-                    supporting = supporting,
-                    heroFootnoteExtra = heroFootnoteExtra,
-                    extractBackdropColors = extractBackdropColors,
-                    onEntryClick = onEntryClick,
-                    fontScale = fontScale,
-                )
-            }
             }
         }
     }
 }
 
 /**
- * The phone composition (feed units 2), unchanged: a full-width hero, a small
- * square + wide row, one strip. [narrow] (feed units 1 — a ~330dp column beside
- * the Now Playing panel on a foldable) splits the supporting row into two equal
- * smalls instead, so the small never shrinks to ~96dp.
+ * The code-built bento (feed units ≤ 2 and the landscape phone) from its
+ * [rows] (activityCodeRows): Phone — a full-width hero, a small square + wide
+ * row, one strip; PhoneNarrow (feed units 1 — a ~330dp column beside the Now
+ * Playing panel on a foldable) splits the card row into two equal smalls so
+ * the small never shrinks to ~96dp; Landscape — one row, so the first screen
+ * keeps Recently Added in view. At the default preset each is today's
+ * composition. A slot past the supply is a spacer of its weight. Edit-mode
+ * card order: the hero 0, then each supporting entry at its index + 1.
  */
 @Composable
-private fun ActivityBentoPhone(
+private fun ActivityBentoRows(
+    rows: List<ActivityCodeRow>,
     hero: HomeMomentEntry?,
     supporting: List<HomeMomentEntry>,
-    narrow: Boolean,
     heroFootnoteExtra: String?,
     extractBackdropColors: Boolean,
     onEntryClick: (HomeEntryTarget) -> Unit,
     fontScale: Float,
 ) {
-    // Edit-mode card order: hero 0, the row's two 1 and 2, the strip 3.
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        hero?.let { entry ->
-            ActivityHeroCard(
+    @Composable
+    fun Card(entry: HomeMomentEntry, kind: SlotKind, editIndex: Int, modifier: Modifier) {
+        val cardModifier = Modifier
+            .homeRowsCard(entry.stableId, kind)
+            .homeEditCard(editIndex)
+            .then(modifier)
+        val onClick = { onEntryClick(entry.target) }
+        when (kind) {
+            SlotKind.Hero -> ActivityHeroCard(
                 entry = entry,
                 footnoteExtra = heroFootnoteExtra,
                 extractBackdropColors = extractBackdropColors,
-                onClick = { onEntryClick(entry.target) },
-                modifier = Modifier
-                    .homeEditCard(0)
-                    .fillMaxWidth(),
+                onClick = onClick,
+                modifier = cardModifier,
+            )
+            SlotKind.Wide -> ActivityWideCard(
+                entry = entry,
+                extractBackdropColors = extractBackdropColors,
+                onClick = onClick,
+                modifier = cardModifier,
+            )
+            SlotKind.Small -> ActivitySmallCard(
+                entry = entry,
+                extractBackdropColors = extractBackdropColors,
+                onClick = onClick,
+                modifier = cardModifier,
+            )
+            SlotKind.Strip -> ActivityStripCard(
+                entry = entry,
+                extractBackdropColors = extractBackdropColors,
+                onClick = onClick,
+                modifier = cardModifier,
             )
         }
-        val rowSmall = supporting.getOrNull(0)
-        val rowSecond = supporting.getOrNull(1)
-        if (rowSmall != null || rowSecond != null) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(118.dp * fontScale),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                rowSmall?.let { small ->
-                    ActivitySmallCard(
-                        entry = small,
-                        extractBackdropColors = extractBackdropColors,
-                        onClick = { onEntryClick(small.target) },
-                        modifier = Modifier
-                            .homeEditCard(1)
-                            .weight(1f)
-                            .fillMaxHeight(),
-                    )
+    }
+
+    fun entryOf(slot: ActivityCodeSlot): HomeMomentEntry? =
+        if (slot.entryIndex < 0) hero else supporting.getOrNull(slot.entryIndex)
+
+    Column(verticalArrangement = Arrangement.spacedBy(ActivityBentoGap)) {
+        rows.forEach { row ->
+            when (row.shape) {
+                ActivityRowShape.Hero, ActivityRowShape.Strip -> {
+                    val slot = row.slots.first()
+                    entryOf(slot)?.let { entry ->
+                        Card(entry, slot.kind, slot.entryIndex + 1, Modifier.fillMaxWidth())
+                    }
                 }
-                if (narrow) {
-                    rowSecond?.let { small ->
-                        ActivitySmallCard(
-                            entry = small,
-                            extractBackdropColors = extractBackdropColors,
-                            onClick = { onEntryClick(small.target) },
-                            modifier = Modifier
-                                .homeEditCard(2)
-                                .weight(1f)
-                                .fillMaxHeight(),
-                        )
-                    } ?: Spacer(modifier = Modifier.weight(1f))
-                } else {
-                    rowSecond?.let { wide ->
-                        ActivityWideCard(
-                            entry = wide,
-                            extractBackdropColors = extractBackdropColors,
-                            onClick = { onEntryClick(wide.target) },
-                            modifier = Modifier
-                                .homeEditCard(2)
-                                .weight(2f)
-                                .fillMaxHeight(),
-                        )
-                    } ?: run {
-                        // Keep the lone small card at column width instead of
-                        // letting its weight stretch it across the whole row.
-                        Spacer(modifier = Modifier.weight(2f))
+                ActivityRowShape.Cards -> Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(row.height * fontScale),
+                    horizontalArrangement = Arrangement.spacedBy(row.gap),
+                ) {
+                    row.slots.forEach { slot ->
+                        val entry = entryOf(slot)
+                        if (entry != null) {
+                            Card(entry, slot.kind, slot.entryIndex + 1, Modifier.weight(slot.weight).fillMaxHeight())
+                        } else {
+                            // Keep the cards beside it at their width instead of stretching across the gap.
+                            Spacer(modifier = Modifier.weight(slot.weight))
+                        }
                     }
                 }
             }
-        }
-        supporting.getOrNull(2)?.let { strip ->
-            ActivityStripCard(
-                entry = strip,
-                extractBackdropColors = extractBackdropColors,
-                onClick = { onEntryClick(strip.target) },
-                modifier = Modifier
-                    .homeEditCard(3)
-                    .fillMaxWidth(),
-            )
         }
     }
 }
 
 /**
  * The bento on true feed units (feed units ≥ 3): each card sits on the unit
- * grid ([activityUnitSlots]) — a small on one unit, a wide (or the hero) on two
- * or three — at fixed row heights (row 1 [ActivityBentoSpec.row1Height], row 2
- * 118dp, × fontScale), strips sharing the last row equally. One layout node per
- * card; widths come from the live width in the measure pass only, so a column
- * or side-panel spring never recomposes the bento.
+ * grid ([slots], activityUnitSlots at the row preset) — a small on one unit,
+ * a wide (or the hero) on two or three — at fixed row heights (row 1
+ * [ActivityBentoSpec.row1Height], the others 118dp, × fontScale), strips
+ * sharing the last row equally. One layout node per card; widths come from the
+ * live width in the measure pass only, so a column or side-panel spring never
+ * recomposes the bento.
  */
 @Composable
 private fun ActivityUnitGrid(
     spec: ActivityBentoSpec,
+    slots: List<ActivitySlot>,
     hero: HomeMomentEntry?,
     supporting: List<HomeMomentEntry>,
     heroFootnoteExtra: String?,
@@ -1566,9 +1686,6 @@ private fun ActivityUnitGrid(
     onEntryClick: (HomeEntryTarget) -> Unit,
     fontScale: Float,
 ) {
-    val slots = remember(spec, hero != null, supporting.size) {
-        activityUnitSlots(spec, hasHero = hero != null, supportingCount = supporting.size)
-    }
     val placed = slots.mapNotNull { slot ->
         val entry = if (slot.kind == SlotKind.Hero) hero else supporting.getOrNull(slot.entryIndex)
         entry?.let { slot to it }
@@ -1579,7 +1696,9 @@ private fun ActivityUnitGrid(
                 key(entry.stableId) {
                     val onClick = { onEntryClick(entry.target) }
                     // Edit-mode card order = placement order.
-                    val editCard = Modifier.homeEditCard(index)
+                    val editCard = Modifier
+                        .homeRowsCard(entry.stableId, slot.kind)
+                        .homeEditCard(index)
                     when (slot.kind) {
                         SlotKind.Hero -> ActivityHeroCard(
                             entry = entry,
@@ -1615,10 +1734,8 @@ private fun ActivityUnitGrid(
         val gapPx = ActivityBentoGap.toPx()
         val gap = ActivityBentoGap.roundToPx()
         val pitch = jbiColumnPitch(width.toFloat(), spec.units, gapPx)
-        val rowHeights = intArrayOf(
-            (spec.row1Height * fontScale).roundToPx(),
-            (118.dp * fontScale).roundToPx(),
-        )
+        val row1Height = (spec.row1Height * fontScale).roundToPx()
+        val unitRowHeight = (ActivityPhoneRowHeight * fontScale).roundToPx()
         // Strips share the last row on the same snapped lines as the units,
         // so the row ends exactly on the unit rows' edge.
         val strips = spec.strips.coerceAtLeast(1)
@@ -1628,18 +1745,19 @@ private fun ActivityUnitGrid(
         val ys = IntArray(measurables.size)
         var y = 0
         var index = 0
-        for (row in 0..2) {
+        val lastRow = placed.maxOfOrNull { it.first.row } ?: -1
+        for (row in 0..lastRow) {
             val inRow = placed.indices.filter { placed[it].first.row == row }
             if (inRow.isEmpty()) continue
             if (index > 0) y += gap
             var rowHeight = 0
             inRow.forEach { i ->
                 val slot = placed[i].first
-                val placeable = if (row < 2) {
+                val placeable = if (slot.kind != SlotKind.Strip) {
                     val cell = JbiCellPlacement(startColumn = slot.startUnit, span = slot.span)
                     xs[i] = cell.cellLeft(pitch)
                     val w = cell.cellWidth(pitch, gapPx).coerceAtLeast(0)
-                    measurables[i].measure(Constraints.fixed(w, rowHeights[row]))
+                    measurables[i].measure(Constraints.fixed(w, if (row == 0) row1Height else unitRowHeight))
                 } else {
                     val cell = JbiCellPlacement(startColumn = slot.startUnit, span = 1)
                     xs[i] = cell.cellLeft(stripPitch)
@@ -2014,7 +2132,9 @@ private fun widgetShapeKindForActivity(entityType: String): WidgetShapeKind = wh
 // added tracks (small cover + title / artist), on the right a horizontally
 // scrolling row of recently-added albums, each nested on its Bun backdrop
 // shape. Either half collapses when its list is empty, and the lone survivor
-// takes the full width.
+// takes the full width. Wider feeds seat more of both (HomeFeedDensity:
+// recentlyAddedTrackColumns) — up to 4 columns × 2 rows of the very same
+// tile, and a deeper album shelf; the phone's 2×2 is untouched.
 
 // Track cover sized so a tight 2×2 (two rows + one 14dp gap) lands near the
 // album card's height (album cover + its two label lines) without a hollow
@@ -2023,9 +2143,6 @@ private fun widgetShapeKindForActivity(entityType: String): WidgetShapeKind = wh
 // smaller than the album cover, matching the mock ratio.
 private val RecentlyAddedTrackCover = 52.dp
 private val RecentlyAddedAlbumCover = 82.dp
-
-/** The shelf's lead 2×2: at most four track tiles. */
-private const val RecentlyAddedTrackTiles = 4
 
 @Composable
 private fun RecentlyAddedSection(
@@ -2046,6 +2163,14 @@ private fun RecentlyAddedSection(
     shelfScrollEnabled: Boolean = true,
     modifier: Modifier = Modifier,
 ) {
+    // How many of each this container seats: columns from the resting width
+    // (a column spring re-lays, never re-counts), rows always two.
+    val windowInfo = LocalYoinWindowInfo.current
+    val maxColumns = recentlyAddedTrackColumns(windowInfo.feedUnits, windowInfo.feedCoverColumns, singleRowShelf)
+    val shownTracks = remember(tracks, maxColumns) { tracks.take(maxColumns * RecentlyAddedTrackRows) }
+    val gridColumns = recentlyAddedGridColumns(shownTracks.size, maxColumns)
+    val shownAlbums = remember(albums, maxColumns) { albums.take(recentlyAddedAlbumLimit(maxColumns)) }
+    val editCardScope = LocalHomeEditCardScope.current
     Column(
         modifier = modifier,
         verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -2064,7 +2189,9 @@ private fun RecentlyAddedSection(
             state = shelfState,
             modifier = Modifier
                 .fillMaxWidth()
-                .ignoreParentHorizontalPadding(start = { frame.start }, end = { frame.end }),
+                .ignoreParentHorizontalPadding(start = { frame.start }, end = { frame.end })
+                // Plates V1 (shipped) / V2 only: clipped to the edit plate while editing.
+                .homeEditShelfClip(editCardScope, escapeStart = { frame.start }, escapeEnd = { frame.end }),
             contentPadding = sidePadding,
             horizontalArrangement = Arrangement.spacedBy(14.dp),
             // Both halves hang from the top. The track covers are sized
@@ -2072,10 +2199,11 @@ private fun RecentlyAddedSection(
             verticalAlignment = Alignment.Top,
             userScrollEnabled = shelfScrollEnabled,
         ) {
-            if (tracks.isNotEmpty()) {
+            if (shownTracks.isNotEmpty()) {
                 item(key = "recently-added-tracks") {
                     RecentlyAddedTrackGrid(
-                        tracks = tracks,
+                        tracks = shownTracks,
+                        columns = gridColumns,
                         onTrackClick = onTrackClick,
                         buildCoverArtUrl = buildCoverArtUrl,
                         // The grid's width follows the feed's content width,
@@ -2083,7 +2211,12 @@ private fun RecentlyAddedSection(
                         // read in the layout pass only, so a column spring
                         // never re-subcomposes the shelf.
                         modifier = Modifier.layout { measurable, constraints ->
-                            val width = recentlyAddedGridWidth(frame.contentWidth, singleRowShelf).roundToPx()
+                            val width = recentlyAddedGridWidth(
+                                // Less the plate's content inset (V2; else 0).
+                                contentWidth = frame.contentWidth - (editCardScope?.contentInset() ?: 0.dp) * 2,
+                                isCompactHeight = singleRowShelf,
+                                columns = gridColumns,
+                            ).roundToPx()
                             val placeable = measurable.measure(
                                 constraints.copy(minWidth = width, maxWidth = width),
                             )
@@ -2092,9 +2225,9 @@ private fun RecentlyAddedSection(
                     )
                 }
             }
-            // Edit-mode card order: the four track tiles, then the albums.
+            // Edit-mode card order: the grid's track slots, then the albums.
             itemsIndexed(
-                items = albums,
+                items = shownAlbums,
                 key = { _, album -> "recently-added-album:${album.id}" },
             ) { index, album ->
                 RecentlyAddedAlbumCard(
@@ -2102,17 +2235,18 @@ private fun RecentlyAddedSection(
                     extractBackdropColors = extractBackdropColors,
                     onClick = { onAlbumClick(album) },
                     buildCoverArtUrl = buildCoverArtUrl,
-                    modifier = Modifier.homeEditCard(RecentlyAddedTrackTiles + index),
+                    modifier = Modifier.homeEditCard(maxColumns * RecentlyAddedTrackRows + index),
                 )
             }
         }
     }
 }
 
-/** The shelf's lead card: up to four tracks packed into a 2×2 grid. */
+/** The shelf's lead card: the tracks packed [columns] to a row, two rows (2×2 on a phone). */
 @Composable
 private fun RecentlyAddedTrackGrid(
     tracks: List<Track>,
+    columns: Int,
     onTrackClick: (Track) -> Unit,
     buildCoverArtUrl: (String) -> String,
     modifier: Modifier = Modifier,
@@ -2124,10 +2258,10 @@ private fun RecentlyAddedTrackGrid(
         // rows with a hollow middle.
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        tracks.take(RecentlyAddedTrackTiles).chunked(2).forEachIndexed { row, rowTracks ->
+        tracks.take(columns * RecentlyAddedTrackRows).chunked(columns).forEachIndexed { row, rowTracks ->
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                horizontalArrangement = Arrangement.spacedBy(RecentlyAddedTileGap),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 rowTracks.forEachIndexed { column, track ->
@@ -2136,14 +2270,14 @@ private fun RecentlyAddedTrackGrid(
                         onClick = { onTrackClick(track) },
                         buildCoverArtUrl = buildCoverArtUrl,
                         modifier = Modifier
-                            .homeEditCard(row * 2 + column)
+                            .homeEditCard(row * columns + column)
                             .weight(1f),
                     )
                 }
-                // Pad an odd final row so a lone tile keeps its column width
+                // Pad a short final row so its tiles keep their column width
                 // instead of stretching across the whole grid.
-                if (rowTracks.size < 2) {
-                    Spacer(modifier = Modifier.weight(1f))
+                if (rowTracks.size < columns) {
+                    Spacer(modifier = Modifier.weight((columns - rowTracks.size).toFloat()))
                 }
             }
         }

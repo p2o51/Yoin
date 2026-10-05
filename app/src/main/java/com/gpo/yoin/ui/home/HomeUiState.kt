@@ -27,17 +27,20 @@ sealed interface HomeUiState {
         val widgetGrid: List<HomeWidgetCard> = emptyList(),
         // Library items added within the last week (Spotify saved / Subsonic
         // starred), newest first. The Recently Added section splits these into a
-        // compact 2×2 track grid on the left and a horizontally scrolling album
-        // shelf on the right (Figma 622:777). Either being empty just drops that
-        // half; both empty hides the whole section.
+        // compact track grid on the left (2×2 on a phone, up to 4×2 on a wide
+        // feed) and a horizontally scrolling album shelf on the right (Figma
+        // 622:777). Either being empty just drops that half; both empty hides
+        // the whole section.
         val recentlyAddedTracks: List<Track> = emptyList(),
         val recentlyAddedAlbums: List<Album> = emptyList(),
         // The header's Memories pill (latest memory + notes count). Null =
         // not resolved yet (or unscoped): the header keeps today's bare
         // chevron instead of flashing an "empty" pill.
         val memoryPill: HomeMemoryPill? = null,
-        // Rediscover: rated 8+, not played in Yoin for 90+ days, best first.
-        // Empty = the section isn't rendered.
+        // Rediscover: albums with a memory (a rating, a review, a note or a
+        // rated track) and songs you rated or noted, not played in Yoin for
+        // 90+ days; scored ones first, best first, albums and songs in one
+        // order. Empty = the section isn't rendered.
         val rediscover: List<HomeRediscoverItem> = emptyList(),
     ) : HomeUiState
 
@@ -87,26 +90,51 @@ data class HomeWidgetCard(
 )
 
 /**
- * One Rediscover card: an album you rated high that hasn't played in Yoin for
- * a while. Every time field comes from play history only (visits never
- * count), which is why the copy says "in Yoin".
+ * One Rediscover card: an album you kept something on (a rating, a review, a
+ * note, a rated track) — or, with [song] set, a song you rated or noted —
+ * that hasn't played in Yoin for a while. Every time field comes from play
+ * history only (visits never count), which is why the copy says "in Yoin".
  */
 @Immutable
 data class HomeRediscoverItem(
-    // Raw id (legacy `provider:` prefix stripped). Tap → onAlbumClick(albumId.toString(), null);
-    // the shelf keys cards "rediscover:$albumId".
+    // Raw id (legacy `provider:` prefix stripped). An album card's tap →
+    // onAlbumClick(albumId.toString(), null). On a song card, the song's
+    // album — or the song's own id when it played without one (read
+    // [song] for a song card's album).
     val albumId: MediaId,
+    // The album card's title; a song card's album line.
     val albumName: String,
     val artistName: String?,
     val coverArtUrl: String?,
-    val score: Float,
-    // "%.1f" (Locale.US), the seal's own format.
-    val scoreText: String,
+    // Album rating, else a covered track average; a song card's track
+    // rating. Null = no badge.
+    val score: Float?,
+    // "%.1f" (Locale.US), the seal's own format; null with [score].
+    val scoreText: String?,
+    // NONE with no score. Your own score — an album rating, or a song card's
+    // track rating — is ALBUM_RATING (the solid sticker); a covered track
+    // average is AVERAGE_TRACK_RATING.
     val scoreKind: MemoryScoreKind,
     val lastPlayedAt: Long,
     val firstPlayedAt: Long?,
     val playCount: Int,
-)
+    // What was kept — the eyebrow's reason.
+    val hasReview: Boolean = false,
+    val noteCount: Int = 0,
+    val ratedTrackCount: Int = 0,
+    // Set on a song card: the track, rebuilt from its play history, that a
+    // tap plays alone. Null = an album card.
+    val song: Track? = null,
+    // A song card's newest non-blank note: its one-line snippet when it has
+    // no score.
+    val noteSnippet: String? = null,
+) {
+    /** The card's title: the song's for a song card, else the album's. */
+    val title: String get() = song?.title?.takeIf(String::isNotBlank) ?: albumName
+
+    /** The shelf's LazyRow key; songs and albums never collide. */
+    val shelfKey: String get() = song?.let { track -> "rediscover-song:${track.id}" } ?: "rediscover:$albumId"
+}
 
 /**
  * What the header's Memories pill shows: the most recently written memory

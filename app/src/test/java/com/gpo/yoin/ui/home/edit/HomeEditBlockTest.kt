@@ -228,7 +228,11 @@ class HomeEditBlockTest {
         // The placeholder stands in for the content.
         rule.onNodeWithText(BodyText).assertDoesNotExist()
         assertEquals("Nothing added this week", homeEditPlaceholderText(HomeSection.RecentlyAdded))
-        assertTrue(homeEditPlaceholderText(HomeSection.Rediscover).startsWith("Rate an album 8 or higher"))
+        // No score bar any more: any album or song rated or written about comes back.
+        assertEquals(
+            "Albums and songs you rated or wrote about come back here when it's been a while",
+            homeEditPlaceholderText(HomeSection.Rediscover),
+        )
     }
 
     @Test
@@ -245,6 +249,15 @@ class HomeEditBlockTest {
             rule.onNodeWithText("Jump Back In", useUnmergedTree = true)
                 .fetchSemanticsNode().config.getOrNull(SemanticsActions.CustomActions),
         )
+    }
+
+    @Test
+    fun should_drawShippedV1Plate_when_noVariantIsProvided() {
+        var variant: HomePlateVariant? = null
+        rule.setContent { variant = LocalHomePlateVariant.current }
+        rule.waitForIdle()
+        // Production never provides the local (only the QA harness does): Home draws V1.
+        assertEquals(HomePlateVariant.V1, variant)
     }
 
     @Test

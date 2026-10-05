@@ -20,7 +20,17 @@ enum class HomeEditExitReason {
     Programmatic,
 }
 
-enum class HomeEditChangeKind { Hide, Show, Order, Move, Reset, Undo }
+enum class HomeEditChangeKind {
+    Hide,
+    Show,
+    Order,
+    Move,
+    Reset,
+    Undo,
+
+    /** A section's row preset (the resize handle, its keyboard keys, TalkBack). */
+    Rows,
+}
 
 /** One applied layout edit, handed to the Home layer so it can animate it. [serial] increases per change. */
 @Immutable

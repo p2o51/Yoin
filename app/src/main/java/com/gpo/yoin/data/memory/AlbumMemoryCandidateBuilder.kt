@@ -5,6 +5,7 @@ import com.gpo.yoin.data.local.AlbumNoteDao
 import com.gpo.yoin.data.local.AlbumPlayHistoryAggregate
 import com.gpo.yoin.data.local.AlbumRating
 import com.gpo.yoin.data.local.AlbumRatingDao
+import com.gpo.yoin.data.local.AlbumTrackSignalAggregate
 import com.gpo.yoin.data.local.LocalRating
 import com.gpo.yoin.data.local.LocalRatingDao
 import com.gpo.yoin.data.local.PlayHistoryDao
@@ -40,7 +41,9 @@ class AlbumMemoryCandidateBuilder(
     /**
      * Builds up to [limit] Memory-eligible candidates. With [includeIneligible]
      * every scanned candidate comes back, in the same order, so
-     * `build(n, true).memoryEligible(n) == build(n)`.
+     * `build(n, true).memoryEligible(n) == build(n)` — followed by the
+     * Rediscover-only albums of [buildTrackSignalCandidates], which are never
+     * Memory-eligible and so never change that subset.
      */
     suspend fun build(limit: Int, includeIneligible: Boolean = false): List<AlbumMemoryCandidate> = coroutineScope {
         val scanLimit = (limit * 4).coerceAtLeast(limit).coerceAtMost(MAX_CANDIDATE_SCAN_SIZE)
@@ -104,7 +107,78 @@ class AlbumMemoryCandidateBuilder(
             .awaitAll()
             .filterNotNull()
             .sortedWith(albumMemoryCandidateComparator)
-        if (includeIneligible) sorted else sorted.memoryEligible(limit)
+        if (includeIneligible) sorted + buildTrackSignalCandidates(scanned, buildGate) else sorted.memoryEligible(limit)
+    }
+
+    /**
+     * Rediscover's two extra sources (owner 2026-10-05: any memory counts,
+     * track notes and track ratings included): albums whose tracks carry a
+     * non-blank song note or a track rating, found through the tracks' play
+     * history, that the Memory scan above did not reach. Each is built like
+     * any candidate but outside the Memory scan, so it is never
+     * Memory-eligible ([AlbumMemorySeed.inMemoryScan]) — the Memory pool and
+     * the default build stay exactly what they were. Strongest signal first,
+     * at most [MAX_TRACK_SIGNAL_SEEDS]; a failed read adds nothing.
+     */
+    private suspend fun buildTrackSignalCandidates(
+        scanned: List<AlbumMemorySeed>,
+        buildGate: Semaphore,
+    ): List<AlbumMemoryCandidate> = coroutineScope {
+        val signals = try {
+            songNoteDao.getNotedAlbumAggregates(provider, profileId, TRACK_SIGNAL_QUERY_LIMIT) +
+                localRatingDao.getRatedAlbumAggregates(provider, profileId, TRACK_SIGNAL_QUERY_LIMIT)
+        } catch (cancellation: CancellationException) {
+            throw cancellation
+        } catch (_: Exception) {
+            return@coroutineScope emptyList()
+        }
+        // Scanned seeds may carry the legacy provider:raw form; history ids are raw.
+        val known = scanned.mapTo(HashSet()) { seed -> MediaId.storedRawId(provider, seed.albumId) }
+        val seeds = signals
+            .filter { signal -> signal.albumId.isNotBlank() && signal.albumId !in known }
+            .groupBy(AlbumTrackSignalAggregate::albumId)
+            .map { (albumId, rows) ->
+                Triple(albumId, rows.sumOf(AlbumTrackSignalAggregate::signalCount), rows.maxOf { it.lastWrittenAt })
+            }
+            .sortedWith(compareByDescending<Triple<String, Int, Long>> { it.second }.thenByDescending { it.third })
+            .take(MAX_TRACK_SIGNAL_SEEDS)
+            .map { (albumId, _, _) -> AlbumMemorySeed(albumId = albumId, inMemoryScan = false) }
+        if (seeds.isEmpty()) return@coroutineScope emptyList()
+        fillTrackSignalHistory(seeds)
+        seeds
+            .map { seed -> async { buildGate.withPermit { buildCandidate(seed) } } }
+            .awaitAll()
+            .filterNotNull()
+            .sortedWith(albumMemoryCandidateComparator)
+    }
+
+    /**
+     * The extra seeds' names, cover and plays, from their play history (which
+     * is how they were found). They stand outside the Memory scan, so the
+     * Memory-side play fields take the history too, as play-aggregate seeds'
+     * do. A failed lookup leaves them empty.
+     */
+    private suspend fun fillTrackSignalHistory(seeds: List<AlbumMemorySeed>) {
+        val rows = try {
+            playHistoryDao.getAlbumAggregatesFor(profileId, provider, seeds.map(AlbumMemorySeed::albumId))
+        } catch (cancellation: CancellationException) {
+            throw cancellation
+        } catch (_: Exception) {
+            return
+        }
+        val byId = rows.associateBy(AlbumPlayHistoryAggregate::albumId)
+        seeds.forEach { seed ->
+            val aggregate = byId[seed.albumId] ?: return@forEach
+            seed.albumName = aggregate.albumName.takeIf(String::isNotBlank)
+            seed.artistName = aggregate.artistName.takeIf(String::isNotBlank)
+            seed.coverArtId = aggregate.coverArtId
+            seed.playCount = aggregate.playCount
+            seed.firstPlayedAt = aggregate.firstPlayedAt
+            seed.lastPlayedAt = aggregate.lastPlayedAt
+            seed.historyPlayCount = aggregate.playCount
+            seed.historyFirstPlayedAt = aggregate.firstPlayedAt
+            seed.historyLastPlayedAt = aggregate.lastPlayedAt
+        }
     }
 
     /**
@@ -181,7 +255,8 @@ class AlbumMemoryCandidateBuilder(
         val passesWritingGate = ratingCoverage >= MEMORY_RATING_COVERAGE_GATE ||
             hasAlbumReview ||
             noteCount >= MEMORY_NOTE_COUNT_GATE
-        val isEligible = passesWritingGate && meetsMemoryTrackCount(albumTrackCount)
+        // Rediscover-only seeds never join the Memory pool, whatever they pass.
+        val isEligible = seed.inMemoryScan && passesWritingGate && meetsMemoryTrackCount(albumTrackCount)
 
         return AlbumMemoryCandidate(
             profileId = profileId,
@@ -296,6 +371,8 @@ class AlbumMemoryCandidateBuilder(
         var historyPlayCount: Int = 0,
         var historyFirstPlayedAt: Long? = null,
         var historyLastPlayedAt: Long? = null,
+        // False for a Rediscover-only seed (buildTrackSignalCandidates): never Memory-eligible.
+        val inMemoryScan: Boolean = true,
     )
 
     private data class SongNoteStats(
@@ -308,6 +385,11 @@ class AlbumMemoryCandidateBuilder(
         private const val MEMORY_NOTE_COUNT_GATE = 2
         private const val MAX_CANDIDATE_SCAN_SIZE = 48
         private const val MAX_CONCURRENT_CANDIDATE_BUILDS = 4
+
+        // Rediscover-only albums found through track notes / ratings: rows read
+        // per source, and albums built (each a cached album-detail read).
+        private const val TRACK_SIGNAL_QUERY_LIMIT = 96
+        private const val MAX_TRACK_SIGNAL_SEEDS = 16
 
         private val albumMemoryCandidateComparator =
             compareByDescending<AlbumMemoryCandidate> { candidate -> candidate.hasAlbumReview }

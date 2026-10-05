@@ -7,8 +7,10 @@ import com.gpo.yoin.data.home.HomeSectionPref
 import com.gpo.yoin.data.local.ActivityEvent
 import com.gpo.yoin.data.local.AlbumRating
 import com.gpo.yoin.data.local.PlayHistory
+import com.gpo.yoin.data.local.SongMemoryAggregate
 import com.gpo.yoin.data.local.SongNote
 import com.gpo.yoin.data.memory.AlbumMemoryCandidate
+import com.gpo.yoin.data.memory.RediscoverSongSource
 import com.gpo.yoin.data.model.Album
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.Playlist
@@ -772,33 +774,48 @@ class HomeViewModelTest {
     }
 
     @Test
-    fun should_exposeRediscover_when_poolHasStaleHighRatedAlbum() = runTest {
+    fun should_exposeRediscover_when_poolHasStaleAlbumsWithMemories() = runTest {
         val profile = "subsonic-rd-expose"
         val repository = memorySignalRepository(profile = profile)
         coEvery { repository.getAlbumMemoryCandidates(any(), any()) } returns listOf(
+            // Notes only, no score: comes back after every scored album.
+            rediscoverCandidate("noted", profile, albumRating = null).copy(
+                ratedTrackCount = 0,
+                ratingCoverage = 0f,
+                noteCount = 2,
+            ),
             rediscoverCandidate("stale", profile, albumRating = 9f, cover = "https://x/stale"),
             rediscoverCandidate("recent", profile, albumRating = 9.5f, lastPlayedFromHistoryAt = NOW - 10 * DAY),
+            // Below the old 8.0 bar: still a memory, so it comes back.
             rediscoverCandidate("low", profile, albumRating = 7.5f),
+            // Played long ago but nothing kept on it: not a memory.
+            rediscoverCandidate("played", profile, albumRating = null).copy(ratedTrackCount = 0, ratingCoverage = 0f),
         )
         coEvery { repository.countNotes() } returns 0
 
         val viewModel = homeViewModel(repository, profile, nowMillis = { NOW })
         advanceUntilIdle()
 
+        fun expected(id: String, score: Float?, cover: String? = null, notes: Int = 0, ratedTracks: Int = 6) =
+            HomeRediscoverItem(
+                albumId = MediaId.subsonic(id),
+                albumName = "Album $id",
+                artistName = "Artist",
+                coverArtUrl = cover,
+                score = score,
+                scoreText = score?.let { "%.1f".format(java.util.Locale.US, it) },
+                scoreKind = if (score == null) MemoryScoreKind.NONE else MemoryScoreKind.ALBUM_RATING,
+                lastPlayedAt = NOW - 200 * DAY,
+                firstPlayedAt = NOW - 600 * DAY,
+                playCount = 23,
+                noteCount = notes,
+                ratedTrackCount = ratedTracks,
+            )
         assertEquals(
             listOf(
-                HomeRediscoverItem(
-                    albumId = MediaId.subsonic("stale"),
-                    albumName = "Album stale",
-                    artistName = "Artist",
-                    coverArtUrl = "https://x/stale",
-                    score = 9f,
-                    scoreText = "9.0",
-                    scoreKind = MemoryScoreKind.ALBUM_RATING,
-                    lastPlayedAt = NOW - 200 * DAY,
-                    firstPlayedAt = NOW - 600 * DAY,
-                    playCount = 23,
-                ),
+                expected("stale", 9f, cover = "https://x/stale"),
+                expected("low", 7.5f),
+                expected("noted", null, notes = 2, ratedTracks = 0),
             ),
             (viewModel.uiState.value as HomeUiState.Content).rediscover,
         )
@@ -834,6 +851,81 @@ class HomeViewModelTest {
             content.widgetGrid.single { it.target is HomeWidgetTarget.MemoryFocus }.stableId,
         )
         assertEquals(listOf("free"), content.rediscover.map { it.albumId.rawId })
+    }
+
+    @Test
+    fun should_leaveAlbumsAndSongsOutOfRediscover_when_recentlyAddedShowsThem() = runTest {
+        val profile = "subsonic-rd-recently-added"
+        val stamp = MutableStateFlow(0L)
+        val repository = memorySignalRepository(profile = profile, stamp = stamp)
+        // "fresh" was saved yesterday but hasn't played in Yoin for 200 days: it
+        // qualifies for both shelves, and Recently Added keeps it.
+        coEvery { repository.getAlbumMemoryCandidates(any(), any()) } returns listOf(
+            rediscoverCandidate("fresh", profile, albumRating = 9.5f),
+            rediscoverCandidate("free", profile, albumRating = 8f),
+        )
+        coEvery { repository.countNotes() } returns 0
+        val yesterday = Instant.now().minus(1, ChronoUnit.DAYS).toString()
+        coEvery { repository.getStarred() } returns Starred(
+            tracks = listOf(savedTrack("s-fresh", yesterday)),
+            albums = listOf(album("fresh", "Fresh").copy(addedAt = yesterday)),
+        )
+        val source = RediscoverSongSource { _, _, _, _ ->
+            listOf(
+                rediscoverSong("s-fresh", rating = 9f),
+                rediscoverSong("s-free", rating = 8.5f),
+            )
+        }
+
+        val viewModel = homeViewModel(repository, profile, nowMillis = { NOW }, rediscoverSongs = source)
+        advanceUntilIdle()
+
+        val content = viewModel.uiState.value as HomeUiState.Content
+        assertEquals(listOf("fresh"), content.recentlyAddedAlbums.map { it.id.rawId })
+        assertEquals(listOf("s-fresh"), content.recentlyAddedTracks.map { it.id.rawId })
+        val expected = listOf("rediscover-song:subsonic:s-free", "rediscover:subsonic:free")
+        assertEquals(expected, content.rediscover.map { it.shelfKey })
+
+        // A live memory tick re-picks against the Recently Added on screen.
+        stamp.value = 1L
+        advanceUntilIdle()
+
+        assertEquals(expected, (viewModel.uiState.value as HomeUiState.Content).rediscover.map { it.shelfKey })
+    }
+
+    @Test
+    fun should_leaveASongOutOfRediscover_when_recentlyAddedShowsItsAlbum() = runTest {
+        val profile = "subsonic-rd-recently-added-album-song"
+        val stamp = MutableStateFlow(0L)
+        val repository = memorySignalRepository(profile = profile, stamp = stamp)
+        // Device QA: with "fresh" off the shelf as an album, its noted track came
+        // back as a song card wearing the same cover Recently Added shows.
+        coEvery { repository.getAlbumMemoryCandidates(any(), any()) } returns listOf(
+            rediscoverCandidate("fresh", profile, albumRating = 9.5f),
+            rediscoverCandidate("free", profile, albumRating = 8f),
+        )
+        coEvery { repository.countNotes() } returns 0
+        val yesterday = Instant.now().minus(1, ChronoUnit.DAYS).toString()
+        coEvery { repository.getStarred() } returns Starred(
+            albums = listOf(album("fresh", "Fresh").copy(addedAt = yesterday)),
+        )
+        val source = RediscoverSongSource { _, _, _, _ ->
+            listOf(
+                rediscoverSong("s-in-fresh", rating = 9f, note = "winter tape", albumId = "fresh"),
+                rediscoverSong("s-free", rating = 8.5f),
+            )
+        }
+
+        val viewModel = homeViewModel(repository, profile, nowMillis = { NOW }, rediscoverSongs = source)
+        advanceUntilIdle()
+
+        val expected = listOf("rediscover-song:subsonic:s-free", "rediscover:subsonic:free")
+        assertEquals(expected, (viewModel.uiState.value as HomeUiState.Content).rediscover.map { it.shelfKey })
+
+        stamp.value = 1L
+        advanceUntilIdle()
+
+        assertEquals(expected, (viewModel.uiState.value as HomeUiState.Content).rediscover.map { it.shelfKey })
     }
 
     @Test
@@ -993,6 +1085,183 @@ class HomeViewModelTest {
     }
 
     @Test
+    fun should_mixSongsIntoRediscover_when_songSourceHasRatedAndNotedSongs() = runTest {
+        val profile = "subsonic-rd-songs"
+        val repository = memorySignalRepository(profile = profile)
+        coEvery { repository.getAlbumMemoryCandidates(any(), any()) } returns listOf(
+            rediscoverCandidate("a", profile, albumRating = 9f),
+            rediscoverCandidate("low", profile, albumRating = 6f),
+        )
+        coEvery { repository.countNotes() } returns 0
+        val loads = mutableListOf<List<Any>>()
+        val source = RediscoverSongSource { provider, profileId, playedBefore, limit ->
+            loads += listOf(provider, profileId, playedBefore, limit)
+            listOf(
+                rediscoverSong("s1", rating = 8f, albumId = "x", coverArtId = "cover-s1"),
+                rediscoverSong("s2", rating = null, note = "worth the wait", albumId = "y"),
+            )
+        }
+
+        val viewModel = homeViewModel(repository, profile, nowMillis = { NOW }, rediscoverSongs = source)
+        advanceUntilIdle()
+
+        val shelf = (viewModel.uiState.value as HomeUiState.Content).rediscover
+        assertEquals(
+            listOf(
+                "rediscover:subsonic:a",
+                "rediscover-song:subsonic:s1",
+                "rediscover:subsonic:low",
+                "rediscover-song:subsonic:s2",
+            ),
+            shelf.map { it.shelfKey },
+        )
+        val rated = shelf[1]
+        assertEquals(
+            HomeRediscoverItem(
+                albumId = MediaId.subsonic("x"),
+                albumName = "Album x",
+                artistName = "Artist",
+                coverArtUrl = null,
+                score = 8f,
+                scoreText = "8.0",
+                scoreKind = MemoryScoreKind.ALBUM_RATING,
+                lastPlayedAt = NOW - 150 * DAY,
+                firstPlayedAt = NOW - 400 * DAY,
+                playCount = 7,
+                noteCount = 0,
+                song = Track(
+                    id = MediaId.subsonic("s1"),
+                    title = "Song s1",
+                    artist = "Artist",
+                    artistId = null,
+                    album = "Album x",
+                    albumId = MediaId.subsonic("x"),
+                    coverArt = com.gpo.yoin.data.model.CoverRef.fromStorageKey("cover-s1"),
+                    durationSec = 200,
+                    trackNumber = null,
+                    year = null,
+                    genre = null,
+                    userRating = null,
+                ),
+            ),
+            rated,
+        )
+        assertEquals("Song s1", rated.title)
+        val noted = shelf[3]
+        assertNull(noted.score)
+        assertEquals(MemoryScoreKind.NONE, noted.scoreKind)
+        assertEquals("worth the wait", noted.noteSnippet)
+        assertEquals(listOf(listOf<Any>(MediaId.PROVIDER_SUBSONIC, profile, NOW - 90 * DAY, 64)), loads)
+    }
+
+    @Test
+    fun should_keepSongOffShelf_when_itsAlbumIsAnAlbumCard() = runTest {
+        val profile = "subsonic-rd-song-album"
+        val repository = memorySignalRepository(profile = profile)
+        coEvery { repository.getAlbumMemoryCandidates(any(), any()) } returns listOf(
+            rediscoverCandidate("a", profile, albumRating = 7f),
+        )
+        coEvery { repository.countNotes() } returns 0
+        val source = RediscoverSongSource { _, _, _, _ ->
+            listOf(rediscoverSong("from-a", rating = 9.5f, albumId = "a"), rediscoverSong("free", rating = 6f))
+        }
+
+        val viewModel = homeViewModel(repository, profile, nowMillis = { NOW }, rediscoverSongs = source)
+        advanceUntilIdle()
+
+        assertEquals(
+            listOf("rediscover:subsonic:a", "rediscover-song:subsonic:free"),
+            (viewModel.uiState.value as HomeUiState.Content).rediscover.map { it.shelfKey },
+        )
+    }
+
+    @Test
+    fun should_dropTheJbiNotedSong_when_itWouldComeBack() = runTest {
+        val profile = "subsonic-rd-song-noted"
+        val repository = memorySignalRepository(profile = profile)
+        coEvery { repository.getAlbumMemoryCandidates(any(), any()) } returns emptyList()
+        coEvery { repository.countNotes() } returns 1
+        // The grid's noted-track 1×2 is s2's newest note.
+        coEvery { repository.getRecentSongNotes(any()) } returns listOf(
+            SongNote(
+                id = "note-1",
+                profileId = profile,
+                trackId = "s2",
+                provider = MediaId.PROVIDER_SUBSONIC,
+                content = "worth the wait",
+                createdAt = 1L,
+                updatedAt = 1L,
+                title = "Song s2",
+                artist = "Artist",
+            ),
+        )
+        val source = RediscoverSongSource { _, _, _, _ ->
+            listOf(rediscoverSong("s1", rating = 8f), rediscoverSong("s2", rating = null, note = "worth the wait"))
+        }
+
+        val viewModel = homeViewModel(repository, profile, nowMillis = { NOW }, rediscoverSongs = source)
+        advanceUntilIdle()
+
+        assertEquals(
+            listOf("rediscover-song:subsonic:s1"),
+            (viewModel.uiState.value as HomeUiState.Content).rediscover.map { it.shelfKey },
+        )
+    }
+
+    @Test
+    fun should_removeSongCard_when_theSongOrItsAlbumPlays() = runTest {
+        val profile = "subsonic-rd-song-remove"
+        val plays = MutableStateFlow<PlayHistory?>(null)
+        val repository = memorySignalRepository(profile = profile, plays = plays)
+        coEvery { repository.getAlbumMemoryCandidates(any(), any()) } returns emptyList()
+        coEvery { repository.countNotes() } returns 0
+        val source = RediscoverSongSource { _, _, _, _ ->
+            listOf(
+                rediscoverSong("song-1", rating = 9f, albumId = "x"),
+                rediscoverSong("s-y", rating = 8f, albumId = "y"),
+                rediscoverSong("s-z", rating = 7f, albumId = "z"),
+            )
+        }
+        val viewModel = homeViewModel(repository, profile, nowMillis = { NOW }, rediscoverSongs = source)
+        advanceUntilIdle()
+        assertEquals(3, (viewModel.uiState.value as HomeUiState.Content).rediscover.size)
+
+        // play(id = 1) is song-1 itself; play(id = 2) is another track of album y.
+        plays.value = play(id = 1, albumId = "x", profile = profile, playedAt = NOW + 1_000L)
+        advanceUntilIdle()
+        plays.value = play(id = 2, albumId = "y", profile = profile, playedAt = NOW + 2_000L)
+        advanceUntilIdle()
+
+        assertEquals(
+            listOf("rediscover-song:subsonic:s-z"),
+            (viewModel.uiState.value as HomeUiState.Content).rediscover.map { it.shelfKey },
+        )
+        // A rebuild doesn't bring them back.
+        viewModel.refresh()
+        advanceUntilIdle()
+        assertEquals(
+            listOf("rediscover-song:subsonic:s-z"),
+            (viewModel.uiState.value as HomeUiState.Content).rediscover.map { it.shelfKey },
+        )
+    }
+
+    @Test
+    fun should_keepAlbumsOnShelf_when_songSourceFails() = runTest {
+        val profile = "subsonic-rd-song-fail"
+        val repository = memorySignalRepository(profile = profile)
+        coEvery { repository.getAlbumMemoryCandidates(any(), any()) } returns listOf(
+            rediscoverCandidate("a", profile, albumRating = 9f),
+        )
+        coEvery { repository.countNotes() } returns 0
+        val source = RediscoverSongSource { _, _, _, _ -> error("database closed") }
+
+        val viewModel = homeViewModel(repository, profile, nowMillis = { NOW }, rediscoverSongs = source)
+        advanceUntilIdle()
+
+        assertEquals(listOf("a"), rediscoverIds(viewModel))
+    }
+
+    @Test
     fun should_snapshotNewBadgesAndMarkSeen_when_editSessionStarts() = runTest {
         val profile = "subsonic-rd-badges"
         val repository = memorySignalRepository(profile = profile)
@@ -1068,12 +1337,38 @@ class HomeViewModelTest {
         },
         homeEditHintStore: HomeEditHintStore = HomeEditHintStore.InMemory(),
         nowMillis: () -> Long = System::currentTimeMillis,
+        rediscoverSongs: RediscoverSongSource = RediscoverSongSource.None,
     ): HomeViewModel = HomeViewModel(
         repository = repository,
         activeProfileId = MutableStateFlow(profile),
         homeLayoutStore = homeLayoutStore,
         homeEditHintStore = homeEditHintStore,
         nowMillis = nowMillis,
+        rediscoverSongs = rediscoverSongs,
+    )
+
+    /** A rated or noted song as the song source returns it: last played 150 days before [NOW], 7 plays. */
+    private fun rediscoverSong(
+        songId: String,
+        rating: Float?,
+        note: String? = null,
+        albumId: String = "album-of-$songId",
+        coverArtId: String? = null,
+    ): SongMemoryAggregate = SongMemoryAggregate(
+        songId = songId,
+        provider = MediaId.PROVIDER_SUBSONIC,
+        title = "Song $songId",
+        artist = "Artist",
+        album = "Album $albumId",
+        albumId = albumId,
+        coverArtId = coverArtId,
+        durationMs = 200_000L,
+        playCount = 7,
+        firstPlayedAt = NOW - 400 * DAY,
+        lastPlayedAt = NOW - 150 * DAY,
+        rating = rating,
+        noteCount = if (note != null) 1 else 0,
+        latestNote = note,
     )
 
     private fun rediscoverIds(viewModel: HomeViewModel): List<String> =

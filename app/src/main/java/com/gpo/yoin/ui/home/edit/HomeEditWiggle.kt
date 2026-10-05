@@ -35,6 +35,7 @@ import androidx.compose.ui.semantics.SemanticsPropertyReceiver
 import androidx.compose.ui.semantics.onLongClick
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.gpo.yoin.ui.home.HomeSection
 import com.gpo.yoin.ui.theme.YoinArtworkShapes
@@ -62,7 +63,15 @@ internal class HomeEditCardScope(
     val safeArea: () -> HomeEditSafeArea,
     /** 1 − lift while this section is lifted, 0 under its strip, else 1. */
     val liftGain: () -> Float,
-)
+    /** The edit-mode plate (HomePlateVariant.kt); the shipped V1 unless the debug harness says otherwise. */
+    val plate: HomePlateLook = HomePlateLook.Default,
+    /** This section's row resize (HomeRowsResize.kt); null for a section without presets, or outside Home. */
+    val rows: HomeRowsTrack? = null,
+    val rowsEngine: HomeRowsEngine? = null,
+) {
+    /** How far this block's content draws in on each side while editing (plate trial V2; else 0). Layout / draw. */
+    fun contentInset(): Dp = plate.contentInset { motion.ripple(section) }
+}
 
 internal val LocalHomeEditCardScope = compositionLocalOf<HomeEditCardScope?> { null }
 
@@ -97,15 +106,20 @@ private class HomeEditCardNode(private var index: Int) :
     LayoutAwareModifierNode,
     SemanticsModifierNode,
     ObserverModifierNode,
-    CompositionLocalConsumerModifierNode {
+    CompositionLocalConsumerModifierNode,
+    HomeEditCardSpot {
 
-    private var rectInBlock: Rect? = null
+    // The card's top in its block at its last placement: the wiggle's edge
+    // band reads it in draw. Taps resolve the rect afresh ([rectInBlock]).
+    private var placedRect: Rect? = null
+    private var placed: LayoutCoordinates? = null
     private var registeredIn: HomeEditCardScope? = null
     private var longClickScope: HomeEditCardScope? = null
 
+    override val cardIndex: Int get() = index
+
+    // The index is read at tap time, so a re-indexed card needs no re-registration.
     fun update(index: Int) {
-        if (index == this.index) return
-        unregister()
         this.index = index
     }
 
@@ -115,7 +129,8 @@ private class HomeEditCardNode(private var index: Int) :
 
     override fun onDetach() {
         unregister()
-        rectInBlock = null
+        placedRect = null
+        placed = null
         longClickScope = null
     }
 
@@ -141,25 +156,32 @@ private class HomeEditCardNode(private var index: Int) :
     }
 
     override fun onPlaced(coordinates: LayoutCoordinates) {
+        placed = coordinates
         val scope = currentValueOf(LocalHomeEditCardScope) ?: return
         val block = scope.blockCoordinates()?.takeIf { it.isAttached } ?: return
-        val rect = block.localBoundingBoxOf(coordinates, clipBounds = false)
-        if (registeredIn === scope && rect == rectInBlock) return
+        placedRect = block.localBoundingBoxOf(coordinates, clipBounds = false)
+        if (registeredIn === scope) return
         unregister()
-        rectInBlock = rect
         registeredIn = scope
-        scope.motion.registerCard(scope.section, index, rect)
+        scope.motion.registerCard(scope.section, this)
+    }
+
+    override fun rectInBlock(): Rect? {
+        if (!isAttached) return null
+        val scope = registeredIn ?: return null
+        val block = scope.blockCoordinates()?.takeIf { it.isAttached } ?: return null
+        val own = placed?.takeIf { it.isAttached } ?: return null
+        return block.localBoundingBoxOf(own, clipBounds = false)
     }
 
     private fun unregister() {
-        val rect = rectInBlock ?: return
-        registeredIn?.let { it.motion.unregisterCard(it.section, index, rect) }
+        registeredIn?.let { it.motion.unregisterCard(it.section, this) }
         registeredIn = null
     }
 
     override fun ContentDrawScope.draw() {
         val angle = currentValueOf(LocalHomeEditCardScope)
-            ?.cardWiggleDeg(index, size, topInBlock = rectInBlock?.top ?: 0f, density = this)
+            ?.cardWiggleDeg(index, size, topInBlock = placedRect?.top ?: 0f, density = this)
             ?: 0f
         if (angle == 0f) {
             drawContent()

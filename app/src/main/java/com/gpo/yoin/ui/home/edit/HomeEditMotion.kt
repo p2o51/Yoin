@@ -31,6 +31,14 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
 
+/** A card edit-mode taps can find ([HomeEditMotion.cardAt]): its index in its section and its rect now. */
+internal interface HomeEditCardSpot {
+    val cardIndex: Int
+
+    /** The card's rect in its block's px at this moment; null when it can't be resolved. Events only. */
+    fun rectInBlock(): Rect?
+}
+
 /** The page's safe area in Box px: below the status tide, above the bar (port sheet §3.4). */
 @Immutable
 internal data class HomeEditSafeArea(val top: Float, val bottom: Float)
@@ -385,7 +393,11 @@ internal class HomeEditMotion(
     // Card kicks appear as cards are tapped; a state map so a draw that found none is told.
     private val cardKicks = mutableStateMapOf<Int, Animatable<Float, AnimationVector1D>>()
     private val pulses = HomeSection.entries.associateWith { Animatable(1f) }
-    private val cardRects = HashMap<HomeSection, HashMap<Int, Rect>>()
+
+    // Per section, every card node that edit-mode taps can find. Keyed by the
+    // node, not its index: a row resize composes two stops whose cards share
+    // indices, and the stop that leaves must take only its own cards along.
+    private val cardSpots = HashMap<HomeSection, LinkedHashSet<HomeEditCardSpot>>()
 
     /** Normalised block kick (first peak = its amplitude). Draw only. */
     fun blockKick(section: HomeSection): Float = blockKicks.getValue(section).value
@@ -434,19 +446,23 @@ internal class HomeEditMotion(
         }
     }
 
-    /** A card's rect in its block's px, from `onPlaced`. A plain map: read at events only. */
-    fun registerCard(section: HomeSection, index: Int, rectInBlock: Rect) {
-        cardRects.getOrPut(section) { HashMap() }[index] = rectInBlock
+    /** A card of [section] taps can find (from `onPlaced`). A plain set: read at events only. */
+    fun registerCard(section: HomeSection, spot: HomeEditCardSpot) {
+        cardSpots.getOrPut(section) { LinkedHashSet() } += spot
     }
 
-    fun unregisterCard(section: HomeSection, index: Int, rectInBlock: Rect) {
-        val cards = cardRects[section] ?: return
-        if (cards[index] == rectInBlock) cards.remove(index)
+    fun unregisterCard(section: HomeSection, spot: HomeEditCardSpot) {
+        cardSpots[section]?.remove(spot)
     }
 
-    /** The card under [posInBlock], for an edit-mode tap. */
+    /**
+     * The card under [posInBlock], for an edit-mode tap. Each card's rect is
+     * resolved now, not remembered from its last placement: a card that
+     * settled under a row-resize layer was placed mid-transform, and its
+     * layer moved it since without placing it again.
+     */
     fun cardAt(section: HomeSection, posInBlock: Offset): Int? =
-        cardRects[section]?.entries?.firstOrNull { it.value.contains(posInBlock) }?.key
+        cardSpots[section]?.firstOrNull { spot -> spot.rectInBlock()?.contains(posInBlock) == true }?.cardIndex
 
     // ── Hide and show (§5.1–5.3) ──────────────────────────────────────────
 

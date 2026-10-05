@@ -242,7 +242,12 @@ private class SpringHeightNode(
         }
         measuredKey = key
         // Reading the Animatable here re-lays (never recomposes) while it runs.
-        val offset = if (enabled) pendingGap ?: gap.value else 0f
+        // Read it on EVERY pass — also the seeding one, where pendingGap wins:
+        // a measure that skipped it subscribed to nothing, so the spring ran
+        // unseen and the section kept the old height (Jump Back In's template
+        // landing after a profile switch left Recently Added drawn over it).
+        val running = gap.value
+        val offset = if (enabled) pendingGap ?: running else 0f
         val shown = (content + offset).coerceAtLeast(0f)
         lastShown = shown
         return layout(placeable.width, constraints.constrainHeight(shown.roundToInt())) {

@@ -7,11 +7,17 @@ import com.gpo.yoin.AppContainer
 import com.gpo.yoin.data.home.HomeLayoutStore
 import com.gpo.yoin.data.local.ActivityEntityType
 import com.gpo.yoin.data.local.ActivityEvent
+import com.gpo.yoin.data.local.SongMemoryAggregate
 import com.gpo.yoin.data.memory.AlbumMemoryCandidate
+import com.gpo.yoin.data.memory.REDISCOVER_AWAY_MS
 import com.gpo.yoin.data.memory.RediscoverPick
+import com.gpo.yoin.data.memory.RediscoverSongPick
+import com.gpo.yoin.data.memory.RediscoverSongSource
 import com.gpo.yoin.data.memory.deterministicMemoryTitle
 import com.gpo.yoin.data.memory.memoryEligible
 import com.gpo.yoin.data.memory.selectRediscover
+import com.gpo.yoin.data.memory.selectRediscoverShelf
+import com.gpo.yoin.data.memory.selectRediscoverSongs
 import com.gpo.yoin.data.model.Album
 import com.gpo.yoin.data.model.CoverRef
 import com.gpo.yoin.data.model.MediaId
@@ -60,6 +66,9 @@ class HomeViewModel(
     private val homeEditHintStore: HomeEditHintStore = HomeEditHintStore.InMemory(),
     // Rediscover's clock (the 90-day rule, plays observed since subscription).
     private val nowMillis: () -> Long = System::currentTimeMillis,
+    // Rediscover's songs (rated / noted tracks with their Yoin history). The
+    // Factory reads Room directly until YoinRepository grows a twin.
+    private val rediscoverSongs: RediscoverSongSource = RediscoverSongSource.None,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow<HomeUiState>(HomeUiState.Loading)
@@ -78,10 +87,11 @@ class HomeViewModel(
     // refresh repaints), and a tick must never graft one profile onto another.
     private var contentScopeKey: String? = null
 
-    // Albums played since this VM started, per provider|profile: Rediscover
-    // drops them, so a candidate build that began before the play can't put a
-    // removed card back.
+    // Albums and songs played since this VM started, per provider|profile:
+    // Rediscover drops them (and the songs of those albums), so a build that
+    // began before the play can't put a removed card back.
     private val playedRediscoverRawIds = mutableMapOf<String, MutableSet<String>>()
+    private val playedRediscoverSongRawIds = mutableMapOf<String, MutableSet<String>>()
 
     /**
      * The active profile's home layout (which sections show, in what order),
@@ -261,7 +271,7 @@ class HomeViewModel(
                 recentlyAddedTracks = recentlyAdded.tracks,
                 recentlyAddedAlbums = recentlyAdded.albums,
                 memoryPill = pill,
-                rediscover = rediscoverFor(signals, widgetGrid, pill, cachedRediscover()),
+                rediscover = rediscoverFor(signals, widgetGrid, pill, recentlyAdded, cachedRediscover()),
             )
         }
 
@@ -320,7 +330,8 @@ class HomeViewModel(
                 activities = activities,
                 widgetGrid = widgetGrid,
                 memoryPill = pill,
-                rediscover = rediscoverFor(signals, widgetGrid, pill, cachedRediscover()),
+                // Pre-paint: no Recently Added yet, so nothing of it to dedupe against.
+                rediscover = rediscoverFor(signals, widgetGrid, pill, RecentlyAdded(), cachedRediscover()),
             )
         }
     }
@@ -347,7 +358,7 @@ class HomeViewModel(
             recentlyAddedTracks = recentlyAdded.tracks,
             recentlyAddedAlbums = recentlyAdded.albums,
             memoryPill = pill,
-            rediscover = rediscoverFor(signals, widgetGrid, pill, cachedRediscover()),
+            rediscover = rediscoverFor(signals, widgetGrid, pill, recentlyAdded, cachedRediscover()),
         )
     }
 
@@ -469,7 +480,13 @@ class HomeViewModel(
                     val nextGrid = if (latest.widgetGrid == currentContent.widgetGrid) refreshedGrid else latest.widgetGrid
                     // Picked against the grid and pill being published, so its
                     // dedupe always matches what's on screen.
-                    val refreshedRediscover = rediscoverFor(signals, nextGrid, refreshedPill, latest.rediscover)
+                    val refreshedRediscover = rediscoverFor(
+                        signals = signals,
+                        grid = nextGrid,
+                        pill = refreshedPill,
+                        recentlyAdded = RecentlyAdded(latest.recentlyAddedTracks, latest.recentlyAddedAlbums),
+                        fallback = latest.rediscover,
+                    )
                     if (
                         nextGrid == latest.widgetGrid &&
                         refreshedPill == latest.memoryPill &&
@@ -489,29 +506,36 @@ class HomeViewModel(
     }
 
     /**
-     * Take a Rediscover card off the shelf once its album plays. Watches the
-     * newest play_history row on its own (folding it into the memory stamp
-     * would rebuild every candidate on each track change) and only acts on
-     * plays from subscription on: the row that exists already may be months
-     * old, and for a returning user its album can rightly be on the shelf.
-     * Goes through [emit], so a removal queues while Home is being edited.
+     * Take a Rediscover card off the shelf once it plays: an album card when
+     * any of its tracks plays, a song card when the song or its album does.
+     * Watches the newest play_history row on its own (folding it into the
+     * memory stamp would rebuild every candidate on each track change) and
+     * only acts on plays from subscription on: the row that exists already
+     * may be months old, and for a returning user its card can rightly be on
+     * the shelf. Goes through [emit], so a removal queues while Home is being
+     * edited.
      */
     private fun observeRediscoverRemovals() {
         viewModelScope.launch {
             val observedSince = nowMillis()
             repository.observeMostRecentPlay()
                 .filterNotNull()
-                .filter { play -> play.playedAt >= observedSince && play.albumId.isNotBlank() }
+                .filter { play -> play.playedAt >= observedSince }
                 .collect { play ->
                     val scopeKey = homeScopeKey(play.provider, play.profileId)
-                    val rawAlbumId = MediaId.storedRawId(play.provider, play.albumId)
-                    playedRediscoverRawIds.getOrPut(scopeKey) { mutableSetOf() } += rawAlbumId
+                    val rawAlbumId = play.albumId.takeIf(String::isNotBlank)
+                        ?.let { albumId -> MediaId.storedRawId(play.provider, albumId) }
+                    val rawSongId = play.songId.takeIf(String::isNotBlank)
+                        ?.let { songId -> MediaId.storedRawId(play.provider, songId) }
+                    rawAlbumId?.let { playedRediscoverRawIds.getOrPut(scopeKey) { mutableSetOf() } += it }
+                    rawSongId?.let { playedRediscoverSongRawIds.getOrPut(scopeKey) { mutableSetOf() } += it }
                     if (contentScopeKey != scopeKey) return@collect
                     val latest = currentContent() ?: return@collect
-                    if (latest.rediscover.none { item -> item.albumId.rawId == rawAlbumId }) return@collect
-                    val nextContent = latest.copy(
-                        rediscover = latest.rediscover.filterNot { item -> item.albumId.rawId == rawAlbumId },
-                    )
+                    val played = { item: HomeRediscoverItem ->
+                        item.playedBy(setOfNotNull(rawAlbumId), setOfNotNull(rawSongId))
+                    }
+                    if (latest.rediscover.none(played)) return@collect
+                    val nextContent = latest.copy(rediscover = latest.rediscover.filterNot(played))
                     homeContentCache[scopeKey] = nextContent
                     emit(nextContent)
                 }
@@ -519,28 +543,85 @@ class HomeViewModel(
     }
 
     /**
-     * Rediscover for the content about to publish. Dedupes against what that
-     * content shows — the grid's memory 1×2 and the pill's latest — and drops
-     * albums played this session. A null [signals] (unscoped / failed build)
-     * keeps [fallback], minus anything played since.
+     * Rediscover for the content about to publish: album and song cards on
+     * one shelf ([selectRediscoverShelf]). Dedupes against what that content
+     * shows — the grid's memory 1×2 and the pill's latest album, the grid's
+     * noted-track 1×2 song, and every album and track [recentlyAdded] loaded
+     * (the shelf seats 12–20 of them by width; the ViewModel can't tell which,
+     * so all of them) — and drops what played this session (a played album
+     * takes its songs along). A null [signals] (unscoped / failed build) keeps
+     * [fallback], minus anything played since or now in Recently Added.
      */
     private fun rediscoverFor(
         signals: MemorySignals?,
         grid: List<HomeWidgetCard>,
         pill: HomeMemoryPill?,
+        recentlyAdded: RecentlyAdded,
         fallback: List<HomeRediscoverItem>,
     ): List<HomeRediscoverItem> {
-        val played = playedRediscoverRawIds[homeScopeKey(repository.currentProviderId(), activeProfileId.value)]
-            .orEmpty()
-        if (signals == null) return fallback.filterNot { item -> item.albumId.rawId in played }
+        val scopeKey = homeScopeKey(repository.currentProviderId(), activeProfileId.value)
+        val playedAlbums = playedRediscoverRawIds[scopeKey].orEmpty()
+        val playedSongs = playedRediscoverSongRawIds[scopeKey].orEmpty()
+        val addedAlbums = recentlyAdded.albums.mapTo(HashSet()) { album -> album.id.rawId }
+        val addedTracks = recentlyAdded.tracks.mapTo(HashSet()) { track -> track.id.rawId }
+        if (signals == null) {
+            return fallback.filterNot { item ->
+                item.playedBy(playedAlbums, playedSongs) || item.shownIn(addedAlbums, addedTracks)
+            }
+        }
         val exclude = buildSet {
             grid.firstOrNull { it.target is HomeWidgetTarget.MemoryFocus }
                 ?.let(::memoryCardAlbumId)
                 ?.let { add(it.rawId) }
             pill?.latest?.albumId?.rawId?.let(::add)
-            addAll(played)
+            addAll(addedAlbums)
+            addAll(playedAlbums)
         }
-        return selectRediscover(signals.pool, nowMillis(), exclude).mapNotNull(::toRediscoverItem)
+        val notedSong = grid.firstNotNullOfOrNull { card ->
+            (card.target as? HomeWidgetTarget.PlaySong)?.song?.id?.rawId?.takeIf { card.expanded }
+        }
+        val now = nowMillis()
+        val albums = selectRediscover(signals.pool, now, exclude, limit = Int.MAX_VALUE)
+        val songs = selectRediscoverSongs(
+            songs = signals.songs,
+            nowMillis = now,
+            excludeRawSongIds = playedSongs + addedTracks + listOfNotNull(notedSong),
+            // A song card wears its album's cover and name: one whose album
+            // Recently Added shows is that album twice on the page.
+            excludeRawAlbumIds = playedAlbums + addedAlbums,
+        )
+        return selectRediscoverShelf(albums, songs).mapNotNull { entry ->
+            when (entry) {
+                is RediscoverPick -> toRediscoverItem(entry)
+                is RediscoverSongPick -> toRediscoverSongItem(entry)
+            }
+        }
+    }
+
+    /** A Rediscover song pick as a card, its track rebuilt from play history so a tap can play it. */
+    private fun toRediscoverSongItem(pick: RediscoverSongPick): HomeRediscoverItem? {
+        val song = pick.song
+        if (song.songId.isBlank() || song.provider.isBlank()) return null
+        val track = song.toTrack()
+        return HomeRediscoverItem(
+            // MediaId never holds a blank id: an album-less song stands in for itself.
+            albumId = track.albumId ?: track.id,
+            albumName = song.album,
+            artistName = song.artist.takeIf(String::isNotBlank),
+            coverArtUrl = repository.resolveCoverUrl(track.coverArt, size = 480)
+                ?: track.albumId?.takeIf { it.provider == MediaId.PROVIDER_SUBSONIC }
+                    ?.let { repository.resolveCoverUrl(CoverRef.SourceRelative(it.rawId), size = 480) },
+            score = pick.score,
+            scoreText = pick.score?.let(::rediscoverScoreText),
+            // Your own track rating: the solid sticker.
+            scoreKind = if (pick.score == null) MemoryScoreKind.NONE else MemoryScoreKind.ALBUM_RATING,
+            lastPlayedAt = pick.lastPlayedAt,
+            firstPlayedAt = song.firstPlayedAt,
+            playCount = song.playCount,
+            noteCount = song.noteCount,
+            song = track,
+            noteSnippet = song.latestNote?.takeIf(String::isNotBlank),
+        )
     }
 
     /**
@@ -716,6 +797,15 @@ class HomeViewModel(
         }
         val candidates = pool.memoryEligible(MEMORY_CANDIDATE_LIMIT)
         val noteCount = guardedOrNull { repository.countNotes() } ?: return null
+        // Songs are Rediscover's alone: a failed read just leaves them out.
+        val songs = guardedList {
+            rediscoverSongs.load(
+                provider = providerId,
+                profileId = profileId,
+                playedBefore = nowMillis() - REDISCOVER_AWAY_MS,
+                limit = REDISCOVER_SONG_QUERY_LIMIT,
+            )
+        }
         if (!matchesCurrentScope(providerId, profileId)) return null
         val pill = buildHomeMemoryPill(candidates, noteCount, scope = homeScopeKey(providerId, profileId))
         val memoryCard = pickJbiMemoryCandidate(
@@ -723,7 +813,7 @@ class HomeViewModel(
             avoidRawAlbumId = pill.latest?.albumId?.rawId,
             preferRawAlbumId = preferJbiRawAlbumId,
         )?.let { candidate -> toMemoryCard(candidate) }
-        return MemorySignals(pill = pill, memoryCard = memoryCard, pool = pool)
+        return MemorySignals(pill = pill, memoryCard = memoryCard, pool = pool, songs = songs)
     }
 
     /** The album a memory 1×2 points at, recovered from its stable id. */
@@ -953,17 +1043,19 @@ class HomeViewModel(
                 activeProfileId = container.profileManager.activeProfileId,
                 homeLayoutStore = container.homeLayoutStore,
                 homeEditHintStore = container.homeEditHintStore,
+                rediscoverSongs = RediscoverSongSource.of(container.database.playHistoryDao()),
             ) as T
     }
 
     private companion object {
         // The widget grid: at most two wide signal cards (so at most two
-        // cards ever do the extra review/note lookups) plus up to 24 covers.
-        // A phone shows the first 12 cells (trimToPhoneShelf: the 3 × 4
-        // shelf, unchanged); a tablet template seats as many as its phone-
-        // sized columns take — 10 columns × 3 rows with no signal cards and
-        // two 2×2 features is the deepest, 24 covers (HomeJbiTemplate.kt).
-        private const val GRID_MAX_COMPACTS = 24
+        // cards ever do the extra review/note lookups) plus up to 28 covers.
+        // A phone shows the first 12 cells at the default row preset
+        // (trimToPhoneShelf: the 3 × 4 shelf, unchanged) and 14 covers at XL
+        // (6 rows); a tablet template seats as many as its phone-sized
+        // columns take — 10 columns × 3 rows at XL (D1 row presets) less the
+        // two signal cards is the deepest, 26 covers (HomeRowPresets.kt).
+        private const val GRID_MAX_COMPACTS = 28
 
         // Recent activities the feed keeps (unique entities, songs included —
         // the bento drops songs). The widest unit bento seats 13 plus a hero,
@@ -976,21 +1068,26 @@ class HomeViewModel(
         // seeds either way; only the final take() differs.
         private const val MEMORY_CANDIDATE_LIMIT = 48
 
+        // Rediscover songs read per build, already in shelf order: room for
+        // the shelf after the songs whose album is on it drop out.
+        private const val REDISCOVER_SONG_QUERY_LIMIT = 64
+
         // Persisted pool sizes (enough for GRID_MAX_COMPACTS covers even when
         // dedup bites and a library is short on playlists) and the rotation
         // cadence: the shelf re-rolls at most every 6 hours, otherwise it
         // reads from disk with zero network.
-        private const val GRID_POOL_ALBUMS = 12
-        private const val GRID_POOL_TRACKS = 8
-        private const val GRID_POOL_PLAYLISTS = 8
+        private const val GRID_POOL_ALBUMS = 14
+        private const val GRID_POOL_TRACKS = 10
+        private const val GRID_POOL_PLAYLISTS = 10
         private const val GRID_POOLS_TTL_MS = 6L * 60L * 60L * 1000L
 
         // "Recently Added" home shelf: library items added within the last week.
-        // Tracks fill a fixed 2×2 grid (4 cells); albums scroll horizontally, so
-        // they get a deeper cap.
+        // Loaded deep enough for the widest feed (4 × 2 tracks, 20 albums); the
+        // section takes what its width seats (HomeFeedDensity), so a phone still
+        // shows the newest 4 tracks and 12 albums.
         private const val RECENTLY_ADDED_WINDOW_MS = 7L * 24 * 60 * 60 * 1000
-        private const val RECENTLY_ADDED_TRACK_LIMIT = 4
-        private const val RECENTLY_ADDED_ALBUM_LIMIT = 12
+        private const val RECENTLY_ADDED_TRACK_LIMIT = RecentlyAddedMaxTracks
+        private const val RECENTLY_ADDED_ALBUM_LIMIT = RecentlyAddedMaxAlbums
 
         // Coalesces activity-event bursts (track skips, detail visits) before
         // rebuilding the live activities feed.
@@ -1026,13 +1123,45 @@ private fun parseAddedAtMillis(addedAt: String?): Long? {
 
 /**
  * The shared memory read: header pill + the grid's memory 1×2 (card, album
- * id), plus the whole candidate build (ineligible albums included) that
- * Rediscover picks from.
+ * id), plus the whole candidate build (ineligible albums included) and the
+ * rated / noted songs that Rediscover picks from.
  */
 private data class MemorySignals(
     val pill: HomeMemoryPill,
     val memoryCard: Pair<HomeWidgetCard, MediaId?>?,
     val pool: List<AlbumMemoryCandidate> = emptyList(),
+    val songs: List<SongMemoryAggregate> = emptyList(),
+)
+
+/** Whether [this] card played: an album card's album, a song card's song or its album. Raw ids. */
+private fun HomeRediscoverItem.playedBy(playedAlbums: Set<String>, playedSongs: Set<String>): Boolean {
+    val track = song ?: return albumId.rawId in playedAlbums
+    return track.id.rawId in playedSongs || track.albumId?.rawId?.let { it in playedAlbums } == true
+}
+
+/**
+ * Whether Recently Added shows [this] card already: an album card's album, a
+ * song card's song or its album (the card wears that album's cover). Raw ids.
+ */
+private fun HomeRediscoverItem.shownIn(albums: Set<String>, tracks: Set<String>): Boolean {
+    val track = song ?: return albumId.rawId in albums
+    return track.id.rawId in tracks || track.albumId?.rawId?.let { it in albums } == true
+}
+
+/** The history's track, enough to play it alone (the noted-track 1×2 rebuilds its song the same way). */
+private fun SongMemoryAggregate.toTrack(): Track = Track(
+    id = MediaId(provider, MediaId.storedRawId(provider, songId)),
+    title = title,
+    artist = artist.takeIf(String::isNotBlank),
+    artistId = null,
+    album = album.takeIf(String::isNotBlank),
+    albumId = albumId.takeIf(String::isNotBlank)?.let { MediaId(provider, MediaId.storedRawId(provider, it)) },
+    coverArt = CoverRef.fromStorageKey(coverArtId),
+    durationSec = durationMs.takeIf { it > 0L }?.let { (it / 1000L).toInt() },
+    trackNumber = null,
+    year = null,
+    genre = null,
+    userRating = null,
 )
 
 /** A Rediscover pick as a card; null when the album has no usable raw id. */
@@ -1046,16 +1175,19 @@ private fun toRediscoverItem(pick: RediscoverPick): HomeRediscoverItem? {
         artistName = candidate.artistName?.takeIf { it.isNotBlank() },
         coverArtUrl = candidate.coverArtUrl,
         score = pick.score,
-        scoreText = rediscoverScoreText(pick.score),
+        scoreText = pick.score?.let(::rediscoverScoreText),
         // rediscoverScore's own order: a set album rating wins.
-        scoreKind = if ((candidate.albumRating ?: 0f) > 0f) {
-            MemoryScoreKind.ALBUM_RATING
-        } else {
-            MemoryScoreKind.AVERAGE_TRACK_RATING
+        scoreKind = when {
+            pick.score == null -> MemoryScoreKind.NONE
+            (candidate.albumRating ?: 0f) > 0f -> MemoryScoreKind.ALBUM_RATING
+            else -> MemoryScoreKind.AVERAGE_TRACK_RATING
         },
         lastPlayedAt = pick.lastPlayedAt,
         firstPlayedAt = candidate.firstPlayedFromHistoryAt,
         playCount = candidate.playCountFromHistory,
+        hasReview = candidate.hasAlbumReview,
+        noteCount = candidate.noteCount,
+        ratedTrackCount = candidate.ratedTrackCount,
     )
 }
 

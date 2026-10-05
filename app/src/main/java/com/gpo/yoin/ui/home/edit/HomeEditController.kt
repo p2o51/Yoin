@@ -19,6 +19,7 @@ import com.gpo.yoin.ui.experience.HomeSurface
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
 import com.gpo.yoin.ui.home.HomeEditSessionHints
 import com.gpo.yoin.ui.home.HomeLayout
+import com.gpo.yoin.ui.home.HomeRowPreset
 import com.gpo.yoin.ui.home.HomeSection
 import com.gpo.yoin.ui.home.HomeViewModel
 import com.gpo.yoin.ui.navigation.YoinSection
@@ -247,6 +248,14 @@ class HomeEditController(
             val to = from + delta
             if (from < 0 || to !in enabled.indices) layout else layout.moved(section, to)
         }
+
+    /**
+     * [section] at row preset [rows] (D1). Persisted at once, one Undo step;
+     * no haptic of its own — the resize plays CONFIRM on a drop, SEGMENT_TICK
+     * on a key or TalkBack step. False when nothing changed.
+     */
+    fun setRows(section: HomeSection, rows: HomeRowPreset): Boolean =
+        change(HomeEditChangeKind.Rows, section, haptic = {}) { it.withRows(section, rows) }
 
     /** A carry dropped. Confirms only when the order changed; runs mid-carry by design. */
     fun commitOrder(enabledOrder: List<HomeSection>): Boolean =

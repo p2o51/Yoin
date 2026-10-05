@@ -1,6 +1,7 @@
 package com.gpo.yoin.ui.home
 
 import com.gpo.yoin.data.model.MediaId
+import com.gpo.yoin.data.model.Track
 import com.gpo.yoin.ui.memories.MemoryScoreKind
 import java.time.LocalDate
 import java.time.ZoneId
@@ -46,10 +47,44 @@ class RediscoverCopyTest {
             val item = item(score = 9f, lastPlayedAt = now - 214 * day)
 
             assertEquals("9.0", item.scoreText)
-            assertEquals("Rated 9.0 · Not played in Yoin for 7 months", rediscoverEyebrow(item, now))
+            assertEquals("Your rating 9.0", rediscoverBadgeDescription(item.scoreText!!, item.scoreKind))
         } finally {
             Locale.setDefault(original)
         }
+    }
+
+    @Test
+    fun should_leaveScoreToBadge_when_itemHasScore() {
+        val item = item(score = 8.4f, lastPlayedAt = now - 214 * day).copy(hasReview = true, noteCount = 3)
+
+        assertEquals("Not played in Yoin for 7 months", rediscoverEyebrow(item, now))
+    }
+
+    @Test
+    fun should_leadWithTheMemory_when_itemHasNoScore() {
+        val unscored = item(score = null, lastPlayedAt = now - 214 * day)
+
+        assertEquals(
+            "Reviewed · Not played in Yoin for 7 months",
+            rediscoverEyebrow(unscored.copy(hasReview = true, noteCount = 3, ratedTrackCount = 2), now),
+        )
+        assertEquals("3 notes · Not played in Yoin for 7 months", rediscoverEyebrow(unscored.copy(noteCount = 3), now))
+        assertEquals("1 note · Not played in Yoin for 7 months", rediscoverEyebrow(unscored.copy(noteCount = 1), now))
+        assertEquals(
+            "2 tracks rated · Not played in Yoin for 7 months",
+            rediscoverEyebrow(unscored.copy(ratedTrackCount = 2), now),
+        )
+        assertEquals(
+            "1 track rated · Not played in Yoin for 7 months",
+            rediscoverEyebrow(unscored.copy(ratedTrackCount = 1), now),
+        )
+        assertEquals("Not played in Yoin for 7 months", rediscoverEyebrow(unscored, now))
+    }
+
+    @Test
+    fun should_nameTheScoreKind_when_describingBadge() {
+        assertEquals("Your rating 9.0", rediscoverBadgeDescription("9.0", MemoryScoreKind.ALBUM_RATING))
+        assertEquals("Track average 8.4", rediscoverBadgeDescription("8.4", MemoryScoreKind.AVERAGE_TRACK_RATING))
     }
 
     @Test
@@ -75,14 +110,76 @@ class RediscoverCopyTest {
         assertNull(rediscoverFootnote(null, 0))
     }
 
-    private fun item(score: Float, lastPlayedAt: Long) = HomeRediscoverItem(
+    @Test
+    fun should_leaveTheMemoryToTheSnippet_when_itemIsASong() {
+        val noted = song(score = null).copy(noteCount = 3, noteSnippet = "kept")
+
+        assertEquals("Not played in Yoin for 7 months", rediscoverEyebrow(noted, now))
+        assertNull(rediscoverReason(noted))
+    }
+
+    @Test
+    fun should_joinArtistAndAlbum_when_formattingSongSubtitle() {
+        assertEquals("Ena · Long Way Round", rediscoverSongSubtitle(song(score = 8f)))
+        assertEquals("Ena", rediscoverSongSubtitle(song(score = 8f).copy(albumName = "")))
+        assertEquals("Long Way Round", rediscoverSongSubtitle(song(score = 8f).copy(artistName = null)))
+        assertNull(rediscoverSongSubtitle(song(score = 8f).copy(artistName = " ", albumName = "")))
+    }
+
+    @Test
+    fun should_titleAndKeyBySong_when_itemIsASong() {
+        val song = song(score = 8f)
+        val album = item(score = 8f, lastPlayedAt = now)
+
+        assertEquals("Paper Kites", song.title)
+        assertEquals("Emotion", album.title)
+        assertEquals("rediscover-song:subsonic:s1", song.shelfKey)
+        assertEquals("rediscover:subsonic:a1", album.shelfKey)
+    }
+
+    @Test
+    fun should_mentionSongs_when_rediscoverPlaceholderShows() {
+        assertEquals(
+            "Albums and songs you rated or wrote about come back here when it's been a while",
+            RediscoverPlaceholderText,
+        )
+    }
+
+    private fun song(score: Float?) = HomeRediscoverItem(
+        albumId = MediaId.subsonic("album-s1"),
+        albumName = "Long Way Round",
+        artistName = "Ena",
+        coverArtUrl = null,
+        score = score,
+        scoreText = score?.let(::rediscoverScoreText),
+        scoreKind = if (score == null) MemoryScoreKind.NONE else MemoryScoreKind.ALBUM_RATING,
+        lastPlayedAt = now - 214 * day,
+        firstPlayedAt = null,
+        playCount = 0,
+        song = Track(
+            id = MediaId.subsonic("s1"),
+            title = "Paper Kites",
+            artist = "Ena",
+            artistId = null,
+            album = "Long Way Round",
+            albumId = MediaId.subsonic("album-s1"),
+            coverArt = null,
+            durationSec = 200,
+            trackNumber = null,
+            year = null,
+            genre = null,
+            userRating = null,
+        ),
+    )
+
+    private fun item(score: Float?, lastPlayedAt: Long) = HomeRediscoverItem(
         albumId = MediaId.subsonic("a1"),
         albumName = "Emotion",
         artistName = "Carly Rae Jepsen",
         coverArtUrl = null,
         score = score,
-        scoreText = rediscoverScoreText(score),
-        scoreKind = MemoryScoreKind.ALBUM_RATING,
+        scoreText = score?.let(::rediscoverScoreText),
+        scoreKind = if (score == null) MemoryScoreKind.NONE else MemoryScoreKind.ALBUM_RATING,
         lastPlayedAt = lastPlayedAt,
         firstPlayedAt = null,
         playCount = 0,

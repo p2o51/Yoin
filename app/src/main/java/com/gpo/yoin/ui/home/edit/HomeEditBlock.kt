@@ -100,6 +100,10 @@ internal class HomeEditDeps(
     val engine: HomeCarryEngine,
     val targets: HomeEditTargets,
     val specs: HomeEditSpecs,
+    /** The edit-mode plate (HomePlateVariant.kt): the shipped V1 unless the debug harness says otherwise. */
+    val plate: HomePlateLook = HomePlateLook.Default,
+    /** The row resize (HomeRowsResize.kt); null in previews and tests that don't need it. */
+    val rows: HomeRowsEngine? = null,
 )
 
 /**
@@ -133,11 +137,13 @@ internal fun HomeEditBlock(
     val motion = deps.motion
     val press = deps.press
     val engine = deps.engine
-    val outsetV = plateOutsetVDp(itemSpacing.value).dp
+    val look = deps.plate
     val blockTop by rememberUpdatedState(blockTopInBox)
     val safe by rememberUpdatedState(safeArea)
     val blockContent = remember { BlockContent() }
-    val cardScope = remember(section, controller, motion, engine) {
+    val rowsEngine = deps.rows
+    val rowsTrack = rowsEngine?.track(section)
+    val cardScope = remember(section, controller, motion, engine, look, rowsEngine) {
         HomeEditCardScope(
             section = section,
             motion = motion,
@@ -147,12 +153,17 @@ internal fun HomeEditBlock(
             blockCoordinates = { blockContent.coordinates },
             safeArea = { safe() },
             liftGain = {
-                when {
+                val gain = when {
                     engine.session?.carried == section -> 0f
                     engine.liftSection == section -> 1f - engine.lift.value.coerceIn(0f, 1f)
                     else -> 1f
                 }
+                // The block being resized holds still under its handle.
+                gain * (rowsTrack?.wiggleGain?.value?.coerceIn(0f, 1f) ?: 1f)
             },
+            plate = look,
+            rows = rowsTrack,
+            rowsEngine = rowsEngine,
         )
     }
     val editing = controller.isEditing
@@ -164,23 +175,45 @@ internal fun HomeEditBlock(
 
     val density = LocalDensity.current
     val wiggle = if (wholeBlockWiggle) {
-        val hPx = with(density) { HomeEditTokens.PlateOutsetH.toPx() }
-        val vPx = with(density) { outsetV.toPx() }
         Modifier.homeEditBlockWiggle(cardScope) {
-            blockContent.size?.let { Size(it.width + 2f * hPx, it.height + 2f * vPx) } ?: Size.Zero
+            blockContent.size?.let {
+                val hPx = with(density) { (look.plateOutsetH() + cardScope.contentInset()).toPx() }
+                val vPx = with(density) { look.outsetV(itemSpacing).toPx() }
+                Size(it.width + 2f * hPx, it.height + 2f * vPx)
+            } ?: Size.Zero
         }
     } else {
         Modifier
     }
+    // Rows (D1): the preset's row count on this screen, and the steps it has.
+    val resizable = rowsTrack != null && !placeholder && !wholeBlockWiggle && rowsTrack.stopCount > 1
+    val rowCount = if (resizable) rowsTrack?.rowCounts?.getOrNull(rowsTrack.restStop) else null
+    val canMoreRows = resizable && rowsEngine?.canStep(section, 1) == true
+    val canFewerRows = resizable && rowsEngine?.canStep(section, -1) == true
     // Remembered: a new semantics block on every recomposition would be a semantics change each time.
-    val talkBack = remember(editing, section, displayIndex, displayCount, controller) {
+    val talkBack = remember(
+        editing,
+        section,
+        displayIndex,
+        displayCount,
+        controller,
+        rowCount,
+        canMoreRows,
+        canFewerRows,
+    ) {
         if (editing) {
             Modifier.semantics(mergeDescendants = true) {
-                stateDescription = "Section ${displayIndex + 1} of $displayCount"
+                // A step's new count is read out as the block's state changes.
+                stateDescription = "Section ${displayIndex + 1} of $displayCount" +
+                    (rowCount?.let { ", ${homeRowsLabel(it)}" } ?: "")
                 customActions = buildList {
                     if (displayIndex > 0) add(CustomAccessibilityAction(MoveUpLabel) { controller.move(section, -1) })
                     if (displayIndex < displayCount - 1) {
                         add(CustomAccessibilityAction(MoveDownLabel) { controller.move(section, 1) })
+                    }
+                    if (canMoreRows) add(CustomAccessibilityAction(MoreRowsLabel) { rowsEngine?.step(section, 1) == true })
+                    if (canFewerRows) {
+                        add(CustomAccessibilityAction(FewerRowsLabel) { rowsEngine?.step(section, -1) == true })
                     }
                     add(CustomAccessibilityAction(HideLabel) { controller.hide(section) })
                 }
@@ -231,10 +264,16 @@ internal fun HomeEditBlock(
             .hoverable(hoverSource)
             .then(talkBack),
     ) {
-        HomeEditPlateSlot(section, deps, outsetV)
+        HomeEditPlateSlot(
+            section = section,
+            deps = deps,
+            itemSpacing = itemSpacing,
+            titleRowTop = if (placeholder || wholeBlockWiggle) PanelPadding else 0.dp,
+        )
         Box(
             Modifier
                 .fillMaxWidth()
+                .homeEditContentInset(cardScope)
                 .onPlaced { blockContent.coordinates = it },
         ) {
             CompositionLocalProvider(LocalHomeEditCardScope provides cardScope) {
@@ -248,9 +287,29 @@ internal fun HomeEditBlock(
             panel = placeholder || wholeBlockWiggle,
             deps = deps,
             handleHover = { handleHover.value },
+            contentInset = cardScope::contentInset,
         )
+        if (rowsTrack != null && rowsEngine != null && !placeholder && !wholeBlockWiggle) {
+            HomeRowsHandleSlot(section, deps, rowsTrack, rowsEngine, itemSpacing)
+        }
     }
 }
+
+/**
+ * Plate trial V2: lays the block's content [HomeEditCardScope.contentInset]
+ * narrower on each side, centred, reading the inset in the layout pass. A
+ * no-op for every other plate (the inset is 0 and nothing is read).
+ */
+private fun Modifier.homeEditContentInset(scope: HomeEditCardScope): Modifier =
+    if (scope.plate.variant != HomePlateVariant.V2) {
+        this
+    } else {
+        layout { measurable, constraints ->
+            val inset = if (constraints.hasBoundedWidth) scope.contentInset().roundToPx() else 0
+            val placeable = measurable.measure(constraints.offset(horizontal = -2 * inset))
+            layout(placeable.width + 2 * inset, placeable.height) { placeable.place(inset, 0) }
+        }
+    }
 
 /**
  * The plate, composed only while it can show (at rest an invisible plate
@@ -260,7 +319,7 @@ internal fun HomeEditBlock(
  * it flipping recomposes no block.
  */
 @Composable
-private fun BoxScope.HomeEditPlateSlot(section: HomeSection, deps: HomeEditDeps, outsetV: Dp) {
+private fun BoxScope.HomeEditPlateSlot(section: HomeSection, deps: HomeEditDeps, itemSpacing: Dp, titleRowTop: Dp) {
     val motion = deps.motion
     val press = deps.press
     val engine = deps.engine
@@ -272,7 +331,7 @@ private fun BoxScope.HomeEditPlateSlot(section: HomeSection, deps: HomeEditDeps,
                 motion.plateFrom?.section == section
         }
     }
-    if (shown) HomeEditPlate(section, deps, outsetV)
+    if (shown) HomeEditPlate(section, deps, itemSpacing, titleRowTop)
 }
 
 /**
@@ -289,6 +348,7 @@ private fun BoxScope.HomeEditBadgesSlot(
     panel: Boolean,
     deps: HomeEditDeps,
     handleHover: () -> Float,
+    contentInset: () -> Dp,
 ) {
     val motion = deps.motion
     val press = deps.press
@@ -303,6 +363,7 @@ private fun BoxScope.HomeEditBadgesSlot(
         handleHover = handleHover,
         titleRowTop = if (panel) PanelPadding else 0.dp,
         endInset = if (panel) PanelPadding - BadgeOverhang else -BadgeOverhang,
+        contentInset = contentInset,
     )
 }
 
@@ -426,18 +487,25 @@ private class BlockContent {
  * corners while its rect moves). The lift shadow follows the current rect.
  */
 @Composable
-private fun BoxScope.HomeEditPlate(section: HomeSection, deps: HomeEditDeps, outsetV: Dp) {
+private fun BoxScope.HomeEditPlate(section: HomeSection, deps: HomeEditDeps, itemSpacing: Dp, titleRowTop: Dp) {
     val colors = MaterialTheme.colorScheme
     val base = colors.surfaceContainerHigh
     val liftedColor = colors.surfaceContainerHighest
-    val outsetH = HomeEditTokens.PlateOutsetH
+    val look = deps.plate
     val engine = deps.engine
+    // Plate trial V3: the title row's line, for its tonal band.
+    val titleLine = MaterialTheme.typography.titleLarge.lineHeight.takeIf { it.isSpecified } ?: TitleLineFallback
+    // Every value below is read in layout or draw: V0 answers with today's
+    // constants; V1's outsets follow P and the page margin, V2's inset the ripple.
+    val outsetH: () -> Dp = { look.plateOutsetH() }
+    val outsetV: () -> Dp = { look.outsetV(itemSpacing) }
+    val contentInset: () -> Dp = { look.contentInset { deps.motion.ripple(section) } }
     Box(
         Modifier
             .matchParentSize()
             .layout { measurable, constraints ->
-                val h = outsetH.roundToPx()
-                val v = outsetV.roundToPx()
+                val h = outsetH().roundToPx()
+                val v = outsetV().roundToPx()
                 val width = constraints.maxWidth.takeIf { it != Constraints.Infinity } ?: constraints.minWidth
                 val height = constraints.maxHeight.takeIf { it != Constraints.Infinity } ?: constraints.minHeight
                 val placeable = measurable.measure(
@@ -449,7 +517,14 @@ private fun BoxScope.HomeEditPlate(section: HomeSection, deps: HomeEditDeps, out
             .graphicsLayer {
                 val lift = if (engine.liftSection == section) engine.lift.value.coerceIn(0f, 1f) else 0f
                 if (lift > 0f) {
-                    val frame = deps.plateFrame(section, size, outsetH.toPx(), outsetV.toPx(), this)
+                    val frame = deps.plateFrame(
+                        section = section,
+                        plateSize = size,
+                        outsetH = outsetH().toPx(),
+                        outsetV = outsetV().toPx(),
+                        contentInset = contentInset().toPx(),
+                        density = this,
+                    )
                     shadowElevation = HomeEditTokens.LiftShadow.toPx() * lift
                     shape = frame.rect?.let { PlateRectShape(it, HomeEditTokens.PlateRadius.toPx()) }
                         ?: YoinContainerShapes.PanelAnimated
@@ -463,14 +538,42 @@ private fun BoxScope.HomeEditPlate(section: HomeSection, deps: HomeEditDeps, out
                 // Built on first use, not on every size change of a plate that may not draw.
                 var panel: Outline? = null
                 val radius = CornerRadius(HomeEditTokens.PlateRadius.toPx())
-                val hPx = outsetH.toPx()
-                val vPx = outsetV.toPx()
                 onDrawBehind {
-                    val frame = deps.plateFrame(section, size, hPx, vPx, this)
+                    val hPx = outsetH().toPx()
+                    val vPx = outsetV().toPx()
+                    val frame = deps.plateFrame(section, size, hPx, vPx, contentInset().toPx(), this)
                     if (frame.alpha <= 0f) return@onDrawBehind
-                    val tint = if (engine.liftSection == section) engine.liftTint.value.coerceIn(0f, 1f) else 0f
+                    val lifted = engine.liftSection == section
+                    val tint = if (lifted) engine.liftTint.value.coerceIn(0f, 1f) else 0f
                     val color = lerp(base, liftedColor, tint)
                     val rect = frame.rect
+                    if (look.titleRowOnly) {
+                        // Plate trial V3: no fill at rest — a tonal band behind the
+                        // title row; a lifted block gets its body back so the shadow
+                        // has something under it, and the entry growth fades as it grows.
+                        val lift = if (lifted) engine.lift.value.coerceIn(0f, 1f) else 0f
+                        if (rect == null && lift > 0f) {
+                            val outline = panel ?: YoinContainerShapes.Panel.createOutline(size, layoutDirection, this)
+                                .also { panel = it }
+                            drawOutline(outline, color, alpha = frame.alpha * lift)
+                        }
+                        if (rect != null) {
+                            val fading = 1f - smoothstep(0f, 1f, deps.motion.ripple(section))
+                            drawRoundRect(color, rect.topLeft, rect.size, radius, alpha = frame.alpha * fading)
+                        } else {
+                            val pad = HomePlateTrial.V3TitleRowPad.toPx()
+                            val top = vPx + titleRowTop.toPx() - pad
+                            val height = titleLine.toPx() + 2f * pad
+                            drawRoundRect(
+                                color = color,
+                                topLeft = Offset(0f, top),
+                                size = Size(size.width, height),
+                                cornerRadius = CornerRadius(height / 2f),
+                                alpha = frame.alpha,
+                            )
+                        }
+                        return@onDrawBehind
+                    }
                     if (rect == null) {
                         val outline = panel ?: YoinContainerShapes.Panel.createOutline(size, layoutDirection, this)
                             .also { panel = it }
@@ -492,21 +595,24 @@ private fun HomeEditDeps.plateFrame(
     plateSize: Size,
     outsetH: Float,
     outsetV: Float,
+    // Plate trial V2: the content sits this much further in from the plate (0 otherwise).
+    contentInset: Float,
     density: Density,
 ): PlateFrame {
     val ripple = smoothstep(0f, 1f, motion.ripple(section))
     val from = motion.plateFrom?.takeIf { it.section == section }
+    val toPlateX = outsetH + contentInset
     if (from != null && !(controller.isEditing && ripple >= PlateGrown)) {
         val full = Rect(0f, 0f, plateSize.width, plateSize.height)
-        val start = from.rect.translate(outsetH, outsetV)
+        val start = from.rect.translate(toPlateX, outsetV)
         return PlateFrame(lerp(start, full, ripple), latchedPlateAlpha(from.latch, ripple))
     }
     if (from == null && press.section == section) {
         val charge = press.charge.value
         val chargeAlpha = if (charge > ChargeFloor) chargePlateAlpha(charge) else 0f
         if (chargeAlpha > ripple) {
-            val content = Size(plateSize.width - 2f * outsetH, plateSize.height - 2f * outsetV)
-            val rect = pressRect(press.origin, content, charge, density).translate(outsetH, outsetV)
+            val content = Size(plateSize.width - 2f * toPlateX, plateSize.height - 2f * outsetV)
+            val rect = pressRect(press.origin, content, charge, density).translate(toPlateX, outsetV)
             return PlateFrame(rect, chargeAlpha)
         }
     }
@@ -533,6 +639,8 @@ private fun BoxScope.HomeEditBadges(
     handleHover: () -> Float,
     titleRowTop: Dp,
     endInset: Dp,
+    // Plate trial V2: the title row moves in with the content (0 otherwise).
+    contentInset: () -> Dp,
 ) {
     val controller = deps.controller
     val motion = deps.motion
@@ -545,7 +653,7 @@ private fun BoxScope.HomeEditBadges(
         Row(
             modifier = Modifier
                 .align(Alignment.TopEnd)
-                .offset { IntOffset(-endInset.roundToPx(), rowTop.roundToInt()) },
+                .offset { IntOffset(-(endInset + contentInset()).roundToPx(), rowTop.roundToInt()) },
             horizontalArrangement = Arrangement.spacedBy(BadgeGap),
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -678,6 +786,8 @@ private val PlaceholderLineGap = 4.dp
 
 private const val MoveUpLabel = "Move up"
 private const val MoveDownLabel = "Move down"
+private const val MoreRowsLabel = "More rows"
+private const val FewerRowsLabel = "Fewer rows"
 private const val HideLabel = "Hide"
 private const val EditHomeActionLabel = "Edit Home"
 
@@ -727,6 +837,8 @@ internal fun rememberPreviewHomeEditDeps(progress: Float, editing: Boolean): Hom
             ),
             targets = HomeEditTargets(),
             specs = specs,
+            // The shipped plate at the preview's P: an edit preview shows its full outsets.
+            plate = HomePlateLook(HomePlateVariant.V1, progress = controller.progressReader),
         )
     }
 }

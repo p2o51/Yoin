@@ -190,7 +190,8 @@ internal enum class SlotKind { Hero, Wide, Small, Strip }
 /**
  * One card of the [BentoRecipe.Units] grid.
  *
- * @property row 0 = row 1, 1 = row 2, 2 = the strip row.
+ * @property row 0 = row 1, 1 = row 2, then (XL only) the extra row
+ *   ([activityExtraRow]); the strip row comes last — 2 at the default preset.
  * @property startUnit rows 0/1: the first unit column the card covers. Strip row: the strip's index.
  * @property span rows 0/1: unit columns covered (`span × u + (span − 1) × gap`). Strip row: always 1,
  *   meaning one equal share of the row split into [ActivityBentoSpec.strips] — strips are not on unit lines.
@@ -208,10 +209,18 @@ internal data class ActivitySlot(
 /**
  * How many SUPPORTING entries a composition seats: every slot but the hero's —
  * or every slot, when there is no hero and row 1's lead slot takes a
- * supporting entry as a wide card.
+ * supporting entry as a wide card. At a row [preset] other than the default
+ * the count is that preset's (HomeRowPresets.kt).
  */
-internal fun seatedSupportingCount(spec: ActivityBentoSpec, hasHero: Boolean): Int =
+internal fun seatedSupportingCount(
+    spec: ActivityBentoSpec,
+    hasHero: Boolean,
+    preset: HomeRowPreset = HomeRowPreset.Default,
+): Int = if (preset == HomeRowPreset.Default) {
     if (hasHero) spec.supportingSlots else spec.totalSlots
+} else {
+    activityPresetSupportingCount(spec, hasHero, preset)
+}
 
 /**
  * Walks a [BentoRecipe.Units] spec — row 1, then row 2, then the strips — and
@@ -230,11 +239,20 @@ internal fun activityUnitSlots(
     spec: ActivityBentoSpec,
     hasHero: Boolean,
     supportingCount: Int,
+    // D1 row presets: S keeps row 1, M rows 1–2, L (default) adds the strips,
+    // XL a third unit row (activityExtraRow) before them.
+    preset: HomeRowPreset = HomeRowPreset.Default,
 ): List<ActivitySlot> {
     if (spec.recipe != BentoRecipe.Units) return emptyList()
+    val unitRows = when (preset) {
+        HomeRowPreset.S -> listOf(spec.row1)
+        HomeRowPreset.M, HomeRowPreset.L -> listOf(spec.row1, spec.row2)
+        HomeRowPreset.XL -> listOf(spec.row1, spec.row2, activityExtraRow(spec.units, spec.row2))
+    }
+    val strips = if (preset >= HomeRowPreset.L) spec.strips else 0
     val slots = mutableListOf<ActivitySlot>()
     var nextSupporting = 0
-    for ((rowIndex, spans) in listOf(spec.row1, spec.row2).withIndex()) {
+    for ((rowIndex, spans) in unitRows.withIndex()) {
         var start = 0
         for ((index, span) in spans.withIndex()) {
             if (rowIndex == 0 && index == 0 && hasHero) {
@@ -247,11 +265,11 @@ internal fun activityUnitSlots(
             start += span
         }
     }
-    for (strip in 0 until spec.strips) {
+    for (strip in 0 until strips) {
         if (nextSupporting >= supportingCount) return slots
         // span 1 = one equal share of the strip row, not one unit column.
         slots += ActivitySlot(
-            row = 2,
+            row = unitRows.size,
             startUnit = strip,
             span = 1,
             kind = SlotKind.Strip,
@@ -340,17 +358,80 @@ internal val RecentlyAddedGridMax = 340.dp
 /** The track grid's floor: exactly the 360dp phone's grid (C = 328), so narrower panes never squeeze below it. */
 internal val RecentlyAddedGridMin = ((360.dp - 32.dp) - 14.dp) * (2.6f / 3.6f)
 
+/** Gap between two track tiles in a row of the grid. */
+internal val RecentlyAddedTileGap = 8.dp
+
+/** One track tile at the grid's cap: (340 − 8) / 2 = 166dp. A wider grid repeats this exact cell. */
+internal val RecentlyAddedTileWidth = (RecentlyAddedGridMax - RecentlyAddedTileGap) / 2
+
+/** Track rows: always two, so the grid stays one album card tall (52dp covers + 14dp gap). */
+internal const val RecentlyAddedTrackRows = 2
+
+/** The phone's grid: 2 columns × 2 rows. */
+internal const val RecentlyAddedPhoneColumns = 2
+
+/** The widest grid: 4 columns × 2 rows. */
+internal const val RecentlyAddedMaxColumns = 4
+
+/** Tracks the shelf can ever seat; the ViewModel loads this many. */
+internal const val RecentlyAddedMaxTracks = RecentlyAddedMaxColumns * RecentlyAddedTrackRows
+
+/** The phone album shelf's depth — unchanged. */
+internal const val RecentlyAddedPhoneAlbums = 12
+
+/** Albums the widest shelf scrolls through; the ViewModel loads this many. */
+internal const val RecentlyAddedMaxAlbums = 20
+
+/**
+ * How many track columns the Recently Added grid may use (owner 2026-10-05:
+ * 「在平板端可以多放一点内容」). The phone (N ≤ 2) and the landscape phone keep
+ * 2; wider feeds add whole 166dp columns while about 1.5 album cards still
+ * show beside the grid — the phone's own grid-to-shelf rhythm — judged by the
+ * resting cover columns (`feedCoverColumns`, ⌊(C + 12) / 124⌋), never the live
+ * width: ≤ 4 (C < 608, a 600dp foldable) → 2; 5–7 (C 608–979, the 800dp
+ * tablet portrait at C 688, Wide up to ~1044dp) → 3; ≥ 8 (C ≥ 980, the
+ * 1280dp tablet landscape at C 1216) → 4. Rows stay 2.
+ */
+internal fun recentlyAddedTrackColumns(feedUnits: Int, coverColumns: Int, isCompactHeight: Boolean): Int = when {
+    isCompactHeight || feedUnits <= 2 -> RecentlyAddedPhoneColumns
+    coverColumns <= 4 -> RecentlyAddedPhoneColumns
+    coverColumns <= 7 -> 3
+    else -> RecentlyAddedMaxColumns
+}
+
+/**
+ * The columns [trackCount] tracks actually use under a [columns] ceiling:
+ * just enough for two rows, never fewer than the phone's 2 (a lone tile keeps
+ * its column width) — 4 tracks stay a 2×2 even where 3 columns would fit, so
+ * no row is left mostly empty and the albums take back the width.
+ */
+internal fun recentlyAddedGridColumns(trackCount: Int, columns: Int): Int =
+    ((trackCount + RecentlyAddedTrackRows - 1) / RecentlyAddedTrackRows)
+        .coerceIn(RecentlyAddedPhoneColumns, columns.coerceAtLeast(RecentlyAddedPhoneColumns))
+
+/** Albums the shelf shows under a [columns]-column grid: the phone's 12, 16 at 3, 20 at 4. */
+internal fun recentlyAddedAlbumLimit(columns: Int): Int = when {
+    columns <= RecentlyAddedPhoneColumns -> RecentlyAddedPhoneAlbums
+    columns == 3 -> 16
+    else -> RecentlyAddedMaxAlbums
+}
+
 /**
  * The Recently Added track grid's width for content width [contentWidth]
  * (C). Compact height (landscape phone): `min((C − 14) × 0.45, 340)`, today's
- * formula verbatim. Otherwise `clamp((C − 14) × 2.6/3.6, Min, Max)` — only C,
- * never N, so it is continuous across every breakpoint. The `2.6f / 3.6f`
- * literal is kept so phones (C 328–484) are bit-identical to today.
+ * formula verbatim. Otherwise, at 2 [columns]: `clamp((C − 14) × 2.6/3.6, Min,
+ * Max)` — only C, never N, so it is continuous across every breakpoint. The
+ * `2.6f / 3.6f` literal is kept so phones (C 328–484) are bit-identical to
+ * today. At 3+ columns: whole 166dp cells and their 8dp gaps (514 / 688dp).
  */
-internal fun recentlyAddedGridWidth(contentWidth: Dp, isCompactHeight: Boolean): Dp = if (isCompactHeight) {
-    minOf((contentWidth - 14.dp) * 0.45f, RecentlyAddedGridMax)
-} else {
-    ((contentWidth - 14.dp) * (2.6f / 3.6f)).coerceIn(RecentlyAddedGridMin, RecentlyAddedGridMax)
+internal fun recentlyAddedGridWidth(
+    contentWidth: Dp,
+    isCompactHeight: Boolean,
+    columns: Int = RecentlyAddedPhoneColumns,
+): Dp = when {
+    isCompactHeight -> minOf((contentWidth - 14.dp) * 0.45f, RecentlyAddedGridMax)
+    columns > RecentlyAddedPhoneColumns -> RecentlyAddedTileWidth * columns + RecentlyAddedTileGap * (columns - 1)
+    else -> ((contentWidth - 14.dp) * (2.6f / 3.6f)).coerceIn(RecentlyAddedGridMin, RecentlyAddedGridMax)
 }
 
 // ---- Rediscover ----

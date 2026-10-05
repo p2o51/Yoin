@@ -8,6 +8,8 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -94,14 +96,21 @@ class HomeLayoutStoreTest {
     }
 
     @Test
-    fun should_ignoreUnknownEntryFields_when_newerBuildAddsConfig() = runTest {
+    fun should_keepConfigVerbatimAndIgnoreUnknownFields_when_newerBuildWritesThem() = runTest {
         dao.seed(
             PROFILE,
             """{"version":2,"sections":[{"id":"activities","enabled":true,"config":{"rows":2}}],"theme":"dense"}""",
         )
 
+        // The settings bag (D1 row presets) is opaque here: even a value this build can't read rides along.
         assertEquals(
-            listOf(HomeSectionPref(id = "activities", enabled = true)),
+            listOf(
+                HomeSectionPref(
+                    id = "activities",
+                    enabled = true,
+                    config = JsonObject(mapOf("rows" to JsonPrimitive(2))),
+                ),
+            ),
             store.layoutFlow(PROFILE).first(),
         )
     }

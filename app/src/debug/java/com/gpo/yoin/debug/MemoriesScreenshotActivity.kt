@@ -25,6 +25,8 @@ import com.gpo.yoin.ui.component.ExpressivePageBackground
 import com.gpo.yoin.ui.home.HomeEditorialContent
 import com.gpo.yoin.ui.home.HomeHintVariant
 import com.gpo.yoin.ui.home.HomeLayout
+import com.gpo.yoin.ui.home.HomeRowPreset
+import com.gpo.yoin.ui.home.HomeSection
 import com.gpo.yoin.ui.home.HomeMemoryPill
 import com.gpo.yoin.ui.home.HomeRediscoverItem
 import com.gpo.yoin.ui.home.HomeWidgetCard
@@ -34,9 +36,11 @@ import com.gpo.yoin.ui.home.InMemoryMemoryBubbleSeenStore
 import com.gpo.yoin.ui.home.LocalMemoryBubbleIdleMs
 import com.gpo.yoin.ui.home.LocalMemoryBubbleSeenStore
 import com.gpo.yoin.ui.home.MemoryBubbleIdleMs
+import com.gpo.yoin.ui.home.edit.HomePlateVariant
 import com.gpo.yoin.ui.home.edit.HomeWiggleMode
 import com.gpo.yoin.ui.home.edit.HomeWiggleStyle
 import com.gpo.yoin.ui.home.edit.HomeWiggleTarget
+import com.gpo.yoin.ui.home.edit.LocalHomePlateVariant
 import com.gpo.yoin.ui.home.edit.LocalHomeWiggleStyle
 import com.gpo.yoin.ui.home.edit.rememberStandaloneHomeEditController
 import com.gpo.yoin.ui.home.rediscoverScoreText
@@ -81,16 +85,34 @@ import java.io.File
  *                 after the reveal) | seen (only the arrow until idle)
  *   --el idleMs   the idle threshold (default 15000)
  *
- * Rediscover (P0-9):
- *   --ez rediscover true  adds the shelf: months away, a long title, years
- *                 away and a single play
+ * Rediscover (P0-9; 2026-10-05 no score bar + rating badge):
+ *   --ez rediscover true  adds the shelf: an album rating (solid badge), a
+ *                 track average (outlined badge), a score under the old 8.0
+ *                 bar, and unscored albums kept by notes / a review (no badge)
  *   --ei rediscoverCount  keep only the first N cards (1 = the lone full-width card)
+ *
+ * Recently Added (2026-10-05 tablet density): 8 tracks and 14 albums supplied;
+ * a phone seats its 2×2 (4) and 12 albums, 3 columns × 2 rows on the 800dp
+ * tablet portrait, 4 × 2 on the 1280dp landscape.
+ *   --ei recentTracks  keep only the first N tracks (default 8)
  *
  * Home edit mode (P0, in place; a standalone controller, so no bar):
  *   --ez edit     true starts in edit mode (a blank tap leaves it)
  *   --es wiggle   IdleSettle (default) | Kick | Continuous
  *   --es wiggleTarget  Card (default) | Block
  *   --ez reduced  true runs the page as AdaptiveReduced (no charge, sway or kicks)
+ *   --es plate    V1 (default: the shipped plate — outset to 4dp short of the page
+ *                 margin, spacing 18 → 32dp while editing, shelves clipped to the
+ *                 plate with a fade) | V0 (the pre-2026-10-05 plate) | V2 (plate on
+ *                 the page margins, content 12dp narrower inside it) |
+ *                 V3 (no plate fill: wiggle + badges + a tonal title row)
+ *   e.g. adb shell am start -S -n com.gpo.yoin/com.gpo.yoin.debug.MemoriesScreenshotActivity \
+ *          --ez edit true --ez rediscover true --es plate V0
+ *
+ * Row presets (D1, 2026-10-05; drag the ⌟ at a block's bottom-right in edit mode):
+ *   --es rowsActivities  s | m | l (default) | xl
+ *   --es rowsJbi         s | m | l (default) | xl
+ *   e.g. … --ez edit true --es rowsJbi xl --es rowsActivities s
  */
 class MemoriesScreenshotActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -116,7 +138,14 @@ class MemoriesScreenshotActivity : ComponentActivity() {
         } else {
             emptyList()
         }
+        val recentTracks = intent.getIntExtra("recentTracks", Int.MAX_VALUE).coerceAtLeast(0)
         val startEditing = intent.getBooleanExtra("edit", false)
+        val plateVariant = intent.getStringExtra("plate")
+            ?.let { name -> HomePlateVariant.entries.firstOrNull { it.name.equals(name, ignoreCase = true) } }
+            ?: HomePlateVariant.V1
+        val initialLayout = HomeLayout.Default
+            .withRows(HomeSection.Activities, rowsExtra("rowsActivities"))
+            .withRows(HomeSection.JumpBackIn, rowsExtra("rowsJbi"))
         val wiggleStyle = HomeWiggleStyle(
             mode = intent.getStringExtra("wiggle")
                 ?.let { name -> HomeWiggleMode.entries.firstOrNull { it.name.equals(name, ignoreCase = true) } }
@@ -158,10 +187,11 @@ class MemoriesScreenshotActivity : ComponentActivity() {
                 LocalMemoryBubbleIdleMs provides idleMs,
                 LocalHomeWiggleStyle provides wiggleStyle,
                 LocalMotionProfile provides motionProfile,
+                LocalHomePlateVariant provides plateVariant,
             ) {
             YoinTheme {
                 // The page's own controller, so the harness can open in edit mode.
-                val editController = rememberStandaloneHomeEditController(HomeLayout.Default)
+                val editController = rememberStandaloneHomeEditController(initialLayout)
                 LaunchedEffect(editController) {
                     if (startEditing) editController.enter(null, lifted = false)
                 }
@@ -183,10 +213,15 @@ class MemoriesScreenshotActivity : ComponentActivity() {
                             signals + covers.drop(shift) + covers.take(shift)
                         },
                         activityHeroFootnote = "2024 · 12 songs · 44 min",
-                        recentlyAddedTracks = if (showRecent) fakeRecentlyAddedTracks() else emptyList(),
+                        recentlyAddedTracks = if (showRecent) {
+                            fakeRecentlyAddedTracks().take(recentTracks)
+                        } else {
+                            emptyList()
+                        },
                         recentlyAddedAlbums = if (showRecent) fakeRecentlyAddedAlbums() else emptyList(),
                         rediscover = rediscover,
                         memoryPill = pill,
+                        sections = initialLayout.sections,
                         onNavigateToSettings = {},
                         onNavigateToMemories = {},
                         editController = editController,
@@ -204,6 +239,9 @@ class MemoriesScreenshotActivity : ComponentActivity() {
             }
         }
     }
+
+    private fun rowsExtra(name: String): HomeRowPreset =
+        HomeRowPreset.fromKey(intent.getStringExtra(name)?.lowercase()) ?: HomeRowPreset.Default
 
     private fun swatchCover(name: String, color: Int): String {
         val file = File(cacheDir, "mem_$name.png")
@@ -405,6 +443,38 @@ class MemoriesScreenshotActivity : ComponentActivity() {
                 coverArtId = swatchCover("pink", 0xFFD4537E.toInt()),
                 timestamp = now - 12L * 24 * 60 * 60 * 1000,
             ),
+            // Deep enough for the widest XL bento (a fourth unit row).
+            ActivityEvent(
+                id = 18,
+                entityType = ActivityEntityType.ALBUM.name,
+                actionType = ActivityActionType.PLAYED.name,
+                entityId = "a10",
+                title = "Aftertaste",
+                subtitle = "Hannah Jadagu",
+                coverArtId = swatchCover("rose", 0xFFC9566B.toInt()),
+                albumId = "a10",
+                timestamp = now - 13L * 24 * 60 * 60 * 1000,
+            ),
+            ActivityEvent(
+                id = 19,
+                entityType = ActivityEntityType.PLAYLIST.name,
+                actionType = ActivityActionType.PLAYED.name,
+                entityId = "p4",
+                title = "Sunday Tape",
+                subtitle = "Playlist",
+                coverArtId = swatchCover("plum", 0xFF7A4E8C.toInt()),
+                timestamp = now - 14L * 24 * 60 * 60 * 1000,
+            ),
+            ActivityEvent(
+                id = 20,
+                entityType = ActivityEntityType.ARTIST.name,
+                actionType = ActivityActionType.VISITED.name,
+                entityId = "ar6",
+                title = "Ezra Collective",
+                subtitle = "Artist",
+                coverArtId = swatchCover("coral2", 0xFFE07B4F.toInt()),
+                timestamp = now - 15L * 24 * 60 * 60 * 1000,
+            ),
         )
     }
 
@@ -497,7 +567,7 @@ class MemoriesScreenshotActivity : ComponentActivity() {
             fakePlaylistCard("My Angelist #101", "HESSBEN", swatchCover("mint", 0xFF3DAE77.toInt())),
             fakeAlbumCard("Freakout/Release", "Hot Chip", swatchCover("salmon", 0xFFE0705A.toInt())),
             fakePlaylistCard("305tilidie", "Camila Cabello", swatchCover("navy", 0xFF185FA5.toInt())),
-            // The deeper tablet shelf (a template seats up to 24 covers).
+            // The deeper tablet shelf (a template seats up to 24 covers at L).
             fakeAlbumCard("This Infinite", "Vitesse X", swatchCover("amber", 0xFFD89A2E.toInt())),
             fakeSongCard("Mom", "Rachel Chinouriri", swatchCover("magenta", 0xFFC2447F.toInt())),
             fakePlaylistCard("Late Trains", "51", swatchCover("teal2", 0xFF2A8C8C.toInt())),
@@ -514,15 +584,24 @@ class MemoriesScreenshotActivity : ComponentActivity() {
             fakeSongCard("Ajala", "Ezra Collective", swatchCover("coral2", 0xFFE07B4F.toInt())),
             fakePlaylistCard("游戏电台 1", "51", swatchCover("pink2", 0xFFE06C9F.toInt())),
             fakeAlbumCard("A Night To Remember", "beabadoobee", swatchCover("blue2", 0xFF2F6FB8.toInt())),
+            // XL on the widest pane (10 columns × 3 rows) seats 26 covers.
+            fakeSongCard("Couldn't Call It Love", "Hannah Jadagu", swatchCover("green2", 0xFF4E9A3A.toInt())),
+            fakePlaylistCard("Night Bus", "51", swatchCover("gold", 0xFFC9A227.toInt())),
+            fakeAlbumCard("Little Dark Age", "MGMT", swatchCover("teal3", 0xFF2E7D7A.toInt())),
+            fakeSongCard("Sofia", "Clairo", swatchCover("peach", 0xFFE89A6B.toInt())),
         )
     }
 
-    // Five supplied, four shown — the grid caps at a 2×2.
+    // Eight supplied: a phone shows the first four (2×2), the tablet 6 or 8.
     private fun fakeRecentlyAddedTracks(): List<Track> = listOf(
         fakeTrack("r1", "Describe", "Hannah Jadagu", swatchCover("green", 0xFF639922.toInt())),
         fakeTrack("r2", "D.I.A.A", "Hannah Jadagu", swatchCover("coral", 0xFFD85A30.toInt())),
         fakeTrack("r3", "Couldn't Call It Love", "Hannah Jadagu", swatchCover("teal", 0xFF1D9E75.toInt())),
         fakeTrack("r4", "My Love", "Hannah Jadagu", swatchCover("pink", 0xFFD4537E.toInt())),
+        fakeTrack("r5", "Ajala", "Ezra Collective", swatchCover("amber", 0xFFD89A2E.toInt())),
+        fakeTrack("r6", "After LIKE", "IVE", swatchCover("violet", 0xFF7F77DD.toInt())),
+        fakeTrack("r7", "Gemini Rights", "Steve Lacy", swatchCover("navy", 0xFF185FA5.toInt())),
+        fakeTrack("r8", "跳不完的舞", "秦凡淇", swatchCover("olive", 0xFF7C9A1E.toInt())),
     )
 
     private fun fakeRecentlyAddedAlbums(): List<Album> = listOf(
@@ -531,6 +610,16 @@ class MemoriesScreenshotActivity : ComponentActivity() {
         fakeAlbum("ra3", "This Infinite", "Vitesse X", swatchCover("blue", 0xFF378ADD.toInt())),
         fakeAlbum("ra4", "Freakout/Release", "Hot Chip", swatchCover("violet", 0xFF7F77DD.toInt())),
         fakeAlbum("ra5", "天国の部屋", "坂口諒之介", swatchCover("navy", 0xFF185FA5.toInt())),
+        // The deeper tablet shelf.
+        fakeAlbum("ra6", "Pang", "Caroline Polachek", swatchCover("amber", 0xFFD89A2E.toInt())),
+        fakeAlbum("ra7", "Gemini Rights", "Steve Lacy", swatchCover("magenta", 0xFFC2447F.toInt())),
+        fakeAlbum("ra8", "sense (is)", "hemlocke springs", swatchCover("teal2", 0xFF1D9E9E.toInt())),
+        fakeAlbum("ra9", "Absolution", "Muse", swatchCover("violet2", 0xFF6A5ACD.toInt())),
+        fakeAlbum("ra10", "Abracadabra", "Lady Gaga", swatchCover("sky", 0xFF4F9BD6.toInt())),
+        fakeAlbum("ra11", "A Night To Remember", "beabadoobee", swatchCover("rose", 0xFFC9566B.toInt())),
+        fakeAlbum("ra12", "Ajala", "Ezra Collective", swatchCover("coral2", 0xFFE07B4F.toInt())),
+        fakeAlbum("ra13", "After LIKE", "IVE", swatchCover("mint2", 0xFF56B894.toInt())),
+        fakeAlbum("ra14", "Aftertaste", "Hannah Jadagu", swatchCover("brick", 0xFFB5523C.toInt())),
     )
 
     private fun fakeRediscover(): List<HomeRediscoverItem> {
@@ -541,22 +630,28 @@ class MemoriesScreenshotActivity : ComponentActivity() {
             name: String,
             artist: String,
             cover: String,
-            score: Float,
+            score: Float?,
             daysAway: Long,
             firstDaysAgo: Long,
             plays: Int,
+            kind: MemoryScoreKind = MemoryScoreKind.ALBUM_RATING,
+            review: Boolean = false,
+            notes: Int = 0,
         ) = HomeRediscoverItem(
             albumId = MediaId.subsonic(rawId),
             albumName = name,
             artistName = artist,
             coverArtUrl = cover,
             score = score,
-            scoreText = rediscoverScoreText(score),
-            scoreKind = MemoryScoreKind.ALBUM_RATING,
+            scoreText = score?.let(::rediscoverScoreText),
+            scoreKind = if (score == null) MemoryScoreKind.NONE else kind,
             lastPlayedAt = now - daysAway * day,
             firstPlayedAt = now - firstDaysAgo * day,
             playCount = plays,
+            hasReview = review,
+            noteCount = notes,
         )
+        // The selection's order: scored best-first, then the unscored.
         return listOf(
             item("rd1", "Emotion", "Carly Rae Jepsen", swatchCover("rose", 0xFFE4577A.toInt()), 9.0f, 214, 700, 23),
             item(
@@ -564,13 +659,36 @@ class MemoriesScreenshotActivity : ComponentActivity() {
                 "Para que salgamos bien en la foto (Edición Deluxe)",
                 "Rakky Ripper",
                 swatchCover("blue", 0xFF378ADD.toInt()),
-                8.5f,
+                8.4f,
                 160,
                 420,
                 41,
+                kind = MemoryScoreKind.AVERAGE_TRACK_RATING,
             ),
-            item("rd3", "Blonde", "Frank Ocean", swatchCover("amber", 0xFFD89A2E.toInt()), 8.0f, 800, 1500, 17),
-            item("rd4", "Little House", "Rachel Chinouriri", swatchCover("moss", 0xFF639922.toInt()), 8.2f, 95, 95, 1),
+            // Under the retired 8.0 bar: back all the same.
+            item("rd4", "Little House", "Rachel Chinouriri", swatchCover("moss", 0xFF639922.toInt()), 6.5f, 95, 95, 1),
+            item(
+                "rd3",
+                "Blonde",
+                "Frank Ocean",
+                swatchCover("amber", 0xFFD89A2E.toInt()),
+                null,
+                800,
+                1500,
+                17,
+                notes = 3,
+            ),
+            item(
+                "rd5",
+                "Heaven or Las Vegas",
+                "Cocteau Twins",
+                swatchCover("teal", 0xFF1D9E75.toInt()),
+                null,
+                400,
+                900,
+                9,
+                review = true,
+            ),
         )
     }
 

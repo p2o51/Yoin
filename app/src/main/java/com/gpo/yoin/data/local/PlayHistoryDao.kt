@@ -71,6 +71,26 @@ interface PlayHistoryDao {
         albumIds: List<String>,
     ): List<AlbumPlayHistoryAggregate>
 
+    /** Plays per song for the given tracks (the album page's ticket counts); unplayed songs are absent. */
+    @Query(
+        "SELECT songId, COUNT(*) AS playCount FROM play_history " +
+            "WHERE profileId = :profileId AND provider = :provider AND songId IN (:songIds) " +
+            "GROUP BY songId",
+    )
+    fun observeSongPlayCounts(
+        songIds: List<String>,
+        provider: String,
+        profileId: String,
+    ): Flow<List<SongPlayCount>>
+
+    /** One album's plays in Yoin: how many, the first and the last (both null with no plays). */
+    @Query(
+        "SELECT COUNT(*) AS playCount, MIN(playedAt) AS firstPlayedAt, MAX(playedAt) AS lastPlayedAt " +
+            "FROM play_history " +
+            "WHERE albumId = :albumId AND provider = :provider AND profileId = :profileId",
+    )
+    fun observeAlbumPlayStats(albumId: String, provider: String, profileId: String): Flow<AlbumPlayStats>
+
     /** The newest play row for this scope; a single-row twin of [getRecentHistory]. */
     @Query(
         "SELECT * FROM play_history " +
@@ -114,7 +134,82 @@ interface PlayHistoryDao {
         albumIds: List<String>,
         artistName: String,
     ): ArtistPlayStats
+
+    /**
+     * Rediscover's songs: tracks this profile kept something on — a track
+     * rating above 0 or a non-blank song note — that were played in Yoin but
+     * not since [playedBefore] (history only; visits never count), with their
+     * play history and the memory itself. Ordered as Rediscover orders: rated
+     * first, best rating first, then longest unplayed. Track metadata is the
+     * history's own (one row per song id), enough to play the song again.
+     */
+    @Query(
+        "SELECT ph.songId AS songId, ph.provider AS provider, ph.title AS title, ph.artist AS artist, " +
+            "ph.album AS album, ph.albumId AS albumId, ph.coverArtId AS coverArtId, " +
+            "MAX(ph.durationMs) AS durationMs, COUNT(*) AS playCount, " +
+            "MIN(ph.playedAt) AS firstPlayedAt, MAX(ph.playedAt) AS lastPlayedAt, " +
+            "(SELECT r.rating FROM local_ratings r " +
+            "WHERE r.profileId = :profileId AND r.provider = :provider " +
+            "AND r.songId = ph.songId AND r.rating > 0) AS rating, " +
+            "(SELECT COUNT(*) FROM song_notes n " +
+            "WHERE n.profileId = :profileId AND n.provider = :provider " +
+            "AND n.trackId = ph.songId AND TRIM(n.content) != '') AS noteCount, " +
+            "(SELECT n.content FROM song_notes n " +
+            "WHERE n.profileId = :profileId AND n.provider = :provider " +
+            "AND n.trackId = ph.songId AND TRIM(n.content) != '' " +
+            "ORDER BY n.updatedAt DESC LIMIT 1) AS latestNote " +
+            "FROM play_history ph " +
+            "WHERE ph.profileId = :profileId AND ph.provider = :provider AND ph.songId IN (" +
+            "SELECT songId FROM local_ratings " +
+            "WHERE profileId = :profileId AND provider = :provider AND rating > 0 " +
+            "UNION SELECT trackId FROM song_notes " +
+            "WHERE profileId = :profileId AND provider = :provider AND TRIM(content) != '') " +
+            "GROUP BY ph.songId " +
+            "HAVING MAX(ph.playedAt) <= :playedBefore " +
+            "ORDER BY rating IS NULL, rating DESC, lastPlayedAt ASC " +
+            "LIMIT :limit",
+    )
+    suspend fun getRediscoverSongs(
+        profileId: String,
+        provider: String,
+        playedBefore: Long,
+        limit: Int,
+    ): List<SongMemoryAggregate>
 }
+
+/**
+ * Per album: how many of its tracks carry a memory signal (a song note, a
+ * track rating) and when the newest was written. song_notes and local_ratings
+ * hold no album, so the album is the one play_history recorded for the track.
+ */
+data class AlbumTrackSignalAggregate(
+    val albumId: String,
+    val signalCount: Int,
+    val lastWrittenAt: Long,
+)
+
+/** One Rediscover song ([PlayHistoryDao.getRediscoverSongs]); ids raw, as history stores them. */
+data class SongMemoryAggregate(
+    val songId: String,
+    val provider: String,
+    val title: String,
+    val artist: String,
+    val album: String,
+    /** Blank when the track played without an album. */
+    val albumId: String,
+    /** A [com.gpo.yoin.data.model.CoverRef] storage key. */
+    val coverArtId: String?,
+    val durationMs: Long,
+    val playCount: Int,
+    val firstPlayedAt: Long,
+    val lastPlayedAt: Long,
+    /** The track rating; null when unrated. */
+    val rating: Float?,
+    /** Non-blank song notes on the track. */
+    val noteCount: Int,
+    /** The newest non-blank note's text; null with none. */
+    val latestNote: String?,
+)
 
 data class ArtistSongPlayAggregate(
     val songId: String,
@@ -126,6 +221,17 @@ data class ArtistSongPlayAggregate(
     val durationMs: Long,
     val playCount: Int,
     val lastPlayedAt: Long,
+)
+
+data class SongPlayCount(
+    val songId: String,
+    val playCount: Int,
+)
+
+data class AlbumPlayStats(
+    val playCount: Int,
+    val firstPlayedAt: Long?,
+    val lastPlayedAt: Long?,
 )
 
 data class ArtistPlayStats(

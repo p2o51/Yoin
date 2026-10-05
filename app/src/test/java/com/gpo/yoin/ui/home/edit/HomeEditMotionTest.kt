@@ -488,8 +488,8 @@ class HomeEditMotionTest {
     @Test
     fun should_kickOnlyTheTappedCard_when_cardLevel() = runEditClockTest { scope ->
         val rig = rig(scope)
-        rig.motion.registerCard(JumpBackIn, 0, Rect(0f, 0f, 100f, 100f))
-        rig.motion.registerCard(JumpBackIn, 1, Rect(110f, 0f, 210f, 100f))
+        rig.motion.registerCard(JumpBackIn, FixedSpot(0, Rect(0f, 0f, 100f, 100f)))
+        rig.motion.registerCard(JumpBackIn, FixedSpot(1, Rect(110f, 0f, 210f, 100f)))
         val card = rig.motion.cardAt(JumpBackIn, Offset(150f, 50f))
         assertEquals(1, card)
 
@@ -508,6 +508,39 @@ class HomeEditMotionTest {
         assertEquals(0f, rig.motion.cardKick(JumpBackIn, 0), 0f)
         assertEquals(1.1993f, pulsePeak, .01f)
         assertNotNull(rig.motion.cardAt(JumpBackIn, Offset(10f, 10f)))
+    }
+
+    @Test
+    fun should_keepTheSurvivingCard_when_anotherCardWithItsIndexUnregisters() = runEditClockTest { scope ->
+        // A row resize composes two stops whose cards share indices; the
+        // stop that leaves must not take the staying card's tap target along.
+        val rig = rig(scope)
+        val staying = FixedSpot(0, Rect(0f, 0f, 100f, 100f))
+        val leaving = FixedSpot(0, Rect(0f, 0f, 100f, 100f))
+        rig.motion.registerCard(JumpBackIn, staying)
+        rig.motion.registerCard(JumpBackIn, leaving)
+
+        rig.motion.unregisterCard(JumpBackIn, leaving)
+
+        assertEquals(0, rig.motion.cardAt(JumpBackIn, Offset(50f, 50f)))
+    }
+
+    @Test
+    fun should_hitTheCardWhereItIsNow_when_itMovedSinceRegistering() = runEditClockTest { scope ->
+        val rig = rig(scope)
+        val card = FixedSpot(2, Rect(0f, 0f, 100f, 100f))
+        rig.motion.registerCard(JumpBackIn, card)
+
+        // Its layer moved it after its last placement (no new onPlaced).
+        card.rect = Rect(0f, 200f, 100f, 300f)
+
+        assertNull(rig.motion.cardAt(JumpBackIn, Offset(50f, 50f)))
+        assertEquals(2, rig.motion.cardAt(JumpBackIn, Offset(50f, 250f)))
+    }
+
+    /** A card spot whose rect the test moves by hand. */
+    private class FixedSpot(override val cardIndex: Int, var rect: Rect?) : HomeEditCardSpot {
+        override fun rectInBlock(): Rect? = rect
     }
 
     private fun change(

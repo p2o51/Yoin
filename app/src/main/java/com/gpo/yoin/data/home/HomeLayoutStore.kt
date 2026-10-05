@@ -8,20 +8,30 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.serialization.EncodeDefault
+import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
 
 /**
  * One persisted section choice: its stable [id] and whether it renders. Position
  * in the persisted list is the render order. Kept UI-agnostic (a plain id string,
  * not a `HomeSection`) so this data-layer store never depends on the section
  * catalog — the UI layer reconciles ids → sections. See `HomeSection.reconcile`.
+ *
+ * [config] is the section's settings bag (`{"rows":"xl"}` today, D1): absent
+ * for a section left at its defaults — never written as `"config":null` — and
+ * opaque here, so keys a newer build adds ride along verbatim. Older builds
+ * skip it (ignoreUnknownKeys); no schema or database bump.
  */
+@OptIn(ExperimentalSerializationApi::class)
 @Serializable
 data class HomeSectionPref(
     val id: String,
     val enabled: Boolean,
+    @EncodeDefault(EncodeDefault.Mode.NEVER) val config: JsonObject? = null,
 )
 
 /**
