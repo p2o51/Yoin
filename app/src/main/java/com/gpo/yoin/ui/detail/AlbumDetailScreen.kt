@@ -48,6 +48,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
@@ -93,15 +94,16 @@ import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.rememberCoverColorScheme
 import com.gpo.yoin.ui.theme.YoinMotionRole
 import com.gpo.yoin.ui.theme.YoinTheme
+import kotlinx.coroutines.launch
 
 // At or below this track count the cover docks to a big rounded "capsule"; above
 // it, to the thin full-bleed band (a long list needs the band's vertical room).
 internal const val DetailManyTracksThreshold = 5
 
-// Page 1 of the pager ("Scores & About", AlbumSecondaryPage) is not built yet —
-// keep the pager single-page and the indicator dots hidden until it ships.
-// Flipping this back to true re-enables the page and the dots together.
-private const val ALBUM_SECONDARY_PAGE_ENABLED = false
+// Page 1 of the pager is the scrapbook (AlbumScrapbookPage, D3 — owner-approved
+// 2026-10-05). It also needs a host that passes `scrapbook`: a host that doesn't
+// (yet) keeps the page single and the dots hidden. False hides it everywhere.
+private const val ALBUM_SECONDARY_PAGE_ENABLED = true
 
 @Composable
 fun AlbumDetailScreen(
@@ -123,6 +125,10 @@ fun AlbumDetailScreen(
     onRatingCommit: (Float) -> Unit = {},
     onReviewDraftChange: (String) -> Unit = {},
     onSaveReview: () -> Unit = {},
+    // Page 2 (the scrapbook). Null = this host doesn't provide it: one page, no dots.
+    scrapbook: AlbumScrapbookUiState? = null,
+    // A note line on page 2: play the song, then seek to the note's moment once it is ready.
+    onNoteMomentClick: (songId: String, positionMs: Long?) -> Unit = { songId, _ -> onSongClick(songId) },
     onPlayAlbum: () -> Unit = {},
     onShufflePlay: () -> Unit = {},
     onShare: () -> Unit = {},
@@ -242,6 +248,8 @@ fun AlbumDetailScreen(
                                     onRatingCommit = onRatingCommit,
                                     onReviewDraftChange = onReviewDraftChange,
                                     onSaveReview = onSaveReview,
+                                    scrapbook = scrapbook,
+                                    onNoteMomentClick = onNoteMomentClick,
                                 )
                         }
                     }
@@ -321,6 +329,8 @@ private fun AlbumDetailContent(
     onRatingCommit: (Float) -> Unit,
     onReviewDraftChange: (String) -> Unit,
     onSaveReview: () -> Unit,
+    scrapbook: AlbumScrapbookUiState?,
+    onNoteMomentClick: (songId: String, positionMs: Long?) -> Unit,
 ) {
     // Material color roles seeded from the album's OWN cover (MCU
     // SchemeExpressive) — not raw Palette swatches, which read "off" used as
@@ -332,8 +342,6 @@ private fun AlbumDetailContent(
     val secondaryBlock by animateColorAsState(s.secondary, YoinMotion.effectsSpring(), label = "albumSecondaryBlock")
     val titleColor by animateColorAsState(s.primary, YoinMotion.effectsSpring(), label = "albumTitleColor")
     val accentText = s.secondary
-    val bunContainer = s.primaryContainer
-    val bunContent = s.onPrimaryContainer
 
     // Height first (断点交接 §5 / §14.6): a landscape handset turns the portrait
     // hero sideways (cover left, what sits under it on the right) and keeps
@@ -363,10 +371,15 @@ private fun AlbumDetailContent(
         DetailPullUpReconcile(revealState, expanded)
     }
 
-    // Horizontal pager: page 0 = this overview, page 1 = scores/About sample.
-    val pagerState = rememberPagerState(
-        pageCount = { if (ALBUM_SECONDARY_PAGE_ENABLED) 2 else 1 },
-    )
+    // Horizontal pager: page 0 = this overview, page 1 = the scrapbook. Page 1 is
+    // an in-page state, not a place: back leaves the album from either page
+    // (like the pulled-up list), so no back handler is added for it.
+    val hasScrapbook = ALBUM_SECONDARY_PAGE_ENABLED && scrapbook != null
+    val pagerState = rememberPagerState(pageCount = { if (hasScrapbook) 2 else 1 })
+    val pagerScope = rememberCoroutineScope()
+    // The scrapbook's emblem stamps once per album page (not per swipe back and forth).
+    var scrapbookStamped by rememberSaveable(content.albumId) { mutableStateOf(false) }
+    val pageSpec = YoinMotion.defaultSpatialSpec<Float>()
 
     // Back always finishes the Activity (native cross-Activity predictive back):
     // the pulled-up track list is NOT a back stop, so one back press leaves the
@@ -382,7 +395,12 @@ private fun AlbumDetailContent(
                 year = content.year,
                 titleColor = titleColor,
                 accentText = accentText,
-                pageFraction = pagerState.currentPage + pagerState.currentPageOffsetFraction,
+                pageFraction = { pagerState.currentPage + pagerState.currentPageOffsetFraction },
+                selectedPage = pagerState.settledPage,
+                pageCount = if (hasScrapbook) 2 else 1,
+                onPageClick = { page ->
+                    pagerScope.launch { pagerState.animateScrollToPage(page, animationSpec = pageSpec) }
+                },
                 onBackClick = onBackClick,
             )
 
@@ -403,8 +421,6 @@ private fun AlbumDetailContent(
                                 primaryBlock = primaryBlock,
                                 secondaryBlock = secondaryBlock,
                                 accent = primaryBlock,
-                                bunContainer = bunContainer,
-                                bunContent = bunContent,
                                 notedSongIds = notedSongIds,
                                 currentTrackId = currentTrackId,
                                 isPlaying = isPlaying,
@@ -419,8 +435,6 @@ private fun AlbumDetailContent(
                             AlbumMediumOverview(
                                 content = content,
                                 accent = primaryBlock,
-                                bunContainer = bunContainer,
-                                bunContent = bunContent,
                                 notedSongIds = notedSongIds,
                                 currentTrackId = currentTrackId,
                                 isPlaying = isPlaying,
@@ -437,8 +451,6 @@ private fun AlbumDetailContent(
                                 primaryBlock = primaryBlock,
                                 secondaryBlock = secondaryBlock,
                                 accent = primaryBlock,
-                                bunContainer = bunContainer,
-                                bunContent = bunContent,
                                 revealState = reveal,
                                 expanded = expanded,
                                 onExpandedCommit = { expanded = it },
@@ -458,8 +470,6 @@ private fun AlbumDetailContent(
                                 primaryBlock = primaryBlock,
                                 secondaryBlock = secondaryBlock,
                                 accent = primaryBlock,
-                                bunContainer = bunContainer,
-                                bunContent = bunContent,
                                 revealState = reveal,
                                 expanded = expanded,
                                 onExpandedCommit = { expanded = it },
@@ -476,7 +486,24 @@ private fun AlbumDetailContent(
                         }
                     }
 
-                    else -> AlbumSecondaryPage()
+                    else -> AlbumScrapbookPage(
+                        state = scrapbook ?: AlbumScrapbookUiState.Loading,
+                        content = content,
+                        colors = rememberScrapbookColors(s),
+                        currentTrackId = currentTrackId,
+                        pageOffset = {
+                            // 0 settled here, 1 a whole page away (page 0): the
+                            // pieces' parallax, read in their graphicsLayer only.
+                            (1f - (pagerState.currentPage + pagerState.currentPageOffsetFraction))
+                                .coerceIn(0f, 1f)
+                        },
+                        onSongClick = onSongClick,
+                        onNoteMomentClick = onNoteMomentClick,
+                        onEditReview = { showEditSheet = true },
+                        settled = pagerState.settledPage == 1,
+                        stamped = scrapbookStamped,
+                        onStamped = { scrapbookStamped = true },
+                    )
                 }
             }
         }
@@ -502,7 +529,10 @@ private fun AlbumTopHeader(
     year: Int?,
     titleColor: Color,
     accentText: Color,
-    pageFraction: Float,
+    pageFraction: () -> Float,
+    selectedPage: Int,
+    pageCount: Int,
+    onPageClick: (Int) -> Unit,
     onBackClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -548,13 +578,16 @@ private fun AlbumTopHeader(
                 }
             }
         }
-        if (ALBUM_SECONDARY_PAGE_ENABLED) {
+        if (pageCount > 1) {
             AlbumPageDots(
                 activeFraction = pageFraction,
+                selectedPage = selectedPage,
                 activeColor = accentText,
                 inactiveColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f),
+                onPageClick = onPageClick,
+                count = pageCount,
                 modifier = Modifier
-                    .padding(top = 6.dp)
+                    .padding(top = 2.dp)
                     .align(Alignment.CenterHorizontally),
             )
         }
@@ -567,8 +600,6 @@ private fun AlbumOverviewPage(
     primaryBlock: Color,
     secondaryBlock: Color,
     accent: Color,
-    bunContainer: Color,
-    bunContent: Color,
     revealState: RevealState,
     expanded: Boolean,
     onExpandedCommit: (Boolean) -> Unit,
@@ -707,8 +738,6 @@ private fun AlbumOverviewPage(
                                 // score Bun / Comment blocks as liner notes.
                                 AlbumHeroMetaBlocks(
                                     content = content,
-                                    bunContainer = bunContainer,
-                                    bunContent = bunContent,
                                     // Mirror of the hero gate: live only while
                                     // the list is the dominant layer.
                                     interactive = expand >= 0.5f,
@@ -731,8 +760,6 @@ private fun AlbumOverviewPage(
                     if (expand < 0.999f) {
                         AlbumHeroDetails(
                             content = content,
-                            bunContainer = bunContainer,
-                            bunContent = bunContent,
                             contentWidth = heroCoverSide,
                             // Stop interacting with the fading-out hero once the
                             // list is the dominant layer, so its (still-composed,
@@ -762,8 +789,6 @@ private fun AlbumOverviewPage(
 @Composable
 private fun AlbumHeroDetails(
     content: AlbumDetailUiState.Content,
-    bunContainer: Color,
-    bunContent: Color,
     contentWidth: Dp,
     interactive: Boolean,
     onEditComment: () -> Unit,
@@ -778,8 +803,6 @@ private fun AlbumHeroDetails(
         // Last Play + Avg + Comment — a cover-width block; mono labels & values.
         AlbumHeroMetaBlocks(
             content = content,
-            bunContainer = bunContainer,
-            bunContent = bunContent,
             interactive = interactive,
             onEditComment = onEditComment,
             onTapBun = onTapBun,
@@ -829,8 +852,6 @@ private fun AlbumHeroDetails(
 @Composable
 private fun AlbumHeroMetaBlocks(
     content: AlbumDetailUiState.Content,
-    bunContainer: Color,
-    bunContent: Color,
     interactive: Boolean,
     onEditComment: () -> Unit,
     onTapBun: () -> Unit,
@@ -864,12 +885,11 @@ private fun AlbumHeroMetaBlocks(
                 AlbumSectionLabel(
                     text = if (score.kind == AlbumScoreKind.UserRating) "Rating" else "Avg.",
                 )
-                AlbumScoreBun(
-                    score = score,
+                AlbumScoreEmblem(
+                    spec = content.emblemSpec(),
+                    coverArtUrl = content.coverArtUrl,
                     ratedCount = content.ratedTrackCount,
                     total = content.trackTotal,
-                    containerColor = bunContainer,
-                    contentColor = bunContent,
                     enabled = interactive,
                     onClick = onTapBun,
                 )
@@ -1009,8 +1029,6 @@ private val AlbumMediumHeroCoverSide = 240.dp
 private fun AlbumMediumOverview(
     content: AlbumDetailUiState.Content,
     accent: Color,
-    bunContainer: Color,
-    bunContent: Color,
     notedSongIds: Set<String>,
     currentTrackId: String?,
     isPlaying: Boolean,
@@ -1044,8 +1062,6 @@ private fun AlbumMediumOverview(
         header = {
             AlbumMediumHeroRow(
                 content = content,
-                bunContainer = bunContainer,
-                bunContent = bunContent,
                 onEditComment = onEditComment,
             )
         },
@@ -1055,8 +1071,6 @@ private fun AlbumMediumOverview(
 @Composable
 private fun AlbumMediumHeroRow(
     content: AlbumDetailUiState.Content,
-    bunContainer: Color,
-    bunContent: Color,
     onEditComment: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -1085,8 +1099,6 @@ private fun AlbumMediumHeroRow(
         Column(modifier = Modifier.weight(1f)) {
             AlbumHeroMetaBlocks(
                 content = content,
-                bunContainer = bunContainer,
-                bunContent = bunContent,
                 interactive = true,
                 onEditComment = onEditComment,
                 onTapBun = onEditComment,
@@ -1108,8 +1120,6 @@ private fun AlbumWideOverview(
     primaryBlock: Color,
     secondaryBlock: Color,
     accent: Color,
-    bunContainer: Color,
-    bunContent: Color,
     notedSongIds: Set<String>,
     currentTrackId: String?,
     isPlaying: Boolean,
@@ -1160,8 +1170,6 @@ private fun AlbumWideOverview(
             Spacer(modifier = Modifier.height(16.dp))
             AlbumHeroMetaBlocks(
                 content = content,
-                bunContainer = bunContainer,
-                bunContent = bunContent,
                 interactive = true,
                 onEditComment = onEditComment,
                 onTapBun = onEditComment,
@@ -1206,8 +1214,6 @@ private fun AlbumLandscapeOverview(
     primaryBlock: Color,
     secondaryBlock: Color,
     accent: Color,
-    bunContainer: Color,
-    bunContent: Color,
     revealState: RevealState,
     expanded: Boolean,
     onExpandedCommit: (Boolean) -> Unit,
@@ -1259,8 +1265,6 @@ private fun AlbumLandscapeOverview(
                 footer = {
                     AlbumHeroMetaBlocks(
                         content = content,
-                        bunContainer = bunContainer,
-                        bunContent = bunContent,
                         interactive = expand >= 0.5f,
                         onEditComment = onEditComment,
                         onTapBun = onEditComment,
@@ -1311,8 +1315,6 @@ private fun AlbumLandscapeOverview(
                 Column(modifier = Modifier.weight(1f)) {
                     AlbumHeroMetaBlocks(
                         content = content,
-                        bunContainer = bunContainer,
-                        bunContent = bunContent,
                         interactive = expand < 0.5f,
                         onEditComment = onEditComment,
                         onTapBun = onEditComment,
@@ -1349,40 +1351,6 @@ private fun AlbumLandscapeOverview(
                     )
                 }
             }
-        }
-    }
-}
-
-@Composable
-private fun AlbumSecondaryPage(modifier: Modifier = Modifier) {
-    Box(
-        modifier = modifier
-            .fillMaxSize()
-            .padding(24.dp),
-        contentAlignment = Alignment.Center,
-    ) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            Icon(
-                imageVector = YoinSymbols.Insights,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(40.dp),
-            )
-            Text(
-                text = "Scores & About",
-                style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.onSurface,
-            )
-            Text(
-                text = "Per-track scores and a Gemini-written About will live here.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.fillMaxWidth(),
-                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-            )
         }
     }
 }

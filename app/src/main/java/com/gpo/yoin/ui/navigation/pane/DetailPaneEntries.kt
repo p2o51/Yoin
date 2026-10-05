@@ -94,6 +94,7 @@ internal fun AlbumPaneEntry(
     val notedSongIds by viewModel.notedSongIds.collectAsState()
     val expandedSongId by viewModel.expandedSongId.collectAsState()
     val expandedNoteBundle by viewModel.expandedNoteBundle.collectAsState()
+    val scrapbook by viewModel.scrapbook.collectAsState()
     val content = uiState as? AlbumDetailUiState.Content
 
     fun playFrom(startIndex: Int, shuffle: Boolean) {
@@ -117,6 +118,12 @@ internal fun AlbumPaneEntry(
                 activityContext = activityContext,
             )
         }
+    }
+    fun playSong(songId: String) {
+        val index = viewModel.getAlbumSongs()
+            .indexOfFirst { it.id.toString() == songId }
+            .coerceAtLeast(0)
+        playFrom(startIndex = index, shuffle = false)
     }
     val share = {
         val text = content?.let { "${it.albumName} – ${it.artistName}" } ?: "Check out this album"
@@ -147,11 +154,13 @@ internal fun AlbumPaneEntry(
     AlbumDetailScreen(
         uiState = uiState,
         onBackClick = onBack,
-        onSongClick = { songId ->
-            val index = viewModel.getAlbumSongs()
-                .indexOfFirst { it.id.toString() == songId }
-                .coerceAtLeast(0)
-            playFrom(startIndex = index, shuffle = false)
+        onSongClick = { songId -> playSong(songId) },
+        // Page 2 (the scrapbook), as the Activity host wires it.
+        scrapbook = scrapbook,
+        onNoteMomentClick = { songId, positionMs ->
+            // Seek in place when that song is already current; otherwise play it and seek once it is ready.
+            val inPlace = positionMs != null && viewModel.requestNoteSeek(songId, positionMs)
+            if (!inPlace) playSong(songId)
         },
         onToggleStar = viewModel::toggleStar,
         onRetry = viewModel::retry,

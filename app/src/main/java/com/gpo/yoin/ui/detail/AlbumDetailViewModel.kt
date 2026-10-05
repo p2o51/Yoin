@@ -1,9 +1,14 @@
 package com.gpo.yoin.ui.detail
 
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.gpo.yoin.AppContainer
+import com.gpo.yoin.data.album.AlbumScrapbookData
+import com.gpo.yoin.data.album.AlbumScrapbookQuery
+import com.gpo.yoin.data.album.AlbumScrapbookSource
+import com.gpo.yoin.data.album.AlbumScrapbookTrackKey
 import com.gpo.yoin.data.model.Album
 import com.gpo.yoin.data.model.CoverRef
 import com.gpo.yoin.data.model.LibraryMembership
@@ -12,25 +17,39 @@ import com.gpo.yoin.data.model.Track
 import com.gpo.yoin.data.model.isUnplayableAppleImport
 import com.gpo.yoin.data.repository.YoinRepository
 import com.gpo.yoin.data.source.ServiceFeatureCatalog
+import com.gpo.yoin.player.PlaybackState
 import com.gpo.yoin.ui.component.toUserMessage
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.filterIsInstance
+import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.retryWhen
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.withTimeoutOrNull
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class AlbumDetailViewModel(
     private val albumId: String,
     private val repository: YoinRepository,
+    // Scores, notes, questions and plays for this album (live). Page 1's Avg. / emblem and page 2 read it.
+    private val scrapbookSource: AlbumScrapbookSource = AlbumScrapbookSource.None,
+    // The player, for "play from this note" on page 2 (null in tests that don't care).
+    private val playback: AlbumScrapbookPlayback? = null,
+    private val clock: () -> Long = System::currentTimeMillis,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow<AlbumDetailUiState>(AlbumDetailUiState.Loading)
@@ -80,6 +99,27 @@ class AlbumDetailViewModel(
 
     /** Tracks with an Apple Music library write in flight; keyed by the track id string. */
     private val workingLibraryTrackIds = MutableStateFlow<Set<String>>(emptySet())
+
+    /**
+     * The latest scrapbook read; null until the album has loaded and Room answered once (or the read
+     * failed, when it becomes the empty read so page 2 never waits on it — see the collector).
+     */
+    private val scrapbookData = MutableStateFlow<AlbumScrapbookData?>(null)
+
+    /**
+     * Page 2 (the scrapbook), rebuilt whenever the album content or its data moves. Pure
+     * ([buildAlbumScrapbook]), so an unrelated Content change (a library check) rebuilds to an equal
+     * book and is dropped here.
+     */
+    val scrapbook: StateFlow<AlbumScrapbookUiState> = combine(
+        _uiState.filterIsInstance<AlbumDetailUiState.Content>(),
+        scrapbookData.filterNotNull(),
+    ) { content, data -> buildAlbumScrapbook(content, data, clock()) }
+        .distinctUntilChanged()
+        .map<AlbumScrapbook, AlbumScrapbookUiState> { book -> AlbumScrapbookUiState.Ready(book) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), AlbumScrapbookUiState.Loading)
+
+    private var seekJob: Job? = null
 
     init {
         loadAlbum()
@@ -147,25 +187,38 @@ class AlbumDetailViewModel(
                     }
                 }
 
-                // 单曲均分 + 专辑级 last-play 是「算出来的」信号：本地 ratings
-                // 取均值，play_history 各单曲最近播放取 MAX。加载后算一次并 merge
-                // 回 Content（本页用户评分走 album_ratings，不影响这里的均分）。
+                // 单曲均分、评过分的曲目、专辑级 last-play 和第二页的手帐都读同一条
+                // 活的 Room 流：在 NP 里改分 / 写笔记 / 提问之后，两页都跟着更新。
+                val query = AlbumScrapbookQuery(
+                    albumId = album.id,
+                    albumName = album.name,
+                    tracks = albumSongs.map { track ->
+                        AlbumScrapbookTrackKey(
+                            id = track.id,
+                            title = track.title.orEmpty(),
+                            artist = track.artist.orEmpty(),
+                        )
+                    },
+                )
                 launch {
-                    val ratings = repository.getRatings(albumSongs.map(Track::id))
-                    val ratedValues = albumSongs.mapNotNull {
-                        ratings[it.id]?.rating?.takeIf { r -> r > 0f }
-                    }
-                    val avg = ratedValues.takeIf { it.isNotEmpty() }?.average()?.toFloat()
-                    // One grouped MAX(playedAt) query for the whole album, not one
-                    // per track (a 50-track album was 50 serial round-trips).
-                    val lastPlayed =
-                        runCatching { repository.getAlbumLastPlayed(parsedAlbumId) }.getOrNull()
-                    val cur = _uiState.value as? AlbumDetailUiState.Content ?: return@launch
-                    _uiState.value = cur.copy(
-                        averageTrackRating = avg,
-                        ratedTrackCount = ratedValues.size,
-                        lastPlayedAt = lastPlayed,
-                    )
+                    scrapbookSource.observe(query)
+                        .retryWhen { cause, attempt ->
+                            // Page 2 must not sit in Loading on a failed read: with nothing read yet it
+                            // shows the empty / sparse book; after a good read it keeps those values (page
+                            // 1 keeps its signals too). The retried read's next emission replaces them.
+                            if (scrapbookData.value == null) scrapbookData.value = AlbumScrapbookData.Empty
+                            val retry = attempt < SCRAPBOOK_MAX_RETRIES
+                            val next = if (retry) "retrying" else "giving up"
+                            Log.w(TAG, "Album scrapbook read failed (attempt ${attempt + 1}); $next", cause)
+                            if (retry) delay(scrapbookRetryDelayMs(attempt))
+                            retry
+                        }
+                        // Gave up (logged above): page 2 stays on what it shows; never crash the page.
+                        .catch { }
+                        .collect { data ->
+                            scrapbookData.value = data
+                            mergeRatingSummary(data)
+                        }
                 }
             } catch (e: Exception) {
                 _uiState.value = AlbumDetailUiState.Error(
@@ -275,6 +328,46 @@ class AlbumDetailViewModel(
         overrides[track.id]?.let { isStarred -> track.copy(isStarred = isStarred) } ?: track
     }
 
+    /**
+     * Page 1's computed signals from the live read: the track average, how many tracks are rated and
+     * which (the emblem's cut rings), and the album's last play in Yoin.
+     */
+    private fun mergeRatingSummary(data: AlbumScrapbookData) {
+        val current = _uiState.value as? AlbumDetailUiState.Content ?: return
+        val ratedValues = albumSongs.mapNotNull { data.ratings[it.id] }
+        val ratedIds = albumSongs.filter { it.id in data.ratings }.mapTo(linkedSetOf()) { it.id.toString() }
+        _uiState.value = current.copy(
+            averageTrackRating = ratedValues.takeIf { it.isNotEmpty() }?.average()?.toFloat(),
+            ratedTrackCount = ratedValues.size,
+            ratedSongIds = ratedIds,
+            lastPlayedAt = data.plays.lastPlayedAt,
+        )
+    }
+
+    /**
+     * Play-from-a-note's second half (page 2): the caller plays [songId] from the start unless this
+     * returns true. Once that track really is current — and prepared (duration > 0) — seek to
+     * [positionMs], once; give up after [SEEK_TIMEOUT_MS]. When the track is already current and
+     * prepared, seek now (resuming it if paused) and return true: the caller must not restart it.
+     */
+    fun requestNoteSeek(songId: String, positionMs: Long): Boolean {
+        val player = playback ?: return false
+        seekJob?.cancel()
+        val now = player.state.value
+        if (now.currentTrack?.id?.toString() == songId && now.duration > 0L) {
+            player.seekTo(positionMs)
+            if (!now.isPlaying) player.resume()
+            return true
+        }
+        seekJob = viewModelScope.launch {
+            val ready = withTimeoutOrNull(SEEK_TIMEOUT_MS) {
+                player.state.first { state -> state.currentTrack?.id?.toString() == songId && state.duration > 0L }
+            }
+            if (ready != null && positionMs > 0L) player.seekTo(positionMs)
+        }
+        return false
+    }
+
     fun toggleExpandedSong(songId: String) {
         _expandedSongId.value = if (_expandedSongId.value == songId) null else songId
     }
@@ -315,10 +408,49 @@ class AlbumDetailViewModel(
         private val albumId: String,
         private val container: AppContainer,
     ) : ViewModelProvider.Factory {
+        private val playback = object : AlbumScrapbookPlayback {
+            override val state: StateFlow<PlaybackState> get() = container.playbackManager.playbackState
+
+            override fun seekTo(positionMs: Long) = container.playbackManager.seekTo(positionMs)
+
+            override fun resume() = container.playbackManager.resume()
+        }
+
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T =
-            AlbumDetailViewModel(albumId, container.repository) as T
+            AlbumDetailViewModel(
+                albumId = albumId,
+                repository = container.repository,
+                scrapbookSource = container.albumScrapbookSource,
+                playback = playback,
+            ) as T
     }
+
+    companion object {
+        /** Play-from-a-note gives up on its seek if the track isn't current and prepared by then. */
+        const val SEEK_TIMEOUT_MS = 4_000L
+
+        /** A failed scrapbook read retries after 1s, doubling up to this. */
+        const val SCRAPBOOK_RETRY_MAX_MS = 30_000L
+
+        /** Retries before a failing scrapbook read is given up (1 + 2 + 4 + 8 + 16 s ≈ half a minute). */
+        const val SCRAPBOOK_MAX_RETRIES = 5L
+
+        private const val TAG = "AlbumDetailVM"
+
+        /** Backoff before retry [attempt] (0-based): 1s, 2s, 4s … capped at [SCRAPBOOK_RETRY_MAX_MS]. */
+        internal fun scrapbookRetryDelayMs(attempt: Long): Long =
+            (1_000L shl attempt.coerceIn(0L, 5L).toInt()).coerceAtMost(SCRAPBOOK_RETRY_MAX_MS)
+    }
+}
+
+/** What page 2 needs from the player: its state and two commands (Memories' play-from-a-note contract). */
+interface AlbumScrapbookPlayback {
+    val state: StateFlow<PlaybackState>
+
+    fun seekTo(positionMs: Long)
+
+    fun resume()
 }
 
 data class AlbumExpandedNoteBundle(

@@ -6,7 +6,12 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.material3.MaterialShapes
+import androidx.compose.material3.toShape
+import com.gpo.yoin.ui.component.elasticPress
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -22,20 +27,22 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialShapes
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
-import androidx.compose.material3.toShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -51,6 +58,7 @@ import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.LinkAnnotation
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextLinkStyles
@@ -75,7 +83,7 @@ import com.gpo.yoin.ui.component.UnavailableTrackAlpha
 import com.gpo.yoin.ui.component.UnavailableTrackBadge
 import com.gpo.yoin.ui.component.UnavailableTrackReason
 import com.gpo.yoin.ui.component.YoinMark
-import com.gpo.yoin.ui.component.elasticPress
+import com.gpo.yoin.ui.component.YoinModalBottomSheet
 import com.gpo.yoin.ui.component.formatTotalDuration
 import com.gpo.yoin.ui.component.formatTrackDuration
 import com.gpo.yoin.ui.component.minimumTouchTarget
@@ -192,38 +200,120 @@ private fun AlbumArrowBackgroundPreview() {
 }
 
 // ---------------------------------------------------------------------------
-// Two-page indicator dots (this page  ·  scores/About page).
+// Two-page indicator dots (overview  ·  scrapbook). Tappable: a dot pages to it.
 // ---------------------------------------------------------------------------
 
+private val AlbumPageDotLabels = listOf("Overview", "Scrapbook")
+
+/**
+ * The page dots. [activeFraction] (pager position, 0…count-1) is read only while drawing, so a swipe never
+ * recomposes the header; [selectedPage] (the settled page) only feeds the accessibility state.
+ */
 @Composable
 internal fun AlbumPageDots(
-    activeFraction: Float,
+    activeFraction: () -> Float,
+    selectedPage: Int,
     activeColor: Color,
     inactiveColor: Color,
+    onPageClick: (Int) -> Unit,
     modifier: Modifier = Modifier,
     count: Int = 2,
 ) {
     Row(
-        modifier = modifier,
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        modifier = modifier.selectableGroup(),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         repeat(count) { i ->
-            val distance = (i - activeFraction).absoluteValue.coerceIn(0f, 1f)
+            val label = AlbumPageDotLabels.getOrElse(i) { "Page ${i + 1}" }
             Box(
                 modifier = Modifier
-                    .size(8.dp)
-                    .clip(CircleShape)
-                    .background(lerp(activeColor, inactiveColor, distance)),
+                    // 24 × 20 cells (the dots stay 6dp apart as before); Compose
+                    // widens the touch bounds of a target this small on its own.
+                    .size(width = 24.dp, height = 20.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .selectable(
+                        selected = i == selectedPage,
+                        role = Role.Tab,
+                        onClick = { onPageClick(i) },
+                    )
+                    .semantics { contentDescription = label }
+                    .drawBehind {
+                        val distance = (i - activeFraction()).absoluteValue.coerceIn(0f, 1f)
+                        drawCircle(
+                            color = lerp(activeColor, inactiveColor, distance),
+                            radius = 4.dp.toPx(),
+                        )
+                    },
             )
         }
     }
 }
 
 // ---------------------------------------------------------------------------
-// "Avg." Bun score chip (MaterialShapes.Bun).
+// Score: the Memories groove emblem (replaced the "Avg." Bun, owner 2026-10-05).
 // ---------------------------------------------------------------------------
 
+/** Page 1's emblem: drawn natively at this size (6 rings; ≥ 64 shows the unrated word). */
+internal val AlbumPageEmblemSize = 64.dp
+
+/**
+ * The album score on page 1: the groove emblem (album rating, else the track average, else the empty
+ * mould) and, unless the album itself is rated, "Based on X/N". Tapping it opens the rate & comment sheet
+ * (the album page's rating entry; the emblem itself is the Memories exhibit, so no press morph).
+ */
+@Composable
+internal fun AlbumScoreEmblem(
+    spec: AlbumEmblemSpec,
+    coverArtUrl: String?,
+    ratedCount: Int,
+    total: Int,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+) {
+    Row(
+        modifier = modifier,
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        AlbumScoreMark(
+            spec = spec,
+            coverArtUrl = coverArtUrl,
+            size = AlbumPageEmblemSize,
+            onCover = false,
+            modifier = Modifier
+                // "Score bloom": pops only when a rating COMMIT lands — the
+                // settle window inside keeps page-open resolves silent.
+                .ratingBloom(spec.score)
+                .clip(CircleShape)
+                .clickable(
+                    enabled = enabled,
+                    role = Role.Button,
+                    onClickLabel = "Rate and comment",
+                    onClick = onClick,
+                ),
+        )
+        // Rule: only the computed-average / not-rated states show "Based on X/N";
+        // a manual album rating stands alone.
+        if (spec.score.kind != AlbumScoreKind.UserRating) {
+            Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                Text(
+                    text = "Based on",
+                    style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Text(
+                    text = "$ratedCount/$total",
+                    style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+    }
+}
+
+// The artist page's "Avg." Bun (album ratings averaged). The album page itself
+// now shows the groove emblem (AlbumScoreEmblem above).
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 internal fun AlbumScoreBun(
@@ -657,7 +747,7 @@ internal fun AlbumRatingReviewSheet(
     // sheet has closed over it — invisible on this path).
     var commitNonce by remember { mutableIntStateOf(0) }
 
-    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
+    YoinModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()

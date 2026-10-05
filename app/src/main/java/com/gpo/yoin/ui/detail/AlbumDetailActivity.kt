@@ -78,6 +78,7 @@ class AlbumDetailActivity : ComponentActivity() {
                 val notedSongIds by viewModel.notedSongIds.collectAsState()
                 val expandedSongId by viewModel.expandedSongId.collectAsState()
                 val expandedNoteBundle by viewModel.expandedNoteBundle.collectAsState()
+                val scrapbook by viewModel.scrapbook.collectAsState()
                 val playbackState by app.container.playbackManager.playbackState.collectAsState()
                 val playbackSignal by app.container.audioVisualizerManager.playbackSignal.collectAsState()
                 // Narrow id-only projection for the track list's now-playing
@@ -115,6 +116,13 @@ class AlbumDetailActivity : ComponentActivity() {
                             activityContext = activityContext,
                         )
                     }
+                }
+
+                fun playSong(songId: String) {
+                    val index = viewModel.getAlbumSongs()
+                        .indexOfFirst { it.id.toString() == songId }
+                        .coerceAtLeast(0)
+                    playFrom(startIndex = index, shuffle = false)
                 }
 
                 // Now Playing is hosted IN THIS window: the pill opens it in
@@ -157,11 +165,13 @@ class AlbumDetailActivity : ComponentActivity() {
                     navSection = intent.detailOriginSection(),
                     enterBarHandoff = intent.getBooleanExtra(DETAIL_EXTRA_BAR_HANDOFF, false),
                     barExitsOnBack = intent.detailBarExitsOnBack(),
-                    onSongClick = { songId ->
-                        val index = viewModel.getAlbumSongs()
-                            .indexOfFirst { it.id.toString() == songId }
-                            .coerceAtLeast(0)
-                        playFrom(startIndex = index, shuffle = false)
+                    onSongClick = { songId -> playSong(songId) },
+                    scrapbook = scrapbook,
+                    onNoteMomentClick = { songId, positionMs ->
+                        // Seek in place when that song is already current;
+                        // otherwise play it and seek once it is ready.
+                        val inPlace = positionMs != null && viewModel.requestNoteSeek(songId, positionMs)
+                        if (!inPlace) playSong(songId)
                     },
                     onToggleStar = viewModel::toggleStar,
                     onRetry = viewModel::retry,

@@ -29,6 +29,8 @@ sealed interface AlbumDetailUiState {
         val averageTrackRating: Float? = null,
         /** 被用户评过分的单曲数量，用于「Based on X/N」副标。 */
         val ratedTrackCount: Int = 0,
+        /** 评过分的单曲 id（[AlbumSong.id]）：徽记按曲目顺序刻哪几圈。 */
+        val ratedSongIds: Set<String> = emptySet(),
         /**
          * 专辑级「上次播放」时间戳（epoch millis）。没有持久化字段，由
          * play_history 聚合（各单曲最近一次播放取 MAX）。null = 无记录。
