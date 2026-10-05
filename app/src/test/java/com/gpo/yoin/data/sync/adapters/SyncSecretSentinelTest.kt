@@ -65,7 +65,8 @@ class SyncSecretSentinelTest {
         assertEquals(
             setOf(
                 SyncKinds.SONG_NOTE, SyncKinds.TRACK_RATING, SyncKinds.ALBUM_RATING, SyncKinds.ALBUM_REVIEW,
-                SyncKinds.HOME_LAYOUT, SyncKinds.SETTING, SyncKinds.LYRICS_TRANSLATION, SyncKinds.ACCOUNT,
+                SyncKinds.HOME_LAYOUT, SyncKinds.SETTING, SyncKinds.LYRICS_TRANSLATION,
+                SyncKinds.MEMORY_COPY, SyncKinds.MEMORY_TITLE, SyncKinds.SONG_ABOUT, SyncKinds.ACCOUNT,
             ),
             adapters.map { it.kind }.toSet(),
         )

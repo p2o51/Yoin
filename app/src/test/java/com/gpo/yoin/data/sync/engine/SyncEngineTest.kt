@@ -423,10 +423,10 @@ class SyncEngineTest {
                 } else {
                     adapter
                 }
-            } + FakeAdapter(domain, "song_about", listOf("text"), perAccount = false)
+            } + FakeAdapter(domain, "future_kind", listOf("text"), perAccount = false)
         }
         val n = device("dev-n", "Newer phone", 10_000, adapters = newer)
-        n.adapter("song_about").put(null, "about-1", 100, "text" to "hello")
+        n.adapter("future_kind").put(null, "about-1", 100, "text" to "hello")
         n.ratings.put(n.profile, "t9", 100, "songId" to "t9", "rating" to 7, "scale" to 10)
         n.cycle(drive)
 
@@ -439,13 +439,13 @@ class SyncEngineTest {
         assertFalse("t9" in a.ratings.applyCalls)
         assertEquals("2", a.rating("t9"))
         val aState = SnapshotCodec.decode(drive.file("dev-a")!!.bytes)
-        assertTrue(aState.records.any { it.kind == "song_about" })
+        assertTrue(aState.records.any { it.kind == "future_kind" })
         assertTrue(aState.records.any { it.kind == SyncKinds.TRACK_RATING && it.kindVersion == 2 })
 
         drive.remove("dev-n")
         val c = device("dev-c", "Newer tablet", 30_000, adapters = newer)
         c.cycle(drive)
-        assertEquals("hello", c.adapter("song_about").value(null, "about-1", "text"))
+        assertEquals("hello", c.adapter("future_kind").value(null, "about-1", "text"))
         assertEquals("7", c.ratings.value(c.profile, "t9", "rating"))
     }
 

@@ -353,6 +353,73 @@ class CloudSyncManagerTest {
         assertNull("the old layout is not pulled back", phone.db.syncDomainDao().homeLayout(p))
     }
 
+    @Test
+    fun should_syncAiAlbumTitleAndCopy_when_peerWroteThem() = runBlocking {
+        val phone = device("Pixel 9")
+        val fold = device("Fold")
+        val p = phone.addSubsonic("https://music.example.com", "alice")
+        val f = fold.addSubsonic("https://music.example.com", "alice")
+        phone.db.syncDomainDao().upsertMemoryCopy(
+            com.gpo.yoin.data.local.MemoryCopyCache(
+                profileId = p, provider = "subsonic", entityType = "album", entityId = "al-1",
+                copy = "Rainy-night record", promptHash = "h1", generatedAt = clock.addAndGet(1_000),
+                title = "Neon Rain", titlePromptHash = "t1",
+            ),
+        )
+        phone.turnOn()
+        fold.turnOn()
+
+        val row = fold.db.syncDomainDao().memoryCopy(f, "subsonic", "album", "al-1")
+        assertEquals("Neon Rain", row?.title)
+        assertEquals("t1", row?.titlePromptHash)
+        assertEquals("Rainy-night record", row?.copy)
+
+        // A newer copy elsewhere must not wipe the title.
+        fold.db.syncDomainDao().upsertMemoryCopy(row!!.copy(copy = "New mood", promptHash = "h2", generatedAt = clock.addAndGet(1_000)))
+        fold.sync()
+        phone.sync()
+        val back = phone.db.syncDomainDao().memoryCopy(p, "subsonic", "album", "al-1")
+        assertEquals("New mood", back?.copy)
+        assertEquals("Neon Rain", back?.title)
+    }
+
+    @Test
+    fun should_syncAskGeminiQuestions_onlyIntoTheSameLanguage() = runBlocking {
+        val phone = device("Pixel 9")
+        val fold = device("Fold")
+        phone.db.geminiConfigDao().upsert(GeminiConfig(apiKey = "k", targetLanguage = "Japanese"))
+        phone.db.syncDomainDao().upsertSongAbout(
+            com.gpo.yoin.data.local.SongAboutEntry(
+                titleKey = "song", artistKey = "artist", albumKey = "album",
+                titleDisplay = "Song", artistDisplay = "Artist", albumDisplay = "Album",
+                kind = "ask", entryKey = "who wrote it", promptText = "Who wrote it?", titleText = "作者",
+                answerText = "答え", createdAt = 1L, updatedAt = 2L,
+            ),
+        )
+        fold.db.geminiConfigDao().upsert(GeminiConfig(apiKey = "", targetLanguage = "German"))
+        fold.db.syncDomainDao().upsertSongAbout(
+            com.gpo.yoin.data.local.SongAboutEntry(
+                titleKey = "other", artistKey = "artist", albumKey = "album",
+                titleDisplay = "Other", artistDisplay = "Artist", albumDisplay = "Album",
+                kind = "canonical", entryKey = "review", promptText = null, titleText = null,
+                answerText = "Gut", createdAt = 1L, updatedAt = 2L,
+            ),
+        )
+        phone.turnOn()
+        fold.turnOn()
+        assertTrue("German device doesn't show Japanese answers", fold.db.syncDomainDao().allSongAbout().none { it.kind == "ask" })
+
+        // The user switches the fold to Japanese (the app wipes About/Ask on a switch).
+        fold.db.geminiConfigDao().upsert(GeminiConfig(apiKey = "", targetLanguage = "Japanese"))
+        fold.db.songAboutEntryDao().deleteAll()
+        fold.sync()
+
+        val ask = fold.db.syncDomainDao().songAbout("song", "artist", "album", "ask", "who wrote it")
+        assertEquals("Who wrote it?", ask?.promptText)
+        phone.sync()
+        assertTrue("the wipe didn't delete anything on the phone", phone.db.syncDomainDao().allSongAbout().any { it.kind == "ask" })
+    }
+
     // ---- harness
 
     private fun device(name: String, on: FakeDrive = drive): Device = Device(name, on, clock).also { devices += it }

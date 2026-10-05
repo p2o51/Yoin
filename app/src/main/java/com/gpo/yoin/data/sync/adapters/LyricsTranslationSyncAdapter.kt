@@ -5,6 +5,7 @@ import com.gpo.yoin.data.local.LyricsCache
 import com.gpo.yoin.data.local.LyricsTranslationCache
 import com.gpo.yoin.data.local.YoinDatabase
 import com.gpo.yoin.data.lyrics.LrcParser
+import com.gpo.yoin.data.lyrics.LyricsCachePolicy
 import com.gpo.yoin.data.model.Lyrics
 import com.gpo.yoin.data.sync.ApplyOutcome
 import com.gpo.yoin.data.sync.ConflictPolicy
@@ -130,8 +131,10 @@ class LyricsTranslationSyncAdapter(
 
     /**
      * Seeds `lyrics_cache` from a received snapshot when the track has no row,
-     * or only an automatic one that the repository already treats as expired.
-     * Never replaces a hand-edited row; the seeded row counts as fresh.
+     * or only an automatic one that the repository already treats as expired
+     * ([LyricsCachePolicy.isUsable]). Never replaces a row the user chose (manual
+     * or `user|`-marked, any age); the seeded row counts as fresh. A `user|`
+     * marker in the snapshot is kept, so the user's choice follows them.
      */
     private suspend fun seedLyrics(fields: TranslationFields, payload: JsonObject, now: Long) {
         val snapshot = payload[LYRICS_FIELD] as? JsonObject ?: return
@@ -144,7 +147,7 @@ class LyricsTranslationSyncAdapter(
         if (sourceLineCount(lrc) != translationCount) return
         val existing = dao.lyricsCache(fields.trackProvider, fields.trackRawId)
         val replaceable = existing == null ||
-            (existing.lyricsProvider != MANUAL_LYRICS_PROVIDER && existing.cachedAt < now - LYRICS_CACHE_TTL_MS)
+            !LyricsCachePolicy.isUsable(existing, now)
         if (!replaceable) return
         dao.writeLyricsCache(
             LyricsCache(
@@ -160,7 +163,10 @@ class LyricsTranslationSyncAdapter(
 
     private fun snapshotOf(row: LyricsTranslationCache, lyrics: LyricsCache?): JsonObject? {
         if (lyrics == null || lyrics.lyricsProvider == MANUAL_LYRICS_PROVIDER) return null
-        if (lyrics.cachedAt > row.cachedAt) return null
+        // An automatic row's cachedAt is when it was fetched: newer than the translation means the
+        // lyrics changed since. A user-chosen row's cachedAt is "last used" and moves on reads, so
+        // only the line-count check below vouches for it.
+        if (!LyricsCachePolicy.isUserChosen(lyrics) && lyrics.cachedAt > row.cachedAt) return null
         val translationCount = translationCount(row.translationsJson) ?: return null
         if (sourceLineCount(lyrics.lrc) != translationCount) return null
         return JsonObject(
@@ -232,7 +238,7 @@ class LyricsTranslationSyncAdapter(
         const val MANUAL_LYRICS_PROVIDER = "manual"
 
         /** Same freshness window as the repository's lyrics cache reads. */
-        const val LYRICS_CACHE_TTL_MS: Long = 30L * 24L * 60L * 60L * 1000L
+        const val LYRICS_CACHE_TTL_MS: Long = LyricsCachePolicy.AUTOMATIC_TTL_MS
 
         fun keyOf(
             trackProvider: String,

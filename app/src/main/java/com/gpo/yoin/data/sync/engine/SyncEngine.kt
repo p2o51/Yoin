@@ -1083,7 +1083,7 @@ class SyncEngine(
         const val DOMAIN_RESET_MIN_MISSING = 2
 
         /** Kinds published in artifact shards even when this build has no adapter for them. */
-        val KNOWN_ARTIFACT_KINDS: Set<String> = setOf(SyncKinds.LYRICS_TRANSLATION)
+        val KNOWN_ARTIFACT_KINDS: Set<String> = setOf(SyncKinds.LYRICS_TRANSLATION, SyncKinds.SONG_ABOUT)
 
         private const val UNKNOWN_DEVICE_NAME = "Another device"
 

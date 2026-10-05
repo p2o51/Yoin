@@ -19,6 +19,9 @@ object SyncKinds {
     const val SETTING = "setting"
     const val LYRICS_TRANSLATION = "lyrics_translation"
     const val ACCOUNT = "account"
+    const val MEMORY_COPY = "memory_copy"
+    const val MEMORY_TITLE = "memory_title"
+    const val SONG_ABOUT = "song_about"
 }
 
 /** Keys of [SyncKinds.SETTING] records. */

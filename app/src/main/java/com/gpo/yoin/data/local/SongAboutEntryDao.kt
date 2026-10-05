@@ -78,6 +78,21 @@ interface SongAboutEntryDao {
     )
     suspend fun countAskRowsByAlbum(albumKey: String): List<AskRowCount>
 
+    /**
+     * Every About row (canonical + ask) filed under one album key — the album
+     * page's scrapbook maps them back to its tracks by title / artist key.
+     * About rows are keyed by normalized metadata, not by profile or provider
+     * (they are shared reference material), so there is nothing else to filter.
+     */
+    @Query(
+        """
+        SELECT * FROM song_about_entries
+        WHERE albumKey = :albumKey
+        ORDER BY updatedAt DESC
+        """,
+    )
+    fun observeByAlbum(albumKey: String): Flow<List<SongAboutEntry>>
+
     @Upsert
     suspend fun upsert(row: SongAboutEntry)
 

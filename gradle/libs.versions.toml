@@ -53,6 +53,9 @@ mockk = "1.13.16"
 coroutinesTest = "1.10.1"
 composeUiTest = "1.8.0"
 androidxTestCore = "1.7.0"
+# Instrumented tests on API 37 need these (older ones call the removed InputManager.getInstance)
+androidxTestRunner = "1.7.0"
+espresso = "3.7.0"
 robolectric = "4.16.1"
 
 # Code quality
@@ -140,6 +143,8 @@ coroutines-test = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-
 compose-ui-test-junit4 = { group = "androidx.compose.ui", name = "ui-test-junit4" }
 compose-ui-test-manifest = { group = "androidx.compose.ui", name = "ui-test-manifest" }
 androidx-test-core = { group = "androidx.test", name = "core", version.ref = "androidxTestCore" }
+androidx-test-runner = { group = "androidx.test", name = "runner", version.ref = "androidxTestRunner" }
+espresso-core = { group = "androidx.test.espresso", name = "espresso-core", version.ref = "espresso" }
 robolectric = { group = "org.robolectric", name = "robolectric", version.ref = "robolectric" }
 
 [plugins]

@@ -11,7 +11,9 @@ import com.gpo.yoin.data.local.HomeLayoutPreference
 import com.gpo.yoin.data.local.LocalRating
 import com.gpo.yoin.data.local.LyricsCache
 import com.gpo.yoin.data.local.LyricsTranslationCache
+import com.gpo.yoin.data.local.MemoryCopyCache
 import com.gpo.yoin.data.local.Profile
+import com.gpo.yoin.data.local.SongAboutEntry
 import com.gpo.yoin.data.local.SongNote
 import com.gpo.yoin.data.local.SpotifyConfig
 
@@ -193,4 +195,32 @@ interface SyncDomainDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun writeLyricsCache(entry: LyricsCache)
+
+    // ---- memory_copy_cache (AI album copy and title)
+
+    @Query("SELECT * FROM memory_copy_cache WHERE profileId = :profileId")
+    suspend fun memoryCopiesForProfile(profileId: String): List<MemoryCopyCache>
+
+    @Query(
+        "SELECT * FROM memory_copy_cache WHERE profileId = :profileId AND provider = :provider " +
+            "AND entityType = :entityType AND entityId = :entityId LIMIT 1",
+    )
+    suspend fun memoryCopy(profileId: String, provider: String, entityType: String, entityId: String): MemoryCopyCache?
+
+    @Upsert
+    suspend fun upsertMemoryCopy(row: MemoryCopyCache)
+
+    // ---- song_about_entries (Gemini About + the user's Ask Q&A)
+
+    @Query("SELECT * FROM song_about_entries")
+    suspend fun allSongAbout(): List<SongAboutEntry>
+
+    @Query(
+        "SELECT * FROM song_about_entries WHERE titleKey = :titleKey AND artistKey = :artistKey " +
+            "AND albumKey = :albumKey AND kind = :kind AND entryKey = :entryKey LIMIT 1",
+    )
+    suspend fun songAbout(titleKey: String, artistKey: String, albumKey: String, kind: String, entryKey: String): SongAboutEntry?
+
+    @Upsert
+    suspend fun upsertSongAbout(entry: SongAboutEntry)
 }

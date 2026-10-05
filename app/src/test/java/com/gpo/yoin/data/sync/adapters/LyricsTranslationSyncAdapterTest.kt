@@ -168,6 +168,29 @@ class LyricsTranslationSyncAdapterTest {
         assertEquals(ApplyOutcome.Skipped(SkipReason.UNSUPPORTED, null), outcome)
     }
 
+    @Test
+    fun should_neverSeedOverUserChosenLyrics_when_choiceIsOld() = runTest {
+        dao.writeLyricsCache(lyrics(cachedAt = 1L, lrcText = "[00:01.00]picked", songId = "user|song-1"))
+
+        adapter.apply(null, key, remotePayload(), versionTs = 7L, expectedLocalHash = null)
+
+        val stored = dao.lyricsCache("spotify", "trk")!!
+        assertEquals("user|song-1", stored.lyricsProviderSongId)
+        assertEquals("[00:01.00]picked", stored.lrc)
+    }
+
+    @Test
+    fun should_attachSnapshotWithMarker_when_userChosenRowWasUsedAfterTranslation() = runTest {
+        dao.insertTranslationIfAbsent(paid)
+        // A user-chosen row's cachedAt is "last used": reads move it past the translation.
+        dao.writeLyricsCache(lyrics(cachedAt = 60L * DAY, songId = "user|song-9"))
+
+        val row = adapter.readAll(null).single()
+        val snapshot = adapter.decoratePayload(row.projection, "Pixel")[LyricsTranslationSyncAdapter.LYRICS_FIELD]
+
+        assertEquals("\"user|song-9\"", (snapshot as JsonObject)["lyricsProviderSongId"].toString())
+    }
+
     private fun hasSnapshot(payload: JsonObject) = payload.containsKey(LyricsTranslationSyncAdapter.LYRICS_FIELD)
 
     private fun remotePayload(snapshotLrc: String = lrc) = JsonObject(
@@ -198,11 +221,16 @@ class LyricsTranslationSyncAdapterTest {
         cachedAt = cachedAt,
     )
 
-    private fun lyrics(cachedAt: Long, provider: String = "qq", lrcText: String = lrc) = LyricsCache(
+    private fun lyrics(
+        cachedAt: Long,
+        provider: String = "qq",
+        lrcText: String = lrc,
+        songId: String = "song-9",
+    ) = LyricsCache(
         trackProvider = "spotify",
         trackRawId = "trk",
         lyricsProvider = provider,
-        lyricsProviderSongId = "song-9",
+        lyricsProviderSongId = songId,
         lrc = lrcText,
         cachedAt = cachedAt,
     )
