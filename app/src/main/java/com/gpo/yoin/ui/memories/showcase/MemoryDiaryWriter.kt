@@ -72,8 +72,9 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 
 /*
  * Your entry in the diary (twostate4 `reviewH` / `blankH` / `openWriter` / `saveWriter`): the review, or —
- * without one — today's blank page. The page is the NP composer's language (NoteComposer): the journal rail,
- * one placeholder line, no box, no outline, no tonal pill. A tap anywhere on it starts writing (the rail
+ * without one — today's blank page. The page speaks the shared journal language (JournalRail /
+ * JournalSavePill in NoteContent.kt): the rail, one placeholder line, no box, no outline, no tonal pill.
+ * A tap anywhere on it starts writing (the rail
  * comes up to full ink); Cancel and Save drop in under it — Save the album-coloured pill. Saving turns the
  * same block into the review entry IN PLACE: the typed words stay where they are, the rail fades, the body
  * slides 14 → 0 onto the entry's line on the spatial spring, and the header label crossfades Today → Your
