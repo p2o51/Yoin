@@ -125,14 +125,26 @@ private suspend fun loadMemoryCoverColors(context: Context, model: String): Memo
 
 /**
  * The palette of one memory: the fixture's (previews, the harness), else its cover's ([MemoryEntry.paletteCoverUrl],
- * the playback theme's URL for it). Until the cover is read the theme's primary stands in, with an accent of its
- * own family; the hand-off springs on the effects spring, seed and accent alike.
+ * the playback theme's URL for it), read by [rememberMemoryCoverColors] and lerped by [MemoryPalette.fromBackdrop].
  */
 @Composable
 internal fun rememberMemoryPalette(memory: MemoryEntry, fixture: MemoryPalette?): MemoryPalette {
     if (fixture != null) return fixture
+    val colors = rememberMemoryCoverColors(memory.paletteCoverUrl ?: memory.coverArtUrl)
+    return remember(colors) { MemoryPalette.fromBackdrop(colors.seed, colors.accent) }
+}
+
+/**
+ * The cover colours of [model] (an image URL, the playback theme's for that cover), read exactly as Now Playing
+ * reads them (see the file header) and cached per URL. Until the cover is read the theme's primary stands in, with
+ * an accent of its own family; the hand-off springs on the effects spring, seed and accent alike.
+ *
+ * The one cover-colour path shared by Memories ([rememberMemoryPalette]) and the score emblem facade
+ * (`ui/component/ScoreEmblem.kt`, `rememberScoreEmblemColors`): change it here and both follow.
+ */
+@Composable
+internal fun rememberMemoryCoverColors(model: String?): MemoryCoverColors {
     val context = LocalContext.current
-    val model = memory.paletteCoverUrl ?: memory.coverArtUrl
     val primary = MaterialTheme.colorScheme.primary
     val placeholder = remember(primary) { MemoryCoverColors(primary, memoryAccentFor(primary, emptyList())) }
     // re-read every composition: a sibling card (or a reopened deck) may have read the same cover since
@@ -146,5 +158,5 @@ internal fun rememberMemoryPalette(memory: MemoryEntry, fixture: MemoryPalette?)
     val spec = YoinMotion.defaultEffectsSpec<Color>(role = YoinMotionRole.Standard)
     val seed by animateColorAsState(target.seed, spec, label = "memoryPaletteSeed")
     val accent by animateColorAsState(target.accent, spec, label = "memoryPaletteAccent")
-    return remember(seed, accent) { MemoryPalette.fromBackdrop(seed, accent) }
+    return remember(seed, accent) { MemoryCoverColors(seed, accent) }
 }
