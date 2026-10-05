@@ -5,10 +5,12 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.gpo.yoin.AppContainer
+import com.gpo.yoin.data.memory.AlbumMemoryTitleStore
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.repository.YoinRepository
 import com.gpo.yoin.player.PlaybackState
 import com.gpo.yoin.ui.experience.ExperienceSessionStore
+import com.gpo.yoin.ui.memories.copy.MemoryTitleKind
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.Job
@@ -29,6 +31,8 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeoutOrNull
 
 class MemoriesViewModel(
@@ -41,6 +45,8 @@ class MemoriesViewModel(
     // The player, for the diary's playback highlight and "play from this note" (null in tests that don't care).
     private val playback: MemoriesPlayback? = null,
     private val clock: () -> Long = System::currentTimeMillis,
+    // The user's own album titles (null in tests that don't edit titles): Memories writes them and follows them.
+    private val titleStore: AlbumMemoryTitleStore? = null,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow<MemoriesUiState>(MemoriesUiState.Loading)
@@ -75,6 +81,15 @@ class MemoriesViewModel(
      */
     private val _reviewDrafts = MutableStateFlow<Map<String, String>>(emptyMap())
     val reviewDrafts: StateFlow<Map<String, String>> = _reviewDrafts.asStateFlow()
+
+    /**
+     * Title writes not yet landed, by [MemoryEntry.stableId]: the title the card already shows (null = Yoin's
+     * own, a restore). Every deck painted meanwhile keeps it, and the store's echo skips the card until then.
+     */
+    private val pendingTitles = mutableMapOf<String, PendingTitle>()
+
+    // One title write at a time, in the order the user saved them.
+    private val titleWrites = Mutex()
 
     /** NeoDB is configured: the diary's quiet push entry shows only then. */
     private val _neoDbConfigured = MutableStateFlow(false)
@@ -127,6 +142,7 @@ class MemoriesViewModel(
                 }
         }
         observeMemorySignals()
+        observeMemoryTitles()
         // The home teaser parks a focus request in the session store; consume it
         // here so the deck opens stopped on that album whether the screen is
         // already mounted or about to mount.
@@ -171,7 +187,7 @@ class MemoriesViewModel(
                     sessionStore.clearMemories()
                 }
 
-                val memories = deckCoordinator.ensureDeck()
+                val memories = withPendingTitles(deckCoordinator.ensureDeck())
                 _uiState.value = if (memories.isEmpty()) {
                     MemoriesUiState.Empty
                 } else {
@@ -210,7 +226,7 @@ class MemoriesViewModel(
         val job = viewModelScope.launch {
             _uiState.value = MemoriesUiState.Loading
             try {
-                val memories = deckCoordinator.ensureDeckFocused(focusSessionId)
+                val memories = withPendingTitles(deckCoordinator.ensureDeckFocused(focusSessionId))
                 _uiState.value = if (memories.isEmpty()) {
                     MemoriesUiState.Empty
                 } else {
@@ -254,7 +270,7 @@ class MemoriesViewModel(
         _uiState.value = currentContent.copy(isLoadingAdjacentDeck = true)
         adjacentDeckJob = viewModelScope.launch {
             try {
-                val nextDeck = deckCoordinator.advanceDeck(direction)
+                val nextDeck = withPendingTitles(deckCoordinator.advanceDeck(direction))
                 if (activeProfileId.value != profileId) return@launch
                 if (nextDeck.isEmpty()) {
                     _uiState.value = currentContent.copy(isLoadingAdjacentDeck = false)
@@ -428,7 +444,92 @@ class MemoriesViewModel(
             if (sessionState.value.deckId != deckId) return@launch
             val latest = _uiState.value as? MemoriesUiState.Content ?: return@launch
             if (latest.memories.map(MemoryEntry::sourceActivityId) != deckIds) return@launch
-            _uiState.value = latest.copy(memories = refreshed)
+            _uiState.value = latest.copy(memories = withPendingTitles(refreshed))
+        }
+    }
+
+    /**
+     * The user named this memory (tapped its title, typed, Save). Trimmed; a blank title is a restore
+     * ([restoreMemoryTitle]); the same title as the card's own is not an edit. Optimistic: the card takes the
+     * title at once (it morphs in place) and the write lands behind it; a failed write puts the old title back
+     * and reports [MemoriesOneShotEvent.TitleSaveFailed].
+     */
+    fun saveMemoryTitle(memory: MemoryEntry, text: String) {
+        writeMemoryTitle(memory, text.trim().takeIf(String::isNotEmpty))
+    }
+
+    /** Back to Yoin's own title (the AI title, else the motif, else the album name): the row is deleted. */
+    fun restoreMemoryTitle(memory: MemoryEntry) {
+        writeMemoryTitle(memory, null)
+    }
+
+    private fun writeMemoryTitle(memory: MemoryEntry, userTitle: String?) {
+        val store = titleStore ?: return
+        if (memory.entityType != MemoryEntityType.ALBUM) return
+        val key = memory.stableId
+        val shown = (_uiState.value as? MemoriesUiState.Content)?.memories?.firstOrNull { it.stableId == key } ?: memory
+        val before = shown.userMemoryTitle()
+        if (before == userTitle) return
+        val pending = PendingTitle(userTitle)
+        pendingTitles[key] = pending
+        patchMemory(key) { entry -> entry.withUserMemoryTitle(userTitle) }
+        val albumId = MediaId(memory.entityProvider, memory.entityId)
+        viewModelScope.launch {
+            val saved = try {
+                titleWrites.withLock {
+                    if (userTitle == null) store.clearTitle(albumId) else store.setTitle(albumId, userTitle)
+                }
+                true
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (error: Exception) {
+                Log.w(TAG, "title write failed for $key", error)
+                false
+            }
+            // a newer save of the same card owns it now
+            if (pendingTitles[key] !== pending) return@launch
+            pendingTitles.remove(key)
+            if (!saved) {
+                patchMemory(key) { entry ->
+                    if (entry.userMemoryTitle() == userTitle) entry.withUserMemoryTitle(before) else entry
+                }
+                _events.tryEmit(
+                    MemoriesOneShotEvent.TitleSaveFailed(
+                        memoryStableId = key,
+                        message = "Couldn't save the title.",
+                    ),
+                )
+            }
+        }
+    }
+
+    /** [memories] with the titles still being written, as the cards already show them. */
+    private fun withPendingTitles(memories: List<MemoryEntry>): List<MemoryEntry> {
+        if (pendingTitles.isEmpty()) return memories
+        return memories.map { entry ->
+            pendingTitles[entry.stableId]?.let { pending -> entry.withUserMemoryTitle(pending.userTitle) } ?: entry
+        }
+    }
+
+    /**
+     * The open deck follows the store: a title set on the album page, or pulled by sync, re-titles its card in
+     * place (the coordinator reads the store on every deal; this covers the deck already painted). Cards with a
+     * write in flight keep their optimistic title until it lands.
+     */
+    private fun observeMemoryTitles() {
+        val store = titleStore ?: return
+        viewModelScope.launch {
+            store.observeTitles().collect { titles ->
+                val content = _uiState.value as? MemoriesUiState.Content ?: return@collect
+                val patched = content.memories.map { entry ->
+                    if (entry.entityType != MemoryEntityType.ALBUM || entry.stableId in pendingTitles) {
+                        entry
+                    } else {
+                        entry.withUserMemoryTitle(titles[MediaId(entry.entityProvider, entry.entityId)])
+                    }
+                }
+                if (patched != content.memories) _uiState.value = content.copy(memories = patched)
+            }
         }
     }
 
@@ -564,6 +665,7 @@ class MemoriesViewModel(
                 activeProfileId = container.profileManager.activeProfileId,
                 activeSourceId = container.profileManager.activeSource.map { source -> source?.id },
                 playback = playback,
+                titleStore = container.albumMemoryTitleStore,
             ) as T
     }
 
@@ -586,6 +688,12 @@ interface MemoriesPlayback {
 
     fun resume()
 }
+
+/** A title write in flight: the user's title it sets, or null for a restore. Compared by identity. */
+private class PendingTitle(val userTitle: String?)
+
+/** The user's own title on this card, or null while it shows Yoin's. */
+internal fun MemoryEntry.userMemoryTitle(): String? = memoryTitle.takeIf { memoryTitleKind == MemoryTitleKind.USER }
 
 /** The playhead as the diary reads it: the playing track's raw id and the lit note's id. */
 internal data class MemoriesPlayhead(val trackId: String?, val noteId: String?)
@@ -643,6 +751,12 @@ sealed interface MemoriesOneShotEvent {
 
     /** A diary review didn't save; its draft is kept ([MemoriesViewModel.reviewDrafts]). */
     data class ReviewSaveFailed(
+        val memoryStableId: String,
+        val message: String,
+    ) : MemoriesOneShotEvent
+
+    /** A title edit didn't land; the card is back on the title it had ([MemoriesViewModel.saveMemoryTitle]). */
+    data class TitleSaveFailed(
         val memoryStableId: String,
         val message: String,
     ) : MemoriesOneShotEvent

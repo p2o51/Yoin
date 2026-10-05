@@ -13,15 +13,11 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.relocation.BringIntoViewRequester
-import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -32,16 +28,12 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
-import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.layout.onSizeChanged
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -52,7 +44,6 @@ import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.withStyle
-import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -68,7 +59,6 @@ import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinMotionSpeed
 import java.time.LocalDate
 import java.time.ZoneId
-import kotlinx.coroutines.flow.distinctUntilChanged
 
 /*
  * Your entry in the diary (twostate4 `reviewH` / `blankH` / `openWriter` / `saveWriter`): the review, or —
@@ -149,22 +139,8 @@ internal fun MemoryDiaryEntry(
         label = "diaryEntryRail",
     )
 
-    // keep Save above the keyboard while writing
-    val requester = remember { BringIntoViewRequester() }
-    var size by remember { mutableStateOf(IntSize.Zero) }
-    val density = LocalDensity.current
-    val ime = WindowInsets.ime
-    LaunchedEffect(writing, blank) {
-        if (!writing || !blank) return@LaunchedEffect
-        snapshotFlow { ime.getBottom(density) }
-            .distinctUntilChanged()
-            .collect { bottom ->
-                if (bottom > 0) {
-                    val clearance = with(density) { DiaryWriterTokens.ImeClearance.toPx() }
-                    requester.bringIntoView(Rect(0f, 0f, size.width.toFloat(), size.height + clearance))
-                }
-            }
-    }
+    // keep Save above the keyboard while writing (shared with the title editor's row)
+    val keepAboveIme = rememberKeepAboveImeModifier(active = writing && blank)
 
     val open = {
         if (enabled && blank) {
@@ -177,8 +153,7 @@ internal fun MemoryDiaryEntry(
         modifier = modifier
             .fillMaxWidth()
             .heightIn(min = DiaryWriterTokens.MinHeight)
-            .bringIntoViewRequester(requester)
-            .onSizeChanged { size = it }
+            .then(keepAboveIme)
             .then(
                 if (enabled && blank && !writing) {
                     Modifier

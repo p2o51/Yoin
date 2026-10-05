@@ -3,6 +3,9 @@ package com.gpo.yoin.ui.memories
 import com.gpo.yoin.data.local.ActivityEvent
 import com.gpo.yoin.data.local.LocalRating
 import com.gpo.yoin.data.memory.AlbumMemoryCandidate
+import com.gpo.yoin.data.memory.AlbumMemoryTitleSource
+import com.gpo.yoin.data.memory.AlbumMemoryTitleStore
+import com.gpo.yoin.data.memory.resolveAlbumMemoryTitle
 import com.gpo.yoin.data.model.CoverRef
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.Track
@@ -15,6 +18,7 @@ import com.gpo.yoin.ui.memories.copy.MemoryDates
 import com.gpo.yoin.ui.memories.copy.MemoryExcerpt
 import com.gpo.yoin.ui.memories.copy.MemoryListening
 import com.gpo.yoin.ui.memories.copy.MemoryScores
+import com.gpo.yoin.ui.memories.copy.MemoryTitleKind
 import com.gpo.yoin.ui.memories.copy.MemoryVoice
 import java.time.ZoneId
 import kotlinx.coroutines.CancellationException
@@ -31,6 +35,11 @@ class MemoriesDeckCoordinator(
     private val sessionStore: ExperienceSessionStore,
     randomSeed: Long = System.currentTimeMillis(),
     narrationSource: MemoryNarrationSource? = null,
+    /**
+     * The user's own titles, laid over Yoin's on every card this hands out ([withUserMemoryTitle]); null =
+     * Yoin's titles only (tests, previews). Read fresh per deal, never cached with the resolve.
+     */
+    private val titleStore: AlbumMemoryTitleStore? = null,
     /** "Today" for the copy (date grammar, "two days ago", days since first play). */
     private val clock: () -> Long = System::currentTimeMillis,
     private val zone: () -> ZoneId = ZoneId::systemDefault,
@@ -182,14 +191,15 @@ class MemoriesDeckCoordinator(
             currentDeck
                 .map { previous ->
                     async {
-                        val candidate = pool[previous.sourceActivityId] ?: return@async previous
-                        try {
+                        val candidate = pool[previous.sourceActivityId] ?: return@async withStoredTitle(previous)
+                        val resolved = try {
                             resolveMemoryCached(candidate) ?: previous
                         } catch (cancellation: CancellationException) {
                             throw cancellation
                         } catch (_: Exception) {
                             previous
                         }
+                        withStoredTitle(resolved)
                     }
                 }
                 .awaitAll()
@@ -220,10 +230,28 @@ class MemoriesDeckCoordinator(
         activityIds
             .mapNotNull(::findCandidateById)
             .map { candidate ->
-                async { resolveMemoryCached(candidate) }
+                async { resolveMemoryCached(candidate)?.let { memory -> withStoredTitle(memory) } }
             }
             .awaitAll()
             .filterNotNull()
+    }
+
+    /**
+     * [memory] with the user's stored title laid over Yoin's (or taken off, when there is none any more).
+     * The resolve cache keeps Yoin's titles only, so a title edited since the card was cached still shows.
+     * A failed read keeps Yoin's title rather than the card.
+     */
+    private suspend fun withStoredTitle(memory: MemoryEntry): MemoryEntry {
+        val store = titleStore ?: return memory
+        if (memory.entityType != MemoryEntityType.ALBUM) return memory
+        val userTitle = try {
+            store.getTitle(MediaId(memory.entityProvider, memory.entityId))
+        } catch (cancellation: CancellationException) {
+            throw cancellation
+        } catch (_: Exception) {
+            return memory
+        }
+        return memory.withUserMemoryTitle(userTitle)
     }
 
     private fun findCandidateById(candidateId: Long): AlbumMemoryCandidate? =
@@ -499,6 +527,9 @@ class MemoriesDeckCoordinator(
             firstHeardAt = history?.firstHeardAt,
             lastHeardAt = history?.lastHeardAt,
             memoryTitleKind = voice.titleKind,
+            // Yoin's own title, kept under a user title ([withStoredTitle] lays that over it)
+            generatedMemoryTitle = voice.title.takeIf { voice.titleKind != MemoryTitleKind.ALBUM },
+            generatedMemoryTitleKind = voice.titleKind.takeIf { it != MemoryTitleKind.ALBUM },
             proseLanguage = voice.language,
             yoinNarration = narration,
             yoinQuestion = question,
@@ -615,6 +646,59 @@ class MemoriesDeckCoordinator(
 }
 
 internal const val MEMORY_DECK_SIZE = 6
+
+/**
+ * This album memory with [userTitle] as its title — or, with null, back on Yoin's own (AI > motif > album
+ * name, [resolveAlbumMemoryTitle]). Pure and idempotent: Yoin's title stays in [MemoryEntry.generatedMemoryTitle]
+ * so a user title can be laid over it and taken off again in place. Only the title and its kind change:
+ * Yoin's narration and the prose language stay as they were (the user's title never steers Yoin's prose).
+ * An entry built before the generated fields existed counts its own AI / motif title as Yoin's.
+ */
+internal fun MemoryEntry.withUserMemoryTitle(userTitle: String?): MemoryEntry {
+    if (entityType != MemoryEntityType.ALBUM) return this
+    val yoin = yoinOwnTitle()
+    val resolved = resolveAlbumMemoryTitle(
+        userTitle = userTitle,
+        aiTitle = yoin?.text?.takeIf { yoin.kind == MemoryTitleKind.AI },
+        motif = yoin?.text?.takeIf { yoin.kind == MemoryTitleKind.MOTIF },
+        albumName = title,
+    )
+    return copy(
+        memoryTitle = resolved.text,
+        memoryTitleKind = resolved.source.toTitleKind(),
+        generatedMemoryTitle = yoin?.text,
+        generatedMemoryTitleKind = yoin?.kind,
+    )
+}
+
+/** Yoin's own title for a memory (AI or motif) and its kind. */
+internal data class YoinMemoryTitle(val text: String, val kind: MemoryTitleKind)
+
+/**
+ * Yoin's own title under whatever the card shows: [MemoryEntry.generatedMemoryTitle], or — for an entry built
+ * before that field existed — its own AI / motif title. Null when Yoin has none (the album name stands in).
+ */
+internal fun MemoryEntry.yoinOwnTitle(): YoinMemoryTitle? {
+    val generated = generatedMemoryTitle?.takeIf(String::isNotBlank)
+    val generatedKind = generatedMemoryTitleKind
+    if (generated != null && generatedKind != null) return YoinMemoryTitle(generated, generatedKind)
+    val own = memoryTitle?.takeIf(String::isNotBlank) ?: return null
+    return when (memoryTitleKind) {
+        MemoryTitleKind.AI, MemoryTitleKind.MOTIF -> YoinMemoryTitle(own, memoryTitleKind)
+        MemoryTitleKind.USER, MemoryTitleKind.ALBUM -> null
+    }
+}
+
+/** The user's title is on this card and Yoin has one of its own under it (the "Restore" gate). */
+internal fun MemoryEntry.canRestoreGeneratedTitle(): Boolean =
+    memoryTitleKind == MemoryTitleKind.USER && yoinOwnTitle() != null
+
+internal fun AlbumMemoryTitleSource.toTitleKind(): MemoryTitleKind = when (this) {
+    AlbumMemoryTitleSource.USER -> MemoryTitleKind.USER
+    AlbumMemoryTitleSource.AI -> MemoryTitleKind.AI
+    AlbumMemoryTitleSource.MOTIF -> MemoryTitleKind.MOTIF
+    AlbumMemoryTitleSource.ALBUM -> MemoryTitleKind.ALBUM
+}
 
 /** Plays in Yoin and the first / latest play, from play_history only. */
 internal data class MemoryPlayHistory(

@@ -40,6 +40,8 @@ import kotlinx.coroutines.launch
  *  · diary body → the diary's own scroll (pull past its top feeds p through [MemoriesDiaryDeck]'s nested
  *    scroll), except a NEW upward drag that starts with the diary already resting at its end: that one is
  *    q on the body rule, 1:1 with the rubber band. A fling that reaches the end only stops there.
+ *  · a title being edited (an in-page mode, [MemoryTitleEditor]) holds every vertical drag: nothing moves q
+ *    or p, and the drag is left to whatever is under the finger (the field, the diary's scroll).
  *
  * q is [RevealState] and p is [MemoriesDiaryState]: the router only feeds them, it owns no displacement of
  * its own. A routed drag consumes its moves in the Initial pass, so the pager, the diary scroll and every
@@ -74,6 +76,11 @@ sealed interface MemoriesVerticalRoute {
     data object DiaryScroll : MemoriesVerticalRoute {
         override val consumes: Boolean get() = false
     }
+
+    /** A title is being edited: the drag moves neither q nor p, and is left to what is under the finger. */
+    data object Held : MemoriesVerticalRoute {
+        override val consumes: Boolean get() = false
+    }
 }
 
 /**
@@ -97,6 +104,7 @@ internal fun decideDragAxis(dx: Float, dy: Float, slopPx: Float): MemoriesDragAx
 
 /**
  * The controller for a vertical drag from [zone] whose travel at slop is [deltaY] (negative = up).
+ * - A title being edited ([titleEditing]): held, whatever the zone — the edit is an in-page mode.
  * - Bar: Home, except a pull down while the diary is open ([diaryLevel]), which is the diary's handle (on the
  *   card q is hard-clamped at open, so a bar pull down there is a no-op).
  * - Diary: its own scroll, except an upward drag that started at the end ([diaryAtEnd]): Home, body rule.
@@ -109,7 +117,9 @@ internal fun routeVerticalDrag(
     cardPresent: Boolean,
     diaryLevel: Boolean = false,
     diaryAtEnd: Boolean = false,
+    titleEditing: Boolean = false,
 ): MemoriesVerticalRoute = when {
+    titleEditing -> MemoriesVerticalRoute.Held
     zone == MemoriesDragZone.Bar && diaryLevel && deltaY > 0f -> MemoriesVerticalRoute.DiaryHandle
     zone == MemoriesDragZone.Bar -> MemoriesVerticalRoute.Dismiss(fromBar = true)
     zone == MemoriesDragZone.Diary && diaryAtEnd && deltaY < 0f -> MemoriesVerticalRoute.Dismiss(fromBar = false)
@@ -177,6 +187,9 @@ class MemoriesGestureRouter internal constructor(
 
     /** The live diary (the deck's current page); null without a deck. */
     var diaryProbe: MemoriesDiaryProbe? = null
+
+    /** A title is being edited ([MemoryTitleEditor.isEditing]): every vertical drag is [MemoriesVerticalRoute.Held]. */
+    var titleEditing: () -> Boolean = { false }
 
     /** Runs once a release commits the retreat, after the spring lands (the host closes Memories). */
     var onDismissed: () -> Unit = {}
@@ -311,6 +324,7 @@ class MemoriesGestureRouter internal constructor(
             cardPresent = cardPresent && !isSpread,
             diaryLevel = !isSpread && diary.isDiaryLevel,
             diaryAtEnd = diaryAtEndAtDown,
+            titleEditing = titleEditing(),
         )
         slopUpPx = -deltaY
         qCrossing = null
@@ -325,7 +339,7 @@ class MemoriesGestureRouter internal constructor(
                 diary.startPull(banded = false, fromScrolled = false)
                 pCrossing = ThresholdCrossing(DiaryCloseThreshold, 1f - diary.fraction)
             }
-            MemoriesVerticalRoute.DiaryScroll -> Unit
+            MemoriesVerticalRoute.DiaryScroll, MemoriesVerticalRoute.Held -> Unit
         }
         awards?.onDragStart()
         debugLog?.invoke("lock $route from $zone")
@@ -351,7 +365,7 @@ class MemoriesGestureRouter internal constructor(
                     onThresholdCrossed(if (past) "past p .5, release closes the diary" else "back over p .5")
                 }
             }
-            MemoriesVerticalRoute.DiaryScroll -> Unit
+            MemoriesVerticalRoute.DiaryScroll, MemoriesVerticalRoute.Held -> Unit
         }
     }
 
@@ -387,7 +401,7 @@ class MemoriesGestureRouter internal constructor(
             }
             MemoriesVerticalRoute.CardRubberBand, MemoriesVerticalRoute.DiaryHandle ->
                 scope.launch { diary.releasePull(velocityY) }
-            MemoriesVerticalRoute.DiaryScroll -> Unit
+            MemoriesVerticalRoute.DiaryScroll, MemoriesVerticalRoute.Held -> Unit
         }
     }
 }

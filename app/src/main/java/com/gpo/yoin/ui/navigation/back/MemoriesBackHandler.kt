@@ -15,13 +15,15 @@ import androidx.compose.ui.platform.LocalDensity
 import com.gpo.yoin.ui.experience.DismissRule
 import com.gpo.yoin.ui.experience.RevealState
 import com.gpo.yoin.ui.memories.showcase.MemoriesDiaryState
+import com.gpo.yoin.ui.memories.showcase.MemoryTitleEditor
 import com.gpo.yoin.ui.theme.YoinMotion
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 
 /**
  * Memories' back infrastructure (ShellOverlayUp, Pattern C). Two levels, two
- * controllers, one handler:
+ * controllers, one handler — and above them, while a title is being edited,
+ * the edit itself:
  *
  * - [MemoriesBackLevel.Card]: back = retreat to Home. The outer q
  *   ([RevealState.fraction]) is scrubbed from wherever it is (q0) toward the
@@ -34,6 +36,12 @@ import kotlinx.coroutines.launch
  *   p0·(1 − ease(progress)) over the full range — no cap, no chase — from
  *   where a running spring was caught. Commit → 0, cancel → 1, on the same
  *   morph spring.
+ * - [MemoriesBackLevel.TitleEdit]: a memory's title is being edited (an
+ *   in-page mode, [MemoryTitleEditor]); back cancels the edit before anything
+ *   else. The preview fades the edit's row by ease(progress) — the title
+ *   itself is never scrubbed. Commit → the edit is cancelled (the field closes
+ *   on the title it had, the keyboard goes); cancel → the row comes back on
+ *   the effects spring (it is an alpha).
  *
  * Three-button / a11y back sends no progress events: the empty flow commits
  * directly (invariant 8). Settles run on an outer scope; the handler's
@@ -43,7 +51,7 @@ import kotlinx.coroutines.launch
  * priority (NowPlaying > HomeEdit > DetailPane > Memories) is expressed only
  * by that gate (invariant 9).
  */
-enum class MemoriesBackLevel { Card, Diary }
+enum class MemoriesBackLevel { Card, Diary, TitleEdit }
 
 /**
  * Memories' system back, both levels. [containerHeightPx] is read when a gesture starts.
@@ -53,7 +61,9 @@ enum class MemoriesBackLevel { Card, Diary }
  * cancel spring has landed (or a finger caught it). Between the two the page
  * holds its award (prototype `busyQ`): the preview parks q under the award's
  * open gate. [diary] may stay null until the diary exists;
- * [MemoriesBackLevel.Diary] without it falls back to the card level.
+ * [MemoriesBackLevel.Diary] without it falls back to the card level, and
+ * [MemoriesBackLevel.TitleEdit] without [titleEditor] (or with nothing open)
+ * to the diary or card level.
  */
 @Composable
 fun MemoriesPredictiveBack(
@@ -65,6 +75,7 @@ fun MemoriesPredictiveBack(
     diary: MemoriesDiaryState? = null,
     onCardBackStarted: () -> Unit = {},
     onCardBackFinished: () -> Unit = {},
+    titleEditor: MemoryTitleEditor? = null,
 ) {
     val scope = rememberCoroutineScope()
     val triggerPx = with(LocalDensity.current) { BackMotionTokens.MemoriesDismissTrigger.toPx() }
@@ -73,8 +84,21 @@ fun MemoriesPredictiveBack(
     val currentOnCardBackFinished by rememberUpdatedState(onCardBackFinished)
     PredictiveBackHandler(enabled = enabled) { events ->
         // Captured once per gesture: a level never changes under a live back.
-        val diaryState = diary?.takeIf { level == MemoriesBackLevel.Diary }
-        if (diaryState != null) {
+        val editor = titleEditor?.takeIf { level == MemoriesBackLevel.TitleEdit && it.isEditing }
+        val diaryState = diary?.takeIf { state ->
+            level == MemoriesBackLevel.Diary ||
+                (level == MemoriesBackLevel.TitleEdit && editor == null && state.isDiaryLevel)
+        }
+        if (editor != null) {
+            try {
+                events.collect { event -> editor.previewBack(MemoriesBackMath.titleEditPreview(event.progress)) }
+                // Commit (also the button path with no events): the edit is cancelled.
+                editor.commitBack()
+            } catch (e: CancellationException) {
+                editor.cancelBack(scope)
+                throw e
+            }
+        } else if (diaryState != null) {
             // Catch a running open/close spring where it is — never a jump to 1.
             val p0 = diaryState.stop().coerceIn(0f, 1f)
             try {
@@ -191,6 +215,9 @@ internal object MemoriesBackMath {
     /** Diary level: p = p0 · (1 − ease(progress)), full range from where the gesture caught p. */
     fun diaryFraction(p0: Float, progress: Float): Float =
         p0 * (1f - YoinMotion.backGestureEasing.transform(progress.coerceIn(0f, 1f)))
+
+    /** Title-edit level: how far the edit's row has faded, ease(progress) — the finger owns it 1:1. */
+    fun titleEditPreview(progress: Float): Float = YoinMotion.backGestureEasing.transform(progress.coerceIn(0f, 1f))
 
     /** See [memoriesDismissCorners]. */
     fun cornerRadius(fraction: Float, thresholdPx: Float, heightPx: Float, maxRadiusPx: Float): Float {

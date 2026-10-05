@@ -63,9 +63,11 @@ import com.gpo.yoin.ui.memories.showcase.MemoriesDiaryHost
 import com.gpo.yoin.ui.memories.showcase.MemoriesDiaryState
 import com.gpo.yoin.ui.memories.showcase.MemoriesGestureRouter
 import com.gpo.yoin.ui.memories.showcase.MemoriesShowcase
+import com.gpo.yoin.ui.memories.showcase.MemoryTitleEditor
 import com.gpo.yoin.ui.memories.showcase.memoriesGestures
 import com.gpo.yoin.ui.memories.showcase.rememberMemoriesDiaryState
 import com.gpo.yoin.ui.memories.showcase.rememberMemoriesGestureRouter
+import com.gpo.yoin.ui.memories.showcase.rememberMemoryTitleEditor
 import com.gpo.yoin.ui.navigation.back.MemoriesBackLevel
 import com.gpo.yoin.ui.navigation.back.MemoriesPredictiveBack
 import com.gpo.yoin.ui.navigation.back.memoriesDismissCorners
@@ -127,12 +129,15 @@ fun MemoriesScreen(
     // One award lifecycle per open: Memories unmounts when it closes.
     val awards = rememberMemoriesAwardLifecycle()
     val router = rememberMemoriesGestureRouter(revealState, diaryState, dismissRules)
+    // a memory's title being edited: an in-page mode the router, the pager and back all hold for
+    val titleEditor = rememberMemoryTitleEditor()
     SideEffect {
         router.awards = awards
         router.onDismissed = onDismissed
         router.onCommitted = haptics::performConfirm
         // CLOCK_TICK as a drag crosses its commit line (56 / 112dp, p .5), and back
         router.onThresholdCrossed = { haptics.performTick() }
+        router.titleEditing = { titleEditor.isEditing }
     }
     // Derived: each flips twice per motion, never per frame (invariant 10).
     val dismissMoving by remember(revealState) {
@@ -143,8 +148,13 @@ fun MemoriesScreen(
 
     MemoriesPredictiveBack(
         enabled = backEnabled,
-        // a spread has one level: its diary is always open beside the exhibit, so back goes Home
-        level = if (diaryLevel && !router.isSpread) MemoriesBackLevel.Diary else MemoriesBackLevel.Card,
+        // a title being edited takes back first (cancel the edit); a spread has one level otherwise: its
+        // diary is always open beside the exhibit, so back goes Home
+        level = when {
+            titleEditor.isEditing -> MemoriesBackLevel.TitleEdit
+            diaryLevel && !router.isSpread -> MemoriesBackLevel.Diary
+            else -> MemoriesBackLevel.Card
+        },
         reveal = revealState,
         containerHeightPx = { router.heightPx },
         onDismiss = {
@@ -154,6 +164,7 @@ fun MemoriesScreen(
         diary = diaryState,
         onCardBackStarted = router::onBackStarted,
         onCardBackFinished = router::onBackFinished,
+        titleEditor = titleEditor,
     )
 
     // The diary's window on the ViewModel: the playhead (narrowed, distinct), drafts, NeoDB.
@@ -171,6 +182,12 @@ fun MemoriesScreen(
             override fun reviewDraft(memory: MemoryEntry): String? = reviewDrafts.value[memory.stableId]
 
             override fun saveReview(memory: MemoryEntry, text: String) = viewModel.saveReview(memory, text)
+
+            override val titlesEditable: Boolean get() = true
+
+            override fun saveMemoryTitle(memory: MemoryEntry, title: String) = viewModel.saveMemoryTitle(memory, title)
+
+            override fun restoreMemoryTitle(memory: MemoryEntry) = viewModel.restoreMemoryTitle(memory)
 
             override fun playTrack(memory: MemoryEntry, track: MemoryTrack) {
                 track.playbackIndex?.let { index -> playMemoryTrack(memory, index) }
@@ -236,6 +253,13 @@ fun MemoriesScreen(
                     snackbarHostState.showSnackbar(
                         message = event.message,
                         duration = SnackbarDuration.Long,
+                    )
+                }
+
+                is MemoriesOneShotEvent.TitleSaveFailed -> {
+                    snackbarHostState.showSnackbar(
+                        message = event.message,
+                        duration = SnackbarDuration.Short,
                     )
                 }
             }
@@ -315,6 +339,7 @@ fun MemoriesScreen(
                             diaryHost = diaryHost,
                             reducedMotion = reducedMotion,
                             bottomInset = bottomInset,
+                            titleEditor = titleEditor,
                         )
                     }
                 }
@@ -448,6 +473,7 @@ private fun MemoriesContent(
     diaryHost: MemoriesDiaryHost,
     reducedMotion: Boolean,
     bottomInset: Dp,
+    titleEditor: MemoryTitleEditor,
 ) {
     // Derived: the deck's pull frames flip this once, not per frame.
     val auroraVisible by remember(revealState) { derivedStateOf { revealState.fraction < 0.999f } }
@@ -603,6 +629,7 @@ private fun MemoriesContent(
                 router = router,
                 awardBlocked = { router.backBusy },
                 bottomInset = bottomInset,
+                titleEditor = titleEditor,
             )
         }
 

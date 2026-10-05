@@ -1,13 +1,16 @@
 package com.gpo.yoin.ui.memories
 
 import app.cash.turbine.test
+import com.gpo.yoin.data.local.AlbumMemoryTitle
 import com.gpo.yoin.data.memory.AlbumMemoryCandidate
+import com.gpo.yoin.data.memory.AlbumMemoryTitleStore
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.Track
 import com.gpo.yoin.data.repository.YoinRepository
 import com.gpo.yoin.player.PlaybackState
 import com.gpo.yoin.testutil.MainDispatcherRule
 import com.gpo.yoin.ui.experience.ExperienceSessionStore
+import com.gpo.yoin.ui.memories.copy.MemoryTitleKind
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
@@ -38,6 +41,83 @@ class MemoriesViewModelTest {
     private val activeProfileId = MutableStateFlow<String?>("profile-a")
     private val activeSourceId = MutableStateFlow<String?>("subsonic")
     private val memorySignal = MutableStateFlow(0L)
+    private val titleDao = FakeAlbumMemoryTitleDao()
+    private val titleStore = AlbumMemoryTitleStore(titleDao, activeProfileId, clock = { 7_000L })
+
+    @Test
+    fun should_retitle_card_at_once_and_persist_when_title_saved() = runTest {
+        stubCandidates(buildAlbumCandidates(count = 4))
+        val viewModel = buildViewModel()
+        advanceUntilIdle()
+        val memory = (viewModel.uiState.value as MemoriesUiState.Content).memories.first()
+        val yoinTitle = memory.memoryTitle
+
+        viewModel.saveMemoryTitle(memory, "  Night bus ")
+        // optimistic: the card is renamed before the write lands
+        val optimistic = (viewModel.uiState.value as MemoriesUiState.Content).memories.first()
+        assertEquals("Night bus", optimistic.memoryTitle)
+        assertEquals(MemoryTitleKind.USER, optimistic.memoryTitleKind)
+        advanceUntilIdle()
+
+        val row = titleDao.rows.value.single()
+        assertEquals(AlbumMemoryTitle("profile-a", "subsonic", memory.entityId, "Night bus", 7_000L), row)
+        assertEquals("Night bus", (viewModel.uiState.value as MemoriesUiState.Content).memories.first().memoryTitle)
+
+        // an empty save is a restore: the row is deleted and Yoin's title is back
+        viewModel.saveMemoryTitle(memory, "   ")
+        advanceUntilIdle()
+        assertTrue(titleDao.rows.value.isEmpty())
+        val restored = (viewModel.uiState.value as MemoriesUiState.Content).memories.first()
+        assertEquals(yoinTitle, restored.memoryTitle)
+        assertEquals(memory.memoryTitleKind, restored.memoryTitleKind)
+    }
+
+    @Test
+    fun should_roll_back_and_report_when_title_write_fails() = runTest {
+        stubCandidates(buildAlbumCandidates(count = 4))
+        val viewModel = buildViewModel()
+        advanceUntilIdle()
+        val memory = (viewModel.uiState.value as MemoriesUiState.Content).memories.first()
+        titleDao.failWrites = true
+
+        viewModel.events.test {
+            viewModel.saveMemoryTitle(memory, "Night bus")
+            advanceUntilIdle()
+
+            val event = awaitItem() as MemoriesOneShotEvent.TitleSaveFailed
+            assertEquals(memory.stableId, event.memoryStableId)
+            expectNoEvents()
+        }
+        val after = (viewModel.uiState.value as MemoriesUiState.Content).memories.first()
+        assertEquals(memory.memoryTitle, after.memoryTitle)
+        assertEquals(memory.memoryTitleKind, after.memoryTitleKind)
+    }
+
+    @Test
+    fun should_retitle_open_card_when_title_changes_elsewhere() = runTest {
+        stubCandidates(buildAlbumCandidates(count = 4))
+        val viewModel = buildViewModel()
+        advanceUntilIdle()
+        val memory = (viewModel.uiState.value as MemoriesUiState.Content).memories.first()
+
+        // the album page (or a sync pull) names the album while the deck is open
+        titleStore.setTitle(MediaId("subsonic", memory.entityId), "From the album page")
+        advanceUntilIdle()
+
+        val after = (viewModel.uiState.value as MemoriesUiState.Content).memories.first()
+        assertEquals("From the album page", after.memoryTitle)
+        assertEquals(MemoryTitleKind.USER, after.memoryTitleKind)
+        // nothing else on the deck moved
+        assertEquals(
+            memory.copy(
+                memoryTitle = after.memoryTitle,
+                memoryTitleKind = after.memoryTitleKind,
+                generatedMemoryTitle = after.generatedMemoryTitle,
+                generatedMemoryTitleKind = after.generatedMemoryTitleKind,
+            ),
+            after,
+        )
+    }
 
     @Test
     fun should_reload_when_previous_result_was_empty() = runTest {
@@ -332,6 +412,7 @@ class MemoriesViewModelTest {
             activeProfileId = activeProfileId,
             activeSourceId = activeSourceId,
             playback = playback,
+            titleStore = titleStore,
         )
     }
 

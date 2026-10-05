@@ -9,6 +9,7 @@ import com.gpo.yoin.data.album.AlbumScrapbookSource
 import com.gpo.yoin.data.cache.DetailCacheStore
 import com.gpo.yoin.data.home.HomeLayoutStore
 import com.gpo.yoin.data.local.YoinDatabase
+import com.gpo.yoin.data.memory.AlbumMemoryTitleStore
 import com.gpo.yoin.data.lyrics.LyricsProviderRegistry
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.profile.AndroidKeyStoreCredentialsCipher
@@ -93,6 +94,7 @@ class AppContainer(private val context: Context) {
                 MIGRATION_25_26,
                 MIGRATION_26_27,
                 MIGRATION_27_28,
+                MIGRATION_28_29,
             )
             // v11 冻结了 0.3 schema；0.5 上架前的备份降级保险（用户拿着 v11
             // 备份在旧版设备恢复）走这条：数据丢但应用不崩。没数据丢失比
@@ -430,7 +432,13 @@ class AppContainer(private val context: Context) {
         MemoriesDeckCoordinator(
             repository = repository,
             sessionStore = experienceSessionStore,
+            titleStore = albumMemoryTitleStore,
         )
+    }
+
+    /** The user's own album Memory titles (Memories edits them; the album page's second page will too). */
+    val albumMemoryTitleStore: AlbumMemoryTitleStore by lazy {
+        AlbumMemoryTitleStore(database.albumMemoryTitleDao(), profileManager.activeProfileId)
     }
 
     val lyricsProviderRegistry: LyricsProviderRegistry by lazy { LyricsProviderRegistry() }
@@ -493,6 +501,25 @@ class AppContainer(private val context: Context) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE memory_copy_cache ADD COLUMN title TEXT")
                 db.execSQL("ALTER TABLE memory_copy_cache ADD COLUMN titlePromptHash TEXT")
+            }
+        }
+
+        // v28 → v29: the user's own album Memory titles (album_memory_titles). One row per
+        // (profile, provider, album); restoring Yoin's title deletes the row. Additive table.
+        val MIGRATION_28_29 = object : Migration(28, 29) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `album_memory_titles` (
+                        `profileId` TEXT NOT NULL,
+                        `provider` TEXT NOT NULL,
+                        `albumId` TEXT NOT NULL,
+                        `title` TEXT NOT NULL,
+                        `updatedAt` INTEGER NOT NULL,
+                        PRIMARY KEY(`profileId`, `provider`, `albumId`)
+                    )
+                    """.trimIndent(),
+                )
             }
         }
 

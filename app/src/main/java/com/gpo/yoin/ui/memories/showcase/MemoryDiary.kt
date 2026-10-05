@@ -141,6 +141,15 @@ internal interface MemoriesDiaryHost {
 
     fun saveReview(memory: MemoryEntry, text: String) = Unit
 
+    /** Titles can be edited here (the app's ViewModel, the harness); false: previews. */
+    val titlesEditable: Boolean get() = false
+
+    /** The user named [memory] [title] (trimmed, never blank): the card takes it at once. */
+    fun saveMemoryTitle(memory: MemoryEntry, title: String) = Unit
+
+    /** Take the user's title off [memory]: back to Yoin's own. */
+    fun restoreMemoryTitle(memory: MemoryEntry) = Unit
+
     /** A track row: play the track from its start. */
     fun playTrack(memory: MemoryEntry, track: MemoryTrack) = Unit
 
@@ -249,6 +258,8 @@ internal fun MemoryDiary(
     modifier: Modifier = Modifier,
     /** Medium: the diary's column (min(640, W − 32)), centred in the full-width scroll; phone: the page. */
     column: Dp = Dp.Unspecified,
+    /** The title can be tapped to edit (while [interactive]); null: read-only. */
+    titleEditing: MemoryTitleEditing? = null,
 ) {
     val type = LocalMemoriesType.current
     val yoinTitle = memory.memoryTitleKind != MemoryTitleKind.ALBUM && !memory.memoryTitle.isNullOrBlank()
@@ -290,11 +301,14 @@ internal fun MemoryDiary(
                 val paragraphBlock = if (paragraph != null) 0 else -1
                 DiaryHead(
                     memory = memory,
+                    tones = tones,
                     yoinTitle = yoinTitle,
                     paragraph = paragraph,
                     paragraphBlock = paragraphBlock,
                     morph = morph,
                     emblem = emblem,
+                    titleEditing = titleEditing,
+                    titleEnabled = interactive,
                 )
                 DiaryBlocks(
                     memory = memory,
@@ -472,11 +486,14 @@ internal data class YoinParagraph(val narration: String?, val question: String?,
 @Composable
 private fun DiaryHead(
     memory: MemoryEntry,
+    tones: MemoryPaletteTones,
     yoinTitle: Boolean,
     paragraph: YoinParagraph?,
     paragraphBlock: Int,
     morph: MemoryPageMorph,
     emblem: @Composable (Modifier) -> Unit,
+    titleEditing: MemoryTitleEditing?,
+    titleEnabled: Boolean,
 ) {
     val emblemModifier = Modifier
         .size(DiaryEmblemSize)
@@ -496,20 +513,39 @@ private fun DiaryHead(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 val style = diaryTitleStyle(memory.memoryTitleKind)
-                Text(
-                    text = memory.memoryTitle.orEmpty(),
-                    style = style,
-                    color = MaterialTheme.colorScheme.onSurface,
+                MemoryTitleSlot(
+                    memory = memory,
+                    surface = MemoryTitleSurface.Diary,
+                    editing = titleEditing,
+                    tones = tones,
+                    style = { kind -> diaryTitleStyle(kind) },
+                    enabled = titleEnabled,
+                    centred = false,
                     modifier = Modifier
                         .weight(1f, fill = false)
-                        .semantics { heading() }
                         .padding(end = MemoryDiaryTokens.EmblemGap)
                         .onPlaced { morph.onDiaryTitle(it) }
                         .graphicsLayer { with(morph) { diaryTitle() } }
                         .seamFade(style.fontSize),
-                )
+                ) { text, kind, tap ->
+                    Text(
+                        text = text,
+                        style = diaryTitleStyle(kind),
+                        color = MaterialTheme.colorScheme.onSurface,
+                        modifier = tap.semantics { heading() },
+                    )
+                }
                 emblem(emblemModifier)
             }
+            // the title's edit row, under the whole title row; the diary's scroll keeps it above the keyboard
+            MemoryTitleEditRow(
+                memory = memory,
+                surface = MemoryTitleSurface.Diary,
+                editing = titleEditing,
+                tones = tones,
+                centred = false,
+                keepAboveIme = true,
+            )
             if (paragraph != null) {
                 YoinParagraphText(
                     paragraph = paragraph,
@@ -946,19 +982,23 @@ private fun Stat(numeral: String, caption: String) {
     }
 }
 
-/** The diary title: the AI title in the serif (22, Medium 24), the motif in GSF ROND 60 (21, Medium 23). */
+/**
+ * The diary title: a written title — the AI's or the user's own — in the serif (22, Medium 24), the motif in
+ * GSF ROND 60 (21, Medium 23).
+ */
 @Composable
 internal fun diaryTitleStyle(kind: MemoryTitleKind): TextStyle {
     val type = LocalMemoriesType.current
     return when (kind) {
-        MemoryTitleKind.AI -> diaryText(YoinSerifTitle, FontWeight.SemiBold, type.diaryTitleAi, 1.4f, heading = true)
+        MemoryTitleKind.AI, MemoryTitleKind.USER ->
+            diaryText(YoinSerifTitle, FontWeight.SemiBold, type.diaryTitleAi, 1.4f, heading = true)
         else -> diaryText(ShowcaseType.rounded(600), FontWeight.SemiBold, type.diaryTitleMotif, 1.3f, heading = true)
     }
 }
 
 /** The diary title's size for a kind (the morph scales the card title to it). */
 internal fun diaryTitleSize(kind: MemoryTitleKind, type: MemoriesTypeScale): TextUnit =
-    if (kind == MemoryTitleKind.AI) type.diaryTitleAi else type.diaryTitleMotif
+    if (kind == MemoryTitleKind.AI || kind == MemoryTitleKind.USER) type.diaryTitleAi else type.diaryTitleMotif
 
 /** A start-aligned diary text style with a CSS line box (half-leading, no font padding). */
 @Composable

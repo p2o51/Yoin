@@ -7,8 +7,12 @@ import kotlin.math.floor
 /** The language Yoin's own prose is written in: the motif title, the narration and its question. */
 enum class MemoryProseLanguage { EN, ZH }
 
-/** Where the card's title came from. The serif belongs to [AI] only. */
-enum class MemoryTitleKind { AI, MOTIF, ALBUM }
+/**
+ * Where the card's title came from. The serif belongs to the titles someone wrote for this memory: Yoin's
+ * [AI] title and the [USER]'s own (AlbumMemoryTitleStore). [MemoryVoice] never produces [USER]; the
+ * coordinator lays the user's title over Yoin's.
+ */
+enum class MemoryTitleKind { AI, MOTIF, ALBUM, USER }
 
 /** A fact Yoin has already said on this card; the narration never says one twice. */
 enum class MemoryFact { PLAYS, RANGE, COVERAGE, NOTES, TOP, SCORE }

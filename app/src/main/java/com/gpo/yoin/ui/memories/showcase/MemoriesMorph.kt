@@ -360,6 +360,9 @@ internal class MemoriesDiaryDeck(
     /** A pull past the top of the text crossed p .5 (either way): the deck's CLOCK_TICK. */
     var onThresholdCrossed: (what: String) -> Unit = {}
 
+    /** A title is being edited: the text still scrolls, but no pull past its top reaches p. */
+    var held: () -> Boolean = { false }
+
     override fun onFingerDown() {
         scrolledAtDown = (current()?.scroll?.value ?: 0) > 0
         pulling = false
@@ -397,13 +400,13 @@ internal class MemoriesDiaryDeck(
     val connection: NestedScrollConnection = object : NestedScrollConnection {
         override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
             if (source != NestedScrollSource.UserInput || available.y == 0f) return Offset.Zero
-            if (diary.fraction >= 1f) return Offset.Zero
+            if (diary.fraction >= 1f || held()) return Offset.Zero
             ensurePull()
             return Offset(0f, pull(available.y))
         }
 
         override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset {
-            if (source != NestedScrollSource.UserInput || available.y <= 0f) return Offset.Zero
+            if (source != NestedScrollSource.UserInput || available.y <= 0f || held()) return Offset.Zero
             ensurePull()
             return Offset(0f, pull(available.y))
         }

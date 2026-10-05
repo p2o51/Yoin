@@ -1,6 +1,8 @@
 package com.gpo.yoin.ui.memories.showcase
 
 import androidx.compose.animation.core.spring
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.TestMonotonicFrameClock
 import com.gpo.yoin.ui.experience.DismissRule
@@ -311,5 +313,67 @@ class MemoriesGestureRouterTest {
         assertEquals(1, pauses)
         f.router.lift()
         assertFalse(awards.fingerDown)
+    }
+
+    @Test
+    fun should_hold_every_vertical_drag_when_title_is_being_edited() = runTest {
+        // whatever the zone, the direction or the diary's state: the edit is an in-page mode
+        MemoriesDragZone.entries.forEach { zone ->
+            listOf(-8f, 8f).forEach { dy ->
+                assertEquals(
+                    MemoriesVerticalRoute.Held,
+                    routeVerticalDrag(zone, dy, true, diaryLevel = true, diaryAtEnd = true, titleEditing = true),
+                )
+            }
+        }
+        // left to what is under the finger (the field, the diary's scroll)
+        assertFalse(MemoriesVerticalRoute.Held.consumes)
+
+        val f = fixture()
+        var editing = true
+        f.router.titleEditing = { editing }
+        // a long, fast push up from the card body: Home on any other day
+        val up = f.router.begin(MemoriesDragZone.Card, -8f)
+        assertEquals(MemoriesVerticalRoute.Held, up)
+        f.router.drag(up, -400f)
+        f.router.release(up, velocityY = -3_000f)
+        // the bar pushed up, and a pull down on the card (the rubber band)
+        val bar = f.router.begin(MemoriesDragZone.Bar, -8f)
+        f.router.drag(bar, -200f)
+        f.router.release(bar, velocityY = -2_000f)
+        val down = f.router.begin(MemoriesDragZone.Card, 8f)
+        f.router.drag(down, 200f)
+        f.router.release(down, velocityY = 2_000f)
+        advanceUntilIdle()
+        assertEquals(0f, f.reveal.fraction)
+        assertEquals(0f, f.diary.fraction)
+        assertEquals(0, f.dismissed)
+        assertEquals(0, f.committed)
+
+        // the edit over, the same push goes Home again
+        editing = false
+        val again = f.router.begin(MemoriesDragZone.Card, -8f)
+        assertEquals(MemoriesVerticalRoute.Dismiss(fromBar = false), again)
+    }
+
+    @Test
+    fun should_keep_diary_pull_from_reaching_p_when_title_is_being_edited() = runTest {
+        val f = fixture()
+        f.diary.snapTo(1f)
+        val scope = CoroutineScope(coroutineContext + TestMonotonicFrameClock(this))
+        val deck = MemoriesDiaryDeck(f.diary, scope)
+        deck.held = { true }
+
+        // a pull down past the top of the text (what the diary's scroll hands its parent)
+        val taken = deck.connection.onPostScroll(Offset.Zero, Offset(0f, 120f), NestedScrollSource.UserInput)
+
+        assertEquals(Offset.Zero, taken)
+        assertEquals(1f, f.diary.fraction)
+        deck.held = { false }
+        assertEquals(
+            Offset(0f, 120f),
+            deck.connection.onPostScroll(Offset.Zero, Offset(0f, 120f), NestedScrollSource.UserInput),
+        )
+        assertTrue(f.diary.fraction < 1f)
     }
 }

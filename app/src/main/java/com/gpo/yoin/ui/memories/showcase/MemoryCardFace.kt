@@ -1,5 +1,8 @@
 package com.gpo.yoin.ui.memories.showcase
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -7,8 +10,10 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -66,7 +71,10 @@ import com.gpo.yoin.ui.memories.copy.MemoryExcerptCandidate
 import com.gpo.yoin.ui.memories.copy.MemoryExcerptSize
 import com.gpo.yoin.ui.memories.copy.MemoryTitleKind
 import com.gpo.yoin.ui.theme.GoogleSansFlex
+import com.gpo.yoin.ui.theme.LocalYoinMotionRole
 import com.gpo.yoin.ui.theme.YoinArtworkShapes
+import com.gpo.yoin.ui.theme.YoinMotion
+import com.gpo.yoin.ui.theme.YoinMotionSpeed
 import com.gpo.yoin.ui.theme.YoinSerifTitle
 import com.gpo.yoin.ui.theme.YoinTheme
 import kotlin.math.roundToInt
@@ -263,6 +271,8 @@ internal fun pickExcerpt(candidates: List<MemoryExcerptCandidate>, slotPx: Int, 
  * [morph] moves the card's pieces through the card ⇄ diary morph (null: a still card, e.g. previews); it
  * also measures the anchors the morph flies between. [interactive] = false (the diary is open) takes the
  * buttons out of hit testing altogether, so the hidden card never shadows the diary beneath it.
+ * [titleEditing]: the title can be tapped to edit ([MemoryTitleSlot]) while [titleEnabled] (the settled page,
+ * the card state); while it is open the card rises over the keyboard ([MemoryTitleImeLift]).
  */
 @Composable
 internal fun MemoryCardFace(
@@ -277,16 +287,26 @@ internal fun MemoryCardFace(
     morph: MemoryPageMorph? = null,
     interactive: Boolean = true,
     marqueeRunning: Boolean = true,
+    titleEditing: MemoryTitleEditing? = null,
+    titleEnabled: Boolean = interactive,
 ) {
     val excerpts = if (metrics.wide) memory.excerptCandidatesMedium else memory.excerptCandidates
-    val face = if (morph != null) {
-        Modifier
-            .onPlaced(morph::onCardOuter)
-            .graphicsLayer { with(morph) { cardFace() } }
-            .onPlaced(morph::onCardInner)
-    } else {
-        Modifier
-    }
+    // The keyboard lift rides the face's own layer, between the morph's outer and inner anchors, so the
+    // morph never measures it; read per frame in the layer only.
+    val lift = remember { MemoryTitleImeLift() }
+    val ime = WindowInsets.ime
+    val editor = titleEditing?.editor
+    val titleKey = MemoryTitleSurface.Card.keyFor(memory)
+    val face = Modifier
+        .then(if (morph != null) Modifier.onPlaced(morph::onCardOuter) else Modifier)
+        .onPlaced(lift::onHostOuter)
+        .graphicsLayer {
+            if (morph != null) with(morph) { cardFace() }
+            val editing = editor?.isEditing(titleKey) == true
+            translationY -= lift.liftPx(ime.getBottom(this), editing, this)
+        }
+        .then(if (morph != null) Modifier.onPlaced(morph::onCardInner) else Modifier)
+        .onPlaced(lift::onHostInner)
     // the diary is open: the card is behind it and carries no semantics (TalkBack reads the diary)
     val inert = if (interactive) Modifier else Modifier.clearAndSetSemantics { }
     SubcomposeLayout(modifier = modifier.then(inert).then(face).fillMaxSize()) { constraints ->
@@ -296,11 +316,15 @@ internal fun MemoryCardFace(
         val top = subcompose(CardSlot.Exhibit) {
             CardExhibit(
                 memory = memory,
+                tones = tones,
                 metrics = metrics,
                 cover = cover,
                 emblem = emblem,
                 morph = morph,
                 marqueeRunning = marqueeRunning,
+                titleEditing = titleEditing,
+                titleEnabled = titleEnabled,
+                lift = lift,
             )
         }.map { it.measure(inner) }
         // the button row may use the side padding on a narrow phone: it never wraps
@@ -351,14 +375,17 @@ private sealed interface CardSlot {
 @Composable
 private fun CardExhibit(
     memory: MemoryEntry,
+    tones: MemoryPaletteTones,
     metrics: MemoryCardMetrics,
     cover: @Composable (Modifier) -> Unit,
     emblem: @Composable (Modifier) -> Unit,
     morph: MemoryPageMorph?,
     marqueeRunning: Boolean,
+    titleEditing: MemoryTitleEditing?,
+    titleEnabled: Boolean,
+    lift: MemoryTitleImeLift,
 ) {
     val titleKind = memory.cardTitleKind()
-    val title = memory.memoryTitle?.takeIf(String::isNotBlank) ?: memory.title
     // each morphing piece: its anchor measured before its own layer, so its flight never feeds back
     val coverLayer = morph?.let { m -> Modifier.onPlaced(m::onCover).graphicsLayer { with(m) { cardCover() } } }
     val sealLayer = morph?.let { m -> Modifier.onPlaced(m::onSeal).graphicsLayer { with(m) { cardSeal() } } }
@@ -373,25 +400,50 @@ private fun CardExhibit(
             emblem = { m -> emblem(m.then(sealLayer ?: Modifier)) },
         )
         Spacer(Modifier.height(metrics.titleTop))
-        val titleModifier = Modifier
-            .widthIn(max = metrics.titleMaxWidth)
-            .semantics(mergeDescendants = true) { heading() }
-            .then(titleLayer ?: Modifier)
-        if (titleKind == MemoryTitleKind.ALBUM) {
-            // fallback A: the title is the album name, two lines at most
-            TwoLineMarqueeText(
-                text = title,
-                style = cardTitleStyle(titleKind),
-                color = MaterialTheme.colorScheme.onSurface,
-                running = marqueeRunning,
-                modifier = titleModifier,
-            )
-        } else {
-            Text(
-                text = title,
-                style = cardTitleStyle(titleKind),
-                color = MaterialTheme.colorScheme.onSurface,
-                modifier = titleModifier,
+        // the title and, while it is being edited, its row: the block the keyboard lift keeps in view
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            modifier = Modifier.onPlaced(lift::onTarget),
+        ) {
+            MemoryTitleSlot(
+                memory = memory,
+                surface = MemoryTitleSurface.Card,
+                editing = titleEditing,
+                tones = tones,
+                style = { kind -> cardTitleStyle(kind) },
+                enabled = titleEnabled,
+                centred = true,
+                modifier = Modifier
+                    .widthIn(max = metrics.titleMaxWidth)
+                    .then(titleLayer ?: Modifier),
+            ) { text, kind, tap ->
+                val heading = tap.semantics(mergeDescendants = true) { heading() }
+                if (kind == MemoryTitleKind.ALBUM) {
+                    // fallback A: the title is the album name, two lines at most
+                    TwoLineMarqueeText(
+                        text = text,
+                        style = cardTitleStyle(kind),
+                        color = MaterialTheme.colorScheme.onSurface,
+                        running = marqueeRunning,
+                        modifier = heading,
+                    )
+                } else {
+                    Text(
+                        text = text,
+                        style = cardTitleStyle(kind),
+                        color = MaterialTheme.colorScheme.onSurface,
+                        modifier = heading,
+                    )
+                }
+            }
+            MemoryTitleEditRow(
+                memory = memory,
+                surface = MemoryTitleSurface.Card,
+                editing = titleEditing,
+                tones = tones,
+                centred = true,
+                keepAboveIme = false,
+                modifier = Modifier.widthIn(max = metrics.titleMaxWidth),
             )
         }
         // the album row reads as one line: "album, artist · year"
@@ -399,19 +451,27 @@ private fun CardExhibit(
             horizontalAlignment = Alignment.CenterHorizontally,
             modifier = Modifier.semantics(mergeDescendants = true) { },
         ) {
-            if (titleKind == MemoryTitleKind.ALBUM) {
-                // fallback A: the title already is the album name; the row keeps only the artist line
-                Spacer(Modifier.height(6.dp))
-            } else {
-                Spacer(Modifier.height(metrics.albumTop))
-                TwoLineMarqueeText(
-                    text = memory.title,
-                    style = cardAlbumStyle(),
-                    color = MaterialTheme.colorScheme.onSurface,
-                    running = marqueeRunning,
-                    modifier = Modifier.widthIn(max = metrics.titleMaxWidth).then(rowLayer),
-                )
-                Spacer(Modifier.height(2.dp))
+            // fallback A: the title already is the album name, so the row keeps only the artist line; a title
+            // given (or taken off) brings the album name in (or out) on the spatial spring
+            Spacer(Modifier.height(AlbumRowArtistOnlyTop))
+            AnimatedVisibility(
+                visible = titleKind != MemoryTitleKind.ALBUM,
+                enter = expandVertically(YoinMotion.defaultSpatialSpec()) +
+                    YoinMotion.fadeIn(LocalYoinMotionRole.current, YoinMotionSpeed.Fast, MaterialTheme.motionScheme),
+                exit = shrinkVertically(YoinMotion.defaultSpatialSpec()) +
+                    YoinMotion.fadeOut(LocalYoinMotionRole.current, YoinMotionSpeed.Fast, MaterialTheme.motionScheme),
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Spacer(Modifier.height(metrics.albumTop - AlbumRowArtistOnlyTop))
+                    TwoLineMarqueeText(
+                        text = memory.title,
+                        style = cardAlbumStyle(),
+                        color = MaterialTheme.colorScheme.onSurface,
+                        running = marqueeRunning,
+                        modifier = Modifier.widthIn(max = metrics.titleMaxWidth).then(rowLayer),
+                    )
+                    Spacer(Modifier.height(2.dp))
+                }
             }
             Text(
                 text = memory.supportingText,
@@ -561,21 +621,26 @@ private fun CardTeaser(
 internal fun MemoryEntry.cardTitleKind(): MemoryTitleKind =
     if (memoryTitle.isNullOrBlank()) MemoryTitleKind.ALBUM else memoryTitleKind
 
+/** Above the artist line when the album name is the title (fallback A); the album row's own top otherwise. */
+private val AlbumRowArtistOnlyTop: Dp = 6.dp
+
 /** The card title's font size (the morph scales it to the diary title by this ratio). */
 internal fun cardTitleSize(kind: MemoryTitleKind, type: MemoriesTypeScale): TextUnit = when (kind) {
-    MemoryTitleKind.AI -> type.cardTitleAi
+    MemoryTitleKind.AI, MemoryTitleKind.USER -> type.cardTitleAi
     MemoryTitleKind.MOTIF, MemoryTitleKind.ALBUM -> type.cardTitleMotif
 }
 
 /**
- * The title: the AI title in the serif (the only serif on the card), the motif in GSF ROND 60. Sizes from
- * the tier ([LocalMemoriesType]: 26 / 24 phone, 24 short, 30 / 27 on a Medium that isn't short).
+ * The title: a written title — the AI's, or the user's own — in the serif (the only serif on the card), the
+ * motif in GSF ROND 60. Sizes from the tier ([LocalMemoriesType]: 26 / 24 phone, 24 short, 30 / 27 on a
+ * Medium that isn't short).
  */
 @Composable
 internal fun cardTitleStyle(kind: MemoryTitleKind): TextStyle {
     val size = cardTitleSize(kind, LocalMemoriesType.current)
     return when (kind) {
-        MemoryTitleKind.AI -> cardText(YoinSerifTitle, FontWeight.SemiBold, size, 1.36f, heading = true)
+        MemoryTitleKind.AI, MemoryTitleKind.USER ->
+            cardText(YoinSerifTitle, FontWeight.SemiBold, size, 1.36f, heading = true)
         MemoryTitleKind.MOTIF -> cardText(ShowcaseType.rounded(600), FontWeight.SemiBold, size, 1.3f, heading = true)
         MemoryTitleKind.ALBUM -> cardText(GoogleSansFlex, FontWeight.SemiBold, size, 1.3f, heading = true)
     }

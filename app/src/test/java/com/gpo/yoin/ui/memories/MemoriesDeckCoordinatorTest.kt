@@ -5,6 +5,7 @@ import com.gpo.yoin.data.local.AlbumRating
 import com.gpo.yoin.data.local.LocalRating
 import com.gpo.yoin.data.local.SongNote
 import com.gpo.yoin.data.memory.AlbumMemoryCandidate
+import com.gpo.yoin.data.memory.AlbumMemoryTitleStore
 import com.gpo.yoin.data.model.Album
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.Track
@@ -20,8 +21,10 @@ import io.mockk.mockk
 import java.time.LocalDate
 import java.time.ZoneId
 import java.time.ZoneOffset
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
@@ -588,6 +591,7 @@ class MemoriesDeckCoordinatorTest {
     private fun buildCoordinator(
         candidates: List<AlbumMemoryCandidate>,
         stubAlbumDefaults: Boolean = true,
+        titleStore: AlbumMemoryTitleStore? = null,
     ): MemoriesDeckCoordinator {
         coEvery { repository.getAlbumMemoryCandidates(limit = 48) } returns candidates
         if (stubAlbumDefaults) {
@@ -599,10 +603,116 @@ class MemoriesDeckCoordinatorTest {
             repository = repository,
             sessionStore = sessionStore,
             randomSeed = 42L,
+            titleStore = titleStore,
             clock = { day(10) },
             zone = { ZoneId.of("UTC") },
         )
     }
+
+    private fun titleStore(): AlbumMemoryTitleStore =
+        AlbumMemoryTitleStore(FakeAlbumMemoryTitleDao(), MutableStateFlow("profile-a"), clock = { day(10) })
+
+    private fun twoNoteAlbum(): AlbumMemoryCandidate = visitOnlyCandidate().also { candidate ->
+        stubAlbum(
+            candidate = candidate,
+            songNotes = listOf(
+                songNote(id = "n1", track = "t1", text = "The intro hums", positionMs = 4_000L, at = day(1)),
+                songNote(id = "n2", track = "t3", text = "Drums come in late", positionMs = 9_000L, at = day(3)),
+            ),
+        )
+    }
+
+    @Test
+    fun should_show_user_title_over_motif_when_user_named_album() = runTest {
+        val candidate = twoNoteAlbum()
+        val store = titleStore()
+        store.setTitle(MediaId("subsonic", "al-visit"), "Night bus")
+
+        val memory = buildCoordinator(listOf(candidate), stubAlbumDefaults = false, titleStore = store)
+            .ensureDeck()
+            .single()
+
+        assertEquals(MemoryTitleKind.USER, memory.memoryTitleKind)
+        assertEquals("Night bus", memory.memoryTitle)
+        // Yoin's own title waits underneath, so the card can offer it back
+        assertEquals("Three days, two notes", memory.generatedMemoryTitle)
+        assertEquals(MemoryTitleKind.MOTIF, memory.generatedMemoryTitleKind)
+        assertTrue(memory.canRestoreGeneratedTitle())
+        // the user's title never steers Yoin's prose: same narration, same language as without it
+        assertEquals("The latest was on Song 3.", memory.yoinNarration)
+        assertEquals(MemoryProseLanguage.EN, memory.proseLanguage)
+    }
+
+    @Test
+    fun should_follow_title_store_when_card_comes_from_cache() = runTest {
+        val candidate = twoNoteAlbum()
+        val store = titleStore()
+        val coordinator = buildCoordinator(listOf(candidate), stubAlbumDefaults = false, titleStore = store)
+        assertEquals(MemoryTitleKind.MOTIF, coordinator.ensureDeck().single().memoryTitleKind)
+
+        // the resolve is cached (no second resolve); the title is read fresh on every deal
+        store.setTitle(MediaId("subsonic", "al-visit"), "Night bus")
+        val named = coordinator.ensureDeck().single()
+        coVerify(exactly = 1) { repository.getOrGenerateAlbumMemoryTitle(any(), any(), any()) }
+        assertEquals("Night bus", named.memoryTitle)
+        assertEquals(MemoryTitleKind.USER, named.memoryTitleKind)
+
+        store.clearTitle(MediaId("subsonic", "al-visit"))
+        val restored = coordinator.refreshDeck(listOf(named)).single()
+        assertEquals("Three days, two notes", restored.memoryTitle)
+        assertEquals(MemoryTitleKind.MOTIF, restored.memoryTitleKind)
+    }
+
+    @Test
+    fun should_lay_user_title_over_album_name_and_take_it_off_in_place() {
+        val plain = buildMemoryEntry("Visited Album", memoryTitle = "Visited Album", kind = MemoryTitleKind.ALBUM)
+
+        val named = plain.withUserMemoryTitle("Night bus")
+        assertEquals("Night bus", named.memoryTitle)
+        assertEquals(MemoryTitleKind.USER, named.memoryTitleKind)
+        // only the album name under it: nothing of Yoin's to restore
+        assertFalse(named.canRestoreGeneratedTitle())
+
+        val back = named.withUserMemoryTitle(null)
+        assertEquals("Visited Album", back.memoryTitle)
+        assertEquals(MemoryTitleKind.ALBUM, back.memoryTitleKind)
+    }
+
+    @Test
+    fun should_keep_ai_title_underneath_when_entry_predates_generated_fields() {
+        // an entry built without the generated fields counts its own AI title as Yoin's
+        val legacy = buildMemoryEntry(title = "Album", memoryTitle = "Rain on the glass", kind = MemoryTitleKind.AI)
+
+        val named = legacy.withUserMemoryTitle("Mine")
+        assertEquals(MemoryTitleKind.USER, named.memoryTitleKind)
+        assertEquals("Rain on the glass", named.generatedMemoryTitle)
+        assertTrue(named.canRestoreGeneratedTitle())
+
+        val restored = named.withUserMemoryTitle(null)
+        assertEquals("Rain on the glass", restored.memoryTitle)
+        assertEquals(MemoryTitleKind.AI, restored.memoryTitleKind)
+        assertEquals(restored, restored.withUserMemoryTitle(null))
+    }
+
+    private fun buildMemoryEntry(title: String, memoryTitle: String, kind: MemoryTitleKind): MemoryEntry = MemoryEntry(
+        stableId = "album:profile-a:subsonic:al-visit",
+        sourceActivityId = 1L,
+        entityType = MemoryEntityType.ALBUM,
+        entityId = "al-visit",
+        entityProvider = "subsonic",
+        title = title,
+        supportingText = "Artist",
+        metaText = null,
+        coverArtUrl = null,
+        timestamp = 0L,
+        scoreText = "N/A",
+        scoreSupportingText = null,
+        footerText = null,
+        memoryTitle = memoryTitle,
+        memoryTitleKind = kind,
+        playbackSongs = emptyList(),
+        tracks = emptyList(),
+    )
 
     private fun buildAlbumCandidates(count: Int): List<AlbumMemoryCandidate> =
         (1..count).map { index ->

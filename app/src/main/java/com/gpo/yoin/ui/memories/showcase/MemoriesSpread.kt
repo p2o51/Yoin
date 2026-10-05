@@ -1,5 +1,9 @@
 package com.gpo.yoin.ui.memories.showcase
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -7,9 +11,11 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
@@ -34,7 +40,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.layout
+import androidx.compose.ui.layout.onPlaced
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
@@ -65,7 +73,10 @@ import com.gpo.yoin.ui.memories.MemoryEntry
 import com.gpo.yoin.ui.memories.copy.MemoryProseLanguage
 import com.gpo.yoin.ui.memories.copy.MemoryTitleKind
 import com.gpo.yoin.ui.theme.GoogleSansFlex
+import com.gpo.yoin.ui.theme.LocalYoinMotionRole
 import com.gpo.yoin.ui.theme.YoinArtworkShapes
+import com.gpo.yoin.ui.theme.YoinMotion
+import com.gpo.yoin.ui.theme.YoinMotionSpeed
 import com.gpo.yoin.ui.theme.YoinSerifTitle
 import java.time.LocalDate
 import java.time.ZoneId
@@ -233,6 +244,7 @@ internal fun MemorySpreadPage(
     cover: @Composable (Modifier) -> Unit,
     emblem: @Composable (Modifier) -> Unit,
     onOpenAlbum: () -> Unit,
+    titleEditing: MemoryTitleEditing? = null,
 ) {
     val isCurrent by remember(pagerState, page) { derivedStateOf { pagerState.settledPage == page } }
     val atRest by remember(pagerState, page) {
@@ -274,6 +286,7 @@ internal fun MemorySpreadPage(
             interactive = isCurrent,
             marqueeRunning = atRest,
             onOpenAlbum = onOpenAlbum,
+            titleEditing = titleEditing,
             modifier = Modifier
                 .width(layout.leftPage)
                 .fillMaxHeight()
@@ -328,13 +341,25 @@ private fun SpreadExhibit(
     interactive: Boolean,
     marqueeRunning: Boolean,
     onOpenAlbum: () -> Unit,
+    titleEditing: MemoryTitleEditing?,
     modifier: Modifier = Modifier,
 ) {
     val spacing = fit.spacing
     val kind = memory.cardTitleKind()
     val haptics = rememberYoinHaptics()
+    // the left page doesn't scroll: while its title is open it rises over the keyboard (layer only)
+    val lift = remember { MemoryTitleImeLift() }
+    val ime = WindowInsets.ime
+    val editor = titleEditing?.editor
+    val titleKey = MemoryTitleSurface.Spread.keyFor(memory)
     Column(
-        modifier = modifier.padding(start = SpreadPagePadding, end = SpreadPagePadding, top = fit.coverTop),
+        modifier = modifier
+            .onPlaced(lift::onHostOuter)
+            .graphicsLayer {
+                translationY = -lift.liftPx(ime.getBottom(this), editor?.isEditing(titleKey) == true, this)
+            }
+            .onPlaced(lift::onHostInner)
+            .padding(start = SpreadPagePadding, end = SpreadPagePadding, top = fit.coverTop),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         MemoryExhibitShow(
@@ -344,22 +369,48 @@ private fun SpreadExhibit(
             emblem = emblem,
         )
         Spacer(Modifier.height(spacing.citeTop.dp))
-        val titleModifier = Modifier.widthIn(max = SpreadCiteMax).semantics(mergeDescendants = true) { heading() }
-        if (kind == MemoryTitleKind.ALBUM) {
-            // the title is the album name: two lines at most, the rest runs as a marquee (never an ellipsis)
-            TwoLineMarqueeText(
-                text = memory.title,
-                style = spreadTitleStyle(kind, fit.tightness),
-                color = MaterialTheme.colorScheme.onSurface,
-                running = marqueeRunning,
-                modifier = titleModifier,
-            )
-        } else {
-            Text(
-                text = memory.memoryTitle?.takeIf(String::isNotBlank) ?: memory.title,
-                style = spreadTitleStyle(kind, fit.tightness),
-                color = MaterialTheme.colorScheme.onSurface,
-                modifier = titleModifier,
+        // the title and, while it is being edited, its row: the block the keyboard lift keeps in view
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            modifier = Modifier.onPlaced(lift::onTarget),
+        ) {
+            MemoryTitleSlot(
+                memory = memory,
+                surface = MemoryTitleSurface.Spread,
+                editing = titleEditing,
+                tones = tones,
+                style = { titleKind -> spreadTitleStyle(titleKind, fit.tightness) },
+                enabled = interactive,
+                centred = true,
+                modifier = Modifier.widthIn(max = SpreadCiteMax),
+            ) { text, titleKind, tap ->
+                val heading = tap.semantics(mergeDescendants = true) { heading() }
+                if (titleKind == MemoryTitleKind.ALBUM) {
+                    // the title is the album name: two lines at most, the rest runs as a marquee (never an ellipsis)
+                    TwoLineMarqueeText(
+                        text = text,
+                        style = spreadTitleStyle(titleKind, fit.tightness),
+                        color = MaterialTheme.colorScheme.onSurface,
+                        running = marqueeRunning,
+                        modifier = heading,
+                    )
+                } else {
+                    Text(
+                        text = text,
+                        style = spreadTitleStyle(titleKind, fit.tightness),
+                        color = MaterialTheme.colorScheme.onSurface,
+                        modifier = heading,
+                    )
+                }
+            }
+            MemoryTitleEditRow(
+                memory = memory,
+                surface = MemoryTitleSurface.Spread,
+                editing = titleEditing,
+                tones = tones,
+                centred = true,
+                keepAboveIme = false,
+                modifier = Modifier.widthIn(max = SpreadCiteMax),
             )
         }
         if (paragraph != null) {
@@ -372,22 +423,35 @@ private fun SpreadExhibit(
             )
         }
         val onlyArtist = kind == MemoryTitleKind.ALBUM
-        val albumTop = if (onlyArtist && fit.tightness == SpreadTightness.Normal) 8f else spacing.albumTop
+        // a title given (or taken off) brings the album name in (or out): the gap and the line on the spatial spring
+        val albumTop by animateDpAsState(
+            targetValue = (if (onlyArtist && fit.tightness == SpreadTightness.Normal) 8f else spacing.albumTop).dp,
+            animationSpec = YoinMotion.defaultSpatialSpec(),
+            label = "spreadAlbumTop",
+        )
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
             modifier = Modifier
-                .padding(top = albumTop.dp)
+                .padding(top = albumTop.coerceAtLeast(0.dp))
                 .widthIn(max = SpreadAlbumMax)
                 .semantics(mergeDescendants = true) { },
         ) {
-            if (!onlyArtist) {
-                TwoLineMarqueeText(
-                    text = memory.title,
-                    style = spreadAlbumStyle(fit.tightness),
-                    color = MaterialTheme.colorScheme.onSurface,
-                    running = marqueeRunning,
-                )
-                Spacer(Modifier.height(AlbumArtistGap))
+            AnimatedVisibility(
+                visible = !onlyArtist,
+                enter = expandVertically(YoinMotion.defaultSpatialSpec()) +
+                    YoinMotion.fadeIn(LocalYoinMotionRole.current, YoinMotionSpeed.Fast, MaterialTheme.motionScheme),
+                exit = shrinkVertically(YoinMotion.defaultSpatialSpec()) +
+                    YoinMotion.fadeOut(LocalYoinMotionRole.current, YoinMotionSpeed.Fast, MaterialTheme.motionScheme),
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    TwoLineMarqueeText(
+                        text = memory.title,
+                        style = spreadAlbumStyle(fit.tightness),
+                        color = MaterialTheme.colorScheme.onSurface,
+                        running = marqueeRunning,
+                    )
+                    Spacer(Modifier.height(AlbumArtistGap))
+                }
             }
             Text(
                 text = memory.supportingText,
@@ -505,12 +569,15 @@ private fun Modifier.spreadRightPlacement(viewHeight: Dp, coverTop: Dp, goBottom
 
 // ---------------------------------------------------------------- spread type (prototype `.ts-cite`)
 
-/** The left page's citation: Yoin's title 30 (motif / album 27), one step down when the ladder tightens. */
+/**
+ * The left page's citation: a written title (Yoin's AI title or the user's own) 30, motif / album 27, one step
+ * down when the ladder tightens.
+ */
 @Composable
 internal fun spreadTitleStyle(kind: MemoryTitleKind, tightness: SpreadTightness): TextStyle {
     val tight = tightness != SpreadTightness.Normal
     return when (kind) {
-        MemoryTitleKind.AI ->
+        MemoryTitleKind.AI, MemoryTitleKind.USER ->
             cardText(YoinSerifTitle, FontWeight.SemiBold, if (tight) 27.sp else 30.sp, 1.36f, heading = true)
         MemoryTitleKind.MOTIF ->
             cardText(ShowcaseType.rounded(600), FontWeight.SemiBold, if (tight) 25.sp else 27.sp, 1.3f, heading = true)

@@ -58,6 +58,7 @@ import com.gpo.yoin.ui.memories.MemoryTrack
 import com.gpo.yoin.ui.memories.MemoryWriting
 import com.gpo.yoin.ui.memories.award.rememberMemoriesAwardLifecycle
 import com.gpo.yoin.ui.memories.copy.MemoryExcerpt
+import com.gpo.yoin.ui.memories.copy.MemoryTitleKind
 import com.gpo.yoin.ui.memories.copy.MemoryVoice
 import com.gpo.yoin.ui.memories.diaryAlbumNotes
 import com.gpo.yoin.ui.memories.diaryTracks
@@ -82,6 +83,8 @@ import com.gpo.yoin.ui.memories.showcase.MemoryPaletteSamples
 import com.gpo.yoin.ui.memories.showcase.memoriesGestures
 import com.gpo.yoin.ui.memories.showcase.rememberMemoriesDiaryState
 import com.gpo.yoin.ui.memories.showcase.rememberMemoriesGestureRouter
+import com.gpo.yoin.ui.memories.showcase.rememberMemoryTitleEditor
+import com.gpo.yoin.ui.memories.withUserMemoryTitle
 import com.gpo.yoin.ui.navigation.back.MemoriesBackLevel
 import com.gpo.yoin.ui.navigation.back.MemoriesPredictiveBack
 import com.gpo.yoin.ui.navigation.back.memoriesDismissCorners
@@ -201,6 +204,7 @@ private fun HarnessDeck(
     )
     val awards = rememberMemoriesAwardLifecycle()
     val router = rememberMemoriesGestureRouter(reveal, diary, rememberMemoriesDismissRules())
+    val titleEditor = rememberMemoryTitleEditor()
     val pagerState = rememberPagerState(initialPage = options.page.coerceIn(0, memories.lastIndex)) { memories.size }
     var deckMemories by remember { mutableStateOf(memories) }
     val playhead = remember { HarnessPlayhead() }
@@ -239,6 +243,7 @@ private fun HarnessDeck(
         }
         awards.debugLog = trace::lifecycle
         router.debugLog = trace::lifecycle
+        router.titleEditing = { titleEditor.isEditing }
     }
     LaunchedEffect(reveal) {
         trace.lifecycle("open")
@@ -246,7 +251,11 @@ private fun HarnessDeck(
     }
     MemoriesPredictiveBack(
         enabled = true,
-        level = if (diaryLevel && !router.isSpread) MemoriesBackLevel.Diary else MemoriesBackLevel.Card,
+        level = when {
+            titleEditor.isEditing -> MemoriesBackLevel.TitleEdit
+            diaryLevel && !router.isSpread -> MemoriesBackLevel.Diary
+            else -> MemoriesBackLevel.Card
+        },
         reveal = reveal,
         containerHeightPx = { router.heightPx },
         onDismiss = {
@@ -259,6 +268,7 @@ private fun HarnessDeck(
         diary = diary,
         onCardBackStarted = router::onBackStarted,
         onCardBackFinished = router::onBackFinished,
+        titleEditor = titleEditor,
     )
     // the host's pose, as YoinNavHost's: the page translates by q (reduced motion: fades in place)
     // Home, behind the overlay: the host's pose (0.94 / 0.5 → 1 / 1 as Memories retreats)
@@ -307,6 +317,7 @@ private fun HarnessDeck(
                 diaryHost = host,
                 router = router,
                 awardBlocked = { router.backBusy },
+                titleEditor = titleEditor,
             )
             // the long start: the diary scrolled (once its page has laid out)
             if (options.scrollDp > 0) {
@@ -432,6 +443,19 @@ private class HarnessDiaryHost(
             ),
         )
         trace.lifecycle("review saved")
+    }
+
+    override val titlesEditable: Boolean get() = true
+
+    // the harness keeps titles in memory: the card is patched as the app's ViewModel patches it
+    override fun saveMemoryTitle(memory: MemoryEntry, title: String) {
+        onSaved(memory.withUserMemoryTitle(title))
+        trace.lifecycle("title saved: $title")
+    }
+
+    override fun restoreMemoryTitle(memory: MemoryEntry) {
+        onSaved(memory.withUserMemoryTitle(null))
+        trace.lifecycle("title restored")
     }
 
     override fun playTrack(memory: MemoryEntry, track: MemoryTrack) {
@@ -843,6 +867,8 @@ private fun FxMemory.toEntry(today: LocalDate, zone: ZoneId): MemoryEntry {
         firstHeardAt = history?.firstHeardAt,
         lastHeardAt = history?.lastHeardAt,
         memoryTitleKind = voice.titleKind,
+        generatedMemoryTitle = voice.title.takeIf { voice.titleKind != MemoryTitleKind.ALBUM },
+        generatedMemoryTitleKind = voice.titleKind.takeIf { it != MemoryTitleKind.ALBUM },
         proseLanguage = voice.language,
         yoinNarration = voice.narration,
         yoinQuestion = voice.question,

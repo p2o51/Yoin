@@ -121,6 +121,10 @@ class MemoriesShowcaseFixtures(
  *
  * [reducedMotion] is the user's setting and drives the choreography (morph, award); [ambientReduced] also
  * folds in adaptive pressure and only quiets the tilt (MemoriesMotionPolicy).
+ *
+ * [titleEditor]: the deck's title editor (the same one the router and the back handler read); its titles
+ * can be tapped to edit through [diaryHost]. While one is open the pager doesn't page and the diary's pull
+ * past its top doesn't reach p. Null: titles are read-only.
  */
 @Composable
 internal fun MemoriesShowcase(
@@ -145,6 +149,7 @@ internal fun MemoriesShowcase(
     router: MemoriesGestureRouter? = null,
     awardBlocked: () -> Boolean = { false },
     bottomInset: Dp = 0.dp,
+    titleEditor: MemoryTitleEditor? = null,
 ) {
     if (memories.isEmpty()) return
     val zone = remember { ZoneId.systemDefault() }
@@ -158,11 +163,15 @@ internal fun MemoriesShowcase(
     val deck = rememberMemoriesDiaryDeck(diary, scope)
     val spreadDeck = remember { MemoriesSpreadDeck() }
     val diaryHaptics = rememberDiaryHaptics()
+    val titleEditing = remember(titleEditor, diaryHost, diaryHaptics) {
+        titleEditor?.let { editor -> MemoryTitleEditing(editor, diaryHost, diaryHaptics) }
+    }
     SideEffect {
         deck.reduced = reducedMotion
         deck.morphDistancePx = morphPx
         deck.currentPage = { pagerState.currentPage }
         deck.onThresholdCrossed = diaryHaptics::clockTick
+        deck.held = { titleEditor?.isEditing == true }
         spreadDeck.currentPage = { pagerState.currentPage }
     }
     // Frozen collapse: once the sunk text is invisible (p < .05) the scroll returns to its top, unseen; the
@@ -252,6 +261,8 @@ internal fun MemoriesShowcase(
             HorizontalPager(
                 state = pagerState,
                 key = { page -> memories[page].stableId },
+                // a title being edited holds the deck where it is (the edit is an in-page mode)
+                userScrollEnabled = titleEditor?.isEditing != true,
                 modifier = Modifier
                     .fillMaxSize()
                     .then(if (pagerConnection != null) Modifier.nestedScroll(pagerConnection) else Modifier),
@@ -295,6 +306,7 @@ internal fun MemoriesShowcase(
                             )
                         },
                         onOpenAlbum = { onOpenAlbum(memory) },
+                        titleEditing = titleEditing,
                     )
                 } else {
                     ShowcasePage(
@@ -327,6 +339,7 @@ internal fun MemoriesShowcase(
                         },
                         onOpenAlbum = { onOpenAlbum(memory) },
                         onCloseDiary = { diary.launchAnimateTo(scope, 0f) },
+                        titleEditing = titleEditing,
                     )
                 }
             }
@@ -425,6 +438,7 @@ private fun ShowcasePage(
     onOpenDiary: () -> Unit,
     onOpenAlbum: () -> Unit,
     onCloseDiary: () -> Unit,
+    titleEditing: MemoryTitleEditing?,
 ) {
     val tones = remember(palette, dark) { palette.tones(dark) }
     val type = LocalMemoriesType.current
@@ -509,6 +523,7 @@ private fun ShowcasePage(
             onOpenAlbum = onOpenAlbum,
             column = if (wide) layout.diaryColumn else Dp.Unspecified,
             modifier = Modifier.padding(top = statusTop + MemoriesTopBarTokens.Height),
+            titleEditing = titleEditing,
         )
         MemoryCardFace(
             memory = memory,
@@ -533,6 +548,8 @@ private fun ShowcasePage(
             morph = morph,
             interactive = !diaryOpen,
             marqueeRunning = cardAtRest && !diaryOpen,
+            titleEditing = titleEditing,
+            titleEnabled = isCurrent && !diaryOpen,
             modifier = Modifier
                 .align(Alignment.TopCenter)
                 .then(if (wide) Modifier.widthIn(max = MemoryCardTokens.Column) else Modifier)

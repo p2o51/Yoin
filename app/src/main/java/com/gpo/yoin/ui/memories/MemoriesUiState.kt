@@ -126,8 +126,18 @@ data class MemoryEntry(
     val playsInYoin: Int? = null,
     val firstHeardAt: Long? = null,
     val lastHeardAt: Long? = null,
-    /** Where [memoryTitle] came from: AI (the only serif title), the local motif, or the album name. */
+    /**
+     * Where [memoryTitle] came from: the user's own title, the AI title (those two set in the serif), the
+     * local motif, or the album name ([com.gpo.yoin.data.memory.resolveAlbumMemoryTitle]).
+     */
     val memoryTitleKind: MemoryTitleKind = MemoryTitleKind.AI,
+    /**
+     * Yoin's own title under the shown one — the AI title, else the motif — kept so a user title can be
+     * laid over it and taken off again in place ([withUserMemoryTitle]); null when Yoin has none (the album
+     * name stands in). [generatedMemoryTitleKind] says which of the two it is (AI or MOTIF).
+     */
+    val generatedMemoryTitle: String? = null,
+    val generatedMemoryTitleKind: MemoryTitleKind? = null,
     /** Yoin's prose follows the language the user writes in; UI strings stay in the app language. */
     val proseLanguage: MemoryProseLanguage = MemoryProseLanguage.EN,
     /** Yoin's narration (Gemini, or the local template), only while there is no review. */

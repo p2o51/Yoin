@@ -31,8 +31,9 @@ import androidx.room.RoomDatabase
         DetailCacheEntry::class,
         HomeLayoutPreference::class,
         HomeGridPoolCache::class,
+        AlbumMemoryTitle::class,
     ],
-    version = 28,
+    version = 29,
     exportSchema = true,
 )
 abstract class YoinDatabase : RoomDatabase() {
@@ -77,6 +78,8 @@ abstract class YoinDatabase : RoomDatabase() {
     abstract fun homeLayoutDao(): HomeLayoutDao
 
     abstract fun homeGridPoolDao(): HomeGridPoolDao
+
+    abstract fun albumMemoryTitleDao(): AlbumMemoryTitleDao
 
     abstract fun syncDomainDao(): com.gpo.yoin.data.sync.domain.SyncDomainDao
 }
