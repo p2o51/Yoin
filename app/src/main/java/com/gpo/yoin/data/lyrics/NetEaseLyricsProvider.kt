@@ -2,9 +2,14 @@ package com.gpo.yoin.data.lyrics
 
 import android.util.Log
 import java.util.concurrent.TimeUnit
+import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonArray
@@ -20,6 +25,11 @@ import okhttp3.Request
  * `spotoolfy_flutter/lib/services/lyrics/netease_provider.dart`。
  *
  * 逐字 JSON 歌词会被转换为标准 LRC（见 [parseJsonLyric]）。
+ *
+ * 自动匹配（[search]）多要几条，交给 [LyricCandidateMatcher] 校验，和 QQ、华为同一套
+ * 规则：标题必须对上，艺人能比就必须对上，原版优先于 Live / Remix，伴奏不算。认不出
+ * 就返回 null 让下一个 provider 试——网易云的第一条常是翻唱、同名的别人，甚至标题都
+ * 不对的歌。手动搜索（[searchMultiple]）保持网易云自己的排序。
  */
 class NetEaseLyricsProvider(
     private val client: OkHttpClient = defaultClient(),
@@ -29,47 +39,96 @@ class NetEaseLyricsProvider(
 
     override val name: String = "netease"
 
+    override val nativeTranslation: NativeTranslation = NativeTranslation.SimplifiedChinese
+
+    private val matcher = LyricCandidateMatcher()
+
     override suspend fun search(title: String, artist: String): SongMatch? =
-        searchMultiple(title, artist, limit = 1).firstOrNull()
+        withContext(Dispatchers.IO) {
+            val songs = findSongs(title, artist, SEARCH_PAGE_SIZE) ?: return@withContext null
+            val picked = matcher.pick(
+                candidates = songs.map { LyricCandidateMatcher.Candidate(it.title.orEmpty(), it.artists, it.album) },
+                title = title,
+                artist = artist,
+            ) ?: return@withContext null
+            songs[picked].toMatch(fallbackTitle = title, fallbackArtist = artist)
+        }
 
     override suspend fun searchMultiple(
         title: String,
         artist: String,
         limit: Int,
     ): List<SongMatch> = withContext(Dispatchers.IO) {
-        val keyword = "$title $artist"
-        val url = "$baseUrl/cloudsearch".toHttpUrl().newBuilder()
-            .addQueryParameter("keywords", keyword)
-            .addQueryParameter("limit", limit.toString())
-            .build()
+        if (limit <= 0) return@withContext emptyList()
+        findSongs(title, artist, limit).orEmpty()
+            .take(limit)
+            .map { it.toMatch(fallbackTitle = title, fallbackArtist = artist) }
+    }
 
+    /**
+     * `cloudsearch`，按网易云的原序返回。null = 没答上（网络、非 2xx、解析失败）；
+     * 空列表是真实的"搜不到"。没有 id 的条目取不了词，直接跳过。
+     */
+    private suspend fun findSongs(title: String, artist: String, pageSize: Int): List<NetEaseSong>? {
+        val url = "$baseUrl/cloudsearch".toHttpUrl().newBuilder()
+            .addQueryParameter("keywords", "$title $artist")
+            .addQueryParameter("limit", pageSize.toString())
+            .build()
         val request = Request.Builder().url(url).get().build()
 
-        runCatching {
+        return try {
             client.awaitResponse(request).use { response ->
                 if (!response.isSuccessful) {
                     Log.w(TAG, "NetEase search failed: ${response.code}")
-                    return@use emptyList<SongMatch>()
+                    return@use null
                 }
-                val raw = response.body?.string().orEmpty()
-                val root = json.parseToJsonElement(raw).jsonObject
+                val root = json.parseToJsonElement(response.body.string()).jsonObject
                 val songs = root["result"]?.jsonObject?.get("songs")?.jsonArray
                     ?: return@use emptyList()
-
-                songs.asSequence().take(limit).mapNotNull { el ->
-                    val obj = el.jsonObject
-                    val id = obj["id"]?.jsonPrimitive?.contentOrNull ?: return@mapNotNull null
-                    val songTitle = obj["name"]?.jsonPrimitive?.contentOrNull ?: title
-                    val primaryArtist = obj["ar"]?.jsonArray?.firstOrNull()
-                        ?.jsonObject?.get("name")?.jsonPrimitive?.contentOrNull
-                        ?: artist
-                    SongMatch(songId = id, title = songTitle, artist = primaryArtist)
-                }.toList()
+                songs.mapNotNull(::parseSong)
             }
-        }.getOrElse { e ->
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
             Log.w(TAG, "NetEase search error: ${e.message}")
-            emptyList()
+            null
         }
+    }
+
+    private fun parseSong(element: JsonElement): NetEaseSong? {
+        val obj = element as? JsonObject ?: return null
+        val id = (obj["id"] as? JsonPrimitive)?.contentOrNull ?: return null
+        val artists = (obj["ar"] as? JsonArray).orEmpty().mapNotNull { artist ->
+            ((artist as? JsonObject)?.get("name") as? JsonPrimitive)?.contentOrNull
+                ?.trim()
+                ?.takeIf(String::isNotEmpty)
+        }
+        return NetEaseSong(
+            id = id,
+            title = (obj["name"] as? JsonPrimitive)?.contentOrNull,
+            artists = artists,
+            album = ((obj["al"] as? JsonObject)?.get("name") as? JsonPrimitive)?.contentOrNull
+                ?.trim()
+                ?.takeIf(String::isNotEmpty),
+        )
+    }
+
+    /**
+     * 一条搜索结果。[title] 缺失时不拿请求的歌名顶替去比对——那样任何一条没名字的
+     * 结果都会被当成"标题对上了"；只在交给界面时（[toMatch]）才回退。[album] 只给匹配器
+     * 认现场 / 访谈专辑用。
+     */
+    private class NetEaseSong(
+        val id: String,
+        val title: String?,
+        val artists: List<String>,
+        val album: String?,
+    ) {
+        fun toMatch(fallbackTitle: String, fallbackArtist: String): SongMatch = SongMatch(
+            songId = id,
+            title = title ?: fallbackTitle,
+            artist = artists.firstOrNull() ?: fallbackArtist,
+        )
     }
 
     override suspend fun fetchLyric(songId: String): String? = withContext(Dispatchers.IO) {
@@ -163,6 +222,9 @@ class NetEaseLyricsProvider(
     companion object {
         private const val TAG = "NetEaseLyricsProvider"
         private const val DEFAULT_BASE_URL = "https://api.spotoolfy.gojyuplus.com"
+
+        /** 自动匹配时要的候选数，和 QQ 一致。 */
+        private const val SEARCH_PAGE_SIZE = 10
 
         private val METADATA_KEYWORDS = listOf(
             "歌词贡献者", "翻译贡献者", "作词", "作曲", "编曲",

@@ -49,9 +49,9 @@ class LyricsSearchAnchorTest {
                 val density = androidx.compose.ui.platform.LocalDensity.current.density
                 Box(Modifier.fillMaxSize()) {
                     LyricsActionBar(
-                        actionInFlight = null, canTranslate = false, canRecenter = false,
+                        actionInFlight = null, canTranslate = false, canSelect = false, canRecenter = false,
                         onSearchClick = { open = true },
-                        onTranslateClick = {}, onApplyClick = {}, onRecenterClick = {},
+                        onTranslateClick = {}, onSelectClick = {}, onRecenterClick = {},
                         modifier = Modifier.offset(24.dp, 480.dp),
                         searchModifier = Modifier.onGloballyPositioned {
                             search.collapsedCoords = it

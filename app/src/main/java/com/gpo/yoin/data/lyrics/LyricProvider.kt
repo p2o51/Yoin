@@ -10,8 +10,20 @@ package com.gpo.yoin.data.lyrics
  */
 abstract class LyricProvider {
 
-    /** 提供者 id，用于日志 / 诊断，目前不落库。 */
+    /**
+     * 提供者 id。会作为 `lyrics_cache.lyricsProvider` 落库，翻译时据此找回同一个歌词源，
+     * 所以一经发布就不能改。
+     */
     abstract val name: String
+
+    /**
+     * 参与自动兜底链（[LyricsProviderRegistry.fetchLyric]），也可以被提议成"整套切换过去
+     * 拿译文"的目标。false = 只在手动搜索里出现，用户亲手选了才会用它。
+     */
+    open val automatic: Boolean = true
+
+    /** [fetchLyricWithTranslation] 会带回哪种语言的自带译文；null = 从不带译文。 */
+    open val nativeTranslation: NativeTranslation? = null
 
     /** 平台内搜索，返回第一条匹配；找不到返回 null。 */
     abstract suspend fun search(title: String, artist: String): SongMatch?
@@ -100,8 +112,16 @@ data class SongMatch(
     val artist: String,
 )
 
-/** Provider 原始歌词 payload。翻译歌词同样应是 LRC 形态。 */
+/**
+ * Provider 原始歌词 payload。翻译歌词同样应是 LRC 形态，与原文同时间轴；某一行没有
+ * 译文时可以写成 [UNTRANSLATED_LINE] 占位，让同一时间戳下的多行能按位置配对。
+ */
 data class LyricPayload(
     val lyric: String,
     val translatedLyric: String? = null,
-)
+) {
+    companion object {
+        /** 译文 LRC 里"这一行没有翻译"的占位正文（QQ 音乐的约定）。 */
+        const val UNTRANSLATED_LINE = "//"
+    }
+}

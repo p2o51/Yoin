@@ -1,0 +1,55 @@
+{
+ "result": {
+  "resultCode": "000000",
+  "resultMessage": "Success!"
+ },
+ "sortedContentTypes": [
+  "1"
+ ],
+ "hasNextPage": "1",
+ "totalNum": "200",
+ "songSimpleInfos": [
+  {
+   "contentID": "14584432",
+   "contentName": "Lemon",
+   "contentType": "1",
+   "artistName": "米津玄師(よねづ けんし)",
+   "albumName": "レモン(柠檬)",
+   "subTitle": "米津玄師(よねづ けんし) - レモン(柠檬)",
+   "lyricAddress": "https://music-pics-drcn.dbankcdn.cn/4c23bb0d6931ddf3fd18fed3a0a8372e/fccc85b2037b9d71f82f28a3a433384d/72a33102-7b76-4d58-a46c-fa533fd11a99.lrc",
+   "contentExInfo": "{\"artistNames\":\"米津玄師(よねづ けんし)\",\"lyricAddres\":\"https://music-pics-drcn.dbankcdn.cn/4c23bb0d6931ddf3fd18fed3a0a8372e/fccc85b2037b9d71f82f28a3a433384d/72a33102-7b76-4d58-a46c-fa533fd11a99.lrc\",\"lyrics\":\"{\\\"lineByLineLyric\\\":\\\"https://music-pics-drcn.dbankcdn.cn/4c23bb0d6931ddf3fd18fed3a0a8372e/fccc85b2037b9d71f82f28a3a433384d/72a33102-7b76-4d58-a46c-fa533fd11a99.lrc\\\",\\\"lineByLineLyric_subType\\\":\\\"translate|scrolling\\\",\\\"wordByWordLyric\\\":\\\"https://music-pics-drcn.dbankcdn.cn/67020b6e711556843ab8b4d733087b70/4c23bb0d6931ddf3fd18fed3a0a8372e/14584432_f3bb8a17-6b6b-4179-8bf7-d451d3ed8b47.hmrc\\\"}\",\"fileInfos\":[{\"duration\":\"258\"}]}",
+   "childContents": [
+    {
+     "contentID": "34893867",
+     "contentName": "Lemon",
+     "contentType": "1",
+     "artistName": "米津玄師(よねづ けんし)",
+     "albumName": "STRAY SHEEP",
+     "subTitle": "米津玄師(よねづ けんし) - STRAY SHEEP",
+     "lyricAddress": "https://lyric.tingmall.com/lyric/34/893/34893867-LRC-LRC.lrc?t=1596882207000",
+     "contentExInfo": "{\"artistNames\":\"米津玄師(よねづ けんし)\",\"lyricAddres\":\"https://lyric.tingmall.com/lyric/34/893/34893867-LRC-LRC.lrc?t=1596882207000\",\"lyrics\":\"{\\\"lineByLineLyric\\\":\\\"https://lyric.tingmall.com/lyric/34/893/34893867-LRC-LRC.lrc?t=1596882207000\\\",\\\"lineByLineLyric_subType\\\":\\\"translate|scrolling\\\",\\\"wordByWordLyric\\\":\\\"https://music-pics-drcn.dbankcdn.cn/c3ec257bb77d622aa1f5b9b51932f75d/b1bdddd7742532b6be2449efb4a26971/1834e251-d369-41e0-bf23-ea6637376763.hmrc\\\"}\",\"fileInfos\":[{\"duration\":\"255\"}]}"
+    }
+   ]
+  },
+  {
+   "contentID": "102604819",
+   "contentName": "Lemon(米津玄師)",
+   "contentType": "1",
+   "artistName": "コロムビアオルゴール",
+   "albumName": "星と月のオルゴール",
+   "subTitle": "コロムビアオルゴール - 星と月のオルゴール",
+   "lyricAddress": "https://lyric.tingmall.com/lyric/102/604/102604819-LRC-LRC.lrc?t=1773366729000",
+   "contentExInfo": "{\"artistNames\":\"コロムビアオルゴール\",\"lyricAddres\":\"https://lyric.tingmall.com/lyric/102/604/102604819-LRC-LRC.lrc?t=1773366729000\",\"lyrics\":\"{\\\"lineByLineLyric\\\":\\\"https://lyric.tingmall.com/lyric/102/604/102604819-LRC-LRC.lrc?t=1773366729000\\\",\\\"lineByLineLyric_subType\\\":\\\"abs\\\"}\",\"fileInfos\":[{\"duration\":\"280\"}]}"
+  },
+  {
+   "contentID": "MFAkyyYXn9TxOlrAp",
+   "contentName": "Lemon(翻自：米津玄師)",
+   "contentType": "1",
+   "artistName": "Vk",
+   "albumName": "Lemon",
+   "subTitle": "Vk - Lemon",
+   "lyricAddress": "https://music-pics-drcn.dbankcdn.cn/b08d70869aba5e6830ea6851f6283206/fccc85b2037b9d71f82f28a3a433384d/0c861e18-5acc-468c-80aa-fd37ec96bafa.lrc",
+   "contentExInfo": "{\"artistNames\":\"Vk\",\"lyricAddres\":\"https://music-pics-drcn.dbankcdn.cn/b08d70869aba5e6830ea6851f6283206/fccc85b2037b9d71f82f28a3a433384d/0c861e18-5acc-468c-80aa-fd37ec96bafa.lrc\",\"lyrics\":\"{\\\"lineByLineLyric\\\":\\\"https://music-pics-drcn.dbankcdn.cn/b08d70869aba5e6830ea6851f6283206/fccc85b2037b9d71f82f28a3a433384d/0c861e18-5acc-468c-80aa-fd37ec96bafa.lrc\\\",\\\"lineByLineLyric_subType\\\":\\\"translate|scrolling\\\",\\\"wordByWordLyric\\\":\\\"https://music-pics-drcn.dbankcdn.cn/67020b6e711556843ab8b4d733087b70/b08d70869aba5e6830ea6851f6283206/MFAkyyYXn9TxOlrAp_b48a086c-0fba-426c-a411-084b99fef98f.hmrc\\\"}\",\"fileInfos\":[{\"duration\":\"255\"}]}"
+  }
+ ]
+}
