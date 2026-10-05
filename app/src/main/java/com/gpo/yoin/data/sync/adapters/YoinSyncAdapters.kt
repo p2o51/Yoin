@@ -34,6 +34,7 @@ object YoinSyncAdapters {
         LyricsTranslationSyncAdapter(db, clock),
         MemoryCopySyncAdapter(db),
         MemoryTitleSyncAdapter(db),
+        AlbumTitleSyncAdapter(db),
         SongAboutSyncAdapter(db),
         AccountDescriptorSyncAdapter(syncDb, profiles, decodeCredentials, storefront),
     )

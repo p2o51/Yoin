@@ -955,6 +955,9 @@ class CloudSyncManager(
             "gemini_config",
             "spotify_config",
             "lyrics_translation_cache",
+            "memory_copy_cache",
+            "song_about_entries",
+            "album_memory_titles",
             "profiles",
         )
 

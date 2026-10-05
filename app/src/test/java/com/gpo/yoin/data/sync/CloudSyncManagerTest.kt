@@ -420,6 +420,33 @@ class CloudSyncManagerTest {
         assertTrue("the wipe didn't delete anything on the phone", phone.db.syncDomainDao().allSongAbout().any { it.kind == "ask" })
     }
 
+    @Test
+    fun should_syncUserAlbumTitle_andRestoreEverywhere_when_cleared() = runBlocking {
+        val phone = device("Pixel 9")
+        val fold = device("Fold")
+        val p = phone.addSubsonic("https://music.example.com", "alice")
+        val f = fold.addSubsonic("https://music.example.com", "alice")
+        phone.db.syncDomainDao().upsertMemoryCopy(
+            com.gpo.yoin.data.local.MemoryCopyCache(p, "subsonic", "album", "al-1", "copy", "h", clock.addAndGet(1_000), "AI Title", "t"),
+        )
+        phone.db.albumMemoryTitleDao().upsert(
+            com.gpo.yoin.data.local.AlbumMemoryTitle(p, "subsonic", "al-1", "My Title", clock.addAndGet(1_000)),
+        )
+        phone.turnOn()
+        fold.turnOn()
+
+        assertEquals("My Title", fold.db.albumMemoryTitleDao().get(f, "subsonic", "al-1")?.title)
+        assertEquals("AI title kept apart", "AI Title", fold.db.syncDomainDao().memoryCopy(f, "subsonic", "album", "al-1")?.title)
+
+        phone.db.albumMemoryTitleDao().delete(p, "subsonic", "al-1") // Restore the AI title
+        phone.sync()
+        fold.sync()
+        phone.sync()
+
+        assertNull(fold.db.albumMemoryTitleDao().get(f, "subsonic", "al-1"))
+        assertNull("not pulled back", phone.db.albumMemoryTitleDao().get(p, "subsonic", "al-1"))
+    }
+
     // ---- harness
 
     private fun device(name: String, on: FakeDrive = drive): Device = Device(name, on, clock).also { devices += it }

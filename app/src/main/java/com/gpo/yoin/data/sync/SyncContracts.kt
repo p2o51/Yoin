@@ -22,6 +22,7 @@ object SyncKinds {
     const val MEMORY_COPY = "memory_copy"
     const val MEMORY_TITLE = "memory_title"
     const val SONG_ABOUT = "song_about"
+    const val ALBUM_TITLE = "album_title"
 }
 
 /** Keys of [SyncKinds.SETTING] records. */
