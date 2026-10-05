@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- FileProvider (authority ${applicationId}.fileprovider): files the app hands
+     to other apps through the system share sheet, e.g. the lyrics image card
+     written to cacheDir/shared/ by ui/nowplaying/LyricsShareCard.kt. -->
+<paths>
+    <cache-path
+        name="shared"
+        path="shared/" />
+</paths>

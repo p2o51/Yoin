@@ -52,6 +52,12 @@ sealed interface NowPlayingUiState {
         val artist: String,
         val albumName: String,
         val coverArtUrl: String?,
+        /**
+         * The player means to play ([com.gpo.yoin.player.PlaybackState.playWhenReady]):
+         * held through a seek's or skip's buffering dip, so the PLAY/PAUSE
+         * label, the hero stretch, the wave and the background's pulse key
+         * don't flicker while Media3 re-buffers.
+         */
         val isPlaying: Boolean,
         val durationMs: Long,
         val songId: String,

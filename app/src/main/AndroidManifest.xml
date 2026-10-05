@@ -160,6 +160,18 @@
             </intent-filter>
         </activity>
 
+        <!-- Files handed to other apps via the share sheet (lyrics image card:
+             ui/nowplaying/LyricsShareCard.kt, paths in res/xml/file_paths.xml). -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
+
     </application>
 
 </manifest>

@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.input.TextFieldState
 import androidx.compose.foundation.text.input.rememberTextFieldState
 import androidx.compose.foundation.text.input.setTextAndPlaceCursorAtEnd
 import androidx.compose.material3.AlertDialog
@@ -44,6 +45,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
@@ -81,17 +83,9 @@ internal fun LyricsSearchSheet(
     val scope = rememberCoroutineScope()
     val textFieldState = rememberTextFieldState(state.query)
 
-    // Field text → existing provider search (the VM debounces / fans out).
-    LaunchedEffect(Unit) {
-        snapshotFlow { textFieldState.text.toString() }
-            .collect { onQueryChange(it) }
-    }
-    // Keep the field in sync if the query is reset from outside.
-    LaunchedEffect(state.query) {
-        if (state.query != textFieldState.text.toString()) {
-            textFieldState.setTextAndPlaceCursorAtEnd(state.query)
-        }
-    }
+    // Field text → existing provider search (the VM debounces / fans out), and
+    // outside resets of the query → field.
+    BindSearchFieldToQuery(textFieldState, state.query, onQueryChange)
     // The lyrics "search" action toggles isOpen → expand/collapse the surface.
     LaunchedEffect(state.isOpen) {
         if (state.isOpen) {
@@ -254,6 +248,67 @@ internal fun LyricsSearchSheet(
     }
 }
 
+/**
+ * Binds the search field to the model's [query], the FIELD being the source of
+ * truth for what is typed: every edit goes up through [onQueryChange], and
+ * [query] is written back only when it changed from outside (opening the
+ * search seeds it, a song change resets it). The model's query trails the
+ * field by a few frames — writing that echo back while typing fast dropped
+ * the letters typed since ("Viva La Vida Coldplay" → "Viv L Vi Codpl").
+ */
+@Composable
+internal fun BindSearchFieldToQuery(
+    textFieldState: TextFieldState,
+    query: String,
+    onQueryChange: (String) -> Unit,
+) {
+    val echoes = remember { SearchFieldEchoes() }
+    val latestOnQueryChange by rememberUpdatedState(onQueryChange)
+    LaunchedEffect(textFieldState) {
+        snapshotFlow { textFieldState.text.toString() }
+            .collect { text ->
+                echoes.sent(text)
+                latestOnQueryChange(text)
+            }
+    }
+    LaunchedEffect(query) {
+        if (echoes.isOutsideChange(query, textFieldState.text.toString())) {
+            textFieldState.setTextAndPlaceCursorAtEnd(query)
+        }
+    }
+}
+
+/**
+ * The field texts sent to the model that it hasn't echoed back yet, oldest
+ * first. A query the model reports that is one of them is the field's own
+ * (possibly stale) echo; anything else came from outside.
+ */
+internal class SearchFieldEchoes {
+    private val inFlight = ArrayDeque<String>()
+
+    fun sent(text: String) {
+        inFlight.addLast(text)
+        while (inFlight.size > MAX_IN_FLIGHT) inFlight.removeFirst()
+    }
+
+    /** True when [query] is an outside change the field (showing [fieldText]) must adopt. */
+    fun isOutsideChange(query: String, fieldText: String): Boolean {
+        val echo = inFlight.indexOf(query)
+        if (echo >= 0) {
+            // The model has caught up to this send; older ones are moot.
+            repeat(echo + 1) { inFlight.removeFirst() }
+            return false
+        }
+        inFlight.clear()
+        return query != fieldText
+    }
+
+    private companion object {
+        // Far beyond any typing burst between two frames; only bounds growth.
+        const val MAX_IN_FLIGHT = 64
+    }
+}
+
 @Composable
 private fun LyricsProviderHeader(
     providerName: String,
@@ -403,9 +458,11 @@ private fun Long.toLrcTimestamp(): String {
     return "[%02d:%02d.%02d]".format(minutes, seconds, hundredths)
 }
 
-private fun String.toLyricsProviderLabel(): String = when (this) {
+/** 歌词源 id → 面向用户的名字（搜索分区标题、snackbar）；不认识的原样返回。 */
+internal fun String.toLyricsProviderLabel(): String = when (this) {
     "qq" -> "QQ Music"
     "netease" -> "NetEase"
+    "huawei" -> "Huawei Music"
     "lrclib" -> "LRCLIB"
     else -> this
 }

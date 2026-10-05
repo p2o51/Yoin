@@ -1,5 +1,6 @@
 package com.gpo.yoin.ui.nowplaying
 
+import android.os.SystemClock
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
@@ -9,15 +10,20 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.tween
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.Stable
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -25,12 +31,14 @@ import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
+import com.gpo.yoin.ui.experience.voteHighFrameRate
 import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinMotionRole
 import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.max
 import kotlin.math.sin
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 
 /**
@@ -44,12 +52,19 @@ import kotlinx.coroutines.launch
  *  - [gatherAnchorRoot] — the PLAY button's centre in root coordinates (reported
  *    continuously via [androidx.compose.ui.layout.onGloballyPositioned]); the
  *    gather converges here.
- *  - [burstFocalRoot] — the centre of whichever transport button actually fired
- *    the *last* action (set in the button's onClick, just before the state change).
- *    The release burst radiates from *there*, so play/pause comes out of PLAY,
- *    skip-next out of the NEXT button, skip-previous out of PREVIOUS — instead of
- *    every burst sharing one point. Null until the first action; falls back to a
- *    point just above the controls.
+ *  - [lastTap] — the last transport tap, stamped with its time and kind (D4 P0).
+ *    The release burst radiates from the tapped button only while the tap is
+ *    fresh ([TransportTapValidityMs]) and of the matching kind, and a tap is
+ *    spent once — a song change nobody tapped never reuses an old button's
+ *    position. A PREVIOUS the player answered with a restart (no song change)
+ *    is spent as soon as the playhead shows it ([observePlayhead]).
+ *  - the lyrics column ([reportLyricsSurface]) and the outro's in-place
+ *    hand-over ([publishLyricsHandover]) — read when a song change commits, to
+ *    run the light along the lyric flow, or nothing at all.
+ *
+ * Only [playHeld] and [gatherAnchorRoot] are snapshot state (the press is
+ * composed into the gather); everything else is read at fire time, so taps
+ * and layout passes never recompose the screen.
  *
  * Lives in a [staticCompositionLocalOf] so the deeply-nested [PlaybackControls]
  * (shared by all three layouts) can publish without threading params through the
@@ -59,7 +74,114 @@ import kotlinx.coroutines.launch
 class NowPlayingTransportSignal {
     var playHeld by mutableStateOf(false)
     var gatherAnchorRoot by mutableStateOf<Offset?>(null)
-    var burstFocalRoot by mutableStateOf<Offset?>(null)
+
+    internal var lastTap: TransportTap? = null
+        private set
+    // The reporting lyrics column, kept as plain fields: its bounds move every
+    // stage-animation frame and are only needed when a change commits. Bounds
+    // are kept per reporter, so a posture swap's two layouts can hand the
+    // claim back and forth without losing where either one sits.
+    private var lyricsOwner: Any? = null
+    private val lyricsBounds = HashMap<Any, Rect>(2)
+    private var lyricsPrimary = false
+    private var lyricsLandingPx = 0f
+    private var lyricsClipLight = false
+    internal val lyricsSurface: LyricsSurface?
+        get() = lyricsOwner?.let {
+            LyricsSurface(it, lyricsBounds[it] ?: Rect.Zero, lyricsPrimary, lyricsLandingPx, lyricsClipLight)
+        }
+    internal var lyricsHandover: LyricsHandover? = null
+        private set
+
+    /**
+     * The song the screen has committed to (the pulse key's), published by the
+     * background after each composition. Taps are stamped with it so a
+     * PREVIOUS that only restarts this song can be recognised.
+     */
+    internal var committedSongId: Any? = null
+
+    /** The committed playing flag (the pulse key's), published with [committedSongId]. */
+    internal var committedPlaying: Boolean = false
+
+    /**
+     * The user sought (a lyric line, a note row, the wave bar): the player may
+     * now buffer at the new spot, and that dip and resume are the seek's, not
+     * a play/pause ([seekPlaySettle]). Any settle already owed is kept when
+     * there is nothing to settle (seeking while paused).
+     */
+    internal fun recordSeek() {
+        seekPlaySettle(committedSongId, committedPlaying, SystemClock.uptimeMillis())?.let { playSettle = it }
+    }
+
+    /** [positionMs]: the song-scoped playhead at the tap ([UnknownTapPositionMs] if not known). */
+    internal fun recordTap(centerRoot: Offset, kind: TransportTapKind, positionMs: Long = UnknownTapPositionMs) {
+        lastTap = TransportTap(centerRoot, SystemClock.uptimeMillis(), kind, committedSongId, positionMs)
+    }
+
+    internal fun spendTap() {
+        lastTap = null
+    }
+
+    /**
+     * The resume to playing the player still owes after a skip or a restart
+     * ([PlaySettle]); carried from one [resolveTransportPulse] to the next.
+     */
+    internal var playSettle: PlaySettle? = null
+
+    /**
+     * The transport row's playhead, every tick (song-scoped: it never reads
+     * the next song's position while the screen still shows this one). A
+     * PREVIOUS tap the player answered with a restart is spent here, at once
+     * ([restartedInPlace]) — no song change will ever come to spend it. Its
+     * seek may still be buffering, so its dip and resume are settled, not
+     * breathed ([PlaySettle]; the resume within the tap's own validity).
+     */
+    internal fun observePlayhead(positionMs: Long) {
+        val tap = lastTap ?: return
+        if (tap.restartedInPlace(committedSongId, positionMs)) {
+            lastTap = null
+            playSettle = tap.songId?.let { songId ->
+                PlaySettle.after(
+                    songId = songId,
+                    nowUptimeMs = SystemClock.uptimeMillis(),
+                    resumeUntilUptimeMs = tap.uptimeMs + TransportTapValidityMs,
+                )
+            }
+        }
+    }
+
+    internal fun claimLyricsSurface(owner: Any, primary: Boolean, landingFromTopPx: Float, clipLight: Boolean) {
+        lyricsOwner = owner
+        lyricsPrimary = primary
+        lyricsLandingPx = landingFromTopPx
+        lyricsClipLight = clipLight
+    }
+
+    internal fun moveLyricsSurface(owner: Any, boundsRoot: Rect) {
+        lyricsBounds[owner] = boundsRoot
+    }
+
+    internal fun releaseLyricsSurface(owner: Any) {
+        lyricsBounds.remove(owner)
+        if (lyricsOwner === owner) {
+            lyricsOwner = null
+            lyricsPrimary = false
+        }
+    }
+
+    /**
+     * The lyrics page for [fromSongId] says whether it has staged [toSongId]
+     * in place. Clearing only touches its own entry: the incoming song's page
+     * composes in the same frame the change commits and must not wipe the
+     * outgoing page's word before the pulse reads it.
+     */
+    internal fun publishLyricsHandover(fromSongId: Any, toSongId: Any?, staged: Boolean) {
+        if (staged && toSongId != null) {
+            lyricsHandover = LyricsHandover(fromSongId, toSongId)
+        } else if (lyricsHandover?.fromSongId == fromSongId) {
+            lyricsHandover = null
+        }
+    }
 }
 
 val LocalNowPlayingTransportSignal = staticCompositionLocalOf<NowPlayingTransportSignal?> { null }
@@ -79,32 +201,40 @@ val LocalNowPlayingTransportSignal = staticCompositionLocalOf<NowPlayingTranspor
  *  - **Transport gesture (gather → release)** — the play/pause animation has a life
  *    cycle instead of a single flash:
  *      1. *Gather* — while [pressActive] (finger on the button) a soft core
- *         converges and tightens at [focalRoot], anticipating the action.
- *      2. *Release* — every change of [pulseTrigger] (the committed toggle / skip)
- *         fires a burst from the same focal. **Play and pause have distinct
- *         personalities** keyed off [isPlaying]: a *play* commit ripples outward in
- *         soft rings and drifts up in [playColor] (warm, "comes alive"); a *pause*
- *         commit collapses a single bloom inward and sinks down in [pauseColor]
- *         (cool, "held breath"). Both linger ~2s and fade, never an instant decay.
+ *         converges and tightens at [gatherFocalRoot], anticipating the action.
+ *      2. *Release* — a committed change of [pulseTrigger] is resolved by
+ *         [resolveTransportPulse]. A play/pause bursts from the tapped PLAY
+ *         button. **Play and pause have distinct personalities** keyed off
+ *         [isPlaying]: a *play* commit ripples outward in soft rings and drifts up
+ *         in [playColor] (warm, "comes alive"); a *pause* commit collapses a single
+ *         bloom inward and sinks down in [pauseColor] (cool, "held breath"). Both
+ *         linger ~2s and fade, never an instant decay. A song change while the
+ *         cover leads rings from a freshly tapped NEXT / PREVIOUS only.
+ *  - **Flow light** — a song change while the lyrics lead (D4 §1 B): a soft
+ *    horizontal ellipse of [playColor] travels with the lyric stream (next: up
+ *    from below the column, previous: down from above) onto the new title card,
+ *    ~0.6s — the quick action's quick hint.
  *
  * Performance: the drift/breath loops only run while the aurora is visible; the
- * gather only animates while pressed; the burst only animates for ~2s after a tap.
+ * gather only animates while pressed; the burst only animates for ~2s after a tap,
+ * the light for ~0.6s after a song change — and votes a high frame rate for just
+ * that sweep ([FlowLightRun.moving]).
  * Idle steady-state playback schedules no frame callbacks. All animated values are
  * read inside [drawBehind], so an active gesture invalidates the draw phase only.
  *
- * @param pulseTrigger any value whose change should fire a release burst; pass a key
- *   built only from the playing flag + song id so position ticks don't fire, and
- *   null when not playing. Only changes between two non-null values burst — entering/
- *   leaving playback and the initial composition are swallowed so opening Now Playing
- *   never flashes.
- * @param isPlaying the playing flag *after* the toggle commits; picks the burst
- *   personality (true → play ripple, false → pause sink). Also chosen on skip
- *   (stays true → a light ripple).
+ * @param pulseTrigger the committed state (song id + playing flag + queue position,
+ *   never the playhead), null when not playing. Only changes between two non-null
+ *   values pulse — entering/leaving playback and the initial composition are
+ *   swallowed so opening Now Playing never flashes.
+ * @param isPlaying the playing flag *after* the toggle commits; picks the gather's
+ *   colour (it anticipates the opposite action).
  * @param pressActive the transport button is held; drives the anticipation gather.
  * @param gatherFocalRoot the PLAY button centre in root coordinates; the gather
  *   converges here. Null → a fallback point just above the controls.
- * @param burstFocalRoot the centre of the button that fired the last action; the
- *   release burst radiates from here. Null → the same fallback point.
+ * @param burstFocalRoot where a play/pause breath with no fresh tap behind it
+ *   (headset, notification, audio focus) rises from. Null → the same fallback point.
+ * @param transportSignal the taps, lyrics column and outro hand-over read when a
+ *   change commits. Null → every change is an untapped one with the cover leading.
  */
 @Composable
 fun Modifier.nowPlayingAuroraBackground(
@@ -114,11 +244,12 @@ fun Modifier.nowPlayingAuroraBackground(
     auroraActive: Boolean,
     playColor: Color,
     pauseColor: Color,
-    pulseTrigger: Any?,
+    pulseTrigger: TransportPulseKey?,
     isPlaying: Boolean,
     pressActive: Boolean,
     gatherFocalRoot: Offset?,
     burstFocalRoot: Offset?,
+    transportSignal: NowPlayingTransportSignal? = null,
 ): Modifier {
     // Envelope for the Gemini aurora: in while thinking, out when the answer
     // lands. Slow effects spring — the motion law for alpha envelopes, with
@@ -166,42 +297,102 @@ fun Modifier.nowPlayingAuroraBackground(
         label = "transportGather",
     )
 
-    // One monotonic 0→1 sweep per committed toggle/skip drives the whole release:
-    // rings travel out (play) or a bloom collapses in (pause) as it advances, while
-    // sin(π·burst) fades the whole thing in and back out — a lingering breath, not a
+    // One monotonic 0→1 sweep per burst drives the whole release: rings travel out
+    // (play) or a bloom collapses in (pause) as it advances, while sin(π·burst)
+    // fades the whole thing in and back out — a lingering breath, not a
     // snap-and-decay. [burstIsPlay] freezes the personality at fire time.
     val burst = remember { Animatable(0f) }
     var burstIsPlay by remember { mutableStateOf(true) }
-    // Latch the focal WITH the trigger. Skip-next/prev change songId only after the
+    // Latch the focal WITH the commit. Skip-next/prev change songId only after the
     // player round-trips (hundreds of ms; worse on Spotify App Remote), so the burst
-    // fires long after the tap — reading burstFocalRoot live at draw time risks a
-    // value that no longer matches the button that was tapped. Freezing it the moment
-    // the trigger flips keeps the ripple anchored to the tapped control.
+    // fires long after the tap; freezing the tap's centre the moment the change
+    // commits keeps the ripple anchored to the tapped control.
     var burstFocalFrozen by remember { mutableStateOf<Offset?>(null) }
+
+    // The flow light: travel 0 → 1 (+ the spring's overshoot) from beyond the
+    // column edge onto the new title; alpha in fast, out slow from 85% travel.
+    // Geometry frozen at fire time (local px), like the burst focal.
+    val light = remember { FlowLightRun() }
+    // Flips twice per light (derivedStateOf over Animatable.isRunning), never
+    // per frame: the high frame-rate vote below spans exactly the sweep.
+    val lightMoving by remember(light) { derivedStateOf { light.moving } }
+    var lightColumn by remember { mutableStateOf(Rect.Zero) }
+    var lightLandingY by remember { mutableStateOf(0f) }
+    var lightForward by remember { mutableStateOf(true) }
+    var lightClipped by remember { mutableStateOf(false) }
+    val lightTravelSpec = YoinMotion.slowSpatialSpec<Float>(role = YoinMotionRole.Expressive)
+    val lightInSpec = YoinMotion.fastEffectsSpec<Float>(role = YoinMotionRole.Expressive)
+    val lightOutSpec = YoinMotion.slowEffectsSpec<Float>(role = YoinMotionRole.Expressive)
+
+    // The modifier's own origin in root space, so a root-space focal (the button
+    // centre, the lyrics column) converts into this background's local coordinates.
+    var originRoot by remember { mutableStateOf(Offset.Zero) }
+
+    // Pulses run in this scope, NOT inside the keyed effect below: the next
+    // commit restarting that effect must not cancel a burst mid-sweep and
+    // leave it frozen on screen. A new pulse restarts its own Animatables.
+    val pulseScope = rememberCoroutineScope()
+    val lightJob = remember { arrayOfNulls<Job>(1) }
     var lastTrigger by remember { mutableStateOf(pulseTrigger) }
+    // Taps are stamped with the committed song (see observePlayhead); a seek
+    // settles only what it can dip (see recordSeek).
+    SideEffect {
+        transportSignal?.committedSongId = pulseTrigger?.songId
+        transportSignal?.committedPlaying = pulseTrigger?.isPlaying == true
+    }
     LaunchedEffect(pulseTrigger) {
         val previous = lastTrigger
         lastTrigger = pulseTrigger
-        if (previous == null || pulseTrigger == null || previous == pulseTrigger) {
-            return@LaunchedEffect
-        }
-        burstIsPlay = isPlaying
-        burstFocalFrozen = burstFocalRoot
-        burst.snapTo(0f)
-        burst.animateTo(
-            targetValue = 1f,
-            animationSpec = tween(
-                durationMillis = if (isPlaying) PLAY_BURST_MS else PAUSE_BURST_MS,
-                easing = FastOutSlowInEasing,
-            ),
+        val surface = transportSignal?.lyricsSurface
+        val decision = resolveTransportPulse(
+            previous = previous,
+            current = pulseTrigger,
+            tap = transportSignal?.lastTap,
+            nowUptimeMs = SystemClock.uptimeMillis(),
+            lyricsPrimary = surface?.primary == true && surface.boundsRoot.height > 0f,
+            handover = transportSignal?.lyricsHandover,
+            settle = transportSignal?.playSettle,
         )
+        if (decision.tapUsed) transportSignal?.spendTap()
+        transportSignal?.playSettle = decision.settle
+        when (val pulse = decision.pulse) {
+            TransportPulse.None -> Unit
+            is TransportPulse.Burst -> {
+                val playing = pulse.isPlay
+                burstIsPlay = playing
+                burstFocalFrozen = pulse.focalRoot ?: burstFocalRoot
+                pulseScope.launch {
+                    burst.snapTo(0f)
+                    burst.animateTo(
+                        targetValue = 1f,
+                        animationSpec = tween(
+                            durationMillis = if (playing) PLAY_BURST_MS else PAUSE_BURST_MS,
+                            easing = FastOutSlowInEasing,
+                        ),
+                    )
+                }
+            }
+            is TransportPulse.FlowLight -> {
+                // FlowLight is only decided with a measured column on screen.
+                val lyricsColumn = surface ?: return@LaunchedEffect
+                val column = lyricsColumn.boundsRoot.translate(-originRoot)
+                lightColumn = column
+                lightLandingY = column.top + lyricsColumn.landingFromTopPx
+                lightForward = pulse.forward
+                lightClipped = lyricsColumn.clipLight
+                lightJob[0]?.cancel()
+                lightJob[0] = pulseScope.launch {
+                    light.play(lightTravelSpec, lightInSpec, lightOutSpec)
+                }
+            }
+        }
     }
 
-    // The modifier's own origin in root space, so a root-space focal (the button
-    // centre) can be converted into this background's local draw coordinates.
-    var originRoot by remember { mutableStateOf(Offset.Zero) }
-
     return this
+        // A short no-touch motion (the finger, if any, has lifted): vote High
+        // for exactly the sweep, so an adaptive-refresh panel doesn't pace it
+        // at 60Hz. Read here, twice per light — like playHeld for the gather.
+        .voteHighFrameRate(lightMoving)
         .onGloballyPositioned { originRoot = it.positionInRoot() }
         .drawBehind {
             val w = size.width
@@ -275,7 +466,7 @@ fun Modifier.nowPlayingAuroraBackground(
             // Two focals, each converted from root to local space, both falling
             // back to a point just above the controls before the first pass:
             //  • gather → PLAY button (the held control)
-            //  • burst  → whichever button fired the last action
+            //  • burst  → the freshly tapped button that fired this burst
             val fallback = Offset(w * 0.5f, h * 0.62f)
             val gatherFocal = gatherFocalRoot
                 ?.let { Offset(it.x - originRoot.x, it.y - originRoot.y) } ?: fallback
@@ -345,6 +536,37 @@ fun Modifier.nowPlayingAuroraBackground(
                             ),
                             radius = radius,
                             center = center,
+                            blendMode = blend,
+                        )
+                    }
+                }
+            }
+
+            // Flow light: a soft horizontal band riding the lyric stream onto
+            // the new title (D4 §1 B). An ellipse = a radial circle scaled wide
+            // about its centre; the two-pane column clips it to itself.
+            val la = light.alpha.value
+            val column = lightColumn
+            if (la > 0.001f && column.height > 0f) {
+                val frame = flowLightFrame(column, lightLandingY, lightForward, light.travel.value)
+                if (frame.radiusY > 0f) {
+                    val a = burstAlphaCap * la.coerceIn(0f, 1f)
+                    withTransform(
+                        {
+                            if (lightClipped) clipRect(left = column.left, top = 0f, right = column.right, bottom = h)
+                            scale(scaleX = frame.radiusX / frame.radiusY, scaleY = 1f, pivot = frame.center)
+                        },
+                    ) {
+                        drawCircle(
+                            brush = Brush.radialGradient(
+                                0.0f to playColor.copy(alpha = a),
+                                0.5f to playColor.copy(alpha = a * 0.5f),
+                                1.0f to playColor.copy(alpha = 0f),
+                                center = frame.center,
+                                radius = frame.radiusY,
+                            ),
+                            radius = frame.radiusY,
+                            center = frame.center,
                             blendMode = blend,
                         )
                     }

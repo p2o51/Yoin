@@ -57,6 +57,14 @@ data class PlaybackState(
      * snackbar (install Spotify / open Settings / reconnect).
      */
     val connectionFailure: SpotifyConnectFailure? = null,
+    /**
+     * The player means to play — what a play/pause control shows and toggles.
+     * Unlike [isPlaying] it holds through a seek's or skip's buffering dip
+     * (Media3 reports not-playing until the new spot is buffered). Media3:
+     * see [playWhenReadyOf]. Backends without the distinction (Spotify App
+     * Remote) leave it at [isPlaying].
+     */
+    val playWhenReady: Boolean = isPlaying,
 ) {
     /** Compatibility shim: old callers expect `controllerReady: Boolean`. */
     val controllerReady: Boolean
@@ -66,3 +74,18 @@ data class PlaybackState(
     val playMode: PlayMode
         get() = PlayMode.of(repeatMode, shuffleEnabled)
 }
+
+/**
+ * [PlaybackState.playWhenReady] from a Media3 player: its `playWhenReady`,
+ * except where Media3's own `Util.shouldShowPlayButton` shows PLAY anyway —
+ * an idle or ended player, or playback suppressed (transient audio-focus
+ * loss). A buffering player that means to play stays true.
+ */
+internal fun playWhenReadyOf(
+    playWhenReady: Boolean,
+    playbackState: Int,
+    playbackSuppressionReason: Int,
+): Boolean = playWhenReady &&
+    playbackState != Player.STATE_IDLE &&
+    playbackState != Player.STATE_ENDED &&
+    playbackSuppressionReason == Player.PLAYBACK_SUPPRESSION_REASON_NONE

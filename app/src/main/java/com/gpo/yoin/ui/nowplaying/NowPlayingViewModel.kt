@@ -17,7 +17,12 @@ import com.gpo.yoin.player.CastManager
 import com.gpo.yoin.player.CastState
 import com.gpo.yoin.player.ConnectionPhase
 import com.gpo.yoin.player.PlaybackManager
+import com.gpo.yoin.player.PlaybackState
+import com.gpo.yoin.data.model.Track
+import androidx.media3.common.Player
 import com.gpo.yoin.ui.component.AddToPlaylistRow
+import com.gpo.yoin.ui.component.NoteDraftState
+import com.gpo.yoin.ui.component.NoteSaveRequest
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -31,6 +36,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
@@ -38,6 +44,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 
 /** Sentinel id a Spotify App Remote track gets when its uri is blank
  *  (mirror of SpotifyAppRemotePlayer's fallback). Such a track can't be saved. */
@@ -45,6 +52,22 @@ private const val REMOTE_UNKNOWN_TRACK_ID = "spotify-remote-unknown"
 
 /** Settle time before prefetching the next song's lyrics (skips cancel it). */
 private const val UP_NEXT_PREFETCH_DELAY_MS = 4_000L
+
+/** A failed prefetch (network, provider timeout) retries this many times… */
+private const val UP_NEXT_PREFETCH_RETRIES = 2
+
+/** …after this long, times the attempt number. */
+private const val UP_NEXT_PREFETCH_RETRY_MS = 15_000L
+
+/** Prefetched lyrics kept per song id (the next song, plus one just passed). */
+private const val PREFETCHED_LYRICS_KEPT = 3
+
+/**
+ * How long a skip-previous direction outlives the song change it caused —
+ * ample for the new cover to compose and take it (it reads the direction once,
+ * as it enters), far short of any later auto-advance.
+ */
+internal const val SKIP_DIRECTION_HOLD_MS = 1_000L
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class NowPlayingViewModel(
@@ -68,11 +91,37 @@ class NowPlayingViewModel(
     private val _lyricsOwnerSongId = MutableStateFlow<String?>(null)
 
     /**
-     * The next song's lyrics, fetched ahead of time so an open lyrics view can
-     * let them rise in during the outro and hand over without a loading beat.
-     * Consumed (applied as the current lyrics) when that song starts.
+     * Lyrics fetched ahead of time for upcoming songs, by song id — timed or
+     * not. An entry is applied (and dropped) the moment its song starts, so
+     * the song opens with its lyrics already there instead of a loading beat.
+     * Kept apart from [_upNextSongId] on purpose: when the queue's next song
+     * changes (or runs out) at the very song change that consumes an entry,
+     * the entry must still be there for the starting song.
      */
-    private val _upNextLyrics = MutableStateFlow<UpNextLyrics?>(null)
+    private val _prefetchedLyrics = MutableStateFlow<Map<String, UpNextLyrics>>(emptyMap())
+
+    /** The song that plays next, as far as the player lets us know ([resolvedNextTrack]). */
+    private val _upNextSongId = MutableStateFlow<String?>(null)
+
+    private data class PreloadState(
+        val upNextSongId: String?,
+        val lyricsBySongId: Map<String, UpNextLyrics>,
+    ) {
+        /**
+         * The next song's TIMED lyrics, for the lyrics view's outro: they rise
+         * in during the current song's last line and hand over without a
+         * loading beat. Untimed lyrics are preloaded too but not choreographed.
+         */
+        val upNextTimed: UpNextLyrics?
+            get() = upNextSongId?.let(lyricsBySongId::get)
+                ?.takeIf { entry -> entry.lines.any { it.startMs != null } }
+    }
+
+    private val preloadFlow: Flow<PreloadState> = combine(
+        _upNextSongId,
+        _prefetchedLyrics,
+        ::PreloadState,
+    )
     private val _showLyricsTranslation = MutableStateFlow(false)
     private val _lyricsActionInFlight = MutableStateFlow<LyricsAction?>(null)
     private val _currentLyricsProviderName = MutableStateFlow<String?>(null)
@@ -153,11 +202,15 @@ class NowPlayingViewModel(
                     // the same beat as the song change, so the lyrics view's
                     // rising "up next" block becomes this song without a
                     // loading state in between.
-                    val prefetched = _upNextLyrics.value?.takeIf { it.songId == songId.toString() }
+                    val prefetched = _prefetchedLyrics.value[songId.toString()]
                     _isStarred.value = track?.isStarred == true
                     _lyrics.value = prefetched?.lines ?: emptyList()
                     _lyricsLoading.value = prefetched == null
                     _lyricsOwnerSongId.value = songId.toString()
+                    // Consumed: the lyrics flows own it now.
+                    if (prefetched != null) {
+                        _prefetchedLyrics.update { it - songId.toString() }
+                    }
                     _showLyricsTranslation.value = false
                     _lyricsActionInFlight.value = null
                     _currentLyricsProviderName.value = prefetched?.providerName
@@ -186,39 +239,54 @@ class NowPlayingViewModel(
             }
         }
         viewModelScope.launch {
-            // Prefetch the next song's lyrics. collectLatest + a short delay:
+            // Preload the next song's lyrics. collectLatest + a short delay:
             // rapid skipping cancels the fetch instead of hitting providers
-            // for every track it passes over.
+            // for every track it passes over. getLoadedLyrics also warms the
+            // repository's own lyrics cache for non-Subsonic providers.
             playbackManager.playbackState
-                .map { it.nextTrack }
+                .map { it.resolvedNextTrack() }
                 .distinctUntilChanged { a, b -> a?.id == b?.id }
                 .collectLatest { next ->
-                    if (next == null) {
-                        _upNextLyrics.value = null
-                        return@collectLatest
-                    }
-                    if (_upNextLyrics.value?.songId == next.id.toString()) return@collectLatest
+                    val nextId = next?.id?.toString()
+                    _upNextSongId.value = nextId
+                    if (next == null || nextId == null) return@collectLatest
+                    if (_prefetchedLyrics.value.containsKey(nextId)) return@collectLatest
                     delay(UP_NEXT_PREFETCH_DELAY_MS)
-                    val loaded = try {
-                        repository.getLoadedLyrics(next.id, next.title, next.artist)
-                    } catch (e: kotlinx.coroutines.CancellationException) {
-                        throw e
-                    } catch (_: Exception) {
-                        null
-                    }
-                    val lines = loaded?.lyrics?.toUiLyrics().orEmpty()
-                    // Only timed lyrics can be choreographed against the outro.
-                    _upNextLyrics.value = if (lines.any { it.startMs != null }) {
-                        UpNextLyrics(
-                            songId = next.id.toString(),
-                            title = next.title.orEmpty(),
-                            artist = next.artist.orEmpty(),
-                            lines = lines,
-                            providerName = loaded?.providerName,
-                            providerSongId = loaded?.providerSongId,
-                        )
-                    } else {
-                        null
+                    var attempt = 0
+                    while (true) {
+                        val loaded = try {
+                            repository.getLoadedLyrics(next.id, next.title, next.artist)
+                        } catch (e: kotlinx.coroutines.CancellationException) {
+                            throw e
+                        } catch (_: Exception) {
+                            // Transient (network / provider timeout): the outro
+                            // is minutes away, so try again before giving up.
+                            if (attempt < UP_NEXT_PREFETCH_RETRIES) {
+                                attempt += 1
+                                delay(UP_NEXT_PREFETCH_RETRY_MS * attempt)
+                                continue
+                            }
+                            null
+                        }
+                        val lines = loaded?.lyrics?.toUiLyrics().orEmpty()
+                        if (lines.isNotEmpty()) {
+                            val entry = UpNextLyrics(
+                                songId = nextId,
+                                title = next.title.orEmpty(),
+                                artist = next.artist.orEmpty(),
+                                lines = lines,
+                                providerName = loaded?.providerName,
+                                providerSongId = loaded?.providerSongId,
+                            )
+                            _prefetchedLyrics.update { cache ->
+                                (cache - nextId + (nextId to entry))
+                                    .entries
+                                    .toList()
+                                    .takeLast(PREFETCHED_LYRICS_KEPT)
+                                    .associate { it.toPair() }
+                            }
+                        }
+                        break
                     }
                 }
         }
@@ -359,10 +427,16 @@ class NowPlayingViewModel(
         lyricsUiState,
         ratingFlow,
         trackActionsFlow,
-        _upNextLyrics,
-    ) { (state, activityContext), lyricsState, rating, trackActions, upNext ->
+        preloadFlow,
+    ) { (state, activityContext), lyricsState, rating, trackActions, preload ->
         val song = state.currentTrack
         val pending = state.pendingTrack
+        val songKey = song?.id?.toString()
+        val lyricsOwned = songKey != null && lyricsState.ownerSongId == songKey
+        // The song just started but the lyrics flows haven't caught up yet:
+        // its preloaded lyrics are already known — show them in that very
+        // emission, so the outro hand-over never meets a loading frame.
+        val preloaded = if (lyricsOwned) null else songKey?.let(preload.lyricsBySongId::get)
         when {
             state.connectionPhase == ConnectionPhase.Error && song != null ->
                 NowPlayingUiState.ConnectError(
@@ -378,7 +452,7 @@ class NowPlayingViewModel(
                 artist = song.artist.orEmpty(),
                 albumName = song.album.orEmpty(),
                 coverArtUrl = repository.resolveCoverUrl(song.coverArt),
-                isPlaying = state.isPlaying,
+                isPlaying = state.playWhenReady,
                 durationMs = state.duration,
                 songId = song.id.toString(),
                 rating = rating,
@@ -386,14 +460,16 @@ class NowPlayingViewModel(
                 libraryMembership = if (trackActions.membershipTrackId == song.id) trackActions.membership
                     else LibraryMembership.Unknown,
                 libraryActionInFlight = song.id in trackActions.workingTrackIds,
-                lyrics = if (lyricsState.ownerSongId == song.id.toString()) lyricsState.lyrics else emptyList(),
-                showLyricsTranslation = lyricsState.showTranslation &&
-                    lyricsState.ownerSongId == song.id.toString(),
+                lyrics = when {
+                    lyricsOwned -> lyricsState.lyrics
+                    preloaded != null -> preloaded.lines
+                    else -> emptyList()
+                },
+                showLyricsTranslation = lyricsState.showTranslation && lyricsOwned,
                 lyricsActionInFlight = lyricsState.actionInFlight,
-                lyricsLoading = lyricsState.loading || lyricsState.ownerSongId != song.id.toString(),
-                // Masked once consumed: the prefetch may still describe the
-                // song that is now playing until the next one is fetched.
-                upNextLyrics = upNext?.takeIf { it.songId != song.id.toString() },
+                lyricsLoading = if (lyricsOwned) lyricsState.loading else preloaded == null,
+                // Never the playing song itself (repeat-all on a one-song queue).
+                upNextLyrics = preload.upNextTimed?.takeIf { it.songId != song.id.toString() },
                 queue = state.queue.map { queueSong ->
                     QueueItem(
                         songId = queueSong.id.toString(),
@@ -459,6 +535,23 @@ class NowPlayingViewModel(
             playbackManager.playbackState.value.position,
         )
 
+    /**
+     * [positionMs] tagged with the song it belongs to, from the same emission
+     * — what the overlay host hands the screen (through [SongScopedPosition])
+     * so a song change can't show the drawn song the NEXT song's position for
+     * the frames before uiState catches up. Eager for the same reason as
+     * [positionMs].
+     */
+    val playhead: StateFlow<NowPlayingPlayhead> = playbackManager.playbackState
+        .map { NowPlayingPlayhead(it.currentTrack?.id?.toString(), it.position) }
+        .stateIn(
+            viewModelScope,
+            SharingStarted.Eagerly,
+            playbackManager.playbackState.value.let { state ->
+                NowPlayingPlayhead(state.currentTrack?.id?.toString(), state.position)
+            },
+        )
+
     /** Buffered position, split out of [uiState] for the same reason as [positionMs]. */
     val bufferedMs: StateFlow<Long> = playbackManager.playbackState
         .map { it.bufferedPosition }
@@ -477,18 +570,21 @@ class NowPlayingViewModel(
      * wavy-vs-flat off isPlaying, so a stale `false` here while the eager
      * position ticked on rendered as "progress moving but the line stays
      * flat". The overlay host overrides Playing.isPlaying with this value.
+     * It reads playWhenReady, like Playing.isPlaying: a seek's buffering dip
+     * must not flash the label to PLAY (2026-10-05 device QA).
      */
     val isPlayingLive: StateFlow<Boolean> = playbackManager.playbackState
-        .map { it.isPlaying }
+        .map { it.playWhenReady }
         .stateIn(
             viewModelScope,
             SharingStarted.Eagerly,
-            playbackManager.playbackState.value.isPlaying,
+            playbackManager.playbackState.value.playWhenReady,
         )
 
     fun togglePlayPause() {
         val state = playbackManager.playbackState.value
-        if (state.isPlaying) playbackManager.pause() else playbackManager.resume()
+        // What the button shows: PAUSE through a buffering dip pauses.
+        if (state.playWhenReady) playbackManager.pause() else playbackManager.resume()
     }
 
     /** Repeat all → shuffle → repeat one → repeat all, from what the player reports. */
@@ -498,20 +594,47 @@ class NowPlayingViewModel(
 
     /**
      * +1 = moved forward (tap skip-next, or auto-advance default), −1 = back.
-     * Only a display hint for the Now Playing cover's directional ride-in;
-     * auto-advance correctly falls out as +1 since nothing flips it.
+     * Only a display hint for the Now Playing cover's directional ride-in.
+     * −1 belongs to the one song change a PREVIOUS tap causes: it returns to
+     * +1 once that change has been taken ([SKIP_DIRECTION_HOLD_MS] after it
+     * lands), or when the tap expires without one (a restart, or nothing
+     * before the first song) — so a later auto-advance rides in forward.
      */
     private val _skipDirection = MutableStateFlow(1)
     val skipDirection: StateFlow<Int> = _skipDirection.asStateFlow()
+    private var skipDirectionReset: Job? = null
 
     fun skipNext() {
+        skipDirectionReset?.cancel()
         _skipDirection.value = 1
         playbackManager.skipNext()
     }
 
     fun skipPrevious() {
         _skipDirection.value = -1
+        armSkipDirectionReset()
         playbackManager.skipPrevious()
+    }
+
+    /**
+     * Waits (as long as a transport tap is trusted, [TransportTapValidityMs])
+     * for the song to change away from the one tapped on, holds −1 while the
+     * new cover composes with it, then goes back to +1. No change in time —
+     * the player restarted the song or had nothing before it — resets at once.
+     */
+    private fun armSkipDirectionReset() {
+        val tappedOn = playbackManager.playbackState.value.currentTrack?.id
+        skipDirectionReset?.cancel()
+        skipDirectionReset = viewModelScope.launch {
+            val changed = withTimeoutOrNull(TransportTapValidityMs) {
+                playbackManager.playbackState.first { state ->
+                    val id = state.currentTrack?.id
+                    id != null && id != tappedOn
+                }
+            }
+            if (changed != null) delay(SKIP_DIRECTION_HOLD_MS)
+            _skipDirection.value = 1
+        }
     }
 
     fun seekTo(fraction: Float) {
@@ -621,7 +744,7 @@ class NowPlayingViewModel(
                 .onSuccess { result ->
                     applyLyricsResult(result.lyrics, result.providerName, result.providerSongId)
                     _lyricsSearchState.value = LyricsSearchState()
-                    _addToPlaylistMessages.tryEmit("Lyrics applied from ${result.providerName}")
+                    _addToPlaylistMessages.tryEmit("Lyrics applied from ${result.providerName.toLyricsProviderLabel()}")
                 }
                 .onFailure { error ->
                     _lyricsSearchState.value = _lyricsSearchState.value.copy(
@@ -737,7 +860,7 @@ class NowPlayingViewModel(
             _showLyricsTranslation.value = true
             pendingLyricsTranslationSwitchOffer = null
             _lyricsActionInFlight.value = null
-            _addToPlaylistMessages.tryEmit("Lyrics translated from ${offer.providerName}")
+            _addToPlaylistMessages.tryEmit("Lyrics translated from ${offer.providerName.toLyricsProviderLabel()}")
         }
     }
 
@@ -811,17 +934,65 @@ class NowPlayingViewModel(
         }
     }
 
-    fun saveCurrentNote(content: String, positionMs: Long? = null) {
-        if (content.isBlank()) return
-        val track = playbackManager.playbackState.value.currentTrack ?: return
+    /**
+     * Now Playing's note draft, held here so the words also outlive closing
+     * Now Playing (the screen composes only while it's open). Snapshot state,
+     * not a StateFlow, on purpose: a text field must read its value
+     * synchronously, or IME composition glitches. Pass it to
+     * [NowPlayingScreen]'s `noteDraft`.
+     */
+    val noteDraft = NoteDraftState()
+
+    // The profile [noteDraft] is being written under. Profiles are independent
+    // data sources: a draft that outlives closing Now Playing must not outlive
+    // a profile switch, or its song id would be filed under the next profile.
+    private var noteDraftProfileId: String? = repository.currentProfileId()
+
+    // After [noteDraft]: an init block above it would run first and, on the
+    // immediate main dispatcher, touch the draft before it exists.
+    init {
         viewModelScope.launch {
-            repository.addNote(track, content, positionMs)
+            repository.currentProfileIdFlow.collect { profileId ->
+                if (profileId != noteDraftProfileId) {
+                    noteDraftProfileId = profileId
+                    noteDraft.discard()
+                }
+            }
+        }
+    }
+
+    /**
+     * Files a note under the song its draft was STARTED on ([NoteSaveRequest.target])
+     * with the moment captured then — not whatever plays when 记下 is pressed:
+     * a skip mid-sentence must not move the note (or pair the next song with
+     * the previous song's anchor). A request written under another profile —
+     * a switch the draft hasn't been discarded for yet — is refused.
+     */
+    fun saveCurrentNote(request: NoteSaveRequest) {
+        if (request.content.isBlank()) return
+        if (repository.currentProfileId() != noteDraftProfileId) return
+        val track = resolveNoteTrack(request.target, playbackManager.playbackState.value) ?: return
+        viewModelScope.launch {
+            repository.addNote(track, request.content, request.anchorMs)
         }
     }
 
     fun deleteNote(id: String) {
         viewModelScope.launch {
             repository.deleteNoteById(id)
+        }
+    }
+
+    /**
+     * The Note page's "对齐到现在": files [note] at a new song moment. Words,
+     * id and creation time stay; [positionMs] replaces the anchor.
+     */
+    fun realignNote(note: SongNote, positionMs: Long) {
+        val content = note.content.trim()
+        if (content.isEmpty()) return
+        viewModelScope.launch {
+            // updateNote writes the whole row it is given, the new anchor with it.
+            repository.updateNote(note.copy(positionMs = positionMs.coerceAtLeast(0L)), content)
         }
     }
 
@@ -1050,6 +1221,11 @@ class NowPlayingViewModel(
         _detailPage.value = page
     }
 
+    /** A one-line confirmation from the player UI (e.g. lyrics copied below Android 13). */
+    fun showMessage(message: String) {
+        _addToPlaylistMessages.tryEmit(message)
+    }
+
     fun setMediumFullscreen(fullscreen: Boolean) {
         _mediumFullscreen.value = fullscreen
     }
@@ -1257,6 +1433,24 @@ data class DevicesSheetState(
     val busyDeviceId: String? = null,
     val errorMessage: String? = null,
 )
+
+/**
+ * The song that plays after the current one, as far as Yoin can tell.
+ * [PlaybackState.nextTrack] when the backend resolves it (Media3: shuffle order
+ * and repeat-all included). Delegated backends (Spotify App Remote) report
+ * none; their queue is the order Yoin started, which predicts the next song
+ * only without shuffle or repeat-one — anything else stays unknown rather than
+ * guessed (a wrong guess would preview the wrong song's lyrics).
+ */
+internal fun PlaybackState.resolvedNextTrack(): Track? {
+    nextTrack?.let { return it }
+    if (shuffleEnabled || repeatMode == Player.REPEAT_MODE_ONE) return null
+    val current = currentTrack ?: return null
+    if (queue.getOrNull(currentIndex)?.id != current.id) return null
+    val next = queue.getOrNull(currentIndex + 1)
+        ?: queue.firstOrNull().takeIf { repeatMode == Player.REPEAT_MODE_ALL }
+    return next?.takeIf { it.id != current.id }
+}
 
 private fun SourceLyrics.toUiLyrics(): List<LyricLine> = when (this) {
     is SourceLyrics.Synced -> lines.map { syncedLine ->

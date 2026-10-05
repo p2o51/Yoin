@@ -416,7 +416,14 @@ fun NowPlayingOverlayHost(
         // The 4Hz playhead is collected HERE (not in the host body) and
         // handed to the screen as reader lambdas, so only the leaves that
         // invoke them (progress bar, lyrics) recompose per tick.
-        val nowPlayingPositionMs = viewModel.positionMs.collectAsState()
+        // Tagged with its song: at a song change the playhead moves on a few
+        // dispatches before uiState does, and the screen must keep reading the
+        // song it is still drawing (see SongScopedPosition).
+        val nowPlayingPlayhead = viewModel.playhead.collectAsState()
+        val renderedSongId = rememberUpdatedState(
+            (nowPlayingUiState as? NowPlayingUiState.Playing)?.songId,
+        )
+        val songScopedPosition = remember { SongScopedPosition() }
         val nowPlayingBufferedMs = viewModel.bufferedMs.collectAsState()
         val nowPlayingIsPlaying by viewModel.isPlayingLive.collectAsState()
         // The raw FFT stream updates 10–30Hz; NowPlayingScreen only needs
@@ -527,7 +534,9 @@ fun NowPlayingOverlayHost(
                     },
                     // Mirrors the dismissFraction pattern below: reader lambdas
                     // over collected State, invoked only at the consuming leaves.
-                    positionMs = { nowPlayingPositionMs.value },
+                    positionMs = {
+                        songScopedPosition.resolve(nowPlayingPlayhead.value, renderedSongId.value)
+                    },
                     bufferedMs = { nowPlayingBufferedMs.value },
                     hasAudioSpectrum = hasAudioSpectrum,
                     onTogglePlayPause = viewModel::togglePlayPause,
@@ -543,6 +552,7 @@ fun NowPlayingOverlayHost(
                     onDismissLyricsSearch = viewModel::dismissLyricsSearch,
                     onTranslateLyrics = viewModel::translateLyrics,
                     onApplyLyrics = viewModel::applyLyrics,
+                    onLyricsMessage = viewModel::showMessage,
                     onRatingChange = viewModel::setRating,
                     onToggleFavorite = viewModel::toggleFavorite,
                     onAddCurrentToLibrary = viewModel::addCurrentToLibrary,
@@ -572,8 +582,10 @@ fun NowPlayingOverlayHost(
                     onStageBack = viewModel::stepBackStage,
                     onDetailPageChange = viewModel::setDetailPage,
                     notesState = notesState,
+                    noteDraft = viewModel.noteDraft,
                     onSaveNote = viewModel::saveCurrentNote,
                     onDeleteNote = viewModel::deleteNote,
+                    onRealignNote = viewModel::realignNote,
                     devicesState = devicesState,
                     onRefreshDevices = viewModel::refreshDevices,
                     onSelectDevice = viewModel::selectDevice,
@@ -712,7 +724,7 @@ fun BoxScope.NowPlayingAccessories(
     LaunchedEffect(viewModel) {
         viewModel.lyricsTranslationSwitchOffers.collect { offer ->
             val result = snackbarHostState.showSnackbar(
-                message = "${offer.providerName} translation is available",
+                message = "${offer.providerName.toLyricsProviderLabel()} translation is available",
                 actionLabel = "Switch",
                 duration = SnackbarDuration.Long,
             )

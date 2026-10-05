@@ -40,6 +40,7 @@ import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.navigationBarsPadding
@@ -76,6 +77,7 @@ import androidx.compose.material3.ripple
 import androidx.compose.ui.semantics.Role
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.derivedStateOf
@@ -102,7 +104,6 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.layout
-import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.Canvas
 import androidx.compose.ui.graphics.Path
@@ -111,7 +112,6 @@ import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
-import android.os.SystemClock
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.text.AnnotatedString
@@ -133,11 +133,18 @@ import com.gpo.yoin.player.PlayMode
 import com.gpo.yoin.symbols.YoinSymbols
 import com.gpo.yoin.symbols.rememberFavoriteSymbolPainter
 import com.gpo.yoin.data.local.SongNote
+import com.gpo.yoin.ui.component.NoteDraftState
+import com.gpo.yoin.ui.component.NoteSaveRequest
 import com.gpo.yoin.ui.component.NoteSortMode
 import com.gpo.yoin.ui.component.CastButton
 import com.gpo.yoin.ui.component.DevicesSheet
-import com.gpo.yoin.ui.component.WriteNoteSheet
+import com.gpo.yoin.ui.component.NoteWriteBar
+import com.gpo.yoin.ui.component.NoteWriteBarDefaults
+import com.gpo.yoin.ui.component.rememberNoteWriteBarState
+import com.gpo.yoin.ui.component.imeAboveNavigationBarInsets
+import com.gpo.yoin.ui.component.rememberNoteDraftState
 import com.gpo.yoin.ui.component.edgeFade
+import com.gpo.yoin.ui.component.ignoreParentHorizontalPadding
 import com.gpo.yoin.ui.component.ExpressiveMediaArtwork
 import com.gpo.yoin.ui.component.horizontalFadeMask
 import com.gpo.yoin.ui.component.LyricsDisplay
@@ -210,6 +217,7 @@ fun NowPlayingScreen(
     onDismissLyricsSearch: () -> Unit = {},
     onTranslateLyrics: () -> Unit = {},
     onApplyLyrics: (String) -> Unit = {},
+    onLyricsMessage: (String) -> Unit = {},
     onRatingChange: (Float) -> Unit,
     onToggleFavorite: () -> Unit,
     onAddCurrentToLibrary: () -> Unit = {},
@@ -236,8 +244,16 @@ fun NowPlayingScreen(
     onStageBack: () -> Boolean = { false },
     onDetailPageChange: (NowPlayingDetailPage) -> Unit = {},
     notesState: List<SongNote> = emptyList(),
-    onSaveNote: (String, Long?) -> Unit = { _, _ -> },
+    onSaveNote: (NoteSaveRequest) -> Unit = {},
     onDeleteNote: (String) -> Unit = {},
+    // The Note page's "对齐到现在": re-anchor a note to a new song moment
+    // (NowPlayingViewModel.realignNote). Null leaves the menu with delete only.
+    onRealignNote: ((SongNote, Long) -> Unit)? = null,
+    // The one note draft. Held at this root by default (survives a recycled
+    // pager page, Expanded → Compact, a layout swap and a song change); a
+    // host that passes the view model's (NowPlayingViewModel.noteDraft) also
+    // keeps it across closing Now Playing.
+    noteDraft: NoteDraftState = rememberNoteDraftState(),
     devicesState: DevicesSheetState = DevicesSheetState(),
     onRefreshDevices: () -> Unit = {},
     onSelectDevice: (YoinDevice) -> Unit = {},
@@ -258,24 +274,63 @@ fun NowPlayingScreen(
     // so the compact pane, expanded pane, and every window layout share one
     // choice. Saveable so rotation keeps it.
     var noteSortMode by rememberSaveable { mutableStateOf(NoteSortMode.Timeline) }
+    // Delete with undo: a deleted note leaves every pane (and the seek-bar
+    // notches) at once, is offered back in its place on the Note page, and
+    // is deleted for real only when the undo window closes — or when Now
+    // Playing leaves the screen.
+    val noteDeletion = remember { NoteDeletionState() }
+    val latestDeleteNote by rememberUpdatedState(onDeleteNote)
+    val latestNotes by rememberUpdatedState(notesState)
+    LaunchedEffect(noteDeletion.pending) {
+        // The window closes NoteUndoWindowMs on — later if a finger is on the list.
+        noteDeletion.runUndoWindow { latestDeleteNote(it) }
+    }
+    DisposableEffect(noteDeletion) {
+        onDispose { noteDeletion.commit(latestDeleteNote) }
+    }
+    LaunchedEffect(notesState) { noteDeletion.prune(notesState) }
+    val visibleNotes = remember(notesState, noteDeletion.hiddenIds) { noteDeletion.visible(notesState) }
+    val requestNoteDelete: (String) -> Unit = remember(noteDeletion) {
+        { id -> latestNotes.firstOrNull { it.id == id }?.let { noteDeletion.delete(it, latestDeleteNote) } }
+    }
     val scheme = MaterialTheme.colorScheme
     val surfaceContainer = scheme.surfaceContainer
     val background = scheme.background
 
     // Reactions for the Now Playing background (see nowPlayingAuroraBackground):
     //  • Gemini thinking (long wait) → a slow aurora wash blooms while Loading.
-    //  • play/pause + skip → a brief one-shot bloom; the trigger reads only the
-    //    playing flag + song id so position ticks don't fire it. Skip also
-    //    crossfades the whole palette via the theme.
+    //  • play/pause + skip → a brief one-shot pulse; the trigger reads only the
+    //    playing flag, song id and queue position so position ticks don't fire
+    //    it. Which pulse (breath, ring, the light along the lyrics, or none) is
+    //    resolveTransportPulse's call. Skip also crossfades the whole palette
+    //    via the theme.
     val auroraActive = askState is AskBarState.Loading
     val playingState = uiState as? NowPlayingUiState.Playing
-    val pulseTrigger = playingState?.let { it.isPlaying to it.songId }
+    val pulseTrigger = playingState?.let { TransportPulseKey(it.songId, it.isPlaying, it.currentQueueIndex) }
     val isPlayingNow = playingState?.isPlaying == true
 
     // The transport button (PLAY/PAUSE, deep in the shared PlaybackControls)
-    // publishes its press state + centre here so the background can answer the
-    // finger: gather while held, ripple/sink from the button on commit.
+    // publishes its press state + stamped taps here so the background can answer
+    // the finger: gather while held, ripple/sink from the tapped button on
+    // commit. The lyrics column and the outro hand-over publish here too.
     val transportSignal = remember { NowPlayingTransportSignal() }
+    // Every user seek (lyric line, note row, wave bar) tells the background
+    // first: the player may buffer at the new spot, and that dip is the
+    // seek's, not a play/pause (NowPlayingTransportSignal.recordSeek).
+    val latestOnSeek by rememberUpdatedState(onSeek)
+    val latestOnSeekToMs by rememberUpdatedState(onSeekToMs)
+    val seekSettled: (Float) -> Unit = remember(transportSignal) {
+        { fraction ->
+            transportSignal.recordSeek()
+            latestOnSeek(fraction)
+        }
+    }
+    val seekToMsSettled: (Long) -> Unit = remember(transportSignal) {
+        { targetMs ->
+            transportSignal.recordSeek()
+            latestOnSeekToMs(targetMs)
+        }
+    }
 
     ReportMotionPressure(
         tag = "now-playing",
@@ -285,7 +340,11 @@ fun NowPlayingScreen(
     )
 
     ProvideYoinMotionRole(role = YoinMotionRole.Expressive) {
-      CompositionLocalProvider(LocalNowPlayingTransportSignal provides transportSignal) {
+      CompositionLocalProvider(
+        LocalNowPlayingTransportSignal provides transportSignal,
+        LocalNoteDeletion provides noteDeletion,
+        LocalNoteRealign provides onRealignNote,
+      ) {
         Box(
             modifier = modifier
                 .fillMaxSize()
@@ -305,7 +364,8 @@ fun NowPlayingScreen(
                     isPlaying = isPlayingNow,
                     pressActive = transportSignal.playHeld,
                     gatherFocalRoot = transportSignal.gatherAnchorRoot,
-                    burstFocalRoot = transportSignal.burstFocalRoot,
+                    burstFocalRoot = null,
+                    transportSignal = transportSignal,
                 ),
         ) {
             when (uiState) {
@@ -327,8 +387,8 @@ fun NowPlayingScreen(
                     onTogglePlayPause = onTogglePlayPause,
                     onSkipNext = onSkipNext,
                     onSkipPrevious = onSkipPrevious,
-                    onSeek = onSeek,
-                    onSeekToMs = onSeekToMs,
+                    onSeek = seekSettled,
+                    onSeekToMs = seekToMsSettled,
                     lyricsSearchState = lyricsSearchState,
                     onOpenLyricsSearch = onOpenLyricsSearch,
                     onLyricsSearchQueryChange = onLyricsSearchQueryChange,
@@ -337,6 +397,7 @@ fun NowPlayingScreen(
                     onDismissLyricsSearch = onDismissLyricsSearch,
                     onTranslateLyrics = onTranslateLyrics,
                     onApplyLyrics = onApplyLyrics,
+                    onLyricsMessage = onLyricsMessage,
                     onRatingChange = onRatingChange,
                     onToggleFavorite = onToggleFavorite,
                     onAddCurrentToLibrary = onAddCurrentToLibrary,
@@ -362,11 +423,12 @@ fun NowPlayingScreen(
                     onStageModeChange = onStageModeChange,
                     onStageBack = onStageBack,
                     onDetailPageChange = onDetailPageChange,
-                    notesState = notesState,
+                    notesState = visibleNotes,
                     onSaveNote = onSaveNote,
                     noteSortMode = noteSortMode,
                     onNoteSortModeChange = { noteSortMode = it },
-                    onDeleteNote = onDeleteNote,
+                    noteDraft = noteDraft,
+                    onDeleteNote = requestNoteDelete,
                     devicesState = devicesState,
                     onRefreshDevices = onRefreshDevices,
                     onSelectDevice = onSelectDevice,
@@ -605,6 +667,7 @@ private fun PlayingContent(
     onDismissLyricsSearch: () -> Unit = {},
     onTranslateLyrics: () -> Unit = {},
     onApplyLyrics: (String) -> Unit = {},
+    onLyricsMessage: (String) -> Unit = {},
     onRatingChange: (Float) -> Unit,
     onToggleFavorite: () -> Unit,
     onAddCurrentToLibrary: () -> Unit = {},
@@ -631,9 +694,10 @@ private fun PlayingContent(
     onStageBack: () -> Boolean = { false },
     onDetailPageChange: (NowPlayingDetailPage) -> Unit = {},
     notesState: List<SongNote> = emptyList(),
-    onSaveNote: (String, Long?) -> Unit = { _, _ -> },
+    onSaveNote: (NoteSaveRequest) -> Unit = {},
     noteSortMode: NoteSortMode = NoteSortMode.Timeline,
     onNoteSortModeChange: (NoteSortMode) -> Unit = {},
+    noteDraft: NoteDraftState,
     onDeleteNote: (String) -> Unit = {},
     devicesState: DevicesSheetState = DevicesSheetState(),
     onRefreshDevices: () -> Unit = {},
@@ -710,6 +774,7 @@ private fun PlayingContent(
             onDismissLyricsSearch = onDismissLyricsSearch,
             onTranslateLyrics = onTranslateLyrics,
             onApplyLyrics = onApplyLyrics,
+            onLyricsMessage = onLyricsMessage,
             onRatingChange = onRatingChange,
             onToggleFavorite = onToggleFavorite,
             onAddCurrentToLibrary = onAddCurrentToLibrary,
@@ -739,6 +804,7 @@ private fun PlayingContent(
             onSaveNote = onSaveNote,
             noteSortMode = noteSortMode,
             onNoteSortModeChange = onNoteSortModeChange,
+            noteDraft = noteDraft,
             onDeleteNote = onDeleteNote,
             devicesState = devicesState,
             onRefreshDevices = onRefreshDevices,
@@ -770,6 +836,7 @@ private fun PlayingContent(
             onDismissLyricsSearch = onDismissLyricsSearch,
             onTranslateLyrics = onTranslateLyrics,
             onApplyLyrics = onApplyLyrics,
+            onLyricsMessage = onLyricsMessage,
             onRatingChange = onRatingChange,
             onToggleFavorite = onToggleFavorite,
             onAddCurrentToLibrary = onAddCurrentToLibrary,
@@ -798,6 +865,7 @@ private fun PlayingContent(
             onSaveNote = onSaveNote,
             noteSortMode = noteSortMode,
             onNoteSortModeChange = onNoteSortModeChange,
+            noteDraft = noteDraft,
             onDeleteNote = onDeleteNote,
             devicesState = devicesState,
             onRefreshDevices = onRefreshDevices,
@@ -885,6 +953,7 @@ private fun PlayingContent(
             onDismissLyricsSearch = onDismissLyricsSearch,
             onTranslateLyrics = onTranslateLyrics,
             onApplyLyrics = onApplyLyrics,
+            onLyricsMessage = onLyricsMessage,
             onRatingChange = onRatingChange,
             onToggleFavorite = onToggleFavorite,
             onAddCurrentToLibrary = onAddCurrentToLibrary,
@@ -914,6 +983,7 @@ private fun PlayingContent(
             onSaveNote = onSaveNote,
             noteSortMode = noteSortMode,
             onNoteSortModeChange = onNoteSortModeChange,
+            noteDraft = noteDraft,
             onDeleteNote = onDeleteNote,
             devicesState = devicesState,
             onRefreshDevices = onRefreshDevices,
@@ -965,6 +1035,7 @@ private fun CompactPlayingContent(
     onDismissLyricsSearch: () -> Unit = {},
     onTranslateLyrics: () -> Unit = {},
     onApplyLyrics: (String) -> Unit = {},
+    onLyricsMessage: (String) -> Unit = {},
     onRatingChange: (Float) -> Unit,
     onToggleFavorite: () -> Unit,
     onAddCurrentToLibrary: () -> Unit = {},
@@ -991,9 +1062,10 @@ private fun CompactPlayingContent(
     onStageBack: () -> Boolean = { false },
     onDetailPageChange: (NowPlayingDetailPage) -> Unit = {},
     notesState: List<SongNote> = emptyList(),
-    onSaveNote: (String, Long?) -> Unit = { _, _ -> },
+    onSaveNote: (NoteSaveRequest) -> Unit = {},
     noteSortMode: NoteSortMode = NoteSortMode.Timeline,
     onNoteSortModeChange: (NoteSortMode) -> Unit = {},
+    noteDraft: NoteDraftState,
     onDeleteNote: (String) -> Unit = {},
     devicesState: DevicesSheetState = DevicesSheetState(),
     onRefreshDevices: () -> Unit = {},
@@ -1021,7 +1093,9 @@ private fun CompactPlayingContent(
 
     var showQueue by remember { mutableStateOf(false) }
     var showDevicesSheet by remember(state.songId) { mutableStateOf(false) }
-    var showWriteSheet by remember(state.songId) { mutableStateOf(false) }
+    // The Note page's write bar; the Write pill asks it for the keyboard.
+    val noteBar = rememberNoteWriteBarState(noteDraft)
+    ExpirePendingNoteWrite(noteBar)
     val playInteractionSource = rememberNowPlayingButtonGroupInteractionSource()
     val nextInteractionSource = rememberNowPlayingButtonGroupInteractionSource()
     val playPressed by playInteractionSource.collectIsPressedAsState()
@@ -1103,24 +1177,13 @@ private fun CompactPlayingContent(
         pageCount = { 3 },
     )
     val pagerScope = rememberCoroutineScope()
-    // ONE driver per direction, no write-back hijack: the old shape synced the
-    // VM off pagerState.currentPage, so a 2-page tab jump (Lyrics→Note) wrote
-    // About back to the VM as the pager swept across it, whose effect then
-    // re-targeted the animation mid-flight — the pager stopped on (or between)
-    // the wrong page. Clicks/external writes animate; the VM syncs only from
-    // SETTLED pages; settled writes re-enter as no-ops (target already met).
-    LaunchedEffect(detailPage) {
-        if (detailPage.ordinal != pagerState.targetPage) {
-            pagerState.settleToPage(detailPage.ordinal)
-        }
-    }
-    LaunchedEffect(pagerState) {
-        snapshotFlow { pagerState.settledPage }.collect { settled ->
-            val page = NowPlayingDetailPage.entries[settled]
-            if (page != detailPage) onDetailPageChange(page)
-            if (page == NowPlayingDetailPage.About) onAboutOpened()
-        }
-    }
+    // ONE driver per direction (see SyncDetailPageWithPager).
+    SyncDetailPageWithPager(
+        pagerState = pagerState,
+        detailPage = detailPage,
+        onDetailPageChange = onDetailPageChange,
+        onAboutOpened = onAboutOpened,
+    )
     // The bottom accessory strip mirrors the detail pager one-way. It must
     // NOT share pagerState: a PagerState supports a single attached pager,
     // and a second attachment steals the remeasurement slot, freezing the
@@ -1141,25 +1204,18 @@ private fun CompactPlayingContent(
             }
     }
 
-    // Auto-immersive (断点交接 §3.2): playing + Lyrics + synced lyrics + 5s
-    // without a touch → ONLY the four lyric tools step away. A touch, a manual
-    // lyrics scroll (recenter lit) or a pause brings them straight back.
-    val interactionClock = remember { longArrayOf(0L) }
-    var lyricToolsIdle by remember { mutableStateOf(false) }
+    // Auto-immersive (断点交接 §3.2): playing + Lyrics + synced lyrics +
+    // LyricToolsIdleMs without a touch → ONLY the four lyric tools step away.
+    // A touch, a manual lyrics scroll (recenter lit), a pause or select mode
+    // brings them straight back.
+    val lyricToolsIdle = rememberLyricToolsIdleState()
+    val lyricsSelection = rememberLyricsSelectionState(state.songId, state.lyrics)
 
     BoxWithConstraints(
         modifier = modifier
             .fillMaxSize()
             .voteHighFrameRate(stageMoving)
-            .pointerInput(Unit) {
-                awaitPointerEventScope {
-                    while (true) {
-                        awaitPointerEvent(PointerEventPass.Initial)
-                        interactionClock[0] = SystemClock.uptimeMillis()
-                        if (lyricToolsIdle) lyricToolsIdle = false
-                    }
-                }
-            }
+            .lyricToolsTouchTracker(lyricToolsIdle)
             .padding(WindowInsets.systemBars.asPaddingValues()),
     ) {
         val horizontalPadding = 24.dp
@@ -1222,36 +1278,51 @@ private fun CompactPlayingContent(
         val ratingGap = lerpDp(12.dp, 0.dp, ratingRetreatProgress)
         val ratingSlotWidth = lerpDp(ratingColumn, 0.dp, ratingRetreatProgress)
         val lyricsPageSelected = detailPage == NowPlayingDetailPage.Lyrics
-        val idleEligible = state.isPlaying && hasSyncedLyrics && lyricsAutoScroll && lyricsPageSelected &&
-            (stageMode == NowPlayingStageMode.Expanded || toolsInCompactTabs)
-        LaunchedEffect(idleEligible) {
-            lyricToolsIdle = false
-            if (!idleEligible) return@LaunchedEffect
-            interactionClock[0] = SystemClock.uptimeMillis()
-            while (true) {
-                val elapsed = SystemClock.uptimeMillis() - interactionClock[0]
-                if (elapsed >= LyricToolsIdleMs) {
-                    if (!lyricToolsIdle) lyricToolsIdle = true
-                    delay(LyricToolsIdlePollMs)
-                } else {
-                    delay(LyricToolsIdleMs - elapsed)
-                }
-            }
-        }
+        val idleEligible = lyricToolsIdleEligible(
+            isPlaying = state.isPlaying,
+            hasSyncedLyrics = hasSyncedLyrics,
+            autoScroll = lyricsAutoScroll,
+            lyricsPageSelected = lyricsPageSelected,
+            toolsOnScreen = stageMode == NowPlayingStageMode.Expanded || toolsInCompactTabs,
+            selectingLines = lyricsSelection.active,
+        )
+        LaunchedEffect(idleEligible) { lyricToolsIdle.track(idleEligible) }
+        // Select mode lives on the expanded Lyrics page; leaving it leaves the mode.
+        LyricsSelectionHost(
+            state = state,
+            selection = lyricsSelection,
+            lyricsPageOnScreen = stageMode == NowPlayingStageMode.Expanded &&
+                pagerState.targetPage == NowPlayingDetailPage.Lyrics.ordinal,
+            onMessage = onLyricsMessage,
+        )
         val lyricToolsAlpha by animateFloatAsState(
-            targetValue = if (lyricToolsIdle) 0f else 1f,
+            targetValue = if (lyricToolsIdle.idle) 0f else 1f,
             animationSpec = YoinMotion.defaultEffectsSpec(role = YoinMotionRole.Standard),
             label = "lyricToolsAlpha",
         )
         // Bottom tools collapse their slot when they move up (16:9) or step
         // away (idle): the title sinks to where the tools' bottom edge was and
         // the lyrics grow into the space.
+        val toolsSlotCollapsesWhenIdle = stageMode == NowPlayingStageMode.Expanded && lyricsPageSelected &&
+            !lyricOneLine
         val accessoryToolsCollapsed = stageMode == NowPlayingStageMode.Expanded && lyricsPageSelected &&
-            (lyricOneLine || lyricToolsIdle)
+            (lyricOneLine || lyricToolsIdle.idle)
         // The Expanded page's accessory (lyric tools / Ask / Note) animates
         // between its own heights; at rest the slot is the budget's pill slot.
+        // Keyboard up over the expanded Note page: the title steps aside (into
+        // the top bar), so the write bar sits right on the keyboard.
+        val noteOwnsBottom = noteComposerOwnsBottom(stageMode, detailPage, isImeUp())
+        val noteHeroYield by animateFloatAsState(
+            targetValue = if (noteOwnsBottom) 1f else 0f,
+            animationSpec = YoinMotion.defaultSpatialSpec(role = YoinMotionRole.Expressive),
+            label = "noteHeroYield",
+        )
         val expandedAccessoryTargetHeight = when {
             detailPage == NowPlayingDetailPage.About && askState is AskBarState.Focused -> 276.dp
+            // The write bar: its capsule at rest (= the slot), its card's own
+            // height while writing.
+            detailPage == NowPlayingDetailPage.Note ->
+                noteBar.height(LocalDensity.current) + NoteWriteBarDefaults.TopGap
             accessoryToolsCollapsed -> 0.dp
             else -> ExpandedAccessoryHeight
         }
@@ -1263,8 +1334,10 @@ private fun CompactPlayingContent(
         val bottomAccessoryHeight = stage(restPose.accessory, focusPose.accessory, expandedAccessoryHeight)
         val controlsHeight = stage(restPose.controls, focusPose.controls, 0.dp)
         val coverSpacerHeight = stage(restPose.coverGap, focusPose.coverGap, ExpandedCoverGap)
-        // The title keeps its resting slot in Expanded.
-        val heroHeight = stage(restPose.hero, focusPose.hero, restPose.hero)
+        // The title keeps its resting slot in Expanded — unless the Note
+        // composer owns the bottom edge (keyboard up).
+        val expandedHeroHeight = lerpDp(restPose.hero, 0.dp, noteHeroYield.coerceIn(0f, 1f))
+        val heroHeight = stage(restPose.hero, focusPose.hero, expandedHeroHeight)
         // Add back the space the surrounding slots will release at Expanded.
         // Round each slot separately, exactly as their layout modifiers do, so
         // the lazy list receives identical pixel constraints on every frame.
@@ -1274,25 +1347,33 @@ private fun CompactPlayingContent(
                 coverSpacerHeight.roundToPx() - ExpandedCoverGap.roundToPx() +
                 tabHeight.roundToPx() - ExpandedTabRowHeight.roundToPx() +
                 tabSpacerHeight.roundToPx() - ExpandedTabGap.roundToPx() +
-                heroHeight.roundToPx() - restPose.hero.roundToPx() +
+                heroHeight.roundToPx() - expandedHeroHeight.roundToPx() +
                 bottomAccessoryHeight.roundToPx() - expandedAccessoryHeight.roundToPx()
         }
         // The cover as drawn (the budget's row IS the cover square).
         val compactCoverSize = visibleCoverHeight
         val lyricTools: @Composable (iconSize: Dp) -> Unit = { iconSize ->
-            LyricsActionBar(
+            LyricsTools(
+                state = state,
+                selection = lyricsSelection,
                 searchModifier = Modifier.onGloballyPositioned {
                     lyricsSearchBarState.collapsedCoords = it
                 },
-                actionInFlight = state.lyricsActionInFlight,
-                canTranslate = state.lyrics.isNotEmpty(),
                 canRecenter = !lyricsAutoScroll && hasSyncedLyrics,
                 onSearchClick = lyricsActions.onOpenLyricsSearch,
                 onTranslateClick = lyricsActions.onTranslateLyrics,
-                onApplyClick = { showApplyDialog = true },
                 onRecenterClick = {
                     lyricsAutoScroll = true
                     lyricsRecenterTick += 1
+                },
+                onEditLyricsClick = { showApplyDialog = true },
+                onMessage = onLyricsMessage,
+                // Enlarged tablet at rest: the tools ride the tab row, but
+                // select mode lives on the expanded page.
+                onBeforeSelect = {
+                    if (stageMode != NowPlayingStageMode.Expanded) {
+                        onStageModeChange(NowPlayingStageMode.Expanded)
+                    }
                 },
                 iconSize = iconSize,
             )
@@ -1334,6 +1415,13 @@ private fun CompactPlayingContent(
                 onPlaylistClick = navigationActions.onPlaylistClick,
                 trailingAction = topBarAction,
                 height = topBarHeight,
+                // Writing with the keyboard up: the title that stepped aside
+                // reads here, beside the docked cover.
+                trackTitleFraction = if (noteOwnsBottom || noteHeroYield > 0f) {
+                    { noteHeroYield }
+                } else {
+                    null
+                },
                 modifier = Modifier.padding(horizontal = horizontalPadding),
             )
 
@@ -1349,7 +1437,16 @@ private fun CompactPlayingContent(
                     },
             ) {
                 Column(
-                    modifier = Modifier.fillMaxSize(),
+                    modifier = Modifier
+                        .fillMaxSize()
+                        // Idle tools collapse their slot and the title sinks onto
+                        // it: the first tap where title + tools stood only wakes
+                        // the tools (never the title's album route).
+                        .lyricToolsWakeGuard(
+                            state = lyricToolsIdle,
+                            enabled = toolsSlotCollapsesWhenIdle,
+                            band = restPose.hero + ExpandedAccessoryHeight,
+                        ),
                     horizontalAlignment = Alignment.Start,
                 ) {
                     StageHeightSlot(
@@ -1495,11 +1592,15 @@ private fun CompactPlayingContent(
                         ) {
                             {
                                 Box(
-                                    modifier = Modifier.graphicsLayer {
-                                        // Top tools fade IN PLACE when idle — nothing moves.
-                                        alpha = lyricToolsAlpha *
-                                            if (lyricOneLine) detailProgress else 1f
-                                    },
+                                    modifier = Modifier
+                                        .graphicsLayer {
+                                            // Top tools fade IN PLACE when idle — nothing moves.
+                                            alpha = lyricToolsAlpha *
+                                                if (lyricOneLine) detailProgress else 1f
+                                        }
+                                        // …but stay where a blind tap lands: while
+                                        // they are away it only wakes them.
+                                        .lyricToolsInPlaceWakeGuard(lyricToolsIdle),
                                 ) {
                                     lyricTools(if (lyricOneLine) ShortTabToolSize else EnlargedTabToolSize)
                                 }
@@ -1513,11 +1614,31 @@ private fun CompactPlayingContent(
                     Spacer(modifier = Modifier.height(tabSpacerHeight))
 
                     val pagerClickSource = remember { MutableInteractionSource() }
+                    // Select mode: picked lines' containers reach into the page
+                    // margin, so the swipe fade steps aside (and the swipe with it).
+                    val pagerEdgeFade = if (lyricsSelection.active) 0.dp else horizontalPadding
+                    // The lyrics lead when their page is current and visible:
+                    // the expanded page, or the small window at rest (not the
+                    // one-line row, not a focus that hides the list).
+                    val lyricsLead = detailPage == NowPlayingDetailPage.Lyrics &&
+                        (
+                            stageMode == NowPlayingStageMode.Expanded ||
+                                !lyricOneLine && (stageMode != NowPlayingStageMode.Immersive || focusKeepsList)
+                            )
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
                             .weight(1f)
-                            .edgeFade(start = horizontalPadding, end = horizontalPadding),
+                            .reportLyricsSurface(
+                                primary = lyricsLead,
+                                landingFromTop = if (stageMode == NowPlayingStageMode.Expanded) {
+                                    LyricsPageLandingFromTop
+                                } else {
+                                    LyricsWindowLandingFromTop
+                                },
+                                clipLight = false,
+                            )
+                            .edgeFade(start = pagerEdgeFade, end = pagerEdgeFade),
                     ) {
                         HorizontalPager(
                             state = pagerState,
@@ -1525,7 +1646,8 @@ private fun CompactPlayingContent(
                             // The one-line row is not a pager page: swipe only
                             // once the lyric page has expanded.
                             userScrollEnabled = stageMode != NowPlayingStageMode.Immersive &&
-                                !(lyricOneLine && stageMode == NowPlayingStageMode.Compact),
+                                !(lyricOneLine && stageMode == NowPlayingStageMode.Compact) &&
+                                !lyricsSelection.active,
                             modifier = Modifier.fillMaxSize(),
                         ) { page ->
                             val pageModifier = Modifier
@@ -1568,6 +1690,7 @@ private fun CompactPlayingContent(
                                         lyricsViewportGrowthPx = lyricsViewportGrowthPx,
                                         lyricsAutoScroll = lyricsAutoScroll,
                                         lyricsRecenterTick = lyricsRecenterTick,
+                                        lyricsSelection = lyricsSelection,
                                         onLyricsUserScroll = { lyricsAutoScroll = false },
                                         onSeekToMs = { targetMs ->
                                             lyricsAutoScroll = true
@@ -1575,8 +1698,9 @@ private fun CompactPlayingContent(
                                             lyricsActions.onSeekToMs(targetMs)
                                         },
                                         onRetryCanonical = onRetryFetchSongInfo,
-                                        onSaveNote = onSaveNote,
                                         onDeleteNote = onDeleteNote,
+                                        noteDraft = noteDraft,
+                                        noteWriting = noteBar.open,
                                         modifier = pageModifier.graphicsLayer {
                                             // Fade + grow the lyrics IN WITH the
                                             // reshape (fully visible by ~70%),
@@ -1673,7 +1797,7 @@ private fun CompactPlayingContent(
                         titleRouteInteraction = titleRouteInteraction,
                         artistRouteInteraction = artistRouteInteraction,
                         height = heroHeight,
-                        alpha = 1f,
+                        alpha = 1f - noteHeroYield.coerceIn(0f, 1f),
                         oneLine = budget.heroOneLine,
                         modifier = Modifier.padding(horizontal = horizontalPadding),
                     )
@@ -1685,7 +1809,12 @@ private fun CompactPlayingContent(
                         // inset ourselves, or the keyboard covers the Ask Gemini bar.
                         // Applied here (outside the slot's fixed height) so the whole
                         // accessory lifts above the keyboard; 0 when the IME is hidden.
-                        modifier = Modifier.imePadding(),
+                        // The column already cleared the nav bar (padding, not
+                        // consumed), and the IME inset spans it: lift by the
+                        // keyboard minus the bar, or the bar counts twice.
+                        modifier = Modifier.windowInsetsPadding(
+                            imeAboveNavigationBarInsets(WindowInsets.ime, WindowInsets.navigationBars),
+                        ),
                     ) {
                         Box(
                             // Edge-to-edge like the lyrics pager: the accessory
@@ -1701,7 +1830,11 @@ private fun CompactPlayingContent(
                                 supportsYoinCast = state.serviceFeatures.supportsYoinCast,
                                 onQueueClick = { showQueue = true },
                                 onDevicesClick = { showDevicesSheet = true },
-                                onWriteClick = { showWriteSheet = true },
+                                onWriteClick = {
+                                    noteBar.requestWriting()
+                                    onDetailPageChange(NowPlayingDetailPage.Note)
+                                    onStageModeChange(NowPlayingStageMode.Expanded)
+                                },
                                 castState = castState,
                                 onCastClick = onCastClick,
                                 // Pure crossfade with the accessory pager — no
@@ -1760,7 +1893,20 @@ private fun CompactPlayingContent(
                                                 onCollapseRequest = onAskBarCollapseRequested,
                                                 onDismissError = onDismissAskError,
                                             )
-                                            NowPlayingDetailPage.Note -> Spacer(modifier = Modifier.height(56.dp))
+                                            NowPlayingDetailPage.Note -> NoteWriteBar(
+                                                state = noteBar,
+                                                current = state.noteTarget(),
+                                                positionMs = positionMs,
+                                                onSave = onSaveNote,
+                                                // The keyboard comes once the page
+                                                // has landed, not mid-reshape.
+                                                focusGate = stageMode == NowPlayingStageMode.Expanded &&
+                                                    pagerState.settledPage == NowPlayingDetailPage.Note.ordinal &&
+                                                    detailProgress >= NoteWriteFocusStageProgress,
+                                                modifier = Modifier
+                                                    .fillMaxSize()
+                                                    .padding(top = NoteWriteBarDefaults.TopGap),
+                                            )
                                         }
                                     }
                                 }
@@ -1838,17 +1984,6 @@ private fun CompactPlayingContent(
             )
         }
     }
-
-    if (showWriteSheet) {
-        ProvideYoinMotionRole(role = YoinMotionRole.Standard) {
-            WriteNoteSheet(
-                onSave = onSaveNote,
-                positionMs = positionMs,
-                trackTitle = state.songTitle,
-                onDismiss = { showWriteSheet = false },
-            )
-        }
-    }
 }
 
 /**
@@ -1890,6 +2025,7 @@ private fun WidePlayingContent(
     onDismissLyricsSearch: () -> Unit = {},
     onTranslateLyrics: () -> Unit = {},
     onApplyLyrics: (String) -> Unit = {},
+    onLyricsMessage: (String) -> Unit = {},
     onRatingChange: (Float) -> Unit,
     onToggleFavorite: () -> Unit,
     onAddCurrentToLibrary: () -> Unit = {},
@@ -1916,9 +2052,10 @@ private fun WidePlayingContent(
     onStageBack: () -> Boolean = { false },
     onDetailPageChange: (NowPlayingDetailPage) -> Unit = {},
     notesState: List<SongNote> = emptyList(),
-    onSaveNote: (String, Long?) -> Unit = { _, _ -> },
+    onSaveNote: (NoteSaveRequest) -> Unit = {},
     noteSortMode: NoteSortMode = NoteSortMode.Timeline,
     onNoteSortModeChange: (NoteSortMode) -> Unit = {},
+    noteDraft: NoteDraftState,
     onDeleteNote: (String) -> Unit = {},
     devicesState: DevicesSheetState = DevicesSheetState(),
     onRefreshDevices: () -> Unit = {},
@@ -1938,7 +2075,9 @@ private fun WidePlayingContent(
 
     var showQueue by remember { mutableStateOf(false) }
     var showDevicesSheet by remember(state.songId) { mutableStateOf(false) }
-    var showWriteSheet by remember(state.songId) { mutableStateOf(false) }
+    // The Note page's write bar; the Write pill asks it for the keyboard.
+    val noteBar = rememberNoteWriteBarState(noteDraft)
+    ExpirePendingNoteWrite(noteBar)
     var lyricsAutoScroll by remember(state.songId) { mutableStateOf(true) }
     var lyricsRecenterTick by remember(state.songId) { mutableIntStateOf(0) }
 
@@ -1952,24 +2091,13 @@ private fun WidePlayingContent(
         pageCount = { 3 },
     )
     val pagerScope = rememberCoroutineScope()
-    // ONE driver per direction, no write-back hijack: the old shape synced the
-    // VM off pagerState.currentPage, so a 2-page tab jump (Lyrics→Note) wrote
-    // About back to the VM as the pager swept across it, whose effect then
-    // re-targeted the animation mid-flight — the pager stopped on (or between)
-    // the wrong page. Clicks/external writes animate; the VM syncs only from
-    // SETTLED pages; settled writes re-enter as no-ops (target already met).
-    LaunchedEffect(detailPage) {
-        if (detailPage.ordinal != pagerState.targetPage) {
-            pagerState.settleToPage(detailPage.ordinal)
-        }
-    }
-    LaunchedEffect(pagerState) {
-        snapshotFlow { pagerState.settledPage }.collect { settled ->
-            val page = NowPlayingDetailPage.entries[settled]
-            if (page != detailPage) onDetailPageChange(page)
-            if (page == NowPlayingDetailPage.About) onAboutOpened()
-        }
-    }
+    // ONE driver per direction (see SyncDetailPageWithPager).
+    SyncDetailPageWithPager(
+        pagerState = pagerState,
+        detailPage = detailPage,
+        onDetailPageChange = onDetailPageChange,
+        onAboutOpened = onAboutOpened,
+    )
 
     // Contextual action bar at the right-column bottom (search/translate/recenter
     // for Lyrics, Ask Gemini for About). It mirrors the detail pager one-way via a
@@ -1993,35 +2121,37 @@ private fun WidePlayingContent(
             }
     }
     // Auto-immersive (断点交接 §3.2), same rule as the single column: the
-    // lyric tools step away after 5s without a touch while synced lyrics play.
-    val interactionClock = remember { longArrayOf(0L) }
-    var lyricToolsIdle by remember { mutableStateOf(false) }
-    val idleEligible = state.isPlaying && hasSyncedLyrics && lyricsAutoScroll &&
-        detailPage == NowPlayingDetailPage.Lyrics
-    LaunchedEffect(idleEligible) {
-        lyricToolsIdle = false
-        if (!idleEligible) return@LaunchedEffect
-        interactionClock[0] = SystemClock.uptimeMillis()
-        while (true) {
-            val elapsed = SystemClock.uptimeMillis() - interactionClock[0]
-            if (elapsed >= LyricToolsIdleMs) {
-                if (!lyricToolsIdle) lyricToolsIdle = true
-                delay(LyricToolsIdlePollMs)
-            } else {
-                delay(LyricToolsIdleMs - elapsed)
-            }
-        }
-    }
+    // lyric tools step away after LyricToolsIdleMs without a touch while
+    // synced lyrics play.
+    val lyricToolsIdle = rememberLyricToolsIdleState()
+    val lyricsSelection = rememberLyricsSelectionState(state.songId, state.lyrics)
+    val idleEligible = lyricToolsIdleEligible(
+        isPlaying = state.isPlaying,
+        hasSyncedLyrics = hasSyncedLyrics,
+        autoScroll = lyricsAutoScroll,
+        lyricsPageSelected = detailPage == NowPlayingDetailPage.Lyrics,
+        toolsOnScreen = true,
+        selectingLines = lyricsSelection.active,
+    )
+    LaunchedEffect(idleEligible) { lyricToolsIdle.track(idleEligible) }
+    LyricsSelectionHost(
+        state = state,
+        selection = lyricsSelection,
+        lyricsPageOnScreen = pagerState.targetPage == NowPlayingDetailPage.Lyrics.ordinal,
+        onMessage = onLyricsMessage,
+    )
     val lyricToolsAlpha by animateFloatAsState(
-        targetValue = if (lyricToolsIdle) 0f else 1f,
+        targetValue = if (lyricToolsIdle.idle) 0f else 1f,
         animationSpec = YoinMotion.defaultEffectsSpec(role = YoinMotionRole.Standard),
         label = "wideLyricToolsAlpha",
     )
     // Small by default; the Ask Gemini bar grows when focused (matches Compact).
     val bottomAccessoryTargetHeight = when {
         detailPage == NowPlayingDetailPage.About && askState is AskBarState.Focused -> 276.dp
-        detailPage == NowPlayingDetailPage.Lyrics && lyricToolsIdle -> 0.dp
-        else -> 68.dp
+        detailPage == NowPlayingDetailPage.Lyrics && lyricToolsIdle.idle -> 0.dp
+        detailPage == NowPlayingDetailPage.Note ->
+            noteBar.height(LocalDensity.current) + NoteWriteBarDefaults.TopGap
+        else -> WideAccessoryHeight
     }
     val bottomAccessoryHeight by animateDpAsState(
         targetValue = bottomAccessoryTargetHeight,
@@ -2048,15 +2178,7 @@ private fun WidePlayingContent(
         // gets its own navigationBarsPadding to stay tappable).
         modifier = modifier
             .fillMaxSize()
-            .pointerInput(Unit) {
-                awaitPointerEventScope {
-                    while (true) {
-                        awaitPointerEvent(PointerEventPass.Initial)
-                        interactionClock[0] = SystemClock.uptimeMillis()
-                        if (lyricToolsIdle) lyricToolsIdle = false
-                    }
-                }
-            },
+            .lyricToolsTouchTracker(lyricToolsIdle),
     ) {
         val layoutDirection = LocalLayoutDirection.current
         val frameInsets = WindowInsets.systemBars.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal)
@@ -2339,7 +2461,10 @@ private fun WidePlayingContent(
                         supportsYoinCast = state.serviceFeatures.supportsYoinCast,
                         onQueueClick = { showQueue = true },
                         onDevicesClick = { showDevicesSheet = true },
-                        onWriteClick = { showWriteSheet = true },
+                        onWriteClick = {
+                            noteBar.requestWriting()
+                            onDetailPageChange(NowPlayingDetailPage.Note)
+                        },
                         castState = castState,
                         onCastClick = onCastClick,
                         // Pinned at the bottom of the left column; clears the nav bar
@@ -2355,7 +2480,14 @@ private fun WidePlayingContent(
                     modifier = Modifier
                         // Lyrics take whatever the controls-sized left column leaves.
                         .weight(1f)
-                        .fillMaxHeight(),
+                        .fillMaxHeight()
+                        // Idle tools collapse their slot and the lyrics grow into
+                        // it: the first tap there only wakes the tools.
+                        .lyricToolsWakeGuard(
+                            state = lyricToolsIdle,
+                            enabled = detailPage == NowPlayingDetailPage.Lyrics,
+                            band = WideAccessoryHeight + navBottom,
+                        ),
                 ) {
                     // Small text indicator (collapsed-card feel), not the big button
                     // group. Inset to align with the lyric text below.
@@ -2371,14 +2503,25 @@ private fun WidePlayingContent(
                         modifier = Modifier
                             .weight(1f)
                             .fillMaxWidth()
+                            .reportLyricsSurface(
+                                primary = detailPage == NowPlayingDetailPage.Lyrics,
+                                landingFromTop = LyricsPageLandingFromTop,
+                                clipLight = true,
+                            )
                             // Soft-mask the leading/trailing edges so a page fades
                             // instead of hard-cutting during the horizontal swipe
                             // (matches the Compact lyrics pager).
-                            .edgeFade(start = 24.dp, end = 24.dp),
+                            // Select mode: picked lines reach into the margin,
+                            // so the swipe fade (and the swipe) step aside.
+                            .edgeFade(
+                                start = if (lyricsSelection.active) 0.dp else 24.dp,
+                                end = if (lyricsSelection.active) 0.dp else 24.dp,
+                            ),
                     ) {
                         HorizontalPager(
                             state = pagerState,
                             beyondViewportPageCount = 1,
+                            userScrollEnabled = !lyricsSelection.active,
                             modifier = Modifier.fillMaxSize(),
                         ) { page ->
                         ExpandedDetailPage(
@@ -2391,6 +2534,7 @@ private fun WidePlayingContent(
                             onNoteSortModeChange = onNoteSortModeChange,
                             lyricsAutoScroll = lyricsAutoScroll,
                             lyricsRecenterTick = lyricsRecenterTick,
+                            lyricsSelection = lyricsSelection,
                             onLyricsUserScroll = { lyricsAutoScroll = false },
                             onSeekToMs = { targetMs ->
                                 lyricsAutoScroll = true
@@ -2398,8 +2542,9 @@ private fun WidePlayingContent(
                                 onSeekToMs(targetMs)
                             },
                             onRetryCanonical = onRetryFetchSongInfo,
-                            onSaveNote = onSaveNote,
                             onDeleteNote = onDeleteNote,
+                            noteDraft = noteDraft,
+                            noteWriting = noteBar.open,
                             // Inset the content by the same amount the edgeFade masks,
                             // so the fade lands in the gap — never on the lyric text
                             // (matches the Compact pager's pageModifier).
@@ -2440,21 +2585,22 @@ private fun WidePlayingContent(
                                     contentAlignment = Alignment.BottomStart,
                                 ) {
                                     when (NowPlayingDetailPage.entries[page]) {
-                                        NowPlayingDetailPage.Lyrics -> LyricsActionBar(
+                                        NowPlayingDetailPage.Lyrics -> LyricsTools(
+                                            state = state,
+                                            selection = lyricsSelection,
                                             modifier = Modifier.graphicsLayer { alpha = lyricToolsAlpha },
                                             searchModifier = Modifier.onGloballyPositioned {
                                                 lyricsSearchBarState.collapsedCoords = it
                                             },
-                                            actionInFlight = state.lyricsActionInFlight,
-                                            canTranslate = state.lyrics.isNotEmpty(),
                                             canRecenter = !lyricsAutoScroll && hasSyncedLyrics,
                                             onSearchClick = onOpenLyricsSearch,
                                             onTranslateClick = onTranslateLyrics,
-                                            onApplyClick = { showApplyDialog = true },
                                             onRecenterClick = {
                                                 lyricsAutoScroll = true
                                                 lyricsRecenterTick += 1
                                             },
+                                            onEditLyricsClick = { showApplyDialog = true },
+                                            onMessage = onLyricsMessage,
                                         )
                                         NowPlayingDetailPage.About -> AskGeminiBar(
                                             askState = askState,
@@ -2463,8 +2609,16 @@ private fun WidePlayingContent(
                                             onCollapseRequest = onAskBarCollapseRequested,
                                             onDismissError = onDismissAskError,
                                         )
-                                        NowPlayingDetailPage.Note ->
-                                            Spacer(modifier = Modifier.height(56.dp))
+                                        NowPlayingDetailPage.Note -> NoteWriteBar(
+                                            state = noteBar,
+                                            current = state.noteTarget(),
+                                            positionMs = positionMs,
+                                            onSave = onSaveNote,
+                                            focusGate = pagerState.settledPage == NowPlayingDetailPage.Note.ordinal,
+                                            modifier = Modifier
+                                                .fillMaxSize()
+                                                .padding(top = NoteWriteBarDefaults.TopGap),
+                                        )
                                     }
                                 }
                             }
@@ -2525,17 +2679,6 @@ private fun WidePlayingContent(
             )
         }
     }
-
-    if (showWriteSheet) {
-        ProvideYoinMotionRole(role = YoinMotionRole.Standard) {
-            WriteNoteSheet(
-                onSave = onSaveNote,
-                positionMs = positionMs,
-                trackTitle = state.songTitle,
-                onDismiss = { showWriteSheet = false },
-            )
-        }
-    }
 }
 
 /**
@@ -2568,6 +2711,7 @@ private fun LandscapePlayingContent(
     onDismissLyricsSearch: () -> Unit,
     onTranslateLyrics: () -> Unit,
     onApplyLyrics: (String) -> Unit,
+    onLyricsMessage: (String) -> Unit = {},
     onRatingChange: (Float) -> Unit,
     onToggleFavorite: () -> Unit,
     onAddCurrentToLibrary: () -> Unit = {},
@@ -2593,9 +2737,10 @@ private fun LandscapePlayingContent(
     onStageModeChange: (NowPlayingStageMode) -> Unit,
     onDetailPageChange: (NowPlayingDetailPage) -> Unit,
     notesState: List<SongNote>,
-    onSaveNote: (String, Long?) -> Unit,
+    onSaveNote: (NoteSaveRequest) -> Unit,
     noteSortMode: NoteSortMode,
     onNoteSortModeChange: (NoteSortMode) -> Unit,
+    noteDraft: NoteDraftState,
     onDeleteNote: (String) -> Unit,
     devicesState: DevicesSheetState,
     onRefreshDevices: () -> Unit,
@@ -2610,11 +2755,14 @@ private fun LandscapePlayingContent(
     val lyricsSearchBarState = rememberSearchBarState()
     var showQueue by remember { mutableStateOf(false) }
     var showDevicesSheet by remember(state.songId) { mutableStateOf(false) }
-    var showWriteSheet by remember(state.songId) { mutableStateOf(false) }
+    // The Note page's write bar; the Write pill asks it for the keyboard.
+    val noteBar = rememberNoteWriteBarState(noteDraft)
+    ExpirePendingNoteWrite(noteBar)
     var showApplyDialog by remember(state.songId) { mutableStateOf(false) }
     var lyricsAutoScroll by remember(state.songId) { mutableStateOf(true) }
     var lyricsRecenterTick by remember(state.songId) { mutableIntStateOf(0) }
     val hasSyncedLyrics = remember(state.lyrics) { state.lyrics.any { it.startMs != null } }
+    val lyricsSelection = rememberLyricsSelectionState(state.songId, state.lyrics)
     val playInteractionSource = rememberNowPlayingButtonGroupInteractionSource()
     val nextInteractionSource = rememberNowPlayingButtonGroupInteractionSource()
     val playPressed by playInteractionSource.collectIsPressedAsState()
@@ -2625,18 +2773,13 @@ private fun LandscapePlayingContent(
 
     val pagerState = rememberPagerState(initialPage = detailPage.ordinal, pageCount = { 3 })
     val pagerScope = rememberCoroutineScope()
-    LaunchedEffect(detailPage) {
-        if (detailPage.ordinal != pagerState.targetPage) {
-            pagerState.settleToPage(detailPage.ordinal)
-        }
-    }
-    LaunchedEffect(pagerState) {
-        snapshotFlow { pagerState.settledPage }.collect { settled ->
-            val page = NowPlayingDetailPage.entries[settled]
-            if (page != detailPage) onDetailPageChange(page)
-            if (page == NowPlayingDetailPage.About) onAboutOpened()
-        }
-    }
+    // ONE driver per direction (see SyncDetailPageWithPager).
+    SyncDetailPageWithPager(
+        pagerState = pagerState,
+        detailPage = detailPage,
+        onDetailPageChange = onDetailPageChange,
+        onAboutOpened = onAboutOpened,
+    )
 
     BoxWithConstraints(
         modifier = modifier
@@ -2798,12 +2941,21 @@ private fun LandscapePlayingContent(
                         modifier = Modifier.weight(1f),
                     )
                 }
+                // Writing on the Note page with the keyboard up: a landscape
+                // keyboard leaves little height, so the tabs and the title row
+                // step aside and the write bar keeps its lines.
+                val noteTitleYield by animateFloatAsState(
+                    targetValue = if (noteComposerOwnsBottom(stageMode, detailPage, isImeUp())) 1f else 0f,
+                    animationSpec = YoinMotion.defaultSpatialSpec(role = YoinMotionRole.Expressive),
+                    label = "landscapeNoteTitleYield",
+                )
                 // Text tabs + lyric tools exist only on the expanded page: at
                 // rest the column shows ONE tappable lyric line (the 16:9 rule).
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(lerpDp(0.dp, LandscapeExpandedTabRow, detailProgress))
+                        .yieldHeight { noteTitleYield }
                         .clipToBounds()
                         .graphicsLayer { alpha = detailProgress },
                     verticalAlignment = Alignment.CenterVertically,
@@ -2818,35 +2970,56 @@ private fun LandscapePlayingContent(
                     if (expanded &&
                         NowPlayingDetailPage.entries[pagerState.targetPage] == NowPlayingDetailPage.Lyrics
                     ) {
-                        LyricsActionBar(
+                        LyricsTools(
+                            state = state,
+                            selection = lyricsSelection,
                             searchModifier = Modifier.onGloballyPositioned {
                                 lyricsSearchBarState.collapsedCoords = it
                             },
-                            actionInFlight = state.lyricsActionInFlight,
-                            canTranslate = state.lyrics.isNotEmpty(),
                             canRecenter = !lyricsAutoScroll && hasSyncedLyrics,
                             onSearchClick = onOpenLyricsSearch,
                             onTranslateClick = onTranslateLyrics,
-                            onApplyClick = { showApplyDialog = true },
                             onRecenterClick = {
                                 lyricsAutoScroll = true
                                 lyricsRecenterTick += 1
                             },
+                            onEditLyricsClick = { showApplyDialog = true },
+                            onMessage = onLyricsMessage,
                             iconSize = ShortTabToolSize,
                             modifier = Modifier.graphicsLayer { alpha = detailProgress },
                         )
                     }
                 }
+                LyricsSelectionHost(
+                    state = state,
+                    selection = lyricsSelection,
+                    lyricsPageOnScreen = expanded &&
+                        pagerState.targetPage == NowPlayingDetailPage.Lyrics.ordinal,
+                    onMessage = onLyricsMessage,
+                )
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
                         .weight(1f)
-                        .edgeFade(start = 0.dp, end = 12.dp),
+                        .reportLyricsSurface(
+                            primary = expanded && detailPage == NowPlayingDetailPage.Lyrics,
+                            landingFromTop = LyricsPageLandingFromTop,
+                            clipLight = true,
+                        )
+                        // Room past the column edges for a selected lyric
+                        // line's container (the pager clips at its bounds);
+                        // every page pads it back, so content stays put and
+                        // the fades keep their old ramps over the overhang.
+                        .ignoreParentHorizontalPadding(LyricsRowInset)
+                        .edgeFade(
+                            start = if (lyricsSelection.active) 0.dp else LyricsRowInset,
+                            end = if (lyricsSelection.active) 0.dp else 12.dp + LyricsRowInset,
+                        ),
                 ) {
                     HorizontalPager(
                         state = pagerState,
                         beyondViewportPageCount = 1,
-                        userScrollEnabled = expanded,
+                        userScrollEnabled = expanded && !lyricsSelection.active,
                         modifier = Modifier.fillMaxSize(),
                     ) { page ->
                         val detailPageEntry = NowPlayingDetailPage.entries[page]
@@ -2861,6 +3034,7 @@ private fun LandscapePlayingContent(
                                 onNoteSortModeChange = onNoteSortModeChange,
                                 lyricsAutoScroll = lyricsAutoScroll,
                                 lyricsRecenterTick = lyricsRecenterTick,
+                                lyricsSelection = lyricsSelection,
                                 onLyricsUserScroll = { lyricsAutoScroll = false },
                                 onSeekToMs = { targetMs ->
                                     lyricsAutoScroll = true
@@ -2868,10 +3042,12 @@ private fun LandscapePlayingContent(
                                     onSeekToMs(targetMs)
                                 },
                                 onRetryCanonical = onRetryFetchSongInfo,
-                                onSaveNote = onSaveNote,
                                 onDeleteNote = onDeleteNote,
+                                noteDraft = noteDraft,
+                                noteWriting = noteBar.open,
                                 modifier = Modifier
                                     .fillMaxSize()
+                                    .padding(horizontal = LyricsRowInset)
                                     .graphicsLayer { alpha = detailProgress },
                             )
                         }
@@ -2891,6 +3067,8 @@ private fun LandscapePlayingContent(
                                 .align(Alignment.CenterStart)
                                 .fillMaxWidth()
                                 .heightIn(max = OneLineLyricRowHeight)
+                                // Back inside the pager Box's overhang.
+                                .padding(horizontal = LyricsRowInset)
                                 .graphicsLayer { alpha = 1f - detailProgress },
                         )
                     }
@@ -2932,9 +3110,11 @@ private fun LandscapePlayingContent(
                     )
                 }
                 // Title and artist share one row (vertical space is the
-                // scarce axis here).
+                // scarce axis here). It steps aside while writing (above).
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .yieldHeight { noteTitleYield },
                     horizontalArrangement = Arrangement.spacedBy(HeroOneLineGap),
                 ) {
                     NowPlayingMarqueeTitle(
@@ -2957,9 +3137,15 @@ private fun LandscapePlayingContent(
                             .alignByBaseline(),
                     )
                 }
+                val landscapeNoteSlot by animateDpAsState(
+                    targetValue = noteBar.height(LocalDensity.current) + NoteWriteBarDefaults.TopGap,
+                    animationSpec = YoinMotion.defaultSpatialSpec(role = YoinMotionRole.Expressive),
+                    label = "landscapeNoteSlot",
+                )
                 StageHeightSlot(
                     height = when {
                         expanded && detailPage == NowPlayingDetailPage.About -> 68.dp
+                        expanded && detailPage == NowPlayingDetailPage.Note -> landscapeNoteSlot
                         else -> lerpDp(LandscapePillsHeight, 0.dp, detailProgress)
                     },
                     alpha = 1f,
@@ -2973,12 +3159,31 @@ private fun LandscapePlayingContent(
                             onCollapseRequest = onAskBarCollapseRequested,
                             onDismissError = onDismissAskError,
                         )
+                    } else if (expanded && detailPage == NowPlayingDetailPage.Note) {
+                        // One line with 记下 at its end: the keyboard takes
+                        // most of a landscape phone's height.
+                        NoteWriteBar(
+                            state = noteBar,
+                            current = state.noteTarget(),
+                            positionMs = positionMs,
+                            onSave = onSaveNote,
+                            inline = true,
+                            focusGate = pagerState.settledPage == NowPlayingDetailPage.Note.ordinal &&
+                                detailProgress >= NoteWriteFocusStageProgress,
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(top = NoteWriteBarDefaults.TopGap),
+                        )
                     } else {
                         BottomPills(
                             supportsYoinCast = state.serviceFeatures.supportsYoinCast,
                             onQueueClick = { showQueue = true },
                             onDevicesClick = { showDevicesSheet = true },
-                            onWriteClick = { showWriteSheet = true },
+                            onWriteClick = {
+                                noteBar.requestWriting()
+                                onDetailPageChange(NowPlayingDetailPage.Note)
+                                onStageModeChange(NowPlayingStageMode.Expanded)
+                            },
                             castState = castState,
                             onCastClick = onCastClick,
                             pillHeight = 40.dp,
@@ -3036,18 +3241,7 @@ private fun LandscapePlayingContent(
                 onDismiss = { showDevicesSheet = false },
             )
         }
-    }
-    if (showWriteSheet) {
-        ProvideYoinMotionRole(role = YoinMotionRole.Standard) {
-            WriteNoteSheet(
-                onSave = onSaveNote,
-                positionMs = positionMs,
-                trackTitle = state.songTitle,
-                onDismiss = { showWriteSheet = false },
-            )
-        }
-    }
-}
+    }}
 
 private val LandscapeRatingRowHeight = 48.dp
 private val LandscapeRatingGap = 12.dp
@@ -3113,7 +3307,7 @@ private fun TabletopPlayingContent(
     onStageBack: () -> Boolean = { false },
     onDetailPageChange: (NowPlayingDetailPage) -> Unit = {},
     notesState: List<SongNote> = emptyList(),
-    onSaveNote: (String, Long?) -> Unit = { _, _ -> },
+    onSaveNote: (NoteSaveRequest) -> Unit = {},
     onDeleteNote: (String) -> Unit = {},
     devicesState: DevicesSheetState = DevicesSheetState(),
     onRefreshDevices: () -> Unit = {},
@@ -3513,6 +3707,10 @@ private fun StageTopBar(
     trailingAction: (@Composable () -> Unit)? = null,
     // The height budget may tighten the bar to its 48dp touch target.
     height: Dp = ExpandedTopBarHeight,
+    // Writing a note with the keyboard up: the song's title and artist take
+    // the "playing from" slot beside the docked cover (0 → 1, read at draw
+    // time). Null = never.
+    trackTitleFraction: (() -> Float)? = null,
 ) {
     val dockProgress = detailProgress
     val dockCoverAlpha = if (dockProgress >= 1f - HiddenLayerVisibilityThreshold) 1f else 0f
@@ -3564,18 +3762,51 @@ private fun StageTopBar(
                     ),
             )
         }
-        PlayingFromLabel(
-            activityContext = state.activityContext,
-            fallbackAlbumName = state.albumName,
-            onAlbumClick = onAlbumClick,
-            onArtistClick = onArtistClick,
-            onPlaylistClick = onPlaylistClick,
+        Box(
             modifier = Modifier
                 .weight(1f)
                 .graphicsLayer {
                     translationX = 10.dp.toPx() * dockProgress
                 },
-        )
+            contentAlignment = Alignment.CenterStart,
+        ) {
+            PlayingFromLabel(
+                activityContext = state.activityContext,
+                fallbackAlbumName = state.albumName,
+                onAlbumClick = onAlbumClick,
+                onArtistClick = onArtistClick,
+                onPlaylistClick = onPlaylistClick,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .graphicsLayer { alpha = 1f - (trackTitleFraction?.invoke() ?: 0f) },
+            )
+            if (trackTitleFraction != null) {
+                Column(
+                    modifier = Modifier
+                        .matchParentSize()
+                        .graphicsLayer { alpha = trackTitleFraction() }
+                        // Over the faded label: its album / artist links must
+                        // not answer taps nobody can see.
+                        .pointerInput(Unit) { detectTapGestures { } },
+                    verticalArrangement = Arrangement.Center,
+                ) {
+                    Text(
+                        text = state.songTitle,
+                        style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Text(
+                        text = state.artist,
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+        }
         if (trailingAction != null) {
             Spacer(modifier = Modifier.width(8.dp))
             trailingAction()
@@ -4033,13 +4264,24 @@ private fun ExpandedDetailPage(
     onLyricsUserScroll: () -> Unit,
     onSeekToMs: (Long) -> Unit,
     onRetryCanonical: () -> Unit,
-    onSaveNote: (String, Long?) -> Unit,
     onDeleteNote: (String) -> Unit,
+    noteDraft: NoteDraftState,
     modifier: Modifier = Modifier,
+    // The write bar below the page is open: the note list holds still and
+    // shows where the draft will land.
+    noteWriting: Boolean = false,
     lyricsViewportGrowthPx: Int = 0,
+    lyricsSelection: LyricsSelectionState? = null,
 ) {
+    val haptics = rememberYoinHaptics()
     when (page) {
         NowPlayingDetailPage.Lyrics -> LyricsFullscreenPane(
+            selecting = lyricsSelection?.active == true,
+            selectedLines = lyricsSelection?.selected.orEmpty(),
+            onToggleLine = { index ->
+                haptics.performTick()
+                lyricsSelection?.toggle(index)
+            },
             viewportGrowthPx = lyricsViewportGrowthPx,
             trackKey = state.songId,
             queueIndex = state.currentQueueIndex,
@@ -4062,17 +4304,26 @@ private fun ExpandedDetailPage(
             onRetryCanonical = onRetryCanonical,
             modifier = modifier,
         )
-        NowPlayingDetailPage.Note -> NoteFullscreenPane(
-            notes = notes,
-            sortMode = noteSortMode,
-            onSortModeChange = onNoteSortModeChange,
-            positionMs = positionMs,
-            onSeekToMs = onSeekToMs,
-            onSave = onSaveNote,
-            onDelete = onDeleteNote,
-            autoFocusComposer = false,
-            modifier = modifier,
-        )
+        NowPlayingDetailPage.Note -> {
+            val deletion = LocalNoteDeletion.current
+            NoteFullscreenPane(
+                notes = notes,
+                sortMode = noteSortMode,
+                onSortModeChange = onNoteSortModeChange,
+                positionMs = positionMs,
+                onSeekToMs = onSeekToMs,
+                draftState = noteDraft,
+                current = state.noteTarget(),
+                writing = noteWriting,
+                onDelete = onDeleteNote,
+                deleted = deletion?.pending?.takeIf { it.isForSong(state.songId) },
+                onUndoDelete = { deletion?.undo() },
+                onRealign = LocalNoteRealign.current,
+                // The undo window waits for a finger on the list to lift.
+                onListHeldChange = { held -> deletion?.onListHeldChange(held) },
+                modifier = modifier,
+            )
+        }
     }
 }
 
@@ -4420,6 +4671,9 @@ private val ExpandedCoverGap = 8.dp
 private val ExpandedTabRowHeight = 52.dp
 private val ExpandedTabGap = 12.dp
 private val ExpandedAccessoryHeight = 68.dp
+
+/** The wide layout's right-column action bar (lyric tools / Ask Gemini) at rest. */
+private val WideAccessoryHeight = 68.dp
 private val DockedCoverSlot = 48.dp
 
 /** TalkBack actions of the focusable cover. */
@@ -4441,10 +4695,6 @@ private const val CoverFocusExitLabel = "Show lyrics and rating"
 private val EnlargedTabRowHeight = 44.dp
 private val EnlargedTabToolSize = 44.dp
 private val ShortTabToolSize = 40.dp
-
-/** Auto-immersive: the lyric tools step away after this long without a touch. */
-private const val LyricToolsIdleMs = 5_000L
-private const val LyricToolsIdlePollMs = 200L
 
 private val WideColumnGap = 24.dp
 private val WideFramePadding = 24.dp
@@ -5037,15 +5287,4 @@ private fun BottomPillsPreview() {
     }
 }
 
-/**
- * Animate to [target] and pin the landing: the stage reshape remeasures the
- * pager mid-flight, which can strand animateScrollToPage between pages —
- * finish with an exact snap when that happens.
- */
-private suspend fun PagerState.settleToPage(target: Int) {
-    if (currentPage == target && currentPageOffsetFraction == 0f) return
-    animateScrollToPage(target)
-    if (currentPage != target || currentPageOffsetFraction != 0f) {
-        scrollToPage(target)
-    }
-}
+

@@ -37,3 +37,38 @@ internal fun Modifier.lyricsViewport(
             }
         }
     }
+
+/**
+ * Opens a band of [bandPx] at the top of the lyrics window WITHOUT moving a
+ * line: this node's content window (and whatever rides on it, e.g. the edge
+ * fade) starts below the band, while [lyricsWindowContentAboveBand] keeps the
+ * list inside at its full height and screen position. The list's measured
+ * size never changes, so nothing re-centres. Pair them, outer → inner:
+ * `lyricsWindowBelowBand(b).<fade>.clipToBounds().lyricsWindowContentAboveBand(b)`.
+ */
+internal fun Modifier.lyricsWindowBelowBand(bandPx: () -> Int): Modifier = layout { measurable, constraints ->
+    if (!constraints.hasBoundedHeight) {
+        val placeable = measurable.measure(constraints)
+        return@layout layout(placeable.width, placeable.height) { placeable.place(0, 0) }
+    }
+    val height = constraints.maxHeight
+    val band = bandPx().coerceIn(0, height)
+    val placeable = measurable.measure(
+        constraints.copy(minHeight = height - band, maxHeight = height - band),
+    )
+    layout(placeable.width, height) { placeable.place(0, band) }
+}
+
+/** Inner half of [lyricsWindowBelowBand]: content at the full height, drawn from above the window. */
+internal fun Modifier.lyricsWindowContentAboveBand(bandPx: () -> Int): Modifier = layout { measurable, constraints ->
+    if (!constraints.hasBoundedHeight) {
+        val placeable = measurable.measure(constraints)
+        return@layout layout(placeable.width, placeable.height) { placeable.place(0, 0) }
+    }
+    val window = constraints.maxHeight
+    val band = bandPx().coerceAtLeast(0)
+    val placeable = measurable.measure(
+        constraints.copy(minHeight = window + band, maxHeight = window + band),
+    )
+    layout(placeable.width, window) { placeable.place(0, -band) }
+}

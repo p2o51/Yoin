@@ -458,6 +458,18 @@ class PlaybackManager(
             syncState()
         }
 
+        // A pause / play while buffering changes no isPlaying — but the
+        // control reads playWhenReady.
+        override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
+            syncState()
+        }
+
+        // playWhenReadyOf reads the suppression too; while buffering, a focus
+        // loss / regain changes no isPlaying either.
+        override fun onPlaybackSuppressionReasonChanged(playbackSuppressionReason: Int) {
+            syncState()
+        }
+
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
             syncState()
         }
@@ -519,6 +531,11 @@ class PlaybackManager(
                     else -> ConnectionPhase.Ready
                 },
                 connectionErrorMessage = player.playerError?.message,
+                playWhenReady = playWhenReadyOf(
+                    playWhenReady = player.playWhenReady,
+                    playbackState = player.playbackState,
+                    playbackSuppressionReason = player.playbackSuppressionReason,
+                ),
             ),
         )
     }

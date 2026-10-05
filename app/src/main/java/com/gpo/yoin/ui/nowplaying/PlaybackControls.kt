@@ -31,9 +31,11 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -97,12 +99,20 @@ internal fun PlaybackControls(
         LaunchedEffect(transportSignal, playPressed) {
             transportSignal?.playHeld = playPressed
         }
-        // Each transport button records its own centre so the background's release
-        // burst can radiate from the button you actually tapped (set on click,
-        // just before the playback state changes).
+        // Each transport button records its own centre, and every tap is stamped
+        // with its time and kind, so the background's release burst radiates from
+        // the button you actually tapped — and only for the change that tap caused
+        // (see resolveTransportPulse).
         var playCenter by remember { mutableStateOf(Offset.Unspecified) }
         var nextCenter by remember { mutableStateOf(Offset.Unspecified) }
         var prevCenter by remember { mutableStateOf(Offset.Unspecified) }
+        // PREVIOUS is stamped with the playhead it was tapped at, and every tick
+        // reports the playhead back: a PREVIOUS the player answered with a
+        // restart (no song change) is spent the moment the playhead lands back
+        // on this song, so it neither eats the next headset play/pause breath
+        // nor lends its button to a later untapped change.
+        val latestPositionMs by rememberUpdatedState(positionMs)
+        SideEffect { transportSignal?.observePlayhead(positionMs) }
       // Controls always fit (断点交接 §3.3): on a narrow column the PLAY pill
       // first gives up its side padding, then every control steps 56 → 48.
       // The play-mode button is measured before the transport group, so it is
@@ -175,7 +185,7 @@ internal fun PlaybackControls(
                             FilledTonalButton(
                                 onClick = {
                                     if (playCenter.isSpecified) {
-                                        transportSignal?.burstFocalRoot = playCenter
+                                        transportSignal?.recordTap(playCenter, TransportTapKind.PlayPause)
                                     }
                                     haptics.performClick()
                                     onTogglePlayPause()
@@ -222,7 +232,7 @@ internal fun PlaybackControls(
                             FilledIconButton(
                                 onClick = {
                                     if (nextCenter.isSpecified) {
-                                        transportSignal?.burstFocalRoot = nextCenter
+                                        transportSignal?.recordTap(nextCenter, TransportTapKind.SkipNext)
                                     }
                                     haptics.performTick()
                                     onSkipNext()
@@ -355,7 +365,11 @@ internal fun PlaybackControls(
                         FilledIconButton(
                             onClick = {
                                 if (prevCenter.isSpecified) {
-                                    transportSignal?.burstFocalRoot = prevCenter
+                                    transportSignal?.recordTap(
+                                        prevCenter,
+                                        TransportTapKind.SkipPrevious,
+                                        positionMs = latestPositionMs,
+                                    )
                                 }
                                 haptics.performTick()
                                 onSkipPrevious()

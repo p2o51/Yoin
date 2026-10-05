@@ -1,13 +1,9 @@
 package com.gpo.yoin.ui.nowplaying.compact
 
-import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -21,30 +17,31 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
-import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.TransformOrigin
-import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.gpo.yoin.data.local.SongNote
+import com.gpo.yoin.ui.component.NoteLine
+import com.gpo.yoin.ui.component.NoteLineEmphasis
 import com.gpo.yoin.ui.component.NoteSortMode
 import com.gpo.yoin.ui.component.currentAnchoredNoteId
 import com.gpo.yoin.ui.component.edgeFade
 import com.gpo.yoin.ui.component.formatNotePosition
 import com.gpo.yoin.ui.component.sortNotes
-import com.gpo.yoin.ui.theme.YoinMotion
+import com.gpo.yoin.ui.theme.YoinTheme
 import kotlin.math.abs
 import kotlinx.coroutines.flow.filter
 
 /**
  * Read-only preview of the current song's notes, in the compact lyrics
- * language: plain timeline-ordered lines (each prefixed with its song-moment
- * stamp), the line the playhead is inside lit up, the list gliding to keep
- * it anchored — no cards, no controls. Tapping the compact pager area
- * promotes to [NowPlayingStageMode.Expanded] where notes become editable.
+ * language: plain timeline-ordered [NoteLine]s (the same lines as the
+ * expanded page, at glance emphasis), the line the playhead is inside lit
+ * up, the list gliding to keep it anchored — no cards, no controls.
+ * Tapping the compact pager area promotes to [NowPlayingStageMode.Expanded]
+ * where notes become editable.
  */
 @Composable
 fun NoteCompactPane(
@@ -117,81 +114,40 @@ fun NoteCompactPane(
             contentPadding = PaddingValues(vertical = 12.dp),
         ) {
             itemsIndexed(sorted, key = { _, note -> note.id }) { index, note ->
-                NoteLineItem(
+                NoteLine(
                     stamp = note.positionMs?.let(::formatNotePosition),
                     text = note.content,
                     isActive = index == currentIndex && currentIndex >= 0,
-                    distance = if (currentIndex >= 0) abs(index - currentIndex) else 99,
+                    emphasis = NoteLineEmphasis.Glance,
+                    distance = if (currentIndex >= 0) abs(index - currentIndex) else null,
                 )
             }
         }
     }
 }
 
+@Preview(name = "Note window", showBackground = true, widthDp = 360, heightDp = 200)
 @Composable
-private fun NoteLineItem(
-    stamp: String?,
-    text: String,
-    isActive: Boolean,
-    modifier: Modifier = Modifier,
-    distance: Int = 0,
-) {
-    // Distance-based falloff, borrowed from the compact lyric lines.
-    val targetAlpha = when {
-        isActive -> 1f
-        distance <= 1 -> 0.55f
-        distance == 2 -> 0.40f
-        else -> 0.28f
-    }
-    val textColor by animateColorAsState(
-        targetValue = if (isActive) {
-            MaterialTheme.colorScheme.primary
-        } else {
-            MaterialTheme.colorScheme.onSurfaceVariant
-        },
-        animationSpec = YoinMotion.effectsSpring(),
-        label = "noteLineColor",
+private fun NoteCompactPanePreview() {
+    fun note(id: String, at: Long, text: String) = SongNote(
+        id = id,
+        trackId = "preview",
+        content = text,
+        createdAt = at,
+        updatedAt = at,
+        title = "Streetlight Waltz",
+        artist = "Mira Kade",
+        positionMs = at,
     )
-    val alpha by animateFloatAsState(
-        targetValue = targetAlpha,
-        animationSpec = YoinMotion.effectsSpring(),
-        label = "noteLineAlpha",
-    )
-    val scale by animateFloatAsState(
-        targetValue = if (isActive) 1f else 0.94f,
-        animationSpec = YoinMotion.spatialSpring(),
-        label = "noteLineScale",
-    )
-    Row(
-        modifier = modifier
-            .fillMaxWidth()
-            .padding(vertical = 4.dp)
-            .graphicsLayer {
-                this.alpha = alpha
-                scaleX = scale
-                scaleY = scale
-                transformOrigin = TransformOrigin(0f, 0.5f)
-            },
-        verticalAlignment = Alignment.Top,
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
-    ) {
-        if (stamp != null) {
-            Text(
-                text = stamp,
-                style = MaterialTheme.typography.labelSmall,
-                color = textColor,
-                modifier = Modifier.padding(top = 3.dp),
-            )
-        }
-        Text(
-            text = text,
-            style = if (isActive) {
-                MaterialTheme.typography.bodyLarge
-            } else {
-                MaterialTheme.typography.bodyMedium
-            },
-            fontWeight = if (isActive) FontWeight.Bold else FontWeight.Medium,
-            color = textColor,
+    YoinTheme {
+        NoteCompactPane(
+            notes = listOf(
+                note("a", 12_000L, "Bass walks up the stairs"),
+                note("b", 48_000L, "Everyone shouts here"),
+                note("c", 83_000L, "Chorus comes in"),
+            ),
+            positionMs = { 50_000L },
+            modifier = Modifier.padding(horizontal = 24.dp),
         )
     }
 }
