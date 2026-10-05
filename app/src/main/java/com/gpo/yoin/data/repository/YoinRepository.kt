@@ -41,7 +41,11 @@ import com.gpo.yoin.data.integration.neodb.NeoDBSyncService
 import com.gpo.yoin.data.memory.AlbumMemoryCandidate
 import com.gpo.yoin.data.memory.AlbumMemoryCandidateBuilder
 import com.gpo.yoin.data.lyrics.LrcParser
+import com.gpo.yoin.data.lyrics.LyricPayload
+import com.gpo.yoin.data.lyrics.LyricsCacheBudget
+import com.gpo.yoin.data.lyrics.LyricsCachePolicy
 import com.gpo.yoin.data.lyrics.LyricsProviderRegistry
+import com.gpo.yoin.data.lyrics.isChineseTargetLanguage
 import com.gpo.yoin.data.model.Album
 import com.gpo.yoin.data.model.ArtistDetail
 import com.gpo.yoin.data.model.ArtistIndex
@@ -1682,13 +1686,16 @@ class YoinRepository(
 
     // ── Lyrics ─────────────────────────────────────────────────────────
 
+    /** 整个歌词缓存按总大小封顶（自动行先走，再按最久没用淘汰用户选的行）。 */
+    private val lyricsCacheBudget = LyricsCacheBudget(lyricsCacheDao)
+
     /**
-     * Subsonic 走自家 `getLyricsBySongId.view`（服务端快，不走本地缓存）；其他
-     * provider（目前只有 Spotify）没有服务器歌词，先查 [lyricsCacheDao] 30 天
-     * 内的命中，否则走 [LyricsProviderRegistry] 串行兜底（QQ → 网易云 → LRCLIB）
-     * 并把原始 LRC 落表。
+     * 优先级：用户选的歌词（手写 / 搜索面板应用 / 接受的切换，见 [LyricsCachePolicy]）→
+     * Subsonic 服务端歌词（`getLyricsBySongId.view`）→ [lyricsCacheDao] 里 30 天内的自动行 →
+     * [LyricsProviderRegistry] 串行兜底（QQ → 网易云 → LRCLIB），把原始 LRC 落表。
+     * Subsonic 没有用户选的行时只用服务端歌词，不走自动兜底。
      *
-     * 需要 [title] + [artist] 做搜索；任一为空就直接返回 null。
+     * 自动兜底需要 [title] + [artist] 做搜索；任一为空就返回 null。
      */
     suspend fun getLyrics(
         trackId: MediaId,
@@ -1702,6 +1709,14 @@ class YoinRepository(
         artist: String? = null,
     ): LoadedLyrics? {
         val source = requireSource()
+        val now = clock()
+        val cached = lyricsCacheDao.get(trackId.provider, trackId.rawId)
+        if (cached != null && LyricsCachePolicy.isUserChosen(cached)) {
+            if (LyricsCachePolicy.needsRecencyRefresh(cached, now)) {
+                lyricsCacheDao.markUsed(trackId.provider, trackId.rawId, usedAt = now)
+            }
+            return cached.toLoadedLyrics()
+        }
         if (source.id == MediaId.PROVIDER_SUBSONIC) {
             return source.metadata().getLyrics(trackId)?.let { lyrics ->
                 LoadedLyrics(
@@ -1711,32 +1726,21 @@ class YoinRepository(
                 )
             }
         }
+        if (cached != null && LyricsCachePolicy.isUsable(cached, now)) {
+            return cached.toLoadedLyrics()
+        }
+
         val t = title?.trim().orEmpty()
         val a = artist?.trim().orEmpty()
         if (t.isEmpty() || a.isEmpty()) return null
 
-        val now = clock()
-        val minCachedAt = now - LYRICS_CACHE_TTL_MS
-        lyricsCacheDao
-            .getFresh(trackId.provider, trackId.rawId, minCachedAt)
-            ?.let {
-                return LoadedLyrics(
-                    lyrics = LrcParser.parse(it.lrc),
-                    providerName = it.lyricsProvider,
-                    providerSongId = it.lyricsProviderSongId,
-                )
-            }
-
         val hit = lyricsProviderRegistry.fetchLyric(t, a) ?: return null
-        lyricsCacheDao.upsert(
-            LyricsCache(
-                trackProvider = trackId.provider,
-                trackRawId = trackId.rawId,
-                lyricsProvider = hit.providerName,
-                lyricsProviderSongId = hit.providerSongId,
-                lrc = hit.lrc,
-                cachedAt = now,
-            ),
+        writeLyricsCache(
+            trackId = trackId,
+            lyricsProvider = hit.providerName,
+            lyricsProviderSongId = hit.providerSongId,
+            lrc = hit.lrc,
+            userChosen = false,
         )
         return LoadedLyrics(
             lyrics = LrcParser.parse(hit.lrc),
@@ -1758,15 +1762,13 @@ class YoinRepository(
 
         val hit = lyricsProviderRegistry.fetchLyric(t, a)
             ?: throw NoSuchElementException("No lyrics found")
-        lyricsCacheDao.upsert(
-            LyricsCache(
-                trackProvider = trackId.provider,
-                trackRawId = trackId.rawId,
-                lyricsProvider = hit.providerName,
-                lyricsProviderSongId = hit.providerSongId,
-                lrc = hit.lrc,
-                cachedAt = clock(),
-            ),
+        // 用户主动点了"搜索并应用"：结果算用户选的，不按天数过期。
+        writeLyricsCache(
+            trackId = trackId,
+            lyricsProvider = hit.providerName,
+            lyricsProviderSongId = hit.providerSongId,
+            lrc = hit.lrc,
+            userChosen = true,
         )
         LyricsApplyResult(
             lyrics = LrcParser.parse(hit.lrc),
@@ -1810,15 +1812,13 @@ class YoinRepository(
     ): Result<LyricsApplyResult> = runCatching {
         val hit = lyricsProviderRegistry.fetchSelectedLyric(providerName, songId)
             ?: throw NoSuchElementException("No lyrics found")
-        lyricsCacheDao.upsert(
-            LyricsCache(
-                trackProvider = trackId.provider,
-                trackRawId = trackId.rawId,
-                lyricsProvider = hit.providerName,
-                lyricsProviderSongId = hit.providerSongId,
-                lrc = hit.lrc,
-                cachedAt = clock(),
-            ),
+        // 从搜索面板应用的结果是用户选的：不过期，重新加载时压过自动歌词和 Subsonic 服务端歌词。
+        writeLyricsCache(
+            trackId = trackId,
+            lyricsProvider = hit.providerName,
+            lyricsProviderSongId = hit.providerSongId,
+            lrc = hit.lrc,
+            userChosen = true,
         )
         LyricsApplyResult(
             lyrics = LrcParser.parse(hit.lrc),
@@ -1833,22 +1833,47 @@ class YoinRepository(
     ): Result<LyricsApplyResult> = runCatching {
         val trimmed = rawLrc.trim()
         require(trimmed.isNotEmpty()) { "Lyrics are empty" }
-        lyricsCacheDao.upsert(
-            LyricsCache(
-                trackProvider = trackId.provider,
-                trackRawId = trackId.rawId,
-                lyricsProvider = "manual",
-                lyricsProviderSongId = null,
-                lrc = trimmed,
-                cachedAt = clock(),
-            ),
+        writeLyricsCache(
+            trackId = trackId,
+            lyricsProvider = LyricsCachePolicy.MANUAL_PROVIDER,
+            lyricsProviderSongId = null,
+            lrc = trimmed,
+            userChosen = true,
         )
         LyricsApplyResult(
             lyrics = LrcParser.parse(trimmed),
-            providerName = "manual",
+            providerName = LyricsCachePolicy.MANUAL_PROVIDER,
             providerSongId = null,
         )
     }
+
+    /** 写一行歌词缓存并记进大小预算。[userChosen] 的行不按天数过期，见 [LyricsCachePolicy]。 */
+    private suspend fun writeLyricsCache(
+        trackId: MediaId,
+        lyricsProvider: String,
+        lyricsProviderSongId: String?,
+        lrc: String,
+        userChosen: Boolean,
+    ) {
+        lyricsCacheDao.upsert(
+            LyricsCachePolicy.entry(
+                trackProvider = trackId.provider,
+                trackRawId = trackId.rawId,
+                lyricsProvider = lyricsProvider,
+                lyricsProviderSongId = lyricsProviderSongId,
+                lrc = lrc,
+                cachedAt = clock(),
+                userChosen = userChosen,
+            ),
+        )
+        lyricsCacheBudget.onWrite(trackId.provider, trackId.rawId, LyricsCachePolicy.utf8Bytes(lrc))
+    }
+
+    private fun LyricsCache.toLoadedLyrics(): LoadedLyrics = LoadedLyrics(
+        lyrics = LrcParser.parse(lrc),
+        providerName = lyricsProvider,
+        providerSongId = LyricsCachePolicy.providerSongId(this),
+    )
 
     suspend fun translateLyrics(
         trackId: MediaId,
@@ -1870,18 +1895,15 @@ class YoinRepository(
             return LyricsTranslationResult.AlreadyTargetLanguage(targetLanguage)
         }
 
-        if (targetLanguage.isChineseTargetLanguage()) {
-            val providerResult = translateLyricsWithProvider(
-                trackId = trackId,
-                title = t,
-                artist = a,
-                sourceLines = sourceLines,
-                targetLanguage = targetLanguage,
-                currentLyricsProviderName = currentLyricsProviderName,
-                currentLyricsProviderSongId = currentLyricsProviderSongId,
-            )
-            if (providerResult != null) return providerResult
-        }
+        translateLyricsWithProvider(
+            trackId = trackId,
+            title = t,
+            artist = a,
+            sourceLines = sourceLines,
+            targetLanguage = targetLanguage,
+            currentLyricsProviderName = currentLyricsProviderName,
+            currentLyricsProviderSongId = currentLyricsProviderSongId,
+        )?.let { return it }
 
         val sourceHash = buildLyricsTranslationSourceHash(t, a, sourceLines)
         val cached = lyricsTranslationCacheDao.get(
@@ -1935,18 +1957,22 @@ class YoinRepository(
         trackId: MediaId,
         offer: LyricsTranslationProviderSwitchOffer,
     ) {
-        lyricsCacheDao.upsert(
-            LyricsCache(
-                trackProvider = trackId.provider,
-                trackRawId = trackId.rawId,
-                lyricsProvider = offer.providerName,
-                lyricsProviderSongId = offer.providerSongId,
-                lrc = offer.rawLrc,
-                cachedAt = clock(),
-            ),
+        // 用户点了"切换"：这一套歌词是用户选的，不会在 30 天后被自动兜底换回去。
+        writeLyricsCache(
+            trackId = trackId,
+            lyricsProvider = offer.providerName,
+            lyricsProviderSongId = offer.providerSongId,
+            lrc = offer.rawLrc,
+            userChosen = true,
         )
     }
 
+    /**
+     * 歌词源自带的译文。当前歌词源（[currentLyricsProviderName]）自带能服务目标语言的译文
+     * 时先用它，原文也换成它重新拉的那一份；这首歌它给不出，就按 registry 的优先级找
+     * 下一个能给的源，**原文和译文整套**作为切换提议交给用户确认——两个源之间从不按行拼接。
+     * 当前源不自带译文（LRCLIB、手写、Subsonic、不认识的名字）→ null，交给 Gemini。
+     */
     private suspend fun translateLyricsWithProvider(
         trackId: MediaId,
         title: String,
@@ -1956,7 +1982,8 @@ class YoinRepository(
         currentLyricsProviderName: String?,
         currentLyricsProviderSongId: String?,
     ): LyricsTranslationResult? {
-        val currentProvider = currentLyricsProviderName?.takeIf { it in PROVIDER_TRANSLATION_NAMES }
+        val currentProvider = currentLyricsProviderName
+            ?.takeIf { lyricsProviderRegistry.servesNativeTranslation(it, targetLanguage) }
             ?: return null
         val current = fetchProviderTranslation(
             providerName = currentProvider,
@@ -1977,9 +2004,9 @@ class YoinRepository(
             )
         }
 
-        if (currentProvider == PROVIDER_QQ) {
-            val netease = fetchProviderTranslation(
-                providerName = PROVIDER_NETEASE,
+        for (candidate in lyricsProviderRegistry.translationSwitchCandidates(currentProvider, targetLanguage)) {
+            val offered = fetchProviderTranslation(
+                providerName = candidate,
                 providerSongId = null,
                 title = title,
                 artist = artist,
@@ -1987,18 +2014,16 @@ class YoinRepository(
                 targetLanguage = targetLanguage,
                 sourceLinesForFallbackCache = sourceLines,
                 persistLyrics = false,
+            ) ?: continue
+            return LyricsTranslationResult.ProviderSwitchAvailable(
+                LyricsTranslationProviderSwitchOffer(
+                    providerName = offered.providerName,
+                    providerSongId = offered.providerSongId,
+                    lyrics = offered.lyrics,
+                    rawLrc = offered.rawLrc,
+                    translations = offered.translations,
+                ),
             )
-            if (netease != null) {
-                return LyricsTranslationResult.ProviderSwitchAvailable(
-                    LyricsTranslationProviderSwitchOffer(
-                        providerName = netease.providerName,
-                        providerSongId = netease.providerSongId,
-                        lyrics = netease.lyrics,
-                        rawLrc = netease.rawLrc,
-                        translations = netease.translations,
-                    ),
-                )
-            }
         }
         return null
     }
@@ -2024,15 +2049,16 @@ class YoinRepository(
         val translatedLrc = hit.translatedLrc?.takeIf { it.isNotBlank() } ?: return null
         val lyrics = LrcParser.parse(hit.lrc)
         if (persistLyrics) {
-            lyricsCacheDao.upsert(
-                LyricsCache(
-                    trackProvider = trackId.provider,
-                    trackRawId = trackId.rawId,
-                    lyricsProvider = hit.providerName,
-                    lyricsProviderSongId = hit.providerSongId,
-                    lrc = hit.lrc,
-                    cachedAt = clock(),
-                ),
+            // 重新拉的是当前显示的那一家：用户选的行重拉后仍然算用户选的。
+            val existing = lyricsCacheDao.get(trackId.provider, trackId.rawId)
+            writeLyricsCache(
+                trackId = trackId,
+                lyricsProvider = hit.providerName,
+                lyricsProviderSongId = hit.providerSongId,
+                lrc = hit.lrc,
+                userChosen = existing != null &&
+                    existing.lyricsProvider == hit.providerName &&
+                    LyricsCachePolicy.isUserChosen(existing),
             )
         }
         val providerSourceLines = lyrics.lineTexts().ifEmpty { sourceLinesForFallbackCache }
@@ -2056,6 +2082,9 @@ class YoinRepository(
 
         val translations = buildProviderTranslations(lyrics, translatedLrc)
         if (translations.isEmpty()) return null
+        val translationsJson = lyricTranslationCacheJson.encodeToString(
+            providerSourceLines.indices.map { index -> translations[index].orEmpty() },
+        )
         lyricsTranslationCacheDao.upsert(
             LyricsTranslationCache(
                 trackProvider = trackId.provider,
@@ -2063,12 +2092,12 @@ class YoinRepository(
                 sourceHash = sourceHash,
                 targetLanguage = targetLanguage,
                 model = model,
-                translationsJson = lyricTranslationCacheJson.encodeToString(
-                    providerSourceLines.indices.map { index -> translations[index].orEmpty() },
-                ),
+                translationsJson = translationsJson,
                 cachedAt = clock(),
             ),
         )
+        // 免费的自带译文跟着这首歌的歌词行计入大小预算、一起淘汰。
+        lyricsCacheBudget.onWrite(trackId.provider, trackId.rawId, LyricsCachePolicy.utf8Bytes(translationsJson))
         return ProviderTranslation(
             providerName = hit.providerName,
             providerSongId = hit.providerSongId,
@@ -2644,18 +2673,9 @@ private fun collapseToLatestUnique(events: List<ActivityEvent>): List<ActivityEv
         }
         return collapsed
     }
-
-    companion object {
-        /** 歌词缓存 TTL：30 天。Provider 返回的内容在这个窗口内复用不重拉。 */
-        private val LYRICS_CACHE_TTL_MS: Long = 30L * 24L * 60L * 60L * 1000L
-    }
 }
 
 private val lyricTranslationCacheJson = Json
-
-private const val PROVIDER_QQ = "qq"
-private const val PROVIDER_NETEASE = "netease"
-private val PROVIDER_TRANSLATION_NAMES = setOf(PROVIDER_QQ, PROVIDER_NETEASE)
 
 private data class ProviderTranslation(
     val providerName: String,
@@ -2677,32 +2697,49 @@ private fun LyricsTranslationCache.toTranslations(expectedLineCount: Int): Map<I
         }
         ?.toMap()
 
-private fun buildProviderTranslations(
+/**
+ * 把歌词源的译文 LRC 对到原文行号上，按时间戳对齐。同一时间戳下常有多行并排
+ * （华为、QQ 的文件开头：标题、"词："、"曲："，有时还有第一句歌词）：
+ * - 两边行数相等 → 组内按位置一一配对；
+ * - 行数不等 → 沿用旧口径，整组都用该时间戳下最后一句译文。
+ * 译文是 [LyricPayload.UNTRANSLATED_LINE] 占位的行算没有翻译。
+ * 一个时间戳都对不上时退回按序号配对（旧口径不变）。
+ */
+internal fun buildProviderTranslations(
     lyrics: Lyrics,
     translatedLrc: String,
 ): Map<Int, String> {
     val translated = LrcParser.parse(translatedLrc)
     if (lyrics is Lyrics.Synced && translated is Lyrics.Synced) {
-        val byStart = translated.lines
-            .mapNotNull { line -> line.text.takeIf(String::isNotBlank)?.let { line.startMs to it } }
-            .toMap()
-        val exact = lyrics.lines.mapIndexedNotNull { index, line ->
-            byStart[line.startMs]
-                ?.let(GeminiService::cleanLineTranslation)
-                ?.takeIf(String::isNotBlank)
-                ?.let { index to it }
-        }.toMap()
+        // LrcParser 用稳定排序，组内顺序就是文件顺序。
+        val offeredByStart = translated.lines.groupBy(LyricLine::startMs)
+        val exact = mutableMapOf<Int, String>()
+        lyrics.lines.withIndex().groupBy { it.value.startMs }.forEach { (startMs, originals) ->
+            val offered = offeredByStart[startMs] ?: return@forEach
+            if (offered.size == originals.size) {
+                originals.zip(offered).forEach { (original, line) ->
+                    line.text.toProviderLineTranslation()?.let { exact[original.index] = it }
+                }
+            } else {
+                val shared = offered.lastOrNull { it.text.isNotBlank() }?.text?.toProviderLineTranslation()
+                    ?: return@forEach
+                originals.forEach { original -> exact[original.index] = shared }
+            }
+        }
         if (exact.isNotEmpty()) return exact
     }
     return lyrics.lineTexts()
         .zip(translated.lineTexts())
         .mapIndexedNotNull { index, pair ->
-            GeminiService.cleanLineTranslation(pair.second)
-                .takeIf(String::isNotBlank)
-                ?.let { index to it }
+            pair.second.toProviderLineTranslation()?.let { index to it }
         }
         .toMap()
 }
+
+private fun String.toProviderLineTranslation(): String? =
+    takeUnless { it.trim() == LyricPayload.UNTRANSLATED_LINE }
+        ?.let(GeminiService::cleanLineTranslation)
+        ?.takeIf(String::isNotBlank)
 
 private fun Lyrics.lineTexts(): List<String> = when (this) {
     is Lyrics.Synced -> lines.map(LyricLine::text)
@@ -2710,16 +2747,6 @@ private fun Lyrics.lineTexts(): List<String> = when (this) {
         .map(String::trim)
         .filter(String::isNotEmpty)
         .toList()
-}
-
-private fun String.isChineseTargetLanguage(): Boolean {
-    val normalized = trim().lowercase()
-    return normalized == "chinese" ||
-        "中文" in normalized ||
-        "汉语" in normalized ||
-        "simplified chinese" in normalized ||
-        "traditional chinese" in normalized ||
-        "chinese (" in normalized
 }
 
 private fun List<String>.appearToAlreadyBeTargetLanguage(targetLanguage: String): Boolean =

@@ -5,6 +5,7 @@ import androidx.compose.ui.platform.AndroidUiDispatcher
 import androidx.room.Room
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
+import com.gpo.yoin.data.album.AlbumScrapbookSource
 import com.gpo.yoin.data.cache.DetailCacheStore
 import com.gpo.yoin.data.home.HomeLayoutStore
 import com.gpo.yoin.data.local.YoinDatabase
@@ -437,6 +438,8 @@ class AppContainer(private val context: Context) {
     private val detailCacheStore: DetailCacheStore by lazy {
         DetailCacheStore(database.detailCacheDao())
     }
+
+    val albumScrapbookSource: AlbumScrapbookSource by lazy { AlbumScrapbookSource.from(database, profileManager.activeProfileId) }
 
     val homeLayoutStore: HomeLayoutStore by lazy {
         HomeLayoutStore(database.homeLayoutDao())
