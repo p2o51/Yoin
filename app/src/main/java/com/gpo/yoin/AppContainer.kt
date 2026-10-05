@@ -38,6 +38,7 @@ import com.gpo.yoin.player.PlaybackManager
 import com.gpo.yoin.player.SpotifyConnectFailure
 import com.gpo.yoin.ui.experience.ExperienceSessionStore
 import com.gpo.yoin.ui.experience.MotionCapabilityProvider
+import com.gpo.yoin.ui.memories.AlbumMemoryTitleResolver
 import com.gpo.yoin.ui.memories.MemoriesDeckCoordinator
 import com.gpo.yoin.ui.theme.PlaybackThemeState
 import kotlinx.coroutines.CoroutineScope
@@ -439,6 +440,19 @@ class AppContainer(private val context: Context) {
     /** The user's own album Memory titles (Memories edits them; the album page's second page will too). */
     val albumMemoryTitleStore: AlbumMemoryTitleStore by lazy {
         AlbumMemoryTitleStore(database.albumMemoryTitleDao(), profileManager.activeProfileId)
+    }
+
+    /**
+     * Album Memory titles exactly as Memories shows them (Home's Jump Back In card, the album page's second page).
+     * Clock, zone and app language stay the defaults, as [memoriesDeckCoordinator]'s: the titles must agree.
+     */
+    val albumMemoryTitleResolver: AlbumMemoryTitleResolver by lazy {
+        AlbumMemoryTitleResolver(
+            repository = repository,
+            titleStore = albumMemoryTitleStore,
+            playHistoryDao = database.playHistoryDao(),
+            activeProfileId = profileManager.activeProfileId,
+        )
     }
 
     val lyricsProviderRegistry: LyricsProviderRegistry by lazy { LyricsProviderRegistry() }

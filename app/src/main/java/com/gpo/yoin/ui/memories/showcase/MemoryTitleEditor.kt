@@ -74,6 +74,7 @@ import com.gpo.yoin.ui.memories.MemoryEntityType
 import com.gpo.yoin.ui.memories.MemoryEntry
 import com.gpo.yoin.ui.memories.canRestoreGeneratedTitle
 import com.gpo.yoin.ui.memories.copy.MemoryTitleKind
+import com.gpo.yoin.ui.memories.memoryTitleRestoreLabel
 import com.gpo.yoin.ui.memories.yoinOwnTitle
 import com.gpo.yoin.ui.theme.LocalYoinMotionRole
 import com.gpo.yoin.ui.theme.YoinMotion
@@ -230,8 +231,7 @@ internal fun MemoryEntry.titleDraftSeed(): String =
 internal fun MemoryEntry.titlePlaceholder(): String = yoinOwnTitle()?.text ?: title
 
 /** The restore button's words: the AI's title, or Yoin's local motif (not an AI line, so not called one). */
-internal fun MemoryEntry.restoreTitleLabel(): String =
-    if (yoinOwnTitle()?.kind == MemoryTitleKind.MOTIF) "Restore Yoin's title" else "Restore AI title"
+internal fun MemoryEntry.restoreTitleLabel(): String = memoryTitleRestoreLabel(yoinOwnTitle()?.kind)
 
 /** One line: a title has no line breaks (a pasted one becomes spaces), and at most [MEMORY_TITLE_MAX_LENGTH]. */
 internal fun sanitizeTitleInput(value: TextFieldValue): TextFieldValue {
