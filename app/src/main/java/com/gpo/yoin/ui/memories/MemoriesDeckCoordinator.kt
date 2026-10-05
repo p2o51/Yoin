@@ -687,10 +687,15 @@ internal fun memoryCopyInput(
     )
 }
 
-/** The diary's album notes, oldest first; they head the liner. */
-internal fun diaryAlbumNotes(writings: List<MemoryWriting>): List<MemoryWriting> = writings
-    .filter { writing -> writing.kind == MemoryWriting.Kind.ALBUM_NOTE }
-    .sortedBy(MemoryWriting::writtenAt)
+/**
+ * The diary's album note, heading the liner. An album has one album note
+ * (owner, 2026-10-05), so only the latest legacy album_notes row shows.
+ */
+internal fun diaryAlbumNotes(writings: List<MemoryWriting>): List<MemoryWriting> = listOfNotNull(
+    writings
+        .filter { writing -> writing.kind == MemoryWriting.Kind.ALBUM_NOTE }
+        .maxByOrNull(MemoryWriting::writtenAt),
+)
 
 /**
  * Track rows, option A (owner default): only tracks that are rated or noted,
