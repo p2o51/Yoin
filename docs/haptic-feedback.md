@@ -87,6 +87,24 @@ Home 编辑态的触感总表（来自 `docs/handoff/home-edit-mode/spec.md` §2
 
 一次进入只震一次，就是阈值那一下；点卡片不震（§D）。底栏 Home 键长按进入编辑属于 P1，尚未实现。
 
+### F.1 行数把手 ⌟（2026-10-05，H5）
+
+Activities 和 Jump Back In 在编辑态底板右下角的 ⌟ 把手（规则见 `docs/design.md`「主页 › 就地编辑 › 行数」，实现 `ui/home/edit/HomeRowsResize.kt` 的 `HomeRowsEngine`）。和 §F 一样只经 `HomeEditFeedback` 发出，复用同一组方法和低版本回退，没有新常量。Pixel Tablet 没有振动马达：每一行都有视觉孪生，触感只能在手机上验收。
+
+| 时机 | 方法 | 常量（API） | 低版本回退 | 视觉孪生 |
+| --- | --- | --- | --- | --- |
+| 按住把手（开始调整） | 无 | — | — | 把手变 primary、放大 12%；这一块停止摆动 |
+| 拖动中跨过一档（越过两档中点再 6dp 才算，有滞回） | `performSegmentTick()` | `SEGMENT_TICK`（34） | `CLOCK_TICK` | 把手脉冲一下（快空间弹簧；减少动态下不脉冲）；卡片在两档之间逐张插值 |
+| 一次拖动里第一次越过最大档 / 最小档（每个方向每次拖动只打一次） | `performThreshold()` | `GESTURE_THRESHOLD_ACTIVATE`（34） | `TEXT_HANDLE_MOVE`（27，即 `performLightTick()`） | 橡皮筋阻尼（量程 56dp，系数 0.55） |
+| 松手时快甩多走一档（≥ 650dp/s，落点 ≠ 手指下的档） | `performSegmentTick()` | `SEGMENT_TICK`（34） | `CLOCK_TICK` | 把手脉冲 |
+| 松手后档位真的变了（写入、算一步 Undo） | `performConfirm()` | `CONFIRM`（30） | `KEYBOARD_TAP` | 块高按默认空间弹簧落到新档 |
+| 松手落回起始档 | 无 | — | — | 块高弹回 |
+| 手势被系统拿走（取消） | 手指下已经换了档时，回到起始档那一下打 `performSegmentTick()`；否则无 | `SEGMENT_TICK`（34） | `CLOCK_TICK` | 把手脉冲，块高弹回起始档；不写入 |
+| 键盘 ↑ / ↓；TalkBack 的 More rows / Fewer rows | `performSegmentTick()`（不打 CONFIRM） | `SEGMENT_TICK`（34） | `CLOCK_TICK` | 把手脉冲 + 和松手同一条弹簧落位；TalkBack 读出新的 "N rows" |
+| Undo / Reset 把档位改回去 | 只有底栏按钮自己的触感（Undo `performClick()`、Reset `performReject()`，见 §F） | — | — | 块按同一条弹簧变回 |
+
+一次拖动最多：每跨一档一拍 tick，两个边界各一拍 threshold，抬手时最多再一拍 tick（快甩）和一拍 confirm。按住把手本身不震，和「编辑态拿起一块」（`performDragStart()`）区分开。
+
 ## 3. 技术落地建议
 
 1. **统一震动接口**：建议在 `com.gpo.yoin.ui.experience` 包下新建 `Haptics.kt`，封装一个全局的扩展函数或组合项（Composable），将硬编码的 `Constants` 语义化。例如：
