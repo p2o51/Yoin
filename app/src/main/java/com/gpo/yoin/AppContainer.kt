@@ -96,6 +96,7 @@ class AppContainer(private val context: Context) {
                 MIGRATION_26_27,
                 MIGRATION_27_28,
                 MIGRATION_28_29,
+                MIGRATION_29_30,
             )
             // v11 冻结了 0.3 schema；0.5 上架前的备份降级保险（用户拿着 v11
             // 备份在旧版设备恢复）走这条：数据丢但应用不崩。没数据丢失比
@@ -533,6 +534,18 @@ class AppContainer(private val context: Context) {
                         PRIMARY KEY(`profileId`, `provider`, `albumId`)
                     )
                     """.trimIndent(),
+                )
+            }
+        }
+
+        // v29 → v30: when the album review was written (album_ratings.reviewUpdatedAt). Old reviews take their
+        // row's updatedAt — the best date there is (a later rating change may have moved it).
+        val MIGRATION_29_30 = object : Migration(29, 30) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE album_ratings ADD COLUMN reviewUpdatedAt INTEGER")
+                db.execSQL(
+                    "UPDATE album_ratings SET reviewUpdatedAt = updatedAt " +
+                        "WHERE review IS NOT NULL AND TRIM(review) != ''",
                 )
             }
         }

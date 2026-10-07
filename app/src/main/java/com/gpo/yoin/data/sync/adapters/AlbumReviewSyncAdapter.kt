@@ -71,18 +71,27 @@ class AlbumReviewSyncAdapter(private val db: YoinDatabase) : SyncAdapter {
             if (!unchangedSinceExpected) {
                 return@withTransaction ApplyOutcome.Skipped(SkipReason.CHANGED_LOCALLY, currentHash)
             }
+            // The review's writing date (album page): the incoming version's time when the text
+            // changes, null once cleared; an identical text keeps the date it already has.
+            val reviewUpdatedAt = when {
+                review.value.isNullOrBlank() -> null
+                existing?.review == review.value -> existing.reviewUpdatedAt ?: versionTs
+                else -> versionTs
+            }
             if (existing != null) {
                 dao.updateAlbumReviewValue(
                     profileId = profileId,
                     albumId = albumId,
                     provider = provider,
                     review = review.value,
+                    reviewUpdatedAt = reviewUpdatedAt,
                     updatedAt = maxOf(existing.updatedAt, versionTs),
                 )
             } else {
                 // Even for a cleared review: see AlbumRatingSyncAdapter's file header.
                 dao.insertAlbumRatingIfAbsent(
-                    newAlbumRow(profileId, albumId, provider, review = review.value, updatedAt = versionTs),
+                    newAlbumRow(profileId, albumId, provider, review = review.value, updatedAt = versionTs)
+                        .copy(reviewUpdatedAt = reviewUpdatedAt),
                 )
             }
             ApplyOutcome.Applied(dao.albumRating(profileId, albumId, provider)?.let(::projection).hashOrNull())
@@ -103,7 +112,14 @@ class AlbumReviewSyncAdapter(private val db: YoinDatabase) : SyncAdapter {
             if (current.rating == 0f) {
                 dao.deleteAlbumRating(profileId, albumId, provider)
             } else {
-                dao.updateAlbumReviewValue(profileId, albumId, provider, review = null, updatedAt = current.updatedAt)
+                dao.updateAlbumReviewValue(
+                    profileId,
+                    albumId,
+                    provider,
+                    review = null,
+                    reviewUpdatedAt = null,
+                    updatedAt = current.updatedAt,
+                )
             }
             ApplyOutcome.Applied(dao.albumRating(profileId, albumId, provider)?.let(::projection).hashOrNull())
         }

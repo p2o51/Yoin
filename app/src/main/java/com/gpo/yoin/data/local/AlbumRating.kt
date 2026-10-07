@@ -33,4 +33,9 @@ data class AlbumRating(
     val ratingNeedsSync: Boolean = false,
     val reviewNeedsSync: Boolean = false,
     val updatedAt: Long = System.currentTimeMillis(),
+    /**
+     * When the review text was last written (v30). [updatedAt] can't say: a
+     * rating, a NeoDB push / pull or a sync bumps it too. Null without a review.
+     */
+    val reviewUpdatedAt: Long? = null,
 )

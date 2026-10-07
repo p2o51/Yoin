@@ -92,7 +92,7 @@ interface SyncDomainDao {
 
     /** Review only: leaves rating, neoDbReviewUuid and the *NeedsSync flags alone. */
     @Query(
-        "UPDATE album_ratings SET review = :review, updatedAt = :updatedAt " +
+        "UPDATE album_ratings SET review = :review, reviewUpdatedAt = :reviewUpdatedAt, updatedAt = :updatedAt " +
             "WHERE profileId = :profileId AND albumId = :albumId AND provider = :provider",
     )
     suspend fun updateAlbumReviewValue(
@@ -100,6 +100,7 @@ interface SyncDomainDao {
         albumId: String,
         provider: String,
         review: String?,
+        reviewUpdatedAt: Long?,
         updatedAt: Long,
     ): Int
 

@@ -76,6 +76,7 @@ class CloudSyncManager(
         },
     )
     private val mutex = Mutex()
+    private val stateMutex = Mutex()
 
     private val _state = MutableStateFlow(CloudSyncState())
     override val state: StateFlow<CloudSyncState> = _state.asStateFlow()
@@ -763,7 +764,13 @@ class CloudSyncManager(
         if (dao.meta(SyncMetaKeys.PENDING_RESET) != null) scope.launch { resumePendingReset() }
     }
 
-    private suspend fun refreshState() {
+    /**
+     * Compute and publish as one step: two refreshes racing (the cycle a turn-on launches and the
+     * next one) must not publish out of order and leave a stale "Syncing" on screen.
+     */
+    private suspend fun refreshState() = stateMutex.withLock { publishState() }
+
+    private suspend fun publishState() {
         val enabled = isEnabled()
         val lastError = dao.meta(SyncMetaKeys.LAST_ERROR)
         val phase = when {

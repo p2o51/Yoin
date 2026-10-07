@@ -60,6 +60,25 @@ class AlbumSyncAdaptersTest {
     }
 
     @Test
+    fun should_stampReviewDate_when_peerReviewApplied_andClearItWhenCleared() = runTest {
+        reviews.apply("p1", key, review("first draft"), versionTs = 500L, expectedLocalHash = null)
+        assertEquals(500L, dao.albumRating("p1", "album-1", "spotify")!!.reviewUpdatedAt)
+
+        // Rating changes elsewhere must not move the review's writing date.
+        val afterReview = hashOf(ratings.readAll("p1").single().projection)
+        ratings.apply("p1", key, payload("""{"albumId":"album-1","provider":"spotify","rating":9.0}"""), 700L, afterReview)
+        assertEquals(500L, dao.albumRating("p1", "album-1", "spotify")!!.reviewUpdatedAt)
+
+        val edited = hashOf(reviews.readAll("p1").single().projection)
+        reviews.apply("p1", key, review("final words"), versionTs = 800L, expectedLocalHash = edited)
+        assertEquals(800L, dao.albumRating("p1", "album-1", "spotify")!!.reviewUpdatedAt)
+
+        val cleared = hashOf(reviews.readAll("p1").single().projection)
+        reviews.apply("p1", key, review(null), versionTs = 900L, expectedLocalHash = cleared)
+        assertNull(dao.albumRating("p1", "album-1", "spotify")!!.reviewUpdatedAt)
+    }
+
+    @Test
     fun should_updateRatingOnly_when_rowHasReviewAndNeoDbState() = runTest {
         dao.insertAlbumRatingIfAbsent(neoDbRow(review = "keep me"))
         val expected = hashOf(ratings.readAll("p1").single().projection)
@@ -159,7 +178,7 @@ class AlbumSyncAdaptersTest {
         val ratingHash = appliedHash(ratings.apply("p1", key, rating(0f), versionTs = 0L, expectedLocalHash = null))
         val row = dao.albumRating("p1", "album-1", "spotify")!!
         // What YoinRepository.setAlbumReview does with an existing row.
-        dao.updateAlbumReviewValue("p1", "album-1", "spotify", review = "mine", updatedAt = 900L)
+        dao.updateAlbumReviewValue("p1", "album-1", "spotify", review = "mine", reviewUpdatedAt = 900L, updatedAt = 900L)
 
         assertEquals(0f, row.rating)
         assertEquals(ratingHash, hashOf(ratings.readAll("p1").single().projection))
