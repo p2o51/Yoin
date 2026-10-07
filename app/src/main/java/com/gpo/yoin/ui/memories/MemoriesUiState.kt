@@ -127,14 +127,14 @@ data class MemoryEntry(
     val firstHeardAt: Long? = null,
     val lastHeardAt: Long? = null,
     /**
-     * Where [memoryTitle] came from: the user's own title, the AI title (those two set in the serif), the
-     * local motif, or the album name ([com.gpo.yoin.data.memory.resolveAlbumMemoryTitle]).
+     * Where [memoryTitle] came from: the user's own title, the AI title (those two set in the serif), or the
+     * album name ([com.gpo.yoin.data.memory.resolveAlbumMemoryTitle]; MOTIF is no longer produced, 2026-10-06).
      */
     val memoryTitleKind: MemoryTitleKind = MemoryTitleKind.AI,
     /**
-     * Yoin's own title under the shown one — the AI title, else the motif — kept so a user title can be
-     * laid over it and taken off again in place ([withUserMemoryTitle]); null when Yoin has none (the album
-     * name stands in). [generatedMemoryTitleKind] says which of the two it is (AI or MOTIF).
+     * Yoin's own title under the shown one — the AI title — kept so a user title can be laid over it and
+     * taken off again in place ([withUserMemoryTitle]); null when Yoin has none (the album name stands in).
+     * [generatedMemoryTitleKind] says which kind it is.
      */
     val generatedMemoryTitle: String? = null,
     val generatedMemoryTitleKind: MemoryTitleKind? = null,

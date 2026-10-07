@@ -24,27 +24,27 @@ import kotlinx.coroutines.flow.mapLatest
 /**
  * An album Memory's title exactly as Memories shows it, for the surfaces that show it outside the deck: Home's
  * Jump Back In memory card and the album page's second page (owner, 2026-10-05, 「允许，统一」: Home and Memories
- * show the same default title, and the album page renames / restores it even when Yoin's own title is only the
- * motif).
+ * show the same default title, and the album page renames / restores it).
  *
- * The title is the user's > Yoin's AI title > Yoin's motif > the album name ([resolveAlbumMemoryTitle]). Yoin's
- * part is composed by the very functions the Memories deck uses ([loadAlbumMemoryFacts], [albumMemoryAiTitle],
+ * The title is the user's > Yoin's AI title > the album name ([resolveAlbumMemoryTitle]; the motif step is never
+ * filled since the owner dropped counted titles such as "18 plays since August", 2026-10-06). Yoin's part is
+ * composed by the very functions the Memories deck uses ([loadAlbumMemoryFacts], [albumMemoryAiTitle],
  * [composeAlbumMemoryCopy]); give this class the deck's clock, zone and app language (AppContainer does) and the
  * three surfaces cannot drift. One difference, by design: this class never asks Gemini. The AI title is read
- * from memory_copy_cache only — the deck is where it gets generated — and on a miss the motif takes the slot.
+ * from memory_copy_cache only — the deck is where it gets generated — and on a miss the album name stands in.
  *
  * Reads follow the active profile, as every per-account store. Every read is guarded: a failure costs part of
- * the title (the AI title, the motif's facts, the user's title) and falls one step down, never throws.
+ * the title (the AI title, the user's title) and falls one step down, never throws.
  */
 class AlbumMemoryTitleResolver(
     private val repository: YoinRepository,
     /** The user's own titles; null = Yoin's titles only (previews, tests). */
     private val titleStore: AlbumMemoryTitleStore?,
-    /** play_history: the plays behind the motif when there is no candidate ([resolve] by album id). */
+    /** play_history: the album's name and the narration's plays when there is no candidate ([resolve] by album id). */
     private val playHistoryDao: PlayHistoryDao,
     /** ProfileManager.activeProfileId: scopes the play_history read. */
     private val activeProfileId: StateFlow<String?>,
-    /** "Today" for the motif's date grammar ("since February", a year when it is another one). */
+    /** "Today" for the composition's date grammar ("since February", a year when it is another one). */
     private val clock: () -> Long = System::currentTimeMillis,
     private val zone: () -> ZoneId = ZoneId::systemDefault,
     /** The prose language when the user has written nothing; must be the Memories deck's own. */
@@ -76,8 +76,7 @@ class AlbumMemoryTitleResolver(
      * [resolve] by id, live: the user's title follows [AlbumMemoryTitleStore.observeTitle] (a rename here, in
      * Memories or pulled by sync shows at once); Yoin's part is composed again on a profile switch and whenever
      * a memory signal lands ([YoinRepository.observeMemorySignalStamp]: a song note, a track rating, the album
-     * rating / review). A new play does not re-compose it (the motif's play count catches up on the next
-     * collection). Emits only changes.
+     * rating / review). A new play does not re-compose it. Emits only changes.
      */
     @OptIn(ExperimentalCoroutinesApi::class)
     fun observe(albumId: MediaId): Flow<ResolvedMemoryTitle> {

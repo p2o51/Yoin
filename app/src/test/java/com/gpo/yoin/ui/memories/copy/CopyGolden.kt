@@ -76,21 +76,6 @@ internal object CopyGolden {
     /** The one deliberate English fix over the prototype: "an" before an eight ("an 8.5", not "a 8.5"). */
     fun withArticleFix(text: String?): String? = text?.replace(Regex("""\ba (?=8)"""), "an ")
 
-    /**
-     * Fix over the prototype (P5a): under the notes motif ("四天，四条笔记" / "Four days, four notes") the
-     * narration ① no longer restates the count and the span, only the latest note — the prototype's `said`
-     * rule applied to this case too. The golden cases were exported before the fix.
-     */
-    fun withNotesMotifDedup(narration: String?, titleKind: String, titleText: String): String? {
-        if (narration == null || titleKind != "motif") return narration
-        if (!titleText.contains("条笔记") && !titleText.endsWith(" notes")) return narration
-        Regex("""^.+?天里记了.+?条笔记，""").find(narration)?.let { return narration.removeRange(it.range) }
-        Regex("""^\S+ notes in \S+ days?; the latest""").find(narration)?.let {
-            return "The latest" + narration.substring(it.range.last + 1)
-        }
-        return narration
-    }
-
     fun language(token: String): MemoryProseLanguage =
         if (token == "zh") MemoryProseLanguage.ZH else MemoryProseLanguage.EN
 

@@ -230,8 +230,8 @@ class GeminiService(
      * The input is local listening facts only (plays, date span, seasons,
      * track names, the top-rated track, note counts), already phrased in
      * [languageName] where they are words. The review and the notes' text are
-     * never sent. [alreadySaid] is the motif title on the page; the narration
-     * must not repeat its facts.
+     * never sent. [alreadySaid] is a counted title on the page whose facts the
+     * narration must not repeat (null since the motif titles went, 2026-10-06).
      *
      * Bump [MEMORY_NARRATION_PROMPT_VERSION] whenever the prompt changes: the
      * caller keys its cache on it, so copy written by an older prompt is never

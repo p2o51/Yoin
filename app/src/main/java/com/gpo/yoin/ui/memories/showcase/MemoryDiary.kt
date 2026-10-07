@@ -1,6 +1,8 @@
 package com.gpo.yoin.ui.memories.showcase
 
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.background
@@ -30,6 +32,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Stable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -75,6 +78,7 @@ import com.gpo.yoin.ui.component.seamDissolve
 import com.gpo.yoin.ui.component.seamDissolveViewport
 import com.gpo.yoin.ui.component.seamFade
 import com.gpo.yoin.ui.component.verticalEdgeFadeOnScroll
+import com.gpo.yoin.ui.detail.AlbumNeoDbSync
 import com.gpo.yoin.ui.experience.YoinHaptics
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
 import com.gpo.yoin.ui.memories.MemoryDiaryTrack
@@ -98,13 +102,16 @@ import com.gpo.yoin.ui.memories.emblem.LocalHapticTrace
 import com.gpo.yoin.ui.memories.emblem.rememberGrooveHapticPlayer
 import com.gpo.yoin.ui.theme.YoinContainerShapes
 import com.gpo.yoin.ui.theme.YoinMotion
+import com.gpo.yoin.ui.theme.YoinMotionRole
 import com.gpo.yoin.ui.theme.YoinSerifTitle
 import java.time.LocalDate
 import java.time.ZoneId
 import kotlin.math.max
 import kotlin.math.roundToInt
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.withTimeoutOrNull
 
 /*
@@ -158,8 +165,10 @@ internal interface MemoriesDiaryHost {
 
     val neoDbConfigured: Boolean get() = false
 
-    fun neoDbSyncing(memory: MemoryEntry): Boolean = false
+    /** Where NeoDB stands for [memory]'s album (the album page's states) — the one read here that is a flow. */
+    fun neoDbSync(memory: MemoryEntry): Flow<AlbumNeoDbSync> = flowOf(AlbumNeoDbSync.Unknown)
 
+    /** Push [memory]'s album now: the line's retry (a saved review syncs on its own). */
     fun pushNeoDb(memory: MemoryEntry) = Unit
 }
 
@@ -930,31 +939,74 @@ private fun DiaryFoot(
                 }
             }
             if (host.neoDbConfigured) {
-                val syncing = host.neoDbSyncing(memory)
-                Box(
-                    modifier = Modifier
-                        .padding(top = if (showGo || history == null) 8.dp else MemoryDiaryTokens.GoTop)
-                        .height(48.dp)
-                        .clip(RoundedCornerShape(percent = 50))
-                        .then(
-                            if (interactive && !syncing) {
-                                Modifier.clickable(role = Role.Button) { host.pushNeoDb(memory) }
-                            } else {
-                                Modifier
-                            },
-                        )
-                        .padding(horizontal = 16.dp),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text(
-                        text = if (syncing) "Pushing to NeoDB…" else "Push to NeoDB",
-                        style = diaryUiText(13.sp, FontWeight.Medium, 1.3f),
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
+                DiaryNeoDbLine(
+                    memory = memory,
+                    host = host,
+                    interactive = interactive,
+                    modifier = Modifier.padding(top = if (showGo || history == null) 8.dp else MemoryDiaryTokens.GoTop),
+                )
             }
         }
     }
+}
+
+/**
+ * NeoDB's state for the album, one quiet line (owner, 2026-10-06: it used to say "Push to NeoDB" after a push
+ * had landed). Sync is automatic, so it only reports — "Synced to NeoDB" — and becomes the action when a change
+ * waits or a push failed. Its 48dp slot is kept while configured, so the diary's end never jumps as it reads.
+ */
+@Composable
+private fun DiaryNeoDbLine(
+    memory: MemoryEntry,
+    host: MemoriesDiaryHost,
+    interactive: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    val state by remember(memory.stableId, host) { host.neoDbSync(memory) }
+        .collectAsState(initial = AlbumNeoDbSync.Unknown)
+    val action = state == AlbumNeoDbSync.Pending || state == AlbumNeoDbSync.Failed
+    Box(
+        modifier = modifier
+            .height(48.dp)
+            .clip(RoundedCornerShape(percent = 50))
+            .then(
+                if (interactive && action) {
+                    Modifier.clickable(role = Role.Button) { host.pushNeoDb(memory) }
+                } else {
+                    Modifier
+                },
+            )
+            .padding(horizontal = 16.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        AnimatedContent(
+            targetState = state,
+            transitionSpec = {
+                YoinMotion.fadeIn(role = YoinMotionRole.Standard) togetherWith
+                    YoinMotion.fadeOut(role = YoinMotionRole.Standard)
+            },
+            label = "diaryNeoDb",
+        ) { shown ->
+            Text(
+                text = diaryNeoDbLabel(shown),
+                style = diaryUiText(13.sp, FontWeight.Medium, 1.3f),
+                color = if (shown == AlbumNeoDbSync.Failed || shown == AlbumNeoDbSync.Pending) {
+                    MaterialTheme.colorScheme.primary
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                },
+            )
+        }
+    }
+}
+
+/** The diary's NeoDB words; blank where there is nothing to say (signed out, nothing written yet). */
+internal fun diaryNeoDbLabel(state: AlbumNeoDbSync): String = when (state) {
+    AlbumNeoDbSync.Unknown, AlbumNeoDbSync.SignedOut, AlbumNeoDbSync.Idle -> ""
+    AlbumNeoDbSync.Pending -> "Sync to NeoDB"
+    AlbumNeoDbSync.Syncing -> "Syncing to NeoDB…"
+    AlbumNeoDbSync.Synced -> "Synced to NeoDB"
+    AlbumNeoDbSync.Failed -> "Couldn't sync to NeoDB · Retry"
 }
 
 @Composable

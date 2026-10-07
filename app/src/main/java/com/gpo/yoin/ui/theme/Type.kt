@@ -51,8 +51,8 @@ val GoogleSansFlexRounded = FontFamily(
  *    字号加大。Pixel 上 [FontFamily.Serif] 解析到 Noto Serif / Noto Serif CJK
  *    （思源宋体同源字形）；部分 OEM ROM 裁掉 CJK 衬线包时中文会静默落回黑体
  *    —— 层级仍由字号/字重兜底，不视为损坏。
- *  - **用户正文**：Memories 卡的乐评、笔记用系统默认字面（FontFamily.Default）；
- *    首页 Jump Back In 的 note 正文继承 GSF bodyMedium（2026-09-19 调整）。
+ *  - **用户正文**：乐评、笔记、日记（Memories 卡、日记写作、专辑第 2 页）也用
+ *    GSF（owner T1，2026-10-07：不再用系统默认字面，全 app 不留 Roboto）。
  *  - **GSF = 其余一切**：界面标题、Yoin 文案（带署名）、数字、标签、按钮维持
  *    [GoogleSansFlex]。
  */

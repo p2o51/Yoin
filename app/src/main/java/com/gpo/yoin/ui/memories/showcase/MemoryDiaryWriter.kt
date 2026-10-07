@@ -41,7 +41,6 @@ import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.TextUnit
@@ -347,10 +346,10 @@ private fun ReviewBody(text: String, large: Boolean, type: MemoriesTypeScale) {
     }
 }
 
-/** The user's own words, in the system face (never the serif). */
+/** The user's own words, in Google Sans Flex like the rest of the app (never the serif; owner T1, 2026-10-07). */
 @Composable
 internal fun diaryUserText(size: TextUnit, lineHeight: Float, weight: FontWeight = FontWeight.Normal) =
-    diaryText(FontFamily.Default, weight, size, lineHeight)
+    diaryText(GoogleSansFlex, weight, size, lineHeight)
 
 /** UI words (labels, captions, buttons) in Google Sans Flex. */
 @Composable

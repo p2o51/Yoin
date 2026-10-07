@@ -666,9 +666,9 @@ internal val ExcerptAttributionGap: Dp = 8.dp
 /** The user's own words, in the system face (never the serif): three sizes by length. */
 @Composable
 internal fun excerptStyle(size: MemoryExcerptSize): TextStyle = when (size) {
-    MemoryExcerptSize.SHORT -> cardText(FontFamily.Default, FontWeight.Medium, 22.sp, 1.4f, paragraph = true)
-    MemoryExcerptSize.MEDIUM -> cardText(FontFamily.Default, FontWeight.Normal, 17.sp, 1.65f, paragraph = true)
-    MemoryExcerptSize.LONG -> cardText(FontFamily.Default, FontWeight.Normal, 16.sp, 1.7f, paragraph = true)
+    MemoryExcerptSize.SHORT -> cardText(GoogleSansFlex, FontWeight.Medium, 22.sp, 1.4f, paragraph = true)
+    MemoryExcerptSize.MEDIUM -> cardText(GoogleSansFlex, FontWeight.Normal, 17.sp, 1.65f, paragraph = true)
+    MemoryExcerptSize.LONG -> cardText(GoogleSansFlex, FontWeight.Normal, 16.sp, 1.7f, paragraph = true)
 }
 
 /** A centred card text style with a CSS line box (half-leading, no font padding). */

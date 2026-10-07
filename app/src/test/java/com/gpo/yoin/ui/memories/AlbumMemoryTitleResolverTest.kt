@@ -43,15 +43,16 @@ class AlbumMemoryTitleResolverTest {
     // ── the same title as the Memories card ─────────────────────────────
 
     @Test
-    fun should_matchMemoriesCard_when_yoinTitleIsTheNotesMotif() = runTest {
+    fun should_matchMemoriesCard_when_onlyNotesAreWritten() = runTest {
+        // no counted motif line any more (owner, 2026-10-06): without an AI title the album's name stands in
         val candidate = candidate()
         stubAlbum(songNotes = twoNotes())
 
         val (card, resolved) = cardAndResolved(candidate)
 
         assertSameTitle(card, resolved)
-        assertEquals("Three days, two notes", resolved.text)
-        assertEquals(AlbumMemoryTitleSource.MOTIF, resolved.source)
+        assertEquals("Visited Album", resolved.text)
+        assertEquals(AlbumMemoryTitleSource.ALBUM, resolved.source)
     }
 
     @Test
@@ -83,14 +84,15 @@ class AlbumMemoryTitleResolverTest {
     }
 
     @Test
-    fun should_matchMemoriesCard_when_yoinTitleIsThePlaysMotif() = runTest {
+    fun should_matchMemoriesCard_when_onlyPlaysExist() = runTest {
         val candidate = playedCandidate()
         stubAlbum()
 
         val (card, resolved) = cardAndResolved(candidate)
 
         assertSameTitle(card, resolved)
-        assertEquals("3 plays since September", resolved.text)
+        // never "3 plays since September"
+        assertEquals("Visited Album", resolved.text)
     }
 
     @Test
@@ -110,7 +112,7 @@ class AlbumMemoryTitleResolverTest {
     // ── precedence ──────────────────────────────────────────────────────
 
     @Test
-    fun should_rankUserOverAiOverMotifOverAlbumName() = runTest {
+    fun should_rankUserOverAiOverAlbumName() = runTest {
         val store = titleStore()
         val resolver = resolver(store)
 
@@ -118,13 +120,11 @@ class AlbumMemoryTitleResolverTest {
         stubAlbum()
         assertEquals(AlbumMemoryTitleSource.ALBUM, resolver.resolve(candidate()).source)
 
-        // two notes: the motif
+        // two notes are no title of their own
         stubAlbum(songNotes = twoNotes())
-        val motif = resolver.resolve(candidate())
-        assertEquals(AlbumMemoryTitleSource.MOTIF, motif.source)
-        assertEquals("Three days, two notes", motif.text)
+        assertEquals(AlbumMemoryTitleSource.ALBUM, resolver.resolve(candidate()).source)
 
-        // a cached AI title beats the motif
+        // a cached AI title beats the album name
         stubAlbum(songNotes = twoNotes(), aiTitle = "Rain on the glass")
         val ai = resolver.resolve(candidate())
         assertEquals(AlbumMemoryTitleSource.AI, ai.source)
@@ -154,22 +154,6 @@ class AlbumMemoryTitleResolverTest {
     }
 
     @Test
-    fun should_offerRestoreYoinsTitle_when_userTitleSitsOverMotif() = runTest {
-        // owner 2026-10-05: an album with only Yoin's motif can be renamed and restored too
-        val store = titleStore()
-        store.setTitle(albumId, "Night bus")
-        stubAlbum(songNotes = twoNotes())
-
-        val resolved = resolver(store).resolve(albumId)
-
-        assertTrue(resolved.canRestoreGenerated)
-        assertEquals("Three days, two notes", resolved.generatedText)
-        assertEquals(AlbumMemoryTitleSource.MOTIF, resolved.generatedSource)
-        assertEquals("Restore Yoin's title", resolved.restoreLabel)
-        assertEquals("Three days, two notes", resolved.placeholder)
-    }
-
-    @Test
     fun should_notOfferRestore_when_userTitleSitsOverAlbumNameOnly() = runTest {
         val store = titleStore()
         store.setTitle(albumId, "Night bus")
@@ -192,8 +176,9 @@ class AlbumMemoryTitleResolverTest {
         assertFalse(resolved.canRestoreGenerated)
         assertNull(resolved.userTitle)
         assertFalse(resolved.isSerif)
-        assertEquals(MemoryTitleKind.MOTIF, resolved.kind)
-        assertEquals("Three days, two notes", resolved.draftSeed)
+        assertEquals(MemoryTitleKind.ALBUM, resolved.kind)
+        // the album name standing in is not put in the rename field
+        assertEquals("", resolved.draftSeed)
     }
 
     // ── never Gemini ────────────────────────────────────────────────────
@@ -208,12 +193,12 @@ class AlbumMemoryTitleResolverTest {
         val byId = resolver.resolve(albumId)
         every { repository.observeMemorySignalStamp() } returns MutableStateFlow(1L)
         resolver.observe(albumId).test {
-            assertEquals(AlbumMemoryTitleSource.MOTIF, awaitItem().source)
+            assertEquals(AlbumMemoryTitleSource.ALBUM, awaitItem().source)
             cancelAndIgnoreRemainingEvents()
         }
 
-        assertEquals(AlbumMemoryTitleSource.MOTIF, byCandidate.source)
-        assertEquals(AlbumMemoryTitleSource.MOTIF, byId.source)
+        assertEquals(AlbumMemoryTitleSource.ALBUM, byCandidate.source)
+        assertEquals(AlbumMemoryTitleSource.ALBUM, byId.source)
         coVerify(exactly = 0) { repository.getOrGenerateAlbumMemoryTitle(any(), any(), any()) }
         coVerify(exactly = 0) { repository.getOrGenerateAlbumMemoryCopy(any(), any(), any(), any()) }
         coVerify(atLeast = 1) { repository.getCachedAlbumMemoryTitle(albumId) }
@@ -228,8 +213,8 @@ class AlbumMemoryTitleResolverTest {
 
         val resolved = resolver(titleStore()).resolve(albumId)
 
-        assertEquals("3 plays since September", resolved.text)
-        assertEquals(AlbumMemoryTitleSource.MOTIF, resolved.source)
+        assertEquals("Visited Album", resolved.text)
+        assertEquals(AlbumMemoryTitleSource.ALBUM, resolved.source)
         assertEquals("Visited Album", resolved.albumName)
         coVerify(exactly = 0) { repository.getAlbumMemoryCandidates(any(), any()) }
     }
@@ -278,20 +263,20 @@ class AlbumMemoryTitleResolverTest {
         val store = titleStore()
 
         resolver(store).observe(albumId).test {
-            assertEquals("Three days, two notes", awaitItem().text)
+            assertEquals("Visited Album", awaitItem().text)
 
             store.setTitle(albumId, "Night bus")
             val named = awaitItem()
             assertEquals("Night bus", named.text)
-            assertTrue(named.canRestoreGenerated)
+            assertFalse(named.canRestoreGenerated)
 
             store.clearTitle(albumId)
-            assertEquals("Three days, two notes", awaitItem().text)
+            assertEquals("Visited Album", awaitItem().text)
 
-            // a third note lands: Yoin's motif is composed again
-            stubAlbum(songNotes = twoNotes() + songNote("n3", "t4", "The outro fades", day(4)))
+            // the deck caches an AI title, then a signal lands: Yoin's title is composed again
+            stubAlbum(songNotes = twoNotes(), aiTitle = "Rain on the glass")
             stamp.value = 2L
-            assertEquals("Four days, three notes", awaitItem().text)
+            assertEquals("Rain on the glass", awaitItem().text)
             cancelAndIgnoreRemainingEvents()
         }
     }

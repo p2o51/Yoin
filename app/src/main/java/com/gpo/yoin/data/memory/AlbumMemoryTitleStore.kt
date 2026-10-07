@@ -17,7 +17,7 @@ import kotlinx.coroutines.flow.map
  * per-account store: reads follow the active profile, writes land in it, nothing ever crosses profiles.
  *
  * What a Memory shows is [resolveAlbumMemoryTitle]: the user's title here, else Yoin's AI title, else the
- * local motif, else the album name. Callers: Memories (card, diary, spread) and the album page's second
+ * album name (the local motif step is no longer filled, owner 2026-10-06). Callers: Memories (card, diary, spread) and the album page's second
  * page. The cloud-sync adapter works on [AlbumMemoryTitleDao] directly under the same contract:
  *  - a title is stored exactly as entered, trimmed ([setTitle]); a blank one is a restore;
  *  - `updatedAt` is the user's edit time ([clock] at the write);
@@ -109,7 +109,7 @@ enum class AlbumMemoryTitleSource {
     /** Yoin's AI title (Gemini, cached in memory_copy_cache). */
     AI,
 
-    /** Yoin's local motif line (no AI title). */
+    /** Yoin's local motif line (no AI title). No longer produced (owner, 2026-10-06); kept so it can return. */
     MOTIF,
 
     /** Nothing else: the album name stands in. */

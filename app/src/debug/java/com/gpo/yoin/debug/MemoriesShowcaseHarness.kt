@@ -49,6 +49,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.gpo.yoin.ui.detail.AlbumNeoDbSync
 import com.gpo.yoin.ui.experience.rememberRevealState
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
 import com.gpo.yoin.ui.memories.MemoryEntityType
@@ -94,6 +95,8 @@ import java.time.LocalDate
 import java.time.ZoneId
 import kotlin.math.roundToInt
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
 
 /*
@@ -470,6 +473,8 @@ private class HarnessDiaryHost(
     }
 
     override val neoDbConfigured: Boolean get() = true
+
+    override fun neoDbSync(memory: MemoryEntry): Flow<AlbumNeoDbSync> = flowOf(AlbumNeoDbSync.Synced)
 }
 
 private const val ReopenDelayMs = 900L

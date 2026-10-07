@@ -2,6 +2,7 @@ package com.gpo.yoin.ui.memories
 
 import app.cash.turbine.test
 import com.gpo.yoin.data.local.AlbumMemoryTitle
+import com.gpo.yoin.data.local.AlbumRating
 import com.gpo.yoin.data.memory.AlbumMemoryCandidate
 import com.gpo.yoin.data.memory.AlbumMemoryTitleStore
 import com.gpo.yoin.data.model.MediaId
@@ -9,6 +10,7 @@ import com.gpo.yoin.data.model.Track
 import com.gpo.yoin.data.repository.YoinRepository
 import com.gpo.yoin.player.PlaybackState
 import com.gpo.yoin.testutil.MainDispatcherRule
+import com.gpo.yoin.ui.detail.AlbumNeoDbSync
 import com.gpo.yoin.ui.experience.ExperienceSessionStore
 import com.gpo.yoin.ui.memories.copy.MemoryTitleKind
 import io.mockk.coEvery
@@ -18,6 +20,8 @@ import io.mockk.mockk
 import java.io.IOException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.advanceUntilIdle
@@ -202,6 +206,7 @@ class MemoriesViewModelTest {
         advanceUntilIdle()
         // Offline with no cached detail: the detail cache rethrows to every waiter.
         coEvery { repository.getAlbum(any()) } throws IOException("offline")
+        coEvery { repository.getAlbumRatingRow(any()) } returns dirtyRatingRow()
         val memory = buildMemoryEntry()
 
         viewModel.events.test {
@@ -214,6 +219,14 @@ class MemoriesViewModelTest {
             expectNoEvents()
         }
         assertTrue(viewModel.syncingEntityIds.value.isEmpty())
+        // The diary's line stays on the retry until a push lands.
+        coEvery { repository.observeAlbumRating(any()) } returns flowOf(dirtyRatingRow())
+        assertEquals(AlbumNeoDbSync.Failed, viewModel.neoDbSync(memory).first())
+        // Synced meanwhile from the album page: the row is clean, so the old failure no longer shows.
+        coEvery { repository.observeAlbumRating(any()) } returns flowOf(
+            dirtyRatingRow().copy(ratingNeedsSync = false),
+        )
+        assertEquals(AlbumNeoDbSync.Synced, viewModel.neoDbSync(memory).first())
     }
 
     @Test
@@ -447,6 +460,15 @@ class MemoriesViewModelTest {
             coverArtUrl = null,
         )
     }
+
+    private fun dirtyRatingRow() = AlbumRating(
+        profileId = "profile-a",
+        albumId = "album-1",
+        rating = 8f,
+        review = null,
+        neoDbReviewUuid = null,
+        ratingNeedsSync = true,
+    )
 
     private fun buildMemoryEntry(): MemoryEntry = MemoryEntry(
         stableId = "album:profile-a:subsonic:album-1",

@@ -9,6 +9,8 @@ import com.gpo.yoin.data.memory.AlbumMemoryTitleStore
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.repository.YoinRepository
 import com.gpo.yoin.player.PlaybackState
+import com.gpo.yoin.ui.detail.AlbumNeoDbSync
+import com.gpo.yoin.ui.detail.albumNeoDbSync
 import com.gpo.yoin.ui.experience.ExperienceSessionStore
 import com.gpo.yoin.ui.memories.copy.MemoryTitleKind
 import kotlinx.coroutines.CancellationException
@@ -66,6 +68,9 @@ class MemoriesViewModel(
      */
     private val _syncingEntityIds = MutableStateFlow<Set<String>>(emptySet())
     val syncingEntityIds: StateFlow<Set<String>> = _syncingEntityIds.asStateFlow()
+
+    /** Albums whose last NeoDB push failed: their line offers a retry until a push lands. */
+    private val _neoDbFailed = MutableStateFlow<Set<String>>(emptySet())
 
     private val _events = MutableSharedFlow<MemoriesOneShotEvent>(extraBufferCapacity = 4)
     val events: SharedFlow<MemoriesOneShotEvent> = _events.asSharedFlow()
@@ -342,6 +347,9 @@ class MemoriesViewModel(
             }
             if (saved) {
                 _reviewDrafts.value = _reviewDrafts.value - key
+                // R3: the words go to NeoDB on their own when signed in (read now: sign-in happens in Settings).
+                refreshNeoDbConfigured()
+                if (_neoDbConfigured.value) pushToNeoDb(memory)
             } else {
                 patchMemory(key) { entry ->
                     if (entry.review?.text == trimmed) {
@@ -534,20 +542,33 @@ class MemoriesViewModel(
     }
 
     /**
-     * Memory 卡片上「同步到 NeoDB」按钮的入口。
-     *
-     * - 没登录（NeoDB config 缺 token）→ 发 [MemoriesOneShotEvent.NeoDBNotConfigured]，
-     *   让 UI 层引导用户去 Settings 配 BYOK。
-     * - 登录了，但本地该专辑缺评分或 review → 发 [MemoriesOneShotEvent.NeoDBNothingToSync]，
-     *   告诉用户先补齐专辑评分和 review 再来。
-     * - 正常路径 → 走 repository.pushAlbumToNeoDB，成功 / 失败都通过
-     *   [MemoriesOneShotEvent.NeoDBSyncResult] 通知 UI。
-     *
-     * entity 只接受 [MemoryEntityType.ALBUM] —— 单曲 / 歌单 Memory 不推。
+     * Where NeoDB stands for [memory]'s album, as the diary's last line reads it — the same states as the album
+     * page's rate sheet ([albumNeoDbSync]): the row's dirty flags, plus a push in flight or one that failed.
+     * Not an album memory: [AlbumNeoDbSync.Unknown] (no line).
+     */
+    fun neoDbSync(memory: MemoryEntry): Flow<AlbumNeoDbSync> {
+        if (memory.entityType != MemoryEntityType.ALBUM) return flowOf(AlbumNeoDbSync.Unknown)
+        val key = memory.neoDbKey()
+        val row = repository.observeAlbumRating(MediaId(memory.entityProvider, memory.entityId))
+        return combine(_neoDbConfigured, row, _syncingEntityIds, _neoDbFailed) { configured, rating, syncing, failed ->
+            val base = albumNeoDbSync(configured, rating)
+            when {
+                key in syncing -> AlbumNeoDbSync.Syncing
+                // A failure stands only while its change still waits: synced elsewhere (the album page), it's gone.
+                base == AlbumNeoDbSync.Pending && key in failed -> AlbumNeoDbSync.Failed
+                else -> base
+            }
+        }.distinctUntilChanged()
+    }
+
+    /**
+     * Hands [memory]'s album to NeoDB when something changed since the last push (owner R3, 2026-10-06: sync is
+     * automatic — a review written here goes on its own; the diary's line only offers a retry). Signed out: the
+     * one-shot sign-in prompt. A failure reports once and leaves the line on "Retry".
      */
     fun pushToNeoDb(memory: MemoryEntry) {
         if (memory.entityType != MemoryEntityType.ALBUM) return
-        val syncKey = "${memory.entityProvider}:${memory.entityId}"
+        val syncKey = memory.neoDbKey()
         if (syncKey in _syncingEntityIds.value) return
 
         viewModelScope.launch {
@@ -557,83 +578,53 @@ class MemoriesViewModel(
                     _events.tryEmit(MemoriesOneShotEvent.NeoDBNotConfigured)
                     return@launch
                 }
+                val albumId = MediaId(memory.entityProvider, memory.entityId)
+                val row = repository.getAlbumRatingRow(albumId)
+                if (albumNeoDbSync(configured = true, row = row) != AlbumNeoDbSync.Pending) {
+                    _neoDbFailed.value = _neoDbFailed.value - syncKey
+                    return@launch
+                }
 
                 _syncingEntityIds.value = _syncingEntityIds.value + syncKey
                 registered = true
-                val resolvedAlbumId = MediaId(memory.entityProvider, memory.entityId)
-                val album = repository.getAlbum(resolvedAlbumId)
-                if (album == null) {
-                    _events.tryEmit(
-                        MemoriesOneShotEvent.NeoDBSyncResult(
-                            memoryStableId = memory.stableId,
-                            success = false,
-                            message = "Album metadata unavailable — try opening the album first.",
-                        ),
-                    )
-                    return@launch
+                val album = repository.getAlbum(albumId)
+                val result = album?.let { repository.pushAlbumToNeoDB(it) }
+                    ?: Result.failure(IllegalStateException("Album metadata unavailable"))
+                if (result.isSuccess) {
+                    _neoDbFailed.value = _neoDbFailed.value - syncKey
+                } else {
+                    Log.w(TAG, "pushToNeoDb failed for $syncKey", result.exceptionOrNull())
+                    reportNeoDbFailure(memory)
                 }
-
-                // NeoDB 以 album Mark + Review 为目标；第一阶段要求两者
-                // 都存在，避免把半截 Memory 推成远端状态。
-                val existingRating = runCatching {
-                    repository.observeAlbumRating(resolvedAlbumId).first()
-                }.getOrNull()
-                val hasRating = (existingRating?.rating ?: 0f) > 0f
-                val hasReview = !existingRating?.review.isNullOrBlank()
-                if (!hasRating || !hasReview) {
-                    _events.tryEmit(MemoriesOneShotEvent.NeoDBNothingToSync)
-                    return@launch
-                }
-
-                // 按需置脏：只标有内容的一侧，避免把「空 rating」推到 NeoDB
-                // 覆盖掉用户在网页端打的分。ratingNeedsSync 和 reviewNeedsSync
-                // 两个脏位分开就是为了防这种情况。
-                val rating = existingRating
-                if (hasRating) {
-                    repository.setAlbumRating(album, rating.rating)
-                }
-                if (hasReview) {
-                    repository.setAlbumReview(album, rating.review)
-                }
-
-                val result = repository.pushAlbumToNeoDB(album)
-                if (result.isFailure) {
-                    Log.w(
-                        TAG,
-                        "pushToNeoDb failed for ${resolvedAlbumId.provider}:${resolvedAlbumId.rawId}",
-                        result.exceptionOrNull(),
-                    )
-                }
-                _events.tryEmit(
-                    MemoriesOneShotEvent.NeoDBSyncResult(
-                        memoryStableId = memory.stableId,
-                        success = result.isSuccess,
-                        message = if (result.isSuccess) {
-                            "Synced to NeoDB"
-                        } else {
-                            result.exceptionOrNull()?.message ?: "NeoDB sync failed"
-                        },
-                    ),
-                )
             } catch (cancellation: CancellationException) {
                 throw cancellation
             } catch (error: Exception) {
-                // Offline with no cached detail, getAlbum throws (and so can the
-                // local rating writes). Nothing above viewModelScope catches it,
-                // so an escape here takes the whole process down — report it as
-                // a failed sync instead.
+                // Offline with no cached detail, getAlbum throws. Nothing above viewModelScope catches it, so an
+                // escape here takes the whole process down — report it as a failed sync instead.
                 Log.w(TAG, "pushToNeoDb failed for $syncKey", error)
-                _events.tryEmit(
-                    MemoriesOneShotEvent.NeoDBSyncResult(
-                        memoryStableId = memory.stableId,
-                        success = false,
-                        message = "NeoDB sync failed",
-                    ),
-                )
+                reportNeoDbFailure(memory)
             } finally {
                 if (registered) _syncingEntityIds.value = _syncingEntityIds.value - syncKey
             }
         }
+    }
+
+    private fun reportNeoDbFailure(memory: MemoryEntry) {
+        _neoDbFailed.value = _neoDbFailed.value + memory.neoDbKey()
+        _events.tryEmit(
+            MemoriesOneShotEvent.NeoDBSyncResult(
+                memoryStableId = memory.stableId,
+                success = false,
+                message = "Couldn't sync to NeoDB",
+            ),
+        )
+    }
+
+    private fun MemoryEntry.neoDbKey(): String = "$entityProvider:$entityId"
+
+    /** Re-reads whether NeoDB is signed in (the shell resumed: Settings may have signed in or out). */
+    fun refreshNeoDbState() {
+        viewModelScope.launch { refreshNeoDbConfigured() }
     }
 
     class Factory(
@@ -740,8 +731,6 @@ internal fun memoryLitNoteId(notes: List<MemoryWriting>, trackId: String?, posit
  */
 sealed interface MemoriesOneShotEvent {
     data object NeoDBNotConfigured : MemoriesOneShotEvent
-
-    data object NeoDBNothingToSync : MemoriesOneShotEvent
 
     data class NeoDBSyncResult(
         val memoryStableId: String,

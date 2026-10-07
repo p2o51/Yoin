@@ -67,7 +67,8 @@ internal suspend fun loadAlbumMemoryFacts(repository: YoinRepository, albumId: M
         MemoryWriting(
             kind = MemoryWriting.Kind.REVIEW,
             text = text,
-            writtenAt = ratingRow.updatedAt,
+            // When the words were written (v30), not the row's last touch (a rating or a sync bumps that).
+            writtenAt = ratingRow.reviewUpdatedAt ?: ratingRow.updatedAt,
         )
     }
     val writings = runCatching { loadAlbumWritings(repository, albumId, songs) }.getOrDefault(emptyList())
@@ -122,7 +123,7 @@ internal suspend fun loadAlbumWritings(
  * [generate] is the Memories deck's alone: with a loaded album it goes through
  * [YoinRepository.getOrGenerateAlbumMemoryTitle], which may ask Gemini when the occupant writing changed.
  * Without it (every other surface), or without a loaded album, only the cached row is read — never a request.
- * Null on a miss or a failed read: the motif takes the slot.
+ * Null on a miss or a failed read: the album name takes the slot.
  */
 internal suspend fun albumMemoryAiTitle(
     repository: YoinRepository,
@@ -198,7 +199,7 @@ internal class AlbumMemoryCopy(
     /** The day the copy was written for (the date grammar's "today"). */
     val today: LocalDate,
 ) {
-    /** Yoin's own title (the AI title, else the motif); null when the album name stands in. */
+    /** Yoin's own title (the AI title); null when the album name stands in. */
     val yoinTitle: YoinMemoryTitle?
         get() = voice.title.takeIf { voice.titleKind != MemoryTitleKind.ALBUM }
             ?.let { title -> YoinMemoryTitle(title, voice.titleKind) }
@@ -233,7 +234,7 @@ internal fun composeAlbumMemoryCopy(
     }
     val today = MemoryDates.localDate(now, zone)
     // 正文槽阶梯①②的占用者决定拟题输入（design.md 拟题豁免）。没有 AI 拟题时
-    // 回退到本地动机短句（owner 2026-10-04），再不行才是专辑名。
+    // 标题就是专辑名（owner 2026-10-06：计数出来的动机短句不算标题，已取消）。
     val input = memoryCopyInput(
         albumName = facts.album?.name ?: basis.albumName,
         aiTitle = aiTitle,

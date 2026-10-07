@@ -28,21 +28,20 @@ class MemoryVoiceTest {
             }
             val title = case.getValue("title").jsonObject
             assertEquals(label, CopyGolden.language(case.text("lang")), voice.language)
+            if (title.text("kind") == "motif") {
+                // The prototype's motif titles are gone (owner, 2026-10-06): the album's name stands in, and the
+                // narration no longer works around a motif — its own cases below cover it.
+                assertEquals(label, MemoryTitleKind.ALBUM, voice.titleKind)
+                assertEquals(label, input.albumName, voice.title)
+                return@forEach
+            }
             assertEquals(label, CopyGolden.titleKind(title.text("kind")), voice.titleKind)
             // The prototype swapped in hand-translated AI titles whenever its prose was English;
             // the app shows the generated AI title as is.
             if (voice.titleKind != MemoryTitleKind.AI || case.text("lang") == "zh") {
                 assertEquals(label, title.text("text"), voice.title)
             }
-            assertEquals(
-                label,
-                CopyGolden.withNotesMotifDedup(
-                    CopyGolden.withArticleFix(case.optText("nar")),
-                    title.text("kind"),
-                    title.text("text"),
-                ),
-                voice.narration,
-            )
+            assertEquals(label, CopyGolden.withArticleFix(case.optText("nar")), voice.narration)
             assertEquals(label, CopyGolden.withArticleFix(case.optText("ask")), voice.question)
             assertEquals(
                 label,
@@ -81,47 +80,24 @@ class MemoryVoiceTest {
     }
 
     @Test
-    fun should_not_repeat_fact_already_in_motif() {
-        // m4 without its review and AI title: the plays motif already says the count and the span
+    fun should_title_with_album_name_when_there_is_no_ai_title() {
+        // m4 without its review and AI title: no counted line in the title slot, so the narration says it all
         val m4 = CopyGolden.inputs.getValue("m4/as-is").copy(review = null, aiTitle = null)
         val voice = MemoryVoice.compose(m4, TODAY)
-        assertEquals(MemoryTitleKind.MOTIF, voice.titleKind)
-        assertEquals("5 plays since September", voice.title)
-        assertEquals("You last played it five days ago.", voice.narration)
-        assertFalse(voice.narration!!.contains("5 plays"))
-        assertFalse(voice.narration!!.contains("September"))
+        assertEquals(MemoryTitleKind.ALBUM, voice.titleKind)
+        assertEquals("MeMe", voice.title)
+        assertEquals("5 plays since September, the last one five days ago.", voice.narration)
 
-        // m3: the seasons motif already said the range, so the narration takes the plays clause instead
+        // m3: the seasons are the narration's again
         val m3 = MemoryVoice.compose(CopyGolden.inputs.getValue("m3/as-is"), TODAY)
-        assertEquals("三个季节，一首一首", m3.title)
-        assertFalse(m3.narration!!.contains("季节"))
-        assertTrue(MemoryFact.RANGE in m3.said)
+        assertEquals(MemoryTitleKind.ALBUM, m3.titleKind)
+        assertEquals("你跨了三个季节回来听，最高分是《Undertow》的 9.0。", m3.narration)
+        assertEquals(setOf(MemoryFact.RANGE, MemoryFact.TOP), m3.said)
 
-        // with an AI title nothing is said yet: the narration may carry the range
-        val m5 = MemoryVoice.compose(CopyGolden.inputs.getValue("m5/no-review"), TODAY)
-        assertEquals(MemoryTitleKind.AI, m5.titleKind)
-        assertEquals("你跨了三个季节回来听，最高分是《Snowline》的 9.5。", m5.narration)
-    }
-
-    @Test
-    fun should_not_restate_note_count_when_notes_motif_titles_the_card() {
-        // m2 without its AI title: the motif says "四天，四条笔记", so narration ① only says the latest note
-        val m2 = CopyGolden.inputs.getValue("m2/as-is").copy(aiTitle = null)
-        val zh = MemoryVoice.compose(m2, TODAY)
-        assertEquals(MemoryTitleKind.MOTIF, zh.titleKind)
-        assertEquals("四天，四条笔记", zh.title)
-        assertEquals("最近一条写在《序曲》。", zh.narration)
-        assertFalse(zh.narration!!.contains("四条笔记"))
-        assertEquals("合起来看，这张专辑你会怎么说？", zh.question)
-        assertEquals(setOf(MemoryFact.NOTES), zh.said)
-
-        val en = MemoryVoice.composeIn(m2, TODAY, MemoryProseLanguage.EN)
-        assertEquals("Four days, four notes", en.title)
-        assertEquals("The latest was on 序曲.", en.narration)
-
-        // with an AI title nothing was said yet: ① keeps the count and the span
-        val titled = MemoryVoice.compose(CopyGolden.inputs.getValue("m2/as-is"), TODAY)
-        assertEquals("四天里记了四条笔记，最近一条写在《序曲》。", titled.narration)
+        // m2: narration ① keeps the count and the span
+        val m2 = MemoryVoice.compose(CopyGolden.inputs.getValue("m2/as-is").copy(aiTitle = null), TODAY)
+        assertEquals(MemoryTitleKind.ALBUM, m2.titleKind)
+        assertEquals("四天里记了四条笔记，最近一条写在《序曲》。", m2.narration)
     }
 
     @Test
@@ -191,8 +167,8 @@ class MemoryVoiceTest {
         )
         val voice = MemoryVoice.compose(once, TODAY)
 
-        assertEquals("1 play since October", voice.title)
-        assertEquals("You last played it today.", voice.narration)
+        assertEquals("MeMe", voice.title)
+        assertEquals("1 play since October, the last one today.", voice.narration)
         assertEquals("You gave it an 8.5. What earned it?", voice.question)
     }
 
@@ -204,7 +180,7 @@ class MemoryVoiceTest {
 
         assertEquals(MemoryProseLanguage.ZH, brief.language)
         assertEquals("Simplified Chinese", brief.languageName)
-        assertEquals("四天，四条笔记", brief.alreadySaid)
+        assertNull(brief.alreadySaid)
         assertEquals(
             listOf(
                 "Plays in Yoin: 9",

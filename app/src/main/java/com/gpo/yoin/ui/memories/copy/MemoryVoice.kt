@@ -4,7 +4,7 @@ import java.time.LocalDate
 import java.util.Locale
 import kotlin.math.floor
 
-/** The language Yoin's own prose is written in: the motif title, the narration and its question. */
+/** The language Yoin's own prose is written in: the narration and its question. */
 enum class MemoryProseLanguage { EN, ZH }
 
 /**
@@ -77,7 +77,10 @@ data class MemoryVoiceCopy(
 data class MemoryNarrationBrief(
     val language: MemoryProseLanguage,
     val facts: List<String>,
-    /** The motif title on the card, when there is one: its facts must not be repeated. */
+    /**
+     * A title on the card whose facts the narration must not repeat. Always null since the motif titles went
+     * (owner, 2026-10-06); kept in [signal] so cached narrations stay valid.
+     */
     val alreadySaid: String?,
 ) {
     val languageName: String
@@ -97,19 +100,20 @@ data class MemoryNarrationBrief(
 
 /**
  * Yoin's voice, ported from the approved prototype (twostate4.html:
- * `writesIn`, `signals`, `motif`, `narrative` ①–④, `voice`, `num`).
+ * `writesIn`, `signals`, `narrative` ①–④, `voice`, `num`).
  *
  * The rule for every line Yoin writes on a memory: second person, past tense,
  * one or two sentences, built only from local signals (play count, date span,
  * season, track names, the top-rated track). It never judges the music, never
  * quotes or paraphrases the review or the notes, and never names the mechanism
- * ("memory"). The question follows from the fact before it. A fact the motif
- * title already said is not repeated by the narration.
+ * ("memory"). The question follows from the fact before it.
+ *
+ * The prototype's motif titles (counted lines such as "18 plays since August")
+ * are gone (owner, 2026-10-06): the title is the AI's, else the album's name.
  *
  * Beyond the prototype (its samples were all played): an album never played
- * in Yoin has no [MemoryListening]. Then the plays motif is skipped (the title
- * falls back to the album name when no other motif fits), and every template
- * drops the clause that needs plays or dates instead of saying "0 plays".
+ * in Yoin has no [MemoryListening]. Then every template drops the clause that
+ * needs plays or dates instead of saying "0 plays".
  */
 object MemoryVoice {
     private val ZH_NUM = listOf("零", "一", "两", "三", "四", "五", "六", "七", "八", "九", "十", "十一", "十二")
@@ -159,29 +163,15 @@ object MemoryVoice {
     fun composeIn(input: MemoryCopyInput, today: LocalDate, language: MemoryProseLanguage): MemoryVoiceCopy {
         val signals = signals(input, today)
         val said = mutableSetOf<MemoryFact>()
+        // A title is something someone wrote: the AI's (the user's lies over it later). Without one the album's
+        // name stands in — owner, 2026-10-06: a counted line ("18 plays since August") is no title.
         val aiTitle = input.aiTitle?.takeIf(String::isNotBlank)
-        val motif = if (aiTitle == null) motif(input, signals, language, today) else null
-        val titleKind: MemoryTitleKind
-        val title: String
-        when {
-            aiTitle != null -> {
-                titleKind = MemoryTitleKind.AI
-                title = aiTitle
-            }
-            motif != null -> {
-                titleKind = MemoryTitleKind.MOTIF
-                title = motif.text
-                said += motif.uses
-            }
-            else -> {
-                titleKind = MemoryTitleKind.ALBUM
-                title = input.albumName
-            }
-        }
+        val titleKind = if (aiTitle != null) MemoryTitleKind.AI else MemoryTitleKind.ALBUM
+        val title = aiTitle ?: input.albumName
         var narration: String? = null
         var question: String? = null
         if (input.review.isNullOrBlank()) {
-            val told = narrative(input, signals, language, said, today)
+            val told = narrative(input, signals, language, today)
             narration = told.narration
             question = told.question
             said += told.uses
@@ -223,7 +213,7 @@ object MemoryVoice {
         return MemoryNarrationBrief(
             language = language,
             facts = facts,
-            alreadySaid = voice.title.takeIf { voice.titleKind == MemoryTitleKind.MOTIF },
+            alreadySaid = null,
         )
     }
 
@@ -251,8 +241,6 @@ object MemoryVoice {
         /** Days since the latest play; null when never played. */
         val agoDays: Int?,
     )
-
-    internal data class Motif(val text: String, val uses: Set<MemoryFact>)
 
     internal data class Told(val narration: String?, val question: String, val uses: Set<MemoryFact>)
 
@@ -315,53 +303,11 @@ object MemoryVoice {
         }
     }
 
-    /** The fallback title: a short deterministic line in the title slot (never serif). */
-    internal fun motif(
-        input: MemoryCopyInput,
-        signals: Signals,
-        language: MemoryProseLanguage,
-        today: LocalDate,
-    ): Motif? {
-        val zh = language == MemoryProseLanguage.ZH
-        if (signals.coverage >= 0.6 && signals.seasons >= 2) {
-            return Motif(
-                text = if (zh) {
-                    "${num(signals.seasons, language)}个季节，一首一首"
-                } else {
-                    "${num(signals.seasons, language, capitalize = true)} seasons, track by track"
-                },
-                uses = setOf(MemoryFact.RANGE, MemoryFact.COVERAGE),
-            )
-        }
-        val noteDays = signals.noteDays
-        if (signals.notes >= 2 && noteDays != null) {
-            return Motif(
-                text = if (zh) {
-                    "${num(noteDays, language)}天，${num(signals.notes, language)}条笔记"
-                } else {
-                    "${num(noteDays, language, capitalize = true)} day${if (noteDays > 1) "s" else ""}, " +
-                        "${num(signals.notes, language)} notes"
-                },
-                uses = setOf(MemoryFact.NOTES),
-            )
-        }
-        val listening = input.listening ?: return null
-        return Motif(
-            text = if (zh) {
-                "${since(listening, today, language)}以来，${listening.plays} 遍"
-            } else {
-                "${playsEn(listening.plays)} since ${since(listening, today, language)}"
-            },
-            uses = setOf(MemoryFact.PLAYS, MemoryFact.RANGE),
-        )
-    }
-
     /** The narration + question shown when there is no review yet. */
     internal fun narrative(
         input: MemoryCopyInput,
         signals: Signals,
         language: MemoryProseLanguage,
-        said: Set<MemoryFact>,
         today: LocalDate,
     ): Told {
         val zh = language == MemoryProseLanguage.ZH
@@ -370,14 +316,7 @@ object MemoryVoice {
         // ① notes, nothing rated
         if (signals.notes >= 2 && noteDays != null && input.ratedTracks == 0 && input.albumScore == null) {
             val track = signals.latest?.track?.title
-            // The prototype's `said` rule, applied here too: the notes motif ("四天，四条笔记") already
-            // said the count and the span, so only the latest note is left to say (fix past the
-            // prototype, which restated both under that title).
             val narration = when {
-                MemoryFact.NOTES in said && zh ->
-                    track?.let { "最近一条写在《$it》。" } ?: "最近一条写给整张专辑。"
-                MemoryFact.NOTES in said ->
-                    track?.let { "The latest was on $it." } ?: "The latest was about the whole album."
                 zh ->
                     "${num(noteDays, language)}天里记了${num(signals.notes, language)}条笔记，" +
                         (track?.let { "最近一条写在《$it》。" } ?: "最近一条写给整张专辑。")
@@ -402,7 +341,7 @@ object MemoryVoice {
                 "${top.title} scored highest, ${article(topScore)} $topScore."
             }
             val question = if (zh) "那整张专辑呢？" else "And the album as a whole?"
-            if (signals.seasons >= 2 && MemoryFact.RANGE !in said) {
+            if (signals.seasons >= 2) {
                 return Told(
                     narration = if (zh) {
                         "你跨了${num(signals.seasons, language)}个季节回来听，$topLine"
@@ -438,14 +377,6 @@ object MemoryVoice {
             }
             if (listening == null) return Told(narration = null, question = question, uses = setOf(MemoryFact.SCORE))
             val ago = ago(listening, signals, today, language)
-            // the plays motif ("5 plays since February") already said the count and the span: only the last listen
-            if (MemoryFact.PLAYS in said || MemoryFact.RANGE in said) {
-                return Told(
-                    narration = if (zh) "最近一次听是$ago。" else "You last played it $ago.",
-                    question = question,
-                    uses = setOf(MemoryFact.SCORE),
-                )
-            }
             val since = since(listening, today, language)
             return Told(
                 narration = if (zh) {

@@ -369,7 +369,7 @@ class MemoriesDeckCoordinatorTest {
     }
 
     @Test
-    fun should_fall_back_to_motif_title_when_ai_title_missing() = runTest {
+    fun should_fall_back_to_album_name_when_ai_title_missing() = runTest {
         val candidate = visitOnlyCandidate()
         stubAlbum(
             candidate = candidate,
@@ -380,11 +380,11 @@ class MemoriesDeckCoordinatorTest {
         )
         val memory = buildCoordinator(listOf(candidate), stubAlbumDefaults = false).ensureDeck().single()
 
-        assertEquals(MemoryTitleKind.MOTIF, memory.memoryTitleKind)
-        assertEquals("Three days, two notes", memory.memoryTitle)
+        // no counted motif line (owner, 2026-10-06): the album's name, and the narration says the notes
+        assertEquals(MemoryTitleKind.ALBUM, memory.memoryTitleKind)
+        assertEquals("Visited Album", memory.memoryTitle)
         assertEquals(MemoryProseLanguage.EN, memory.proseLanguage)
-        // the motif already said the count and the span: the narration only adds the latest note
-        assertEquals("The latest was on Song 3.", memory.yoinNarration)
+        assertEquals("Two notes in three days; the latest was on Song 3.", memory.yoinNarration)
         assertEquals("Put together, what would you say about the album?", memory.yoinQuestion)
         // the excerpt opens with the first song note in album order
         assertEquals("The intro hums", memory.excerptCandidates.first().text)
@@ -435,7 +435,7 @@ class MemoriesDeckCoordinatorTest {
         assertEquals("You wrote on two songs in three days.", memory.narrativeCopy)
         val brief = briefs.single()
         assertEquals(MemoryProseLanguage.EN, brief.language)
-        assertEquals("Three days, two notes", brief.alreadySaid)
+        assertNull(brief.alreadySaid)
         // listening facts only: never the user's words
         assertTrue(brief.facts.none { fact -> "intro hums" in fact || "Drums" in fact })
     }
@@ -455,8 +455,8 @@ class MemoriesDeckCoordinatorTest {
         }
         val memory = coordinator.ensureDeck().single()
 
-        // the local template, under the notes motif ("Three days, two notes"): only the latest note
-        assertEquals("The latest was on Song 3.", memory.yoinNarration)
+        // the local template
+        assertEquals("Two notes in three days; the latest was on Song 3.", memory.yoinNarration)
         assertEquals("Put together, what would you say about the album?", memory.yoinQuestion)
     }
 
@@ -612,9 +612,10 @@ class MemoriesDeckCoordinatorTest {
     private fun titleStore(): AlbumMemoryTitleStore =
         AlbumMemoryTitleStore(FakeAlbumMemoryTitleDao(), MutableStateFlow("profile-a"), clock = { day(10) })
 
-    private fun twoNoteAlbum(): AlbumMemoryCandidate = visitOnlyCandidate().also { candidate ->
+    private fun twoNoteAlbum(aiTitle: String? = null): AlbumMemoryCandidate = visitOnlyCandidate().also { candidate ->
         stubAlbum(
             candidate = candidate,
+            aiTitle = aiTitle,
             songNotes = listOf(
                 songNote(id = "n1", track = "t1", text = "The intro hums", positionMs = 4_000L, at = day(1)),
                 songNote(id = "n2", track = "t3", text = "Drums come in late", positionMs = 9_000L, at = day(3)),
@@ -623,8 +624,8 @@ class MemoriesDeckCoordinatorTest {
     }
 
     @Test
-    fun should_show_user_title_over_motif_when_user_named_album() = runTest {
-        val candidate = twoNoteAlbum()
+    fun should_show_user_title_over_ai_title_when_user_named_album() = runTest {
+        val candidate = twoNoteAlbum(aiTitle = "Rain on the bus")
         val store = titleStore()
         store.setTitle(MediaId("subsonic", "al-visit"), "Night bus")
 
@@ -635,20 +636,20 @@ class MemoriesDeckCoordinatorTest {
         assertEquals(MemoryTitleKind.USER, memory.memoryTitleKind)
         assertEquals("Night bus", memory.memoryTitle)
         // Yoin's own title waits underneath, so the card can offer it back
-        assertEquals("Three days, two notes", memory.generatedMemoryTitle)
-        assertEquals(MemoryTitleKind.MOTIF, memory.generatedMemoryTitleKind)
+        assertEquals("Rain on the bus", memory.generatedMemoryTitle)
+        assertEquals(MemoryTitleKind.AI, memory.generatedMemoryTitleKind)
         assertTrue(memory.canRestoreGeneratedTitle())
         // the user's title never steers Yoin's prose: same narration, same language as without it
-        assertEquals("The latest was on Song 3.", memory.yoinNarration)
+        assertEquals("Two notes in three days; the latest was on Song 3.", memory.yoinNarration)
         assertEquals(MemoryProseLanguage.EN, memory.proseLanguage)
     }
 
     @Test
     fun should_follow_title_store_when_card_comes_from_cache() = runTest {
-        val candidate = twoNoteAlbum()
+        val candidate = twoNoteAlbum(aiTitle = "Rain on the bus")
         val store = titleStore()
         val coordinator = buildCoordinator(listOf(candidate), stubAlbumDefaults = false, titleStore = store)
-        assertEquals(MemoryTitleKind.MOTIF, coordinator.ensureDeck().single().memoryTitleKind)
+        assertEquals(MemoryTitleKind.AI, coordinator.ensureDeck().single().memoryTitleKind)
 
         // the resolve is cached (no second resolve); the title is read fresh on every deal
         store.setTitle(MediaId("subsonic", "al-visit"), "Night bus")
@@ -659,8 +660,8 @@ class MemoriesDeckCoordinatorTest {
 
         store.clearTitle(MediaId("subsonic", "al-visit"))
         val restored = coordinator.refreshDeck(listOf(named)).single()
-        assertEquals("Three days, two notes", restored.memoryTitle)
-        assertEquals(MemoryTitleKind.MOTIF, restored.memoryTitleKind)
+        assertEquals("Rain on the bus", restored.memoryTitle)
+        assertEquals(MemoryTitleKind.AI, restored.memoryTitleKind)
     }
 
     @Test

@@ -44,11 +44,13 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.gpo.yoin.ui.component.ExpressivePageBackground
 import com.gpo.yoin.ui.component.YoinLoadingIndicator
 import com.gpo.yoin.ui.component.YoinPageWidths
 import com.gpo.yoin.ui.component.yoinPageContentWidth
+import com.gpo.yoin.ui.detail.AlbumNeoDbSync
 import com.gpo.yoin.ui.experience.EdgeAdvanceDirection
 import com.gpo.yoin.ui.experience.MemoriesSessionState
 import com.gpo.yoin.ui.experience.RevealState
@@ -77,6 +79,7 @@ import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinMotionRole
 import kotlin.math.abs
 import kotlin.math.roundToInt
+import kotlinx.coroutines.flow.Flow
 
 private val MemoriesAdjacentDeckTrigger = 72.dp
 private val MemoriesDeckEnterOffset = 44.dp
@@ -172,7 +175,6 @@ fun MemoriesScreen(
     val playingTrackId = viewModel.playingTrackId.collectAsStateWithLifecycle()
     val reviewDrafts = viewModel.reviewDrafts.collectAsStateWithLifecycle()
     val neoDbConfigured = viewModel.neoDbConfigured.collectAsStateWithLifecycle()
-    val syncingIds = viewModel.syncingEntityIds.collectAsStateWithLifecycle()
     val playMemoryTrack by rememberUpdatedState(onPlayMemoryTrack)
     val diaryHost = remember(viewModel) {
         object : MemoriesDiaryHost {
@@ -206,8 +208,7 @@ fun MemoriesScreen(
 
             override val neoDbConfigured: Boolean get() = neoDbConfigured.value
 
-            override fun neoDbSyncing(memory: MemoryEntry): Boolean =
-                "${memory.entityProvider}:${memory.entityId}" in syncingIds.value
+            override fun neoDbSync(memory: MemoryEntry): Flow<AlbumNeoDbSync> = viewModel.neoDbSync(memory)
 
             override fun pushNeoDb(memory: MemoryEntry) = viewModel.pushToNeoDb(memory)
         }
@@ -216,11 +217,17 @@ fun MemoriesScreen(
     LaunchedEffect(viewModel) {
         viewModel.ensureLoaded()
     }
+    // NeoDB is signed in and out in Settings (another Activity): read it again whenever the shell comes back.
+    LifecycleResumeEffect(viewModel) {
+        viewModel.refreshNeoDbState()
+        onPauseOrDispose { }
+    }
 
     // One-shot NeoDB 同步事件 → snackbar。未登录事件带一个 "Sign in" action，
     // 点击后通过 [onNavigateToNeoDbSettings] 退出 Memory 层、跳 Settings。
-    // The push entry is the quiet line at the diary's end; a diary review that
-    // didn't save reports here too (its draft is kept).
+    // Sync is automatic (a saved review goes on its own); the diary's last line
+    // shows where it stands and retries. A diary review that didn't save reports
+    // here too (its draft is kept).
     LaunchedEffect(viewModel) {
         viewModel.events.collect { event ->
             when (event) {
@@ -233,13 +240,6 @@ fun MemoriesScreen(
                     if (result == SnackbarResult.ActionPerformed) {
                         onNavigateToNeoDbSettings()
                     }
-                }
-
-                MemoriesOneShotEvent.NeoDBNothingToSync -> {
-                    snackbarHostState.showSnackbar(
-                        message = "Rate the album and write a review first.",
-                        duration = SnackbarDuration.Short,
-                    )
                 }
 
                 is MemoriesOneShotEvent.NeoDBSyncResult -> {
