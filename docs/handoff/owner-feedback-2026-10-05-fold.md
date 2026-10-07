@@ -81,6 +81,12 @@
 - 歌词返回手势改成直接跟手 + AOSP 位移后：「正常了」。
 - T1：要换 → 用户的字（乐评、笔记、日记、Memories 摘录、专辑第 2 页）改用 Google Sans Flex，全 app 不再有 Roboto。随后提交并推送。
 
+## Owner 答复（2026-10-08）
+- 图标库建 GitHub 仓库 → `p2o51/yoin-symbols`（public，README 原本就指向这个地址）。
+- 返回手势规范文档纳入版本管理（`.claude/skills/` 不再被忽略）。
+- P1：首页和播放页的波形**都要一直流动**，不做静止后停下。
+- P2：首页标题跑马灯**一直滚动**，不限次数，不要擅自让它停下。
+
 ## 备注
 - owner 的测试机：三星折叠屏（外屏 Compact、内屏接近方形 Medium / Expanded）。Pixel Tablet 上用 `wm size` 模拟两块屏复现。
 - 7a / 7c 属于云同步会话的范围（`data/sync/**`、`docs/cloud-sync.md`），已转过去；本会话不改同步代码。

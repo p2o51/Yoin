@@ -33,8 +33,10 @@ local.properties
 /skills-lock.json
 # Interview-prep ebook built from this project (own toolchain, not app source)
 /ebook/
-# Agent / tooling working dirs
-.claude/
+# Agent / tooling working dirs — except the project's skills (the predictive-back
+# doctrine is part of the repo's docs)
+.claude/*
+!.claude/skills/
 .commandcode/
 
 # Credentials must never enter the public repository.
