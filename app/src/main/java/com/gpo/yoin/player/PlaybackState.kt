@@ -36,6 +36,18 @@ data class PlaybackState(
     val queue: List<Track> = emptyList(),
     val currentIndex: Int = -1,
     /**
+     * One stable id per [queue] entry (same order), so a list can key and
+     * animate entries through moves; the same song queued twice gets two.
+     * Empty where the backend has none (index keys then).
+     */
+    val queueEntryIds: List<String> = emptyList(),
+    /** [queue] indices the user added (Play next / Add to queue) — Spotify's "Next in queue". */
+    val userQueued: Set<Int> = emptySet(),
+    /** [queue] indices still to play after the current one, in the order they will play (shuffle included). */
+    val upcoming: List<Int> = emptyList(),
+    /** What the queue sheet may change on this backend. */
+    val queueEdit: QueueEdit = QueueEdit.None,
+    /**
      * The track that will actually play after [currentTrack], as the player
      * resolves it (shuffle order and repeat-all included). Null at the end of
      * the queue, under repeat-one, and for delegated backends that don't
@@ -89,3 +101,16 @@ internal fun playWhenReadyOf(
     playbackState != Player.STATE_IDLE &&
     playbackState != Player.STATE_ENDED &&
     playbackSuppressionReason == Player.PLAYBACK_SUPPRESSION_REASON_NONE
+
+/** What a backend lets the queue sheet change. */
+enum class QueueEdit {
+    /** Read only (Spotify: its queue isn't Yoin's to rearrange). */
+    None,
+
+    /** Entries can be removed but not moved (MusicKit). */
+    Remove,
+
+    /** Move, remove and clear (Media3 / Subsonic). */
+    Full,
+}
+

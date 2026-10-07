@@ -6,6 +6,7 @@ import com.gpo.yoin.data.model.LibraryMembership
 import com.gpo.yoin.data.source.ServiceFeatureCatalog
 import com.gpo.yoin.data.source.ServiceFeatures
 import com.gpo.yoin.player.PlayMode
+import com.gpo.yoin.player.QueueEdit
 
 sealed interface NowPlayingUiState {
 
@@ -74,6 +75,10 @@ sealed interface NowPlayingUiState {
         val lyricsLoading: Boolean,
         val queue: List<QueueItem>,
         val currentQueueIndex: Int,
+        /** [queue] indices still to play, in play order (the queue sheet's lists). */
+        val upcomingQueue: List<Int> = emptyList(),
+        /** What the queue sheet may change here (Spotify: nothing). */
+        val queueEdit: QueueEdit = QueueEdit.None,
         val playMode: PlayMode,
         val albumId: String?,
         val artistId: String?,
@@ -146,4 +151,8 @@ data class QueueItem(
     val title: String,
     val artist: String,
     val coverArtUrl: String?,
+    /** Stable through moves (the player's own entry id); defaults to the song id. */
+    val entryId: String = songId,
+    /** Added by the user (Play next / Add to queue): Spotify's "Next in queue". */
+    val userQueued: Boolean = false,
 )

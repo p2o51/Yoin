@@ -49,13 +49,28 @@ class AppleMusicMedia3Player(
     private var failure: String? = null
     private var released = false
     private var published: PlayOrder? = null
+
+    /**
+     * A queue Yoin prepared must start its first song at 0:00. MusicKit
+     * (1.1.1, `playback.c.b`) keeps a `savedPlaybackPosition` — written by
+     * `stop()` while something plays, and restored with the last session's
+     * queue at launch — and its next `preparePlayer()` seeks the NEW queue's
+     * start item to it, whatever song that is: a new album then opened at
+     * 0:15 or 1:30, wherever the last song stopped (owner 2026-10-05). Set at
+     * prepare; spent the first time the start item plays or pauses, or by any
+     * deliberate seek.
+     */
+    private var startFromTop = false
     private val listener = object : MediaPlayerController.Listener {
         override fun onPlayerStateRestored(c: MediaPlayerController) {
             if (requestedItems.isEmpty()) c.stop()
             publish()
         }
         override fun onPlaybackStateChanged(c: MediaPlayerController, old: Int, new: Int) {
-            if (new != ApplePlaybackState.STOPPED) preparing = false
+            if (new != ApplePlaybackState.STOPPED) {
+                preparing = false
+                rewindRestoredStart()
+            }
             publish()
         }
         override fun onPlaybackStateUpdated(c: MediaPlayerController) = publish()
@@ -101,6 +116,13 @@ class AppleMusicMedia3Player(
         setMediaItem(MediaItem.Builder().setMediaId("applemusic:$id").build())
         playWhenReady = true
         prepare()
+    }
+
+    /** See [startFromTop]: the start item came up past its first second, so MusicKit carried a stale position. */
+    private fun rewindRestoredStart() {
+        if (!startFromTop || controller.currentItem == null) return
+        startFromTop = false
+        if (controller.currentPosition > RestoredStartSlackMs && controller.canSeek()) controller.seekToPosition(0)
     }
 
     private fun publish() {
@@ -248,7 +270,10 @@ class AppleMusicMedia3Player(
         startPositionMs: Long
     ): ListenableFuture<*> {
         items.forEach(::catalogId)
-        controller.stop()
+        // pause, not stop: stop() files the playing song's position as the
+        // next prepare's start position (see startFromTop). The new queue's
+        // prepare replaces the old song's source anyway.
+        controller.pause()
         requestedItems = items.toList()
         requestedIndex = startIndex.takeIf { it in items.indices } ?: 0
         queuePrepared = false
@@ -263,6 +288,7 @@ class AppleMusicMedia3Player(
             queuePrepared = true
             handler.removeCallbacks(prepareTimeout)
             handler.postDelayed(prepareTimeout, 30_000)
+            startFromTop = true
             controller.prepare(
                 CatalogPlaybackQueueItemProvider.Builder()
                     .items(MediaItemType.SONG, *requestedItems.map(::catalogId).toTypedArray())
@@ -272,15 +298,20 @@ class AppleMusicMedia3Player(
         }
         return Futures.immediateVoidFuture()
     }
-    // MusicKit can only append (or insert after the current item); any other index lands at the end.
+    // MusicKit can only append or insert after the current item (Play next); any other index lands at the end.
     override fun handleAddMediaItems(index: Int, items: List<MediaItem>): ListenableFuture<*> {
         val ids = items.map(::catalogId)
         requestedItems = requestedItems + items
         if (queuePrepared) {
+            val afterCurrent = published?.let { index == it.currentIndex + 1 } == true
             controller.addQueueItems(
                 CatalogPlaybackQueueItemProvider.Builder()
                     .items(MediaItemType.SONG, *ids.toTypedArray()).build(),
-                com.apple.android.music.playback.queue.PlaybackQueueInsertionType.INSERTION_TYPE_AT_END
+                if (afterCurrent) {
+                    com.apple.android.music.playback.queue.PlaybackQueueInsertionType.INSERTION_TYPE_AFTER_CURRENT_ITEM
+                } else {
+                    com.apple.android.music.playback.queue.PlaybackQueueInsertionType.INSERTION_TYPE_AT_END
+                }
             )
         }
         return Futures.immediateVoidFuture()
@@ -328,6 +359,8 @@ class AppleMusicMedia3Player(
         return Futures.immediateVoidFuture()
     }
     override fun handleSeek(mediaItemIndex: Int, positionMs: Long, seekCommand: Int): ListenableFuture<*> {
+        // A seek of the user's own (a note's moment, the bar) is never undone.
+        startFromTop = false
         val order = published
         when {
             order == null -> if (!queuePrepared && mediaItemIndex in requestedItems.indices) {
@@ -362,6 +395,9 @@ class AppleMusicMedia3Player(
 }
 
 /** A published playlist: (uid, item) pairs in play order, and the upcoming items' MusicKit queue ids. */
+/** A freshly prepared start item further in than this was put there by MusicKit, not by playback. */
+private const val RestoredStartSlackMs = 1_000L
+
 private data class PlayOrder(
     val entries: List<Pair<String, MediaItem>>,
     val currentIndex: Int,

@@ -470,15 +470,19 @@ class NowPlayingViewModel(
                 lyricsLoading = if (lyricsOwned) lyricsState.loading else preloaded == null,
                 // Never the playing song itself (repeat-all on a one-song queue).
                 upNextLyrics = preload.upNextTimed?.takeIf { it.songId != song.id.toString() },
-                queue = state.queue.map { queueSong ->
+                queue = state.queue.mapIndexed { index, queueSong ->
                     QueueItem(
                         songId = queueSong.id.toString(),
                         title = queueSong.title.orEmpty(),
                         artist = queueSong.artist.orEmpty(),
                         coverArtUrl = repository.resolveCoverUrl(queueSong.coverArt),
+                        entryId = state.queueEntryIds.getOrNull(index) ?: "i$index",
+                        userQueued = index in state.userQueued,
                     )
                 },
                 currentQueueIndex = state.currentIndex,
+                upcomingQueue = state.upcoming,
+                queueEdit = state.queueEdit,
                 playMode = state.playMode,
                 albumId = song.albumId?.toString(),
                 artistId = song.artistId?.toString(),
@@ -1130,6 +1134,11 @@ class NowPlayingViewModel(
                 )
             }
 
+    /** A one-line confirmation on this window's snackbar (a detail page's ▾ actions). */
+    fun postMessage(message: String) {
+        _addToPlaylistMessages.tryEmit(message)
+    }
+
     fun requestAddTracksToPlaylist(trackIds: List<MediaId>) {
         val distinctTargets = trackIds.distinct()
         if (distinctTargets.isEmpty()) return
@@ -1201,6 +1210,12 @@ class NowPlayingViewModel(
     fun skipToQueueItem(index: Int) {
         playbackManager.skipToQueueItem(index)
     }
+
+    fun moveQueueItem(from: Int, to: Int) = playbackManager.moveQueueItem(from, to)
+
+    fun removeQueueItem(index: Int) = playbackManager.removeQueueItem(index)
+
+    fun clearUserQueue() = playbackManager.clearUserQueue()
 
     fun setStageMode(mode: NowPlayingStageMode) {
         _stageMode.value = mode

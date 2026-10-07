@@ -282,14 +282,16 @@ internal class SpotifyAppRemotePlayer(
                     return@enqueueOperation
                 }
             }
-            // Fallback / no-context path: bare App Remote `play(uri)` followed
-            // by `queue(uri)` for each remaining track. This is what the app
-            // did before context-aware playback landed — loses Spotify-side
-            // context but always works as long as App Remote is connected.
+            // Fallback path (the Web API start failed): bare App Remote
+            // `play(uri)` followed by `queue(uri)` for the next few tracks.
+            // Loses Spotify-side context but works whenever App Remote is
+            // connected. Spotify's queue is the user's own and outlives this
+            // play, so only a short run goes in — queueing the whole list
+            // left hundreds of stale songs that played before the next album.
             val current = tracks[startIndex]
             connected.playerApi.play(current.spotifyUri()).awaitUnit()
             playMode?.let { applyPlayMode(connected, it) }
-            tracks.drop(startIndex + 1).forEach { track ->
+            tracks.drop(startIndex + 1).take(FALLBACK_QUEUE_LIMIT).forEach { track ->
                 connected.playerApi.queue(track.spotifyUri()).awaitUnit()
             }
         }
@@ -827,6 +829,9 @@ internal class SpotifyAppRemotePlayer(
         pendingOperations.isNotEmpty() || lastSnapshot.observedPlayerState
 
     private companion object {
+        /** Tracks the App Remote fallback queues after the started one. */
+        const val FALLBACK_QUEUE_LIMIT = 10
+
         /**
          * Gap between the failing connect and the silent retry. Long enough
          * for the SDK's auth flow to finish persisting consent, short enough
