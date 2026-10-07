@@ -51,7 +51,7 @@ class AlbumScrapbookTest {
     }
 
     @Test
-    fun should_putUntouchedTracksInNotYet_when_noScoreNoteOrQuestion() {
+    fun should_leaveOutNotYet_when_anyTrackHasAScoreNoteOrQuestion() {
         val data = AlbumScrapbookData(
             ratings = mapOf(id(1) to 8f),
             notes = mapOf(id(2) to listOf(note("n", "hi", 10_000))),
@@ -60,9 +60,7 @@ class AlbumScrapbookTest {
 
         val book = buildAlbumScrapbook(album(trackCount = 5), data, now, ZoneOffset.UTC)
 
-        val notYet = book.pieces.filterIsInstance<ScrapPiece.NotYet>().single()
-        assertEquals(listOf(4, 5), notYet.tracks.map { it.number })
-        assertFalse(notYet.all)
+        assertTrue(book.pieces.none { it is ScrapPiece.NotYet })
     }
 
     @Test
@@ -74,7 +72,8 @@ class AlbumScrapbookTest {
         val notYet = book.pieces.filterIsInstance<ScrapPiece.NotYet>().single()
         assertTrue(notYet.all)
         assertEquals(3, notYet.tracks.size)
-        assertTrue(book.pieces.none { it is ScrapPiece.Receipt || it is ScrapPiece.Masthead })
+        assertTrue(book.pieces.none { it is ScrapPiece.Receipt })
+        assertNull(opening.title)
     }
 
     @Test
@@ -201,12 +200,27 @@ class AlbumScrapbookTest {
     }
 
     @Test
-    fun should_showMasthead_when_memoryTitleCached() {
+    fun should_putTheMemoryTitleBesideTheCover_when_oneIsCached() {
         val with = buildAlbumScrapbook(album(trackCount = 1), AlbumScrapbookData(memoryTitle = "从白天听到天黑"), now, ZoneOffset.UTC)
         val without = buildAlbumScrapbook(album(trackCount = 1), AlbumScrapbookData(), now, ZoneOffset.UTC)
 
-        assertEquals("从白天听到天黑", (with.pieces.first() as ScrapPiece.Masthead).title)
-        assertTrue(without.pieces.none { it is ScrapPiece.Masthead })
+        assertEquals(
+            ScrapTitle("从白天听到天黑", edited = false, canRestore = false),
+            (with.pieces.first() as ScrapPiece.Opening).title,
+        )
+        assertNull((without.pieces.first() as ScrapPiece.Opening).title)
+    }
+
+    @Test
+    fun should_showTheUsersOwnName_when_theyRenamedTheMemory() {
+        val renamed = AlbumScrapbookData(memoryTitle = "从白天听到天黑", memoryTitleUser = "  夜车  ")
+        val mineOnly = AlbumScrapbookData(memoryTitleUser = "夜车")
+
+        val book = buildAlbumScrapbook(album(trackCount = 1), renamed, now, ZoneOffset.UTC)
+        val noAi = buildAlbumScrapbook(album(trackCount = 1), mineOnly, now, ZoneOffset.UTC)
+
+        assertEquals(ScrapTitle("夜车", edited = true, canRestore = true), (book.pieces.first() as ScrapPiece.Opening).title)
+        assertEquals(ScrapTitle("夜车", edited = true, canRestore = false), (noAi.pieces.first() as ScrapPiece.Opening).title)
     }
 
     @Test
@@ -323,7 +337,6 @@ class AlbumScrapbookTest {
             is ScrapPiece.ContactSheet -> piece.tilts
             is ScrapPiece.NotYet -> piece.tracks.map { it.tilt }
             is ScrapPiece.Receipt -> listOf(piece.tilt)
-            is ScrapPiece.Masthead -> emptyList()
         }
     }
 

@@ -55,6 +55,34 @@ interface AlbumRatingDao {
     @Upsert
     suspend fun upsert(rating: AlbumRating)
 
+    /**
+     * A NeoDB push landed the rating [sentRating]: clears its dirty flag only if the row still holds that rating.
+     * A score set while the push was in flight stays dirty and goes with the next push (never overwritten by
+     * the push's snapshot). Returns the rows changed (0: it moved on).
+     */
+    @Query(
+        "UPDATE album_ratings SET ratingNeedsSync = 0, updatedAt = :now " +
+            "WHERE profileId = :profileId AND albumId = :albumId AND provider = :provider AND rating = :sentRating",
+    )
+    suspend fun markRatingPushed(albumId: String, provider: String, profileId: String, sentRating: Float, now: Long): Int
+
+    /**
+     * A NeoDB push landed the text [sentReview] (null: the clear): clears its dirty flag and keeps the remote
+     * review's [reviewUuid] only if the row still holds those words; words written meanwhile stay dirty.
+     */
+    @Query(
+        "UPDATE album_ratings SET reviewNeedsSync = 0, neoDbReviewUuid = :reviewUuid, updatedAt = :now " +
+            "WHERE profileId = :profileId AND albumId = :albumId AND provider = :provider AND review IS :sentReview",
+    )
+    suspend fun markReviewPushed(
+        albumId: String,
+        provider: String,
+        profileId: String,
+        sentReview: String?,
+        reviewUuid: String?,
+        now: Long,
+    ): Int
+
     @Query(
         "DELETE FROM album_ratings " +
             "WHERE profileId = :profileId AND albumId = :albumId AND provider = :provider",

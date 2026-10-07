@@ -49,7 +49,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
@@ -118,7 +119,8 @@ fun ArtistDetailScreen(
     onToggleFollow: () -> Unit = {},
     onPlay: () -> Unit = {},
     onShuffle: () -> Unit = {},
-    onOpenInSpotify: () -> Unit = {},
+    // The ▾ rows after Shuffle play (Add to queue, Open in …): the host builds them.
+    menu: DetailMenu = DetailMenu(),
     onMostPlayedClick: (index: Int) -> Unit = {},
     onShare: () -> Unit = {},
     isPlaying: Boolean = false,
@@ -163,8 +165,6 @@ fun ArtistDetailScreen(
         // Pinwheel arms in mark order: lower-left, upper, lower-right.
         arms = listOf(armLowerLeft, armUpper, armLowerRight),
         accent = titleColor,
-        bunContainer = scheme.primaryContainer,
-        bunContent = scheme.onPrimaryContainer,
     )
 
     val provider = content?.artistId?.let { MediaId.parseOrNull(it)?.provider }
@@ -299,7 +299,6 @@ fun ArtistDetailScreen(
 
             // Persistent bottom bar — rendered in ALL states; Play/menu act on
             // Content and no-op during Loading/Error.
-            val showOpenInSpotify = provider == MediaId.PROVIDER_SPOTIFY
             DetailBottomBar(
                 playContainer = scheme.primary,
                 playContent = scheme.onPrimary,
@@ -337,22 +336,7 @@ fun ArtistDetailScreen(
                 ),
                 modifier = Modifier.align(Alignment.BottomCenter),
             ) { dismissMenu ->
-                if (showOpenInSpotify) {
-                    // Saved/liked tracks live in Spotify — the ▾ menu deep-links
-                    // out (Spotify only; no in-app mirror).
-                    YoinDropdownMenuItem(
-                        text = "Open in Spotify",
-                        onClick = {
-                            dismissMenu()
-                            onOpenInSpotify()
-                        },
-                        leadingIcon = {
-                            Icon(YoinSymbols.Launch, contentDescription = null, modifier = Modifier.size(22.dp))
-                        },
-                        textStyle = MaterialTheme.typography.titleMedium,
-                        contentPadding = PaddingValues(horizontal = 20.dp, vertical = 14.dp),
-                    )
-                }
+                DetailMenuRows(menu, dismissMenu)
             }
         }
     }
@@ -362,8 +346,6 @@ fun ArtistDetailScreen(
 private class ArtistPageColors(
     val arms: List<Color>,
     val accent: Color,
-    val bunContainer: Color,
-    val bunContent: Color,
 )
 
 // ---------------------------------------------------------------------------
@@ -577,7 +559,7 @@ private fun ArtistBody(
                     Spacer(modifier = Modifier.height(8.dp))
                     ArtistHeroMeta(
                         content = content,
-                        colors = colors,
+                        heroUrl = heroUrl,
                         modifier = Modifier.width(minOf(maxW * 0.74f, 300.dp)),
                     )
                 }
@@ -680,7 +662,7 @@ private fun ArtistLandscapeHero(
         Column(modifier = Modifier.weight(1f)) {
             ArtistHeroMeta(
                 content = content,
-                colors = colors,
+                heroUrl = heroUrl,
                 modifier = Modifier
                     .widthIn(max = 300.dp)
                     .fillMaxWidth(),
@@ -754,33 +736,27 @@ private fun ArtistPortrait(heroUrl: String?, artistName: String, modifier: Modif
 
 /**
  * The Album hero's meta row, in artist terms — Last Play (your latest play of
- * anything by them, day over time in mono) | Avg. (the mean of your album
+ * anything by them, day over time) | Avg. (the mean of your album
  * ratings for their releases, "Based on X/N").
  */
 @Composable
 private fun ArtistHeroMeta(
     content: ArtistDetailUiState.Content,
-    colors: ArtistPageColors,
+    heroUrl: String?,
     modifier: Modifier = Modifier,
 ) {
-    val mono = FontFamily.Monospace
     val listening = content.listening
-    val average = content.averageAlbumRating
-    val score = if (average != null) {
-        AlbumScore(AlbumScoreKind.Average, average)
-    } else {
-        AlbumScore(AlbumScoreKind.None, 0f)
-    }
     Row(
         modifier = modifier.seamFade(),
         horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
             AlbumSectionLabel(text = "Last Play")
             val labels = listening?.lastPlayedAt?.let { albumLastPlayLabels(it) }
             Text(
                 text = labels?.first ?: "—",
-                style = MaterialTheme.typography.bodyLarge.copy(fontFamily = mono),
+                style = MaterialTheme.typography.bodyLarge,
                 color = MaterialTheme.colorScheme.onSurface,
             )
             Text(
@@ -791,25 +767,46 @@ private fun ArtistHeroMeta(
                     listening == null -> " "
                     else -> "Never"
                 },
-                style = MaterialTheme.typography.bodyMedium.copy(fontFamily = mono),
+                style = MaterialTheme.typography.bodyMedium.withTabularFigures(),
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
-        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            AlbumSectionLabel(text = "Avg.")
-            AlbumScoreBun(
-                score = score,
-                ratedCount = content.ratedAlbumCount,
-                total = content.albums.size,
-                containerColor = colors.bunContainer,
-                contentColor = colors.bunContent,
-                // Album ratings are given on each album page; the artist Bun
-                // only reports them.
-                enabled = false,
-                onClick = {},
-            )
-        }
+        // The album page's groove emblem (owner W3, 2026-10-05), no caption:
+        // one ring per release, the rated ones cut, the album ratings'
+        // average in the middle. Album ratings are given on each album page;
+        // here the emblem only reports them.
+        val spec = remember(content.albums) { content.albumAverageEmblemSpec() }
+        val description = artistAverageDescription(content)
+        AlbumScoreEmblem(
+            spec = spec,
+            coverArtUrl = heroUrl,
+            ratedCount = content.ratedAlbumCount,
+            total = content.albums.size,
+            enabled = false,
+            onClick = {},
+            modifier = Modifier.clearAndSetSemantics { contentDescription = description },
+        )
     }
+}
+
+/**
+ * The artist's [AlbumScoreEmblem]: the album ratings' average (unrated when
+ * none is rated), one ring per release, oldest outermost — a career read like
+ * an album's tracks.
+ */
+internal fun ArtistDetailUiState.Content.albumAverageEmblemSpec(): AlbumEmblemSpec {
+    val average = averageAlbumRating
+    return AlbumEmblemSpec(
+        score = if (average != null) AlbumScore(AlbumScoreKind.Average, average) else AlbumScore(AlbumScoreKind.None, 0f),
+        trackRated = albums.asReversed().map { it.userRating != null },
+    )
+}
+
+/** TalkBack for the artist's emblem: the emblem itself would say "Track average". */
+internal fun artistAverageDescription(content: ArtistDetailUiState.Content): String {
+    val average = content.averageAlbumRating ?: return "No albums rated"
+    val score = "%.1f".format(java.util.Locale.ROOT, average)
+    return "Album average $score, ${content.ratedAlbumCount} of ${content.albums.size} albums rated"
 }
 
 /**
@@ -877,14 +874,14 @@ private fun ArtistWideHero(
                     artistReleaseCountLabel(content.albums.size),
                     artistActiveSpan(content.albums),
                 ).joinToString("  ·  "),
-                style = MaterialTheme.typography.titleSmall.copy(fontFamily = FontFamily.Monospace),
+                style = MaterialTheme.typography.titleSmall.withTabularFigures(),
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             follow?.invoke()
             Spacer(modifier = Modifier.height(4.dp))
             ArtistHeroMeta(
                 content = content,
-                colors = colors,
+                heroUrl = heroUrl,
                 // Capped, then filled: the SpaceBetween row needs a real width
                 // or Last Play and Avg. collapse onto each other.
                 modifier = Modifier
@@ -965,7 +962,7 @@ private fun ArtistPlayedRow(
     ) {
         Text(
             text = rank.toString(),
-            style = MaterialTheme.typography.labelLarge.copy(fontFamily = FontFamily.Monospace),
+            style = MaterialTheme.typography.labelLarge.withTabularFigures(),
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.End,
             modifier = Modifier
@@ -1009,16 +1006,15 @@ private fun ArtistPlayedRow(
             )
         }
         Text(
-            text = "×${song.playCount}",
-            style = MaterialTheme.typography.labelLarge.copy(fontFamily = FontFamily.Monospace)
-                .withTabularFigures(),
+            text = if (song.playCount == 1) "1 play" else "${song.playCount} plays",
+            style = MaterialTheme.typography.labelLarge.withTabularFigures(),
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.seamFade(),
         )
     }
 }
 
-/** Mono underlined section label (the Album page's) with an optional mono count on the right. */
+/** Underlined section label (the Album page's) with an optional count on the right. */
 @Composable
 private fun ArtistSectionHeader(title: String, trailing: String?, modifier: Modifier = Modifier) {
     Row(
@@ -1032,7 +1028,7 @@ private fun ArtistSectionHeader(title: String, trailing: String?, modifier: Modi
         trailing?.let {
             Text(
                 text = it,
-                style = MaterialTheme.typography.labelMedium.copy(fontFamily = FontFamily.Monospace),
+                style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
@@ -1059,7 +1055,7 @@ private enum class DiscographyFilter(val label: String) {
 }
 
 /**
- * Every release, newest first, as a timeline: a mono year column marks where a
+ * Every release, newest first, as a timeline: a year column marks where a
  * year begins, each row carries the release kind and track count, the newest
  * one is tagged "Latest", and your own rating sits on the right where you gave
  * one. Kind filters appear only when the provider reports at least two kinds.
@@ -1154,7 +1150,7 @@ private fun ArtistDiscography(
 // Rows visible before "Show all".
 private const val DiscographyCollapsedCount = 8
 
-// Width of the timeline's year column (fits "2025" in mono labelLarge).
+// Width of the timeline's year column (fits "2025" in labelLarge tabular figures).
 private val ArtistReleaseYearColumn = 48.dp
 
 @Composable
@@ -1187,8 +1183,7 @@ private fun ArtistReleaseRow(
             if (showYear) {
                 Text(
                     text = album.year?.toString() ?: "—",
-                    style = MaterialTheme.typography.labelLarge.copy(fontFamily = FontFamily.Monospace)
-                        .withTabularFigures(),
+                    style = MaterialTheme.typography.labelLarge.withTabularFigures(),
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
@@ -1240,7 +1235,7 @@ private fun ArtistReleaseRow(
         album.userRating?.let { rating ->
             Text(
                 text = formatAlbumScore(rating),
-                style = MaterialTheme.typography.titleSmall.copy(fontFamily = FontFamily.Monospace),
+                style = MaterialTheme.typography.titleSmall.withTabularFigures(),
                 color = accent,
                 modifier = Modifier
                     .padding(start = 12.dp)

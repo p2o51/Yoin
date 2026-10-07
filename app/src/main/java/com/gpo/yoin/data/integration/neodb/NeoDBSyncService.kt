@@ -14,8 +14,11 @@ import kotlin.math.roundToInt
  * 设计要点：
  *  - rating: Yoin 浮点 0–10 对齐 NeoDB `rating_grade` 整数 0–10，推送前
  *    `roundToInt()`；回拉不覆写本地小数精度（本地有小数就保留）。
- *  - review: 用户自写 `album_ratings.review` ↔ NeoDB `Review.body`，
- *    双向覆写。song_notes 仅用于 AlbumDetail 展示，不推 NeoDB。
+ *  - review: 用户自写 `album_ratings.review` 是 Yoin 唯一的一段文字，推送时
+ *    按长短归位（owner R2，2026-10-06）：[NeoDbShortCommentMax] 字以内 →
+ *    Mark 的短评 `comment_text`，并删掉远端 Review；更长 → `Review.body`，
+ *    并清空短评；清空文字 → 两边都清。拉取时 Review 优先，没有 Review 才
+ *    取短评。song_notes 仅用于 AlbumDetail 展示，不推 NeoDB。
  *  - Mark 覆写雷：POST `/api/me/shelf/item/{uuid}` 会整体覆写 —— 先 GET
  *    合并 tags + comment_text + visibility 再 POST，避免把其它客户端
  *    写的字段清掉。
@@ -78,32 +81,44 @@ class NeoDBSyncService internal constructor(
         val itemUuid = resolveAlbumUuid(album, session)
             ?: error("无法在 NeoDB 上找到对应专辑")
 
-        if (local.ratingNeedsSync) {
+        val text = local.review.orEmpty()
+        val short = text.isNotBlank() && isNeoDbShortComment(text)
+        // The mark carries the rating and, for a short text, the text itself:
+        // rewrite it when either changed (review-only edits included — a long
+        // text clears the short comment it replaces).
+        if (local.ratingNeedsSync || local.reviewNeedsSync) {
             val existing = api.getShelfItem(session.instance, session.token, itemUuid)
             val body = ShelfMarkRequest(
                 shelfType = existing?.shelfType ?: "complete",
                 visibility = existing?.visibility ?: 0,
-                ratingGrade = local.rating.roundToInt().coerceIn(0, 10),
-                commentText = existing?.commentText,
+                ratingGrade = if (local.ratingNeedsSync || existing?.ratingGrade == null) {
+                    local.rating.roundToInt().coerceIn(0, 10)
+                } else {
+                    existing.ratingGrade
+                },
+                commentText = when {
+                    !local.reviewNeedsSync -> existing?.commentText
+                    short -> text
+                    // Long or cleared: the short comment goes (the API clears an
+                    // absent comment_text; send "" to say so on purpose).
+                    else -> ""
+                },
                 tags = existing?.tags ?: emptyList(),
             )
             api.postShelfMark(session.instance, session.token, itemUuid, body)
         }
 
         if (local.reviewNeedsSync) {
-            val reviewBody = local.review.orEmpty()
             val existingUuid = local.neoDbReviewUuid
             val newUuid = when {
-                reviewBody.isBlank() -> {
-                    // Delete path：**不再把失败吞掉**。删除按 item uuid 走，
-                    // 且不再拿本地 review uuid 当触发条件 —— 现行 API 的
-                    // review 没有 uuid 概念（POST 响应是 Result 消息壳），
-                    // 本地 uuid 永远是空的，靠它判断会漏删远端孤儿。
-                    //  - 204 / 200 / 404 都视为已不在（NeoDB 上已经没这条
-                    //    Review 了，目标状态一致）→ 清脏位。
+                text.isBlank() || short -> {
+                    // Delete path（文字清空，或改成了短评）：**不再把失败吞掉**。
+                    // 删除按 item uuid 走，且不拿本地 review uuid 当触发条件 ——
+                    // 现行 API 的 review 没有 uuid 概念（POST 响应是 Result
+                    // 消息壳），本地 uuid 永远是空的，靠它判断会漏删远端孤儿。
+                    //  - 204 / 200 / 404 都视为已不在 → 清脏位。
                     //  - 其它失败（401 / 5xx / 网络）抛给外层 runCatching，
-                    //    Room 的 upsert 不会执行 → 本地保持脏位，下次同步
-                    //    时继续重试。
+                    //    Room 的 upsert 不会执行 → 本地保持脏位，下次重试。
                     try {
                         api.deleteReview(session.instance, session.token, itemUuid)
                     } catch (error: NeoDBException) {
@@ -121,26 +136,30 @@ class NeoDBSyncService internal constructor(
                         ReviewRequest(
                             visibility = 0,
                             title = album.name,
-                            body = reviewBody,
+                            body = text,
                         ),
                     ).uuid ?: existingUuid
                 }
             }
 
-            albumRatingDao.upsert(
-                local.copy(
-                    neoDbReviewUuid = newUuid,
-                    reviewNeedsSync = false,
-                    ratingNeedsSync = false,
-                    updatedAt = System.currentTimeMillis(),
-                ),
+            albumRatingDao.markReviewPushed(
+                albumId = album.id.rawId,
+                provider = album.id.provider,
+                profileId = profileId,
+                sentReview = local.review,
+                reviewUuid = newUuid,
+                now = System.currentTimeMillis(),
             )
-        } else if (local.ratingNeedsSync) {
-            albumRatingDao.upsert(
-                local.copy(
-                    ratingNeedsSync = false,
-                    updatedAt = System.currentTimeMillis(),
-                ),
+        }
+        // Flags only, and only for what is still what was sent: the album page and the Memories diary both push,
+        // and an edit made during the network calls must not be overwritten by this snapshot or lose its flag.
+        if (local.ratingNeedsSync) {
+            albumRatingDao.markRatingPushed(
+                albumId = album.id.rawId,
+                provider = album.id.provider,
+                profileId = profileId,
+                sentRating = local.rating,
+                now = System.currentTimeMillis(),
             )
         }
     }
@@ -175,8 +194,12 @@ class NeoDBSyncService internal constructor(
             itemUuid = itemUuid,
             existingUuid = existing?.neoDbReviewUuid,
         )
+        // Review first; a short text lives in the mark's comment (see pushAlbum).
+        val remoteText = reviewLookup?.body?.takeIf(String::isNotBlank)
+            ?: remote?.commentText?.takeIf(String::isNotBlank)
         val mergedReview = when {
             existing?.reviewNeedsSync == true -> existing.review
+            remoteText != null -> remoteText
             reviewLookup != null -> reviewLookup.body
             else -> existing?.review
         }
@@ -203,6 +226,12 @@ class NeoDBSyncService internal constructor(
             ratingNeedsSync = existing?.ratingNeedsSync ?: false,
             reviewNeedsSync = existing?.reviewNeedsSync ?: false,
             updatedAt = System.currentTimeMillis(),
+            // The written date moves only when the pulled words differ.
+            reviewUpdatedAt = when {
+                mergedReview.isNullOrBlank() -> null
+                mergedReview == existing?.review -> existing.reviewUpdatedAt ?: System.currentTimeMillis()
+                else -> System.currentTimeMillis()
+            },
         )
         albumRatingDao.upsert(resolved)
         resolved
@@ -275,3 +304,10 @@ class NeoDBSyncService internal constructor(
 
     private data class ReviewLookup(val uuid: String?, val body: String?)
 }
+
+/** Yoin's one album text goes to NeoDB as the mark's short comment up to this many characters, as a Review beyond. */
+internal const val NeoDbShortCommentMax = 360
+
+/** [text] fits NeoDB's short comment ([NeoDbShortCommentMax] characters, counted as code points). */
+internal fun isNeoDbShortComment(text: String): Boolean = text.codePointCount(0, text.length) <= NeoDbShortCommentMax
+

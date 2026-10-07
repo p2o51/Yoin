@@ -40,12 +40,6 @@ sealed interface ScrapPiece {
     val key: String
     val fullLine: Boolean
 
-    /** The Memories AI title, when Memories already wrote one. The page never asks for one. */
-    data class Masthead(val title: String) : ScrapPiece {
-        override val key: String get() = "masthead"
-        override val fullLine: Boolean get() = true
-    }
-
     /**
      * Cover (with the score emblem hanging off its corner) beside the review, or a blank clipping to write
      * one; the album's one album note, when it has one, is a sticky pressed under them.
@@ -57,6 +51,10 @@ sealed interface ScrapPiece {
         val albumNote: String? = null,
         /** Leans against the review clipping (opposite sign); 0 without a note. */
         val albumNoteTilt: Float = 0f,
+        /** The album's Memory title, beside the cover (owner 2026-10-05); null when it has none yet. */
+        val title: ScrapTitle? = null,
+        /** When [review] was written ("Today", "Oct 5"…); null without a review or a date. */
+        val reviewAt: String? = null,
     ) : ScrapPiece {
         override val key: String get() = "opening"
         override val fullLine: Boolean get() = true
@@ -99,7 +97,7 @@ sealed interface ScrapPiece {
         override val fullLine: Boolean get() = false
     }
 
-    /** Tracks with nothing on them yet: an empty mould per track. */
+    /** An album with nothing on any track yet: one quiet line saying what page 2 collects. */
     data class NotYet(
         val tracks: List<ScrapNotYet>,
         /** Nothing on any track: the caption explains the page instead of counting. */
@@ -196,6 +194,8 @@ internal fun buildAlbumScrapbook(
     data: AlbumScrapbookData,
     nowMillis: Long,
     zone: ZoneId = ZoneId.systemDefault(),
+    // The shared Memory-title resolver's answer (user > AI); null = read from [data].
+    title: ScrapTitle? = null,
 ): AlbumScrapbook {
     val seed = content.albumId
     fun tilt(key: String, set: FloatArray): Float = set[(scrapHash("$seed/$key") % set.size).toInt()]
@@ -227,7 +227,6 @@ internal fun buildAlbumScrapbook(
     }
 
     val pieces = mutableListOf<ScrapPiece>()
-    data.memoryTitle?.takeIf(String::isNotBlank)?.let { pieces += ScrapPiece.Masthead(it.trim()) }
 
     val review = content.userReview.trim().takeIf(String::isNotEmpty)
     val reviewTilt = tilt(if (review != null) "review" else "ghost", ScrapbookRules.CardTilts)
@@ -238,6 +237,8 @@ internal fun buildAlbumScrapbook(
         reviewTilt = reviewTilt,
         albumNote = albumNote,
         albumNoteTilt = albumNote?.let { opposite(reviewTilt, tilt("albumnote", ScrapbookRules.PaperTilts)) } ?: 0f,
+        title = title ?: scrapTitle(user = data.memoryTitleUser, ai = data.memoryTitle),
+        reviewAt = content.userReviewAt?.takeIf { review != null }?.let { relativeDayLabel(it, nowMillis, zone) },
     )
 
     val best = tracks
@@ -325,8 +326,11 @@ internal fun buildAlbumScrapbook(
     }
     flushRun()
 
+    // Only an album with nothing on it at all gets the "Not yet" hint: once
+    // anything is left, page 2 shows just what was left (owner 2026-10-05:
+    // "Not yet" read as unexplained; the receipt already says "Rated 2 / 4").
     val untouched = tracks.filterNot(::touched)
-    if (untouched.isNotEmpty()) {
+    if (untouched.isNotEmpty() && untouched.size == tracks.size) {
         pieces += ScrapPiece.NotYet(
             tracks = untouched.map { track ->
                 ScrapNotYet(
@@ -383,12 +387,15 @@ internal fun daysBetween(fromMillis: Long, nowMillis: Long, zone: ZoneId): Long 
 /** "Today" / "Yesterday" / "3 days ago" / "Mar 14", like page 1's Last Play. */
 internal fun relativeDayLabel(epochMillis: Long, nowMillis: Long, zone: ZoneId): String {
     val days = daysBetween(epochMillis, nowMillis, zone)
+    val date = Instant.ofEpochMilli(epochMillis).atZone(zone).toLocalDate()
+    val today = Instant.ofEpochMilli(nowMillis).atZone(zone).toLocalDate()
     return when {
         days <= 0L -> "Today"
         days == 1L -> "Yesterday"
         days < 7L -> "$days days ago"
-        else -> Instant.ofEpochMilli(epochMillis).atZone(zone).toLocalDate()
-            .format(DateTimeFormatter.ofPattern("MMM d", Locale.ENGLISH))
+        // Another year says which one.
+        date.year != today.year -> date.format(DateTimeFormatter.ofPattern("MMM d, yyyy", Locale.ENGLISH))
+        else -> date.format(DateTimeFormatter.ofPattern("MMM d", Locale.ENGLISH))
     }
 }
 
@@ -478,3 +485,31 @@ fun AlbumDetailUiState.Content.emblemSpec(): AlbumEmblemSpec = AlbumEmblemSpec(
     score = albumScore(),
     trackRated = songs.map { it.id in ratedSongIds },
 )
+
+/**
+ * The album's Memory title as page 2 shows it: the user's own name when they
+ * gave one, else Yoin's (AI) title. [edited] = the user's; [canRestore] = an
+ * AI title is there to go back to.
+ */
+@Immutable
+data class ScrapTitle(
+    val text: String,
+    val edited: Boolean,
+    val canRestore: Boolean,
+    /** "Restore AI title" / "Restore Yoin's title" (the shared resolver's wording). */
+    val restoreLabel: String = "Restore AI title",
+    /** A title the user or the AI wrote reads in the serif; Yoin's motif in the app face. */
+    val serif: Boolean = true,
+    /** What the rename field starts with. */
+    val draftSeed: String = text,
+)
+
+internal fun scrapTitle(user: String?, ai: String?): ScrapTitle? {
+    val mine = user?.trim()?.takeIf(String::isNotEmpty)
+    val generated = ai?.trim()?.takeIf(String::isNotEmpty)
+    return when {
+        mine != null -> ScrapTitle(mine, edited = true, canRestore = generated != null)
+        generated != null -> ScrapTitle(generated, edited = false, canRestore = false)
+        else -> null
+    }
+}

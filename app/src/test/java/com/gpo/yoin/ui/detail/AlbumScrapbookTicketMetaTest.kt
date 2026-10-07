@@ -25,9 +25,9 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.GraphicsMode
 
 /**
- * A small ticket's "duration · ×plays" line (device QA 2026-10-05, the Wide right column): one line,
- * never a wrapped "1:10 ·" / "×1" — the dot is bound to both sides, and "· ×N" goes whole when the
- * line can't hold it.
+ * A small ticket's "duration · N plays" line (device QA 2026-10-05, the Wide right column): one line,
+ * never a wrapped "1:10 ·" — the dot and the count are bound by no-break spaces, and the duration
+ * goes whole when the line can't hold both.
  */
 @RunWith(RobolectricTestRunner::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
@@ -40,13 +40,13 @@ class AlbumScrapbookTicketMetaTest {
     fun should_bindTheDotToBothSides_when_aTrackHasDurationAndPlays() {
         val meta = scrapTicketMeta(durationSec = 70, plays = 1)
 
-        assertEquals(ScrapTicketMeta(full = FULL, short = "1:10"), meta)
+        assertEquals(ScrapTicketMeta(full = FULL, short = SHORT), meta)
     }
 
     @Test
     fun should_haveNothingToDrop_when_aTrackHasOnlyOneOfThem() {
         assertEquals(ScrapTicketMeta(full = "1:10", short = null), scrapTicketMeta(durationSec = 70, plays = 0))
-        assertEquals(ScrapTicketMeta(full = "×3", short = null), scrapTicketMeta(durationSec = null, plays = 3))
+        assertEquals(ScrapTicketMeta(full = "3\u00A0plays", short = null), scrapTicketMeta(durationSec = null, plays = 3))
         assertNull(scrapTicketMeta(durationSec = null, plays = 0))
     }
 
@@ -55,17 +55,17 @@ class AlbumScrapbookTicketMetaTest {
         show(width = 240.dp)
 
         assertTrue(placed(FULL))
-        assertFalse(placed("1:10"))
+        assertFalse(placed(SHORT))
         assertOneLine()
     }
 
     @Test
-    fun should_dropThePlaysWhole_when_theyDoNotFitTheLine() {
-        // "1:10 · ×1" is nine 12sp monospace glyphs (~65dp); "1:10" is four (~29dp).
-        show(width = 44.dp)
+    fun should_dropTheDurationWhole_when_bothDoNotFitTheLine() {
+        // "1:10 · 1 play" is thirteen 12sp monospace glyphs (~94dp); "1 play" is six (~43dp).
+        show(width = 60.dp)
 
         assertFalse(placed(FULL))
-        assertTrue(placed("1:10"))
+        assertTrue(placed(SHORT))
         assertOneLine()
     }
 
@@ -95,6 +95,7 @@ class AlbumScrapbookTicketMetaTest {
 
     private companion object {
         const val TAG = "ticket-meta"
-        const val FULL = "1:10\u00A0·\u00A0×1"
+        const val FULL = "1:10\u00A0·\u00A01\u00A0play"
+        const val SHORT = "1\u00A0play"
     }
 }

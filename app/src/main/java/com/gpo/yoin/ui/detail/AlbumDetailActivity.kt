@@ -7,6 +7,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -19,8 +20,11 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.gpo.yoin.YoinActivityRoot
 import com.gpo.yoin.YoinApplication
+import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.repository.ActivityContext
+import com.gpo.yoin.data.source.WebLinkKind
 import com.gpo.yoin.enableYoinEdgeToEdge
+import com.gpo.yoin.ui.experience.installCoveredWindowAnimationGate
 import com.gpo.yoin.ui.nowplaying.NowPlayingAccessories
 import com.gpo.yoin.ui.nowplaying.NowPlayingOverlayHost
 import com.gpo.yoin.ui.nowplaying.NowPlayingViewModel
@@ -29,6 +33,7 @@ import com.gpo.yoin.ui.nowplaying.besideNowPlayingPanel
 import com.gpo.yoin.ui.nowplaying.rememberNowPlayingFrame
 import com.gpo.yoin.ui.nowplaying.rememberNowPlayingPanelInset
 import com.gpo.yoin.ui.nowplaying.rememberNowPlayingPanelMotion
+import com.gpo.yoin.ui.settings.SettingsActivity
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 
@@ -61,6 +66,8 @@ class AlbumDetailActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableYoinEdgeToEdge()
+        // A detail opened from this one covers it but keeps it alive (translucent): freeze its animations.
+        installCoveredWindowAnimationGate(intent.detailWindowKey())
         applyDetailCloseTransition()
         val albumId = intent.getStringExtra(EXTRA_ALBUM_ID)
         if (albumId.isNullOrBlank()) {
@@ -79,7 +86,8 @@ class AlbumDetailActivity : ComponentActivity() {
                 val expandedSongId by viewModel.expandedSongId.collectAsState()
                 val expandedNoteBundle by viewModel.expandedNoteBundle.collectAsState()
                 val scrapbook by viewModel.scrapbook.collectAsState()
-                val playbackState by app.container.playbackManager.playbackState.collectAsState()
+                val neoDb by viewModel.neoDb.collectAsState()
+                val isPlaying by rememberDetailIsPlaying(app.container)
                 val playbackSignal by app.container.audioVisualizerManager.playbackSignal.collectAsState()
                 // Narrow id-only projection for the track list's now-playing
                 // indicator, deduped so per-tick position/buffer updates never
@@ -114,6 +122,7 @@ class AlbumDetailActivity : ComponentActivity() {
                             startIndex = startIndex.coerceIn(0, tracks.lastIndex),
                             source = source,
                             activityContext = activityContext,
+                            shuffled = shuffle,
                         )
                     }
                 }
@@ -131,6 +140,10 @@ class AlbumDetailActivity : ComponentActivity() {
                 val nowPlayingViewModel: NowPlayingViewModel = viewModel(
                     factory = NowPlayingViewModel.Factory(app.container),
                 )
+                // The page's one-line notices (a failed NeoDB sync) ride this window's snackbar.
+                LaunchedEffect(viewModel) {
+                    viewModel.messages.collect(nowPlayingViewModel::postMessage)
+                }
                 var nowPlayingOpen by rememberSaveable { mutableStateOf(false) }
 
                 val miniPlayerState by rememberDetailMiniPlayerState(app.container)
@@ -140,6 +153,17 @@ class AlbumDetailActivity : ComponentActivity() {
                 val nowPlayingFrame = rememberNowPlayingFrame(nowPlayingViewModel)
                 val nowPlayingPanelMotion = rememberNowPlayingPanelMotion()
                 val nowPlayingPanel = rememberNowPlayingPanelInset(nowPlayingFrame, nowPlayingOpen, nowPlayingPanelMotion)
+
+                // ▾: Play next, Add to queue, Add to playlist, Open in …; Share carries the link.
+                val webLink = rememberDetailWebLink(app.container, WebLinkKind.Album, albumId)
+                val menu = rememberDetailMenu(
+                    container = app.container,
+                    link = webLink,
+                    provider = MediaId.parseOrNull(albumId)?.provider,
+                    tracks = { viewModel.getAlbumSongs() },
+                    onMessage = nowPlayingViewModel::postMessage,
+                    onAddToPlaylist = nowPlayingViewModel::requestAddTracksToPlaylist,
+                )
 
                 Box(modifier = Modifier.fillMaxSize()) {
                 ProvideBesidePanelWindowInfo(nowPlayingPanel) {
@@ -175,6 +199,8 @@ class AlbumDetailActivity : ComponentActivity() {
                     },
                     onToggleStar = viewModel::toggleStar,
                     onRetry = viewModel::retry,
+                    onRenameMemoryTitle = viewModel::renameMemoryTitle,
+                    onRestoreMemoryTitle = viewModel::restoreMemoryTitle,
                     notedSongIds = notedSongIds,
                     currentTrackId = currentTrackId,
                     expandedSongId = expandedSongId,
@@ -182,19 +208,25 @@ class AlbumDetailActivity : ComponentActivity() {
                     onToggleExpandedSong = viewModel::toggleExpandedSong,
                     onRatingCommit = viewModel::setUserRating,
                     onReviewDraftChange = viewModel::onReviewDraftChange,
-                    onSaveReview = viewModel::saveUserReview,
+                    neoDb = neoDb,
+                    onRateSheetOpened = viewModel::onRateSheetOpened,
+                    onRateSheetClosed = viewModel::onRateSheetClosed,
+                    onNeoDbRetry = viewModel::retryNeoDbSync,
+                    onNeoDbSignIn = { startActivity(SettingsActivity.intent(this@AlbumDetailActivity, "neodb")) },
                     onPlayAlbum = { playFrom(startIndex = 0, shuffle = false) },
                     onShufflePlay = { playFrom(startIndex = 0, shuffle = true) },
                     onShare = {
-                        val text = (uiState as? AlbumDetailUiState.Content)
+                        val title = (uiState as? AlbumDetailUiState.Content)
                             ?.let { "${it.albumName} – ${it.artistName}" }
                             ?: "Check out this album"
+                        val text = detailShareText(title, webLink)
                         val send = Intent(Intent.ACTION_SEND).apply {
                             type = "text/plain"
                             putExtra(Intent.EXTRA_TEXT, text)
                         }
                         context.startActivity(Intent.createChooser(send, null))
                     },
+                    menu = menu,
                     onOpenArtist = (uiState as? AlbumDetailUiState.Content)?.artistId?.let { artistId ->
                         {
                             launchChildDetail(
@@ -202,8 +234,8 @@ class AlbumDetailActivity : ComponentActivity() {
                             )
                         }
                     },
-                    isPlaying = playbackState.isPlaying,
-                    playbackSignal = if (playbackState.isPlaying) playbackSignal else 0f,
+                    isPlaying = isPlaying,
+                    playbackSignal = if (isPlaying) playbackSignal else 0f,
                     onOpenNowPlaying = { nowPlayingOpen = true },
                     nowPlayingOpen = nowPlayingOpen,
 

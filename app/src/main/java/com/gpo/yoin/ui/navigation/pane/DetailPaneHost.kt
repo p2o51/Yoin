@@ -46,6 +46,7 @@ import androidx.navigation3.runtime.entryProvider
 import androidx.navigation3.runtime.rememberSaveableStateHolderNavEntryDecorator
 import androidx.navigation3.ui.NavDisplay
 import com.gpo.yoin.YoinApplication
+import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.ui.component.BarPlaySplitActions
 import com.gpo.yoin.ui.detail.DetailHostMode
 import com.gpo.yoin.ui.detail.LocalDetailHostMode
@@ -56,6 +57,7 @@ import com.gpo.yoin.ui.experience.voteHighFrameRate
 import com.gpo.yoin.ui.navigation.back.BackMotionTokens
 import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinMotionRole
+import com.gpo.yoin.ui.theme.YoinMotionSpeed
 import kotlin.coroutines.cancellation.CancellationException
 import kotlin.math.roundToInt
 import kotlinx.coroutines.launch
@@ -150,6 +152,8 @@ fun DetailPaneHost(
     onPopEntry: () -> Unit,
     onPush: (DetailPaneRoute) -> Unit,
     onMessage: (String) -> Unit,
+    // The ▾ Add to playlist: the shell's sheet (Now Playing's), with these songs.
+    onAddToPlaylist: (List<MediaId>) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val playback = PanePlaybackFacts(
@@ -159,6 +163,7 @@ fun DetailPaneHost(
     )
     val top = backStack.lastOrNull()
     val enterOffsetPx = with(LocalDensity.current) { BackMotionTokens.EnteringStartOffset.roundToPx() }
+
     CompositionLocalProvider(LocalDetailHostMode provides DetailHostMode.Pane) {
         NavDisplay(
             backStack = backStack,
@@ -172,8 +177,25 @@ fun DetailPaneHost(
             // opaque from 96dp right on EMPHASIZED while the page beneath
             // recedes 96dp left (the same trajectory the window pages mirror).
             transitionSpec = {
-                YoinMotion.crossActivitySlideIn(enterOffsetPx) togetherWith
-                    YoinMotion.crossActivitySlideOut(-enterOffsetPx)
+                // A tap in the shell REPLACES the column's root (openPane:
+                // clear + add) — a new selection, not a step forward — so it
+                // must not ride the push (owner 2026-10-05, Fold: the old
+                // album slid left past the column and lingered before the new
+                // one opened). A push always lands on top of what was shown.
+                val rootSwap = targetState.previousEntries.isEmpty() &&
+                    initialState.entries.lastOrNull()?.contentKey != targetState.entries.lastOrNull()?.contentKey
+                if (rootSwap) {
+                    // Selection change = M3 fade-through: the old page
+                    // leaves quickly where it is, the new one fades up from
+                    // just under full size (never two pages' text at once).
+                    (
+                        YoinMotion.fadeIn(role = YoinMotionRole.Standard) +
+                            YoinMotion.scaleIn(role = YoinMotionRole.Standard, initialScale = RootSwapInitialScale)
+                        ) togetherWith YoinMotion.fadeOut(role = YoinMotionRole.Standard, speed = YoinMotionSpeed.Fast)
+                } else {
+                    YoinMotion.crossActivitySlideIn(enterOffsetPx) togetherWith
+                        YoinMotion.crossActivitySlideOut(-enterOffsetPx)
+                }
             },
             // Pop (button back): the leaving page shrinks and dissolves, the
             // previous one rides back in from its 96dp rest.
@@ -202,6 +224,8 @@ fun DetailPaneHost(
                         registry = registry,
                         onBack = onPopEntry,
                         onOpenArtist = { id -> onPush(DetailPaneRoute.Artist(id)) },
+                        onMessage = onMessage,
+                        onAddToPlaylist = onAddToPlaylist,
                     )
                 }
                 entry<DetailPaneRoute.Artist> { route ->
@@ -213,6 +237,7 @@ fun DetailPaneHost(
                         isTop = route == top,
                         onBack = onPopEntry,
                         onOpenAlbum = { id -> onPush(DetailPaneRoute.Album(id)) },
+                        onMessage = onMessage,
                     )
                 }
                 entry<DetailPaneRoute.Playlist> { route ->
@@ -229,6 +254,9 @@ fun DetailPaneHost(
         )
     }
 }
+
+/** A root swap's incoming page starts this close to full size (a selection change, not a push). */
+private const val RootSwapInitialScale = 0.96f
 
 /**
  * The last entry's back: closes the column. Pre-commit the page scales

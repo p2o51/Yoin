@@ -59,7 +59,6 @@ import androidx.compose.ui.text.LinkAnnotation
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextLinkStyles
 import androidx.compose.ui.text.buildAnnotatedString
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
@@ -1070,8 +1069,8 @@ private fun PlaylistMediumOverview(
 
 /**
  * The Album hero's cover-width meta block, in playlist terms: "Length" (track
- * count + runtime, two mono lines like Last Play) and "Owner" (name +
- * visibility), then the description under a mono label like the album
+ * count + runtime, two lines like Last Play) and "Owner" (name +
+ * visibility), then the description under a label like the album
  * Comment.
  */
 @Composable
@@ -1079,7 +1078,6 @@ private fun PlaylistHeroMeta(
     content: PlaylistDetailUiState.Content,
     modifier: Modifier = Modifier,
 ) {
-    val mono = FontFamily.Monospace
     val count = content.songCount ?: content.songs.size
     Column(
         modifier = modifier,
@@ -1093,12 +1091,12 @@ private fun PlaylistHeroMeta(
                 AlbumSectionLabel(text = "Length")
                 Text(
                     text = if (count == 1) "1 track" else "$count tracks",
-                    style = MaterialTheme.typography.bodyLarge.copy(fontFamily = mono),
+                    style = MaterialTheme.typography.bodyLarge.withTabularFigures(),
                     color = MaterialTheme.colorScheme.onSurface,
                 )
                 Text(
                     text = content.totalDuration?.takeIf { it > 0 }?.let(::formatTotalDuration) ?: "—",
-                    style = MaterialTheme.typography.bodyMedium.copy(fontFamily = mono),
+                    style = MaterialTheme.typography.bodyMedium.withTabularFigures(),
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
@@ -1107,7 +1105,7 @@ private fun PlaylistHeroMeta(
                     AlbumSectionLabel(text = "Owner")
                     Text(
                         text = content.owner,
-                        style = MaterialTheme.typography.bodyLarge.copy(fontFamily = mono),
+                        style = MaterialTheme.typography.bodyLarge,
                         color = MaterialTheme.colorScheme.onSurface,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
@@ -1115,7 +1113,7 @@ private fun PlaylistHeroMeta(
                     content.isPublic?.let { public ->
                         Text(
                             text = if (public) "Public" else "Private",
-                            style = MaterialTheme.typography.bodyMedium.copy(fontFamily = mono),
+                            style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }

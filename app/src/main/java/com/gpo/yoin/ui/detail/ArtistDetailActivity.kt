@@ -2,7 +2,6 @@ package com.gpo.yoin.ui.detail
 
 import android.content.Context
 import android.content.Intent
-import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -18,13 +17,15 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.compose.LifecycleEventEffect
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.gpo.yoin.YoinActivityRoot
 import com.gpo.yoin.YoinApplication
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.repository.ActivityContext
+import com.gpo.yoin.data.source.WebLinkKind
 import com.gpo.yoin.enableYoinEdgeToEdge
+import com.gpo.yoin.ui.experience.installCoveredWindowAnimationGate
 import com.gpo.yoin.ui.nowplaying.NowPlayingAccessories
 import com.gpo.yoin.ui.nowplaying.NowPlayingOverlayHost
 import com.gpo.yoin.ui.nowplaying.NowPlayingViewModel
@@ -61,6 +62,8 @@ class ArtistDetailActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableYoinEdgeToEdge()
+        // A detail opened from this one covers it but keeps it alive (translucent): freeze its animations.
+        installCoveredWindowAnimationGate(intent.detailWindowKey())
         applyDetailCloseTransition()
         val artistId = intent.getStringExtra(EXTRA_ARTIST_ID)
         if (artistId.isNullOrBlank()) {
@@ -76,7 +79,7 @@ class ArtistDetailActivity : ComponentActivity() {
                     factory = ArtistDetailViewModel.Factory(artistId, app.container),
                 )
                 val uiState by viewModel.uiState.collectAsState()
-                val playbackState by app.container.playbackManager.playbackState.collectAsState()
+                val isPlaying by rememberDetailIsPlaying(app.container)
                 val playbackSignal by app.container.audioVisualizerManager.playbackSignal.collectAsState()
 
                 fun playArtist(shuffle: Boolean) {
@@ -93,17 +96,6 @@ class ArtistDetailActivity : ComponentActivity() {
                             )
                         }
                     }
-                }
-
-                fun openInSpotify() {
-                    // Saved/liked tracks aren't mirrored in-app — bounce to the
-                    // Spotify app (or web) on the artist, where they live.
-                    val rawId = MediaId.parseOrNull(artistId)?.rawId ?: return
-                    val intent = Intent(
-                        Intent.ACTION_VIEW,
-                        Uri.parse("https://open.spotify.com/artist/$rawId"),
-                    )
-                    runCatching { context.startActivity(intent) }
                 }
 
                 // A "Most Played" row plays the user's own most-played songs
@@ -141,6 +133,17 @@ class ArtistDetailActivity : ComponentActivity() {
                 val nowPlayingPanelMotion = rememberNowPlayingPanelMotion()
                 val nowPlayingPanel = rememberNowPlayingPanelInset(nowPlayingFrame, nowPlayingOpen, nowPlayingPanelMotion)
 
+                // ▾: Add to queue, Open in Spotify / Apple Music; Share carries the link.
+                val webLink = rememberDetailWebLink(app.container, WebLinkKind.Artist, artistId)
+                val menu = rememberDetailMenu(
+                    container = app.container,
+                    link = webLink,
+                    provider = MediaId.parseOrNull(artistId)?.provider,
+                    tracks = { viewModel.getAllTracks() },
+                    onMessage = nowPlayingViewModel::postMessage,
+                    onAddToPlaylist = null,
+                )
+
                 Box(modifier = Modifier.fillMaxSize()) {
                 ProvideBesidePanelWindowInfo(nowPlayingPanel) {
                 ArtistDetailScreen(
@@ -174,19 +177,20 @@ class ArtistDetailActivity : ComponentActivity() {
                     onToggleFollow = viewModel::toggleFollow,
                     onPlay = { playArtist(shuffle = false) },
                     onShuffle = { playArtist(shuffle = true) },
-                    onOpenInSpotify = { openInSpotify() },
+                    menu = menu,
                     onMostPlayedClick = { index -> playMostPlayed(index) },
                     onShare = {
-                        val text = (uiState as? ArtistDetailUiState.Content)?.artistName
+                        val title = (uiState as? ArtistDetailUiState.Content)?.artistName
                             ?: "Check out this artist"
+                        val text = detailShareText(title, webLink)
                         val send = Intent(Intent.ACTION_SEND).apply {
                             type = "text/plain"
                             putExtra(Intent.EXTRA_TEXT, text)
                         }
                         context.startActivity(Intent.createChooser(send, null))
                     },
-                    isPlaying = playbackState.isPlaying,
-                    playbackSignal = if (playbackState.isPlaying) playbackSignal else 0f,
+                    isPlaying = isPlaying,
+                    playbackSignal = if (isPlaying) playbackSignal else 0f,
                     onOpenNowPlaying = { nowPlayingOpen = true },
                     nowPlayingOpen = nowPlayingOpen,
 

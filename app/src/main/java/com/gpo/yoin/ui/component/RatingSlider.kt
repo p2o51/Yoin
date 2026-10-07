@@ -6,24 +6,28 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.awaitHorizontalTouchSlopOrCancellation
+import androidx.compose.foundation.gestures.awaitVerticalTouchSlopOrCancellation
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.input.pointer.PointerInputChange
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.semantics.ProgressBarRangeInfo
@@ -49,6 +53,12 @@ import kotlin.math.roundToInt
  * @param onRatingChange called with the new rating (step 0.1)
  * @param orientation track axis; [Orientation.Vertical] fills from the bottom,
  *   [Orientation.Horizontal] fills from the start (left)
+ * @param onInteractionChange true when a finger lands on the bar, false when
+ *   it lifts — where a caller commits the value (the album rate sheet).
+ * @param claimOnDown true (Now Playing): the bar takes the pointer on DOWN, so
+ *   a parent's drag can't steal it. False (a sheet that scrolls or drags away):
+ *   the bar waits for a drag along its own axis past touch slop, or a tap; a
+ *   swipe across it goes to the parent and leaves the rating alone.
  */
 @Composable
 fun RatingSlider(
@@ -56,9 +66,15 @@ fun RatingSlider(
     onRatingChange: (Float) -> Unit,
     modifier: Modifier = Modifier,
     orientation: Orientation = Orientation.Vertical,
+    onInteractionChange: (active: Boolean) -> Unit = {},
+    claimOnDown: Boolean = true,
 ) {
     val isVertical = orientation == Orientation.Vertical
     val haptics = rememberYoinHaptics()
+    // The gesture outlives recompositions (keyed on orientation): read the
+    // callers' latest lambdas, not the first ones.
+    val latestOnRatingChange by rememberUpdatedState(onRatingChange)
+    val latestOnInteractionChange by rememberUpdatedState(onInteractionChange)
     val animatedFraction by animateFloatAsState(
         targetValue = (rating / 10f).coerceIn(0f, 1f),
         animationSpec = YoinMotion.spatialSpring(),
@@ -95,12 +111,11 @@ fun RatingSlider(
             // on the fold). Two separate tap/drag detectors let that parent steal
             // the slider's vertical drag; claiming the pointer here keeps the
             // gesture local so the slider is actually adjustable.
-            .pointerInput(orientation) {
+            .pointerInput(orientation, claimOnDown) {
                 awaitEachGesture {
                     val down = awaitFirstDown(requireUnconsumed = false)
-                    down.consume()
-                    // The DOWN sets the baseline silently; each 0.1 step the
-                    // drag crosses afterwards ticks.
+                    // The first position sets the baseline silently; each 0.1
+                    // step the drag crosses afterwards ticks.
                     var lastSnapped = Float.NaN
                     fun applyAt(rawPos: Float) {
                         val snapped = snap(ratingFractionFrom(rawPos, trackDimensionPx, orientation))
@@ -108,18 +123,50 @@ fun RatingSlider(
                             haptics.performTick()
                         }
                         lastSnapped = snapped
-                        onRatingChange(snapped)
+                        latestOnRatingChange(snapped)
                     }
-                    applyAt(if (isVertical) down.position.y else down.position.x)
-                    while (true) {
-                        val event = awaitPointerEvent()
-                        val change = event.changes.firstOrNull { it.id == down.id } ?: break
-                        if (!change.pressed) {
-                            change.consume()
-                            break
+                    fun along(change: PointerInputChange): Float = if (isVertical) change.position.y else change.position.x
+                    if (claimOnDown) {
+                        down.consume()
+                        latestOnInteractionChange(true)
+                        applyAt(along(down))
+                    } else {
+                        val start = if (isVertical) {
+                            awaitVerticalTouchSlopOrCancellation(down.id) { change, _ -> change.consume() }
+                        } else {
+                            awaitHorizontalTouchSlopOrCancellation(down.id) { change, _ -> change.consume() }
                         }
-                        applyAt(if (isVertical) change.position.y else change.position.x)
-                        change.consume()
+                        if (start == null) {
+                            // Lifted before any drag: a tap, which still rates. Taken
+                            // by the parent (a scroll, the sheet's drag): not ours.
+                            val up = currentEvent.changes.firstOrNull { it.id == down.id }
+                            if (up != null && !up.pressed && !up.isConsumed) {
+                                up.consume()
+                                latestOnInteractionChange(true)
+                                try {
+                                    applyAt(along(down))
+                                } finally {
+                                    latestOnInteractionChange(false)
+                                }
+                            }
+                            return@awaitEachGesture
+                        }
+                        latestOnInteractionChange(true)
+                        applyAt(along(start))
+                    }
+                    try {
+                        while (true) {
+                            val event = awaitPointerEvent()
+                            val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                            if (!change.pressed) {
+                                change.consume()
+                                break
+                            }
+                            applyAt(along(change))
+                            change.consume()
+                        }
+                    } finally {
+                        latestOnInteractionChange(false)
                     }
                 }
             },

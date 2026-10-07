@@ -70,7 +70,7 @@ class AlbumScrapbookPageTest {
     fun should_openTheReviewSheet_when_blankReviewTapped() {
         show()
 
-        rule.onNodeWithText("Write a review").performClick()
+        rule.onNodeWithContentDescription("Write a comment").performClick()
 
         assertEquals(1, reviewEdits)
     }
@@ -86,14 +86,11 @@ class AlbumScrapbookPageTest {
     }
 
     @Test
-    fun should_playTheSong_when_notYetMouldTapped() {
+    fun should_showNoNotYetLabelOrMoulds_when_someTracksHaveNothingYet() {
         show()
 
-        rule.onNode(
-            hasContentDescription("Track 4, Song 4").and(SemanticsMatcher.keyIsDefined(androidx.compose.ui.semantics.SemanticsActions.OnClick)),
-        ).performScrollTo().performClick()
-
-        assertEquals(listOf("subsonic:t4"), played)
+        rule.onAllNodesWithText("Not yet").assertCountEquals(0)
+        rule.onAllNodes(hasContentDescription("Track 4, Song 4")).assertCountEquals(0)
     }
 
     private fun show(albumNote: AlbumScrapbookAlbumNote? = null) {

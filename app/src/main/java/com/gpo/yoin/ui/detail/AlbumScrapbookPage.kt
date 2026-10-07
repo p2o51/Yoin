@@ -9,8 +9,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
@@ -28,10 +26,18 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.input.InputTransformation
+import androidx.compose.foundation.text.input.maxLength
+import androidx.compose.foundation.text.input.rememberTextFieldState
+import androidx.compose.foundation.text.input.then
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialShapes
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -44,6 +50,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
@@ -51,6 +58,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
@@ -66,11 +76,17 @@ import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.PathOperation
 import androidx.compose.ui.graphics.ShaderBrush
 import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.node.ModifierNodeElement
@@ -83,9 +99,12 @@ import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
@@ -122,6 +141,7 @@ import com.gpo.yoin.ui.component.seamRemainingPx
 import com.gpo.yoin.ui.experience.LocalMotionProfile
 import com.gpo.yoin.ui.experience.MotionProfile
 import com.gpo.yoin.ui.experience.ProvidePreviewWindow
+import com.gpo.yoin.ui.theme.GoogleSansFlex
 import com.gpo.yoin.ui.theme.YoinArtworkShapes
 import com.gpo.yoin.ui.theme.YoinContainerShapes
 import com.gpo.yoin.ui.theme.YoinMotion
@@ -281,6 +301,9 @@ internal fun AlbumScrapbookPage(
     onNoteMomentClick: (songId: String, positionMs: Long?) -> Unit,
     onEditReview: () -> Unit,
     modifier: Modifier = Modifier,
+    // The Memory title beside the cover: rename it (blank = back to Yoin's), or restore the AI one.
+    onRenameTitle: (String) -> Unit = {},
+    onRestoreTitle: () -> Unit = {},
     // The pager has come to rest on this page; [stamped] once its emblem ceremony has played.
     settled: Boolean = true,
     stamped: Boolean = true,
@@ -298,6 +321,8 @@ internal fun AlbumScrapbookPage(
             onSongClick = onSongClick,
             onNoteMomentClick = onNoteMomentClick,
             onEditReview = onEditReview,
+            onRenameTitle = onRenameTitle,
+            onRestoreTitle = onRestoreTitle,
             settled = settled,
             stamped = stamped,
             onStamped = onStamped,
@@ -317,6 +342,8 @@ private fun ScrapbookPaper(
     onSongClick: (String) -> Unit,
     onNoteMomentClick: (String, Long?) -> Unit,
     onEditReview: () -> Unit,
+    onRenameTitle: (String) -> Unit,
+    onRestoreTitle: () -> Unit,
     settled: Boolean,
     stamped: Boolean,
     onStamped: () -> Unit,
@@ -351,7 +378,8 @@ private fun ScrapbookPaper(
                     .heightIn(min = maxHeight)
                     // The paper scrolls with the pieces.
                     .dottedPaper(colors.dots)
-                    .padding(top = 14.dp, bottom = 112.dp + navBottom),
+                    // 4 + the dots' own cell inset ≈ the 16dp above the dots.
+                    .padding(top = 4.dp, bottom = 112.dp + navBottom),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 ScrapMasonry(
@@ -362,13 +390,14 @@ private fun ScrapbookPaper(
                     book.pieces.forEach { piece ->
                         val slot = Modifier.scrapSpan(piece.fullLine)
                         when (piece) {
-                            is ScrapPiece.Masthead -> Masthead(piece, wide, slot)
                             is ScrapPiece.Opening -> Opening(
                                 piece = piece,
                                 content = content,
                                 colors = colors,
                                 wide = wide,
                                 onEditReview = onEditReview,
+                                onRenameTitle = onRenameTitle,
+                                onRestoreTitle = onRestoreTitle,
                                 settled = settled,
                                 stamped = stamped,
                                 onStamped = onStamped,
@@ -523,25 +552,104 @@ private fun ScrapStack(
 // Pieces.
 // ---------------------------------------------------------------------------
 
+/**
+ * The album's Memory title beside the cover (owner 2026-10-05: not a row of
+ * its own above it). Tap to rename in place — the serif line becomes the
+ * field, Done or leaving it saves, blank goes back to Yoin's title; once
+ * renamed, the sparkle restores the AI title. No outlined field, no labels.
+ */
 @Composable
-private fun Masthead(piece: ScrapPiece.Masthead, wide: Boolean, modifier: Modifier = Modifier) {
-    val size = if (wide) 30.sp else 26.sp
-    Text(
-        text = piece.title,
-        style = MaterialTheme.typography.headlineSmall.copy(
-            fontFamily = YoinSerifTitle,
-            fontWeight = FontWeight.SemiBold,
-            fontSize = size,
-            lineHeight = 1.25.em,
-            letterSpacing = 0.sp,
-        ),
+private fun OpeningTitle(
+    title: ScrapTitle,
+    wide: Boolean,
+    onRename: (String) -> Unit,
+    onRestore: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val style = MaterialTheme.typography.headlineSmall.copy(
+        // Yoin's own motif reads in the app face; a title someone wrote, in the serif.
+        fontFamily = if (title.serif) YoinSerifTitle else null,
+        fontWeight = FontWeight.SemiBold,
+        fontSize = if (wide) 28.sp else 22.sp,
+        lineHeight = 1.25.em,
+        letterSpacing = 0.sp,
         color = MaterialTheme.colorScheme.onSurface,
-        modifier = modifier
-            .fillMaxWidth()
-            .padding(top = 4.dp)
-            .seamFade(size),
     )
+    var editing by rememberSaveable { mutableStateOf(false) }
+    if (!editing) {
+        Text(
+            text = title.text,
+            style = style,
+            modifier = modifier
+                .seamFade()
+                .clip(YoinContainerShapes.ListRow)
+                .clickable(role = Role.Button, onClickLabel = "Rename") { editing = true },
+        )
+        return
+    }
+    val field = rememberTextFieldState(title.draftSeed)
+    val focus = remember { FocusRequester() }
+    var focused by remember { mutableStateOf(false) }
+    val commit = {
+        if (editing) {
+            editing = false
+            val text = field.text.toString().replace('\n', ' ').trim()
+            if (text != title.text) onRename(text)
+        }
+    }
+    LaunchedEffect(Unit) {
+        focus.requestFocus()
+        field.edit { selection = TextRange(0, length) }
+    }
+    Row(modifier = modifier, verticalAlignment = Alignment.Top) {
+        BasicTextField(
+            state = field,
+            textStyle = style,
+            cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+            // One line of meaning: pasted line breaks become spaces (the field still wraps).
+            inputTransformation = InputTransformation.maxLength(ScrapTitleMaxLength).then {
+                val text = asCharSequence()
+                for (i in text.indices.reversed()) if (text[i] == '\n') replace(i, i + 1, " ")
+            },
+            keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, imeAction = ImeAction.Done),
+            onKeyboardAction = { commit() },
+            modifier = Modifier
+                .weight(1f)
+                .focusRequester(focus)
+                // A hardware Enter saves too, rather than breaking the line.
+                .onPreviewKeyEvent { event ->
+                    if (event.key == Key.Enter && event.type == KeyEventType.KeyDown) {
+                        commit()
+                        true
+                    } else {
+                        false
+                    }
+                }
+                .onFocusChanged { state ->
+                    if (focused && !state.isFocused) commit()
+                    focused = state.isFocused
+                },
+        )
+        if (title.canRestore) {
+            IconButton(
+                onClick = {
+                    editing = false
+                    onRestore()
+                },
+            ) {
+                Icon(
+                    imageVector = YoinSymbols.Sparkle,
+                    contentDescription = title.restoreLabel,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(20.dp),
+                )
+            }
+        }
+    }
 }
+
+/** Matches AlbumMemoryTitleStore's cap. */
+private const val ScrapTitleMaxLength = 80
 
 @Composable
 private fun Opening(
@@ -550,6 +658,8 @@ private fun Opening(
     colors: ScrapbookColors,
     wide: Boolean,
     onEditReview: () -> Unit,
+    onRenameTitle: (String) -> Unit,
+    onRestoreTitle: () -> Unit,
     settled: Boolean,
     stamped: Boolean,
     onStamped: () -> Unit,
@@ -557,11 +667,14 @@ private fun Opening(
 ) {
     val coverSide = if (wide) ScrapbookLayout.CoverSideWide else ScrapbookLayout.CoverSide
     val emblemSize = if (wide) ScrapbookLayout.EmblemSizeWide else ScrapbookLayout.EmblemSize
-    // A long review gets the full width under the cover instead of a narrow column beside it.
-    val reviewBeside = wide || piece.review == null || weightedLength(piece.review) <= OpeningBesideBudget
+    val title = piece.title
+    // A long review gets the full width under the cover instead of a narrow column beside it; on a
+    // phone the column beside the cover belongs to the title when there is one.
+    val reviewBeside = (wide || piece.review == null || weightedLength(piece.review) <= OpeningBesideBudget) &&
+        (wide || title == null)
     val review: @Composable (Modifier) -> Unit = { m ->
         if (piece.review != null) {
-            ReviewClipping(piece.review, piece.reviewTilt, colors, onEditReview, m)
+            ReviewClipping(piece.review, piece.reviewTilt, colors, onEditReview, m, writtenAt = piece.reviewAt)
         } else {
             BlankReview(piece.reviewTilt, colors, onEditReview, m)
         }
@@ -581,7 +694,26 @@ private fun Opening(
                 stamped = stamped,
                 onStamped = onStamped,
             )
-            if (reviewBeside) {
+            if (title != null) {
+                // the emblem's sideways overhang plus a little air
+                Spacer(Modifier.width(emblemSize * ScrapbookLayout.EmblemOverhangX + 8.dp))
+                Column(modifier = Modifier.weight(1f).padding(top = 4.dp)) {
+                    OpeningTitle(title, wide, onRenameTitle, onRestoreTitle)
+                    if (reviewBeside) {
+                        // Wide: the review (and the sticky tucked under it) follows the title in its column.
+                        Spacer(Modifier.height(16.dp))
+                        ScrapStack(mirror = false, modifier = Modifier.fillMaxWidth()) {
+                            review(Modifier.scrapSlot(cross = false, overlap = 0.dp).widthIn(max = 420.dp))
+                            albumNote?.invoke(
+                                Modifier
+                                    .scrapSlot(cross = false, overlap = ScrapbookLayout.StickyTuck)
+                                    .padding(start = ScrapbookLayout.StickyIndentWide)
+                                    .stickyWidth(),
+                            )
+                        }
+                    }
+                }
+            } else if (reviewBeside) {
                 // the emblem's sideways overhang plus a little air
                 Spacer(Modifier.width(emblemSize * ScrapbookLayout.EmblemOverhangX + 8.dp))
                 if (wide && albumNote != null) {
@@ -727,27 +859,44 @@ private fun ReviewClipping(
     colors: ScrapbookColors,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    writtenAt: String? = null,
 ) {
-    Text(
-        text = review,
-        style = MaterialTheme.typography.bodyLarge.copy(
-            fontFamily = FontFamily.Default,
-            fontSize = 15.sp,
-            lineHeight = 1.55.em,
-            letterSpacing = 0.sp,
-        ),
-        color = colors.onReview,
+    Column(
         modifier = modifier
             .scrapLayer(tilt, depth = 0.35f)
             .seamFade()
             .clip(YoinContainerShapes.Card)
             .background(colors.review)
-            .clickable(onClickLabel = "Edit review", onClick = onClick)
+            .clickable(onClickLabel = "Edit comment", onClick = onClick)
             .padding(horizontal = 16.dp, vertical = 14.dp),
-    )
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Text(
+            text = review,
+            style = MaterialTheme.typography.bodyLarge.copy(
+                fontFamily = GoogleSansFlex,
+                fontSize = 15.sp,
+                lineHeight = 1.55.em,
+                letterSpacing = 0.sp,
+            ),
+            color = colors.onReview,
+        )
+        // When it was written, quietly at the foot (owner 2026-10-05).
+        if (writtenAt != null) {
+            Text(
+                text = writtenAt,
+                style = MaterialTheme.typography.labelMedium,
+                color = colors.onReview.copy(alpha = 0.6f),
+            )
+        }
+    }
 }
 
-/** No review yet: a dashed blank clipping that opens the rate & comment sheet. */
+/**
+ * No comment yet: just a pen in a dashed circle that opens the rate & comment
+ * sheet — no "Write a review" title or instructions (owner 2026-10-05: keep
+ * the page free of text blocks; "没写过就留一个笔的图标").
+ */
 @Composable
 private fun BlankReview(
     tilt: Float,
@@ -755,34 +904,26 @@ private fun BlankReview(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Column(
-        modifier = modifier
-            .scrapLayer(tilt, depth = 0.35f)
-            .seamFade()
-            .clip(YoinContainerShapes.Card)
-            .dashedOutline(YoinContainerShapes.Card, color = { colors.outline }, width = 1.5.dp, gap = 5.dp)
-            .clickable(role = Role.Button, onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 14.dp),
-        verticalArrangement = Arrangement.spacedBy(4.dp),
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+    // The slot may be a full row (under the cover on a phone); the pen stays a 48dp circle at its start.
+    Box(modifier = modifier, contentAlignment = Alignment.CenterStart) {
+        Box(
+            modifier = Modifier
+                .scrapLayer(tilt, depth = 0.35f)
+                .seamFade()
+                .size(48.dp)
+                .clip(CircleShape)
+                .dashedOutline(CircleShape, color = { colors.outline }, width = 1.5.dp, gap = 5.dp)
+                .clickable(role = Role.Button, onClickLabel = "Write a comment", onClick = onClick)
+                .semantics { contentDescription = "Write a comment" },
+            contentAlignment = Alignment.Center,
+        ) {
             Icon(
                 imageVector = YoinSymbols.Edit,
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier.size(18.dp),
-            )
-            Text(
-                text = "Write a review",
-                style = MaterialTheme.typography.titleSmall.copy(fontSize = 15.sp),
-                color = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.size(20.dp),
             )
         }
-        Text(
-            text = "Rate the album and write what it was like.",
-            style = MaterialTheme.typography.bodyMedium.copy(fontSize = 13.sp, lineHeight = 1.45.em),
-            color = colors.muted,
-        )
     }
 }
 
@@ -799,17 +940,8 @@ private fun TrackCluster(
     modifier: Modifier = Modifier,
 ) {
     ScrapStack(mirror = piece.mirror, modifier = modifier.padding(top = 6.dp)) {
-        if (piece.best) {
-            Text(
-                text = "Best on the record",
-                style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold, letterSpacing = 0.sp),
-                color = colors.ink,
-                modifier = Modifier
-                    .scrapSlot(cross = false, overlap = 0.dp)
-                    .padding(bottom = 6.dp)
-                    .seamFade(),
-            )
-        }
+        // The album's best track needs no caption ("Best on the record" read as
+        // AI slop, owner 2026-10-05): its ticket is the ink-filled, big-score one.
         Ticket(
             track = piece.track,
             colors = colors,
@@ -1007,7 +1139,7 @@ private fun Ticket(
             Text(
                 text = track.number.toString().padStart(2, '0'),
                 style = MaterialTheme.typography.titleMedium.copy(
-                    fontFamily = FontFamily.Monospace,
+                    fontFeatureSettings = "tnum",
                     fontWeight = FontWeight.Medium,
                     fontSize = if (mini) 16.sp else 18.sp,
                     letterSpacing = 0.sp,
@@ -1054,7 +1186,7 @@ private fun Ticket(
                             ScrapTicketMetaLine(
                                 meta = meta,
                                 style = MaterialTheme.typography.labelMedium.copy(
-                                    fontFamily = FontFamily.Monospace,
+                                    fontFeatureSettings = "tnum",
                                     fontSize = 12.sp,
                                     letterSpacing = 0.sp,
                                 ),
@@ -1089,11 +1221,15 @@ private fun Ticket(
 /** The stub's width (the number column) and where the perforation and notches sit. */
 private val TicketStub = 48.dp
 
+/** A fact tag's corners: a full pill at one line, never an oval when the value wraps. */
+private val FactTagShape = RoundedCornerShape(16.dp)
+
 /**
- * A ticket's meta line: [full] "1:10 · ×3", and [short] "1:10" for when the
- * plays don't fit beside it. The "· ×N" is one piece — its dot bound to the
- * duration and the count by no-break spaces, so the line never breaks around
- * it — and it goes whole ([ScrapTicketMetaLine]). [short] is null when there
+ * A ticket's meta line: [full] "1:10 · 3 plays", and [short] "3 plays" for when
+ * the duration doesn't fit beside it — the plays are the user's own, the
+ * duration is on page 1. Words, not "×3" (owner 2026-10-05). The dot and the
+ * count are bound by no-break spaces, so the line never breaks inside it, and
+ * the duration goes whole ([ScrapTicketMetaLine]). [short] is null when there
  * is nothing to drop (no duration, or no plays).
  */
 @Immutable
@@ -1102,10 +1238,10 @@ internal data class ScrapTicketMeta(val full: String, val short: String?)
 /** [ScrapTicketMeta] for a track's [durationSec] and [plays]; null when it has neither. */
 internal fun scrapTicketMeta(durationSec: Int?, plays: Int): ScrapTicketMeta? {
     val duration = durationSec?.let(::formatTrackDuration)
-    val count = plays.takeIf { it > 0 }?.let { "×$it" }
+    val count = plays.takeIf { it > 0 }?.let { if (it == 1) "1${NoBreak}play" else "$it${NoBreak}plays" }
     return when {
         duration != null && count != null ->
-            ScrapTicketMeta(full = "$duration$NoBreak·$NoBreak$count", short = duration)
+            ScrapTicketMeta(full = "$duration$NoBreak·$NoBreak$count", short = count)
         else -> (duration ?: count)?.let { ScrapTicketMeta(full = it, short = null) }
     }
 }
@@ -1114,8 +1250,8 @@ private const val NoBreak = '\u00A0'
 
 /**
  * One line, never two: [ScrapTicketMeta.full] when it fits the width it's
- * given, else [ScrapTicketMeta.short] — "· ×N" dropped whole rather than a
- * wrapped "1:10 ·" / "×1" (device QA 2026-10-05, the right column's small
+ * given, else [ScrapTicketMeta.short] — the duration dropped whole rather
+ * than a wrapped "1:10 ·" (device QA 2026-10-05, the right column's small
  * tickets). Decided in the layout pass from the full line's intrinsic width,
  * so a width change re-measures without recomposing.
  */
@@ -1198,7 +1334,7 @@ private fun NoteLine(line: ScrapNoteLine, colors: ScrapbookColors, onClick: () -
         Text(
             text = at.orEmpty(),
             style = MaterialTheme.typography.labelMedium.copy(
-                fontFamily = FontFamily.Monospace,
+                fontFeatureSettings = "tnum",
                 fontWeight = FontWeight.Medium,
                 fontSize = 12.sp,
                 letterSpacing = 0.sp,
@@ -1221,7 +1357,7 @@ private fun NoteLine(line: ScrapNoteLine, colors: ScrapbookColors, onClick: () -
 
 @Composable
 private fun userTextStyle() = MaterialTheme.typography.bodyLarge.copy(
-    fontFamily = FontFamily.Default,
+    fontFamily = GoogleSansFlex,
     fontSize = 15.sp,
     lineHeight = 1.5.em,
     letterSpacing = 0.sp,
@@ -1340,7 +1476,10 @@ private fun FactTag(
         modifier = modifier
             .scrapLayer(tag.tilt, depth = 0.7f)
             .seamFade()
-            .clip(CircleShape)
+            // A capped radius, not CircleShape: a long About value wraps, and a
+            // circle clip turned the tag into a fat oval that cut its text off
+            // (owner's foldable, 2026-10-05). Single-line tags still read as pills.
+            .clip(FactTagShape)
             .background(colors.tag)
             .clickable(role = Role.Button, onClick = onClick)
             .padding(horizontal = 14.dp, vertical = 7.dp),
@@ -1349,7 +1488,6 @@ private fun FactTag(
         Text(
             text = tag.label,
             style = MaterialTheme.typography.labelMedium.copy(
-                fontFamily = FontFamily.Monospace,
                 fontSize = 11.5.sp,
                 letterSpacing = 0.sp,
             ),
@@ -1360,66 +1498,29 @@ private fun FactTag(
             text = if (extra > 0) "${tag.value}  +$extra" else tag.value,
             style = MaterialTheme.typography.labelLarge.copy(lineHeight = 1.35.em, letterSpacing = 0.sp),
             color = colors.onTag,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
             modifier = Modifier.alignByBaseline(),
         )
     }
 }
 
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun NotYet(
-    piece: ScrapPiece.NotYet,
+    @Suppress("UNUSED_PARAMETER") piece: ScrapPiece.NotYet,
     colors: ScrapbookColors,
-    onPlay: (String) -> Unit,
+    @Suppress("UNUSED_PARAMETER") onPlay: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Column(modifier = modifier.fillMaxWidth()) {
-        AlbumSectionLabel(text = "Not yet", modifier = Modifier.seamFade())
-        FlowRow(
-            modifier = Modifier.padding(top = 8.dp),
-            horizontalArrangement = Arrangement.spacedBy(2.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp),
-        ) {
-            piece.tracks.forEach { track ->
-                Box(
-                    modifier = Modifier
-                        .size(48.dp)
-                        .scrapLayer(track.tilt, depth = 0.6f)
-                        .seamFade()
-                        .clip(CircleShape)
-                        .semantics { contentDescription = "Track ${track.number}, ${track.title}" }
-                        .clickable(role = Role.Button, onClickLabel = "Play ${track.title}") { onPlay(track.songId) }
-                        .padding(4.dp)
-                        .dashedOutline(MaterialShapes.Cookie12Sided.toShapeCompat(), color = { colors.outline }, width = 1.5.dp),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text(
-                        text = track.number.toString(),
-                        style = MaterialTheme.typography.labelMedium.copy(
-                            fontFamily = FontFamily.Monospace,
-                            fontSize = 12.sp,
-                            letterSpacing = 0.sp,
-                        ),
-                        color = colors.muted,
-                    )
-                }
-            }
-        }
-        Text(
-            text = if (piece.all) {
-                "Scores, notes and questions you leave on these songs get pasted here. Tap a number to play it."
-            } else {
-                val n = piece.tracks.size
-                "$n ${if (n == 1) "song" else "songs"} without a score, a note or a question. Tap one to play it."
-            },
-            style = MaterialTheme.typography.bodyMedium.copy(fontSize = 13.sp, lineHeight = 1.5.em),
-            color = colors.muted,
-            modifier = Modifier
-                .padding(top = 6.dp)
-                .widthIn(max = 420.dp)
-                .seamFade(),
-        )
-    }
+    // No label, no moulds, no instructions: one line, and the tracks stay on page 1.
+    Text(
+        text = "Scores and notes you leave show up here.",
+        style = MaterialTheme.typography.bodyMedium.copy(fontSize = 13.sp, lineHeight = 1.5.em),
+        color = colors.muted,
+        modifier = modifier
+            .widthIn(max = 420.dp)
+            .seamFade(),
+    )
 }
 
 @Composable

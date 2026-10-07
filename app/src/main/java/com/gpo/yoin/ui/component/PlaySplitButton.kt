@@ -144,6 +144,30 @@ fun PlaySplitButton(
     }
 }
 
+/**
+ * One ▾ row in the Play menu's own look (Shuffle play's size, icon and
+ * padding) — what a page adds through `trailingMenuItems`. The row closes the
+ * menu before it acts.
+ */
+@Composable
+fun PlayMenuItem(
+    text: String,
+    icon: ImageVector,
+    dismissMenu: () -> Unit,
+    onClick: () -> Unit,
+) {
+    YoinDropdownMenuItem(
+        text = text,
+        onClick = {
+            dismissMenu()
+            onClick()
+        },
+        leadingIcon = { Icon(icon, contentDescription = null, modifier = Modifier.size(22.dp)) },
+        textStyle = PlayMenuTextStyle,
+        contentPadding = PlayMenuItemPadding,
+    )
+}
+
 @Composable
 private fun ColumnScope.PlayMenuContent(
     showShuffle: Boolean,

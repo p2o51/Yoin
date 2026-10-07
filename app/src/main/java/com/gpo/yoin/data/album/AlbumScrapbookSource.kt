@@ -1,6 +1,7 @@
 package com.gpo.yoin.data.album
 
 import com.gpo.yoin.data.local.AlbumNote
+import com.gpo.yoin.data.local.AlbumMemoryTitleDao
 import com.gpo.yoin.data.local.AlbumNoteDao
 import com.gpo.yoin.data.local.AlbumPlayStats
 import com.gpo.yoin.data.local.LocalRatingDao
@@ -60,6 +61,8 @@ data class AlbumScrapbookData(
     val plays: AlbumScrapbookPlays = AlbumScrapbookPlays(),
     /** The Memories AI title, only when Memories already generated it (never generated from here). */
     val memoryTitle: String? = null,
+    /** The user's own name for the album's Memory (album_memory_titles); beats [memoryTitle]. */
+    val memoryTitleUser: String? = null,
     /** The album's one album note (the latest legacy row), if any. */
     val albumNote: AlbumScrapbookAlbumNote? = null,
 ) {
@@ -125,6 +128,7 @@ fun interface AlbumScrapbookSource {
                 playHistoryDao = database.playHistoryDao(),
                 memoryCopyCacheDao = database.memoryCopyCacheDao(),
                 albumNoteDao = database.albumNoteDao(),
+                memoryTitleDao = database.albumMemoryTitleDao(),
             )
     }
 }
@@ -138,6 +142,7 @@ class RoomAlbumScrapbookSource(
     private val playHistoryDao: PlayHistoryDao,
     private val memoryCopyCacheDao: MemoryCopyCacheDao,
     private val albumNoteDao: AlbumNoteDao,
+    private val memoryTitleDao: AlbumMemoryTitleDao? = null,
 ) : AlbumScrapbookSource {
 
     override fun observe(query: AlbumScrapbookQuery): Flow<AlbumScrapbookData> =
@@ -184,8 +189,14 @@ class RoomAlbumScrapbookSource(
         val albumNote = albumNoteDao
             .observeForAlbum(query.albumId.rawId, query.albumId.provider, profileId)
             .map(::latestAlbumNote)
+        // Live: a rename on page 2 or in Memories shows at once.
+        val userTitle = memoryTitleDao
+            ?.observe(profileId, query.albumId.provider, query.albumId.rawId)
+            ?.map { row -> row?.title?.takeIf(String::isNotBlank) }
+            ?: flowOf(null)
+        val titles = combine(memoryTitle, userTitle) { ai, user -> ai to user }
         val perTrack = combine(ratings, notes, counts) { r, n, c -> Triple(r, n, c) }
-        return combine(perTrack, about, plays, memoryTitle, albumNote) { (r, n, c), byTrack, albumPlays, title, note ->
+        return combine(perTrack, about, plays, titles, albumNote) { (r, n, c), byTrack, albumPlays, (title, user), note ->
             AlbumScrapbookData(
                 ratings = r.toMap(),
                 notes = n.groupBy({ it.first }, { it.second }).mapValues { (_, list) -> list.timelineOrder() },
@@ -193,6 +204,7 @@ class RoomAlbumScrapbookSource(
                 playCounts = c.toMap(),
                 plays = albumPlays,
                 memoryTitle = title,
+                memoryTitleUser = user,
                 albumNote = note,
             )
         }

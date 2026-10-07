@@ -9,6 +9,9 @@ import com.gpo.yoin.data.album.AlbumScrapbookData
 import com.gpo.yoin.data.album.AlbumScrapbookQuery
 import com.gpo.yoin.data.album.AlbumScrapbookSource
 import com.gpo.yoin.data.album.AlbumScrapbookTrackKey
+import com.gpo.yoin.data.local.AlbumRating
+import com.gpo.yoin.data.memory.AlbumMemoryTitleSource
+import com.gpo.yoin.data.memory.AlbumMemoryTitleStore
 import com.gpo.yoin.data.model.Album
 import com.gpo.yoin.data.model.CoverRef
 import com.gpo.yoin.data.model.LibraryMembership
@@ -19,15 +22,22 @@ import com.gpo.yoin.data.repository.YoinRepository
 import com.gpo.yoin.data.source.ServiceFeatureCatalog
 import com.gpo.yoin.player.PlaybackState
 import com.gpo.yoin.ui.component.toUserMessage
+import com.gpo.yoin.ui.memories.ResolvedMemoryTitle
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.catch
-import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filterIsInstance
 import kotlinx.coroutines.flow.filterNotNull
@@ -35,10 +45,10 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.flow.retryWhen
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.withTimeoutOrNull
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -50,6 +60,10 @@ class AlbumDetailViewModel(
     // The player, for "play from this note" on page 2 (null in tests that don't care).
     private val playback: AlbumScrapbookPlayback? = null,
     private val clock: () -> Long = System::currentTimeMillis,
+    // The user's own name for the album's Memory (page 2's title; null in tests that don't care).
+    private val memoryTitleStore: AlbumMemoryTitleStore? = null,
+    // Page 2's title, live, from the resolver Memories and Home share (user > AI; none over the album name).
+    private val memoryTitles: (MediaId) -> Flow<ScrapTitle?> = { flowOf(null) },
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow<AlbumDetailUiState>(AlbumDetailUiState.Loading)
@@ -57,6 +71,19 @@ class AlbumDetailViewModel(
 
     private var albumSongs: List<Track> = emptyList()
     private var loadedAlbum: Album? = null
+
+    /** The album's rating row as Room last reported it (its NeoDB dirty flags drive [neoDb]). */
+    private var ratingRow: AlbumRating? = null
+
+    private val _neoDb = MutableStateFlow(AlbumNeoDbSync.Unknown)
+
+    /** Where NeoDB stands for this album — the rate sheet's quiet last line (owner R3, 2026-10-06). */
+    val neoDb: StateFlow<AlbumNeoDbSync> = _neoDb.asStateFlow()
+
+    private val _messages = MutableSharedFlow<String>(extraBufferCapacity = 4)
+
+    /** One-line notices for the window's snackbar (a failed NeoDB sync). */
+    val messages: SharedFlow<String> = _messages.asSharedFlow()
     private val albumTrackIds = MutableStateFlow<List<MediaId>>(emptyList())
     private val _expandedSongId = MutableStateFlow<String?>(null)
     val expandedSongId: StateFlow<String?> = _expandedSongId.asStateFlow()
@@ -114,7 +141,9 @@ class AlbumDetailViewModel(
     val scrapbook: StateFlow<AlbumScrapbookUiState> = combine(
         _uiState.filterIsInstance<AlbumDetailUiState.Content>(),
         scrapbookData.filterNotNull(),
-    ) { content, data -> buildAlbumScrapbook(content, data, clock()) }
+        // Never holds page 2 back: no title until the resolver answers.
+        (MediaId.parseOrNull(albumId)?.let(memoryTitles) ?: flowOf(null)).onStart { emit(null) },
+    ) { content, data, title -> buildAlbumScrapbook(content, data, clock(), title = title) }
         .distinctUntilChanged()
         .map<AlbumScrapbook, AlbumScrapbookUiState> { book -> AlbumScrapbookUiState.Ready(book) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), AlbumScrapbookUiState.Loading)
@@ -169,6 +198,7 @@ class AlbumDetailViewModel(
                 // 自动刷到新结果。
                 launch {
                     repository.observeAlbumRating(parsedAlbumId).collect { rating ->
+                        ratingRow = rating
                         val current = _uiState.value as? AlbumDetailUiState.Content
                             ?: return@collect
                         // 只在 review 没有未保存编辑时同步下游 review；
@@ -181,9 +211,11 @@ class AlbumDetailViewModel(
                         _uiState.value = current.copy(
                             userRating = rating?.rating?.takeIf { it > 0f },
                             userReview = nextReview,
+                            userReviewAt = rating?.reviewUpdatedAt,
                             reviewHasUnsavedEdits = current.reviewHasUnsavedEdits &&
                                 nextReview != rating?.review.orEmpty(),
                         )
+                        refreshNeoDbLine()
                     }
                 }
 
@@ -373,7 +405,7 @@ class AlbumDetailViewModel(
     }
 
     /**
-     * 拖动 slider 结束（onValueChangeFinished）时调用。整数步进 0..10；
+     * 松开评分滑条时调用（0.1 步进，0..10，和 NP 的滑条一致）；
      * 0 当「撤销评分」落库（[YoinRepository.setAlbumRating] 接受 0）。
      */
     fun setUserRating(rating: Float) {
@@ -390,18 +422,101 @@ class AlbumDetailViewModel(
             userReview = text,
             reviewHasUnsavedEdits = true,
         )
+        refreshNeoDbLine()
     }
 
-    /** Save 按钮：把草稿落 Room（空串会走 delete-review 语义）。 */
-    fun saveUserReview() {
+    /**
+     * The sheet's NeoDB line follows what happens while it is open: a score set or words typed after a sync read
+     * "Syncs when you close this" again, not a stale "Synced". Unknown (never read), signed out, a push in flight
+     * and a failure keep their own owners ([onRateSheetOpened], [syncToNeoDb]).
+     */
+    private fun refreshNeoDbLine() {
+        val shown = _neoDb.value
+        if (shown != AlbumNeoDbSync.Synced && shown != AlbumNeoDbSync.Idle && shown != AlbumNeoDbSync.Pending) return
+        val unsaved = (_uiState.value as? AlbumDetailUiState.Content)?.reviewHasUnsavedEdits == true
+        _neoDb.value = if (unsaved) AlbumNeoDbSync.Pending else albumNeoDbSync(configured = true, row = ratingRow)
+    }
+
+    /** The rate sheet opened: read where NeoDB stands for this album. */
+    fun onRateSheetOpened() {
+        if (_neoDb.value == AlbumNeoDbSync.Syncing) return
+        viewModelScope.launch {
+            _neoDb.value = albumNeoDbSync(neoDbConfigured(), ratingRow)
+        }
+    }
+
+    /**
+     * The rate sheet closed: keep the words (no Save button any more), then
+     * hand the album to NeoDB when signed in and something changed.
+     */
+    fun onRateSheetClosed() {
         val album = loadedAlbum ?: return
         val current = _uiState.value as? AlbumDetailUiState.Content ?: return
-        val draft = current.userReview
         viewModelScope.launch {
-            repository.setAlbumReview(album, draft)
-            _uiState.value = (_uiState.value as? AlbumDetailUiState.Content)
-                ?.copy(reviewHasUnsavedEdits = false) ?: return@launch
+            if (current.reviewHasUnsavedEdits) {
+                repository.setAlbumReview(album, current.userReview)
+                _uiState.value = (_uiState.value as? AlbumDetailUiState.Content)
+                    ?.copy(reviewHasUnsavedEdits = false) ?: return@launch
+            }
+            syncToNeoDb(album)
         }
+    }
+
+    /** The sheet's "Couldn't sync · Retry". */
+    fun retryNeoDbSync() {
+        val album = loadedAlbum ?: return
+        viewModelScope.launch { syncToNeoDb(album) }
+    }
+
+    private suspend fun neoDbConfigured(): Boolean = try {
+        repository.isNeoDBConfigured()
+    } catch (cancellation: CancellationException) {
+        throw cancellation
+    } catch (_: Exception) {
+        false
+    }
+
+    private suspend fun syncToNeoDb(album: Album) {
+        val configured = neoDbConfigured()
+        val row = try {
+            repository.getAlbumRatingRow(album.id)
+        } catch (cancellation: CancellationException) {
+            throw cancellation
+        } catch (_: Exception) {
+            ratingRow
+        }
+        val state = albumNeoDbSync(configured, row)
+        if (state != AlbumNeoDbSync.Pending) {
+            _neoDb.value = state
+            return
+        }
+        _neoDb.value = AlbumNeoDbSync.Syncing
+        val result = try {
+            repository.pushAlbumToNeoDB(album)
+        } catch (cancellation: CancellationException) {
+            throw cancellation
+        } catch (error: Exception) {
+            Result.failure(error)
+        }
+        _neoDb.value = if (result.isSuccess) AlbumNeoDbSync.Synced else AlbumNeoDbSync.Failed
+        if (result.isFailure) {
+            Log.w(TAG, "NeoDB sync failed for ${album.id}", result.exceptionOrNull())
+            _messages.tryEmit("Couldn't sync to NeoDB")
+        }
+    }
+
+    /** Renames the album's Memory (page 2's title); blank restores Yoin's own title. */
+    fun renameMemoryTitle(title: String) {
+        val store = memoryTitleStore ?: return
+        val id = MediaId.parseOrNull(albumId) ?: return
+        viewModelScope.launch { runCatching { store.setTitle(id, title) } }
+    }
+
+    /** Drops the user's name: the AI title shows again. */
+    fun restoreMemoryTitle() {
+        val store = memoryTitleStore ?: return
+        val id = MediaId.parseOrNull(albumId) ?: return
+        viewModelScope.launch { runCatching { store.clearTitle(id) } }
     }
 
     class Factory(
@@ -423,6 +538,8 @@ class AlbumDetailViewModel(
                 repository = container.repository,
                 scrapbookSource = container.albumScrapbookSource,
                 playback = playback,
+                memoryTitleStore = container.albumMemoryTitleStore,
+                memoryTitles = { id -> container.albumMemoryTitleResolver.observe(id).map { it.toScrapTitle() } },
             ) as T
     }
 
@@ -442,6 +559,32 @@ class AlbumDetailViewModel(
         internal fun scrapbookRetryDelayMs(attempt: Long): Long =
             (1_000L shl attempt.coerceIn(0L, 5L).toInt()).coerceAtMost(SCRAPBOOK_RETRY_MAX_MS)
     }
+}
+
+/** Where NeoDB stands for one album, as the rate sheet's last line reads it. */
+enum class AlbumNeoDbSync {
+    /** Not read yet: the line is left out. */
+    Unknown,
+
+    /** No NeoDB account: the line offers sign-in. */
+    SignedOut,
+
+    /** Signed in, nothing written for this album yet. */
+    Idle,
+
+    /** A change waits: it goes when the sheet closes. */
+    Pending,
+    Syncing,
+    Synced,
+    Failed,
+}
+
+/** [row]'s NeoDB state for an account that is [configured] or not (the dirty flags decide). */
+internal fun albumNeoDbSync(configured: Boolean, row: AlbumRating?): AlbumNeoDbSync = when {
+    !configured -> AlbumNeoDbSync.SignedOut
+    row != null && (row.ratingNeedsSync || row.reviewNeedsSync) -> AlbumNeoDbSync.Pending
+    row != null && (row.rating > 0f || !row.review.isNullOrBlank()) -> AlbumNeoDbSync.Synced
+    else -> AlbumNeoDbSync.Idle
 }
 
 /** What page 2 needs from the player: its state and two commands (Memories' play-from-a-note contract). */
@@ -489,3 +632,18 @@ private fun String.toProviderLabel(): String = when (this) {
     MediaId.PROVIDER_LOCAL -> "Local"
     else -> replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() }
 }
+
+/** Page 2's title from the shared resolver; none over the bare album name (the header already says it). */
+internal fun ResolvedMemoryTitle.toScrapTitle(): ScrapTitle? =
+    if (source == AlbumMemoryTitleSource.ALBUM) {
+        null
+    } else {
+        ScrapTitle(
+            text = text,
+            edited = source == AlbumMemoryTitleSource.USER,
+            canRestore = canRestoreGenerated,
+            restoreLabel = restoreLabel,
+            serif = isSerif,
+            draftSeed = draftSeed,
+        )
+    }

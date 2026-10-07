@@ -20,20 +20,25 @@ import androidx.navigation3.runtime.NavKey
 import com.gpo.yoin.YoinApplication
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.repository.ActivityContext
+import com.gpo.yoin.data.source.WebLinkKind
 import com.gpo.yoin.symbols.YoinSymbols
 import com.gpo.yoin.ui.component.BarExtraAction
 import com.gpo.yoin.ui.component.BarPlaySplitActions
-import com.gpo.yoin.ui.component.YoinDropdownMenuItem
 import com.gpo.yoin.ui.detail.AlbumDetailScreen
 import com.gpo.yoin.ui.detail.AlbumDetailUiState
 import com.gpo.yoin.ui.detail.AlbumDetailViewModel
 import com.gpo.yoin.ui.detail.ArtistDetailScreen
 import com.gpo.yoin.ui.detail.ArtistDetailUiState
 import com.gpo.yoin.ui.detail.ArtistDetailViewModel
+import com.gpo.yoin.ui.detail.DetailMenuRows
 import com.gpo.yoin.ui.detail.PlaylistDetailScreen
 import com.gpo.yoin.ui.detail.PlaylistDetailUiState
 import com.gpo.yoin.ui.detail.PlaylistDetailViewModel
+import com.gpo.yoin.ui.detail.detailShareText
+import com.gpo.yoin.ui.detail.rememberDetailMenu
+import com.gpo.yoin.ui.detail.rememberDetailWebLink
 import com.gpo.yoin.ui.navigation.trackCoverArtId
+import com.gpo.yoin.ui.settings.SettingsActivity
 import com.gpo.yoin.ui.theme.rememberCoverColorScheme
 import kotlinx.coroutines.launch
 
@@ -85,6 +90,8 @@ internal fun AlbumPaneEntry(
     registry: PaneBarRegistry,
     onBack: () -> Unit,
     onOpenArtist: (artistId: String) -> Unit,
+    onMessage: (String) -> Unit,
+    onAddToPlaylist: (List<MediaId>) -> Unit,
 ) {
     val context = LocalContext.current
     val viewModel: AlbumDetailViewModel = viewModel(
@@ -95,6 +102,12 @@ internal fun AlbumPaneEntry(
     val expandedSongId by viewModel.expandedSongId.collectAsState()
     val expandedNoteBundle by viewModel.expandedNoteBundle.collectAsState()
     val scrapbook by viewModel.scrapbook.collectAsState()
+    val neoDb by viewModel.neoDb.collectAsState()
+    val currentOnMessage by rememberUpdatedState(onMessage)
+    // A failed NeoDB sync surfaces on the shell's snackbar.
+    LaunchedEffect(viewModel) {
+        viewModel.messages.collect { message -> currentOnMessage(message) }
+    }
     val content = uiState as? AlbumDetailUiState.Content
 
     fun playFrom(startIndex: Int, shuffle: Boolean) {
@@ -116,6 +129,7 @@ internal fun AlbumPaneEntry(
                 startIndex = startIndex.coerceIn(0, tracks.lastIndex),
                 source = source,
                 activityContext = activityContext,
+                shuffled = shuffle,
             )
         }
     }
@@ -125,9 +139,18 @@ internal fun AlbumPaneEntry(
             .coerceAtLeast(0)
         playFrom(startIndex = index, shuffle = false)
     }
+    val webLink = rememberDetailWebLink(app.container, WebLinkKind.Album, route.albumId)
+    val menu = rememberDetailMenu(
+        container = app.container,
+        link = webLink,
+        provider = MediaId.parseOrNull(route.albumId)?.provider,
+        tracks = { viewModel.getAlbumSongs() },
+        onMessage = onMessage,
+        onAddToPlaylist = onAddToPlaylist,
+    )
     val share = {
-        val text = content?.let { "${it.albumName} – ${it.artistName}" } ?: "Check out this album"
-        context.startActivity(Intent.createChooser(shareIntent(text), null))
+        val title = content?.let { "${it.albumName} – ${it.artistName}" } ?: "Check out this album"
+        context.startActivity(Intent.createChooser(shareIntent(detailShareText(title, webLink)), null))
     }
     val artistId = content?.artistId
 
@@ -148,6 +171,7 @@ internal fun AlbumPaneEntry(
                 },
                 BarExtraAction(icon = YoinSymbols.Share, label = "Share", onClick = share),
             ),
+            menuItems = { dismissMenu -> DetailMenuRows(menu, dismissMenu) },
         ),
     )
 
@@ -164,6 +188,8 @@ internal fun AlbumPaneEntry(
         },
         onToggleStar = viewModel::toggleStar,
         onRetry = viewModel::retry,
+        onRenameMemoryTitle = viewModel::renameMemoryTitle,
+        onRestoreMemoryTitle = viewModel::restoreMemoryTitle,
         notedSongIds = notedSongIds,
         currentTrackId = playback.currentTrackId,
         expandedSongId = expandedSongId,
@@ -171,10 +197,15 @@ internal fun AlbumPaneEntry(
         onToggleExpandedSong = viewModel::toggleExpandedSong,
         onRatingCommit = viewModel::setUserRating,
         onReviewDraftChange = viewModel::onReviewDraftChange,
-        onSaveReview = viewModel::saveUserReview,
+        neoDb = neoDb,
+        onRateSheetOpened = viewModel::onRateSheetOpened,
+        onRateSheetClosed = viewModel::onRateSheetClosed,
+        onNeoDbRetry = viewModel::retryNeoDbSync,
+        onNeoDbSignIn = { context.startActivity(SettingsActivity.intent(context, "neodb")) },
         onPlayAlbum = { playFrom(startIndex = 0, shuffle = false) },
         onShufflePlay = { playFrom(startIndex = 0, shuffle = true) },
         onShare = share,
+        menu = menu,
         onOpenArtist = artistId?.let { id -> { onOpenArtist(id) } },
         isPlaying = playback.isPlaying,
         playbackSignal = playback.playbackSignal,
@@ -191,6 +222,7 @@ internal fun ArtistPaneEntry(
     isTop: Boolean,
     onBack: () -> Unit,
     onOpenAlbum: (albumId: String) -> Unit,
+    onMessage: (String) -> Unit,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -232,17 +264,19 @@ internal fun ArtistPaneEntry(
             )
         }
     }
-    fun openInSpotify() {
-        val rawId = MediaId.parseOrNull(route.artistId)?.rawId ?: return
-        val intent = Intent(Intent.ACTION_VIEW, "https://open.spotify.com/artist/$rawId".toUri())
-        runCatching { context.startActivity(intent) }
-    }
+    val webLink = rememberDetailWebLink(app.container, WebLinkKind.Artist, route.artistId)
+    val menu = rememberDetailMenu(
+        container = app.container,
+        link = webLink,
+        provider = MediaId.parseOrNull(route.artistId)?.provider,
+        tracks = { viewModel.getAllTracks() },
+        onMessage = onMessage,
+        onAddToPlaylist = null,
+    )
     val share = {
-        val text = content?.artistName ?: "Check out this artist"
-        context.startActivity(Intent.createChooser(shareIntent(text), null))
+        val title = content?.artistName ?: "Check out this artist"
+        context.startActivity(Intent.createChooser(shareIntent(detailShareText(title, webLink)), null))
     }
-    val provider = content?.artistId?.let { MediaId.parseOrNull(it)?.provider }
-    val showOpenInSpotify = provider == MediaId.PROVIDER_SPOTIFY
 
     val heroUrl = content?.heroCoverArtUrl ?: content?.albums?.firstOrNull()?.coverArtUrl
     val scheme = rememberCoverColorScheme(heroUrl) ?: MaterialTheme.colorScheme
@@ -255,19 +289,7 @@ internal fun ArtistPaneEntry(
             onPlay = { playArtist(shuffle = false) },
             onShuffle = { playArtist(shuffle = true) },
             promotable = listOf(BarExtraAction(icon = YoinSymbols.Share, label = "Share", onClick = share)),
-            menuItems = if (showOpenInSpotify) {
-                { dismissMenu ->
-                    YoinDropdownMenuItem(
-                        text = "Open in Spotify",
-                        onClick = {
-                            dismissMenu()
-                            openInSpotify()
-                        },
-                    )
-                }
-            } else {
-                { _ -> }
-            },
+            menuItems = { dismissMenu -> DetailMenuRows(menu, dismissMenu) },
         ),
     )
 
@@ -279,7 +301,7 @@ internal fun ArtistPaneEntry(
         onToggleFollow = viewModel::toggleFollow,
         onPlay = { playArtist(shuffle = false) },
         onShuffle = { playArtist(shuffle = true) },
-        onOpenInSpotify = { openInSpotify() },
+        menu = menu,
         onMostPlayedClick = { index -> playMostPlayed(index) },
         onShare = share,
         isPlaying = playback.isPlaying,
@@ -333,6 +355,7 @@ internal fun PlaylistPaneEntry(
                 startIndex = startIndex.coerceIn(0, tracks.lastIndex),
                 source = source,
                 activityContext = activityContext,
+                shuffled = shuffle,
             )
         }
     }
@@ -416,4 +439,3 @@ private fun shareIntent(text: String): Intent = Intent(Intent.ACTION_SEND).apply
     putExtra(Intent.EXTRA_TEXT, text)
 }
 
-private fun String.toUri(): android.net.Uri = android.net.Uri.parse(this)

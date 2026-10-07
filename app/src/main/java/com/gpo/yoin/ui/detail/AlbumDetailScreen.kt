@@ -5,6 +5,7 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -18,39 +19,40 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.requiredSize
-import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.BiasAlignment
 import androidx.compose.ui.Modifier
@@ -59,8 +61,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.buildAnnotatedString
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Dp
@@ -72,14 +74,13 @@ import com.gpo.yoin.ui.component.DetailErrorState
 import com.gpo.yoin.ui.component.ExpressiveMediaArtwork
 import com.gpo.yoin.ui.component.ExpressivePageBackground
 import com.gpo.yoin.ui.component.YoinDropdownMenu
-import com.gpo.yoin.ui.component.minimumTouchTarget
-import com.gpo.yoin.ui.component.rememberStagedReveal
 import com.gpo.yoin.ui.component.expressivePageSeamBackground
+import com.gpo.yoin.ui.component.rememberStagedReveal
 import com.gpo.yoin.ui.component.seamDissolve
+import com.gpo.yoin.ui.component.seamDissolveViewport
+import com.gpo.yoin.ui.component.seamFade
 import com.gpo.yoin.ui.component.seamRemainingPx
 import com.gpo.yoin.ui.component.seamScrolledPx
-import com.gpo.yoin.ui.component.seamFade
-import com.gpo.yoin.ui.component.seamDissolveViewport
 import com.gpo.yoin.ui.component.stagedBeat
 import com.gpo.yoin.ui.component.yoinPageContentWidth
 import com.gpo.yoin.ui.experience.LayoutMode
@@ -91,9 +92,11 @@ import com.gpo.yoin.ui.navigation.YoinSection
 import com.gpo.yoin.ui.theme.ProvideYoinMotionRole
 import com.gpo.yoin.ui.theme.YoinArtworkShapes
 import com.gpo.yoin.ui.theme.YoinMotion
-import com.gpo.yoin.ui.theme.rememberCoverColorScheme
 import com.gpo.yoin.ui.theme.YoinMotionRole
 import com.gpo.yoin.ui.theme.YoinTheme
+import com.gpo.yoin.ui.theme.rememberCoverColorScheme
+import com.gpo.yoin.ui.theme.withTabularFigures
+import java.time.ZoneId
 import kotlinx.coroutines.launch
 
 // At or below this track count the cover docks to a big rounded "capsule"; above
@@ -124,14 +127,25 @@ fun AlbumDetailScreen(
     onToggleExpandedSong: (songId: String) -> Unit = {},
     onRatingCommit: (Float) -> Unit = {},
     onReviewDraftChange: (String) -> Unit = {},
-    onSaveReview: () -> Unit = {},
+    // The rate sheet's life and its NeoDB line (owner R3): opened → read where
+    // NeoDB stands; closed → keep the words and sync.
+    neoDb: AlbumNeoDbSync = AlbumNeoDbSync.Unknown,
+    onRateSheetOpened: () -> Unit = {},
+    onRateSheetClosed: () -> Unit = {},
+    onNeoDbSignIn: () -> Unit = {},
+    onNeoDbRetry: () -> Unit = {},
     // Page 2 (the scrapbook). Null = this host doesn't provide it: one page, no dots.
     scrapbook: AlbumScrapbookUiState? = null,
     // A note line on page 2: play the song, then seek to the note's moment once it is ready.
     onNoteMomentClick: (songId: String, positionMs: Long?) -> Unit = { songId, _ -> onSongClick(songId) },
+    // Page 2's Memory title: rename (blank = back to Yoin's) and restore the AI title.
+    onRenameMemoryTitle: (String) -> Unit = {},
+    onRestoreMemoryTitle: () -> Unit = {},
     onPlayAlbum: () -> Unit = {},
     onShufflePlay: () -> Unit = {},
     onShare: () -> Unit = {},
+    // The ▾ rows after Shuffle play (Play next, Add to queue, …): the host builds them.
+    menu: DetailMenu = DetailMenu(),
     onOpenArtist: (() -> Unit)? = null,
     isPlaying: Boolean = false,
     playbackSignal: Float = 0f,
@@ -247,9 +261,15 @@ fun AlbumDetailScreen(
                                     onToggleExpandedSong = onToggleExpandedSong,
                                     onRatingCommit = onRatingCommit,
                                     onReviewDraftChange = onReviewDraftChange,
-                                    onSaveReview = onSaveReview,
+                                    neoDb = neoDb,
+                                    onRateSheetOpened = onRateSheetOpened,
+                                    onRateSheetClosed = onRateSheetClosed,
+                                    onNeoDbSignIn = onNeoDbSignIn,
+                                    onNeoDbRetry = onNeoDbRetry,
                                     scrapbook = scrapbook,
                                     onNoteMomentClick = onNoteMomentClick,
+                                    onRenameMemoryTitle = onRenameMemoryTitle,
+                                    onRestoreMemoryTitle = onRestoreMemoryTitle,
                                 )
                         }
                     }
@@ -306,6 +326,7 @@ fun AlbumDetailScreen(
                             onClick = onShare,
                         ),
                     ),
+                    menuItems = { dismissMenu -> DetailMenuRows(menu, dismissMenu) },
                     modifier = Modifier.align(Alignment.BottomCenter),
                 )
             }
@@ -328,9 +349,15 @@ private fun AlbumDetailContent(
     onToggleExpandedSong: (songId: String) -> Unit,
     onRatingCommit: (Float) -> Unit,
     onReviewDraftChange: (String) -> Unit,
-    onSaveReview: () -> Unit,
+    neoDb: AlbumNeoDbSync,
+    onRateSheetOpened: () -> Unit,
+    onRateSheetClosed: () -> Unit,
+    onNeoDbSignIn: () -> Unit,
+    onNeoDbRetry: () -> Unit,
     scrapbook: AlbumScrapbookUiState?,
     onNoteMomentClick: (songId: String, positionMs: Long?) -> Unit,
+    onRenameMemoryTitle: (String) -> Unit,
+    onRestoreMemoryTitle: () -> Unit,
 ) {
     // Material color roles seeded from the album's OWN cover (MCU
     // SchemeExpressive) — not raw Palette swatches, which read "off" used as
@@ -500,6 +527,8 @@ private fun AlbumDetailContent(
                         onSongClick = onSongClick,
                         onNoteMomentClick = onNoteMomentClick,
                         onEditReview = { showEditSheet = true },
+                        onRenameTitle = onRenameMemoryTitle,
+                        onRestoreTitle = onRestoreMemoryTitle,
                         settled = pagerState.settledPage == 1,
                         stamped = scrapbookStamped,
                         onStamped = { scrapbookStamped = true },
@@ -509,15 +538,21 @@ private fun AlbumDetailContent(
         }
     }
 
+    LaunchedEffect(showEditSheet) {
+        if (showEditSheet) onRateSheetOpened()
+    }
     if (showEditSheet) {
-        AlbumRatingReviewSheet(
-            userRating = content.userRating,
-            userReview = content.userReview,
-            reviewHasUnsavedEdits = content.reviewHasUnsavedEdits,
+        AlbumRateSheet(
+            content = content,
+            neoDb = neoDb,
             onRatingCommit = onRatingCommit,
             onReviewDraftChange = onReviewDraftChange,
-            onSaveReview = onSaveReview,
-            onDismiss = { showEditSheet = false },
+            onNeoDbSignIn = onNeoDbSignIn,
+            onNeoDbRetry = onNeoDbRetry,
+            onDismiss = {
+                showEditSheet = false
+                onRateSheetClosed()
+            },
         )
     }
 }
@@ -586,8 +621,12 @@ private fun AlbumTopHeader(
                 inactiveColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f),
                 onPageClick = onPageClick,
                 count = pageCount,
+                // ≈16dp from the subtitle's baseline down to the dots, matching
+                // the ≈16dp from the dots to each page's first piece (the pages'
+                // own top insets are set for it) — owner 2026-10-05: the gap
+                // under the dots was twice the gap above.
                 modifier = Modifier
-                    .padding(top = 2.dp)
+                    .padding(top = 5.dp)
                     .align(Alignment.CenterHorizontally),
             )
         }
@@ -800,7 +839,7 @@ private fun AlbumHeroDetails(
         modifier = modifier.padding(top = 8.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        // Last Play + Avg + Comment — a cover-width block; mono labels & values.
+        // Last Play + score emblem + comment — a cover-width block.
         AlbumHeroMetaBlocks(
             content = content,
             interactive = interactive,
@@ -845,7 +884,7 @@ private fun AlbumHeroDetails(
     }
 }
 
-// Last Play + Avg/Rating Bun + Comment — the hero's metadata sub-blocks,
+// Last Play + score emblem + comment — the hero's metadata sub-blocks,
 // extracted verbatim so the >=Medium overview reuses the exact same composables
 // beside the cover. Width/placement belongs to the caller (modifier); the
 // internals are shared and never re-styled per branch.
@@ -857,8 +896,6 @@ private fun AlbumHeroMetaBlocks(
     onTapBun: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val score = content.albumScore()
-    val mono = FontFamily.Monospace
     Column(
         modifier = modifier,
         verticalArrangement = Arrangement.spacedBy(14.dp),
@@ -866,67 +903,78 @@ private fun AlbumHeroMetaBlocks(
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
         ) {
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 AlbumSectionLabel(text = "Last Play")
                 val labels = content.lastPlayedAt?.let { albumLastPlayLabels(it) }
                 Text(
-                    text = labels?.first ?: "—",
-                    style = MaterialTheme.typography.bodyLarge.copy(fontFamily = mono),
+                    text = labels?.first ?: "Never",
+                    style = MaterialTheme.typography.bodyLarge,
                     color = MaterialTheme.colorScheme.onSurface,
                 )
-                Text(
-                    text = labels?.second ?: "Never",
-                    style = MaterialTheme.typography.bodyMedium.copy(fontFamily = mono),
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                if (labels != null) {
+                    Text(
+                        text = labels.second,
+                        style = MaterialTheme.typography.bodyMedium.withTabularFigures(),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
-            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                AlbumSectionLabel(
-                    text = if (score.kind == AlbumScoreKind.UserRating) "Rating" else "Avg.",
-                )
-                AlbumScoreEmblem(
-                    spec = content.emblemSpec(),
-                    coverArtUrl = content.coverArtUrl,
-                    ratedCount = content.ratedTrackCount,
-                    total = content.trackTotal,
-                    enabled = interactive,
-                    onClick = onTapBun,
-                )
-            }
+            // No "Rating"/"Avg." caption: the emblem says what it is (owner 2026-10-05).
+            AlbumScoreEmblem(
+                spec = content.emblemSpec(),
+                coverArtUrl = content.coverArtUrl,
+                ratedCount = content.ratedTrackCount,
+                total = content.trackTotal,
+                enabled = interactive,
+                onClick = onTapBun,
+            )
         }
 
-        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            AlbumSectionLabel(
-                text = "Comment",
-                trailing = {
-                    IconButton(
-                        onClick = onEditComment,
-                        enabled = interactive,
-                        modifier = Modifier
-                            .size(28.dp)
-                            .minimumTouchTarget(),
-                    ) {
-                        Icon(
-                            imageVector = YoinSymbols.Edit,
-                            contentDescription = "Edit comment",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.size(16.dp),
-                        )
-                    }
-                },
-            )
-            Text(
-                text = content.userReview.ifBlank { "—" },
-                style = MaterialTheme.typography.bodyMedium,
-                color = if (content.userReview.isBlank()) {
-                    MaterialTheme.colorScheme.onSurfaceVariant
-                } else {
-                    MaterialTheme.colorScheme.onSurface
-                },
-                maxLines = 3,
-                overflow = TextOverflow.Ellipsis,
-            )
+        // The comment is the user's own words, so no "Comment" caption: written,
+        // it shows as text (tap to edit); not written yet, only a pen.
+        if (content.userReview.isNotBlank()) {
+            val writtenAt = remember(content.userReviewAt) {
+                content.userReviewAt?.let { relativeDayLabel(it, System.currentTimeMillis(), ZoneId.systemDefault()) }
+            }
+            Column(
+                modifier = Modifier.clickable(
+                    enabled = interactive,
+                    role = Role.Button,
+                    onClickLabel = "Edit comment",
+                    onClick = onEditComment,
+                ),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                Text(
+                    text = content.userReview,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 3,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                // When it was written (owner 2026-10-05: "写了就留 comment，再加一个写的日期").
+                if (writtenAt != null) {
+                    Text(
+                        text = writtenAt,
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        } else {
+            FilledTonalIconButton(
+                onClick = onEditComment,
+                enabled = interactive,
+                modifier = Modifier.size(40.dp),
+            ) {
+                Icon(
+                    imageVector = YoinSymbols.Edit,
+                    contentDescription = "Write a comment",
+                    modifier = Modifier.size(18.dp),
+                )
+            }
         }
     }
 }
@@ -1077,7 +1125,7 @@ private fun AlbumMediumHeroRow(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .padding(top = 8.dp, bottom = 24.dp),
+            .padding(bottom = 24.dp),
         horizontalArrangement = Arrangement.spacedBy(24.dp),
     ) {
         // Same artwork composable as Compact's hero — bare, no border.
@@ -1282,7 +1330,7 @@ private fun AlbumLandscapeOverview(
                         alpha = (1f - expand).coerceIn(0f, 1f)
                         translationY = -expand * 40f
                     }
-                    .padding(start = AlbumLandscapeCoverInset, top = 12.dp, end = 8.dp),
+                    .padding(start = AlbumLandscapeCoverInset, top = 4.dp, end = 8.dp),
                 horizontalArrangement = Arrangement.spacedBy(40.dp),
             ) {
                 Box(

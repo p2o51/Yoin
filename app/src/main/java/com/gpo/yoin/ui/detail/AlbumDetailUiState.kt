@@ -38,6 +38,8 @@ sealed interface AlbumDetailUiState {
         val lastPlayedAt: Long? = null,
         /** 用户自写长评（= 专辑 Comment）；推 NeoDB Review.body 用的就是这个字段。 */
         val userReview: String = "",
+        /** When [userReview] was written (album_ratings.reviewUpdatedAt); null when unknown or none. */
+        val userReviewAt: Long? = null,
         /** review 脏位：编辑后 vs Room 持久化的内容不一致。 */
         val reviewHasUnsavedEdits: Boolean = false,
     ) : AlbumDetailUiState {

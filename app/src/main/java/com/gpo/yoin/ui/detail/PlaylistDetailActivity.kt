@@ -29,6 +29,7 @@ import com.gpo.yoin.YoinActivityRoot
 import com.gpo.yoin.YoinApplication
 import com.gpo.yoin.data.repository.ActivityContext
 import com.gpo.yoin.enableYoinEdgeToEdge
+import com.gpo.yoin.ui.experience.installCoveredWindowAnimationGate
 import com.gpo.yoin.ui.navigation.trackCoverArtId
 import com.gpo.yoin.ui.nowplaying.NowPlayingAccessories
 import com.gpo.yoin.ui.nowplaying.NowPlayingOverlayHost
@@ -66,6 +67,8 @@ class PlaylistDetailActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableYoinEdgeToEdge()
+        // A detail opened from this one covers it but keeps it alive (translucent): freeze its animations.
+        installCoveredWindowAnimationGate(intent.detailWindowKey())
         applyDetailCloseTransition()
         val playlistId = intent.getStringExtra(EXTRA_PLAYLIST_ID)
         if (playlistId.isNullOrBlank()) {
@@ -81,7 +84,7 @@ class PlaylistDetailActivity : ComponentActivity() {
                 )
                 val uiState by viewModel.uiState.collectAsState()
                 val snackbarHostState = remember { SnackbarHostState() }
-                val playbackState by app.container.playbackManager.playbackState.collectAsState()
+                val isPlaying by rememberDetailIsPlaying(app.container)
                 val playbackSignal by app.container.audioVisualizerManager.playbackSignal.collectAsState()
 
                 // Rename/delete/remove outcomes surface as snackbars.
@@ -118,6 +121,7 @@ class PlaylistDetailActivity : ComponentActivity() {
                             startIndex = startIndex.coerceIn(0, tracks.lastIndex),
                             source = source,
                             activityContext = activityContext,
+                            shuffled = shuffle,
                         )
                     }
                 }
@@ -183,8 +187,8 @@ class PlaylistDetailActivity : ComponentActivity() {
                             }
                             context.startActivity(Intent.createChooser(send, null))
                         },
-                        isPlaying = playbackState.isPlaying,
-                        playbackSignal = if (playbackState.isPlaying) playbackSignal else 0f,
+                        isPlaying = isPlaying,
+                        playbackSignal = if (isPlaying) playbackSignal else 0f,
                         onOpenNowPlaying = { nowPlayingOpen = true },
                         nowPlayingOpen = nowPlayingOpen,
 
