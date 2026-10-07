@@ -67,7 +67,7 @@ class HomeLayoutRowsTest {
     fun should_carryRows_when_sectionsAreReordered() {
         val layout = HomeLayout.Default.withRows(HomeSection.JumpBackIn, HomeRowPreset.XL)
 
-        val moved = layout.moved(HomeSection.JumpBackIn, 3)
+        val moved = layout.moved(HomeSection.JumpBackIn, HomeSection.entries.lastIndex)
 
         assertEquals(HomeSection.JumpBackIn, moved.enabledSections.last())
         assertEquals(HomeRowPreset.XL, moved.rowsOf(HomeSection.JumpBackIn))

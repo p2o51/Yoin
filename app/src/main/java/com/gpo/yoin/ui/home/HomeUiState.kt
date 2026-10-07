@@ -3,6 +3,7 @@ package com.gpo.yoin.ui.home
 import androidx.compose.runtime.Immutable
 import com.gpo.yoin.data.local.ActivityEvent
 import com.gpo.yoin.data.model.Album
+import com.gpo.yoin.data.model.Playlist
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.Track
 import com.gpo.yoin.ui.memories.MemoryEntityType
@@ -25,7 +26,7 @@ sealed interface HomeUiState {
         // The "Jump Back In" 3×4 widget grid: plain recommendations mixed with
         // memory-flavoured cards. Empty hides the section.
         val widgetGrid: List<HomeWidgetCard> = emptyList(),
-        // Library items added within the last week (Spotify saved / Subsonic
+        // Library items added within the last 30 days (Spotify saved / Subsonic
         // starred), newest first. The Recently Added section splits these into a
         // compact track grid on the left (2×2 on a phone, up to 4×2 on a wide
         // feed) and a horizontally scrolling album shelf on the right (Figma
@@ -42,6 +43,12 @@ sealed interface HomeUiState {
         // 90+ days; scored ones first, best first, albums and songs in one
         // order. Empty = the section isn't rendered.
         val rediscover: List<HomeRediscoverItem> = emptyList(),
+        // Recently Played: the provider's recently played albums, minus any
+        // the Activities hero / cards already show. Empty = not rendered.
+        val recentlyPlayed: List<Album> = emptyList(),
+        // Your Playlists: the library's playlists in the provider's own order
+        // (recently changed first on Spotify). Empty = the section isn't rendered.
+        val playlists: List<Playlist> = emptyList(),
     ) : HomeUiState
 
     data class Error(val message: String) : HomeUiState
@@ -84,6 +91,9 @@ data class HomeWidgetCard(
     // True = comment 是标题性文字（memory 卡的 AI 拟题 → 宋体加大）；
     // false = 用户正文（noted-track 的笔记原文 → 系统黑体）。字体规范 2026-07-26。
     val commentIsHeadline: Boolean = false,
+    // A headline in the serif (a title the user or the AI wrote); false = the
+    // app face (Yoin's motif, the bare album name).
+    val commentSerif: Boolean = true,
     // True renders the wide "1×2" card (2 grid cells), false the "1×1" cover.
     val expanded: Boolean = false,
     val target: HomeWidgetTarget,

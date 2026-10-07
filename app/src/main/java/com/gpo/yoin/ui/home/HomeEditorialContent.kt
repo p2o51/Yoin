@@ -1,31 +1,21 @@
 package com.gpo.yoin.ui.home
 
 import android.os.SystemClock
-import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.animation.ContentTransform
 import androidx.compose.animation.EnterExitState
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
-import androidx.compose.animation.core.FiniteAnimationSpec
-import androidx.compose.animation.togetherWith
-import androidx.compose.runtime.key
-import androidx.compose.ui.layout.Layout
-import androidx.compose.ui.layout.Placeable
-import androidx.compose.ui.layout.layout
-import androidx.compose.ui.unit.Constraints
-import androidx.compose.ui.unit.constrainHeight
-import com.gpo.yoin.ui.experience.LocalMotionProfile
-import com.gpo.yoin.ui.experience.MotionProfile
-import com.gpo.yoin.ui.experience.feedFrameClass
-import com.gpo.yoin.ui.theme.YoinMotionRole
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionScope
+import androidx.compose.animation.core.FiniteAnimationSpec
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.gestures.animateScrollBy
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
@@ -67,6 +57,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
@@ -80,10 +71,9 @@ import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.FrameRateCategory
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.preferredFrameRate
+import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
@@ -94,20 +84,26 @@ import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.layout.LayoutCoordinates
+import androidx.compose.ui.layout.Placeable
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.layout.onPlaced
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.preferredFrameRate
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
-import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.Velocity
+import androidx.compose.ui.unit.constrainHeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
@@ -117,6 +113,7 @@ import com.gpo.yoin.data.local.ActivityEvent
 import com.gpo.yoin.data.model.Album
 import com.gpo.yoin.data.model.CoverRef
 import com.gpo.yoin.data.model.MediaId
+import com.gpo.yoin.data.model.Playlist as LibraryPlaylist
 import com.gpo.yoin.data.model.Track
 import com.gpo.yoin.symbols.YoinSymbols
 import com.gpo.yoin.ui.component.ExpressiveMediaArtwork
@@ -128,13 +125,13 @@ import com.gpo.yoin.ui.component.SeamDissolveTokens
 import com.gpo.yoin.ui.component.SeamFlow
 import com.gpo.yoin.ui.component.SeamTop
 import com.gpo.yoin.ui.component.elasticPress
-import com.gpo.yoin.ui.component.ignoreParentHorizontalPadding
+import com.gpo.yoin.ui.component.expressivePageSeamBackground
 import com.gpo.yoin.ui.component.horizontalEdgeFadeOnScroll
+import com.gpo.yoin.ui.component.ignoreParentHorizontalPadding
 import com.gpo.yoin.ui.component.noRippleClickable
 import com.gpo.yoin.ui.component.rememberExpressiveBackdropColors
 import com.gpo.yoin.ui.component.rememberStagedReveal
 import com.gpo.yoin.ui.component.seamDissolve
-import com.gpo.yoin.ui.component.expressivePageSeamBackground
 import com.gpo.yoin.ui.component.seamDissolveViewport
 import com.gpo.yoin.ui.component.seamFade
 import com.gpo.yoin.ui.component.seamRemainingPx
@@ -142,9 +139,12 @@ import com.gpo.yoin.ui.component.seamScrolledPx
 import com.gpo.yoin.ui.component.seamTide
 import com.gpo.yoin.ui.component.stagedBeat
 import com.gpo.yoin.ui.experience.LayoutMode
+import com.gpo.yoin.ui.experience.LocalMotionProfile
 import com.gpo.yoin.ui.experience.LocalPaneWidthInMotion
 import com.gpo.yoin.ui.experience.LocalYoinWindowInfo
+import com.gpo.yoin.ui.experience.MotionProfile
 import com.gpo.yoin.ui.experience.RevealState
+import com.gpo.yoin.ui.experience.feedFrameClass
 import com.gpo.yoin.ui.experience.rememberRevealState
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
 import com.gpo.yoin.ui.home.edit.AllHiddenKey
@@ -167,22 +167,25 @@ import com.gpo.yoin.ui.home.edit.HomeEditPressState
 import com.gpo.yoin.ui.home.edit.HomeEditSafeArea
 import com.gpo.yoin.ui.home.edit.HomeEditTargets
 import com.gpo.yoin.ui.home.edit.HomeEditTokens
+import com.gpo.yoin.ui.home.edit.HomePlateLook
+import com.gpo.yoin.ui.home.edit.HomePlateSpacing
+import com.gpo.yoin.ui.home.edit.HomePlateSpacingAnchor
+import com.gpo.yoin.ui.home.edit.HomePlateVariant
 import com.gpo.yoin.ui.home.edit.HomeRowsAutoScroll
 import com.gpo.yoin.ui.home.edit.HomeRowsBody
 import com.gpo.yoin.ui.home.edit.HomeRowsEngine
 import com.gpo.yoin.ui.home.edit.HomeRowsTokens
-import com.gpo.yoin.ui.home.edit.homeRowsCard
-import com.gpo.yoin.ui.home.edit.homeRowsEdgeRamp
+import com.gpo.yoin.ui.home.edit.LocalHomeEditCardScope
+import com.gpo.yoin.ui.home.edit.LocalHomePlateVariant
 import com.gpo.yoin.ui.home.edit.LocalHomeWiggleStyle
 import com.gpo.yoin.ui.home.edit.StripCover
 import com.gpo.yoin.ui.home.edit.StripWarmFrames
 import com.gpo.yoin.ui.home.edit.StripWarmth
-import com.gpo.yoin.ui.home.edit.stripWarmth
 import com.gpo.yoin.ui.home.edit.TrayFooterKey
 import com.gpo.yoin.ui.home.edit.TrayTitleKey
 import com.gpo.yoin.ui.home.edit.asHomeEditFeedback
-import com.gpo.yoin.ui.home.edit.feedFoldWash
 import com.gpo.yoin.ui.home.edit.carryItemKey
+import com.gpo.yoin.ui.home.edit.feedFoldWash
 import com.gpo.yoin.ui.home.edit.homeAllHiddenItem
 import com.gpo.yoin.ui.home.edit.homeEditCard
 import com.gpo.yoin.ui.home.edit.homeEditExclusion
@@ -190,26 +193,24 @@ import com.gpo.yoin.ui.home.edit.homeEditFooterEntry
 import com.gpo.yoin.ui.home.edit.homeEditGestures
 import com.gpo.yoin.ui.home.edit.homeEditHeaderIcon
 import com.gpo.yoin.ui.home.edit.homeEditInteractive
+import com.gpo.yoin.ui.home.edit.homeEditShelfClip
 import com.gpo.yoin.ui.home.edit.homeEditTrayItems
 import com.gpo.yoin.ui.home.edit.homeEditTrayRowKey
+import com.gpo.yoin.ui.home.edit.homeRowsCard
+import com.gpo.yoin.ui.home.edit.homeRowsEdgeRamp
 import com.gpo.yoin.ui.home.edit.plateOutsetVDp
-import com.gpo.yoin.ui.home.edit.HomePlateLook
-import com.gpo.yoin.ui.home.edit.HomePlateSpacing
-import com.gpo.yoin.ui.home.edit.HomePlateSpacingAnchor
-import com.gpo.yoin.ui.home.edit.HomePlateVariant
-import com.gpo.yoin.ui.home.edit.LocalHomeEditCardScope
-import com.gpo.yoin.ui.home.edit.LocalHomePlateVariant
-import com.gpo.yoin.ui.home.edit.homeEditShelfClip
 import com.gpo.yoin.ui.home.edit.rememberHomeEditIconsEnabled
 import com.gpo.yoin.ui.home.edit.rememberHomeEditReducedMotion
 import com.gpo.yoin.ui.home.edit.rememberHomeEditSpecs
 import com.gpo.yoin.ui.home.edit.rememberLazyListCarryHost
 import com.gpo.yoin.ui.home.edit.rememberStandaloneHomeEditController
 import com.gpo.yoin.ui.home.edit.stripCover
-import com.gpo.yoin.ui.theme.YoinMotion
-import com.gpo.yoin.ui.theme.YoinShapeTokens
+import com.gpo.yoin.ui.home.edit.stripWarmth
 import com.gpo.yoin.ui.theme.YoinArtworkShapes
 import com.gpo.yoin.ui.theme.YoinContainerShapes
+import com.gpo.yoin.ui.theme.YoinMotion
+import com.gpo.yoin.ui.theme.YoinMotionRole
+import com.gpo.yoin.ui.theme.YoinShapeTokens
 import com.gpo.yoin.ui.theme.withTabularFigures
 import kotlin.math.roundToInt
 import kotlinx.coroutines.Job
@@ -273,6 +274,8 @@ internal fun HomeEditorialContent(
     recentlyAddedTracks: List<Track> = emptyList(),
     recentlyAddedAlbums: List<Album> = emptyList(),
     rediscover: List<HomeRediscoverItem> = emptyList(),
+    playlists: List<LibraryPlaylist> = emptyList(),
+    recentlyPlayed: List<Album> = emptyList(),
     // The header's Memories pill; null keeps today's bare chevron.
     memoryPill: HomeMemoryPill? = null,
     // Something above Home owns the screen (Now Playing, the detail column):
@@ -661,6 +664,8 @@ internal fun HomeEditorialContent(
                         HomeSection.JumpBackIn -> widgetGrid.isNotEmpty()
                         HomeSection.RecentlyAdded -> recentlyAddedTracks.isNotEmpty() || recentlyAddedAlbums.isNotEmpty()
                         HomeSection.Rediscover -> rediscover.isNotEmpty()
+                        HomeSection.RecentlyPlayed -> recentlyPlayed.isNotEmpty()
+                        HomeSection.YourPlaylists -> playlists.isNotEmpty()
                     }
                 },
             )
@@ -810,6 +815,8 @@ internal fun HomeEditorialContent(
         recentlyAddedAlbums,
         recentlyAddedTracks,
         rediscover,
+        playlists,
+        recentlyPlayed,
         buildCoverArtUrl,
         stripShapes,
     ) {
@@ -821,6 +828,8 @@ internal fun HomeEditorialContent(
                 albums = recentlyAddedAlbums,
                 tracks = recentlyAddedTracks,
                 rediscover = rediscover,
+                playlists = playlists,
+                recentlyPlayed = recentlyPlayed,
                 buildCoverArtUrl = buildCoverArtUrl,
                 shapes = stripShapes,
             )
@@ -1029,7 +1038,7 @@ internal fun HomeEditorialContent(
                                     },
                                 )
 
-                                // Only with something added this week — an empty
+                                // Only with something added lately — an empty
                                 // "recently added" shelf is noise, not information.
                                 HomeSection.RecentlyAdded -> RecentlyAddedSection(
                                     tracks = recentlyAddedTracks,
@@ -1065,6 +1074,47 @@ internal fun HomeEditorialContent(
                                         onEntryClick(HomeEntryTarget.Album(albumId, sharedTransitionKey))
                                     },
                                     onSongClick = { song -> onEntryClick(HomeEntryTarget.SongTarget(song)) },
+                                    modifier = remember(firstReveal) {
+                                        Modifier
+                                            .fillMaxWidth()
+                                            .stagedBeat(
+                                                progress = { firstReveal.payload },
+                                                rise = 16.dp,
+                                            )
+                                    },
+                                )
+
+                                // What the account played lately, from the provider's own history.
+                                HomeSection.RecentlyPlayed -> AlbumShelfSection(
+                                    title = "Recently Played",
+                                    albums = recentlyPlayed,
+                                    extractBackdropColors = shouldExtractBackdropColors,
+                                    onAlbumClick = { album ->
+                                        onEntryClick(HomeEntryTarget.Album(album.id.toString(), null))
+                                    },
+                                    buildCoverArtUrl = buildCoverArtUrl,
+                                    frame = feedFrame,
+                                    shelfScrollEnabled = !editing,
+                                    modifier = remember(firstReveal) {
+                                        Modifier
+                                            .fillMaxWidth()
+                                            .stagedBeat(
+                                                progress = { firstReveal.payload },
+                                                rise = 16.dp,
+                                            )
+                                    },
+                                )
+
+                                // The library's playlists, like Spotify's "Your playlists".
+                                HomeSection.YourPlaylists -> YourPlaylistsSection(
+                                    playlists = playlists,
+                                    extractBackdropColors = shouldExtractBackdropColors,
+                                    onPlaylistClick = { playlist ->
+                                        onEntryClick(HomeEntryTarget.Playlist(playlist.id.toString()))
+                                    },
+                                    buildCoverArtUrl = buildCoverArtUrl,
+                                    frame = feedFrame,
+                                    shelfScrollEnabled = !editing,
                                     modifier = remember(firstReveal) {
                                         Modifier
                                             .fillMaxWidth()
@@ -1316,6 +1366,8 @@ private fun homeStripCovers(
     albums: List<Album>,
     tracks: List<Track>,
     rediscover: List<HomeRediscoverItem>,
+    playlists: List<LibraryPlaylist>,
+    recentlyPlayed: List<Album>,
     buildCoverArtUrl: (String) -> String,
     shapes: HomeStripShapes,
 ): List<StripCover> {
@@ -1342,6 +1394,12 @@ private fun homeStripCovers(
         }
         HomeSection.Rediscover -> rediscover.take(count).map { item ->
             stripCover(item.coverArtUrl, if (item.song != null) shapes.song else shapes.album)
+        }
+        HomeSection.RecentlyPlayed -> recentlyPlayed.take(count).map { album ->
+            stripCover(resolveHomeCoverArtUrl(album.coverArt, buildCoverArtUrl), shapes.album)
+        }
+        HomeSection.YourPlaylists -> playlists.take(count).map { playlist ->
+            stripCover(resolveHomeCoverArtUrl(playlist.coverArt, buildCoverArtUrl), shapes.playlist)
         }
     }
 }
@@ -1584,7 +1642,8 @@ private fun ActivityBento(
  * Playing panel on a foldable) splits the card row into two equal smalls so
  * the small never shrinks to ~96dp; Landscape — one row, so the first screen
  * keeps Recently Added in view. At the default preset each is today's
- * composition. A slot past the supply is a spacer of its weight. Edit-mode
+ * composition. Slots past the supply give their weight to the row's last
+ * card (W8). Edit-mode
  * card order: the hero 0, then each supporting entry at its index + 1.
  */
 @Composable
@@ -1651,14 +1710,17 @@ private fun ActivityBentoRows(
                         .height(row.height * fontScale),
                     horizontalArrangement = Arrangement.spacedBy(row.gap),
                 ) {
-                    row.slots.forEach { slot ->
-                        val entry = entryOf(slot)
-                        if (entry != null) {
-                            Card(entry, slot.kind, slot.entryIndex + 1, Modifier.weight(slot.weight).fillMaxHeight())
-                        } else {
-                            // Keep the cards beside it at their width instead of stretching across the gap.
-                            Spacer(modifier = Modifier.weight(slot.weight))
-                        }
+                    // The supply runs out at the row's tail: its last card takes the
+                    // missing cards' room (owner W8, 2026-10-05: no hole on the right),
+                    // a small that grows reading as a wide.
+                    val shown = row.slots.mapNotNull { slot -> entryOf(slot)?.let { slot to it } }
+                    val spare = row.slots.sumOf { it.weight.toDouble() }.toFloat() -
+                        shown.sumOf { (slot, _) -> slot.weight.toDouble() }.toFloat()
+                    shown.forEachIndexed { index, (slot, entry) ->
+                        val stretched = index == shown.lastIndex && spare > 0f
+                        val kind = if (stretched && slot.kind == SlotKind.Small) SlotKind.Wide else slot.kind
+                        val weight = if (stretched) slot.weight + spare else slot.weight
+                        Card(entry, kind, slot.entryIndex + 1, Modifier.weight(weight).fillMaxHeight())
                     }
                 }
             }
@@ -1759,7 +1821,8 @@ private fun ActivityUnitGrid(
                     val w = cell.cellWidth(pitch, gapPx).coerceAtLeast(0)
                     measurables[i].measure(Constraints.fixed(w, if (row == 0) row1Height else unitRowHeight))
                 } else {
-                    val cell = JbiCellPlacement(startColumn = slot.startUnit, span = 1)
+                    // A last strip may span the shares left in its row (W8).
+                    val cell = JbiCellPlacement(startColumn = slot.startUnit, span = slot.span)
                     xs[i] = cell.cellLeft(stripPitch)
                     val w = cell.cellWidth(stripPitch, gapPx).coerceAtLeast(0)
                     measurables[i].measure(Constraints(minWidth = w, maxWidth = w))
@@ -2133,8 +2196,9 @@ private fun widgetShapeKindForActivity(entityType: String): WidgetShapeKind = wh
 // scrolling row of recently-added albums, each nested on its Bun backdrop
 // shape. Either half collapses when its list is empty, and the lone survivor
 // takes the full width. Wider feeds seat more of both (HomeFeedDensity:
-// recentlyAddedTrackColumns) — up to 4 columns × 2 rows of the very same
-// tile, and a deeper album shelf; the phone's 2×2 is untouched.
+// recentlyAddedTrackColumns / recentlyAddedTrackRows) — up to 4 columns × 4
+// rows of the very same tile beside album cards stacked two high, and a
+// deeper album shelf; the phone's 2×2 is untouched.
 
 // Track cover sized so a tight 2×2 (two rows + one 14dp gap) lands near the
 // album card's height (album cover + its two label lines) without a hollow
@@ -2143,6 +2207,10 @@ private fun widgetShapeKindForActivity(entityType: String): WidgetShapeKind = wh
 // smaller than the album cover, matching the mock ratio.
 private val RecentlyAddedTrackCover = 52.dp
 private val RecentlyAddedAlbumCover = 82.dp
+
+// Between two stacked album cards: the track grid's row gap, so a stack of
+// two lands exactly on a four-row grid's height.
+private val RecentlyAddedAlbumStackGap = 14.dp
 
 @Composable
 private fun RecentlyAddedSection(
@@ -2164,12 +2232,17 @@ private fun RecentlyAddedSection(
     modifier: Modifier = Modifier,
 ) {
     // How many of each this container seats: columns from the resting width
-    // (a column spring re-lays, never re-counts), rows always two.
+    // (a column spring re-lays, never re-counts); two rows on a phone, four
+    // (and albums stacked two high) on a foldable / tablet feed.
     val windowInfo = LocalYoinWindowInfo.current
     val maxColumns = recentlyAddedTrackColumns(windowInfo.feedUnits, windowInfo.feedCoverColumns, singleRowShelf)
-    val shownTracks = remember(tracks, maxColumns) { tracks.take(maxColumns * RecentlyAddedTrackRows) }
-    val gridColumns = recentlyAddedGridColumns(shownTracks.size, maxColumns)
-    val shownAlbums = remember(albums, maxColumns) { albums.take(recentlyAddedAlbumLimit(maxColumns)) }
+    val rows = recentlyAddedTrackRows(windowInfo.feedUnits, singleRowShelf)
+    val shownTracks = remember(tracks, maxColumns, rows) { tracks.take(maxColumns * rows) }
+    val gridColumns = recentlyAddedGridColumns(shownTracks.size, maxColumns, rows)
+    val albumStack = recentlyAddedAlbumStack(rows)
+    val shownAlbums = remember(albums, maxColumns, albumStack) {
+        albums.take(recentlyAddedAlbumLimit(maxColumns)).chunked(albumStack)
+    }
     val editCardScope = LocalHomeEditCardScope.current
     Column(
         modifier = modifier,
@@ -2204,6 +2277,7 @@ private fun RecentlyAddedSection(
                     RecentlyAddedTrackGrid(
                         tracks = shownTracks,
                         columns = gridColumns,
+                        rows = rows,
                         onTrackClick = onTrackClick,
                         buildCoverArtUrl = buildCoverArtUrl,
                         // The grid's width follows the feed's content width,
@@ -2226,27 +2300,35 @@ private fun RecentlyAddedSection(
                 }
             }
             // Edit-mode card order: the grid's track slots, then the albums.
+            // One shelf item per stack (two albums on a tablet, newest on top).
             itemsIndexed(
                 items = shownAlbums,
-                key = { _, album -> "recently-added-album:${album.id}" },
-            ) { index, album ->
-                RecentlyAddedAlbumCard(
-                    album = album,
-                    extractBackdropColors = extractBackdropColors,
-                    onClick = { onAlbumClick(album) },
-                    buildCoverArtUrl = buildCoverArtUrl,
-                    modifier = Modifier.homeEditCard(maxColumns * RecentlyAddedTrackRows + index),
-                )
+                key = { _, stack -> "recently-added-album:${stack.first().id}" },
+            ) { stackIndex, stack ->
+                Column(verticalArrangement = Arrangement.spacedBy(RecentlyAddedAlbumStackGap)) {
+                    stack.forEachIndexed { inStack, album ->
+                        RecentlyAddedAlbumCard(
+                            album = album,
+                            extractBackdropColors = extractBackdropColors,
+                            onClick = { onAlbumClick(album) },
+                            buildCoverArtUrl = buildCoverArtUrl,
+                            modifier = Modifier.homeEditCard(
+                                maxColumns * rows + stackIndex * albumStack + inStack,
+                            ),
+                        )
+                    }
+                }
             }
         }
     }
 }
 
-/** The shelf's lead card: the tracks packed [columns] to a row, two rows (2×2 on a phone). */
+/** The shelf's lead card: the tracks packed [columns] to a row, [rows] rows (2×2 on a phone). */
 @Composable
 private fun RecentlyAddedTrackGrid(
     tracks: List<Track>,
     columns: Int,
+    rows: Int,
     onTrackClick: (Track) -> Unit,
     buildCoverArtUrl: (String) -> String,
     modifier: Modifier = Modifier,
@@ -2258,7 +2340,7 @@ private fun RecentlyAddedTrackGrid(
         // rows with a hollow middle.
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        tracks.take(columns * RecentlyAddedTrackRows).chunked(columns).forEachIndexed { row, rowTracks ->
+        tracks.take(columns * rows).chunked(columns).forEachIndexed { row, rowTracks ->
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(RecentlyAddedTileGap),
@@ -2390,6 +2472,149 @@ private fun RecentlyAddedAlbumCard(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.seamFade(),
+            )
+        }
+    }
+}
+
+/**
+ * Your Playlists (owner 2026-10-05: "像 Spotify 主页的我的歌单那种板块"): one
+ * full-bleed shelf of the library's playlists — the Recently Added album card's
+ * size and type, on the playlist backdrop shape, with the song count under
+ * the name. Bleeds to the container edge with page-margin padding, like every
+ * Home shelf (no mid-page truncation).
+ */
+@Composable
+private fun YourPlaylistsSection(
+    playlists: List<LibraryPlaylist>,
+    extractBackdropColors: Boolean,
+    onPlaylistClick: (LibraryPlaylist) -> Unit,
+    buildCoverArtUrl: (String) -> String,
+    frame: HomeFeedFrame,
+    shelfScrollEnabled: Boolean = true,
+    modifier: Modifier = Modifier,
+) {
+    val editCardScope = LocalHomeEditCardScope.current
+    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        HomeSectionTitle(text = "Your Playlists")
+        val sidePadding = remember(frame) { FeedFrameSidePadding(frame) }
+        LazyRow(
+            state = rememberLazyListState(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .ignoreParentHorizontalPadding(start = { frame.start }, end = { frame.end })
+                .homeEditShelfClip(editCardScope, escapeStart = { frame.start }, escapeEnd = { frame.end }),
+            contentPadding = sidePadding,
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
+            verticalAlignment = Alignment.Top,
+            userScrollEnabled = shelfScrollEnabled,
+        ) {
+            itemsIndexed(
+                items = playlists,
+                key = { _, playlist -> "your-playlist:${playlist.id}" },
+            ) { index, playlist ->
+                YourPlaylistCard(
+                    playlist = playlist,
+                    extractBackdropColors = extractBackdropColors,
+                    onClick = { onPlaylistClick(playlist) },
+                    buildCoverArtUrl = buildCoverArtUrl,
+                    modifier = Modifier.homeEditCard(index),
+                )
+            }
+        }
+    }
+}
+
+/**
+ * A titled, full-bleed shelf of album cards (the Recently Added album card),
+ * page-margin padded like every Home shelf. Recently Played uses it.
+ */
+@Composable
+private fun AlbumShelfSection(
+    title: String,
+    albums: List<Album>,
+    extractBackdropColors: Boolean,
+    onAlbumClick: (Album) -> Unit,
+    buildCoverArtUrl: (String) -> String,
+    frame: HomeFeedFrame,
+    shelfScrollEnabled: Boolean = true,
+    modifier: Modifier = Modifier,
+) {
+    val editCardScope = LocalHomeEditCardScope.current
+    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        HomeSectionTitle(text = title)
+        val sidePadding = remember(frame) { FeedFrameSidePadding(frame) }
+        LazyRow(
+            state = rememberLazyListState(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .ignoreParentHorizontalPadding(start = { frame.start }, end = { frame.end })
+                .homeEditShelfClip(editCardScope, escapeStart = { frame.start }, escapeEnd = { frame.end }),
+            contentPadding = sidePadding,
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
+            verticalAlignment = Alignment.Top,
+            userScrollEnabled = shelfScrollEnabled,
+        ) {
+            itemsIndexed(
+                items = albums,
+                key = { _, album -> "album-shelf:$title:${album.id}" },
+            ) { index, album ->
+                RecentlyAddedAlbumCard(
+                    album = album,
+                    extractBackdropColors = extractBackdropColors,
+                    onClick = { onAlbumClick(album) },
+                    buildCoverArtUrl = buildCoverArtUrl,
+                    modifier = Modifier.homeEditCard(index),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun YourPlaylistCard(
+    playlist: LibraryPlaylist,
+    extractBackdropColors: Boolean,
+    onClick: () -> Unit,
+    buildCoverArtUrl: (String) -> String,
+    modifier: Modifier = Modifier,
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val coverArtUrl = resolveHomeCoverArtUrl(playlist.coverArt, buildCoverArtUrl)
+    Column(
+        modifier = modifier
+            .width(RecentlyAddedAlbumCover)
+            .noRippleClickable(
+                interactionSource = interactionSource,
+                enabled = homeEditInteractive(),
+                onClick = onClick,
+            )
+            .elasticPress(interactionSource),
+    ) {
+        WidgetBackdropArtwork(
+            model = coverArtUrl,
+            kind = WidgetShapeKind.Playlist,
+            contentDescription = playlist.name,
+            extractBackdropColors = extractBackdropColors,
+            interactionSource = interactionSource,
+            modifier = Modifier.size(RecentlyAddedAlbumCover),
+        )
+        Spacer(modifier = Modifier.height(6.dp))
+        Text(
+            text = playlist.name,
+            style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Medium),
+            color = MaterialTheme.colorScheme.onSurface,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.seamFade(),
+        )
+        playlist.songCount?.takeIf { it > 0 }?.let { count ->
+            Text(
+                text = if (count == 1) "1 song" else "$count songs",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
                 modifier = Modifier.seamFade(),
             )
         }

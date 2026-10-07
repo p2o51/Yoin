@@ -48,7 +48,7 @@ enum class HomeSection(
     RecentlyAdded(
         id = "recently_added",
         title = "Recently Added",
-        supportingText = "Added to your library this week",
+        supportingText = "Added to your library this month",
         defaultEnabled = true,
         appendEnabled = true,
     ),
@@ -60,6 +60,26 @@ enum class HomeSection(
         supportingText = "Albums and songs you rated or wrote about, not played in a while",
         defaultEnabled = true,
         appendEnabled = false,
+    ),
+
+    // Owner 2026-10-05 (F2): what the account played lately, from the
+    // provider's own history — a new device has it before Yoin logs anything.
+    RecentlyPlayed(
+        id = "recently_played",
+        title = "Recently Played",
+        supportingText = "Albums you played lately, on any device",
+        defaultEnabled = true,
+        appendEnabled = true,
+    ),
+
+    // Owner 2026-10-05: more Home sections, like Spotify's "Your playlists".
+    // Shown for customized layouts too (asked for by name).
+    YourPlaylists(
+        id = "your_playlists",
+        title = "Your Playlists",
+        supportingText = "Playlists in your library",
+        defaultEnabled = true,
+        appendEnabled = true,
     ),
     ;
 

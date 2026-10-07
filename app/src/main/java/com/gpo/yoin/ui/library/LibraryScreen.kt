@@ -152,38 +152,22 @@ private val LandscapeBottomBreathing = 16.dp
 // Albums/Artists grid columns (大屏适配基线).
 //
 // GridCells.Adaptive resolves count = floor((available + gutter) / (minSize + gutter)),
-// where available = grid width − 32dp side padding and gutter = 12dp. Keeping
-// today's Fixed(3) column count across the 389–411dp phone content widths
-// (available 357–379) bounds minSize to (85.75, 111]; stepping to exactly
-// +1 column (4) at the 600dp Medium entry (available 568, since
-// yoinPageContentWidth is a no-op there) bounds it to (104, 133].
-// Intersection: (104, 111] → 108dp. At the 720dp Feed width cap
-// (available 688) the same value naturally reaches floor(700/120) = 5.
-private val LibraryGridAdaptiveMinSize = 108.dp
-
-// Wide desktop-tier cell (2026-07-28 A-prime ruling: full-window Wide fills
-// the canvas instead of clamping to 720dp). Grid width = window − 80dp rail
-// − 2×16dp page gutter, available = that − 2×16dp contentPadding = W − 144;
-// gutter stays 12dp, so count = floor((W − 144 + 12) / (minSize + 12)).
-// Keeping Adaptive(108) on the unclamped canvas shreds into tiny covers —
-// floor(1148/120) = 9 columns on a 1280 window, 10 on 1440 — while 150dp
-// lands the 1280 class exactly on the mockup's 7 columns of ~152dp.
-// Column counts at 150dp: 840 → 4 (cells ~165dp), 1280 → 7 (~152dp),
-// 1440 → 8 (~151dp), 1920 → 11 (~150dp).
-private val LibraryGridWideMinSize = 150.dp
+// with gutter = 12dp. Owner 2026-10-05 (Fold 8 inner screen: "a row shows only
+// 5, everything is too big — a phone page shows ~9 covers, the big screen only
+// 10"): past Compact the cells stay phone-sized and the COUNT follows the width
+// (adaptive-principles: 数量跟宽度走，卡片内部不缩放) — a little under the
+// phone's ~118dp Fixed(3) cell, since a big screen is read as a wall, not a
+// shelf. Available = width − 64 (32dp gutters): 600 → 5 columns (~98dp),
+// 800 (tablet portrait) → 6 (~112), the ~832dp Fold → 7 (~99), 1280 → 11 (~100).
+// The canvas is no longer clamped to 720dp either (libraryPageWidth).
+private val LibraryGridMinSize = 96.dp
 
 // Landscape handset header: a fixed search pill so the chips keep the row.
 private val LibraryLandscapeSearchWidth = 208.dp
 
 // Compact keeps Fixed(3) because it also spans sub-389dp windows (360dp
-// handsets, display-size scaling, split-screen narrow) where Adaptive(108)
-// would resolve to 2 columns — the Fixed(3) branch keeps every Compact
-// window byte-identical to before this sweep. Within 389–411dp both
-// branches produce identical cells anyway (Adaptive resolves count = 3,
-// then runs the same cross-axis size split as Fixed). Tabletop rides the
-// Medium cell: the previous gate was `!= Compact`, so the kickstand posture
-// has always drawn Adaptive(108) and must keep doing so — only full-window
-// Wide forks to the larger desktop cell.
+// handsets, display-size scaling, split-screen narrow) where Adaptive
+// would resolve to 2 columns. Medium, Tabletop and Wide share one cell.
 @Composable
 private fun libraryGridCells(): GridCells {
     val windowInfo = LocalYoinWindowInfo.current
@@ -193,8 +177,7 @@ private fun libraryGridCells(): GridCells {
     if (windowInfo.isCompactHeight) return GridCells.Adaptive(minSize = LibraryGridLandscapeMinSize)
     return when (windowInfo.layoutMode) {
         LayoutMode.Compact -> GridCells.Fixed(3)
-        LayoutMode.Medium, LayoutMode.Tabletop -> GridCells.Adaptive(minSize = LibraryGridAdaptiveMinSize)
-        LayoutMode.Wide -> GridCells.Adaptive(minSize = LibraryGridWideMinSize)
+        LayoutMode.Medium, LayoutMode.Tabletop, LayoutMode.Wide -> GridCells.Adaptive(minSize = LibraryGridMinSize)
     }
 }
 
@@ -226,13 +209,13 @@ private fun KeepGridAnchorAcrossWidthChanges(state: LazyGridState) {
 // Landscape handset cell (LibLandscape: ~100–108dp → 6 columns at 844).
 private val LibraryGridLandscapeMinSize = 100.dp
 
-// 三档宽度策略(2026-07-28 A-prime 裁定):Compact/Medium/Tabletop 走原
-// yoinPageContentWidth 限宽链,逐字节不变;Wide 桌面档不再夹 720dp ——
-// 内容铺满画布,外加 16dp 把子项自带的 16dp 页边抬成 32dp 桌面 gutter。
-// LayoutMode 读的是本页所在的列(适配原则 1):开着详情列时 shell 列通常
-// 是 Medium,把手把 shell 列拖到 ≥ 840 时就按设计进入桌面档。
-private fun Modifier.libraryPageWidth(isDesktopWide: Boolean): Modifier =
-    if (isDesktopWide) {
+// 宽度策略:Compact 走原 yoinPageContentWidth 限宽链(手机上本来就是
+// no-op);Compact 以上(Medium / Tabletop / Wide)不再夹 720dp —— 内容铺满
+// 画布,外加 16dp 把子项自带的 16dp 页边抬成 32dp gutter(Wide 自 2026-07-28
+// A-prime 起如此;Medium 自 2026-10-05 owner 密度反馈起跟上,网格按宽度
+// 加列,见 LibraryGridMinSize)。LayoutMode 读的是本页所在的列(适配原则 1)。
+private fun Modifier.libraryPageWidth(fillCanvas: Boolean): Modifier =
+    if (fillCanvas) {
         padding(horizontal = 16.dp)
     } else {
         yoinPageContentWidth()
@@ -475,6 +458,8 @@ private fun LibraryContentBody(
     // one-row header whatever their width reads.
     val isLandscapePhone = LocalYoinWindowInfo.current.isCompactHeight
     val isDesktopWide = !isLandscapePhone && LocalYoinWindowInfo.current.layoutMode == LayoutMode.Wide
+    // Past Compact the page fills its column (libraryPageWidth).
+    val fillCanvas = !isLandscapePhone && LocalYoinWindowInfo.current.layoutMode != LayoutMode.Compact
     // Medium (tablet portrait, a 600–839 column): a left-anchored header —
     // the page title, then the pill — instead of the phone's centred pill
     // floating in a band far wider than itself.
@@ -499,15 +484,30 @@ private fun LibraryContentBody(
     val textFieldState = rememberTextFieldState(state.searchQuery)
     val expanded = searchBarState.targetValue == SearchBarValue.Expanded
 
+    // Queries the field sent that the VM may still echo back, late. Plain set,
+    // not state: only these two effects touch it.
+    val sentQueries = remember { mutableSetOf<String>() }
     // Field text → debounced VM search (mirrors the old per-keystroke onValueChange).
     LaunchedEffect(Unit) {
         snapshotFlow { textFieldState.text.toString() }
-            .collect { onSearchQueryChanged(it) }
+            .collect { query ->
+                sentQueries += query
+                onSearchQueryChanged(query)
+            }
     }
-    // External query resets (clear) → field, so the two never drift apart.
+    // External query resets (clear) → field, so the two never drift apart. A
+    // late echo of an earlier keystroke is NOT a reset: writing it back ate
+    // characters while typing ("you seem pretty sad" → "yo sem prtt sd",
+    // device QA 2026-10-05).
     LaunchedEffect(state.searchQuery) {
-        if (state.searchQuery != textFieldState.text.toString()) {
-            textFieldState.setTextAndPlaceCursorAtEnd(state.searchQuery)
+        val query = state.searchQuery
+        when (searchFieldSync(query, textFieldState.text.toString(), sentQueries)) {
+            SearchFieldSync.InSync -> sentQueries.clear()
+            SearchFieldSync.LateEcho -> Unit
+            SearchFieldSync.ExternalReset -> {
+                sentQueries.clear()
+                textFieldState.setTextAndPlaceCursorAtEnd(query)
+            }
         }
     }
     // A focus request from elsewhere (e.g. a "search" shortcut) opens the bar.
@@ -588,7 +588,7 @@ private fun LibraryContentBody(
             // 大屏限宽:夹的是内容列(搜索 pill、chips、各 tab 网格/列表共享
             // 一个边缘);ExpressivePageBackground 留在上层全出血。Wide 桌面
             // 档不夹、铺满 —— 见 libraryPageWidth。
-            .then(if (isLandscapePhone) Modifier else Modifier.libraryPageWidth(isDesktopWide)),
+            .then(if (isLandscapePhone) Modifier else Modifier.libraryPageWidth(fillCanvas)),
     ) {
         if (isLandscapePhone) {
             // Landscape handset (LibLandscape): ONE header row — search pill
@@ -775,7 +775,7 @@ private fun LibraryContentBody(
                 selectedScope = state.searchScope,
                 onScopeSelected = onSearchScopeSelected,
                 modifier = Modifier
-                    .libraryPageWidth(isDesktopWide)
+                    .libraryPageWidth(fillCanvas)
                     .padding(horizontal = 16.dp, vertical = 8.dp),
             )
         }
@@ -804,7 +804,7 @@ private fun LibraryContentBody(
             // fillMaxWidth)。
             modifier = Modifier
                 .weight(1f)
-                .libraryPageWidth(isDesktopWide),
+                .libraryPageWidth(fillCanvas),
         )
     }
 }
@@ -1872,8 +1872,7 @@ private fun SearchResultsContent(
         val windowInfo = LocalYoinWindowInfo.current
         val minimumAlbumWidth = when {
             windowInfo.isCompactHeight -> LibraryGridLandscapeMinSize
-            windowInfo.layoutMode == LayoutMode.Wide -> LibraryGridWideMinSize
-            else -> LibraryGridAdaptiveMinSize
+            else -> LibraryGridMinSize
         }
         // Match Library's grid: Compact keeps three columns, while larger
         // search surfaces use their actual available width and the same cells.
@@ -2402,4 +2401,22 @@ private fun LibraryContentSearchPreview() {
             coverArtUrlBuilder = null,
         )
     }
+}
+
+/** How the Library search field treats a query the view model publishes. */
+internal enum class SearchFieldSync {
+    /** Same text as the field: nothing to do. */
+    InSync,
+
+    /** A query the field itself sent earlier, arriving after newer keystrokes: ignore it. */
+    LateEcho,
+
+    /** Changed from outside (a clear, a profile switch): write it into the field. */
+    ExternalReset,
+}
+
+internal fun searchFieldSync(vmQuery: String, fieldText: String, sent: Set<String>): SearchFieldSync = when (vmQuery) {
+    fieldText -> SearchFieldSync.InSync
+    in sent -> SearchFieldSync.LateEcho
+    else -> SearchFieldSync.ExternalReset
 }

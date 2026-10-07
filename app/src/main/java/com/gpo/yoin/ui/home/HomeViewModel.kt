@@ -9,11 +9,11 @@ import com.gpo.yoin.data.local.ActivityEntityType
 import com.gpo.yoin.data.local.ActivityEvent
 import com.gpo.yoin.data.local.SongMemoryAggregate
 import com.gpo.yoin.data.memory.AlbumMemoryCandidate
+import com.gpo.yoin.data.memory.AlbumMemoryTitleSource
 import com.gpo.yoin.data.memory.REDISCOVER_AWAY_MS
 import com.gpo.yoin.data.memory.RediscoverPick
 import com.gpo.yoin.data.memory.RediscoverSongPick
 import com.gpo.yoin.data.memory.RediscoverSongSource
-import com.gpo.yoin.data.memory.deterministicMemoryTitle
 import com.gpo.yoin.data.memory.memoryEligible
 import com.gpo.yoin.data.memory.selectRediscover
 import com.gpo.yoin.data.memory.selectRediscoverShelf
@@ -27,6 +27,15 @@ import com.gpo.yoin.data.repository.YoinRepository
 import com.gpo.yoin.data.source.Capability
 import com.gpo.yoin.ui.memories.MemoryEntityType
 import com.gpo.yoin.ui.memories.MemoryScoreKind
+import com.gpo.yoin.ui.memories.ResolvedMemoryTitle
+import java.time.Instant
+import java.time.LocalDate
+import java.time.LocalDateTime
+import java.time.OffsetDateTime
+import java.time.ZoneId
+import java.time.ZoneOffset
+import java.time.format.DateTimeFormatter
+import java.util.Locale
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.FlowPreview
@@ -47,14 +56,6 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
-import java.time.Instant
-import java.time.LocalDate
-import java.time.LocalDateTime
-import java.time.OffsetDateTime
-import java.time.ZoneId
-import java.time.ZoneOffset
-import java.time.format.DateTimeFormatter
-import java.util.Locale
 
 class HomeViewModel(
     private val repository: YoinRepository,
@@ -69,6 +70,9 @@ class HomeViewModel(
     // Rediscover's songs (rated / noted tracks with their Yoin history). The
     // Factory reads Room directly until YoinRepository grows a twin.
     private val rediscoverSongs: RediscoverSongSource = RediscoverSongSource.None,
+    // The memory card's title: the shared resolver Memories and the album page
+    // use too (user > AI > album name). Null = the album name.
+    private val memoryTitle: suspend (AlbumMemoryCandidate) -> ResolvedMemoryTitle? = { null },
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow<HomeUiState>(HomeUiState.Loading)
@@ -254,6 +258,8 @@ class HomeViewModel(
                 resolveWidgetGrid(localOnly = false, signals = signalsDeferred.await())
             }
             val recentlyAddedDeferred = async { loadRecentlyAdded() }
+            val playlistsDeferred = async { loadPlaylists() }
+            val recentlyPlayedDeferred = async { loadRecentlyPlayed() }
             // Parallel with the grid/shelf loads: on a cold detail cache this can
             // be a network fetch, and it must not serialize the first paint.
             val heroFootnoteDeferred = async {
@@ -272,11 +278,33 @@ class HomeViewModel(
                 recentlyAddedAlbums = recentlyAdded.albums,
                 memoryPill = pill,
                 rediscover = rediscoverFor(signals, widgetGrid, pill, recentlyAdded, cachedRediscover()),
+                playlists = playlistsDeferred.await(),
+                recentlyPlayed = recentlyPlayedDeferred.await().notShownIn(activitiesDeferred.await()),
             )
         }
 
+    /** Recently Played: the provider's own list; unsupported or failing hides the shelf. */
+    private suspend fun loadRecentlyPlayed(): List<Album> =
+        guardedList { repository.getRecentlyPlayedAlbums(HOME_RECENTLY_PLAYED_LIMIT) }
+            .distinctBy { it.id }
+
+    /** Albums the Activities feed doesn't already show (its album cards and played tracks' albums). */
+    private fun List<Album>.notShownIn(activities: List<ActivityEvent>): List<Album> {
+        val shown = activities.mapNotNullTo(HashSet()) { event ->
+            event.albumId ?: event.entityId.takeIf { event.entityType.equals("album", ignoreCase = true) }
+        }
+        return filterNot { album -> album.id.toString() in shown || album.id.rawId in shown }
+    }
+
+    /** Your Playlists: the first [HOME_PLAYLIST_LIMIT] of the library's playlists; a failure hides the shelf. */
+    private suspend fun loadPlaylists(): List<Playlist> =
+        guardedList { repository.getPlaylists() }
+            .distinctBy { it.id }
+            .take(HOME_PLAYLIST_LIMIT)
+
     /**
-     * Library items added within the last week, newest first. Provider-agnostic:
+     * Library items added within the last 30 days, newest first (a week until
+     * owner 2026-10-05 — the taller tablet section ran short). Provider-agnostic:
      * reads the unified starred/saved library ([YoinRepository.getStarred]) once
      * and keeps both tracks and albums whose `addedAt` parses to within the
      * window (tracks feed the 2×2 grid, albums the scrolling shelf — Figma
@@ -343,6 +371,8 @@ class HomeViewModel(
             resolveWidgetGrid(localOnly = false, signals = signalsDeferred.await())
         }
         val recentlyAddedDeferred = async { loadRecentlyAdded() }
+        val playlistsDeferred = async { loadPlaylists() }
+        val recentlyPlayedDeferred = async { loadRecentlyPlayed() }
 
         val (activities, activitiesFromRemote) = activitiesDeferred.await()
         val heroFootnoteDeferred = async { loadActivityHeroFootnote(activities) }
@@ -359,6 +389,8 @@ class HomeViewModel(
             recentlyAddedAlbums = recentlyAdded.albums,
             memoryPill = pill,
             rediscover = rediscoverFor(signals, widgetGrid, pill, recentlyAdded, cachedRediscover()),
+            playlists = playlistsDeferred.await(),
+            recentlyPlayed = recentlyPlayedDeferred.await().notShownIn(activities),
         )
     }
 
@@ -834,16 +866,10 @@ class HomeViewModel(
         val rawAlbumId = MediaId.storedRawId(candidate.provider, candidate.albumId)
         val albumId = MediaId(candidate.provider, rawAlbumId)
         val hasReview = candidate.hasAlbumReview
-        // 首页从此渲染 AI 拟题而不是乐评全文（v2.2 印章卡决定）：只读缓存
-        // （Memories 卡打开时才触发生成），miss 走 deterministic 模板 ——
-        // 拟题槽永不为空，也永不在首页引爆一次 Gemini 请求。
-        val memoryTitle = guardedOrNull { repository.getCachedAlbumMemoryTitle(albumId) }
-            ?: deterministicMemoryTitle(
-                ratedTrackCount = candidate.ratedTrackCount,
-                totalTrackCount = candidate.totalTracks,
-                noteCount = candidate.noteCount,
-                hasAlbumReview = hasReview,
-            )
+        // Home shows the album's Memory title, not the review text (v2.2 stamp card); resolved the way
+        // Memories and the album page resolve it, so one album never reads two titles (owner F6, 2026-10-05).
+        // Cache-only on the AI side: Home never triggers a Gemini request.
+        val resolvedTitle = guardedOrNull { memoryTitle(candidate) }
         val rating = candidate.albumRating ?: candidate.averageSongRating
         // A reviewed memory dates itself off its last touch (the Figma "record"
         // card); an auto-averaged one shows what the score rests on.
@@ -863,8 +889,10 @@ class HomeViewModel(
             coverArtUrl = candidate.coverArtUrl,
             ratingText = formatMemoryScore(rating),
             ratingBasis = basis,
-            comment = memoryTitle,
+            // Only a written title (the user's or the AI's): the bare album name is already the card's title.
+            comment = resolvedTitle?.takeIf { it.source != AlbumMemoryTitleSource.ALBUM }?.text,
             commentIsHeadline = true,
+            commentSerif = resolvedTitle?.isSerif ?: false,
             expanded = true,
             target = HomeWidgetTarget.MemoryFocus(candidate.sessionId),
         )
@@ -1044,6 +1072,7 @@ class HomeViewModel(
                 homeLayoutStore = container.homeLayoutStore,
                 homeEditHintStore = container.homeEditHintStore,
                 rediscoverSongs = RediscoverSongSource.of(container.database.playHistoryDao()),
+                memoryTitle = { candidate -> container.albumMemoryTitleResolver.resolve(candidate) },
             ) as T
     }
 
@@ -1056,6 +1085,12 @@ class HomeViewModel(
         // columns take — 10 columns × 3 rows at XL (D1 row presets) less the
         // two signal cards is the deepest, 26 covers (HomeRowPresets.kt).
         private const val GRID_MAX_COMPACTS = 28
+
+        /** Your Playlists shelf: enough to scroll on a tablet, not the whole library. */
+        private const val HOME_PLAYLIST_LIMIT = 20
+
+        /** Recently Played shelf. */
+        private const val HOME_RECENTLY_PLAYED_LIMIT = 20
 
         // Recent activities the feed keeps (unique entities, songs included —
         // the bento drops songs). The widest unit bento seats 13 plus a hero,
@@ -1081,11 +1116,11 @@ class HomeViewModel(
         private const val GRID_POOL_PLAYLISTS = 10
         private const val GRID_POOLS_TTL_MS = 6L * 60L * 60L * 1000L
 
-        // "Recently Added" home shelf: library items added within the last week.
+        // "Recently Added" home shelf: library items added within the last 30 days.
         // Loaded deep enough for the widest feed (4 × 2 tracks, 20 albums); the
         // section takes what its width seats (HomeFeedDensity), so a phone still
         // shows the newest 4 tracks and 12 albums.
-        private const val RECENTLY_ADDED_WINDOW_MS = 7L * 24 * 60 * 60 * 1000
+        private const val RECENTLY_ADDED_WINDOW_MS = 30L * 24 * 60 * 60 * 1000
         private const val RECENTLY_ADDED_TRACK_LIMIT = RecentlyAddedMaxTracks
         private const val RECENTLY_ADDED_ALBUM_LIMIT = RecentlyAddedMaxAlbums
 

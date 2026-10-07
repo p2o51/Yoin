@@ -339,25 +339,40 @@ class HomeFeedDensityTest {
         assertEquals(13, full.size)
         // More entries than slots change nothing.
         assertEquals(full, activityUnitSlots(spec, hasHero = true, supportingCount = 40))
-        // Fewer entries only ever cut the tail: every card keeps its span and unit line.
+        // Fewer entries cut the tail: the cards before keep their spans and unit lines, and the
+        // row the supply ran out in ends on its last card, stretched to the row's end (W8).
         for (count in 0..12) {
-            assertEquals("count=$count", full.take(count + 1), activityUnitSlots(spec, true, count))
+            val label = "count=$count"
+            val slots = activityUnitSlots(spec, true, count)
+            assertEquals(label, full.take(count), slots.dropLast(1))
+            val last = slots.last()
+            val original = full[count]
+            assertEquals(label, original.copy(span = last.span, kind = last.kind), last)
+            val rowEnd = if (last.kind == SlotKind.Strip) spec.strips else spec.units
+            assertEquals(label, rowEnd, last.startUnit + last.span)
         }
-        // 11 → the last strip goes first.
-        assertEquals(2, activityUnitSlots(spec, true, 11).count { it.row == 2 })
+        // 11 → the last strip goes first; the second one takes its share.
+        activityUnitSlots(spec, true, 11).filter { it.row == 2 }.let { strips ->
+            assertEquals(listOf(1, 2), strips.map { it.span })
+        }
         // 9 → no strip row at all; rows 1 and 2 stay whole.
         activityUnitSlots(spec, true, 9).let { slots ->
             assertTrue(slots.none { it.row == 2 })
             assertEquals(spec.row2, slots.filter { it.row == 1 }.map { it.span })
         }
-        // 6 → row 2 keeps its head [1,2] on units 0 and 1, the tail is gone (not stretched).
+        // 6 → row 2 keeps its head on units 0 and 1, the wide stretched to the row's end.
         activityUnitSlots(spec, true, 6).filter { it.row == 1 }.let { row2 ->
             assertEquals(listOf(0, 1), row2.map { it.startUnit })
-            assertEquals(listOf(1, 2), row2.map { it.span })
+            assertEquals(listOf(1, 7), row2.map { it.span })
+            assertEquals(listOf(SlotKind.Small, SlotKind.Wide), row2.map { it.kind })
         }
-        // 4 → row 2 disappears; 0 → only the hero.
+        // A small that ends a short row grows into a wide.
+        activityUnitSlots(spec, true, 5).filter { it.row == 1 }.let { row2 ->
+            assertEquals(listOf(ActivitySlot(1, 0, 8, SlotKind.Wide, 4)), row2)
+        }
+        // 4 → row 2 disappears; 0 → only the hero, across the row.
         assertTrue(activityUnitSlots(spec, true, 4).none { it.row == 1 })
-        assertEquals(listOf(full.first()), activityUnitSlots(spec, true, 0))
+        assertEquals(listOf(full.first().copy(span = 8)), activityUnitSlots(spec, true, 0))
         // No hero and nothing to show → no slots.
         val noHero = activityBentoSpec(8, isCompactHeight = false, seed = 0, hasHero = false)
         assertTrue(activityUnitSlots(noHero, hasHero = false, supportingCount = 0).isEmpty())
@@ -519,6 +534,21 @@ class HomeFeedDensityTest {
         }
         assertEquals(12, recentlyAddedAlbumLimit(2))
         assertEquals(4, 2 * RecentlyAddedTrackRows)
+        // Two rows, one album card per shelf column, on every phone.
+        for (units in 1..2) assertEquals(2, recentlyAddedTrackRows(units, isCompactHeight = false))
+        for (units in 1..8) assertEquals(2, recentlyAddedTrackRows(units, isCompactHeight = true))
+        assertEquals(1, recentlyAddedAlbumStack(RecentlyAddedTrackRows))
+    }
+
+    @Test
+    fun should_growTallerNotBigger_when_foldableOrTablet() {
+        // Owner 2026-10-05: four track rows beside album cards stacked two high.
+        for (units in 3..8) assertEquals(4, recentlyAddedTrackRows(units, isCompactHeight = false))
+        assertEquals(2, recentlyAddedAlbumStack(RecentlyAddedTallTrackRows))
+        // Few tracks fill rows before columns.
+        assertEquals(2, recentlyAddedGridColumns(trackCount = 6, columns = 4, rows = 4))
+        assertEquals(3, recentlyAddedGridColumns(trackCount = 9, columns = 4, rows = 4))
+        assertEquals(4, recentlyAddedGridColumns(trackCount = 16, columns = 4, rows = 4))
     }
 
     @Test
@@ -528,7 +558,7 @@ class HomeFeedDensityTest {
         assertEquals(4, units)
         val columns = recentlyAddedTrackColumns(units, cover, isCompactHeight = false)
         assertEquals(3, columns)
-        assertEquals(6, columns * RecentlyAddedTrackRows)
+        assertEquals(12, columns * recentlyAddedTrackRows(units, isCompactHeight = false))
         assertEquals(16, recentlyAddedAlbumLimit(columns))
         // 3 × 166 + 2 × 8: the phone's own cell, three times.
         assertEquals(514f, recentlyAddedGridWidth(688.dp, isCompactHeight = false, columns = columns).value, 0.001f)
@@ -544,8 +574,8 @@ class HomeFeedDensityTest {
         assertEquals(8, units)
         val columns = recentlyAddedTrackColumns(units, cover, isCompactHeight = false)
         assertEquals(4, columns)
-        assertEquals(8, columns * RecentlyAddedTrackRows)
-        assertEquals(RecentlyAddedMaxTracks, columns * RecentlyAddedTrackRows)
+        assertEquals(16, columns * recentlyAddedTrackRows(units, isCompactHeight = false))
+        assertEquals(RecentlyAddedMaxTracks, columns * recentlyAddedTrackRows(units, isCompactHeight = false))
         assertEquals(20, recentlyAddedAlbumLimit(columns))
         assertEquals(RecentlyAddedMaxAlbums, recentlyAddedAlbumLimit(columns))
         assertEquals(688f, recentlyAddedGridWidth(1216.dp, isCompactHeight = false, columns = columns).value, 0.001f)

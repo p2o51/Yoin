@@ -464,8 +464,10 @@ private fun Modifier.blockZIndex(zIndex: () -> Float): Modifier = layout { measu
 internal fun homeEditPlaceholderText(section: HomeSection): String = when (section) {
     HomeSection.Activities -> "No recent activity yet"
     HomeSection.JumpBackIn -> "Nothing to jump back into yet"
-    HomeSection.RecentlyAdded -> "Nothing added this week"
+    HomeSection.RecentlyAdded -> "Nothing added this month"
     HomeSection.Rediscover -> RediscoverPlaceholderText
+    HomeSection.RecentlyPlayed -> "Nothing played lately"
+    HomeSection.YourPlaylists -> "No playlists in your library yet"
 }
 
 /** Test tag of [section]'s drag handle. */

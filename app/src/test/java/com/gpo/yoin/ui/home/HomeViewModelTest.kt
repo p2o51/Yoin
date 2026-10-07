@@ -10,27 +10,30 @@ import com.gpo.yoin.data.local.PlayHistory
 import com.gpo.yoin.data.local.SongMemoryAggregate
 import com.gpo.yoin.data.local.SongNote
 import com.gpo.yoin.data.memory.AlbumMemoryCandidate
+import com.gpo.yoin.data.memory.AlbumMemoryTitleSource
 import com.gpo.yoin.data.memory.RediscoverSongSource
 import com.gpo.yoin.data.model.Album
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.Playlist
-import com.gpo.yoin.data.source.Capability
-import com.gpo.yoin.ui.memories.MemoryEntityType
-import com.gpo.yoin.ui.memories.MemoryScoreKind
 import com.gpo.yoin.data.model.Starred
 import com.gpo.yoin.data.model.Track
 import com.gpo.yoin.data.repository.YoinRepository
-import java.time.Instant
-import java.time.LocalDateTime
-import java.time.ZoneOffset
-import java.time.temporal.ChronoUnit
+import com.gpo.yoin.data.source.Capability
 import com.gpo.yoin.testutil.MainDispatcherRule
+import com.gpo.yoin.ui.memories.MemoryEntityType
+import com.gpo.yoin.ui.memories.MemoryScoreKind
+import com.gpo.yoin.ui.memories.ResolvedMemoryTitle
+import com.gpo.yoin.ui.memories.copy.MemoryProseLanguage
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.just
 import io.mockk.mockk
 import io.mockk.runs
+import java.time.Instant
+import java.time.LocalDateTime
+import java.time.ZoneOffset
+import java.time.temporal.ChronoUnit
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
@@ -119,7 +122,7 @@ class HomeViewModelTest {
     }
 
     @Test
-    fun recently_added_keeps_only_last_week_newest_first() = runTest {
+    fun recently_added_keeps_only_last_30_days_newest_first() = runTest {
         val repository = mockk<YoinRepository>(relaxed = true)
         // Distinct profile id: HomeViewModel's static homeContentCache is keyed
         // by provider|profile and persists across instances, so reusing another
@@ -142,14 +145,14 @@ class HomeViewModelTest {
         val zoneless = LocalDateTime.ofInstant(now.minus(3, ChronoUnit.DAYS), ZoneOffset.UTC).toString()
         coEvery { repository.getStarred() } returns Starred(
             tracks = listOf(
-                savedTrack("old", now.minus(20, ChronoUnit.DAYS).toString()),
+                savedTrack("old", now.minus(40, ChronoUnit.DAYS).toString()),
                 savedTrack("recent", now.minus(2, ChronoUnit.DAYS).toString()),
                 savedTrack("zoneless", zoneless),
                 savedTrack("newest", now.minus(1, ChronoUnit.HOURS).toString()),
                 savedTrack("no-date", ""),
             ),
             albums = listOf(
-                album("album-old", "Old").copy(addedAt = now.minus(30, ChronoUnit.DAYS).toString()),
+                album("album-old", "Old").copy(addedAt = now.minus(31, ChronoUnit.DAYS).toString()),
                 album("album-recent", "Recent").copy(addedAt = now.minus(4, ChronoUnit.DAYS).toString()),
                 album("album-newest", "Newest").copy(addedAt = now.minus(2, ChronoUnit.HOURS).toString()),
                 album("album-no-date", "No date").copy(addedAt = null),
@@ -240,8 +243,7 @@ class HomeViewModelTest {
                 neoDbReviewUuid = null,
             ),
         )
-        // 首页 memory 槽位渲染缓存的 AI 拟题（v2.2 印章卡决定）——不再是乐评全文。
-        coEvery { repository.getCachedAlbumMemoryTitle(any()) } returns "Still my favourite"
+        // 首页 memory 槽位渲染 Memory 标题（v2.2 印章卡决定）——不再是乐评全文；标题由 memoryTitle 解析器给出。
         // One recent note on track t9 → the noted-track 1×2 card.
         coEvery { repository.getRecentSongNotes(any()) } returns listOf(
             SongNote(
@@ -286,6 +288,18 @@ class HomeViewModelTest {
             repository = repository,
             activeProfileId = profileId,
             homeLayoutStore = homeLayoutStore,
+            // The shared resolver (Memories / album page / Home) hands back the cached AI title.
+            memoryTitle = { candidate ->
+                ResolvedMemoryTitle(
+                    text = "Still my favourite",
+                    source = AlbumMemoryTitleSource.AI,
+                    canRestoreGenerated = false,
+                    generatedText = "Still my favourite",
+                    generatedSource = AlbumMemoryTitleSource.AI,
+                    proseLanguage = MemoryProseLanguage.EN,
+                    albumName = candidate.albumName,
+                )
+            },
         )
 
         advanceUntilIdle()
@@ -1322,7 +1336,6 @@ class HomeViewModelTest {
         coEvery { repository.getAlbumList("random", any(), any()) } returns emptyList()
         coEvery { repository.getRandomSongs(any()) } returns emptyList()
         coEvery { repository.getPlaylists() } returns emptyList()
-        coEvery { repository.getCachedAlbumMemoryTitle(any()) } returns null
         coEvery {
             repository.replaceHomeGridPools(albums = any(), tracks = any(), playlists = any())
         } just runs

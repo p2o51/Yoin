@@ -30,10 +30,13 @@ class HomeLayoutTest {
                 HomeSection.JumpBackIn,
                 HomeSection.Activities,
                 HomeSection.Rediscover,
+                HomeSection.RecentlyPlayed,
+                HomeSection.YourPlaylists,
             ),
             layout.sections.map { it.section },
         )
-        assertEquals(listOf(false, true, false, false), layout.sections.map { it.enabled })
+        // Your Playlists appends shown (asked for by name), not hidden-and-new.
+        assertEquals(listOf(false, true, false, false, true, true), layout.sections.map { it.enabled })
         assertEquals(setOf(HomeSection.Rediscover), layout.newSections)
     }
 
@@ -55,10 +58,12 @@ class HomeLayoutTest {
                 HomeSection.Activities,
                 HomeSection.RecentlyAdded,
                 HomeSection.Rediscover,
+                HomeSection.RecentlyPlayed,
+                HomeSection.YourPlaylists,
             ),
             layout.sections.map { it.section },
         )
-        assertEquals(listOf(false, true, true, false), layout.sections.map { it.enabled })
+        assertEquals(listOf(false, true, true, false, true, true), layout.sections.map { it.enabled })
         assertTrue(layout.retained.isEmpty())
         assertEquals(setOf(HomeSection.Rediscover), layout.newSections)
     }
@@ -84,6 +89,8 @@ class HomeLayoutTest {
                 HomeSectionState(HomeSection.Rediscover, enabled = true),
                 HomeSectionState(HomeSection.JumpBackIn, enabled = true),
                 HomeSectionState(HomeSection.Activities, enabled = true),
+                HomeSectionState(HomeSection.RecentlyPlayed, enabled = true),
+                HomeSectionState(HomeSection.YourPlaylists, enabled = false),
             ),
         )
         assertEquals(layout, HomeLayout.reconcile(layout.toPrefs()))
@@ -111,7 +118,10 @@ class HomeLayoutTest {
         val layout = HomeLayout.reconcile(null)
 
         assertTrue(HomeSection.Rediscover in layout.enabledSections)
-        assertEquals(HomeSection.Rediscover, layout.sections.last().section)
+        assertEquals(
+            listOf(HomeSection.Rediscover, HomeSection.RecentlyPlayed, HomeSection.YourPlaylists),
+            layout.sections.takeLast(3).map { it.section },
+        )
         assertTrue(layout.newSections.isEmpty())
     }
 
@@ -119,7 +129,10 @@ class HomeLayoutTest {
     fun should_appendRediscoverDisabledAndMarkNew_when_prefsCustomized() {
         val layout = HomeLayout.reconcile(legacyPrefs())
 
-        assertEquals(HomeSectionState(HomeSection.Rediscover, enabled = false), layout.sections.last())
+        assertEquals(
+            HomeSectionState(HomeSection.Rediscover, enabled = false),
+            layout.sections.first { it.section == HomeSection.Rediscover },
+        )
         assertEquals(listOf(HomeSection.Rediscover), layout.hiddenSections)
         assertEquals(setOf(HomeSection.Rediscover), layout.newSections)
     }
@@ -131,7 +144,7 @@ class HomeLayoutTest {
         )
 
         assertTrue(layout.newSections.isEmpty())
-        assertFalse(layout.sections.last().enabled)
+        assertFalse(layout.sections.first { it.section == HomeSection.Rediscover }.enabled)
     }
 
     @Test
@@ -145,7 +158,11 @@ class HomeLayoutTest {
             ),
         )
 
-        assertEquals(HomeSectionState(HomeSection.Activities, enabled = true), layout.sections.last())
+        assertEquals(
+            listOf(HomeSection.Activities, HomeSection.RecentlyPlayed, HomeSection.YourPlaylists),
+            layout.sections.takeLast(3).map { it.section },
+        )
+        assertTrue(layout.sections.first { it.section == HomeSection.Activities }.enabled)
         assertTrue(layout.newSections.isEmpty())
     }
 
@@ -180,7 +197,7 @@ class HomeLayoutTest {
         )
 
         assertEquals(
-            listOf("activities", "jump_back_in", "recently_added", "rediscover", "your_tracks"),
+            listOf("activities", "jump_back_in", "recently_added", "rediscover", "recently_played", "your_playlists", "your_tracks"),
             HomeLayout.reconcile(prefs).toPrefs().map { it.id },
         )
     }
@@ -252,6 +269,8 @@ class HomeLayoutTest {
                 HomeSectionState(HomeSection.JumpBackIn, enabled = false),
                 HomeSectionState(HomeSection.Activities, enabled = true),
                 HomeSectionState(HomeSection.RecentlyAdded, enabled = true),
+                HomeSectionState(HomeSection.RecentlyPlayed, enabled = true),
+                HomeSectionState(HomeSection.YourPlaylists, enabled = true),
             ),
             moved.sections,
         )
@@ -266,6 +285,8 @@ class HomeLayoutTest {
                 HomeSection.JumpBackIn,
                 HomeSection.RecentlyAdded,
                 HomeSection.Rediscover,
+                HomeSection.RecentlyPlayed,
+                HomeSection.YourPlaylists,
                 HomeSection.Activities,
             ),
             moved.enabledSections,

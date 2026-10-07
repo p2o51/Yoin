@@ -232,6 +232,8 @@ fun HomeContent(
                             recentlyAddedTracks = uiState.recentlyAddedTracks,
                             recentlyAddedAlbums = uiState.recentlyAddedAlbums,
                             rediscover = uiState.rediscover,
+                            playlists = uiState.playlists,
+                            recentlyPlayed = uiState.recentlyPlayed,
                             memoryPill = uiState.memoryPill,
                             homeCovered = homeCovered,
                             sections = sections,

@@ -197,7 +197,14 @@ class HomeEditBlockTest {
 
         block(2, 4).runAction("Move up")
         assertEquals(
-            listOf(HomeSection.JumpBackIn, HomeSection.Activities, HomeSection.RecentlyAdded, HomeSection.Rediscover),
+            listOf(
+                HomeSection.JumpBackIn,
+                HomeSection.Activities,
+                HomeSection.RecentlyAdded,
+                HomeSection.Rediscover,
+                HomeSection.RecentlyPlayed,
+                HomeSection.YourPlaylists,
+            ),
             deps.controller.draft!!.enabledSections,
         )
 
@@ -227,7 +234,7 @@ class HomeEditBlockTest {
         rule.onNodeWithText("Jump Back In").assertExists()
         // The placeholder stands in for the content.
         rule.onNodeWithText(BodyText).assertDoesNotExist()
-        assertEquals("Nothing added this week", homeEditPlaceholderText(HomeSection.RecentlyAdded))
+        assertEquals("Nothing added this month", homeEditPlaceholderText(HomeSection.RecentlyAdded))
         // No score bar any more: any album or song rated or written about comes back.
         assertEquals(
             "Albums and songs you rated or wrote about come back here when it's been a while",

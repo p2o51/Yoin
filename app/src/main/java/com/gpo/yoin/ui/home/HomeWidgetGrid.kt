@@ -576,7 +576,7 @@ private fun WidgetRatingColumn(
                 style = if (card.commentIsHeadline) {
                     MaterialTheme.typography.titleMedium.copy(
                         fontWeight = FontWeight.SemiBold,
-                        fontFamily = YoinSerifTitle,
+                        fontFamily = if (card.commentSerif) YoinSerifTitle else null,
                         fontSize = 17.sp,
                         lineHeight = 24.sp,
                     )
