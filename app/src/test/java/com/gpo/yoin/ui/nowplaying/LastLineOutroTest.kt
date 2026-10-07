@@ -88,32 +88,26 @@ class LastLineOutroTest {
 
     @Test
     fun should_widenByScaleUpToEightPercent_when_theLineLeavesRoom() {
-        assertEquals(LastLineStretchMode.Scale, lastLineStretchMode(0.5f))
         assertEquals(1f, lastLineStretchScale(0f, 0.5f), 0f)
         assertEquals(1.04f, lastLineStretchScale(0.5f, 0.5f), 1e-6f)
         assertEquals(1.08f, lastLineStretchScale(1f, 0.5f), 1e-6f)
-        // At the threshold the widened line still fits its row.
-        assertTrue(lastLineStretchScale(1f, LastLineStretchFullUsage) * LastLineStretchFullUsage <= 1f)
+        // Room left in the row caps it: the widened line still fits.
+        assertTrue(lastLineStretchScale(1f, 0.95f) * 0.95f <= 1f + 1e-6f)
     }
 
     @Test
     fun should_followTheSpringOvershoot_when_theStretchLetsGo() {
-        // The default spatial spring rebounds a hair past rest on release.
         assertTrue(lastLineStretchScale(-0.01f, 0.5f) < 1f)
     }
 
     @Test
-    fun should_widenByLetterSpacing_when_theLineIsNearlyFullWidth() {
-        assertEquals(LastLineStretchMode.LetterSpacing, lastLineStretchMode(0.95f))
-        assertEquals(1f, lastLineStretchScale(1f, 0.95f), 0f)
-        assertEquals(0f, lastLineLetterSpacingEm(0f), 0f)
-        assertEquals(0.03f, lastLineLetterSpacingEm(0.5f), 1e-6f)
-        assertEquals(LastLineStretchLetterSpacingEm, lastLineLetterSpacingEm(1.2f), 0f)
+    fun should_stillScaleTheWholeLineIntoTheGutter_when_theLineIsNearlyFullWidth() {
+        assertEquals(1f + LastLineStretchGutterRoom, lastLineStretchScale(1f, 0.99f), 1e-6f)
+        assertEquals(1f + LastLineStretchGutterRoom / 2f, lastLineStretchScale(0.5f, 1f), 1e-6f)
     }
 
     @Test
     fun should_holdStill_when_theLineIsNotMeasuredYet() {
-        assertEquals(LastLineStretchMode.Unmeasured, lastLineStretchMode(0f))
         assertEquals(1f, lastLineStretchScale(1f, 0f), 0f)
     }
 }

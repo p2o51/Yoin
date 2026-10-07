@@ -5,8 +5,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material3.ButtonGroup
 import androidx.compose.material3.ButtonGroupDefaults
 import androidx.compose.material3.ButtonGroupScope
@@ -173,7 +171,7 @@ internal fun LyricsSelectionBar(
             customItem(
                 buttonGroupContent = {
                     LyricsActionIcon(
-                        icon = rememberVectorPainter(Icons.Rounded.ContentCopy),
+                        icon = rememberVectorPainter(YoinSymbols.Copy),
                         contentDescription = "Copy selected lyrics",
                         interactionSource = copyInteraction,
                         enabled = hasSelection,

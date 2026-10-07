@@ -74,6 +74,7 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.graphics.drawscope.scale
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.layer.GraphicsLayer
 import androidx.compose.ui.graphics.layer.drawLayer
 import androidx.compose.ui.graphics.rememberGraphicsLayer
@@ -83,6 +84,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.selected
@@ -96,16 +98,18 @@ import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.constrainHeight
 import androidx.compose.ui.unit.constrainWidth
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.em
+import androidx.compose.ui.unit.sp
 import androidx.core.content.FileProvider
 import coil3.compose.AsyncImage
 import coil3.request.ImageRequest
 import coil3.request.allowHardware
+import com.gpo.yoin.R
 import com.gpo.yoin.symbols.YoinSymbols
-import com.gpo.yoin.ui.component.YoinArmTransform
-import com.gpo.yoin.ui.component.YoinMark
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
 import com.gpo.yoin.ui.theme.GoogleSansFlexRounded
 import com.gpo.yoin.ui.theme.ProvideYoinMotionRole
@@ -256,6 +260,8 @@ private enum class SaveStatus { Idle, Saving, Saved, Failed }
 @Composable
 internal fun LyricsShareSheet(
     lines: List<LyricLine>,
+    // Positions in [lines] that start a new passage: the pick skipped part of the song there.
+    passageStarts: Set<Int> = emptySet(),
     showTranslation: Boolean,
     songTitle: String,
     artist: String,
@@ -323,6 +329,7 @@ internal fun LyricsShareSheet(
                         format = shownFormat,
                         tone = tone,
                         lines = lines,
+                        passageStarts = passageStarts,
                         showTranslation = showTranslation,
                         songTitle = songTitle,
                         artist = artist,
@@ -461,6 +468,7 @@ internal fun LyricsShareImage(
     format: LyricsShareFormat,
     tone: LyricsCardTone,
     lines: List<LyricLine>,
+    passageStarts: Set<Int> = emptySet(),
     showTranslation: Boolean,
     songTitle: String,
     artist: String,
@@ -492,6 +500,7 @@ internal fun LyricsShareImage(
                 when (format) {
                     LyricsShareFormat.Card -> LyricsShareCard(
                         lines = lines,
+                        passageStarts = passageStarts,
                         showTranslation = showTranslation,
                         songTitle = songTitle,
                         artist = artist,
@@ -501,6 +510,7 @@ internal fun LyricsShareImage(
                     )
                     LyricsShareFormat.Story -> LyricsShareStory(
                         lines = lines,
+                        passageStarts = passageStarts,
                         showTranslation = showTranslation,
                         songTitle = songTitle,
                         artist = artist,
@@ -522,6 +532,7 @@ internal fun LyricsShareImage(
 @Composable
 internal fun LyricsShareCard(
     lines: List<LyricLine>,
+    passageStarts: Set<Int> = emptySet(),
     showTranslation: Boolean,
     songTitle: String,
     artist: String,
@@ -578,15 +589,21 @@ internal fun LyricsShareCard(
             }
         }
         Spacer(modifier = Modifier.height(20.dp))
-        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            lines.forEach { line ->
-                Column {
+        Column {
+            lines.forEachIndexed { i, line ->
+                // A skipped stretch of the song reads as a stanza break.
+                val gap = when {
+                    i == 0 -> 0.dp
+                    i in passageStarts -> CardPassageGap
+                    else -> CardLineGap
+                }
+                Column(modifier = Modifier.padding(top = gap)) {
                     Text(text = line.text, style = lineStyle, color = colors.content)
                     val translation = line.translation
                     if (showTranslation && !translation.isNullOrBlank()) {
                         Text(
                             text = translation,
-                            style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Medium),
+                            style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium),
                             color = colors.content.copy(alpha = CardTranslationAlpha),
                             modifier = Modifier.padding(top = 2.dp),
                         )
@@ -596,12 +613,20 @@ internal fun LyricsShareCard(
         }
         Spacer(modifier = Modifier.height(24.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
-            YoinMark(
-                transforms = remember { List(3) { YoinArmTransform() } },
-                colors = listOf(colors.content, colors.content, colors.content),
-                // The arms' centre lines cut through in the card's own tone.
-                lineColor = colors.card,
-                modifier = Modifier.size(22.dp),
+            // The app's monochrome (themed) icon — the line drawing, not the
+            // solid mark (owner 2026-10-05). Its glyph sits in the adaptive
+            // icon's safe zone, so it is scaled up to fill the 22dp slot.
+            Icon(
+                painter = painterResource(R.drawable.ic_yoin_launcher_monochrome),
+                contentDescription = null,
+                tint = colors.content,
+                modifier = Modifier
+                    .size(22.dp)
+                    .graphicsLayer {
+                        scaleX = MonochromeGlyphScale
+                        scaleY = MonochromeGlyphScale
+                        translationY = -MonochromeGlyphLift.toPx()
+                    },
             )
             Spacer(modifier = Modifier.width(6.dp))
             Text(
@@ -621,6 +646,7 @@ internal fun LyricsShareCard(
 @Composable
 internal fun LyricsShareStory(
     lines: List<LyricLine>,
+    passageStarts: Set<Int> = emptySet(),
     showTranslation: Boolean,
     songTitle: String,
     artist: String,
@@ -636,6 +662,7 @@ internal fun LyricsShareStory(
     ) {
         LyricsShareCard(
             lines = lines,
+            passageStarts = passageStarts,
             showTranslation = showTranslation,
             songTitle = songTitle,
             artist = artist,
@@ -648,15 +675,26 @@ internal fun LyricsShareStory(
 
 /** Fewer, shorter lines read large; a long pick steps the size down. */
 @Composable
-private fun lyricsCardLineStyle(lines: List<LyricLine>): TextStyle {
-    val typography = MaterialTheme.typography
+private fun lyricsCardLineStyle(lines: List<LyricLine>): TextStyle =
+    MaterialTheme.typography.titleLarge.copy(
+        fontFamily = GoogleSansFlexRounded,
+        fontWeight = FontWeight.SemiBold,
+        fontSize = lyricsCardLineSize(lines),
+        lineHeight = 1.3.em,
+    )
+
+/**
+ * The picked lines' size on the 360dp card: a calm step down from the old
+ * headline sizes (owner 2026-10-05: 28sp read "too big, odd" — about a dozen
+ * Latin letters a line). Short picks 22sp, medium 19sp, long 17sp.
+ */
+internal fun lyricsCardLineSize(lines: List<LyricLine>): TextUnit {
     val chars = lines.sumOf { it.text.length }
-    val base = when {
-        chars <= 90 && lines.size <= 4 -> typography.headlineMedium
-        chars <= 200 -> typography.headlineSmall
-        else -> typography.titleLarge
+    return when {
+        chars <= 90 && lines.size <= 4 -> 22.sp
+        chars <= 200 -> 19.sp
+        else -> 17.sp
     }
-    return base.copy(fontFamily = GoogleSansFlexRounded, fontWeight = FontWeight.SemiBold)
 }
 
 /** Card / Story, as the NP tab group's pills. */
@@ -1016,6 +1054,10 @@ private const val CardSecondaryAlpha = 0.72f
 /** Translation lines on the card. */
 private const val CardTranslationAlpha = 0.76f
 
+/** Between picked lines; a new passage (the pick skipped lines) opens a stanza-sized gap. */
+private val CardLineGap = 6.dp
+private val CardPassageGap = 20.dp
+
 /** The story's card sits clear of the top / bottom chrome stories draw over the image. */
 private val StoryHorizontalMargin = 28.dp
 private val StoryVerticalMargin = 72.dp
@@ -1061,3 +1103,9 @@ private fun LyricsShareStoryPreview() {
         )
     }
 }
+
+/** The themed icon's glyph spans ~58% of its 108dp canvas: this scale fills the mark's slot with it. */
+private const val MonochromeGlyphScale = 1.7f
+
+/** Its glyph sits a little below the canvas centre: lift it back level with the "Yoin" label. */
+private val MonochromeGlyphLift = 1.5.dp

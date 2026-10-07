@@ -96,87 +96,78 @@ class LyricsSelectionTest {
         assertEquals("Up to 15 lines at a time", lyricsSelectionLabel(15, limitNudge = true))
     }
 
-    // --- L6: Spotify's contiguous run, spotoolfy's 15-line cap ---
+    // --- W1 (owner 2026-10-05): spotoolfy's free pick, its 15-line cap ---
 
     @Test
-    fun should_startARun_when_nothingIsPicked() {
-        assertEquals(LyricSelectionTap(4..4), nextLyricSelection(null, 4))
+    fun should_addALine_when_anUnpickedLineIsTapped() {
+        assertEquals(LyricSelectionTap(setOf(4)), nextLyricSelection(emptySet(), 4))
+        assertEquals(setOf(4, 9), nextLyricSelection(setOf(4), 9).selected)
     }
 
     @Test
-    fun should_growTheRun_when_theLineJustAboveOrBelowIsTapped() {
-        assertEquals(4..6, nextLyricSelection(4..5, 6).range)
-        assertEquals(3..5, nextLyricSelection(4..5, 3).range)
+    fun should_letGo_when_aPickedLineIsTapped() {
+        assertEquals(setOf(4, 6), nextLyricSelection(setOf(4, 5, 6), 5).selected)
+        assertEquals(emptySet<Int>(), nextLyricSelection(setOf(4), 4).selected)
     }
 
     @Test
-    fun should_letGoOfThatEnd_when_anEndOfTheRunIsTapped() {
-        assertEquals(5..7, nextLyricSelection(4..7, 4).range)
-        assertEquals(4..6, nextLyricSelection(4..7, 7).range)
-    }
+    fun should_refuseToAdd_when_thePickIsFull() {
+        val full = (0 until MaxSelectedLyricLines).map { it * 2 }.toSet()
 
-    @Test
-    fun should_clearThePick_when_itsOnlyLineIsTapped() {
-        assertNull(nextLyricSelection(4..4, 4).range)
-    }
-
-    @Test
-    fun should_endTheRunThere_when_aLineInsideItIsTapped() {
-        assertEquals(4..6, nextLyricSelection(4..9, 6).range)
-    }
-
-    @Test
-    fun should_startOver_when_aLineAwayFromTheRunIsTapped() {
-        assertEquals(12..12, nextLyricSelection(4..6, 12).range)
-        assertEquals(0..0, nextLyricSelection(4..6, 0).range)
-    }
-
-    @Test
-    fun should_refuseToGrow_when_theRunIsFull() {
-        val full = 0 until MaxSelectedLyricLines
-
-        val tap = nextLyricSelection(full, MaxSelectedLyricLines)
+        val tap = nextLyricSelection(full, 1)
 
         assertTrue(tap.hitLimit)
-        assertEquals(full, tap.range)
-        // Shrinking or starting over is still allowed at the cap.
-        assertFalse(nextLyricSelection(full, full.last).hitLimit)
-        assertEquals(30..30, nextLyricSelection(full, 30).range)
+        assertEquals(full, tap.selected)
+        // Letting a line go is still allowed at the cap.
+        assertFalse(nextLyricSelection(full, 0).hitLimit)
     }
 
     @Test
-    fun should_keepOneContiguousRun_when_tappedThroughTheState() {
+    fun should_keepAnyLines_when_tappedThroughTheState() {
         val selection = LyricsSelectionState(maxLines = 3)
         selection.enter()
 
         assertTrue(selection.toggle(5))
-        assertTrue(selection.toggle(6))
-        assertTrue(selection.toggle(4))
-        assertEquals(setOf(4, 5, 6), selection.selected)
+        assertTrue(selection.toggle(12))
+        assertTrue(selection.toggle(1))
+        assertEquals(setOf(1, 5, 12), selection.selected)
 
         assertFalse(selection.toggle(7))
-        assertEquals(4..6, selection.range)
+        assertEquals(setOf(1, 5, 12), selection.selected)
 
-        assertTrue(selection.toggle(10))
-        assertEquals(setOf(10), selection.selected)
+        assertTrue(selection.toggle(5))
+        assertEquals(setOf(1, 12), selection.selected)
     }
 
     @Test
-    fun should_classifyEveryLine_when_aRunIsPicked() {
-        val run = 4..6
+    fun should_classifyEveryLine_when_linesArePicked() {
+        val picked = setOf(4, 9)
 
-        assertEquals(LyricSelectionRole.Idle, lyricSelectionRole(2, null))
-        assertEquals(LyricSelectionRole.Picked, lyricSelectionRole(5, run))
-        assertEquals(LyricSelectionRole.Reachable, lyricSelectionRole(3, run))
-        assertEquals(LyricSelectionRole.Reachable, lyricSelectionRole(7, run))
-        assertEquals(LyricSelectionRole.Outside, lyricSelectionRole(8, run))
-        assertEquals(LyricSelectionRole.Outside, lyricSelectionRole(7, run, maxLines = 3))
+        assertEquals(LyricSelectionRole.Idle, lyricSelectionRole(2, emptySet()))
+        assertEquals(LyricSelectionRole.Picked, lyricSelectionRole(9, picked))
+        assertEquals(LyricSelectionRole.Open, lyricSelectionRole(20, picked))
+        assertEquals(LyricSelectionRole.Outside, lyricSelectionRole(20, picked, maxLines = 2))
     }
 
     @Test
-    fun should_spanTheRun_when_givenThePickedSet() {
-        assertNull(lyricSelectionRange(emptySet()))
-        assertEquals(3..5, lyricSelectionRange(setOf(5, 3, 4)))
+    fun should_startANewPassage_when_thePickSkipsLines() {
+        val song = (0 until 10).map { LyricLine(startMs = 1_000L * it, text = "line $it") }
+
+        // picked 1,2 | 5 | 7,8 → positions 2 and 3 open passages; stale 40 drops out
+        assertEquals(setOf(2, 3), lyricPassageStarts(song, setOf(8, 1, 5, 2, 7, 40)))
+        assertEquals(emptySet<Int>(), lyricPassageStarts(song, setOf(3, 4, 5)))
+    }
+
+    @Test
+    fun should_copyABlankLineBetweenPassages_when_thePickSkipsLines() {
+        val text = lyricsClipboardText(
+            selectedLyricLines(lyrics, setOf(0, 2)),
+            includeTranslation = true,
+            songTitle = "Song",
+            passageStarts = lyricPassageStarts(lyrics, setOf(0, 2)),
+        )
+
+        assertEquals("one\n一\n\nthree\n三\n\n— Song", text)
     }
 
     @Test

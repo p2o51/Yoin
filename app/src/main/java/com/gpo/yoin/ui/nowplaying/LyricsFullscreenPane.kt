@@ -1,22 +1,15 @@
 package com.gpo.yoin.ui.nowplaying
 
-import androidx.compose.animation.animateColorAsState
-import kotlin.math.roundToInt
-import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.animation.core.animateDpAsState
-import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.SizeTransform
-import androidx.compose.animation.togetherWith
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.shrinkVertically
-import androidx.compose.runtime.withFrameNanos
-import com.gpo.yoin.ui.component.LyricsTrackTransition
-import com.gpo.yoin.ui.theme.YoinMotion
-import com.gpo.yoin.ui.theme.YoinMotionRole
-import kotlin.math.abs
-import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.waitForUpOrCancellation
@@ -38,37 +31,45 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
-import kotlinx.coroutines.flow.filter
-import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.layout.layout
-import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.RoundRect
 import androidx.compose.ui.geometry.toRect
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.graphicsLayer
-import com.gpo.yoin.ui.experience.rememberYoinHaptics
-import kotlinx.coroutines.delay
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.layout
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
-import com.gpo.yoin.ui.theme.GoogleSansFlexRounded
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
+import com.gpo.yoin.ui.component.LyricsTrackTransition
 import com.gpo.yoin.ui.component.YoinLoadingIndicator
 import com.gpo.yoin.ui.component.ignoreParentHorizontalPadding
 import com.gpo.yoin.ui.component.verticalEdgeFadeOnScroll
+import com.gpo.yoin.ui.experience.LocalWindowCovered
+import com.gpo.yoin.ui.experience.rememberYoinHaptics
+import com.gpo.yoin.ui.theme.GoogleSansFlexRounded
+import com.gpo.yoin.ui.theme.YoinMotion
+import com.gpo.yoin.ui.theme.YoinMotionRole
+import kotlin.math.abs
+import kotlin.math.roundToInt
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.filter
 
 /**
  * Fullscreen Lyrics viewer. Unlike the compact [com.gpo.yoin.ui.component.LyricsDisplay]
@@ -360,10 +361,9 @@ private fun LyricsFullscreenList(
     )
     val captionBand: () -> Int = { selectCaptionBandPx.roundToInt() }
     val captionSizeSpec = YoinMotion.fastSpatialSpec<IntSize>(role = YoinMotionRole.Standard)
-    // Select mode picks ONE contiguous run (nextLyricSelection). A tap that
-    // would grow a full run is refused here — a reject haptic and the caption
-    // names the cap for a moment — so the run never silently stays put.
-    val selectionRun = remember(selectedLines) { lyricSelectionRange(selectedLines) }
+    // Select mode picks any lines, up to the cap (nextLyricSelection). A tap
+    // that would add to a full pick is refused here — a reject haptic and the
+    // caption names the cap for a moment — so the pick never silently stays put.
     val selectHaptics = rememberYoinHaptics()
     var limitNudgeTick by remember { mutableIntStateOf(0) }
     var limitNudge by remember { mutableStateOf(false) }
@@ -376,9 +376,9 @@ private fun LyricsFullscreenList(
     // Any accepted tap (or leaving the mode) retires the nudge at once.
     LaunchedEffect(selectedLines, selecting) { limitNudge = false }
     val latestOnToggleLine by rememberUpdatedState(onToggleLine)
-    val tapInSelectMode: (Int) -> Unit = remember(selectionRun) {
+    val tapInSelectMode: (Int) -> Unit = remember(selectedLines) {
         { index ->
-            if (nextLyricSelection(selectionRun, index).hitLimit) {
+            if (nextLyricSelection(selectedLines, index).hitLimit) {
                 selectHaptics.performReject()
                 limitNudgeTick += 1
             } else {
@@ -406,6 +406,9 @@ private fun LyricsFullscreenList(
     // numerically equal would otherwise keep the old coroutine alive with the
     // OLD list and OLD hasCentered captured, skipping the per-song instant
     // recentre and turning the next advance into a snap instead of a glide.
+    // Covered by a Yoin window (its clock frozen): land the line at once, so the
+    // frame kept for the reveal is current and nothing glides once it is seen.
+    val windowCovered = LocalWindowCovered.current
     LaunchedEffect(lyrics, listState, autoScrollEnabled, recenterRequestKey, focusItem) {
         if (!autoScrollEnabled || focusItem < 0) return@LaunchedEffect
         val target = focusItem.coerceIn(0, lastIndex)
@@ -423,7 +426,7 @@ private fun LyricsFullscreenList(
                         hasCentered = true
                     }
                     // First reaction to this advance / translation toggle / recenter: glide.
-                    firstAnchor -> listState.animateScrollToItem(target, offsetPx)
+                    firstAnchor && !windowCovered.value -> listState.animateScrollToItem(target, offsetPx)
                     // Actual window/keyboard resizes still keep the line anchored.
                     else -> listState.scrollToItem(target, offsetPx)
                 }
@@ -506,8 +509,8 @@ private fun LyricsFullscreenList(
                                 onTap = if (isSynced && !selecting) ({ onSeekToMs(0L) }) else null,
                                 blockAlpha = currentBlock,
                                 selectMode = selecting,
-                                // Never pickable: once a run exists it steps back with the rest.
-                                selectRole = if (selectionRun != null) {
+                                // Never pickable: once a pick exists it steps back.
+                                selectRole = if (selectedLines.isNotEmpty()) {
                                     LyricSelectionRole.Outside
                                 } else {
                                     LyricSelectionRole.Idle
@@ -518,7 +521,7 @@ private fun LyricsFullscreenList(
                     itemsIndexed(lyrics, key = { index, _ -> index }) { index, line ->
                         val item = index + headerOffset
                         val active = !selecting && item == focusItem
-                        val selectRole = lyricSelectionRole(index, selectionRun)
+                        val selectRole = lyricSelectionRole(index, selectedLines)
                         LyricRow(
                             text = line.text,
                             secondary = line.translation,
@@ -540,8 +543,8 @@ private fun LyricsFullscreenList(
                             blockAlpha = currentBlock,
                             selectMode = selecting,
                             selectRole = if (selecting) selectRole else LyricSelectionRole.Idle,
-                            runTop = selectionRun?.first == index,
-                            runBottom = selectionRun?.last == index,
+                            runTop = index - 1 !in selectedLines,
+                            runBottom = index + 1 !in selectedLines,
                             // spotoolfy keeps the line being sung lit while you pick.
                             playingInSelectMode = selecting && item == focusItem,
                         )
@@ -645,13 +648,13 @@ private fun LyricRow(
     modifier: Modifier = Modifier,
     blockAlpha: () -> Float = { 1f },
     blockOffsetY: () -> Float = { 0f },
-    // Select mode: no playhead emphasis; the picked run sits on one connected
-    // filled container (spotoolfy's grouped corners), the lines that can grow
-    // it on a faint one (Spotify), the rest step back.
+    // Select mode: no playhead emphasis; each run of adjacent picked lines
+    // sits on one connected filled container (spotoolfy's grouped corners);
+    // once the pick is full, the lines it can't take step back.
     selectMode: Boolean = false,
     selectRole: LyricSelectionRole = LyricSelectionRole.Idle,
-    // Picked rows only: this row opens / closes the run (full corner there,
-    // a tight one where it meets its neighbour).
+    // Picked rows only: this row opens / closes its run (full corner there,
+    // a tight one where it meets a picked neighbour).
     runTop: Boolean = true,
     runBottom: Boolean = true,
     // The line being sung, while picking: lit in primary, nothing more.
@@ -674,8 +677,6 @@ private fun LyricRow(
     val selectionContainer by animateColorAsState(
         targetValue = when {
             selected -> MaterialTheme.colorScheme.primaryContainer
-            selectMode && selectRole == LyricSelectionRole.Reachable ->
-                MaterialTheme.colorScheme.primaryContainer.copy(alpha = ReachableContainerAlpha)
             else -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0f)
         },
         animationSpec = YoinMotion.effectsSpring(),
@@ -699,11 +700,7 @@ private fun LyricRow(
     val alpha by animateFloatAsState(
         targetValue = when {
             emphasized -> 1f
-            selectMode -> when (selectRole) {
-                LyricSelectionRole.Reachable -> ReachableLineAlpha
-                LyricSelectionRole.Outside -> OutsideRunLineAlpha
-                else -> SelectModeLineAlpha
-            }
+            selectMode -> if (selectRole == LyricSelectionRole.Outside) OutsideLineAlpha else SelectModeLineAlpha
             distance <= 1 -> 0.62f
             distance == 2 -> 0.5f
             else -> 0.4f
@@ -772,9 +769,9 @@ private fun LyricRow(
             )
         }
         if (lastLineStretch != null) {
-            // Held last line (I-2): widens on the slow spatial spring and lets
-            // go on the default one — scale, or (a nearly full row) quantized
-            // letter-spacing that cross-fades back on that same spring.
+            // Held last line (I-2): the whole line widens at draw time on the
+            // slow spatial spring and lets go on the default one — no relayout,
+            // so it never judders (a full row widens a little into the inset).
             HeldLastLineText(
                 text = text,
                 style = lineStyle,
@@ -843,15 +840,11 @@ private val SelectedLineCorner = 16.dp
  */
 private val SelectedRunInnerCorner = 4.dp
 
-/** Unpicked lines in select mode before anything is picked: one even strength, no playhead falloff. */
+/** Unpicked lines in select mode while the pick has room: one even strength, no playhead falloff. */
 private const val SelectModeLineAlpha = 0.7f
 
-/** The lines right above / below the run (one tap grows it): near-full text on a faint container. */
-private const val ReachableLineAlpha = 0.86f
-private const val ReachableContainerAlpha = 0.4f
-
-/** Lines a tap would start over on: stepped back, still legible. */
-private const val OutsideRunLineAlpha = 0.42f
+/** Lines a tap can't add (the pick is full; the title card): stepped back, still legible. */
+private const val OutsideLineAlpha = 0.42f
 
 /** How long the caption names the cap after a refused tap. */
 private const val SelectLimitNudgeMs = 1_800L

@@ -52,24 +52,25 @@ class LyricsSelectionPaneTest {
     }
 
     @Test
-    fun should_buildOneRunAndStartOverFarAway_when_linesAreTapped() {
+    fun should_pickAnyLinesAndLetThemGo_when_linesAreTapped() {
         val selection = LyricsSelectionState().apply { enter() }
         val toggled = mutableListOf<Int>()
         showPane(selection, toggled)
 
         rule.onNodeWithText("Line 2").performClick()
         rule.onNodeWithText("Line 3").performClick()
-        rule.waitForIdle()
-        assertEquals(setOf(2, 3), selection.selected)
-        rule.onNodeWithText("2 lines selected").assertExists()
-
         rule.onNodeWithText("Line 9").performClick()
         rule.waitForIdle()
-        assertEquals(setOf(9), selection.selected)
+        assertEquals(setOf(2, 3, 9), selection.selected)
+        rule.onNodeWithText("3 lines selected").assertExists()
+
+        rule.onNodeWithText("Line 3").performClick()
+        rule.waitForIdle()
+        assertEquals(setOf(2, 9), selection.selected)
     }
 
     @Test
-    fun should_refuseAndNameTheCap_when_aFullRunIsAskedToGrow() {
+    fun should_refuseAndNameTheCap_when_aFullPickIsAskedToGrow() {
         val selection = LyricsSelectionState().apply { enter() }
         repeat(MaxSelectedLyricLines) { selection.toggle(it) }
         val toggled = mutableListOf<Int>()

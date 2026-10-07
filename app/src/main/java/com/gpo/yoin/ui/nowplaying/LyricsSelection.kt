@@ -32,9 +32,9 @@ import kotlinx.coroutines.launch
  * share them as an image card. Transient UI state — one instance per song and
  * lyrics list, so a song change or a lyrics swap simply leaves the mode.
  *
- * The pick is ONE contiguous run of at most [maxLines] lines (owner L6,
- * 2026-10-05: Spotify's rule, spotoolfy's 15-line poster cap) — see
- * [nextLyricSelection] for what a tap does.
+ * Any lines, at most [maxLines] of them (owner W1, 2026-10-05: spotoolfy's
+ * free pick and its 15-line poster cap; a pick that skips lines still makes a
+ * Card or a Story) — see [nextLyricSelection] for what a tap does.
  *
  * While [active] the page stops following the playhead, tap-to-seek becomes
  * tap-to-select, the pager stops swiping and the lyric tools never auto-hide.
@@ -44,13 +44,9 @@ internal class LyricsSelectionState(private val maxLines: Int = MaxSelectedLyric
     var active: Boolean by mutableStateOf(false)
         private set
 
-    /** The picked run, as indices into the song's lyric lines; null = nothing picked. */
-    var range: IntRange? by mutableStateOf(null)
+    /** The picked lines, as indices into the song's lyric lines (title card / up-next rows are not selectable). */
+    var selected: Set<Int> by mutableStateOf(emptySet())
         private set
-
-    /** The picked lines (title card / up-next rows are not selectable). */
-    val selected: Set<Int>
-        get() = range?.toSet().orEmpty()
 
     /**
      * Share was asked for this pick and its sheet is up. The sheet itself
@@ -62,21 +58,21 @@ internal class LyricsSelectionState(private val maxLines: Int = MaxSelectedLyric
 
     fun enter() {
         active = true
-        range = null
+        selected = emptySet()
         sharing = false
     }
 
     fun exit() {
         active = false
-        range = null
+        selected = emptySet()
         sharing = false
     }
 
-    /** Applies a tap on line [index]; false when the run is full and the tap would grow it. */
+    /** Applies a tap on line [index]; false when the pick is full and the tap would add to it. */
     fun toggle(index: Int): Boolean {
         if (!active) return false
-        val step = nextLyricSelection(range, index, maxLines)
-        range = step.range
+        val step = nextLyricSelection(selected, index, maxLines)
+        selected = step.selected
         return !step.hitLimit
     }
 
@@ -101,68 +97,47 @@ internal fun rememberLyricsSelectionState(
  */
 internal const val MaxSelectedLyricLines = 15
 
-/** Result of one tap in select mode: the new run, and whether the cap refused it. */
-internal data class LyricSelectionTap(val range: IntRange?, val hitLimit: Boolean = false)
+/** Result of one tap in select mode: the new pick, and whether the cap refused it. */
+internal data class LyricSelectionTap(val selected: Set<Int>, val hitLimit: Boolean = false)
 
 /**
- * Spotify's contiguous pick, as one tap on line [tapped]:
- * - nothing picked → the run starts there;
- * - the line just above / below the run → the run grows by it (refused at [maxLines]);
- * - either end of the run → that end lets go (the last line clears the pick);
- * - a line inside the run → the run now ends there;
- * - any other line → a fresh run starts there (no dead taps on far lines).
+ * spotoolfy's free pick, as one tap on line [tapped]: a picked line lets go,
+ * any other line joins — refused once [maxLines] are picked.
  */
 internal fun nextLyricSelection(
-    current: IntRange?,
+    current: Set<Int>,
     tapped: Int,
     maxLines: Int = MaxSelectedLyricLines,
-): LyricSelectionTap {
-    if (current == null || current.isEmpty()) return LyricSelectionTap(tapped..tapped)
-    val first = current.first
-    val last = current.last
-    return when {
-        tapped == first && tapped == last -> LyricSelectionTap(null)
-        tapped == first -> LyricSelectionTap(first + 1..last)
-        tapped == last -> LyricSelectionTap(first..last - 1)
-        tapped in current -> LyricSelectionTap(first..tapped)
-        tapped == first - 1 || tapped == last + 1 -> if (last - first + 1 >= maxLines) {
-            LyricSelectionTap(current, hitLimit = true)
-        } else {
-            LyricSelectionTap(minOf(first, tapped)..maxOf(last, tapped))
-        }
-        else -> LyricSelectionTap(tapped..tapped)
-    }
+): LyricSelectionTap = when {
+    tapped in current -> LyricSelectionTap(current - tapped)
+    current.size >= maxLines -> LyricSelectionTap(current, hitLimit = true)
+    else -> LyricSelectionTap(current + tapped)
 }
 
-/** The picked run spanned by [selected] (always contiguous in select mode); null when empty. */
-internal fun lyricSelectionRange(selected: Set<Int>): IntRange? =
-    if (selected.isEmpty()) null else selected.min()..selected.max()
-
-/** Where a line sits relative to the picked run — drives its look in select mode. */
+/** How a line reads in select mode, from the pick. */
 internal enum class LyricSelectionRole {
     /** Nothing picked yet: every line is an even candidate. */
     Idle,
 
-    /** Part of the run. */
+    /** Part of the pick. */
     Picked,
 
-    /** Right above / below the run, and the run has room: one tap grows it. */
-    Reachable,
+    /** Not picked, and the pick has room: one tap adds it. */
+    Open,
 
-    /** Anywhere else: a tap starts over there. */
+    /** Steps back: the pick is full (a tap is refused), or the line can't be picked at all. */
     Outside,
 }
 
 internal fun lyricSelectionRole(
     index: Int,
-    run: IntRange?,
+    selected: Set<Int>,
     maxLines: Int = MaxSelectedLyricLines,
 ): LyricSelectionRole = when {
-    run == null -> LyricSelectionRole.Idle
-    index in run -> LyricSelectionRole.Picked
-    (index == run.first - 1 || index == run.last + 1) && run.last - run.first + 1 < maxLines ->
-        LyricSelectionRole.Reachable
-    else -> LyricSelectionRole.Outside
+    selected.isEmpty() -> LyricSelectionRole.Idle
+    index in selected -> LyricSelectionRole.Picked
+    selected.size >= maxLines -> LyricSelectionRole.Outside
+    else -> LyricSelectionRole.Open
 }
 
 /** The picked lines in lyric order; stale indices (lyrics replaced) drop out. */
@@ -170,8 +145,19 @@ internal fun selectedLyricLines(lyrics: List<LyricLine>, selected: Set<Int>): Li
     selected.filter { it in lyrics.indices }.sorted().map(lyrics::get)
 
 /**
+ * Where the picked lines ([selectedLyricLines]) skip part of the song: the
+ * positions in that list whose line does not follow the previous one. Each
+ * starts a new passage on the card and after a blank line in the copy.
+ */
+internal fun lyricPassageStarts(lyrics: List<LyricLine>, selected: Set<Int>): Set<Int> {
+    val picked = selected.filter { it in lyrics.indices }.sorted()
+    return picked.indices.filterTo(mutableSetOf()) { i -> i > 0 && picked[i] != picked[i - 1] + 1 }
+}
+
+/**
  * Plain-text form for the clipboard: one lyric per line, each followed by its
- * translation when the translation layer is showing, then — after a blank
+ * translation when the translation layer is showing, a blank line before each
+ * of [passageStarts] (a skipped stretch of the song), then — after a blank
  * line — the credit "— Title · Artist" when the song has a title.
  */
 internal fun lyricsClipboardText(
@@ -179,10 +165,12 @@ internal fun lyricsClipboardText(
     includeTranslation: Boolean,
     songTitle: String? = null,
     artist: String? = null,
+    passageStarts: Set<Int> = emptySet(),
 ): String {
-    val body = lines.joinToString(separator = "\n") { line ->
+    val body = lines.withIndex().joinToString(separator = "\n") { (i, line) ->
         val translation = line.translation?.takeIf { includeTranslation && it.isNotBlank() }
-        if (translation == null) line.text else "${line.text}\n$translation"
+        val text = if (translation == null) line.text else "${line.text}\n$translation"
+        if (i in passageStarts) "\n$text" else text
     }
     val credit = lyricsCredit(songTitle, artist) ?: return body
     return "$body\n\n— $credit"
@@ -262,6 +250,7 @@ internal fun LyricsTools(
                                 includeTranslation = state.showLyricsTranslation,
                                 songTitle = state.songTitle,
                                 artist = state.artist,
+                                passageStarts = lyricPassageStarts(state.lyrics, selection.selected),
                             ),
                             lines.size,
                         )
@@ -311,6 +300,8 @@ internal fun LyricsTools(
 internal data class LyricsShareSnapshot(
     val songId: String,
     val lines: List<LyricLine>,
+    /** Positions in [lines] that start a new passage ([lyricPassageStarts]). */
+    val passageStarts: Set<Int>,
     val showTranslation: Boolean,
     val songTitle: String,
     val artist: String,
@@ -324,6 +315,7 @@ internal fun lyricsShareSnapshot(state: NowPlayingUiState.Playing, selected: Set
     return LyricsShareSnapshot(
         songId = state.songId,
         lines = lines,
+        passageStarts = lyricPassageStarts(state.lyrics, selected),
         showTranslation = state.showLyricsTranslation,
         songTitle = state.songTitle,
         artist = state.artist,
@@ -371,6 +363,7 @@ internal fun LyricsSelectionHost(
         { snapshot, onShared, onDismiss ->
             LyricsShareSheet(
                 lines = snapshot.lines,
+                passageStarts = snapshot.passageStarts,
                 showTranslation = snapshot.showTranslation,
                 songTitle = snapshot.songTitle,
                 artist = snapshot.artist,
