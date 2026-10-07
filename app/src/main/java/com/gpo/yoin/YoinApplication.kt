@@ -4,12 +4,14 @@ import android.app.Activity
 import android.app.Application
 import android.os.Bundle
 import androidx.annotation.VisibleForTesting
+import androidx.compose.ui.ExperimentalComposeUiApi
+import androidx.compose.ui.contentcapture.ContentCaptureManager
 import androidx.window.embedding.RuleController
 import androidx.window.embedding.SplitController
-import com.gpo.yoin.player.applemusic.AppleMusicNativeMemoryPolicy
 import coil3.ImageLoader
 import coil3.PlatformContext
 import coil3.SingletonImageLoader
+import com.gpo.yoin.player.applemusic.AppleMusicNativeMemoryPolicy
 
 class YoinApplication : Application(), SingletonImageLoader.Factory {
     lateinit var container: AppContainer
@@ -27,8 +29,14 @@ class YoinApplication : Application(), SingletonImageLoader.Factory {
     override fun newImageLoader(context: PlatformContext): ImageLoader =
         ImageLoader.Builder(context).build()
 
+    @OptIn(ExperimentalComposeUiApi::class)
     override fun onCreate() {
         super.onCreate()
+        // Compose's content-capture bridge re-walks the semantics tree on every frame whose semantics change —
+        // measured ~3 ms of main thread per frame in Now Playing (lyrics scrolling, the playhead), more than its
+        // layout and draw together. It only feeds the system's content-capture service (not accessibility,
+        // not autofill), which a music player has nothing to give, so it is off app-wide.
+        ContentCaptureManager.isEnabled = false
         // JavaCPP's process-memory budget is captured on first MusicKit/Pointer use.
         AppleMusicNativeMemoryPolicy.initialize(this)
         container = containerOverrideForTests ?: AppContainer(this)

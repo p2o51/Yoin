@@ -100,6 +100,7 @@ fun NowPlayingPill(
     val contentColor = lerp(colors.onSurfaceVariant, colors.onPrimaryContainer, trackPresence)
     val progressFillColor = colors.primary.copy(alpha = 0.25f)
     val wave = rememberPlaybackWave(isPlaying)
+    val waveHold = rememberCoveredWaveHold(wave)
     val sharedBoundsSpec = YoinMotion.defaultSpatialSpec<Rect>(
         role = YoinMotionRole.Standard,
         expressiveScheme = MaterialTheme.motionScheme,
@@ -167,12 +168,16 @@ fun NowPlayingPill(
                     modifier = Modifier
                         .matchParentSize()
                         .clip(MaterialTheme.shapes.extraLarge)
+                        // Its own layer: the wave's per-frame redraw re-records only this path, not the pill's
+                        // cover and text.
+                        .graphicsLayer()
                         .drawWithContent {
                             drawContent()
                             val width = size.width
                             val height = size.height
                             val progressX = width * clampedProgress
-                            val amplitude = 4.dp.toPx() * wave.amplitude
+                            val phase = waveHold.phase()
+                            val amplitude = 4.dp.toPx() * waveHold.amplitude()
                             val waveSteps = 20
 
                             val path = Path().apply {
@@ -182,7 +187,7 @@ fun NowPlayingPill(
                                     val fraction = index.toFloat() / waveSteps
                                     val y = fraction * height
                                     val dx = sin(
-                                        wave.phase +
+                                        phase +
                                             fraction * 2f * Math.PI.toFloat(),
                                     ) * amplitude
                                     lineTo(progressX + dx, y)
@@ -267,6 +272,10 @@ fun NowPlayingPill(
                         color = contentColor,
                         maxLines = 1,
                         softWrap = false,
+                        // A track title marquees; the idle / error status, which
+                        // doesn't, ends in an ellipsis instead of a hard cut (a
+                        // 369dp fold cover screen clipped "Nothing playir").
+                        overflow = if (shown.title != null) TextOverflow.Clip else TextOverflow.Ellipsis,
                         modifier = marqueeTitleModifier,
                     )
 
@@ -307,6 +316,7 @@ fun NowPlayingPill(
                         color = contentColor.copy(alpha = 0.72f),
                         maxLines = 1,
                         softWrap = false,
+                        overflow = if (shown.artist != null) TextOverflow.Clip else TextOverflow.Ellipsis,
                         modifier = marqueeArtistModifier,
                     )
                 }
@@ -353,6 +363,7 @@ fun NowPlayingPillVertical(
     val contentColor = lerp(colors.onSurfaceVariant, colors.onPrimaryContainer, trackPresence)
     val progressFillColor = colors.primary.copy(alpha = 0.25f)
     val wave = rememberPlaybackWave(isPlaying)
+    val waveHold = rememberCoveredWaveHold(wave)
     val clampedProgress = playbackProgress.coerceIn(0f, 1f)
     val shape = RoundedCornerShape(VerticalPillCornerRadius)
 
@@ -397,19 +408,21 @@ fun NowPlayingPillVertical(
                     modifier = Modifier
                         .matchParentSize()
                         .clip(shape)
+                        .graphicsLayer()
                         .drawWithContent {
                             drawContent()
                             val width = size.width
                             val height = size.height
                             val progressY = height * (1f - clampedProgress)
-                            val amplitude = 4.dp.toPx() * wave.amplitude
+                            val phase = waveHold.phase()
+                            val amplitude = 4.dp.toPx() * waveHold.amplitude()
                             val waveSteps = 12
                             val path = Path().apply {
                                 moveTo(0f, height)
                                 for (index in 0..waveSteps) {
                                     val fraction = index.toFloat() / waveSteps
                                     val dy = sin(
-                                        wave.phase + fraction * 2f * Math.PI.toFloat(),
+                                        phase + fraction * 2f * Math.PI.toFloat(),
                                     ) * amplitude
                                     lineTo(fraction * width, progressY + dy)
                                 }

@@ -76,6 +76,15 @@ class ExperienceSessionStore {
     val detailBackProgress = mutableFloatStateOf(0f)
     val detailBackTouchYDelta = mutableFloatStateOf(0f)
 
+    /**
+     * The key of the window a detail's back is showing (the shell's, or the detail's beneath), from the gesture's
+     * first frame (or a button back's commit) until the cancel settles or the detail is gone; null when nothing is
+     * being revealed. Written for EVERY origin — unlike [detailBackPhase], which only shell-bridged details drive —
+     * so [CoveredWindowAnimationGate] restarts exactly that window's animations before any of it is seen. A
+     * detail clears only its own reveal (compare-and-set), so a finishing page cannot cancel the next one's.
+     */
+    val windowBeneathRevealed = MutableStateFlow<String?>(null)
+
     private val _state = MutableStateFlow(ExperienceSessionState())
     val state: StateFlow<ExperienceSessionState> = _state.asStateFlow()
 

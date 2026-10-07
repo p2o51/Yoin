@@ -18,6 +18,12 @@ import androidx.compose.ui.preferredFrameRate
  *
  * Gate [active] with derivedStateOf over the driving Animatable so the flag
  * flips composition only twice per animation, not per frame.
+ *
+ * The element is always present and only its category changes (Default when
+ * idle): adding and removing it changed the modifier chain's STRUCTURE at the
+ * motion's first frame, which invalidated measurement of the node and its
+ * subtree — an ~11 ms full Now Playing layout on the first frame of the
+ * expanded lyrics' back gesture (Pixel Tablet trace, 2026-10-06).
  */
 fun Modifier.voteHighFrameRate(active: Boolean): Modifier =
-    if (active) preferredFrameRate(FrameRateCategory.High) else this
+    preferredFrameRate(if (active) FrameRateCategory.High else FrameRateCategory.Default)

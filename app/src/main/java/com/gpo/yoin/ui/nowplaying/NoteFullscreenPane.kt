@@ -69,6 +69,7 @@ import com.gpo.yoin.ui.component.currentAnchoredNoteId
 import com.gpo.yoin.ui.component.formatNoteDate
 import com.gpo.yoin.ui.component.formatNotePosition
 import com.gpo.yoin.ui.component.verticalEdgeFadeOnScroll
+import com.gpo.yoin.ui.experience.LocalWindowCovered
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
 import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinTheme
@@ -238,9 +239,15 @@ private fun ColumnScope.NoteRowsList(
     val followOffset = {
         -(notesListState.layoutInfo.viewportSize.height * NoteFollowAnchorFraction).toInt()
     }
+    // Covered by a Yoin window (its clock frozen): land at once, nothing glides on reveal.
+    val windowCovered = LocalWindowCovered.current
     LaunchedEffect(rows, sortMode, currentIndex, writing) {
         if (shouldFollowCurrentNote(sortMode, currentIndex, userScrolled, writing)) {
-            notesListState.animateScrollToItem(currentIndex, followOffset())
+            if (windowCovered.value) {
+                notesListState.scrollToItem(currentIndex, followOffset())
+            } else {
+                notesListState.animateScrollToItem(currentIndex, followOffset())
+            }
         }
     }
     // Writing: keep the draft's spot in view — it is where the words land.

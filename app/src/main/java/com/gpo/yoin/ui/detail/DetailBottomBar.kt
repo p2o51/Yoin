@@ -6,14 +6,8 @@ import android.content.Context
 import android.content.ContextWrapper
 import android.content.Intent
 import android.os.Build
-import com.gpo.yoin.ui.navigation.back.OverlayChromeVisibility
-import androidx.compose.ui.input.pointer.PointerEventPass
-import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.semantics.clearAndSetSemantics
-import com.gpo.yoin.ui.theme.YoinMotionRole
-import com.gpo.yoin.ui.theme.YoinMotion
-import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.animation.core.Animatable
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -21,21 +15,30 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import com.gpo.yoin.MainActivity
 import com.gpo.yoin.R
 import com.gpo.yoin.YoinApplication
 import com.gpo.yoin.ui.component.BarExtraAction
 import com.gpo.yoin.ui.component.BarPlaySplitActions
 import com.gpo.yoin.ui.component.YoinChromeGroup
-import com.gpo.yoin.ui.experience.LayoutMode
-import com.gpo.yoin.ui.experience.rememberEdgeSplitSide
+import com.gpo.yoin.ui.experience.CoveredWindowAnimationGate
 import com.gpo.yoin.ui.experience.EdgeSplitSide
-import com.gpo.yoin.ui.experience.windowChromeInfo
+import com.gpo.yoin.ui.experience.LayoutMode
 import com.gpo.yoin.ui.experience.LocalYoinWindowInfo
 import com.gpo.yoin.ui.experience.ShellChromeForm
+import com.gpo.yoin.ui.experience.rememberEdgeSplitSide
+import com.gpo.yoin.ui.experience.windowChromeInfo
 import com.gpo.yoin.ui.navigation.YoinSection
+import com.gpo.yoin.ui.navigation.back.OverlayChromeVisibility
+import com.gpo.yoin.ui.theme.YoinMotion
+import com.gpo.yoin.ui.theme.YoinMotionRole
+import java.util.UUID
 
 /**
  * The detail pages' bottom bar — the shell Button Group's morph target.
@@ -259,6 +262,7 @@ internal fun detailBarExitProgress(
 /** Nested pushes retain the actual source surface and use only Compose motion. */
 internal fun launchDetailFromDetail(context: Context, intent: Intent, fromNowPlaying: Boolean) {
     intent.putExtra(DETAIL_EXTRA_FROM_NOW_PLAYING, fromNowPlaying)
+    stampDetailWindowKeys(context, intent)
     val options = ActivityOptions.makeCustomAnimation(
         context,
         R.anim.detail_bar_handoff_enter,
@@ -266,6 +270,30 @@ internal fun launchDetailFromDetail(context: Context, intent: Intent, fromNowPla
     )
     context.startActivity(intent, options.toBundle())
 }
+
+/**
+ * Gives the detail being launched its own window key and records the key of the window it opens over (the
+ * shell's, or the launching detail's), so its back reveals — and wakes — only that window
+ * ([CoveredWindowAnimationGate]). Extras survive the Activity's recreation.
+ */
+private fun stampDetailWindowKeys(context: Context, intent: Intent) {
+    val launcher = context.findActivityOrNull()
+    val beneath = when {
+        launcher is MainActivity -> CoveredWindowAnimationGate.ShellWindowKey
+        else -> launcher?.intent?.getStringExtra(DETAIL_EXTRA_WINDOW_KEY) ?: CoveredWindowAnimationGate.AnyWindow
+    }
+    intent.putExtra(DETAIL_EXTRA_WINDOW_KEY, UUID.randomUUID().toString())
+    intent.putExtra(DETAIL_EXTRA_BENEATH_KEY, beneath)
+}
+
+/** This detail window's key ([stampDetailWindowKeys]); a detail started any other way has none of its own. */
+fun Intent.detailWindowKey(): String = getStringExtra(DETAIL_EXTRA_WINDOW_KEY) ?: UnkeyedDetailWindow
+
+/** The key of the window this detail opened over; unknown → every covered window thaws on its back. */
+fun Intent.detailBeneathWindowKey(): String =
+    getStringExtra(DETAIL_EXTRA_BENEATH_KEY) ?: CoveredWindowAnimationGate.AnyWindow
+
+private const val UnkeyedDetailWindow = "detail"
 
 /** Compose 的 LocalContext 到宿主 Activity 的解包（ContextWrapper 链）。 */
 tailrec fun Context.findActivityOrNull(): Activity? = when (this) {
@@ -352,6 +380,7 @@ fun launchDetailFromShell(
                 intent.putExtra(DETAIL_EXTRA_FROM_MEMORIES, true)
             }
             intent.putExtra(DETAIL_EXTRA_BAR_HANDOFF, !session.hasOverlayHidingBottomBar)
+            stampDetailWindowKeys(context, intent)
             val options = ActivityOptions.makeCustomAnimation(
                 context,
                 R.anim.detail_bar_handoff_enter,
@@ -391,6 +420,12 @@ fun Activity.applyDetailCloseTransition() {
  * SHELL, so its predictive-back scrub should morph the bar toward nav
  * chrome. Detail→detail pushes lack it — the bar beneath is identical.
  */
+/** This detail window's key, for the covered-window freeze ([CoveredWindowAnimationGate]). */
+const val DETAIL_EXTRA_WINDOW_KEY = "detailWindowKey"
+
+/** The key of the window this detail opened over. */
+const val DETAIL_EXTRA_BENEATH_KEY = "detailBeneathKey"
+
 const val DETAIL_EXTRA_FROM_SHELL = "fromShell"
 
 /** Shell tab at launch time (enum name) — the back scrub's revealed selection. */

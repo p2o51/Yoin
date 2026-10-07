@@ -2,8 +2,8 @@ package com.gpo.yoin.ui.component
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
@@ -24,12 +24,13 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.tooling.preview.Preview
@@ -40,9 +41,9 @@ import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinShapeTokens
 import com.gpo.yoin.ui.theme.YoinTheme
 import com.gpo.yoin.ui.theme.withTabularFigures
-import kotlinx.coroutines.delay
 import kotlin.math.roundToInt
 import kotlin.math.roundToLong
+import kotlinx.coroutines.delay
 
 private val SeekTouchHeight = 18.dp
 private val SeekWaveLength = 24.dp
@@ -62,6 +63,10 @@ fun WaveProgressBar(
     // Song-moment note anchors: scrubbing across one ticks the haptics and
     // the preview bubble reads "Note" while the thumb sits on it.
     noteAnchorsMs: List<Long> = emptyList(),
+    // False while the bar is hidden (Now Playing's transport under the
+    // expanded lyrics: 0 dp tall, alpha 0): the wave stops travelling and the
+    // playhead snaps instead of gliding, so nothing draws for an invisible bar.
+    animating: Boolean = true,
 ) {
     val haptics = rememberYoinHaptics()
     val noteAnchorFractions = remember(noteAnchorsMs, durationMs) {
@@ -116,8 +121,10 @@ fun WaveProgressBar(
     // wave head moves continuously instead of stepping. Big deltas (seek,
     // track change) snap: a 300ms backwards sweep would read as a glitch.
     val glidedProgress = remember { Animatable(settledProgress) }
-    LaunchedEffect(settledProgress) {
-        if (kotlin.math.abs(settledProgress - glidedProgress.value) > 0.06f) {
+    LaunchedEffect(settledProgress, animating) {
+        // Hidden: snap. Shown again: the first tick snaps too, so the head
+        // never sweeps over the time it spent hidden.
+        if (!animating || kotlin.math.abs(settledProgress - glidedProgress.value) > 0.06f) {
             glidedProgress.snapTo(settledProgress)
         } else {
             glidedProgress.animateTo(
@@ -126,10 +133,20 @@ fun WaveProgressBar(
             )
         }
     }
-    val indicatorProgress = when {
-        !isPlaying -> settledProgress
-        isDragging || previewFraction != null -> displayProgress
-        else -> glidedProgress.value
+    // Read when the indicator draws, not here: the glide moves every frame,
+    // and reading it in composition recomposed the bar (and the M3 indicator)
+    // on every one of them. The lambda is stable, so the indicator skips.
+    val latestSettled = rememberUpdatedState(settledProgress)
+    val latestDisplay = rememberUpdatedState(displayProgress)
+    val latestPlaying = rememberUpdatedState(isPlaying)
+    val indicatorProgress: () -> Float = remember(glidedProgress) {
+        {
+            when {
+                !latestPlaying.value -> latestSettled.value
+                isDragging || previewFraction != null -> latestDisplay.value
+                else -> glidedProgress.value
+            }
+        }
     }
     val baseIndicatorStroke = WavyProgressIndicatorDefaults.linearIndicatorStroke
     val indicatorStroke = remember(baseIndicatorStroke) {
@@ -162,11 +179,18 @@ fun WaveProgressBar(
     // hard-toggling between zero and full. Also fixes the "flat bar on
     // first open" moment — if isPlaying briefly emits false before the
     // backend settles, the amplitude eases in rather than popping.
-    val amplitudeMultiplier by animateFloatAsState(
+    val amplitudeMultiplier = animateFloatAsState(
         targetValue = if (isPlaying) 1f else 0f,
         animationSpec = YoinMotion.defaultEffectsSpec(),
         label = "waveAmp",
     )
+    val waveAmplitude: (Float) -> Float = remember(amplitudeMultiplier) {
+        { progressValue ->
+            WavyProgressIndicatorDefaults.indicatorAmplitude(progressValue) *
+                SeekWaveAmplitudeScale *
+                amplitudeMultiplier.value
+        }
+    }
 
     Box(
         modifier = modifier
@@ -263,7 +287,7 @@ fun WaveProgressBar(
         }
 
         LinearWavyProgressIndicator(
-            progress = { indicatorProgress },
+            progress = indicatorProgress,
             modifier = Modifier
                 .fillMaxWidth()
                 .height(SeekTouchHeight)
@@ -275,13 +299,9 @@ fun WaveProgressBar(
             trackStroke = trackStroke,
             gapSize = 1.dp,
             stopSize = 0.dp,
-            amplitude = { progressValue ->
-                WavyProgressIndicatorDefaults.indicatorAmplitude(progressValue) *
-                    SeekWaveAmplitudeScale *
-                    amplitudeMultiplier
-            },
+            amplitude = waveAmplitude,
             wavelength = SeekWaveLength,
-            waveSpeed = if (isPlaying) SeekWaveLength else 0.dp,
+            waveSpeed = if (isPlaying && animating) SeekWaveLength else 0.dp,
         )
     }
 }

@@ -1,12 +1,8 @@
 package com.gpo.yoin.ui.nowplaying
-import com.gpo.yoin.ui.experience.rememberYoinHaptics
-import com.gpo.yoin.ui.experience.voteHighFrameRate
-
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.AnimatedVisibilityScope
-import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.ExperimentalSharedTransitionApi
-import androidx.compose.animation.togetherWith
 import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.animateContentSize
@@ -14,67 +10,68 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.background
+import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.background
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
-import androidx.compose.foundation.pager.PagerState
-import androidx.compose.foundation.pager.HorizontalPager
-import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.union
-import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.calculateEndPadding
+import androidx.compose.foundation.layout.displayCutout
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.only
-import androidx.compose.foundation.layout.windowInsetsPadding
-import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.asPaddingValues
-import androidx.compose.foundation.layout.calculateEndPadding
-import androidx.compose.foundation.layout.aspectRatio
-import androidx.compose.foundation.layout.fillMaxHeight
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBars
+import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.PagerState
+import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.CornerSize
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.rememberSearchBarState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.rememberSearchBarState
 import androidx.compose.material3.ripple
-import androidx.compose.ui.semantics.Role
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
@@ -85,35 +82,37 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.composed
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.FilterQuality
-import androidx.compose.ui.graphics.RectangleShape
-import androidx.compose.ui.graphics.TransformOrigin
-import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.layout.layout
-import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.foundation.Canvas
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.semantics.role
-import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.graphics.drawscope.withTransform
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.layout
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.rememberTextMeasurer
@@ -124,45 +123,48 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
+import com.gpo.yoin.data.local.SongNote
 import com.gpo.yoin.data.model.YoinDevice
-import com.gpo.yoin.data.source.Capability
-import com.gpo.yoin.ui.component.TrackLibraryButton
 import com.gpo.yoin.data.repository.ActivityContext
+import com.gpo.yoin.data.source.Capability
 import com.gpo.yoin.player.CastState
 import com.gpo.yoin.player.PlayMode
 import com.gpo.yoin.symbols.YoinSymbols
 import com.gpo.yoin.symbols.rememberFavoriteSymbolPainter
-import com.gpo.yoin.data.local.SongNote
+import com.gpo.yoin.ui.component.CastButton
+import com.gpo.yoin.ui.component.DevicesSheet
+import com.gpo.yoin.ui.component.ExpressiveMediaArtwork
+import com.gpo.yoin.ui.component.LyricsDisplay
 import com.gpo.yoin.ui.component.NoteDraftState
 import com.gpo.yoin.ui.component.NoteSaveRequest
 import com.gpo.yoin.ui.component.NoteSortMode
-import com.gpo.yoin.ui.component.CastButton
-import com.gpo.yoin.ui.component.DevicesSheet
 import com.gpo.yoin.ui.component.NoteWriteBar
 import com.gpo.yoin.ui.component.NoteWriteBarDefaults
-import com.gpo.yoin.ui.component.rememberNoteWriteBarState
-import com.gpo.yoin.ui.component.imeAboveNavigationBarInsets
-import com.gpo.yoin.ui.component.rememberNoteDraftState
-import com.gpo.yoin.ui.component.edgeFade
-import com.gpo.yoin.ui.component.ignoreParentHorizontalPadding
-import com.gpo.yoin.ui.component.ExpressiveMediaArtwork
-import com.gpo.yoin.ui.component.horizontalFadeMask
-import com.gpo.yoin.ui.component.LyricsDisplay
-import com.gpo.yoin.ui.component.noRippleClickable
-import com.gpo.yoin.ui.component.SongInfoDisplay
-import com.gpo.yoin.ui.nowplaying.compact.NoteCompactPane
+import com.gpo.yoin.ui.component.QueueEditActions
 import com.gpo.yoin.ui.component.QueueSheet
 import com.gpo.yoin.ui.component.RatingSlider
+import com.gpo.yoin.ui.component.SongInfoDisplay
+import com.gpo.yoin.ui.component.TrackLibraryButton
 import com.gpo.yoin.ui.component.WaveProgressBar
+import com.gpo.yoin.ui.component.edgeFade
+import com.gpo.yoin.ui.component.horizontalFadeMask
+import com.gpo.yoin.ui.component.ignoreParentHorizontalPadding
+import com.gpo.yoin.ui.component.imeAboveNavigationBarInsets
 import com.gpo.yoin.ui.component.minimumTouchTarget
-import com.gpo.yoin.ui.navigation.rememberActiveOnlySharedContentConfig
-import com.gpo.yoin.ui.navigation.nowPlayingCoverSharedKey
+import com.gpo.yoin.ui.component.noRippleClickable
+import com.gpo.yoin.ui.component.rememberNoteDraftState
+import com.gpo.yoin.ui.component.rememberNoteWriteBarState
 import com.gpo.yoin.ui.experience.LayoutMode
 import com.gpo.yoin.ui.experience.LocalMotionProfile
 import com.gpo.yoin.ui.experience.LocalYoinWindowInfo
 import com.gpo.yoin.ui.experience.MotionProfile
 import com.gpo.yoin.ui.experience.ProvidePreviewWindow
 import com.gpo.yoin.ui.experience.ReportMotionPressure
+import com.gpo.yoin.ui.experience.rememberYoinHaptics
+import com.gpo.yoin.ui.experience.voteHighFrameRate
+import com.gpo.yoin.ui.navigation.nowPlayingCoverSharedKey
+import com.gpo.yoin.ui.navigation.rememberActiveOnlySharedContentConfig
+import com.gpo.yoin.ui.nowplaying.compact.NoteCompactPane
 import com.gpo.yoin.ui.theme.ContinuousRoundedCornerShape
 import com.gpo.yoin.ui.theme.ProvideYoinMotionRole
 import com.gpo.yoin.ui.theme.YoinArtworkShapes
@@ -200,7 +202,7 @@ fun NowPlayingScreen(
     // the shell behind. 1f = inert.
     // Back-preview scale, read in the draw phase only (a gesture frame must
     // not recompose the player).
-    contentScale: () -> Float = { 1f },
+    backPreview: StageBackPreview = StageBackPreview.Rest,
     // +1 = forward skip (next / auto-advance), −1 = back — forwarded to the
     // single-column body for its directional cover ride-in.
     skipDirection: Int = 1,
@@ -223,6 +225,7 @@ fun NowPlayingScreen(
     onAddCurrentToLibrary: () -> Unit = {},
     onAddCurrentToPlaylist: () -> Unit,
     onSkipToQueueItem: (Int) -> Unit,
+    queueEditor: QueueEditActions = QueueEditActions.None,
     onCyclePlayMode: () -> Unit = {},
     onAlbumClick: (String) -> Unit = {},
     onArtistClick: (String) -> Unit = {},
@@ -403,6 +406,7 @@ fun NowPlayingScreen(
                     onAddCurrentToLibrary = onAddCurrentToLibrary,
                     onAddCurrentToPlaylist = onAddCurrentToPlaylist,
                     onSkipToQueueItem = onSkipToQueueItem,
+                    queueEditor = queueEditor,
                     onCyclePlayMode = onCyclePlayMode,
                     onAlbumClick = onAlbumClick,
                     onArtistClick = onArtistClick,
@@ -436,7 +440,7 @@ fun NowPlayingScreen(
                     onCastClick = onCastClick,
                     sharedTransitionScope = sharedTransitionScope,
                     animatedVisibilityScope = animatedVisibilityScope,
-                    contentScale = contentScale,
+                    backPreview = backPreview,
                     skipDirection = skipDirection,
                     presentation = presentation,
                     enlarged = enlarged,
@@ -650,7 +654,7 @@ private fun PlayingContent(
     // stable frame. 1f = inert.
     // Back-preview scale, read in the draw phase only (a gesture frame must
     // not recompose the player).
-    contentScale: () -> Float = { 1f },
+    backPreview: StageBackPreview = StageBackPreview.Rest,
     // +1 = forward skip (next / auto-advance), −1 = back — forwarded to the
     // single-column body for its directional cover ride-in.
     skipDirection: Int = 1,
@@ -673,6 +677,7 @@ private fun PlayingContent(
     onAddCurrentToLibrary: () -> Unit = {},
     onAddCurrentToPlaylist: () -> Unit,
     onSkipToQueueItem: (Int) -> Unit,
+    queueEditor: QueueEditActions = QueueEditActions.None,
     onCyclePlayMode: () -> Unit = {},
     onAlbumClick: (String) -> Unit = {},
     onArtistClick: (String) -> Unit = {},
@@ -758,7 +763,7 @@ private fun PlayingContent(
         NowPlayingPresentation.DualPane -> WidePlayingContent(
             state = state,
             skipDirection = skipDirection,
-            contentScale = contentScale,
+            backPreview = backPreview,
             positionMs = positionMs,
             bufferedMs = bufferedMs,
             onTogglePlayPause = onTogglePlayPause,
@@ -780,6 +785,7 @@ private fun PlayingContent(
             onAddCurrentToLibrary = onAddCurrentToLibrary,
             onAddCurrentToPlaylist = onAddCurrentToPlaylist,
             onSkipToQueueItem = onSkipToQueueItem,
+            queueEditor = queueEditor,
             onCyclePlayMode = onCyclePlayMode,
             onAlbumClick = onAlbumClick,
             onArtistClick = onArtistClick,
@@ -842,6 +848,7 @@ private fun PlayingContent(
             onAddCurrentToLibrary = onAddCurrentToLibrary,
             onAddCurrentToPlaylist = onAddCurrentToPlaylist,
             onSkipToQueueItem = onSkipToQueueItem,
+            queueEditor = queueEditor,
             onCyclePlayMode = onCyclePlayMode,
             onAlbumClick = onAlbumClick,
             onArtistClick = onArtistClick,
@@ -872,7 +879,7 @@ private fun PlayingContent(
             onSelectDevice = onSelectDevice,
             castState = castState,
             onCastClick = onCastClick,
-            contentScale = contentScale,
+            backPreview = backPreview,
             onStageBack = onStageBack,
             modifier = modifier.voteHighFrameRate(posturing),
         )
@@ -899,6 +906,7 @@ private fun PlayingContent(
             onAddCurrentToLibrary = onAddCurrentToLibrary,
             onAddCurrentToPlaylist = onAddCurrentToPlaylist,
             onSkipToQueueItem = onSkipToQueueItem,
+            queueEditor = queueEditor,
             onCyclePlayMode = onCyclePlayMode,
             onAlbumClick = onAlbumClick,
             onArtistClick = onArtistClick,
@@ -938,7 +946,7 @@ private fun PlayingContent(
             state = state,
             positionMs = positionMs,
             bufferedMs = bufferedMs,
-            contentScale = contentScale,
+            backPreview = backPreview,
             skipDirection = skipDirection,
             onTogglePlayPause = onTogglePlayPause,
             onSkipNext = onSkipNext,
@@ -959,6 +967,7 @@ private fun PlayingContent(
             onAddCurrentToLibrary = onAddCurrentToLibrary,
             onAddCurrentToPlaylist = onAddCurrentToPlaylist,
             onSkipToQueueItem = onSkipToQueueItem,
+            queueEditor = queueEditor,
             onCyclePlayMode = onCyclePlayMode,
             onAlbumClick = onAlbumClick,
             onArtistClick = onArtistClick,
@@ -1018,7 +1027,7 @@ private fun CompactPlayingContent(
     // controls, title/artist and pills stay fixed. 1f = inert.
     // Back-preview scale, read in the draw phase only (a gesture frame must
     // not recompose the player).
-    contentScale: () -> Float = { 1f },
+    backPreview: StageBackPreview = StageBackPreview.Rest,
     // +1 = forward skip (next / auto-advance), −1 = back — the cover ride-in's
     // travel direction on track change.
     skipDirection: Int = 1,
@@ -1041,6 +1050,7 @@ private fun CompactPlayingContent(
     onAddCurrentToLibrary: () -> Unit = {},
     onAddCurrentToPlaylist: () -> Unit,
     onSkipToQueueItem: (Int) -> Unit,
+    queueEditor: QueueEditActions = QueueEditActions.None,
     onCyclePlayMode: () -> Unit = {},
     onAlbumClick: (String) -> Unit = {},
     onArtistClick: (String) -> Unit = {},
@@ -1132,6 +1142,12 @@ private fun CompactPlayingContent(
     // vote High while any stage value is moving.
     val stageMoving by remember(resolvedStageProgress) {
         derivedStateOf { resolvedStageProgress.isMoving }
+    }
+    // The transport row under the expanded page is 0 dp tall and alpha 0: its
+    // wave and glide stop until the stage starts to collapse (flips only at
+    // the reshape's ends, not per frame).
+    val stageControlsLive by remember(resolvedStageProgress) {
+        derivedStateOf { resolvedStageProgress.compact > HiddenLayerVisibilityThreshold }
     }
 
     val titleStretchScale by animateFloatAsState(
@@ -1428,13 +1444,8 @@ private fun CompactPlayingContent(
             Box(
                 modifier = Modifier
                     .weight(1f)
-                    // Collapse-preview recede: ONLY the stage (cover / tabs / lyrics)
-                    // steps back; the controls, title/artist and pills below stay put.
-                    .graphicsLayer {
-                        val scale = contentScale()
-                        scaleX = scale
-                        scaleY = scale
-                    },
+                    // Collapse-preview recede of the whole stage below the top bar.
+                    .backPreviewTransform(backPreview),
             ) {
                 Column(
                     modifier = Modifier
@@ -1670,9 +1681,12 @@ private fun CompactPlayingContent(
                                     notes = notesState,
                                     immersiveProgress = if (focusKeepsList) 0f else immersiveProgress,
                                     onRetryFetchSongInfo = onRetryFetchSongInfo,
+                                    // Progress read in the layer, not captured: the
+                                    // modifier stays the same across reshape frames,
+                                    // so the hidden compact page can skip them.
                                     modifier = pageModifier.graphicsLayer {
-                                        alpha = if (lyricOneLine) 0f else compactProgress
-                                        translationY = 12.dp.toPx() * detailProgress
+                                        alpha = if (lyricOneLine) 0f else resolvedStageProgress.compact
+                                        translationY = 12.dp.toPx() * resolvedStageProgress.detail
                                     },
                                 )
                                 if (
@@ -1706,9 +1720,10 @@ private fun CompactPlayingContent(
                                             // reshape (fully visible by ~70%),
                                             // instead of a late upward slide that
                                             // read as "expand first, lyrics after".
-                                            alpha = ((detailProgress - 0.1f) / 0.6f)
+                                            val detail = resolvedStageProgress.detail
+                                            alpha = ((detail - 0.1f) / 0.6f)
                                                 .coerceIn(0f, 1f)
-                                            val sc = 0.96f + 0.04f * detailProgress
+                                            val sc = 0.96f + 0.04f * detail
                                             scaleX = sc
                                             scaleY = sc
                                             transformOrigin = TransformOrigin(0.5f, 0.5f)
@@ -1776,6 +1791,7 @@ private fun CompactPlayingContent(
                             playMode = state.playMode,
                             onCyclePlayMode = playbackActions.onCyclePlayMode,
                             controlSize = stageControlSize,
+                            live = stageControlsLive,
                             modifier = Modifier
                                 .padding(horizontal = horizontalPadding)
                                 .graphicsLayer {
@@ -1961,10 +1977,16 @@ private fun CompactPlayingContent(
             QueueSheet(
                 queue = state.queue,
                 currentIndex = state.currentQueueIndex,
+                upcoming = state.upcomingQueue,
+                activityContext = state.activityContext,
+                isPlaying = state.isPlaying,
+                edit = state.queueEdit,
+                shuffling = state.playMode.shuffle,
                 onItemClick = { index ->
                     onSkipToQueueItem(index)
                     showQueue = false
                 },
+                editor = queueEditor,
                 onDismiss = { showQueue = false },
             )
         }
@@ -2008,7 +2030,7 @@ private fun WidePlayingContent(
     // stage scale.
     // Back-preview scale, read in the draw phase only (a gesture frame must
     // not recompose the player).
-    contentScale: () -> Float = { 1f },
+    backPreview: StageBackPreview = StageBackPreview.Rest,
     // 4Hz playhead readers; invoked only by TickingPlaybackControls / lyrics leaves.
     positionMs: () -> Long,
     bufferedMs: () -> Long,
@@ -2031,6 +2053,7 @@ private fun WidePlayingContent(
     onAddCurrentToLibrary: () -> Unit = {},
     onAddCurrentToPlaylist: () -> Unit,
     onSkipToQueueItem: (Int) -> Unit,
+    queueEditor: QueueEditActions = QueueEditActions.None,
     onCyclePlayMode: () -> Unit = {},
     onAlbumClick: (String) -> Unit = {},
     onArtistClick: (String) -> Unit = {},
@@ -2236,11 +2259,7 @@ private fun WidePlayingContent(
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f)
-                    .graphicsLayer {
-                        val scale = contentScale()
-                        scaleX = scale
-                        scaleY = scale
-                    },
+                    .backPreviewTransform(backPreview),
             ) {
                 // LEFT — passive: cover + rating/favorite, transport, title/artist,
                 // with the Queue/Devices/Write pills pinned at the bottom. The
@@ -2656,10 +2675,16 @@ private fun WidePlayingContent(
             QueueSheet(
                 queue = state.queue,
                 currentIndex = state.currentQueueIndex,
+                upcoming = state.upcomingQueue,
+                activityContext = state.activityContext,
+                isPlaying = state.isPlaying,
+                edit = state.queueEdit,
+                shuffling = state.playMode.shuffle,
                 onItemClick = { index ->
                     onSkipToQueueItem(index)
                     showQueue = false
                 },
+                editor = queueEditor,
                 onDismiss = { showQueue = false },
             )
         }
@@ -2717,6 +2742,7 @@ private fun LandscapePlayingContent(
     onAddCurrentToLibrary: () -> Unit = {},
     onAddCurrentToPlaylist: () -> Unit,
     onSkipToQueueItem: (Int) -> Unit,
+    queueEditor: QueueEditActions = QueueEditActions.None,
     onCyclePlayMode: () -> Unit,
     onAlbumClick: (String) -> Unit,
     onArtistClick: (String) -> Unit,
@@ -2747,7 +2773,7 @@ private fun LandscapePlayingContent(
     onSelectDevice: (YoinDevice) -> Unit,
     castState: CastState,
     onCastClick: () -> Unit,
-    contentScale: () -> Float = { 1f },
+    backPreview: StageBackPreview = StageBackPreview.Rest,
     // The header arrow in Expanded steps the stage back, like system back.
     onStageBack: () -> Boolean = { false },
     modifier: Modifier = Modifier,
@@ -2814,11 +2840,7 @@ private fun LandscapePlayingContent(
                 modifier = Modifier
                     .width(coverSide)
                     .fillMaxHeight()
-                    .graphicsLayer {
-                        val scale = contentScale()
-                        scaleX = scale
-                        scaleY = scale
-                    },
+                    .backPreviewTransform(backPreview),
             ) {
                 AlbumCover(
                     songId = state.songId,
@@ -3220,10 +3242,16 @@ private fun LandscapePlayingContent(
             QueueSheet(
                 queue = state.queue,
                 currentIndex = state.currentQueueIndex,
+                upcoming = state.upcomingQueue,
+                activityContext = state.activityContext,
+                isPlaying = state.isPlaying,
+                edit = state.queueEdit,
+                shuffling = state.playMode.shuffle,
                 onItemClick = { index ->
                     onSkipToQueueItem(index)
                     showQueue = false
                 },
+                editor = queueEditor,
                 onDismiss = { showQueue = false },
             )
         }
@@ -3286,6 +3314,7 @@ private fun TabletopPlayingContent(
     onAddCurrentToLibrary: () -> Unit = {},
     onAddCurrentToPlaylist: () -> Unit,
     onSkipToQueueItem: (Int) -> Unit,
+    queueEditor: QueueEditActions = QueueEditActions.None,
     onCyclePlayMode: () -> Unit = {},
     onAlbumClick: (String) -> Unit = {},
     onArtistClick: (String) -> Unit = {},
@@ -3594,10 +3623,16 @@ private fun TabletopPlayingContent(
             QueueSheet(
                 queue = state.queue,
                 currentIndex = state.currentQueueIndex,
+                upcoming = state.upcomingQueue,
+                activityContext = state.activityContext,
+                isPlaying = state.isPlaying,
+                edit = state.queueEdit,
+                shuffling = state.playMode.shuffle,
                 onItemClick = { index ->
                     onSkipToQueueItem(index)
                     showQueue = false
                 },
+                editor = queueEditor,
                 onDismiss = { showQueue = false },
             )
         }
@@ -4355,6 +4390,7 @@ private fun TickingPlaybackControls(
     onExpandLyrics: (() -> Unit)? = null,
     noteAnchorsMs: List<Long> = emptyList(),
     modifier: Modifier = Modifier,
+    live: Boolean = true,
 ) {
     val position = positionMs()
     val progress = if (durationMs > 0) {
@@ -4388,6 +4424,7 @@ private fun TickingPlaybackControls(
         lyricsExpanded = lyricsExpanded,
         onExpandLyrics = onExpandLyrics,
         modifier = modifier,
+        live = live,
     )
 }
 

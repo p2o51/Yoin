@@ -2,11 +2,9 @@ package com.gpo.yoin.ui.nowplaying
 
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.PredictiveBackHandler
-import com.gpo.yoin.ui.navigation.back.OverlayPlayerVisibility
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.animation.core.Animatable
-import androidx.compose.runtime.snapshotFlow
 import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
@@ -23,9 +21,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.CloseFullscreen
-import androidx.compose.material.icons.rounded.OpenInFull
 import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButtonDefaults
@@ -36,34 +31,39 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SnackbarResult
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.unit.LayoutDirection
-import androidx.compose.ui.platform.LocalLayoutDirection
-import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import com.gpo.yoin.AppContainer
 import com.gpo.yoin.data.source.Capability
+import com.gpo.yoin.symbols.YoinSymbols
 import com.gpo.yoin.ui.component.AddToPlaylistSheet
 import com.gpo.yoin.ui.component.DevicesSheet
+import com.gpo.yoin.ui.component.QueueEditActions
 import com.gpo.yoin.ui.experience.LayoutMode
 import com.gpo.yoin.ui.experience.LocalShellChromeInsets
 import com.gpo.yoin.ui.experience.LocalYoinWindowInfo
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
+import com.gpo.yoin.ui.navigation.back.OverlayPlayerVisibility
 import com.gpo.yoin.ui.theme.ProvideYoinMotionRole
 import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinMotionRole
@@ -173,7 +173,10 @@ fun NowPlayingOverlayHost(
     // uniform SCALE-down preview (below) instead of scrubbing a layout
     // reshape — a partial reshape freezes a half-built, truncated stage; a
     // uniform scale of the complete layout cannot.
-    var stageBackProgress by remember { mutableStateOf(0f) }
+    // The stage's back preview pose: snapped from the finger on every back
+    // event, sprung home only on release (StageBackPreview).
+    val stageBack = remember { StageBackPreview() }
+    val stageBackScope = rememberCoroutineScope()
     val stageProgress = rememberNowPlayingStageProgress(initialMode = stageMode)
     val dragResetSpec = YoinMotion.defaultSpatialSpec<Float>(role = YoinMotionRole.Standard)
     // A fresh open starts as the panel. (The Full flag is also reset once a
@@ -200,17 +203,12 @@ fun NowPlayingOverlayHost(
         animationSpec = YoinMotion.defaultSpatialSpec(role = YoinMotionRole.Standard),
         label = "overlayOffsetPx",
     )
-    // Collapse PREVIEW scale: 1f → ~0.90f (the platform's ~90% min
-    // back-scale) as the gesture progresses; animated so the release settles
-    // smoothly back to 1f instead of snapping. Inert (1f) when not gesturing.
-    // Followed on the frame clock, not in composition: a back-gesture frame
-    // then re-runs neither this host nor the player (the scale is read in
-    // the player's draw phase). Same chase spring, one settle owner.
-    val stageBackScale = remember { Animatable(1f) }
+    // The release spring that takes the preview home (commit or cancel). The
+    // gesture itself snaps — the old chase (a spring restarted on every back
+    // event) kept the stage trailing the finger: "不跟手" (owner, 2026-10-07).
     val stageBackSpec = YoinMotion.defaultSpatialSpec<Float>(role = YoinMotionRole.Standard)
-    LaunchedEffect(stageBackScale) {
-        snapshotFlow { 1f - 0.10f * stageBackProgress }
-            .collectLatest { target -> stageBackScale.animateTo(target, stageBackSpec) }
+    fun releaseStageBack() {
+        stageBackScope.launch { stageBack.progress.animateTo(0f, stageBackSpec) }
     }
 
     // isGestureDriving is a KEY, not just an early-return guard: when a gesture
@@ -251,7 +249,7 @@ fun NowPlayingOverlayHost(
     val closeNowPlaying = {
         dismissDragPx = 0f
         predictiveBackProgress = 0f
-        stageBackProgress = 0f
+        stageBackScope.launch { stageBack.progress.snapTo(0f) }
         viewModel.setStageMode(NowPlayingStageMode.Compact)
         onExpandedChange(false)
     }
@@ -286,10 +284,14 @@ fun NowPlayingOverlayHost(
     PredictiveBackHandler(enabled = stageBackLevel) { progress ->
         stageProgress.beginGesture()
         try {
+            var startY = Float.NaN
             progress.collect { event ->
-                val eased = YoinMotion.backGestureEasing.transform(event.progress)
-                // Peek the whole stage; detail is NOT scrubbed (stays 1).
-                stageBackProgress = eased
+                // Peek the whole stage; detail is NOT scrubbed (stays 1). The
+                // pose follows the finger directly (snap), AOSP-style.
+                if (startY.isNaN()) startY = event.touchY
+                stageBack.swipeEdge = event.swipeEdge
+                stageBack.touchYDelta = event.touchY - startY
+                stageBack.progress.snapTo(YoinMotion.backGestureEasing.transform(event.progress))
             }
             // COMMIT: run the real reshape (detail 1→0) via the reconcile; the
             // scale springs back to 1 (below) as the stage un-scales into Compact.
@@ -298,7 +300,7 @@ fun NowPlayingOverlayHost(
             throw e
         } finally {
             stageProgress.endGesture()
-            stageBackProgress = 0f
+            releaseStageBack()
         }
     }
 
@@ -307,14 +309,18 @@ fun NowPlayingOverlayHost(
     // on commit, on its own spring.
     PredictiveBackHandler(enabled = fullscreenBackLevel) { progress ->
         try {
+            var startY = Float.NaN
             progress.collect { event ->
-                stageBackProgress = YoinMotion.backGestureEasing.transform(event.progress)
+                if (startY.isNaN()) startY = event.touchY
+                stageBack.swipeEdge = event.swipeEdge
+                stageBack.touchYDelta = event.touchY - startY
+                stageBack.progress.snapTo(YoinMotion.backGestureEasing.transform(event.progress))
             }
             viewModel.setMediumFullscreen(false)
         } catch (e: CancellationException) {
             throw e
         } finally {
-            stageBackProgress = 0f
+            releaseStageBack()
         }
     }
 
@@ -558,6 +564,13 @@ fun NowPlayingOverlayHost(
                     onAddCurrentToLibrary = viewModel::addCurrentToLibrary,
                     onAddCurrentToPlaylist = viewModel::requestAddCurrentToPlaylist,
                     onSkipToQueueItem = viewModel::skipToQueueItem,
+                    queueEditor = remember(viewModel) {
+                        QueueEditActions(
+                            onMove = viewModel::moveQueueItem,
+                            onRemove = viewModel::removeQueueItem,
+                            onClearQueued = viewModel::clearUserQueue,
+                        )
+                    },
                     onCyclePlayMode = viewModel::cyclePlayMode,
                     onAlbumClick = onAlbumClick,
                     onArtistClick = onArtistClick,
@@ -602,7 +615,7 @@ fun NowPlayingOverlayHost(
                     // Collapse PREVIEW recedes the CONTENT (inside NowPlayingScreen,
                     // over the full-screen aurora) — NOT the whole overlay, which
                     // would reveal the host behind and read as the app shrinking.
-                    contentScale = { stageBackScale.value },
+                    backPreview = stageBack,
                     skipDirection = skipDirection,
                     presentation = bodyPresentation,
                     // Built only where it is used (the enlarged phone): on Wide
@@ -685,7 +698,7 @@ private fun PanelToggleButton(
         ),
     ) {
         Icon(
-            imageVector = if (fullscreen) Icons.Rounded.CloseFullscreen else Icons.Rounded.OpenInFull,
+            imageVector = if (fullscreen) YoinSymbols.CloseFullscreen else YoinSymbols.OpenInFull,
             contentDescription = if (fullscreen) "Back to side panel" else "Full screen",
             modifier = Modifier.size(20.dp),
         )

@@ -5,7 +5,7 @@ import androidx.activity.compose.PredictiveBackHandler
 import androidx.compose.animation.core.Animatable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.derivedStateOf
@@ -15,11 +15,13 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import com.gpo.yoin.YoinApplication
+import com.gpo.yoin.ui.experience.CoveredWindowAnimationGate
 import com.gpo.yoin.ui.experience.DetailBackPhase
 import com.gpo.yoin.ui.experience.voteHighFrameRate
 import com.gpo.yoin.ui.navigation.back.BackMotionTokens
@@ -190,6 +192,11 @@ fun rememberDetailBackCollapse(
     // The shell's detail column owns its own back (DetailPaneHost); a page
     // composed there must not register a consuming handler.
     val paneHosted = LocalDetailHostMode.current == DetailHostMode.Pane
+    // The window this page's back reveals (stamped at launch), whose frozen
+    // animations must restart before any of it is seen.
+    val beneathWindow = remember(context) {
+        context.findActivityOrNull()?.intent?.detailBeneathWindowKey() ?: CoveredWindowAnimationGate.AnyWindow
+    }
 
     // Keep the detail window translucent for its whole lifetime. Converting it
     // to opaque lets WM stop and discard the shell surface underneath. On the
@@ -206,6 +213,7 @@ fun rememberDetailBackCollapse(
         operationGuard.markCommitted()
         state.committed = true
         state.gestureActive = false
+        store.windowBeneathRevealed.value = beneathWindow
         if (bridgeToShell) {
             store.detailBackPhase.value = DetailBackPhase.Committed
             store.setDetailChromeActive(false)
@@ -241,6 +249,12 @@ fun rememberDetailBackCollapse(
         }
     }
 
+    // The detail is gone (finished, or recreated): it reveals nothing any more. Only its own reveal is cleared —
+    // the page beneath may already be revealing the next window down.
+    DisposableEffect(store, beneathWindow) {
+        onDispose { store.windowBeneathRevealed.compareAndSet(beneathWindow, null) }
+    }
+
     PredictiveBackHandler(enabled = !paneHosted) { events ->
         if (state.committed) {
             events.collect { }
@@ -259,6 +273,7 @@ fun rememberDetailBackCollapse(
                 if (!sawGesture) {
                     sawGesture = true
                     state.gestureActive = true
+                    store.windowBeneathRevealed.value = beneathWindow
                     if (bridgeToShell) store.detailBackPhase.value = DetailBackPhase.Gesture
                 }
                 if (initialTouchY.isNaN()) initialTouchY = event.touchY
@@ -298,6 +313,7 @@ fun rememberDetailBackCollapse(
                                 }
                             },
                             onSettled = {
+                                store.windowBeneathRevealed.compareAndSet(beneathWindow, null)
                                 state.touchYDelta = 0f
                                 if (bridgeToShell) store.detailBackTouchYDelta.floatValue = 0f
                                 state.gestureActive = false

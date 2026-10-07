@@ -4,9 +4,13 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.State
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.snapshotFlow
 import com.gpo.yoin.AppContainer
 import com.gpo.yoin.player.PlaybackState
+import com.gpo.yoin.ui.experience.LocalWindowCovered
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.map
 
 /**
@@ -74,9 +78,32 @@ fun rememberDetailMiniPlayerProgress(container: AppContainer): State<Float> {
     val seed = remember(container) {
         container.playbackManager.playbackState.value.toPlaybackProgress()
     }
-    return remember(container) {
+    // Held while another detail window covers this one (no one sees the
+    // pill): the 4 Hz tick would redraw the frozen window, stalling the main
+    // thread the visible window shares. Catches up on the first uncovered frame.
+    val covered = LocalWindowCovered.current
+    return remember(container, covered) {
         container.playbackManager.playbackState
             .map { state -> state.toPlaybackProgress() }
+            .distinctUntilChanged()
+            .combine(snapshotFlow { covered.value }) { progress, isCovered -> progress to isCovered }
+            .filter { (_, isCovered) -> !isCovered }
+            .map { (progress, _) -> progress }
+            .distinctUntilChanged()
+    }.collectAsState(initial = seed)
+}
+
+/**
+ * Whether playback is playing, for a detail Activity's root — which reads nothing else of the playback state, so
+ * it no longer recomposes on every 4 Hz position tick. Seeded from the live value: a `false` first frame would
+ * start the page background in its paused branch.
+ */
+@Composable
+fun rememberDetailIsPlaying(container: AppContainer): State<Boolean> {
+    val seed = remember(container) { container.playbackManager.playbackState.value.isPlaying }
+    return remember(container) {
+        container.playbackManager.playbackState
+            .map { state -> state.isPlaying }
             .distinctUntilChanged()
     }.collectAsState(initial = seed)
 }

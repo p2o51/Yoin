@@ -4,6 +4,8 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
+import com.gpo.yoin.ui.experience.CoveredWindowAnimationGate
+import com.gpo.yoin.ui.experience.installCoveredWindowAnimationGate
 import com.gpo.yoin.ui.navigation.YoinNavHost
 
 /**
@@ -28,6 +30,8 @@ class MainActivity : ComponentActivity() {
         installSplashScreen()
         super.onCreate(savedInstanceState)
         enableYoinEdgeToEdge()
+        // A detail Activity covers the shell but keeps it alive (translucent): freeze its animations meanwhile.
+        installCoveredWindowAnimationGate(CoveredWindowAnimationGate.ShellWindowKey)
         setContent {
             YoinActivityRoot {
                 YoinNavHost()

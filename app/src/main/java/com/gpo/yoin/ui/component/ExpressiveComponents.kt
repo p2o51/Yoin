@@ -1,10 +1,6 @@
 package com.gpo.yoin.ui.component
 
 import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -14,8 +10,8 @@ import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
-import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
@@ -36,20 +32,19 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
-import androidx.compose.ui.graphics.lerp
-import kotlin.math.PI
-import kotlin.math.sin
-import kotlinx.coroutines.isActive
+import androidx.compose.runtime.withFrameMillis
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalInspectionMode
@@ -60,13 +55,20 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.gpo.yoin.R
 import com.gpo.yoin.ui.theme.GoogleSansFlex
+import com.gpo.yoin.ui.theme.YoinContainerShapes
 import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinShapeTokens
-import com.gpo.yoin.ui.theme.YoinContainerShapes
+import kotlin.math.PI
+import kotlin.math.sin
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 
 // One full cycle of the playing-state wash — intentionally slow so the page
 // feels alive without competing with cover art or scrolling content.
 private const val ExpressivePageBackgroundDriftMillis = 75_000
+
+// The drift's step: one 0.5 s step moves the wobble by under a quarter of an 8-bit level.
+private const val ExpressivePageBackgroundDriftTickMillis = 500L
 
 /**
  * Pages that share a window with another column (the Wide shell's detail
@@ -102,29 +104,27 @@ internal fun ExpressivePageBackground(
         label = "pageBackgroundTop",
     )
 
-    val drift = remember { Animatable(0f) }
+    // The drift moves the wash by well under one 8-bit level per second, so it
+    // steps every [ExpressivePageBackgroundDriftTickMillis] instead of every
+    // vsync (a per-frame Animatable recomposed this whole background at the
+    // panel's full rate for as long as music played). Each step waits for a
+    // frame, so it rests with the window's frame clock (stopped, or covered
+    // by another Yoin window), and a long rest never jumps the phase. Paused,
+    // the wobble is off (below) and the phase simply holds.
+    var drift by remember { mutableFloatStateOf(0f) }
     LaunchedEffect(isPlaying) {
-        if (isPlaying) {
-            while (isActive) {
-                drift.animateTo(
-                    targetValue = 1f,
-                    animationSpec = tween(
-                        durationMillis = ExpressivePageBackgroundDriftMillis,
-                        easing = LinearEasing,
-                    ),
-                )
-                drift.snapTo(0f)
-            }
-        } else {
-            drift.stop()
-            drift.animateTo(
-                targetValue = 0f,
-                animationSpec = tween(durationMillis = 900, easing = FastOutSlowInEasing),
-            )
+        if (!isPlaying) return@LaunchedEffect
+        var last = withFrameMillis { it }
+        while (isActive) {
+            delay(ExpressivePageBackgroundDriftTickMillis)
+            val now = withFrameMillis { it }
+            val elapsed = (now - last).coerceAtMost(ExpressivePageBackgroundDriftTickMillis * 2)
+            last = now
+            drift = (drift + elapsed.toFloat() / ExpressivePageBackgroundDriftMillis) % 1f
         }
     }
 
-    val phase = drift.value
+    val phase = drift
     val playingWobble = if (isPlaying) {
         val wave = sin(phase * 2f * PI.toFloat()) * 0.5f + 0.5f
         wave * 0.08f + playbackSignal.coerceIn(0f, 1f) * 0.03f

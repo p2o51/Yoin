@@ -90,6 +90,8 @@ internal fun PlaybackControls(
     onExpandLyrics: (() -> Unit)? = null,
     noteAnchorsMs: List<Long> = emptyList(),
     modifier: Modifier = Modifier,
+    // False while the row is hidden (see WaveProgressBar's `animating`).
+    live: Boolean = true,
 ) {
     ProvideYoinMotionRole(role = YoinMotionRole.Standard) {
         val haptics = rememberYoinHaptics()
@@ -409,6 +411,7 @@ internal fun PlaybackControls(
                             onSeek = onSeek,
                             isPlaying = isPlaying,
                             noteAnchorsMs = noteAnchorsMs,
+                            animating = live,
                             modifier = Modifier.weight(1f),
                         )
                         if (labelsInline) {

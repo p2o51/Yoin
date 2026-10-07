@@ -46,11 +46,13 @@ import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
@@ -99,8 +101,9 @@ import com.gpo.yoin.ui.experience.DetailBackPhase
 import com.gpo.yoin.ui.experience.EdgeSplitSide
 import com.gpo.yoin.ui.experience.HomeSurface
 import com.gpo.yoin.ui.experience.LayoutMode
-import com.gpo.yoin.ui.experience.LocalShellChromeInsets
 import com.gpo.yoin.ui.experience.LocalPaneWidthInMotion
+import com.gpo.yoin.ui.experience.LocalShellChromeInsets
+import com.gpo.yoin.ui.experience.LocalWindowCovered
 import com.gpo.yoin.ui.experience.LocalYoinWindowInfo
 import com.gpo.yoin.ui.experience.ShellChromeForm
 import com.gpo.yoin.ui.experience.hasChromeHandoff
@@ -150,8 +153,8 @@ import com.gpo.yoin.ui.nowplaying.NowPlayingScreen
 import com.gpo.yoin.ui.nowplaying.NowPlayingStageMode
 import com.gpo.yoin.ui.nowplaying.NowPlayingViewModel
 import com.gpo.yoin.ui.nowplaying.besideNowPlayingPanel
-import com.gpo.yoin.ui.nowplaying.nowPlayingCoversHome
 import com.gpo.yoin.ui.nowplaying.canOpenNowPlayingPanel
+import com.gpo.yoin.ui.nowplaying.nowPlayingCoversHome
 import com.gpo.yoin.ui.nowplaying.rememberNowPlayingFrame
 import com.gpo.yoin.ui.nowplaying.rememberNowPlayingPanelInset
 import com.gpo.yoin.ui.nowplaying.rememberNowPlayingPanelMotion
@@ -165,8 +168,10 @@ import kotlin.math.roundToInt
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
@@ -365,7 +370,15 @@ private fun YoinShell(
     // to collect at the shell level without recomposing at ~30Hz.
     // The full VisualizerData stream stays out of composition entirely — the
     // Now Playing overlay only derives a Boolean spectrum-presence from it.
-    val playbackSignal by app.container.audioVisualizerManager.playbackSignal.collectAsState()
+    // Held while a detail window covers the shell (nothing of Home is seen).
+    val shellCovered = LocalWindowCovered.current
+    val playbackSignal by remember(app, shellCovered) {
+        app.container.audioVisualizerManager.playbackSignal
+            .combine(snapshotFlow { shellCovered.value }) { signal, covered -> signal to covered }
+            .filter { (_, covered) -> !covered }
+            .map { (signal, _) -> signal }
+            .distinctUntilChanged()
+    }.collectAsState(initial = app.container.audioVisualizerManager.playbackSignal.value)
     val windowInfo = LocalYoinWindowInfo.current
     // One Button Group, three forms (断点交接 §1): portrait bar, edge-split
     // capsules for short windows, centred capped bar from Medium up. The old
@@ -1121,6 +1134,10 @@ private fun YoinShell(
                             modifier = Modifier
                                 .weight(1f)
                                 .fillMaxHeight()
+                                // A page leaving the column (a push's 96dp
+                                // recede) never draws over the gutter or the
+                                // shell column (owner 2026-10-05, Fold).
+                                .clipToBounds()
                                 .detailPaneClosePreview(paneState),
                         ) {
                             // The page builds once the column has landed (see
@@ -1147,6 +1164,7 @@ private fun YoinShell(
                                     registry = paneRegistry,
                                     onPopEntry = { popPaneEntry() },
                                     onPush = pushPane,
+                                    onAddToPlaylist = nowPlayingViewModel::requestAddTracksToPlaylist,
                                     onMessage = { message ->
                                         shellScope.launch {
                                             snackbarHostState.showSnackbar(message, duration = SnackbarDuration.Short)
@@ -1262,7 +1280,12 @@ private fun YoinShell(
                 // 4Hz position tick. Derive it inside this chrome subtree so
                 // ticks recompose just this block — and stop entirely while Now
                 // Playing is open (this AnimatedVisibility content is disposed).
-                val playbackProgress by remember(playbackManager) {
+                // Held while a detail window covers the shell: the tick would
+                // otherwise redraw the frozen shell 4 times a second, each draw
+                // stalling the main thread the visible window shares on the
+                // busy RenderThread. Catches up on the first uncovered frame.
+                val windowCovered = LocalWindowCovered.current
+                val playbackProgress by remember(playbackManager, windowCovered) {
                     playbackManager.playbackState
                         .map { state ->
                             if (state.duration > 0L) {
@@ -1271,6 +1294,10 @@ private fun YoinShell(
                                 0f
                             }
                         }
+                        .distinctUntilChanged()
+                        .combine(snapshotFlow { windowCovered.value }) { progress, covered -> progress to covered }
+                        .filter { (_, covered) -> !covered }
+                        .map { (progress, _) -> progress }
                         .distinctUntilChanged()
                 }.collectAsState(
                     // Seed from the live state, not 0f: this subtree remounts every

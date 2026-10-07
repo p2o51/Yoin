@@ -1,10 +1,9 @@
 package com.gpo.yoin.ui.component
 
 import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.togetherWith
-import com.gpo.yoin.ui.theme.YoinMotionRole
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
@@ -35,9 +34,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.gpo.yoin.ui.experience.LocalWindowCovered
 import com.gpo.yoin.ui.nowplaying.LyricLine
 import com.gpo.yoin.ui.theme.GoogleSansFlexRounded
 import com.gpo.yoin.ui.theme.YoinMotion
+import com.gpo.yoin.ui.theme.YoinMotionRole
 import com.gpo.yoin.ui.theme.YoinTheme
 import kotlin.math.abs
 import kotlinx.coroutines.flow.filter
@@ -173,6 +174,7 @@ private fun LyricsDisplayContent(
     // old coroutine running with the OLD list and OLD hasCentered captured —
     // the new song then never gets its instant first centring and the next
     // line advance snaps instead of gliding.
+    val windowCovered = LocalWindowCovered.current
     LaunchedEffect(lyrics, currentIndex, listState) {
         if (currentIndex < 0) return@LaunchedEffect
         val target = currentIndex.coerceIn(0, lyrics.lastIndex)
@@ -190,7 +192,9 @@ private fun LyricsDisplayContent(
                         hasCentered = true
                     }
                     // First reaction to this line advance: glide.
-                    firstAnchor -> listState.animateScrollToItem(index = target, scrollOffset = offsetPx)
+                    // (Covered by a Yoin window, its clock frozen: land it at once instead.)
+                    firstAnchor && !windowCovered.value ->
+                        listState.animateScrollToItem(index = target, scrollOffset = offsetPx)
                     // Later frames while the box is mid-resize: snap so the active
                     // line tracks the changing viewport instead of lagging behind.
                     else -> listState.scrollToItem(index = target, scrollOffset = offsetPx)

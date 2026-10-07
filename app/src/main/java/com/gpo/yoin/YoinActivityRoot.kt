@@ -22,9 +22,12 @@ import com.gpo.yoin.symbols.LocalSymbolMotion
 import com.gpo.yoin.symbols.SymbolMotion
 import com.gpo.yoin.ui.component.LocalPlaybackWaveState
 import com.gpo.yoin.ui.component.ProvideSeamBarField
+import com.gpo.yoin.ui.detail.findActivityOrNull
+import com.gpo.yoin.ui.experience.CoveredWindowAnimationGate
 import com.gpo.yoin.ui.experience.LocalMotionCapabilityProvider
 import com.gpo.yoin.ui.experience.LocalMotionProfile
 import com.gpo.yoin.ui.experience.LocalShellChromeInsets
+import com.gpo.yoin.ui.experience.LocalWindowCovered
 import com.gpo.yoin.ui.experience.LocalYoinWindowInfo
 import com.gpo.yoin.ui.experience.MotionCapabilityProvider
 import com.gpo.yoin.ui.experience.MotionProfile
@@ -127,7 +130,11 @@ private fun YoinAppEnvironment(content: @Composable () -> Unit) {
     val symbolMotion =
         if (motionProfile == MotionProfile.AdaptiveReduced) SymbolMotion.Reduced else SymbolMotion.Default
 
+    val activity = LocalContext.current.findActivityOrNull()
+    val windowCovered = remember(activity) { CoveredWindowAnimationGate.coveredState(activity) }
+
     CompositionLocalProvider(
+        LocalWindowCovered provides windowCovered,
         LocalPlaybackWaveState provides app?.container?.experienceSessionStore?.playbackWave,
         LocalMotionCapabilityProvider provides motionCapabilityProvider,
         LocalMotionProfile provides motionProfile,
