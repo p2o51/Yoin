@@ -63,6 +63,7 @@ import com.gpo.yoin.data.model.YoinDevice
 import com.gpo.yoin.data.remote.GeminiService
 import com.gpo.yoin.data.source.Capability
 import com.gpo.yoin.data.source.MusicSource
+import com.gpo.yoin.data.source.WebLinkKind
 import com.gpo.yoin.data.source.spotify.SpotifyLibrarySyncCoordinator
 import com.gpo.yoin.data.source.spotify.SpotifyMusicSource
 import com.gpo.yoin.data.source.spotify.SpotifyPlayHistoryObject
@@ -817,6 +818,20 @@ class YoinRepository(
         }
     }
 
+    /** The provider's own recently played albums (see MusicLibrary.getRecentlyPlayedAlbums). */
+    suspend fun getRecentlyPlayedAlbums(size: Int): List<Album> =
+        requireSource().library().getRecentlyPlayedAlbums(size)
+
+    /** A public link to [id] for Share / "Open in …" (see MusicMetadata.webUrl); null without one. */
+    suspend fun webUrl(kind: WebLinkKind, id: MediaId): String? =
+        try {
+            requireSource().metadata().webUrl(kind, id)
+        } catch (cancellation: CancellationException) {
+            throw cancellation
+        } catch (_: Exception) {
+            null
+        }
+
     // ── Playlists ──────────────────────────────────────────────────────
 
     suspend fun getPlaylists(): List<Playlist> {
@@ -1403,6 +1418,12 @@ class YoinRepository(
             review = normalized,
             reviewNeedsSync = true,
             updatedAt = clock(),
+            // The written date moves only when the words do; cleared = no date.
+            reviewUpdatedAt = when {
+                normalized == null -> null
+                normalized == existing?.review -> existing.reviewUpdatedAt ?: clock()
+                else -> clock()
+            },
         )
         albumRatingDao.upsert(entry)
     }

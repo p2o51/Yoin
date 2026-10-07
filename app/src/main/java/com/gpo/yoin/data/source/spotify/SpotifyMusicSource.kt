@@ -16,6 +16,7 @@ import com.gpo.yoin.data.profile.ProfileCredentials
 import com.gpo.yoin.data.source.Capability
 import com.gpo.yoin.data.source.MusicLibrary
 import com.gpo.yoin.data.source.MusicMetadata
+import com.gpo.yoin.data.source.WebLinkKind
 import com.gpo.yoin.data.source.MusicPlayback
 import com.gpo.yoin.data.source.MusicSource
 import com.gpo.yoin.data.source.MusicWriteActions
@@ -71,6 +72,15 @@ class SpotifyMusicSource(
         override suspend fun ping(): Boolean {
             apiClient.getMe()
             return true
+        }
+
+        // recently-played tracks' albums, newest first, once each.
+        override suspend fun getRecentlyPlayedAlbums(size: Int): List<Album> {
+            val savedAlbumIds = savedAlbumIds()
+            return apiClient.getRecentlyPlayed(limit = 50)
+                .mapNotNull { play -> play.track?.album?.toAlbum(savedAlbumIds = savedAlbumIds) }
+                .distinctBy { it.id }
+                .take(size.coerceAtLeast(0))
         }
 
         override suspend fun getAlbumList(type: String, size: Int, offset: Int): List<Album> {
@@ -190,6 +200,10 @@ class SpotifyMusicSource(
 
     private val metadata = object : MusicMetadata {
         override suspend fun getLyrics(trackId: MediaId): Lyrics? = null
+
+        override suspend fun webUrl(kind: WebLinkKind, id: MediaId): String? =
+            id.takeIf { it.provider == MediaId.PROVIDER_SPOTIFY && it.rawId.isNotBlank() }
+                ?.let { "https://open.spotify.com/${kind.path}/${it.rawId}" }
     }
 
     private val writeActions = object : MusicWriteActions {
@@ -315,15 +329,39 @@ class SpotifyMusicSource(
      * UI shows "playing from <album>" / "playing from <playlist>" and
      * recommendations get the right signal.
      *
-     * [contextUri] must be a `spotify:album:...` / `spotify:playlist:...` /
-     * `spotify:artist:...`. [offsetPosition] is the zero-based index into the
-     * context where playback should start. Throws [SpotifyAuthException] —
-     * callers should fall back to App Remote's bare-URI path on failure
-     * (typically 404 NO_ACTIVE_DEVICE on a cold Spotify app).
+     * [contextUri] is a `spotify:album:...` / `spotify:playlist:...` /
+     * Liked Songs collection URI; without one, [uris] is played as a
+     * temporary context (nothing goes into the user's queue). The start
+     * track is [offsetUri] when known, else the zero-based [offsetPosition].
+     * Throws [SpotifyAuthException] — callers should fall back to App
+     * Remote's bare-URI path on failure (typically 404 NO_ACTIVE_DEVICE on a
+     * cold Spotify app).
      */
-    suspend fun startContextPlayback(contextUri: String, offsetPosition: Int?) {
-        apiClient.startPlayback(contextUri = contextUri, offsetPosition = offsetPosition)
+    suspend fun startPlayback(
+        contextUri: String? = null,
+        uris: List<String>? = null,
+        offsetPosition: Int? = null,
+        offsetUri: String? = null,
+        deviceId: String? = null,
+    ) {
+        apiClient.startPlayback(
+            contextUri = contextUri,
+            uris = uris,
+            offsetPosition = offsetPosition,
+            offsetUri = offsetUri,
+            deviceId = deviceId,
+        )
     }
+
+    /**
+     * This phone's Spotify Connect device id, found by name among the
+     * account's devices ([localNames]: the user-set device name, the model).
+     * Without it the Web API plays on whichever device is ACTIVE — on device
+     * QA a tap in Yoin started the song on the owner's other phone.
+     */
+    suspend fun localDeviceId(localNames: List<String>): String? =
+        pickLocalSpotifyDevice(apiClient.listDevices(), localNames)?.id
+
 
     suspend fun listDevices(): List<SpotifyDevice> = apiClient.listDevices()
 
@@ -482,4 +520,11 @@ class SpotifyMusicSource(
             .readTimeout(15, TimeUnit.SECONDS)
             .build()
     }
+}
+
+/** The device in [devices] named like this phone; with several, the active one wins. */
+internal fun pickLocalSpotifyDevice(devices: List<SpotifyDevice>, localNames: List<String>): SpotifyDevice? {
+    val names = localNames.map(String::trim).filter(String::isNotEmpty)
+    val named = devices.filter { device -> device.id != null && names.any { it.equals(device.name.trim(), ignoreCase = true) } }
+    return named.firstOrNull(SpotifyDevice::isActive) ?: named.firstOrNull()
 }

@@ -93,10 +93,35 @@ interface MusicLibrary {
 
     suspend fun getLibrarySongs(size: Int = 100, offset: Int = 0): List<Track> =
         throw UnsupportedOperationException("Library song browsing is unavailable")
+
+    /**
+     * Albums the account played lately, newest first, from the provider's own
+     * history — not Yoin's local log, so a new device still has them (owner F2,
+     * 2026-10-05). Subsonic: the server's play counts; Spotify: recently-played
+     * tracks' albums; Apple Music: recent/played.
+     */
+    suspend fun getRecentlyPlayedAlbums(size: Int = 20): List<Album> =
+        throw UnsupportedOperationException("Recently played is unavailable")
 }
 
 interface MusicMetadata {
     suspend fun getLyrics(trackId: MediaId): Lyrics?
+
+    /**
+     * A public web link to [id] (an album, artist, playlist or track) for
+     * Share and "Open in …" — the provider's own app opens it where one is
+     * installed. Null where there is none: a self-hosted server, or an item
+     * that lives only in the user's library.
+     */
+    suspend fun webUrl(kind: WebLinkKind, id: MediaId): String? = null
+}
+
+/** What a [MusicMetadata.webUrl] points at; [path] is the URL segment both Spotify and Apple Music use. */
+enum class WebLinkKind(val path: String) {
+    Album("album"),
+    Artist("artist"),
+    Playlist("playlist"),
+    Track("track"),
 }
 
 interface MusicWriteActions {

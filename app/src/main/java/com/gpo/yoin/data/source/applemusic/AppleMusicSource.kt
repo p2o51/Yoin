@@ -26,6 +26,7 @@ import com.gpo.yoin.data.source.MusicMetadata
 import com.gpo.yoin.data.source.MusicPlayback
 import com.gpo.yoin.data.source.MusicSource
 import com.gpo.yoin.data.source.MusicWriteActions
+import com.gpo.yoin.data.source.WebLinkKind
 import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
@@ -100,6 +101,21 @@ class AppleMusicSource(
             check(next == null || visited.add(next)) { "Apple Music repeated a pagination link" }
         } while (next != null)
         return result
+    }
+
+    /** recent/played mixes albums, playlists and stations, 10 a page: keep the albums. */
+    override suspend fun getRecentlyPlayedAlbums(size: Int): List<Album> {
+        if (size <= 0) return emptyList()
+        val albums = mutableListOf<Album>()
+        val visited = mutableSetOf<String>()
+        var next: String? = null
+        do {
+            val response = page(listOf("v1", "me", "recent", "played"), mapOf("limit" to "10"), next)
+            albums += response.resources().filter { it.text("type") in setOf("albums", "library-albums") }.map(::album)
+            next = response.text("next")
+            check(next == null || visited.add(next)) { "Apple Music repeated a pagination link" }
+        } while (next != null && albums.size < size && visited.size < RecentPlayedMaxPages)
+        return albums.distinctBy { it.id }.take(size)
     }
 
     override suspend fun getAlbumList(type: String, size: Int, offset: Int): List<Album> {
@@ -343,6 +359,17 @@ class AppleMusicSource(
     override suspend fun getStarred() = Starred()
     override suspend fun getRandomSongs(size: Int) = emptyList<Track>()
     override suspend fun getLyrics(trackId: MediaId): Lyrics? = null
+
+    // Catalog ids only (digits; "pl." for curated playlists): a library id
+    // ("l.", "i.", "p.") has no public page.
+    override suspend fun webUrl(kind: WebLinkKind, id: MediaId): String? {
+        if (id.provider != MediaId.PROVIDER_APPLE_MUSIC) return null
+        val rawId = id.rawId
+        val catalog = rawId.all(Char::isDigit) || (kind == WebLinkKind.Playlist && rawId.startsWith("pl."))
+        if (rawId.isBlank() || !catalog) return null
+        val shop = runCatching { storefront() }.getOrNull() ?: return null
+        return "https://music.apple.com/$shop/${kind.path}/$rawId"
+    }
     private fun <T> unsupported(): Result<T> = Result.failure(
         UnsupportedOperationException("Manage this in Apple Music.")
     )
@@ -419,3 +446,6 @@ class AppleMusicSource(
         }
     }
 }
+
+/** recent/played pages (10 each) read at most: Apple keeps only a short history anyway. */
+private const val RecentPlayedMaxPages = 5

@@ -59,6 +59,10 @@ class SubsonicMusicSource(
         override suspend fun getAlbum(id: MediaId): Album? =
             unwrap(api.getAlbum(id.requireSubsonic())).album?.toAlbum()
 
+        // The server's own "recently played" list (getAlbumList2 type=recent).
+        override suspend fun getRecentlyPlayedAlbums(size: Int): List<Album> =
+            getAlbumList(type = "recent", size = size, offset = 0)
+
         override suspend fun getArtists(): List<ArtistIndex> =
             unwrap(api.getArtists()).artists?.index.orEmpty().map { it.toArtistIndex() }
 

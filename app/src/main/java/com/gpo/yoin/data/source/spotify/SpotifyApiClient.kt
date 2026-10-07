@@ -380,29 +380,20 @@ class SpotifyApiClient(
      * back to the App Remote `play(uri) + queue(uri)` path.
      */
     suspend fun startPlayback(
-        contextUri: String,
+        contextUri: String? = null,
+        uris: List<String>? = null,
         offsetPosition: Int? = null,
+        offsetUri: String? = null,
         deviceId: String? = null,
     ) = withContext(Dispatchers.IO) {
         val url = apiUrl("v1", "me", "player", "play")
             .newBuilder()
             .apply { if (deviceId != null) addQueryParameter("device_id", deviceId) }
             .build()
-
-        // Hand-rolled JSON keeps us off a dedicated serializer — the shape is
-        // tiny and stable.
-        val body = buildString {
-            append('{')
-            append("\"context_uri\":\"").append(contextUri).append('"')
-            if (offsetPosition != null) {
-                append(",\"offset\":{\"position\":").append(offsetPosition).append('}')
-            }
-            append('}')
-        }
         executeWithJsonBodyIgnoringResponse(
             method = "PUT",
             url = url,
-            jsonBody = body,
+            jsonBody = startPlaybackBody(contextUri, uris, offsetPosition, offsetUri),
         )
     }
 
@@ -663,5 +654,43 @@ class SpotifyApiClient(
             isLenient = true
             coerceInputValues = true
         }
+    }
+}
+
+/**
+ * Body of `PUT /me/player/play`. Either a [contextUri] (album / playlist /
+ * the user's Liked Songs collection) or a plain [uris] list (Spotify plays
+ * it as a temporary context — nothing is added to the user's queue). The
+ * start track is named by [offsetUri] when known: a position can drift from
+ * Yoin's list (relinked or unavailable tracks, a shuffled list), a URI
+ * cannot. [offsetPosition] is used only when there is no URI.
+ *
+ * Hand-rolled JSON keeps us off a dedicated serializer — the shape is tiny
+ * and every value is a Spotify URI (base62) or an int.
+ */
+internal fun startPlaybackBody(
+    contextUri: String?,
+    uris: List<String>?,
+    offsetPosition: Int?,
+    offsetUri: String?,
+): String {
+    require((contextUri == null) != (uris == null)) { "Pass exactly one of contextUri / uris" }
+    return buildString {
+        append('{')
+        if (contextUri != null) {
+            append("\"context_uri\":\"").append(contextUri).append('"')
+        } else {
+            append("\"uris\":[")
+            uris.orEmpty().forEachIndexed { i, uri ->
+                if (i > 0) append(',')
+                append('"').append(uri).append('"')
+            }
+            append(']')
+        }
+        when {
+            offsetUri != null -> append(",\"offset\":{\"uri\":\"").append(offsetUri).append("\"}")
+            offsetPosition != null -> append(",\"offset\":{\"position\":").append(offsetPosition).append('}')
+        }
+        append('}')
     }
 }
