@@ -15,7 +15,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.gpo.yoin.ui.theme.YoinTheme
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -26,7 +25,7 @@ import org.robolectric.annotation.GraphicsMode
 
 /**
  * A ticket's duration and play count stay separate groups on one line.
- * A narrow row drops the plays and leaves the duration.
+ * A narrow ticket keeps both: the plays move to a second line.
  */
 @RunWith(RobolectricTestRunner::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
@@ -67,12 +66,12 @@ class AlbumScrapbookTicketMetaTest {
     }
 
     @Test
-    fun should_dropThePlays_when_theRowIsNarrow() {
+    fun should_stackThePlaysUnderTheDuration_when_theRowIsNarrow() {
         show(width = 60.dp)
 
         assertTrue(placed("1:10"))
-        assertFalse(placed("play"))
-        assertOneLine()
+        assertTrue(placed("play"))
+        assertLines(2)
     }
 
     private fun show(width: Dp) {
@@ -96,11 +95,14 @@ class AlbumScrapbookTicketMetaTest {
     private fun placed(text: String): Boolean =
         rule.onAllNodesWithText(text, useUnmergedTree = true).fetchSemanticsNodes().any { it.layoutInfo.isPlaced }
 
-    /** Under two lines of the 16sp line height: the line never wraps. */
-    private fun assertOneLine() {
+    /** One line is under 20dp at the 16sp line height. */
+    private fun assertOneLine() = assertLines(1)
+
+    private fun assertLines(lines: Int) {
         val bounds = rule.onNodeWithTag(TAG).getBoundsInRoot()
         val height = (bounds.bottom - bounds.top).value
-        assertTrue("one line: $height", height in 1f..20f)
+        val range = if (lines == 1) 1f..20f else 21f..40f
+        assertTrue("$lines line(s): $height", height in range)
     }
 
     private companion object {

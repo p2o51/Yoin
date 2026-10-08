@@ -1346,8 +1346,11 @@ private fun scrapFactLabel(label: String): String = when (label) {
 }
 
 /**
- * One line. Duration first, then the play count. A narrow row drops the plays
- * and leaves the duration.
+ * Duration, then the play count, on one line when they fit. A narrow ticket
+ * keeps both and grows instead: the plays move under the duration (2026-10-08
+ * owner — the stub has a min height only, so a taller one is fine; dropping
+ * either fact was not). Decided in the layout pass from the one-line width, so
+ * a width change re-measures without recomposing.
  */
 @Composable
 internal fun ScrapTicketMetaLine(
@@ -1367,7 +1370,22 @@ internal fun ScrapTicketMetaLine(
             )
         }
     }
-    DetailMetaLine(groups = groups, style = style, color = color, modifier = modifier)
+    Layout(
+        content = {
+            DetailMetaLine(groups = groups, style = style, color = color)
+            Column {
+                groups.forEach { group -> DetailMetaLine(groups = listOf(group), style = style, color = color) }
+            }
+        },
+        modifier = modifier,
+    ) { measurables, constraints ->
+        val oneLine = measurables[0]
+        val fits = oneLine.maxIntrinsicWidth(constraints.maxHeight) <= constraints.maxWidth
+        val placeable = (if (fits) oneLine else measurables[1]).measure(constraints.copy(minWidth = 0, minHeight = 0))
+        layout(constraints.constrainWidth(placeable.width), constraints.constrainHeight(placeable.height)) {
+            placeable.placeRelative(0, 0)
+        }
+    }
 }
 
 @Composable
