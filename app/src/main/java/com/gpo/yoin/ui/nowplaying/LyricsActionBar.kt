@@ -16,12 +16,14 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.graphics.vector.rememberVectorPainter
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import com.gpo.yoin.R
 import com.gpo.yoin.symbols.YoinSymbols
 import com.gpo.yoin.symbols.rememberTranslateSymbolPainter
 import com.gpo.yoin.ui.theme.ProvideYoinMotionRole
@@ -63,7 +65,7 @@ internal fun LyricsActionBar(
                 buttonGroupContent = {
                     LyricsActionIcon(
                         icon = rememberVectorPainter(YoinSymbols.Search),
-                        contentDescription = "Search lyrics",
+                        contentDescription = stringResource(R.string.np_cd_search_lyrics),
                         interactionSource = searchInteraction,
                         enabled = actionInFlight == null,
                         onClick = onSearchClick,
@@ -81,7 +83,7 @@ internal fun LyricsActionBar(
                     val translating = actionInFlight == LyricsAction.Translate
                     LyricsActionIcon(
                         icon = rememberTranslateSymbolPainter(translating = translating),
-                        contentDescription = "Translate lyrics",
+                        contentDescription = stringResource(R.string.np_cd_translate_lyrics),
                         interactionSource = translateInteraction,
                         enabled = (actionInFlight == null || translating) && canTranslate,
                         onClick = { if (actionInFlight == null) onTranslateClick() },
@@ -97,7 +99,11 @@ internal fun LyricsActionBar(
                     // select the ✓ still opens the editor (paste lyrics).
                     LyricsActionIcon(
                         icon = rememberVectorPainter(YoinSymbols.Check),
-                        contentDescription = if (canSelect) "Select lyrics" else "Add lyrics",
+                        contentDescription = if (canSelect) {
+                            stringResource(R.string.np_cd_select_lyrics)
+                        } else {
+                            stringResource(R.string.np_cd_add_lyrics)
+                        },
                         interactionSource = selectInteraction,
                         enabled = actionInFlight == null,
                         onClick = onSelectClick,
@@ -110,7 +116,7 @@ internal fun LyricsActionBar(
                 buttonGroupContent = {
                     LyricsActionIcon(
                         icon = rememberVectorPainter(YoinSymbols.Recenter),
-                        contentDescription = "Return to current line",
+                        contentDescription = stringResource(R.string.np_cd_return_current_line),
                         interactionSource = recenterInteraction,
                         enabled = actionInFlight == null && canRecenter,
                         onClick = onRecenterClick,
@@ -158,7 +164,7 @@ internal fun LyricsSelectionBar(
                 buttonGroupContent = {
                     LyricsActionIcon(
                         icon = rememberVectorPainter(YoinSymbols.Close),
-                        contentDescription = "Done selecting lyrics",
+                        contentDescription = stringResource(R.string.np_cd_done_selecting),
                         interactionSource = closeInteraction,
                         enabled = true,
                         onClick = onCloseClick,
@@ -172,7 +178,7 @@ internal fun LyricsSelectionBar(
                 buttonGroupContent = {
                     LyricsActionIcon(
                         icon = rememberVectorPainter(YoinSymbols.Copy),
-                        contentDescription = "Copy selected lyrics",
+                        contentDescription = stringResource(R.string.np_cd_copy_lyrics),
                         interactionSource = copyInteraction,
                         enabled = hasSelection,
                         onClick = onCopyClick,
@@ -185,7 +191,7 @@ internal fun LyricsSelectionBar(
                 buttonGroupContent = {
                     LyricsActionIcon(
                         icon = rememberVectorPainter(YoinSymbols.Share),
-                        contentDescription = "Share selected lyrics as an image",
+                        contentDescription = stringResource(R.string.np_cd_share_lyrics_image),
                         interactionSource = shareInteraction,
                         enabled = hasSelection,
                         onClick = onShareClick,
@@ -198,7 +204,7 @@ internal fun LyricsSelectionBar(
                 buttonGroupContent = {
                     LyricsActionIcon(
                         icon = rememberVectorPainter(YoinSymbols.Edit),
-                        contentDescription = "Edit lyrics",
+                        contentDescription = stringResource(R.string.np_cd_edit_lyrics),
                         interactionSource = editInteraction,
                         enabled = true,
                         onClick = onEditClick,

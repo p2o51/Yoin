@@ -1,6 +1,7 @@
 package com.gpo.yoin.ui.nowplaying
 
 import android.content.ClipData
+import android.content.res.Resources
 import android.os.Build
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
@@ -18,9 +19,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalClipboard
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.toClipEntry
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.gpo.yoin.R
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
 import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinMotionRole
@@ -166,22 +170,37 @@ internal fun lyricsClipboardText(
     songTitle: String? = null,
     artist: String? = null,
     passageStarts: Set<Int> = emptySet(),
+    resources: Resources? = null,
 ): String {
     val body = lines.withIndex().joinToString(separator = "\n") { (i, line) ->
         val translation = line.translation?.takeIf { includeTranslation && it.isNotBlank() }
         val text = if (translation == null) line.text else "${line.text}\n$translation"
         if (i in passageStarts) "\n$text" else text
     }
-    val credit = lyricsCredit(songTitle, artist) ?: return body
-    return "$body\n\n— $credit"
+    val credit = lyricsCredit(songTitle, artist, resources) ?: return body
+    return if (resources == null) {
+        "$body\n\n— $credit" // i18n-allow: LyricsSelectionTest asserts this English
+    } else {
+        resources.getString(R.string.np_lyrics_clipboard_with_credit, body, credit)
+    }
 }
 
 /** "Title · Artist" (or just the title); null without a title. */
-internal fun lyricsCredit(songTitle: String?, artist: String?): String? {
+internal fun lyricsCredit(
+    songTitle: String?,
+    artist: String?,
+    resources: Resources? = null,
+): String? {
     val title = songTitle?.trim().orEmpty()
     if (title.isEmpty()) return null
     val by = artist?.trim().orEmpty()
-    return if (by.isEmpty()) title else "$title · $by"
+    return if (by.isEmpty()) {
+        title
+    } else if (resources == null) {
+        "$title · $by" // i18n-allow: LyricsSelectionTest asserts this English
+    } else {
+        resources.getString(R.string.np_lyrics_credit, title, by)
+    }
 }
 
 internal fun lyricsSelectionLabel(
@@ -189,17 +208,46 @@ internal fun lyricsSelectionLabel(
     maxLines: Int = MaxSelectedLyricLines,
     // A tap just tried to grow a full run.
     limitNudge: Boolean = false,
+    resources: Resources? = null,
 ): String = when {
-    limitNudge -> "Up to $maxLines lines at a time"
-    count == 0 -> "Tap lines to select"
-    count == 1 -> "1 line selected"
-    count >= maxLines -> "$count lines selected · max"
-    else -> "$count lines selected"
+    limitNudge -> if (resources == null) {
+        "Up to $maxLines lines at a time" // i18n-allow: LyricsSelectionTest asserts this English
+    } else {
+        resources.getQuantityString(R.plurals.np_lyrics_select_limit, maxLines, maxLines)
+    }
+    count == 0 -> if (resources == null) {
+        "Tap lines to select" // i18n-allow: LyricsSelectionTest asserts this English
+    } else {
+        resources.getString(R.string.np_lyrics_select_tap)
+    }
+    count == 1 -> if (resources == null) {
+        "1 line selected" // i18n-allow: LyricsSelectionTest asserts this English
+    } else {
+        resources.getQuantityString(R.plurals.np_lyrics_selected, count, count)
+    }
+    count >= maxLines -> if (resources == null) {
+        "$count lines selected · max" // i18n-allow: LyricsSelectionTest asserts this English
+    } else {
+        resources.getQuantityString(R.plurals.np_lyrics_selected_max, count, count)
+    }
+    else -> if (resources == null) {
+        "$count lines selected" // i18n-allow: LyricsSelectionTest asserts this English
+    } else {
+        resources.getQuantityString(R.plurals.np_lyrics_selected, count, count)
+    }
 }
 
 /** Pre-Android 13 copy confirmation (13+ shows its own). */
-internal fun lyricsCopiedMessage(count: Int): String =
-    if (count == 1) "Copied 1 line" else "Copied $count lines"
+internal fun lyricsCopiedMessage(count: Int, resources: Resources? = null): String =
+    if (resources == null) {
+        if (count == 1) {
+            "Copied 1 line" // i18n-allow: LyricsSelectionTest asserts this English
+        } else {
+            "Copied $count lines" // i18n-allow: LyricsSelectionTest asserts this English
+        }
+    } else {
+        resources.getQuantityString(R.plurals.np_lyrics_copied, count, count)
+    }
 
 /**
  * The lyric tools, or — in select mode — the selection actions, in the same
@@ -222,6 +270,7 @@ internal fun LyricsTools(
     onBeforeSelect: () -> Unit = {},
     iconSize: Dp = 52.dp,
 ) {
+    val resources = LocalContext.current.resources
     val copyLyrics = rememberCopyLyrics(onMessage)
     val haptics = rememberYoinHaptics()
     AnimatedContent(
@@ -251,6 +300,7 @@ internal fun LyricsTools(
                                 songTitle = state.songTitle,
                                 artist = state.artist,
                                 passageStarts = lyricPassageStarts(state.lyrics, selection.selected),
+                                resources = resources,
                             ),
                             lines.size,
                         )
@@ -406,15 +456,17 @@ internal fun LyricsSelectionHost(
 @Composable
 private fun rememberCopyLyrics(onMessage: (String) -> Unit): (text: String, lineCount: Int) -> Unit {
     val clipboard = LocalClipboard.current
+    val resources = LocalContext.current.resources
+    val clipLabel = stringResource(R.string.np_lyrics_clip_label)
     val scope = rememberCoroutineScope()
     val latestOnMessage by rememberUpdatedState(onMessage)
-    return remember(clipboard, scope) {
+    return remember(clipboard, scope, resources, clipLabel) {
         { text, lineCount ->
             scope.launch {
-                clipboard.setClipEntry(ClipData.newPlainText("Lyrics", text).toClipEntry())
+                clipboard.setClipEntry(ClipData.newPlainText(clipLabel, text).toClipEntry())
                 // Android 13+ confirms copies itself.
                 if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
-                    latestOnMessage(lyricsCopiedMessage(lineCount))
+                    latestOnMessage(lyricsCopiedMessage(lineCount, resources))
                 }
             }
         }

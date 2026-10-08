@@ -1,9 +1,11 @@
 package com.gpo.yoin.ui.nowplaying
 
+import androidx.annotation.StringRes
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.gpo.yoin.AppContainer
+import com.gpo.yoin.R
 import com.gpo.yoin.data.local.SongNote
 import com.gpo.yoin.data.model.Lyrics as SourceLyrics
 import com.gpo.yoin.data.model.MediaId
@@ -20,6 +22,7 @@ import com.gpo.yoin.player.PlaybackManager
 import com.gpo.yoin.player.PlaybackState
 import com.gpo.yoin.data.model.Track
 import androidx.media3.common.Player
+import com.gpo.yoin.ui.common.UiText
 import com.gpo.yoin.ui.component.AddToPlaylistRow
 import com.gpo.yoin.ui.component.NoteDraftState
 import com.gpo.yoin.ui.component.NoteSaveRequest
@@ -443,8 +446,8 @@ class NowPlayingViewModel(
                     songTitle = song.title.orEmpty(),
                     artist = song.artist.orEmpty(),
                     coverArtUrl = repository.resolveCoverUrl(song.coverArt),
-                    message = state.connectionErrorMessage
-                        ?: "Playback was interrupted.",
+                    message = state.connectionErrorMessage?.let { UiText.Raw(it) }
+                        ?: UiText.Res(R.string.np_msg_playback_interrupted),
                 )
 
             song != null -> NowPlayingUiState.Playing(
@@ -499,7 +502,7 @@ class NowPlayingViewModel(
                     albumName = pending.album.orEmpty(),
                     coverArtUrl = repository.resolveCoverUrl(pending.coverArt),
                     durationMs = pending.durationSec?.times(1_000L) ?: 0L,
-                    hint = "Connecting to Spotify…",
+                    hint = UiText.Res(R.string.np_msg_connecting_spotify),
                 )
 
             // Backend refused / lost connection mid-launch — surface the
@@ -509,8 +512,8 @@ class NowPlayingViewModel(
                     songTitle = pending.title.orEmpty(),
                     artist = pending.artist.orEmpty(),
                     coverArtUrl = repository.resolveCoverUrl(pending.coverArt),
-                    message = state.connectionErrorMessage
-                        ?: "Couldn't start playback.",
+                    message = state.connectionErrorMessage?.let { UiText.Raw(it) }
+                        ?: UiText.Res(R.string.np_msg_couldnt_start),
                 )
 
             else -> NowPlayingUiState.Idle
@@ -665,7 +668,7 @@ class NowPlayingViewModel(
             .filter(String::isNotEmpty)
             .joinToString(" ")
         if (query.isBlank()) {
-            _addToPlaylistMessages.tryEmit("Need title or artist to search lyrics")
+            _addToPlaylistMessages.tryEmit(UiText.Res(R.string.np_msg_need_title_artist))
             return
         }
         _lyricsSearchState.value = LyricsSearchState(
@@ -721,7 +724,7 @@ class NowPlayingViewModel(
                     _lyricsSearchState.value = _lyricsSearchState.value.copy(
                         loading = false,
                         providers = emptyLyricsSearchProviders(),
-                        errorMessage = error.message ?: "Couldn't search lyrics",
+                        errorMessage = userMessage(error.message, R.string.np_msg_couldnt_search),
                     )
                 }
         }
@@ -748,14 +751,14 @@ class NowPlayingViewModel(
                 .onSuccess { result ->
                     applyLyricsResult(result.lyrics, result.providerName, result.providerSongId)
                     _lyricsSearchState.value = LyricsSearchState()
-                    _addToPlaylistMessages.tryEmit("Lyrics applied from ${result.providerName.toLyricsProviderLabel()}")
+                    _addToPlaylistMessages.tryEmit(lyricsAppliedFrom(result.providerName))
                 }
                 .onFailure { error ->
                     _lyricsSearchState.value = _lyricsSearchState.value.copy(
                         applyingCandidateKey = null,
-                        errorMessage = error.message ?: "Couldn't apply lyrics",
+                        errorMessage = userMessage(error.message, R.string.np_msg_couldnt_apply),
                     )
-                    _addToPlaylistMessages.tryEmit(error.message ?: "Couldn't apply lyrics")
+                    _addToPlaylistMessages.tryEmit(userMessage(error.message, R.string.np_msg_couldnt_apply))
                 }
             _lyricsActionInFlight.value = null
         }
@@ -783,10 +786,10 @@ class NowPlayingViewModel(
             repository.applyLyrics(trackId = songId, rawLrc = rawLrc)
                 .onSuccess { result ->
                     applyLyricsResult(result.lyrics, result.providerName, result.providerSongId)
-                    _addToPlaylistMessages.tryEmit("Lyrics applied")
+                    _addToPlaylistMessages.tryEmit(UiText.Res(R.string.np_msg_lyrics_applied))
                 }
                 .onFailure { error ->
-                    _addToPlaylistMessages.tryEmit(error.message ?: "Couldn't apply lyrics")
+                    _addToPlaylistMessages.tryEmit(userMessage(error.message, R.string.np_msg_couldnt_apply))
                 }
             _lyricsActionInFlight.value = null
         }
@@ -824,12 +827,12 @@ class NowPlayingViewModel(
                 }
                 is YoinRepository.LyricsTranslationResult.AlreadyTargetLanguage ->
                     _addToPlaylistMessages.tryEmit(
-                        "Lyrics already appear to be ${result.targetLanguage}",
+                        UiText.Res(R.string.np_msg_already_language, listOf(result.targetLanguage)),
                     )
                 YoinRepository.LyricsTranslationResult.ApiKeyMissing ->
-                    _addToPlaylistMessages.tryEmit("Gemini API key missing")
+                    _addToPlaylistMessages.tryEmit(UiText.Res(R.string.np_ask_api_key_missing))
                 is YoinRepository.LyricsTranslationResult.Error ->
-                    _addToPlaylistMessages.tryEmit(result.message)
+                    _addToPlaylistMessages.tryEmit(UiText.Raw(result.message))
                 is YoinRepository.LyricsTranslationResult.Success -> {
                     val baseLyrics = result.lyrics?.toUiLyrics() ?: currentLyrics
                     _lyrics.value = baseLyrics.mapIndexed { index, line ->
@@ -842,7 +845,7 @@ class NowPlayingViewModel(
                         _currentLyricsProviderSongId.value = providerSongId
                     }
                     _showLyricsTranslation.value = true
-                    _addToPlaylistMessages.tryEmit("Lyrics translated")
+                    _addToPlaylistMessages.tryEmit(UiText.Res(R.string.np_msg_lyrics_translated))
                 }
             }
             _lyricsActionInFlight.value = null
@@ -864,7 +867,7 @@ class NowPlayingViewModel(
             _showLyricsTranslation.value = true
             pendingLyricsTranslationSwitchOffer = null
             _lyricsActionInFlight.value = null
-            _addToPlaylistMessages.tryEmit("Lyrics translated from ${offer.providerName.toLyricsProviderLabel()}")
+            _addToPlaylistMessages.tryEmit(lyricsTranslatedFrom(offer.providerName))
         }
     }
 
@@ -883,7 +886,7 @@ class NowPlayingViewModel(
         // id and 4xx-fail, which used to just silently revert the optimistic
         // heart — looking like the tap "did nothing". Refuse with a reason instead.
         if (songId.rawId.isBlank() || songId.rawId == REMOTE_UNKNOWN_TRACK_ID) {
-            _addToPlaylistMessages.tryEmit("Can't save — track info unavailable")
+            _addToPlaylistMessages.tryEmit(UiText.Res(R.string.np_msg_cant_save))
             return
         }
         val currentFavorite = (uiState.value as? NowPlayingUiState.Playing)?.isStarred
@@ -899,8 +902,14 @@ class NowPlayingViewModel(
                     // surface WHY instead of leaving a silent no-op (the symptom
                     // was "heart bounces but nothing sticks").
                     _addToPlaylistMessages.tryEmit(
-                        error.message?.takeIf { it.isNotBlank() }
-                            ?: if (nextFavorite) "Couldn't save to favorites" else "Couldn't remove from favorites",
+                        userMessage(
+                            error.message,
+                            if (nextFavorite) {
+                                R.string.np_msg_couldnt_save_favorite
+                            } else {
+                                R.string.np_msg_couldnt_remove_favorite
+                            },
+                        ),
                     )
                 }
         }
@@ -920,14 +929,17 @@ class NowPlayingViewModel(
                     .onSuccess { membership ->
                         if (repository.currentProfileId() != profileId) return@onSuccess
                         _addToPlaylistMessages.tryEmit(
-                            if (membership == LibraryMembership.Added) "Added to Apple Music library"
-                            else "Apple Music accepted the addition. Tap check to confirm when it appears.",
+                            if (membership == LibraryMembership.Added) {
+                                UiText.Res(R.string.np_msg_added_apple)
+                            } else {
+                                UiText.Res(R.string.np_msg_apple_pending)
+                            },
                         )
                     }
                     .onFailure { error ->
                         if (repository.currentProfileId() != profileId) return@onFailure
                         _addToPlaylistMessages.tryEmit(
-                            error.message?.takeIf { it.isNotBlank() } ?: "Couldn't add to Apple Music library",
+                            userMessage(error.message, R.string.np_msg_couldnt_add_apple),
                         )
                     }
             } finally {
@@ -1046,9 +1058,9 @@ class NowPlayingViewModel(
                     // joined SCOPES (it's not in REQUIRED_SCOPES, so no forced
                     // reconnect) — say what actually fixes it.
                     errorMessage = if (error is SpotifyAuthException && error.code == 403) {
-                        "Spotify needs re-connecting to list devices (new permission)."
+                        UiText.Res(R.string.np_msg_spotify_devices_permission)
                     } else {
-                        error.message ?: "Couldn't load devices."
+                        userMessage(error.message, R.string.np_msg_couldnt_load_devices)
                     },
                 )
             }
@@ -1088,8 +1100,10 @@ class NowPlayingViewModel(
             } else {
                 _devicesState.value = _devicesState.value.copy(
                     busyDeviceId = null,
-                    errorMessage = result.exceptionOrNull()?.message
-                        ?: "Couldn't switch devices.",
+                    errorMessage = userMessage(
+                        result.exceptionOrNull()?.message,
+                        R.string.np_msg_couldnt_switch_devices,
+                    ),
                 )
             }
             refreshDevices(showLoading = false)
@@ -1110,9 +1124,9 @@ class NowPlayingViewModel(
     private val _addToPlaylistTarget = MutableStateFlow<List<MediaId>?>(null)
     val addToPlaylistTarget: StateFlow<List<MediaId>?> = _addToPlaylistTarget.asStateFlow()
 
-    private val _addToPlaylistMessages = MutableSharedFlow<String>(extraBufferCapacity = 4)
+    private val _addToPlaylistMessages = MutableSharedFlow<UiText>(extraBufferCapacity = 4)
     /** One-shot confirmations / errors for the shell SnackbarHost to surface. */
-    val addToPlaylistMessages: SharedFlow<String> = _addToPlaylistMessages.asSharedFlow()
+    val addToPlaylistMessages: SharedFlow<UiText> = _addToPlaylistMessages.asSharedFlow()
 
     val writablePlaylists: StateFlow<List<AddToPlaylistRow>> = _addToPlaylistTarget
         .flatMapLatest { target ->
@@ -1136,7 +1150,7 @@ class NowPlayingViewModel(
 
     /** A one-line confirmation on this window's snackbar (a detail page's ▾ actions). */
     fun postMessage(message: String) {
-        _addToPlaylistMessages.tryEmit(message)
+        _addToPlaylistMessages.tryEmit(UiText.Raw(message))
     }
 
     fun requestAddTracksToPlaylist(trackIds: List<MediaId>) {
@@ -1157,18 +1171,15 @@ class NowPlayingViewModel(
     fun addTargetsToExistingPlaylist(playlistId: MediaId) {
         val targets = _addToPlaylistTarget.value ?: return
         val playlistName = writablePlaylists.value.firstOrNull { it.id == playlistId }?.name
-            ?: "playlist"
         _addToPlaylistTarget.value = null
         viewModelScope.launch {
             repository.addTracksToPlaylist(playlistId, targets)
                 .onSuccess {
                     onPlaylistMutated()
-                    _addToPlaylistMessages.tryEmit("Added to $playlistName")
+                    _addToPlaylistMessages.tryEmit(addedTo(playlistName))
                 }
                 .onFailure {
-                    _addToPlaylistMessages.tryEmit(
-                        it.message ?: "Couldn't add to $playlistName",
-                    )
+                    _addToPlaylistMessages.tryEmit(couldntAddTo(it.message, playlistName))
                 }
         }
     }
@@ -1185,7 +1196,7 @@ class NowPlayingViewModel(
             repository.createPlaylist(trimmedName)
                 .onFailure {
                     _addToPlaylistMessages.tryEmit(
-                        it.message ?: "Couldn't create \"$trimmedName\"",
+                        userMessage(it.message, R.string.np_msg_couldnt_create, listOf(trimmedName)),
                     )
                 }
                 .onSuccess { playlist ->
@@ -1195,12 +1206,12 @@ class NowPlayingViewModel(
                     repository.addTracksToPlaylist(playlist.id, targets)
                         .onSuccess {
                             onPlaylistMutated()
-                            _addToPlaylistMessages.tryEmit("Added to $trimmedName")
+                            _addToPlaylistMessages.tryEmit(addedTo(trimmedName))
                         }
                         .onFailure {
                             onPlaylistMutated()
                             _addToPlaylistMessages.tryEmit(
-                                it.message ?: "Created $trimmedName but couldn't add tracks",
+                                userMessage(it.message, R.string.np_msg_created_but_failed, listOf(trimmedName)),
                             )
                         }
                 }
@@ -1238,7 +1249,7 @@ class NowPlayingViewModel(
 
     /** A one-line confirmation from the player UI (e.g. lyrics copied below Android 13). */
     fun showMessage(message: String) {
-        _addToPlaylistMessages.tryEmit(message)
+        _addToPlaylistMessages.tryEmit(UiText.Raw(message))
     }
 
     fun setMediumFullscreen(fullscreen: Boolean) {
@@ -1377,9 +1388,9 @@ class NowPlayingViewModel(
             _askState.value = when (result) {
                 is YoinRepository.AskAboutResult.Success -> AskBarState.Idle
                 YoinRepository.AskAboutResult.ApiKeyMissing ->
-                    AskBarState.Error("Gemini API key missing")
+                    AskBarState.Error(UiText.Res(R.string.np_ask_api_key_missing))
                 is YoinRepository.AskAboutResult.Error ->
-                    AskBarState.Error(result.message)
+                    AskBarState.Error(UiText.Raw(result.message))
             }
         }
     }
@@ -1446,7 +1457,7 @@ data class DevicesSheetState(
     val devices: List<YoinDevice> = emptyList(),
     val loading: Boolean = false,
     val busyDeviceId: String? = null,
-    val errorMessage: String? = null,
+    val errorMessage: UiText? = null,
 )
 
 /**
@@ -1535,7 +1546,7 @@ private fun fallbackDevices(
                 isActive = castState !is CastState.Connected,
                 isSelectable = false,
                 statusText = if (castState is CastState.Connected) {
-                    "Switch back from the Cast pill"
+                    NpDeviceStatusSwitchBack
                 } else {
                     null
                 },
@@ -1547,7 +1558,7 @@ private fun fallbackDevices(
                     id = "cast-connected",
                     name = castState.deviceName,
                     isActive = true,
-                    statusText = "Connected through Cast",
+                    statusText = NpDeviceStatusConnected,
                 ),
             )
             CastState.Available -> add(
@@ -1555,11 +1566,52 @@ private fun fallbackDevices(
                     id = "cast-available",
                     name = "Chromecast",
                     isActive = false,
-                    statusText = "Use the Cast pill to choose a device",
+                    statusText = NpDeviceStatusUsePill,
                 ),
             )
             CastState.NotAvailable -> Unit
         }
     }
     else -> emptyList()
+}
+
+/** English keys stored on [YoinDevice.statusText]; the sheet resolves them. */
+internal const val NpDeviceStatusSwitchBack = "Switch back from the Cast pill"
+internal const val NpDeviceStatusConnected = "Connected through Cast"
+internal const val NpDeviceStatusUsePill = "Use the Cast pill to choose a device"
+
+private fun userMessage(
+    raw: String?,
+    @StringRes fallback: Int,
+    args: List<Any> = emptyList(),
+): UiText = raw?.takeIf { it.isNotBlank() }?.let { UiText.Raw(it) } ?: UiText.Res(fallback, args)
+
+private fun addedTo(name: String?): UiText =
+    if (name.isNullOrBlank()) {
+        UiText.Res(R.string.np_msg_added_to_playlist)
+    } else {
+        UiText.Res(R.string.np_msg_added_to, listOf(name))
+    }
+
+private fun couldntAddTo(raw: String?, name: String?): UiText =
+    if (name.isNullOrBlank()) {
+        userMessage(raw, R.string.np_msg_couldnt_add_to_playlist)
+    } else {
+        userMessage(raw, R.string.np_msg_couldnt_add_to, listOf(name))
+    }
+
+private fun lyricsAppliedFrom(providerName: String): UiText = when (providerName) {
+    "qq" -> UiText.Res(R.string.np_msg_lyrics_applied_qq)
+    "netease" -> UiText.Res(R.string.np_msg_lyrics_applied_netease)
+    "huawei" -> UiText.Res(R.string.np_msg_lyrics_applied_huawei)
+    "lrclib" -> UiText.Res(R.string.np_msg_lyrics_applied_lrclib)
+    else -> UiText.Res(R.string.np_msg_lyrics_applied_from, listOf(providerName))
+}
+
+private fun lyricsTranslatedFrom(providerName: String): UiText = when (providerName) {
+    "qq" -> UiText.Res(R.string.np_msg_lyrics_translated_qq)
+    "netease" -> UiText.Res(R.string.np_msg_lyrics_translated_netease)
+    "huawei" -> UiText.Res(R.string.np_msg_lyrics_translated_huawei)
+    "lrclib" -> UiText.Res(R.string.np_msg_lyrics_translated_lrclib)
+    else -> UiText.Res(R.string.np_msg_lyrics_translated_from, listOf(providerName))
 }

@@ -1,0 +1,211 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Transport. PLAY / PAUSE stay English in every language; the pill measures them. -->
+    <string name="np_transport_play_word" translatable="false">PLAY</string>
+    <string name="np_transport_pause_word" translatable="false">PAUSE</string>
+    <string name="np_cd_transport_play" translatable="false">Play</string>
+    <string name="np_cd_transport_pause" translatable="false">Pause</string>
+    <string name="np_cd_skip_next">Skip next</string>
+    <string name="np_cd_skip_previous">Skip previous</string>
+    <string name="np_cd_collapse_lyrics">Collapse lyrics</string>
+    <string name="np_cd_expand_lyrics">Expand lyrics</string>
+    <string name="np_cd_play_mode">Play mode</string>
+    <string name="np_transport_repeat_all">Repeat all</string>
+    <string name="np_transport_shuffle">Shuffle</string>
+    <string name="np_transport_repeat_one">Repeat one</string>
+
+    <!-- Bottom pills. English is what the row measures. -->
+    <string name="np_pill_queue">Queue</string>
+    <string name="np_pill_devices">Devices</string>
+    <string name="np_pill_write">Write</string>
+
+    <!-- Expanded tab group. -->
+    <string name="np_tab_lyrics">Lyrics</string>
+    <string name="np_tab_about">About</string>
+    <string name="np_tab_note">Note</string>
+    <!-- Compact text tabs. Same words, other place. -->
+    <string name="np_text_tab_lyrics">Lyrics</string>
+    <string name="np_text_tab_about">About</string>
+    <string name="np_text_tab_note">Note</string>
+
+    <string name="np_empty_nothing_playing">Nothing playing</string>
+    <string name="np_cd_launching_collapse">Collapse</string>
+    <string name="np_cd_connect_error_collapse">Collapse</string>
+    <string name="np_cd_tabletop_close">Close</string>
+    <string name="np_cd_wide_close">Close</string>
+    <string name="np_cd_landscape_back_now_playing">Back to Now Playing</string>
+    <string name="np_cd_landscape_close_now_playing">Close Now Playing</string>
+    <string name="np_cd_stage_close_now_playing">Close Now Playing</string>
+    <string name="np_cd_stage_back_now_playing">Back to Now Playing</string>
+    <string name="np_cd_plain_album_cover">Album cover</string>
+    <string name="np_cd_album_cover">Album cover</string>
+    <string name="np_cd_focus_artwork">Focus artwork</string>
+    <string name="np_cd_focus_artwork_wide">Focus artwork</string>
+    <string name="np_cd_focus_artwork_landscape">Focus artwork</string>
+    <string name="np_cd_show_lyrics_rating">Show lyrics and rating</string>
+    <string name="np_cd_show_lyrics_rating_wide">Show lyrics and rating</string>
+    <string name="np_cd_show_lyrics_rating_landscape">Show lyrics and rating</string>
+    <string name="np_cd_add_favorite">Add to favorites</string>
+    <string name="np_cd_remove_favorite">Remove from favorites</string>
+    <string name="np_lyric_loading">Loading lyrics</string>
+    <string name="np_lyric_tap_to_expand">Tap to expand</string>
+    <string name="np_lyrics_none">No lyrics available</string>
+
+    <string name="np_dock_playing_from_album">PLAYING FROM ALBUM</string>
+    <string name="np_dock_playing_from_playlist">PLAYING FROM PLAYLIST</string>
+    <string name="np_dock_now_playing">NOW PLAYING</string>
+    <string name="np_from_album">PLAYING FROM ALBUM</string>
+    <string name="np_from_playlist">PLAYING FROM PLAYLIST</string>
+    <string name="np_from_now_playing">NOW PLAYING</string>
+
+    <string name="np_cd_back_to_panel">Back to side panel</string>
+    <string name="np_cd_full_screen">Full screen</string>
+
+    <string name="np_about_tap_start">Tap About to start — we\'ll fetch song details on first open.</string>
+    <string name="np_about_searching">Searching for song info…</string>
+    <string name="np_about_api_key">Configure your Gemini API key in Settings to see AI-generated song info.</string>
+    <string name="np_about_retry">Retry</string>
+    <string name="np_about_creation_time">Creation Time</string>
+    <string name="np_about_creation_location">Creation Location</string>
+    <string name="np_about_lyricist">Lyricist</string>
+    <string name="np_about_composer">Composer</string>
+    <string name="np_about_producer">Producer</string>
+    <string name="np_about_review">About</string>
+
+    <string name="np_ask_placeholder">What is this song aiming for?</string>
+    <string name="np_ask_enter">Enter to ask Gemini</string>
+    <string name="np_ask_gemini">Ask Gemini</string>
+    <string name="np_ask_api_key_missing">Gemini API key missing</string>
+
+    <string name="np_lyrics_search_placeholder">Song or artist</string>
+    <string name="np_cd_close_lyrics_search">Close lyrics search</string>
+    <string name="np_cd_clear">Clear</string>
+    <string name="np_lyrics_searching_providers">Searching providers...</string>
+    <string name="np_lyrics_none_found">No lyrics found.</string>
+    <string name="np_lyrics_searching">Searching...</string>
+    <string name="np_lyrics_no_results">No results</string>
+    <string name="np_lyrics_apply_title">Apply lyrics</string>
+    <string name="np_lyrics_field_placeholder">Lyrics</string>
+    <string name="np_lyrics_apply">Apply</string>
+    <string name="np_lyrics_cancel">Cancel</string>
+    <string name="np_lyrics_provider_qq">QQ Music</string>
+    <string name="np_lyrics_provider_netease">NetEase</string>
+    <string name="np_lyrics_provider_huawei">Huawei Music</string>
+    <string name="np_lyrics_provider_lrclib">LRCLIB</string>
+
+    <string name="np_cd_search_lyrics">Search lyrics</string>
+    <string name="np_cd_translate_lyrics">Translate lyrics</string>
+    <string name="np_cd_select_lyrics">Select lyrics</string>
+    <string name="np_cd_add_lyrics">Add lyrics</string>
+    <string name="np_cd_return_current_line">Return to current line</string>
+    <string name="np_cd_done_selecting">Done selecting lyrics</string>
+    <string name="np_cd_copy_lyrics">Copy selected lyrics</string>
+    <string name="np_cd_share_lyrics_image">Share selected lyrics as an image</string>
+    <string name="np_cd_edit_lyrics">Edit lyrics</string>
+    <string name="np_lyrics_clip_label">Lyrics</string>
+    <string name="np_lyrics_select_tap">Tap lines to select</string>
+    <plurals name="np_lyrics_selected">
+        <item quantity="one">1 line selected</item>
+        <item quantity="other">%1$d lines selected</item>
+    </plurals>
+    <plurals name="np_lyrics_selected_max">
+        <item quantity="one">1 line selected · max</item>
+        <item quantity="other">%1$d lines selected · max</item>
+    </plurals>
+    <plurals name="np_lyrics_select_limit">
+        <item quantity="one">Up to %1$d line at a time</item>
+        <item quantity="other">Up to %1$d lines at a time</item>
+    </plurals>
+    <plurals name="np_lyrics_copied">
+        <item quantity="one">Copied 1 line</item>
+        <item quantity="other">Copied %1$d lines</item>
+    </plurals>
+    <string name="np_lyrics_credit">%1$s · %2$s</string>
+    <string name="np_lyrics_clipboard_with_credit">%1$s\n\n— %2$s</string>
+
+    <string name="np_share_title">Share lyrics</string>
+    <string name="np_share_save">Save</string>
+    <string name="np_share_saving">Saving…</string>
+    <string name="np_share_saved">Saved</string>
+    <string name="np_share_try_again">Try again</string>
+    <string name="np_share_failed">Couldn\'t share the image</string>
+    <string name="np_share_action">Share</string>
+    <string name="np_share_format_card">Card</string>
+    <string name="np_share_format_story">Story</string>
+    <string name="np_cd_tone_soft">Soft colours</string>
+    <string name="np_cd_tone_deep">Deep colours</string>
+    <string name="np_cd_tone_vivid">Vivid colours</string>
+    <string name="np_cd_tone_mist">Mist colours</string>
+    <string name="np_share_brand" translatable="false">Yoin</string>
+    <string name="np_share_file_untitled">Yoin lyrics %1$s.png</string>
+    <string name="np_share_file_named">Yoin lyrics - %1$s - %2$s.png</string>
+
+    <string name="np_note_tap_to_write">Tap to write a note</string>
+    <!-- REVIEW: English drafted from the existing Chinese UI. -->
+    <plurals name="np_note_count">
+        <item quantity="one">%1$d note</item>
+        <item quantity="other">%1$d notes</item>
+    </plurals>
+    <!-- REVIEW: English drafted from the existing Chinese UI. -->
+    <string name="np_cd_note_play_from">Play from %1$s</string>
+    <!-- REVIEW: English drafted from the existing Chinese UI. -->
+    <string name="np_cd_note_actions">Note actions</string>
+    <!-- REVIEW: English drafted from the existing Chinese UI. -->
+    <string name="np_note_realign">Align to now · %1$s</string>
+    <!-- REVIEW: English drafted from the existing Chinese UI. -->
+    <string name="np_note_delete">Delete</string>
+    <!-- REVIEW: English drafted from the existing Chinese UI. -->
+    <string name="np_note_deleted">Deleted</string>
+    <!-- REVIEW: English drafted from the existing Chinese UI. -->
+    <string name="np_note_undo">Undo</string>
+    <!-- REVIEW: English drafted from the existing Chinese UI. -->
+    <string name="np_note_writing">Writing…</string>
+    <!-- REVIEW: English drafted from the existing Chinese UI. -->
+    <string name="np_note_empty">No notes yet</string>
+
+    <string name="np_msg_playback_interrupted">Playback was interrupted.</string>
+    <string name="np_msg_connecting_spotify">Connecting to Spotify…</string>
+    <string name="np_msg_couldnt_start">Couldn\'t start playback.</string>
+    <string name="np_msg_need_title_artist">Need title or artist to search lyrics</string>
+    <string name="np_msg_couldnt_search">Couldn\'t search lyrics</string>
+    <string name="np_msg_lyrics_applied_qq">Lyrics applied from QQ Music</string>
+    <string name="np_msg_lyrics_applied_netease">Lyrics applied from NetEase</string>
+    <string name="np_msg_lyrics_applied_huawei">Lyrics applied from Huawei Music</string>
+    <string name="np_msg_lyrics_applied_lrclib">Lyrics applied from LRCLIB</string>
+    <string name="np_msg_lyrics_applied_from">Lyrics applied from %1$s</string>
+    <string name="np_msg_couldnt_apply">Couldn\'t apply lyrics</string>
+    <string name="np_msg_lyrics_applied">Lyrics applied</string>
+    <string name="np_msg_already_language">Lyrics already appear to be %1$s</string>
+    <string name="np_msg_lyrics_translated">Lyrics translated</string>
+    <string name="np_msg_lyrics_translated_qq">Lyrics translated from QQ Music</string>
+    <string name="np_msg_lyrics_translated_netease">Lyrics translated from NetEase</string>
+    <string name="np_msg_lyrics_translated_huawei">Lyrics translated from Huawei Music</string>
+    <string name="np_msg_lyrics_translated_lrclib">Lyrics translated from LRCLIB</string>
+    <string name="np_msg_lyrics_translated_from">Lyrics translated from %1$s</string>
+    <string name="np_msg_cant_save">Can\'t save — track info unavailable</string>
+    <string name="np_msg_couldnt_save_favorite">Couldn\'t save to favorites</string>
+    <string name="np_msg_couldnt_remove_favorite">Couldn\'t remove from favorites</string>
+    <string name="np_msg_added_apple">Added to Apple Music library</string>
+    <string name="np_msg_apple_pending">Apple Music accepted the addition. Tap check to confirm when it appears.</string>
+    <string name="np_msg_couldnt_add_apple">Couldn\'t add to Apple Music library</string>
+    <string name="np_msg_spotify_devices_permission">Spotify needs re-connecting to list devices (new permission).</string>
+    <string name="np_msg_couldnt_load_devices">Couldn\'t load devices.</string>
+    <string name="np_msg_couldnt_switch_devices">Couldn\'t switch devices.</string>
+    <string name="np_msg_added_to">Added to %1$s</string>
+    <string name="np_msg_added_to_playlist">Added to playlist</string>
+    <string name="np_msg_couldnt_add_to">Couldn\'t add to %1$s</string>
+    <string name="np_msg_couldnt_add_to_playlist">Couldn\'t add to playlist</string>
+    <string name="np_msg_couldnt_create">Couldn\'t create "%1$s"</string>
+    <string name="np_msg_created_but_failed">Created %1$s but couldn\'t add tracks</string>
+    <string name="np_msg_translation_qq">QQ Music translation is available</string>
+    <string name="np_msg_translation_netease">NetEase translation is available</string>
+    <string name="np_msg_translation_huawei">Huawei Music translation is available</string>
+    <string name="np_msg_translation_lrclib">LRCLIB translation is available</string>
+    <string name="np_msg_translation_available">%1$s translation is available</string>
+    <string name="np_msg_switch">Switch</string>
+
+    <!-- Stored on YoinDevice as the English key, then shown from these. -->
+    <string name="np_device_switch_back_cast">Switch back from the Cast pill</string>
+    <string name="np_device_connected_cast">Connected through Cast</string>
+    <string name="np_device_use_cast_pill">Use the Cast pill to choose a device</string>
+</resources>

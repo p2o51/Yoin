@@ -49,6 +49,7 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.booleanResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.rememberTextMeasurer
@@ -124,6 +125,8 @@ internal fun PlaybackControls(
       // The play-mode button is measured before the transport group, so it is
       // never the one that gets cut.
       BoxWithConstraints(modifier = modifier.fillMaxWidth()) {
+        val playWord = stringResource(R.string.np_transport_play_word)
+        val pauseWord = stringResource(R.string.np_transport_pause_word)
         val fit = rememberPlaybackControlsFit(
             maxWidth = maxWidth,
             controlSize = controlSize,
@@ -216,7 +219,7 @@ internal fun PlaybackControls(
                                     contentColor = MaterialTheme.colorScheme.onPrimary,
                                 ),
                             ) {
-                                val word = if (isPlaying) PauseWord else PlayWord
+                                val word = if (isPlaying) pauseWord else playWord
                                 val wordStyle = MaterialTheme.typography.titleLarge.copy(
                                     fontSize = MaterialTheme.typography.titleLarge.fontSize * 0.9f,
                                     fontWeight = if (isPlaying) FontWeight.Bold else FontWeight.Medium,
@@ -246,7 +249,11 @@ internal fun PlaybackControls(
                                     ) {
                                         Icon(
                                             painter = rememberPlayPauseSymbolPainter(playing = isPlaying),
-                                            contentDescription = if (isPlaying) "Pause" else "Play",
+                                            contentDescription = if (isPlaying) {
+                                                stringResource(R.string.np_cd_transport_pause)
+                                            } else {
+                                                stringResource(R.string.np_cd_transport_play)
+                                            },
                                             modifier = Modifier
                                                 .size(controlIconSize)
                                                 .graphicsLayer {
@@ -286,7 +293,7 @@ internal fun PlaybackControls(
                             ) {
                                 Icon(
                                     imageVector = YoinSymbols.SkipNextFilled,
-                                    contentDescription = "Skip next",
+                                    contentDescription = stringResource(R.string.np_cd_skip_next),
                                     modifier = Modifier.size(controlIconSize),
                                 )
                             }
@@ -327,9 +334,9 @@ internal fun PlaybackControls(
                                 YoinSymbols.UnfoldMore
                             },
                             contentDescription = if (lyricsExpanded) {
-                                "Collapse lyrics"
+                                stringResource(R.string.np_cd_collapse_lyrics)
                             } else {
-                                "Expand lyrics"
+                                stringResource(R.string.np_cd_expand_lyrics)
                             },
                             modifier = Modifier.size(controlIconSize),
                         )
@@ -374,7 +381,7 @@ internal fun PlaybackControls(
                 ) {
                     Icon(
                         painter = rememberPlayModeSymbolPainter(playMode.toSymbol()),
-                        contentDescription = "Play mode",
+                        contentDescription = stringResource(R.string.np_cd_play_mode),
                         modifier = Modifier.size(controlIconSize),
                     )
                 }
@@ -420,7 +427,7 @@ internal fun PlaybackControls(
                         ) {
                             Icon(
                                 imageVector = YoinSymbols.SkipPreviousFilled,
-                                contentDescription = "Skip previous",
+                                contentDescription = stringResource(R.string.np_cd_skip_previous),
                                 modifier = Modifier.size(controlIconSize),
                             )
                         }
@@ -501,10 +508,11 @@ private fun PlayMode.toSymbol(): SymbolPlayMode = when (this) {
 }
 
 /** TalkBack reads the button as "Play mode, <state>, button". */
+@Composable
 private fun PlayMode.stateDescription(): String = when (this) {
-    PlayMode.RepeatAll -> "Repeat all"
-    PlayMode.Shuffle -> "Shuffle"
-    PlayMode.RepeatOne -> "Repeat one"
+    PlayMode.RepeatAll -> stringResource(R.string.np_transport_repeat_all)
+    PlayMode.Shuffle -> stringResource(R.string.np_transport_shuffle)
+    PlayMode.RepeatOne -> stringResource(R.string.np_transport_repeat_one)
 }
 
 /** How the transport rows fit a column; see [rememberPlaybackControlsFit]. */
@@ -550,10 +558,11 @@ internal fun rememberPlaybackControlsFit(
             letterSpacing = 0.5.sp,
         )
     }
+    val pauseWord = stringResource(R.string.np_transport_pause_word)
     val density = LocalDensity.current
-    return remember(maxWidth, controlSize, hasExpandToggle, style, density) {
+    return remember(maxWidth, controlSize, hasExpandToggle, style, density, pauseWord) {
         val playTextWidth = with(density) {
-            textMeasurer.measure(PauseWord, style, maxLines = 1, softWrap = false).size.width.toDp()
+            textMeasurer.measure(pauseWord, style, maxLines = 1, softWrap = false).size.width.toDp()
         }
         fitPlaybackControls(maxWidth, controlSize, playTextWidth, hasExpandToggle)
     }
@@ -576,9 +585,8 @@ private val TransportGap = 8.dp
 private val CompactControlSize = 48.dp
 
 // English only (np_transport_word_label); other languages show the symbol in a
-// pill measured from these, so the shape never changes with the language.
-private const val PlayWord = "PLAY"
-private const val PauseWord = "PAUSE"
+// pill measured from np_transport_pause_word, so the shape never changes
+// with the language.
 
 /** PLAY's text stretch peaks at 1.10 while pressed. */
 private const val PlayTextStretchMax = 1.1f

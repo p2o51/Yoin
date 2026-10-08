@@ -49,11 +49,15 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import com.gpo.yoin.R
 import com.gpo.yoin.data.local.SongNote
 import com.gpo.yoin.symbols.YoinSymbols
 import com.gpo.yoin.ui.component.NoteDraft
@@ -220,7 +224,7 @@ private fun ColumnScope.NoteRowsList(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
-                text = "${notes.size} 条笔记",
+                text = pluralStringResource(R.plurals.np_note_count, notes.size, notes.size),
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -330,6 +334,7 @@ private fun NotePageLine(
     modifier: Modifier = Modifier,
 ) {
     val haptics = rememberYoinHaptics()
+    val noteDateResources = LocalContext.current.resources
     val interaction = remember { MutableInteractionSource() }
     var menuOpen by remember { mutableStateOf(false) }
     // "Now" as of the long-press: what the menu shows is what it files.
@@ -342,12 +347,14 @@ private fun NotePageLine(
             isActive = isActive,
             emphasis = NoteLineEmphasis.Page,
             distance = distance,
-            meta = if (showDate) formatNoteDate(note.createdAt) else null,
+            meta = if (showDate) formatNoteDate(note.createdAt, resources = noteDateResources) else null,
             modifier = Modifier.combinedClickable(
                 interactionSource = interaction,
                 indication = null,
-                onClickLabel = anchor?.let { "从 ${formatNotePosition(it)} 播放" },
-                onLongClickLabel = "笔记操作",
+                onClickLabel = anchor?.let {
+                    stringResource(R.string.np_cd_note_play_from, formatNotePosition(it))
+                },
+                onLongClickLabel = stringResource(R.string.np_cd_note_actions),
                 onLongClick = {
                     haptics.performLongPress()
                     menuNowMs = positionMs()
@@ -367,7 +374,7 @@ private fun NotePageLine(
         ) {
             if (onRealign != null) {
                 YoinDropdownMenuItem(
-                    text = "对齐到现在 · ${formatNotePosition(menuNowMs)}",
+                    text = stringResource(R.string.np_note_realign, formatNotePosition(menuNowMs)),
                     leadingIcon = { Icon(YoinSymbols.MusicNote, contentDescription = null) },
                     onClick = {
                         menuOpen = false
@@ -377,7 +384,7 @@ private fun NotePageLine(
                 )
             }
             YoinDropdownMenuItem(
-                text = "删除",
+                text = stringResource(R.string.np_note_delete),
                 leadingIcon = { Icon(YoinSymbols.Delete, contentDescription = null) },
                 onClick = {
                     menuOpen = false
@@ -401,7 +408,7 @@ private fun NoteDeletedLine(onUndo: () -> Unit, modifier: Modifier = Modifier) {
     ) {
         Box(modifier = Modifier.width(NoteStampColumnWidth))
         Text(
-            text = "已删除",
+            text = stringResource(R.string.np_note_deleted),
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.weight(1f),
@@ -412,7 +419,7 @@ private fun NoteDeletedLine(onUndo: () -> Unit, modifier: Modifier = Modifier) {
                 onUndo()
             },
         ) {
-            Text(text = "撤销", fontWeight = FontWeight.SemiBold)
+            Text(text = stringResource(R.string.np_note_undo), fontWeight = FontWeight.SemiBold)
         }
     }
 }
@@ -438,7 +445,7 @@ private fun NoteDraftLine(anchorMs: Long?, modifier: Modifier = Modifier) {
                 .alignByBaseline(),
         )
         Text(
-            text = "正在写…",
+            text = stringResource(R.string.np_note_writing),
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier
@@ -482,7 +489,7 @@ private fun NoteEmptyState(songId: String, modifier: Modifier = Modifier) {
                 NoteEmptyDoodle(doodle = doodle, modifier = Modifier.size(doodleWidth, doodleHeight))
             }
             Text(
-                text = "还没有笔记",
+                text = stringResource(R.string.np_note_empty),
                 style = MaterialTheme.typography.titleSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )

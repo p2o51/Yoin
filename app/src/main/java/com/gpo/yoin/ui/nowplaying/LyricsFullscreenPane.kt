@@ -53,10 +53,13 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
+import com.gpo.yoin.R
 import com.gpo.yoin.ui.component.LyricsTrackTransition
 import com.gpo.yoin.ui.component.YoinLoadingIndicator
 import com.gpo.yoin.ui.component.ignoreParentHorizontalPadding
@@ -230,7 +233,7 @@ private fun LyricsFullscreenList(
                 YoinLoadingIndicator(size = 36.dp)
             } else {
                 Text(
-                    text = "No lyrics available",
+                    text = stringResource(R.string.np_lyrics_none),
                     style = MaterialTheme.typography.titleMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -624,7 +627,11 @@ private fun LyricsFullscreenList(
         ) {
             AnimatedContent(
                 // Each side keeps its own text AND tone (the nudge reads in primary).
-                targetState = lyricsSelectionLabel(selectedLines.size, limitNudge = limitNudge) to limitNudge,
+                targetState = lyricsSelectionLabel(
+                    selectedLines.size,
+                    limitNudge = limitNudge,
+                    resources = LocalContext.current.resources,
+                ) to limitNudge,
                 transitionSpec = {
                     (
                         YoinMotion.fadeIn(role = YoinMotionRole.Standard) togetherWith

@@ -41,9 +41,12 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.gpo.yoin.R
+import com.gpo.yoin.ui.common.asString
 import com.gpo.yoin.ui.component.YoinLoadingIndicator
 import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinMotionRole
@@ -121,7 +124,7 @@ internal fun AskGeminiBar(
         when (askState) {
             is AskBarState.Idle,
             is AskBarState.Error -> IdleOrErrorLayout(
-                message = (askState as? AskBarState.Error)?.message,
+                message = (askState as? AskBarState.Error)?.message?.asString(),
                 onTap = {
                     if (askState is AskBarState.Error) {
                         onDismissError()
@@ -175,7 +178,7 @@ private fun IdleOrErrorLayout(
         StaticIndicator()
         Spacer(modifier = Modifier.size(16.dp))
         Text(
-            text = message ?: "Ask Gemini",
+            text = message ?: stringResource(R.string.np_ask_gemini),
             style = MaterialTheme.typography.titleMedium,
             color = if (message != null) {
                 MaterialTheme.colorScheme.error
@@ -227,7 +230,7 @@ private fun FocusedLayout(
                 Box {
                     if (draft.isEmpty()) {
                         Text(
-                            text = "What is this song aiming for?",
+                            text = stringResource(R.string.np_ask_placeholder),
                             style = MaterialTheme.typography.titleMedium,
                             color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.6f),
                         )
@@ -237,7 +240,7 @@ private fun FocusedLayout(
             },
         )
         Text(
-            text = "Enter to ask Gemini",
+            text = stringResource(R.string.np_ask_enter),
             style = MaterialTheme.typography.labelMedium,
             color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f),
             modifier = Modifier.padding(top = 8.dp),
@@ -257,7 +260,7 @@ private fun LoadingLayout(title: String, modifier: Modifier = Modifier) {
         YoinLoadingIndicator(size = 28.dp)
         Spacer(modifier = Modifier.size(16.dp))
         Text(
-            text = title.takeIf { it.isNotBlank() } ?: "Ask Gemini",
+            text = title.takeIf { it.isNotBlank() } ?: stringResource(R.string.np_ask_gemini),
             style = MaterialTheme.typography.titleMedium,
             color = MaterialTheme.colorScheme.onPrimaryContainer,
             maxLines = 1,

@@ -21,8 +21,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import com.gpo.yoin.R
 import com.gpo.yoin.data.local.SongNote
 import com.gpo.yoin.ui.component.NoteLine
 import com.gpo.yoin.ui.component.NoteLineEmphasis
@@ -55,7 +57,7 @@ fun NoteCompactPane(
             contentAlignment = Alignment.CenterStart,
         ) {
             Text(
-                text = "Tap to write a note",
+                text = stringResource(R.string.np_note_tap_to_write),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )

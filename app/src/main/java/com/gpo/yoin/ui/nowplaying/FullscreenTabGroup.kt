@@ -19,8 +19,10 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.gpo.yoin.R
 import com.gpo.yoin.ui.theme.ProvideYoinMotionRole
 import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinMotionRole
@@ -53,7 +55,7 @@ internal fun FullscreenTabGroup(
             customItem(
                 buttonGroupContent = {
                     TabButton(
-                        label = "Lyrics",
+                        label = stringResource(R.string.np_tab_lyrics),
                         isSelected = selected == NowPlayingDetailPage.Lyrics,
                         interactionSource = lyricsInteraction,
                         onClick = { onSelect(NowPlayingDetailPage.Lyrics) },
@@ -65,7 +67,7 @@ internal fun FullscreenTabGroup(
             customItem(
                 buttonGroupContent = {
                     TabButton(
-                        label = "About",
+                        label = stringResource(R.string.np_tab_about),
                         isSelected = selected == NowPlayingDetailPage.About,
                         interactionSource = aboutInteraction,
                         onClick = { onSelect(NowPlayingDetailPage.About) },
@@ -77,7 +79,7 @@ internal fun FullscreenTabGroup(
             customItem(
                 buttonGroupContent = {
                     TabButton(
-                        label = "Note",
+                        label = stringResource(R.string.np_tab_note),
                         isSelected = selected == NowPlayingDetailPage.Note,
                         interactionSource = noteInteraction,
                         onClick = { onSelect(NowPlayingDetailPage.Note) },

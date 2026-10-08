@@ -110,6 +110,7 @@ import androidx.compose.ui.layout.layout
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
@@ -123,7 +124,9 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
+import com.gpo.yoin.R
 import com.gpo.yoin.data.local.SongNote
+import com.gpo.yoin.ui.common.asString
 import com.gpo.yoin.data.model.YoinDevice
 import com.gpo.yoin.data.repository.ActivityContext
 import com.gpo.yoin.data.source.Capability
@@ -460,7 +463,7 @@ private fun IdleContent(modifier: Modifier = Modifier) {
         contentAlignment = Alignment.Center,
     ) {
         Text(
-            text = "Nothing playing",
+            text = stringResource(R.string.np_empty_nothing_playing),
             style = MaterialTheme.typography.titleMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -492,7 +495,7 @@ private fun LaunchingContent(
         ) {
             Icon(
                 imageVector = YoinSymbols.ChevronDown,
-                contentDescription = "Collapse",
+                contentDescription = stringResource(R.string.np_cd_launching_collapse),
                 modifier = Modifier.graphicsLayer { rotationZ = 180f * dismissFraction() },
             )
         }
@@ -534,7 +537,7 @@ private fun LaunchingContent(
                 strokeWidth = 2.dp,
             )
             Text(
-                text = state.hint,
+                text = state.hint.asString(),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -569,7 +572,7 @@ private fun ConnectErrorContent(
         ) {
             Icon(
                 imageVector = YoinSymbols.ChevronDown,
-                contentDescription = "Collapse",
+                contentDescription = stringResource(R.string.np_cd_connect_error_collapse),
                 modifier = Modifier.graphicsLayer { rotationZ = 180f * dismissFraction() },
             )
         }
@@ -603,7 +606,7 @@ private fun ConnectErrorContent(
         )
         Spacer(modifier = Modifier.height(24.dp))
         Text(
-            text = state.message,
+            text = state.message.asString(),
             style = MaterialTheme.typography.bodyLarge,
             color = MaterialTheme.colorScheme.error,
             textAlign = androidx.compose.ui.text.style.TextAlign.Center,
@@ -1510,9 +1513,9 @@ private fun CompactPlayingContent(
                                                 Modifier.noRippleClickable(
                                                     interactionSource = coverClickSource,
                                                     onClickLabel = if (stageMode == NowPlayingStageMode.Immersive) {
-                                                        CoverFocusExitLabel
+                                                        stringResource(R.string.np_cd_show_lyrics_rating)
                                                     } else {
-                                                        CoverFocusLabel
+                                                        stringResource(R.string.np_cd_focus_artwork)
                                                     },
                                                     onClick = {
                                                         if (stageMode == NowPlayingStageMode.Immersive) {
@@ -1559,11 +1562,13 @@ private fun CompactPlayingContent(
                                     if (state.serviceFeatures.supportsFavorites) {
                                         FavoriteButton(
                                             isStarred = state.isStarred,
-                                            actionLabel = if (state.isStarred) {
-                                                state.serviceFeatures.removeLabel
-                                            } else {
-                                                state.serviceFeatures.saveLabel
-                                            },
+                                            actionLabel = stringResource(
+                                                if (state.isStarred) {
+                                                    state.serviceFeatures.removeLabel
+                                                } else {
+                                                    state.serviceFeatures.saveLabel
+                                                },
+                                            ),
                                             onClick = onToggleFavorite,
                                             onLongClick = onAddCurrentToPlaylist,
                                         )
@@ -1996,10 +2001,10 @@ private fun CompactPlayingContent(
         ProvideYoinMotionRole(role = YoinMotionRole.Standard) {
             DevicesSheet(
                 providerId = devicesState.providerId,
-                devices = devicesState.devices,
+                devices = devicesState.devices.localizedForSheet(),
                 loading = devicesState.loading,
                 busyDeviceId = devicesState.busyDeviceId,
-                errorMessage = devicesState.errorMessage,
+                errorMessage = devicesState.errorMessage?.asString(),
                 onRefresh = onRefreshDevices,
                 onSelect = onSelectDevice,
                 onDismiss = { showDevicesSheet = false },
@@ -2308,9 +2313,9 @@ private fun WidePlayingContent(
                                     Modifier.noRippleClickable(
                                         interactionSource = coverInteraction,
                                         onClickLabel = if (stageMode == NowPlayingStageMode.Immersive) {
-                                            CoverFocusExitLabel
+                                            stringResource(R.string.np_cd_show_lyrics_rating_wide)
                                         } else {
-                                            CoverFocusLabel
+                                            stringResource(R.string.np_cd_focus_artwork_wide)
                                         },
                                     ) {
                                         onStageModeChange(
@@ -2351,11 +2356,13 @@ private fun WidePlayingContent(
                         if (state.serviceFeatures.supportsFavorites) {
                             FavoriteButton(
                                 isStarred = state.isStarred,
-                                actionLabel = if (state.isStarred) {
-                                    state.serviceFeatures.removeLabel
-                                } else {
-                                    state.serviceFeatures.saveLabel
-                                },
+                                actionLabel = stringResource(
+                                    if (state.isStarred) {
+                                        state.serviceFeatures.removeLabel
+                                    } else {
+                                        state.serviceFeatures.saveLabel
+                                    },
+                                ),
                                 onClick = onToggleFavorite,
                                 onLongClick = onAddCurrentToPlaylist,
                             )
@@ -2694,10 +2701,10 @@ private fun WidePlayingContent(
         ProvideYoinMotionRole(role = YoinMotionRole.Standard) {
             DevicesSheet(
                 providerId = devicesState.providerId,
-                devices = devicesState.devices,
+                devices = devicesState.devices.localizedForSheet(),
                 loading = devicesState.loading,
                 busyDeviceId = devicesState.busyDeviceId,
-                errorMessage = devicesState.errorMessage,
+                errorMessage = devicesState.errorMessage?.asString(),
                 onRefresh = onRefreshDevices,
                 onSelect = onSelectDevice,
                 onDismiss = { showDevicesSheet = false },
@@ -2857,9 +2864,9 @@ private fun LandscapePlayingContent(
                                 Modifier.noRippleClickable(
                                     interactionSource = coverInteraction,
                                     onClickLabel = if (stageMode == NowPlayingStageMode.Immersive) {
-                                        CoverFocusExitLabel
+                                        stringResource(R.string.np_cd_show_lyrics_rating_landscape)
                                     } else {
-                                        CoverFocusLabel
+                                        stringResource(R.string.np_cd_focus_artwork_landscape)
                                     },
                                 ) {
                                     if (stageMode == NowPlayingStageMode.Immersive) {
@@ -2903,11 +2910,13 @@ private fun LandscapePlayingContent(
                         Spacer(modifier = Modifier.width(12.dp))
                         FavoriteButton(
                             isStarred = state.isStarred,
-                            actionLabel = if (state.isStarred) {
-                                state.serviceFeatures.removeLabel
-                            } else {
-                                state.serviceFeatures.saveLabel
-                            },
+                            actionLabel = stringResource(
+                                if (state.isStarred) {
+                                    state.serviceFeatures.removeLabel
+                                } else {
+                                    state.serviceFeatures.saveLabel
+                                },
+                            ),
                             onClick = onToggleFavorite,
                             onLongClick = onAddCurrentToPlaylist,
                         )
@@ -2945,7 +2954,11 @@ private fun LandscapePlayingContent(
                     ) {
                         Icon(
                             imageVector = YoinSymbols.ChevronDown,
-                            contentDescription = if (expanded) "Back to Now Playing" else "Close Now Playing",
+                            contentDescription = if (expanded) {
+                                stringResource(R.string.np_cd_landscape_back_now_playing)
+                            } else {
+                                stringResource(R.string.np_cd_landscape_close_now_playing)
+                            },
                             tint = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.graphicsLayer {
                                 rotationZ = 180f * dismissFraction() + 90f * detailProgress
@@ -3260,10 +3273,10 @@ private fun LandscapePlayingContent(
         ProvideYoinMotionRole(role = YoinMotionRole.Standard) {
             DevicesSheet(
                 providerId = devicesState.providerId,
-                devices = devicesState.devices,
+                devices = devicesState.devices.localizedForSheet(),
                 loading = devicesState.loading,
                 busyDeviceId = devicesState.busyDeviceId,
-                errorMessage = devicesState.errorMessage,
+                errorMessage = devicesState.errorMessage?.asString(),
                 onRefresh = onRefreshDevices,
                 onSelect = onSelectDevice,
                 onDismiss = { showDevicesSheet = false },
@@ -3549,7 +3562,7 @@ private fun TabletopPlayingContent(
                 ) {
                     Icon(
                         imageVector = YoinSymbols.ChevronDown,
-                        contentDescription = "Close",
+                        contentDescription = stringResource(R.string.np_cd_tabletop_close),
                         modifier = Modifier.graphicsLayer {
                             rotationZ = 180f * dismissFraction()
                         },
@@ -3642,10 +3655,10 @@ private fun TabletopPlayingContent(
         ProvideYoinMotionRole(role = YoinMotionRole.Standard) {
             DevicesSheet(
                 providerId = devicesState.providerId,
-                devices = devicesState.devices,
+                devices = devicesState.devices.localizedForSheet(),
                 loading = devicesState.loading,
                 busyDeviceId = devicesState.busyDeviceId,
-                errorMessage = devicesState.errorMessage,
+                errorMessage = devicesState.errorMessage?.asString(),
                 onRefresh = onRefreshDevices,
                 onSelect = onSelectDevice,
                 onDismiss = { showDevicesSheet = false },
@@ -3685,7 +3698,7 @@ private fun WideTopBar(
         IconButton(onClick = onBack) {
             Icon(
                 imageVector = YoinSymbols.ChevronDown,
-                contentDescription = "Close",
+                contentDescription = stringResource(R.string.np_cd_wide_close),
                 modifier = Modifier.graphicsLayer { rotationZ = 180f * dismissFraction() },
             )
         }
@@ -3760,9 +3773,9 @@ private fun StageTopBar(
             Icon(
                 imageVector = YoinSymbols.ChevronDown,
                 contentDescription = if (stageMode == NowPlayingStageMode.Compact) {
-                    "Close Now Playing"
+                    stringResource(R.string.np_cd_stage_close_now_playing)
                 } else {
-                    "Back to Now Playing"
+                    stringResource(R.string.np_cd_stage_back_now_playing)
                 },
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier
@@ -3924,12 +3937,12 @@ private fun DockedHeaderText(
     Column(modifier = modifier.padding(vertical = 2.dp, horizontal = 4.dp)) {
         Text(
             text = when (state.activityContext) {
-                is ActivityContext.Album -> "PLAYING FROM ALBUM"
-                is ActivityContext.Playlist -> "PLAYING FROM PLAYLIST"
+                is ActivityContext.Album -> stringResource(R.string.np_dock_playing_from_album)
+                is ActivityContext.Playlist -> stringResource(R.string.np_dock_playing_from_playlist)
                 is ActivityContext.Artist,
                 is ActivityContext.LikedSongs,
                 ActivityContext.None,
-                -> "NOW PLAYING"
+                -> stringResource(R.string.np_dock_now_playing)
             },
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f),
@@ -4014,6 +4027,9 @@ private fun CompactTextTabs(
     onSelect: (NowPlayingDetailPage) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val lyricsLabel = stringResource(R.string.np_text_tab_lyrics)
+    val aboutLabel = stringResource(R.string.np_text_tab_about)
+    val noteLabel = stringResource(R.string.np_text_tab_note)
     Row(
         modifier = modifier,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -4035,7 +4051,11 @@ private fun CompactTextTabs(
                 label = "tabStretch",
             )
             Text(
-                text = page.label,
+                text = when (page) {
+                    NowPlayingDetailPage.Lyrics -> lyricsLabel
+                    NowPlayingDetailPage.About -> aboutLabel
+                    NowPlayingDetailPage.Note -> noteLabel
+                },
                 style = MaterialTheme.typography.labelLarge.let {
                     if (isSelected) it.copy(fontWeight = FontWeight.Bold) else it
                 },
@@ -4123,7 +4143,7 @@ internal fun OneLineLyricPreview(
         }
     }
     val displayText = when {
-        state.lyricsLoading -> "Loading lyrics"
+        state.lyricsLoading -> stringResource(R.string.np_lyric_loading)
         lyricText.isNotBlank() -> lyricText
         else -> state.songTitle
     }
@@ -4221,7 +4241,7 @@ private fun OneLineLyricRow(
                 )
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
-                    text = "Tap to expand",
+                    text = stringResource(R.string.np_lyric_tap_to_expand),
                     style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Bold),
                     color = MaterialTheme.colorScheme.primary,
                     maxLines = 1,
@@ -4643,7 +4663,7 @@ internal fun PlainAlbumCover(
 ) {
     ExpressiveMediaArtwork(
         model = coverArtUrl,
-        contentDescription = "Album cover",
+        contentDescription = stringResource(R.string.np_cd_plain_album_cover),
         modifier = modifier,
         shape = shape,
         fallbackIcon = YoinSymbols.PlayArrow,
@@ -4655,13 +4675,6 @@ internal fun PlainAlbumCover(
         requestSizePx = requestSizePx,
     )
 }
-
-private val NowPlayingDetailPage.label: String
-    get() = when (this) {
-        NowPlayingDetailPage.Lyrics -> "Lyrics"
-        NowPlayingDetailPage.About -> "About"
-        NowPlayingDetailPage.Note -> "Note"
-    }
 
 private fun lerpDp(start: Dp, end: Dp, fraction: Float): Dp =
     start + (end - start) * fraction.coerceIn(0f, 1f)
@@ -4713,9 +4726,6 @@ private val ExpandedAccessoryHeight = 68.dp
 private val WideAccessoryHeight = 68.dp
 private val DockedCoverSlot = 48.dp
 
-/** TalkBack actions of the focusable cover. */
-private const val CoverFocusLabel = "Focus artwork"
-
 /** Caps a child at [fraction] of the width offered to it, keeping it no wider than its content. */
 private fun Modifier.maxWidthFraction(fraction: Float): Modifier = layout { measurable, constraints ->
     val cap = if (constraints.hasBoundedWidth) (constraints.maxWidth * fraction).roundToInt() else constraints.maxWidth
@@ -4726,7 +4736,6 @@ private fun Modifier.maxWidthFraction(fraction: Float): Modifier = layout { meas
 /** The one-row hero: gap after the title; the artist takes at most this share. */
 private val HeroOneLineGap = 10.dp
 private const val HeroOneLineArtistShare = 0.4f
-private const val CoverFocusExitLabel = "Show lyrics and rating"
 
 /** Enlarged phone: the tab row grows to hold the lyric tools at its end. */
 private val EnlargedTabRowHeight = 44.dp
@@ -4816,12 +4825,12 @@ private fun PlayingFromLabel(
     val clickAction: (() -> Unit)?
     when (activityContext) {
         is ActivityContext.Album -> {
-            kindLabel = "PLAYING FROM ALBUM"
+            kindLabel = stringResource(R.string.np_from_album)
             nameLabel = activityContext.albumName
             clickAction = { onAlbumClick(activityContext.albumId) }
         }
         is ActivityContext.Playlist -> {
-            kindLabel = "PLAYING FROM PLAYLIST"
+            kindLabel = stringResource(R.string.np_from_playlist)
             nameLabel = activityContext.playlistName
             clickAction = { onPlaylistClick(activityContext.playlistId) }
         }
@@ -4830,7 +4839,7 @@ private fun PlayingFromLabel(
         ActivityContext.None,
         -> {
             kindLabel = null
-            nameLabel = "NOW PLAYING"
+            nameLabel = stringResource(R.string.np_from_now_playing)
             clickAction = null
         }
     }
@@ -4914,7 +4923,9 @@ internal fun FavoriteButton(
     isStarred: Boolean,
     onClick: () -> Unit,
     onLongClick: (() -> Unit)? = null,
-    actionLabel: String = if (isStarred) "Remove from favorites" else "Add to favorites",
+    actionLabel: String = stringResource(
+        if (isStarred) R.string.np_cd_remove_favorite else R.string.np_cd_add_favorite,
+    ),
     modifier: Modifier = Modifier,
 ) {
     ProvideYoinMotionRole(role = YoinMotionRole.Standard) {
@@ -5046,7 +5057,7 @@ internal fun AlbumCover(
         model = coverArtUrl,
         reveal = com.gpo.yoin.ui.component.ArtworkReveal.DotDissolve,
         revealDirection = revealDirection,
-        contentDescription = "Album cover",
+        contentDescription = stringResource(R.string.np_cd_album_cover),
         modifier = finalModifier,
         shape = YoinArtworkShapes.NowPlayingCover,
         fallbackIcon = YoinSymbols.PlayArrow,

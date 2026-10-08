@@ -1,5 +1,7 @@
 package com.gpo.yoin.ui.nowplaying
 
+import com.gpo.yoin.ui.common.UiText
+
 /**
  * Transient state of the Ask Gemini bar in the fullscreen About pane. Pure
  * UI concern — does NOT get persisted. While `Loading`, no placeholder row
@@ -12,5 +14,5 @@ sealed interface AskBarState {
         val title: String,
         val requestId: Long = 0L,
     ) : AskBarState
-    data class Error(val message: String) : AskBarState
+    data class Error(val message: UiText) : AskBarState
 }

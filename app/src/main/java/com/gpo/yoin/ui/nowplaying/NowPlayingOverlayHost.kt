@@ -1,5 +1,6 @@
 package com.gpo.yoin.ui.nowplaying
 
+import android.content.Context
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.PredictiveBackHandler
 import androidx.compose.animation.ExperimentalSharedTransitionApi
@@ -47,15 +48,20 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import com.gpo.yoin.AppContainer
+import com.gpo.yoin.R
+import com.gpo.yoin.data.model.YoinDevice
 import com.gpo.yoin.data.source.Capability
 import com.gpo.yoin.symbols.YoinSymbols
+import com.gpo.yoin.ui.common.asString
 import com.gpo.yoin.ui.component.AddToPlaylistSheet
 import com.gpo.yoin.ui.component.DevicesSheet
 import com.gpo.yoin.ui.component.QueueEditActions
@@ -661,10 +667,10 @@ fun NowPlayingOverlayHost(
                     ProvideYoinMotionRole(role = YoinMotionRole.Standard) {
                         DevicesSheet(
                             providerId = devicesState.providerId,
-                            devices = devicesState.devices,
+                            devices = devicesState.devices.localizedForSheet(),
                             loading = devicesState.loading,
                             busyDeviceId = devicesState.busyDeviceId,
-                            errorMessage = devicesState.errorMessage,
+                            errorMessage = devicesState.errorMessage?.asString(),
                             onRefresh = viewModel::refreshDevices,
                             onSelect = viewModel::selectDevice,
                             onDismiss = { showCastDevicesSheet = false },
@@ -699,7 +705,11 @@ private fun PanelToggleButton(
     ) {
         Icon(
             imageVector = if (fullscreen) YoinSymbols.CloseFullscreen else YoinSymbols.OpenInFull,
-            contentDescription = if (fullscreen) "Back to side panel" else "Full screen",
+            contentDescription = if (fullscreen) {
+                stringResource(R.string.np_cd_back_to_panel)
+            } else {
+                stringResource(R.string.np_cd_full_screen)
+            },
             modifier = Modifier.size(20.dp),
         )
     }
@@ -724,21 +734,22 @@ fun BoxScope.NowPlayingAccessories(
     container: AppContainer,
 ) {
     val snackbarHostState = remember { SnackbarHostState() }
+    val context = LocalContext.current
 
-    LaunchedEffect(viewModel) {
+    LaunchedEffect(viewModel, context) {
         viewModel.addToPlaylistMessages.collect { message ->
             snackbarHostState.showSnackbar(
-                message = message,
+                message = message.asString(context),
                 duration = SnackbarDuration.Short,
             )
         }
     }
 
-    LaunchedEffect(viewModel) {
+    LaunchedEffect(viewModel, context) {
         viewModel.lyricsTranslationSwitchOffers.collect { offer ->
             val result = snackbarHostState.showSnackbar(
-                message = "${offer.providerName.toLyricsProviderLabel()} translation is available",
-                actionLabel = "Switch",
+                message = translationOfferMessage(context, offer.providerName),
+                actionLabel = context.getString(R.string.np_msg_switch),
                 duration = SnackbarDuration.Long,
             )
             if (result == SnackbarResult.ActionPerformed) {
@@ -772,5 +783,39 @@ fun BoxScope.NowPlayingAccessories(
             .padding(bottom = LocalShellChromeInsets.current.calculateBottomPadding(), start = 12.dp, end = 12.dp),
     ) { data ->
         Snackbar(snackbarData = data)
+    }
+}
+
+@Composable
+internal fun List<YoinDevice>.localizedForSheet(): List<YoinDevice> {
+    val switchBack = stringResource(R.string.np_device_switch_back_cast)
+    val connected = stringResource(R.string.np_device_connected_cast)
+    val usePill = stringResource(R.string.np_device_use_cast_pill)
+    return map { device ->
+        val status = when (device.statusText) {
+            NpDeviceStatusSwitchBack -> switchBack
+            NpDeviceStatusConnected -> connected
+            NpDeviceStatusUsePill -> usePill
+            else -> return@map device
+        }
+        when (device) {
+            is YoinDevice.LocalPlayback -> device.copy(statusText = status)
+            is YoinDevice.Chromecast -> device.copy(statusText = status)
+            is YoinDevice.SpotifyConnect -> device.copy(statusText = status)
+        }
+    }
+}
+
+private fun translationOfferMessage(context: Context, providerName: String): String {
+    val resources = context.resources
+    return when (providerName) {
+        "qq" -> resources.getString(R.string.np_msg_translation_qq)
+        "netease" -> resources.getString(R.string.np_msg_translation_netease)
+        "huawei" -> resources.getString(R.string.np_msg_translation_huawei)
+        "lrclib" -> resources.getString(R.string.np_msg_translation_lrclib)
+        else -> resources.getString(
+            R.string.np_msg_translation_available,
+            providerName.toLyricsProviderLabel(resources),
+        )
     }
 }

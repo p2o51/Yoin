@@ -1,5 +1,6 @@
 package com.gpo.yoin.ui.nowplaying
 
+import android.content.res.Resources
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.animateDpAsState
@@ -40,11 +41,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.gpo.yoin.R
 import com.gpo.yoin.data.local.SongAboutEntry
 import com.gpo.yoin.ui.component.markdownBoldAnnotatedString
 import com.gpo.yoin.ui.component.YoinLoadingIndicator
@@ -76,7 +80,7 @@ fun AboutFullscreenPane(
     ) { state ->
         when (state) {
             AboutUiState.Idle -> EmptyAboutHint(
-                text = "Tap About to start — we'll fetch song details on first open.",
+                text = stringResource(R.string.np_about_tap_start),
             )
             AboutUiState.Loading -> Box(
                 modifier = Modifier.fillMaxSize(),
@@ -86,14 +90,14 @@ fun AboutFullscreenPane(
                     YoinLoadingIndicator()
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        text = "Searching for song info…",
+                        text = stringResource(R.string.np_about_searching),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
             }
             AboutUiState.ApiKeyMissing -> EmptyAboutHint(
-                text = "Configure your Gemini API key in Settings to see AI-generated song info.",
+                text = stringResource(R.string.np_about_api_key),
             )
             is AboutUiState.Error -> Column(
                 modifier = Modifier
@@ -105,7 +109,7 @@ fun AboutFullscreenPane(
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.error,
                 )
-                TextButton(onClick = onRetryCanonical) { Text("Retry") }
+                TextButton(onClick = onRetryCanonical) { Text(stringResource(R.string.np_about_retry)) }
             }
             is AboutUiState.Ready -> ReadyContent(
                 entries = state.entries,
@@ -146,6 +150,7 @@ private fun ReadyContent(
             .verticalEdgeFadeOnScroll(scrollState, bottom = 64.dp)
             .verticalScroll(scrollState),
     ) {
+        val resources = LocalContext.current.resources
         val byKey = entries.filter { it.kind == SongAboutEntry.KIND_CANONICAL }
             .associateBy { it.entryKey }
 
@@ -153,7 +158,7 @@ private fun ReadyContent(
             .mapNotNull { key -> byKey[key]?.let { key to it } }
             .filter { (_, row) -> row.answerText.isNotBlank() }
             .forEach { (_, row) ->
-                InfoItem(label = labelFor(row.entryKey), value = row.answerText)
+                InfoItem(label = labelFor(row.entryKey, resources), value = row.answerText)
             }
 
         val asks = entries.filter { it.kind == SongAboutEntry.KIND_ASK }
@@ -172,13 +177,13 @@ private fun ReadyContent(
     }
 }
 
-private fun labelFor(entryKey: String): String = when (entryKey) {
-    SongAboutEntry.CANON_CREATION_TIME -> "Creation Time"
-    SongAboutEntry.CANON_CREATION_LOCATION -> "Creation Location"
-    SongAboutEntry.CANON_LYRICIST -> "Lyricist"
-    SongAboutEntry.CANON_COMPOSER -> "Composer"
-    SongAboutEntry.CANON_PRODUCER -> "Producer"
-    SongAboutEntry.CANON_REVIEW -> "About"
+private fun labelFor(entryKey: String, resources: Resources): String = when (entryKey) {
+    SongAboutEntry.CANON_CREATION_TIME -> resources.getString(R.string.np_about_creation_time)
+    SongAboutEntry.CANON_CREATION_LOCATION -> resources.getString(R.string.np_about_creation_location)
+    SongAboutEntry.CANON_LYRICIST -> resources.getString(R.string.np_about_lyricist)
+    SongAboutEntry.CANON_COMPOSER -> resources.getString(R.string.np_about_composer)
+    SongAboutEntry.CANON_PRODUCER -> resources.getString(R.string.np_about_producer)
+    SongAboutEntry.CANON_REVIEW -> resources.getString(R.string.np_about_review)
     else -> entryKey
 }
 

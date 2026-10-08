@@ -1,7 +1,9 @@
 package com.gpo.yoin.ui.nowplaying
 
+import android.content.res.Resources
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import com.gpo.yoin.R
 import com.gpo.yoin.symbols.YoinSymbols
 import com.gpo.yoin.ui.theme.YoinContainerShapes
 import androidx.compose.foundation.layout.Arrangement
@@ -50,10 +52,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.gpo.yoin.ui.common.asString
 import kotlinx.coroutines.launch
 
 /**
@@ -110,12 +115,12 @@ internal fun LyricsSearchSheet(
             textFieldState = textFieldState,
             searchBarState = searchBarState,
             onSearch = { onSearch(it) },
-            placeholder = { Text("Song or artist") },
+            placeholder = { Text(stringResource(R.string.np_lyrics_search_placeholder)) },
             leadingIcon = {
                 IconButton(onClick = { scope.launch { searchBarState.animateToCollapsed() } }) {
                     Icon(
                         imageVector = YoinSymbols.Back,
-                        contentDescription = "Close lyrics search",
+                        contentDescription = stringResource(R.string.np_cd_close_lyrics_search),
                     )
                 }
             },
@@ -129,7 +134,7 @@ internal fun LyricsSearchSheet(
                     IconButton(onClick = { textFieldState.setTextAndPlaceCursorAtEnd("") }) {
                         Icon(
                             imageVector = YoinSymbols.Close,
-                            contentDescription = "Clear",
+                            contentDescription = stringResource(R.string.np_cd_clear),
                         )
                     }
                 }
@@ -155,10 +160,11 @@ internal fun LyricsSearchSheet(
             ),
             verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
-            if (state.errorMessage != null) {
+            val searchError = state.errorMessage
+            if (searchError != null) {
                 item(key = "error") {
                     Text(
-                        text = state.errorMessage,
+                        text = searchError.asString(),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.error,
                         modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
@@ -170,7 +176,7 @@ internal fun LyricsSearchSheet(
                 state.providers.isEmpty() && state.loading -> {
                     item(key = "loading") {
                         LyricsProviderStatusRow(
-                            text = "Searching providers...",
+                            text = stringResource(R.string.np_lyrics_searching_providers),
                             loading = true,
                         )
                     }
@@ -181,7 +187,7 @@ internal fun LyricsSearchSheet(
                     state.errorMessage == null -> {
                     item(key = "empty") {
                         Text(
-                            text = "No lyrics found.",
+                            text = stringResource(R.string.np_lyrics_none_found),
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.padding(horizontal = 8.dp, vertical = 18.dp),
@@ -205,14 +211,14 @@ internal fun LyricsSearchSheet(
                             state.loading && provider.results.isEmpty() -> {
                                 item(key = "loading:${provider.providerName}") {
                                     LyricsProviderStatusRow(
-                                        text = "Searching...",
+                                        text = stringResource(R.string.np_lyrics_searching),
                                         loading = true,
                                     )
                                 }
                             }
                             provider.results.isEmpty() -> {
                                 item(key = "empty:${provider.providerName}") {
-                                    LyricsProviderStatusRow(text = "No results")
+                                    LyricsProviderStatusRow(text = stringResource(R.string.np_lyrics_no_results))
                                 }
                             }
                             else -> {
@@ -315,7 +321,7 @@ private fun LyricsProviderHeader(
     modifier: Modifier = Modifier,
 ) {
     Text(
-        text = providerName.toLyricsProviderLabel(),
+        text = providerName.toLyricsProviderLabel(LocalContext.current.resources),
         style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
         color = MaterialTheme.colorScheme.primary,
         modifier = modifier.padding(horizontal = 8.dp, vertical = 8.dp),
@@ -410,7 +416,7 @@ internal fun LyricsApplyDialog(
     var draft by remember(initialText) { mutableStateOf(initialText) }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Apply lyrics") },
+        title = { Text(stringResource(R.string.np_lyrics_apply_title)) },
         text = {
             OutlinedTextField(
                 value = draft,
@@ -418,7 +424,7 @@ internal fun LyricsApplyDialog(
                 modifier = Modifier
                     .fillMaxWidth()
                     .heightIn(min = 180.dp, max = 360.dp),
-                placeholder = { Text("Lyrics") },
+                placeholder = { Text(stringResource(R.string.np_lyrics_field_placeholder)) },
                 minLines = 8,
             )
         },
@@ -427,12 +433,12 @@ internal fun LyricsApplyDialog(
                 enabled = draft.isNotBlank(),
                 onClick = { onApply(draft) },
             ) {
-                Text("Apply")
+                Text(stringResource(R.string.np_lyrics_apply))
             }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) {
-                Text("Cancel")
+                Text(stringResource(R.string.np_lyrics_cancel))
             }
         },
     )
@@ -459,10 +465,10 @@ private fun Long.toLrcTimestamp(): String {
 }
 
 /** 歌词源 id → 面向用户的名字（搜索分区标题、snackbar）；不认识的原样返回。 */
-internal fun String.toLyricsProviderLabel(): String = when (this) {
-    "qq" -> "QQ Music"
-    "netease" -> "NetEase"
-    "huawei" -> "Huawei Music"
-    "lrclib" -> "LRCLIB"
+internal fun String.toLyricsProviderLabel(resources: Resources): String = when (this) {
+    "qq" -> resources.getString(R.string.np_lyrics_provider_qq)
+    "netease" -> resources.getString(R.string.np_lyrics_provider_netease)
+    "huawei" -> resources.getString(R.string.np_lyrics_provider_huawei)
+    "lrclib" -> resources.getString(R.string.np_lyrics_provider_lrclib)
     else -> this
 }

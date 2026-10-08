@@ -61,7 +61,7 @@ class NoteFullscreenPaneTest {
         setPane(notes = listOf(first, second), onDelete = { deleted += it })
 
         rule.onNodeWithText("placeholder line one").performTouchInput { longClick() }
-        rule.onNodeWithText("删除").performClick()
+        rule.onNodeWithText("Delete").performClick()
 
         assertEquals(listOf("n1"), deleted)
     }
@@ -76,7 +76,7 @@ class NoteFullscreenPaneTest {
         )
 
         rule.onNodeWithText("placeholder line two").performTouchInput { longClick() }
-        rule.onNodeWithText("对齐到现在 · 1:35").performClick()
+        rule.onNodeWithText("Align to now · 1:35").performClick()
 
         assertEquals(listOf("n2" to 95_000L), realigned)
     }
@@ -87,8 +87,8 @@ class NoteFullscreenPaneTest {
 
         rule.onNodeWithText("placeholder line one").performTouchInput { longClick() }
 
-        rule.onNodeWithText("删除").assertExists()
-        rule.onNodeWithText("对齐到现在", substring = true).assertDoesNotExist()
+        rule.onNodeWithText("Delete").assertExists()
+        rule.onNodeWithText("Align to now", substring = true).assertDoesNotExist()
     }
 
     @Test
@@ -96,8 +96,8 @@ class NoteFullscreenPaneTest {
         var undone = 0
         setPane(notes = listOf(second), deleted = first, onUndo = { undone++ })
 
-        rule.onNodeWithText("已删除").assertExists()
-        rule.onNodeWithText("撤销").performClick()
+        rule.onNodeWithText("Deleted").assertExists()
+        rule.onNodeWithText("Undo").performClick()
 
         assertEquals(1, undone)
     }
@@ -134,7 +134,7 @@ class NoteFullscreenPaneTest {
                 deleted = deleted,
             )
         }
-        rule.onNodeWithText("撤销").assertExists()
+        rule.onNodeWithText("Undo").assertExists()
 
         // The undo window closes: the row collapses and "two" glides up into its place.
         rule.mainClock.autoAdvance = false
@@ -142,7 +142,7 @@ class NoteFullscreenPaneTest {
         rule.waitForIdle()
         rule.mainClock.advanceTimeByFrame()
         rule.waitForIdle()
-        rule.onNodeWithText("撤销").assertDoesNotExist()
+        rule.onNodeWithText("Undo").assertDoesNotExist()
         rule.onNodeWithText("placeholder line two").performTouchInput { click() }
         rule.mainClock.advanceTimeByFrame()
         assertEquals("a tap that came down on the gliding row must not seek", emptyList<Long>(), seeks)
@@ -171,11 +171,11 @@ class NoteFullscreenPaneTest {
                 onDelete = {},
             )
         }
-        rule.onNodeWithText("正在写…").assertDoesNotExist()
+        rule.onNodeWithText("Writing…").assertDoesNotExist()
 
         rule.runOnIdle { writing = true }
 
-        rule.onNodeWithText("正在写…").assertExists()
+        rule.onNodeWithText("Writing…").assertExists()
         rule.onNodeWithText("0:30").assertExists()
     }
 
@@ -187,7 +187,7 @@ class NoteFullscreenPaneTest {
         )
         setPane(notes = listOf(first), draft = draft, writing = true)
 
-        rule.onNodeWithText("正在写…").assertDoesNotExist()
+        rule.onNodeWithText("Writing…").assertDoesNotExist()
     }
 
     private fun setPane(

@@ -31,10 +31,12 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.gpo.yoin.R
 import com.gpo.yoin.player.CastState
 import com.gpo.yoin.symbols.YoinSymbols
 import com.gpo.yoin.ui.component.CastButton
@@ -80,12 +82,15 @@ internal fun BottomPills(
         // The whole group folds to icon-only pills when the labels (plus the
         // Cast control) don't fit the real width; a pressed pill still shows
         // its label when there is room for it. All three are always there.
+        val queueLabel = stringResource(R.string.np_pill_queue)
+        val devicesLabel = stringResource(R.string.np_pill_devices)
+        val writeLabel = stringResource(R.string.np_pill_write)
         BoxWithConstraints(modifier = modifier.fillMaxWidth()) {
             val layout = rememberBottomPillsLayout(
                 maxWidth = maxWidth,
                 pillHeight = pillHeight,
-                showWrite = showWrite,
                 castState = if (supportsYoinCast) castState else CastState.NotAvailable,
+                labels = listOfNotNull(queueLabel, devicesLabel, writeLabel.takeIf { showWrite }),
             )
             fun labelVisible(pressed: Boolean, label: String): Boolean = when {
                 layout.labelled -> !anyPressed || pressed
@@ -116,8 +121,8 @@ internal fun BottomPills(
                                     onQueueClick()
                                 },
                                 icon = YoinSymbols.Queue,
-                                label = "Queue",
-                                showLabel = labelVisible(queuePressed, "Queue"),
+                                label = queueLabel,
+                                showLabel = labelVisible(queuePressed, queueLabel),
                                 pressWiden = layout.labelled,
                                 interactionSource = queueInteraction,
                                 shape = YoinShapeTokens.Full,
@@ -134,8 +139,8 @@ internal fun BottomPills(
                                     onDevicesClick()
                                 },
                                 icon = YoinSymbols.Devices,
-                                label = "Devices",
-                                showLabel = labelVisible(devicesPressed, "Devices"),
+                                label = devicesLabel,
+                                showLabel = labelVisible(devicesPressed, devicesLabel),
                                 pressWiden = layout.labelled,
                                 interactionSource = devicesInteraction,
                                 shape = if (forceCapsule) {
@@ -157,8 +162,8 @@ internal fun BottomPills(
                                         onWriteClick()
                                     },
                                     icon = YoinSymbols.Note,
-                                    label = "Write",
-                                    showLabel = labelVisible(writePressed, "Write"),
+                                    label = writeLabel,
+                                    showLabel = labelVisible(writePressed, writeLabel),
                                     pressWiden = layout.labelled,
                                     interactionSource = writeInteraction,
                                     shape = YoinShapeTokens.Full,
@@ -190,16 +195,15 @@ internal class BottomPillsLayout(
 private fun rememberBottomPillsLayout(
     maxWidth: Dp,
     pillHeight: Dp,
-    showWrite: Boolean,
     castState: CastState,
+    labels: List<String>,
 ): BottomPillsLayout {
     val textMeasurer = rememberTextMeasurer()
     val labelStyle = MaterialTheme.typography.labelMedium
     val castStyle = MaterialTheme.typography.labelLarge
     val density = LocalDensity.current
-    return remember(maxWidth, pillHeight, showWrite, castState, labelStyle, castStyle, density) {
+    return remember(maxWidth, pillHeight, castState, labelStyle, castStyle, density, labels) {
         with(density) {
-            val labels = listOfNotNull("Queue", "Devices", "Write".takeIf { showWrite })
             val labelWidths = labels.associateWith { label ->
                 textMeasurer.measure(label, labelStyle, maxLines = 1, softWrap = false).size.width.toDp()
             }

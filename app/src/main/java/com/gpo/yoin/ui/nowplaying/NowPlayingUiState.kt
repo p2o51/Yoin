@@ -2,6 +2,7 @@ package com.gpo.yoin.ui.nowplaying
 
 
 import com.gpo.yoin.data.repository.ActivityContext
+import com.gpo.yoin.ui.common.UiText
 import com.gpo.yoin.data.model.LibraryMembership
 import com.gpo.yoin.data.source.ServiceFeatureCatalog
 import com.gpo.yoin.data.source.ServiceFeatures
@@ -26,7 +27,7 @@ sealed interface NowPlayingUiState {
         val albumName: String,
         val coverArtUrl: String?,
         val durationMs: Long,
-        val hint: String,
+        val hint: UiText,
     ) : NowPlayingUiState
 
     /**
@@ -38,7 +39,7 @@ sealed interface NowPlayingUiState {
         val songTitle: String,
         val artist: String,
         val coverArtUrl: String?,
-        val message: String,
+        val message: UiText,
     ) : NowPlayingUiState
 
     /**
@@ -123,7 +124,7 @@ data class LyricsSearchState(
     val loading: Boolean = false,
     val applyingCandidateKey: String? = null,
     val providers: List<LyricsSearchProviderUi> = emptyList(),
-    val errorMessage: String? = null,
+    val errorMessage: UiText? = null,
 )
 
 data class LyricsSearchProviderUi(

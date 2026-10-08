@@ -4,6 +4,7 @@ import android.content.ClipData
 import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
+import android.content.res.Resources
 import android.graphics.Bitmap
 import android.os.Build
 import android.os.Environment
@@ -85,6 +86,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.selected
@@ -132,30 +134,30 @@ import kotlinx.coroutines.withContext
  * The shapes a pick can be shared as (owner L6, 2026-10-05: spotoolfy's poster
  * plus Spotify's story size).
  */
-internal enum class LyricsShareFormat(val label: String) {
+internal enum class LyricsShareFormat {
     /** The quote card on its own — spotoolfy's poster width (720 × 2 px). */
-    Card("Card"),
+    Card,
 
     /** 9:16 full-bleed backdrop with the card centred, for stories / status. */
-    Story("Story"),
+    Story,
 }
 
 /**
  * The card's colour pairings — spotoolfy's four poster styles, read from the
  * playing palette (Now Playing's theme is already the cover's).
  */
-internal enum class LyricsCardTone(val label: String) {
+internal enum class LyricsCardTone {
     /** Container + on-container (spotoolfy style 2): the default. */
-    Soft("Soft"),
+    Soft,
 
     /** The soft pair inverted (spotoolfy style 1). */
-    Deep("Deep"),
+    Deep,
 
     /** Tertiary + on-tertiary (spotoolfy style 3). */
-    Vivid("Vivid"),
+    Vivid,
 
     /** Tertiary container + its on-colour (spotoolfy style 4). */
-    Mist("Mist"),
+    Mist,
 }
 
 /** One tone's colours: the card, its text, its secondary text, and the story's backdrop. */
@@ -237,14 +239,29 @@ internal fun lyricsShareFitScale(childWidth: Int, childHeight: Int, maxWidth: In
  * Gallery file name (spotoolfy: `lyrics_poster_<title>_<ms>`): the song title
  * with the characters file systems refuse dropped, capped, plus a timestamp.
  */
-internal fun lyricsShareFileName(songTitle: String?, nowMs: Long): String {
+internal fun lyricsShareFileName(
+    songTitle: String?,
+    nowMs: Long,
+    resources: Resources? = null,
+): String {
     val title = songTitle.orEmpty()
         .replace(Regex("""[\\/:*?"<>|\p{Cntrl}]"""), " ")
         .replace(Regex("""\s+"""), " ")
         .trim()
         .take(FileNameTitleMaxChars)
         .trim()
-    return if (title.isEmpty()) "Yoin lyrics $nowMs.png" else "Yoin lyrics - $title - $nowMs.png"
+    val stamp = nowMs.toString()
+    return if (title.isEmpty()) {
+        if (resources == null) {
+            "Yoin lyrics $nowMs.png" // i18n-allow: LyricsShareCardTest asserts this English
+        } else {
+            resources.getString(R.string.np_share_file_untitled, stamp)
+        }
+    } else if (resources == null) {
+        "Yoin lyrics - $title - $nowMs.png" // i18n-allow: LyricsShareCardTest asserts this English
+    } else {
+        resources.getString(R.string.np_share_file_named, title, stamp)
+    }
 }
 
 private enum class SaveStatus { Idle, Saving, Saved, Failed }
@@ -282,6 +299,7 @@ internal fun LyricsShareSheet(
     var tone by rememberSaveable { mutableStateOf(LyricsCardTone.Soft) }
     var sharing by remember { mutableStateOf(false) }
     var saveStatus by remember { mutableStateOf(SaveStatus.Idle) }
+    val couldntShare = stringResource(R.string.np_share_failed)
     val canSave = Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q
     val windowHeight = with(LocalDensity.current) { LocalWindowInfo.current.containerSize.height.toDp() }
     val previewMaxHeight = windowHeight * PreviewMaxHeightFraction
@@ -307,7 +325,7 @@ internal fun LyricsShareSheet(
                 .padding(bottom = 16.dp + navBottom),
         ) {
             Text(
-                text = "Share lyrics",
+                text = stringResource(R.string.np_share_title),
                 style = MaterialTheme.typography.titleMedium,
                 color = MaterialTheme.colorScheme.onSurface,
             )
@@ -380,7 +398,11 @@ internal fun LyricsShareSheet(
                             }
                             saveStatus = SaveStatus.Saving
                             val layer = if (format == LyricsShareFormat.Card) cardLayer else storyLayer
-                            val name = lyricsShareFileName(songTitle, System.currentTimeMillis())
+                            val name = lyricsShareFileName(
+                                songTitle,
+                                System.currentTimeMillis(),
+                                context.resources,
+                            )
                             scope.launch {
                                 val saved = layer.exportImage()?.let { saveLyricsImage(context, it, name) } == true
                                 saveStatus = if (saved) SaveStatus.Saved else SaveStatus.Failed
@@ -416,10 +438,10 @@ internal fun LyricsShareSheet(
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Text(
                                     text = when (status) {
-                                        SaveStatus.Idle -> "Save"
-                                        SaveStatus.Saving -> "Saving…"
-                                        SaveStatus.Saved -> "Saved"
-                                        SaveStatus.Failed -> "Try again"
+                                        SaveStatus.Idle -> stringResource(R.string.np_share_save)
+                                        SaveStatus.Saving -> stringResource(R.string.np_share_saving)
+                                        SaveStatus.Saved -> stringResource(R.string.np_share_saved)
+                                        SaveStatus.Failed -> stringResource(R.string.np_share_try_again)
                                     },
                                     style = MaterialTheme.typography.labelLarge,
                                 )
@@ -438,7 +460,7 @@ internal fun LyricsShareSheet(
                                 shareLyricsImage(context, image, caption = lyricsCredit(songTitle, artist))
                             } == true
                             sharing = false
-                            if (shared) onShared() else onMessage("Couldn't share the image")
+                            if (shared) onShared() else onMessage(couldntShare)
                         }
                     },
                     enabled = !sharing && lines.isNotEmpty(),
@@ -449,7 +471,7 @@ internal fun LyricsShareSheet(
                 ) {
                     Icon(imageVector = YoinSymbols.Share, contentDescription = null)
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text(text = "Share", style = MaterialTheme.typography.labelLarge)
+                    Text(text = stringResource(R.string.np_share_action), style = MaterialTheme.typography.labelLarge)
                 }
             }
         }
@@ -630,7 +652,7 @@ internal fun LyricsShareCard(
             )
             Spacer(modifier = Modifier.width(6.dp))
             Text(
-                text = "Yoin",
+                text = stringResource(R.string.np_share_brand),
                 style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold),
                 color = colors.content,
             )
@@ -705,6 +727,8 @@ private fun LyricsShareFormatToggle(
     onSelect: (LyricsShareFormat) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val cardLabel = stringResource(R.string.np_share_format_card)
+    val storyLabel = stringResource(R.string.np_share_format_story)
     val interactions = remember { LyricsShareFormat.entries.associateWith { MutableInteractionSource() } }
     ProvideYoinMotionRole(role = YoinMotionRole.Standard) {
         ButtonGroup(
@@ -720,7 +744,10 @@ private fun LyricsShareFormatToggle(
                 customItem(
                     buttonGroupContent = {
                         LyricsShareFormatButton(
-                            label = format.label,
+                            label = when (format) {
+                                LyricsShareFormat.Card -> cardLabel
+                                LyricsShareFormat.Story -> storyLabel
+                            },
                             isSelected = format == selected,
                             interactionSource = interactions.getValue(format),
                             onClick = { onSelect(format) },
@@ -790,6 +817,10 @@ private fun LyricsCardToneSwatches(
     onSelect: (LyricsCardTone) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val softLabel = stringResource(R.string.np_cd_tone_soft)
+    val deepLabel = stringResource(R.string.np_cd_tone_deep)
+    val vividLabel = stringResource(R.string.np_cd_tone_vivid)
+    val mistLabel = stringResource(R.string.np_cd_tone_mist)
     val scheme = MaterialTheme.colorScheme
     Row(
         modifier = modifier.selectableGroup(),
@@ -799,7 +830,12 @@ private fun LyricsCardToneSwatches(
         LyricsCardTone.entries.forEach { tone ->
             LyricsCardToneSwatch(
                 colors = tone.colors(scheme),
-                label = "${tone.label} colours",
+                label = when (tone) {
+                    LyricsCardTone.Soft -> softLabel
+                    LyricsCardTone.Deep -> deepLabel
+                    LyricsCardTone.Vivid -> vividLabel
+                    LyricsCardTone.Mist -> mistLabel
+                },
                 selected = tone == selected,
                 onClick = { onSelect(tone) },
             )
