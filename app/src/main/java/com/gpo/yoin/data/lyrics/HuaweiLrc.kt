@@ -111,7 +111,7 @@ internal object HuaweiLrc {
 
     private class Parts(val original: String, val translation: String?)
 
-    private const val BOM = "﻿"
+    private const val BOM = "\uFEFF"
     private const val INSTRUMENTAL_PLACEHOLDER = "此歌曲为没有填词的纯音乐"
 
     private val LEADING_TIMESTAMPS = Regex("""^(?:\[\d{1,3}:\d{1,2}(?:[.:]\d{1,3})?])+""")

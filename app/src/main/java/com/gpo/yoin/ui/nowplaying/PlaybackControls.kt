@@ -47,8 +47,8 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.res.booleanResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
@@ -171,7 +171,10 @@ internal fun PlaybackControls(
             animationSpec = textStretchSpec,
             label = "textStretch",
         )
-        val wordLabel = booleanResource(R.bool.np_transport_word_label)
+        // Only English spells the word; every other language (including one
+        // added later) shows the symbol. Read from the locale, not a values-en
+        // resource: a values-en folder makes Lint treat English as a translation.
+        val wordLabel = LocalConfiguration.current.locales[0].language == "en"
         val wordMeasurer = rememberTextMeasurer()
 
         Column(modifier = Modifier.fillMaxWidth()) {
@@ -584,7 +587,7 @@ private val PlayRestPadding = 24.dp
 private val TransportGap = 8.dp
 private val CompactControlSize = 48.dp
 
-// English only (np_transport_word_label); other languages show the symbol in a
+// English only (see wordLabel); other languages show the symbol in a
 // pill measured from np_transport_pause_word, so the shape never changes
 // with the language.
 
