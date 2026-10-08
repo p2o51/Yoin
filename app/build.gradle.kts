@@ -61,6 +61,11 @@ android {
         buildConfigField("String", "SPOTIFY_CLIENT_ID", "\"$spotifyClientId\"")
     }
 
+    androidResources {
+        // values/ is English. The matching locale is declared in res/resources.properties.
+        generateLocaleConfig = true
+    }
+
     signingConfigs {
         if (hasReleaseKeystore) {
             create("releaseUpload") {
@@ -73,6 +78,9 @@ android {
     }
 
     buildTypes {
+        debug {
+            isPseudoLocalesEnabled = true
+        }
         release {
             if (hasReleaseKeystore) {
                 signingConfig = signingConfigs.getByName("releaseUpload")
