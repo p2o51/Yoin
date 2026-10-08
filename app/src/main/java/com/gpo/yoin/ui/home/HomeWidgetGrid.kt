@@ -1,5 +1,6 @@
 package com.gpo.yoin.ui.home
 
+import android.text.format.DateFormat
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.ContentTransform
 import androidx.compose.animation.EnterExitState
@@ -32,6 +33,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.toShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -39,12 +41,16 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.gpo.yoin.R
 import com.gpo.yoin.symbols.YoinSymbols
+import com.gpo.yoin.ui.common.asString
 import com.gpo.yoin.ui.component.ExpressiveBackdropColors
 import com.gpo.yoin.ui.component.ExpressiveMediaArtwork
 import com.gpo.yoin.ui.component.rememberPressMorphShape
@@ -65,6 +71,7 @@ import com.gpo.yoin.ui.theme.GoogleSansFlex
 import com.gpo.yoin.ui.theme.YoinArtworkShapes
 import com.gpo.yoin.ui.theme.YoinSerifTitle
 import com.gpo.yoin.ui.theme.withTabularFigures
+import java.util.Calendar
 
 // The compact "1×1" cover is 100dp wide in the Figma; the backdrop shape fills
 // it while the artwork sits at ~73/100 in the bottom-right so the shape peeks
@@ -539,7 +546,7 @@ private fun WidgetRatingColumn(
         // 3dp keeps the comment visually attached to its score.
         verticalArrangement = Arrangement.spacedBy(3.dp),
     ) {
-        card.ratingText?.let { rating ->
+        card.shownRating()?.let { rating ->
             // The palette's base tone (L* capped at 0.62) reads fine on a
             // light surface but sinks into a dark one — use the brighter
             // accent tone there, same hue family.
@@ -559,7 +566,7 @@ private fun WidgetRatingColumn(
                     ).withTabularFigures(),
                     color = ratingColor,
                 )
-                card.ratingBasis?.let { basis ->
+                card.shownBasis()?.let { basis ->
                     Text(
                         text = basis,
                         style = MaterialTheme.typography.labelSmall.withTabularFigures(),
@@ -641,6 +648,33 @@ private fun WidgetCoverBlock(
     }
 }
 
+@Composable
+private fun HomeWidgetCard.shownSubtitle(): String = subtitleText?.asString() ?: subtitle
+
+@Composable
+private fun HomeWidgetCard.shownRating(): String? {
+    val text = ratingText ?: return null
+    return if (ratingUnavailable) stringResource(R.string.home_widget_rating_na) else text
+}
+
+@Composable
+private fun HomeWidgetCard.shownBasis(): String? {
+    val date = ratingBasisDateMillis
+    if (date != null) return formatHomeMemoryDate(date)
+    val text = ratingBasisText
+    if (text != null) return text.asString()
+    return ratingBasis
+}
+
+@Composable
+@ReadOnlyComposable
+private fun formatHomeMemoryDate(epochMillis: Long): String {
+    val locale = LocalContext.current.resources.configuration.locales[0]
+    val pattern = DateFormat.getBestDateTimePattern(locale, "MMMd")
+    val calendar = Calendar.getInstance().apply { timeInMillis = epochMillis }
+    return DateFormat.format(pattern, calendar).toString()
+}
+
 /** A cover's title + subtitle, flush — one text cluster (see [WidgetCoverBlock]). */
 @Composable
 private fun WidgetCoverCaption(card: HomeWidgetCard) {
@@ -659,7 +693,7 @@ private fun WidgetCoverCaption(card: HomeWidgetCard) {
             modifier = Modifier.seamFade(),
         )
         Text(
-            text = card.subtitle,
+            text = card.shownSubtitle(),
             style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp),
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             maxLines = 1,

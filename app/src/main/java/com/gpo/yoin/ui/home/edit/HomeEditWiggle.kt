@@ -31,12 +31,14 @@ import androidx.compose.ui.node.currentValueOf
 import androidx.compose.ui.node.invalidateSemantics
 import androidx.compose.ui.node.observeReads
 import androidx.compose.ui.platform.InspectorInfo
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.SemanticsPropertyReceiver
 import androidx.compose.ui.semantics.onLongClick
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.gpo.yoin.R
 import com.gpo.yoin.ui.home.HomeSection
 import com.gpo.yoin.ui.theme.YoinArtworkShapes
 import com.gpo.yoin.ui.theme.YoinContainerShapes
@@ -149,7 +151,7 @@ private class HomeEditCardNode(private var index: Int) :
 
     override fun SemanticsPropertyReceiver.applySemantics() {
         val scope = longClickScope ?: return
-        onLongClick(label = EditHomeLabel) {
+        onLongClick(label = currentValueOf(LocalContext).getString(R.string.home_edit_action_card)) {
             scope.enterEdit()
             true
         }
@@ -290,8 +292,6 @@ internal fun HomeEditClock(motion: HomeEditMotion) {
         snapshotFlow { motion.clockShouldRun }.collectLatest { run -> if (run) motion.runClock() }
     }
 }
-
-private const val EditHomeLabel = "Edit Home"
 
 @Preview(showBackground = true, widthDp = 360, heightDp = 200)
 @Composable

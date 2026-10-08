@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.gpo.yoin.AppContainer
+import com.gpo.yoin.R
 import com.gpo.yoin.data.home.HomeLayoutStore
 import com.gpo.yoin.data.local.ActivityEntityType
 import com.gpo.yoin.data.local.ActivityEvent
@@ -25,6 +26,7 @@ import com.gpo.yoin.data.model.Playlist
 import com.gpo.yoin.data.model.Track
 import com.gpo.yoin.data.repository.YoinRepository
 import com.gpo.yoin.data.source.Capability
+import com.gpo.yoin.ui.common.UiText
 import com.gpo.yoin.ui.memories.MemoryEntityType
 import com.gpo.yoin.ui.memories.MemoryScoreKind
 import com.gpo.yoin.ui.memories.ResolvedMemoryTitle
@@ -225,9 +227,15 @@ class HomeViewModel(
             } catch (e: Exception) {
                 if (!matchesCurrentScope(providerId, profileId)) return@launch
                 if (cachedSpotifyContent == null) {
+                    val detail = e.message
                     emit(
                         HomeUiState.Error(
-                            e.message ?: "Failed to load home content",
+                            message = detail ?: "Failed to load home content",
+                            messageText = if (detail != null) {
+                                UiText.Raw(detail)
+                            } else {
+                                UiText.Res(R.string.home_error_load_failed)
+                            },
                         ),
                     )
                 }
@@ -270,9 +278,13 @@ class HomeViewModel(
             val signals = signalsDeferred.await()
             val widgetGrid = widgetGridDeferred.await()
             val pill = signals?.pill ?: cachedMemoryPill()
+            val hero = heroFootnoteDeferred.await()
             HomeUiState.Content(
                 activities = activitiesDeferred.await(),
-                activityHeroFootnote = heroFootnoteDeferred.await(),
+                activityHeroFootnote = hero.text,
+                activityHeroYear = hero.year,
+                activityHeroSongCount = hero.songCount,
+                activityHeroMinutes = hero.minutes,
                 widgetGrid = widgetGrid,
                 recentlyAddedTracks = recentlyAdded.tracks,
                 recentlyAddedAlbums = recentlyAdded.albums,
@@ -380,10 +392,14 @@ class HomeViewModel(
         val signals = signalsDeferred.await()
         val widgetGrid = widgetGridDeferred.await()
         val pill = signals?.pill ?: cachedMemoryPill()
+        val hero = heroFootnoteDeferred.await()
         HomeUiState.Content(
             activities = activities,
             activitiesFromRemote = activitiesFromRemote,
-            activityHeroFootnote = heroFootnoteDeferred.await(),
+            activityHeroFootnote = hero.text,
+            activityHeroYear = hero.year,
+            activityHeroSongCount = hero.songCount,
+            activityHeroMinutes = hero.minutes,
             widgetGrid = widgetGrid,
             recentlyAddedTracks = recentlyAdded.tracks,
             recentlyAddedAlbums = recentlyAdded.albums,
@@ -450,7 +466,7 @@ class HomeViewModel(
                     val heroUnchanged = newHero?.entityType == oldHero?.entityType &&
                         newHero?.entityId == oldHero?.entityId
                     val footnote = if (heroUnchanged) {
-                        currentContent.activityHeroFootnote
+                        null
                     } else {
                         loadActivityHeroFootnote(effectiveActivities)
                     }
@@ -461,11 +477,21 @@ class HomeViewModel(
                         return@collectLatest
                     }
                     val latest = currentContent() ?: return@collectLatest
-                    val nextContent = latest.copy(
-                        activities = effectiveActivities,
-                        activitiesFromRemote = keepEndpointFeed,
-                        activityHeroFootnote = footnote,
-                    )
+                    val nextContent = if (footnote == null) {
+                        latest.copy(
+                            activities = effectiveActivities,
+                            activitiesFromRemote = keepEndpointFeed,
+                        )
+                    } else {
+                        latest.copy(
+                            activities = effectiveActivities,
+                            activitiesFromRemote = keepEndpointFeed,
+                            activityHeroFootnote = footnote.text,
+                            activityHeroYear = footnote.year,
+                            activityHeroSongCount = footnote.songCount,
+                            activityHeroMinutes = footnote.minutes,
+                        )
+                    }
                     homeContentCache[scopeKey] = nextContent
                     emit(nextContent)
                 }
@@ -871,24 +897,36 @@ class HomeViewModel(
         // Cache-only on the AI side: Home never triggers a Gemini request.
         val resolvedTitle = guardedOrNull { memoryTitle(candidate) }
         val rating = candidate.albumRating ?: candidate.averageSongRating
+        val score = formatMemoryScore(rating)
         // A reviewed memory dates itself off its last touch (the Figma "record"
         // card); an auto-averaged one shows what the score rests on.
+        val basisDate = if (hasReview) candidate.lastPlayedAt ?: candidate.firstPlayedAt else null
+        val trackBasis = basisDate == null && candidate.ratedTrackCount > 0 && candidate.totalTracks > 0
         val basis = when {
-            hasReview -> (candidate.lastPlayedAt ?: candidate.firstPlayedAt)?.let(::formatMemoryDate)
-            candidate.ratedTrackCount > 0 && candidate.totalTracks > 0 ->
-                "Based on ${candidate.ratedTrackCount}/${candidate.totalTracks} tracks"
+            basisDate != null -> formatMemoryDate(basisDate)
+            trackBasis -> "Based on ${candidate.ratedTrackCount}/${candidate.totalTracks} tracks"
             else -> null
         }
+        val (subtitle, subtitleText) = albumSubtitle(candidate.artistName)
         val card = HomeWidgetCard(
             stableId = "grid-memory:${candidate.provider}:$rawAlbumId",
             entityType = MemoryEntityType.ALBUM,
             title = candidate.albumName,
-            subtitle = candidate.artistName?.takeIf { it.isNotBlank() }
-                ?.let { artist -> "Album · $artist" }
-                ?: "Album",
+            subtitle = subtitle,
+            subtitleText = subtitleText,
             coverArtUrl = candidate.coverArtUrl,
-            ratingText = formatMemoryScore(rating),
+            ratingText = score,
+            ratingUnavailable = score == "N/A",
             ratingBasis = basis,
+            ratingBasisText = if (trackBasis) {
+                UiText.Res(
+                    R.string.home_widget_basis_tracks,
+                    listOf(candidate.ratedTrackCount, candidate.totalTracks),
+                )
+            } else {
+                null
+            },
+            ratingBasisDateMillis = basisDate,
             // Only a written title (the user's or the AI's): the bare album name is already the card's title.
             comment = resolvedTitle?.takeIf { it.source != AlbumMemoryTitleSource.ALBUM }?.text,
             commentIsHeadline = true,
@@ -926,16 +964,19 @@ class HomeViewModel(
             genre = null,
             userRating = null,
         )
+        val score = formatMemoryScore(rating)
+        val (subtitle, subtitleText) = singleSubtitle(note.artist)
         val card = HomeWidgetCard(
             stableId = "grid-note:${note.id}",
             entityType = MemoryEntityType.SONG,
             title = note.title,
-            subtitle = note.artist.takeIf { it.isNotBlank() }
-                ?.let { artist -> "Single · $artist" }
-                ?: "Single",
+            subtitle = subtitle,
+            subtitleText = subtitleText,
             coverArtUrl = repository.resolveCoverUrl(coverRef, size = 480),
-            ratingText = formatMemoryScore(rating),
+            ratingText = score,
+            ratingUnavailable = score == "N/A",
             ratingBasis = formatMemoryDate(note.updatedAt),
+            ratingBasisDateMillis = note.updatedAt,
             comment = note.content,
             expanded = true,
             target = HomeWidgetTarget.PlaySong(song),
@@ -951,38 +992,48 @@ class HomeViewModel(
             repository.getStarred().tracks.shuffled()
         }
 
-    private fun Album.toWidgetCard(): HomeWidgetCard = HomeWidgetCard(
-        stableId = "grid-album:$id",
-        entityType = MemoryEntityType.ALBUM,
-        title = name,
-        subtitle = artist?.takeIf { it.isNotBlank() }?.let { "Album · $it" } ?: "Album",
-        coverArtUrl = repository.resolveCoverUrl(coverArt, size = 480)
-            ?: id.takeIf { it.provider == MediaId.PROVIDER_SUBSONIC }
-                ?.let { repository.resolveCoverUrl(CoverRef.SourceRelative(it.rawId), size = 480) },
-        target = HomeWidgetTarget.AlbumDetail(id.toString()),
-    )
+    private fun Album.toWidgetCard(): HomeWidgetCard {
+        val (subtitle, subtitleText) = albumSubtitle(artist)
+        return HomeWidgetCard(
+            stableId = "grid-album:$id",
+            entityType = MemoryEntityType.ALBUM,
+            title = name,
+            subtitle = subtitle,
+            subtitleText = subtitleText,
+            coverArtUrl = repository.resolveCoverUrl(coverArt, size = 480)
+                ?: id.takeIf { it.provider == MediaId.PROVIDER_SUBSONIC }
+                    ?.let { repository.resolveCoverUrl(CoverRef.SourceRelative(it.rawId), size = 480) },
+            target = HomeWidgetTarget.AlbumDetail(id.toString()),
+        )
+    }
 
-    private fun Track.toWidgetCard(): HomeWidgetCard = HomeWidgetCard(
-        stableId = "grid-song:$id",
-        entityType = MemoryEntityType.SONG,
-        title = title.orEmpty(),
-        subtitle = artist?.takeIf { it.isNotBlank() }?.let { "Single · $it" } ?: "Single",
-        coverArtUrl = repository.resolveCoverUrl(coverArt, size = 480)
-            ?: albumId?.takeIf { it.provider == MediaId.PROVIDER_SUBSONIC }
-                ?.let { repository.resolveCoverUrl(CoverRef.SourceRelative(it.rawId), size = 480) },
-        target = HomeWidgetTarget.PlaySong(this),
-    )
+    private fun Track.toWidgetCard(): HomeWidgetCard {
+        val (subtitle, subtitleText) = singleSubtitle(artist)
+        return HomeWidgetCard(
+            stableId = "grid-song:$id",
+            entityType = MemoryEntityType.SONG,
+            title = title.orEmpty(),
+            subtitle = subtitle,
+            subtitleText = subtitleText,
+            coverArtUrl = repository.resolveCoverUrl(coverArt, size = 480)
+                ?: albumId?.takeIf { it.provider == MediaId.PROVIDER_SUBSONIC }
+                    ?.let { repository.resolveCoverUrl(CoverRef.SourceRelative(it.rawId), size = 480) },
+            target = HomeWidgetTarget.PlaySong(this),
+        )
+    }
 
-    private fun Playlist.toWidgetCard(): HomeWidgetCard = HomeWidgetCard(
-        stableId = "grid-playlist:$id",
-        entityType = MemoryEntityType.PLAYLIST,
-        title = name,
-        subtitle = owner?.takeIf { it.isNotBlank() && it != "Playlist" }
-            ?.let { "Playlist · $it" }
-            ?: "Playlist",
-        coverArtUrl = repository.resolveCoverUrl(coverArt, size = 480),
-        target = HomeWidgetTarget.PlaylistDetail(id.toString()),
-    )
+    private fun Playlist.toWidgetCard(): HomeWidgetCard {
+        val (subtitle, subtitleText) = playlistSubtitle(owner)
+        return HomeWidgetCard(
+            stableId = "grid-playlist:$id",
+            entityType = MemoryEntityType.PLAYLIST,
+            title = name,
+            subtitle = subtitle,
+            subtitleText = subtitleText,
+            coverArtUrl = repository.resolveCoverUrl(coverArt, size = 480),
+            target = HomeWidgetTarget.PlaylistDetail(id.toString()),
+        )
+    }
 
     /**
      * Round-robin across the pools so the compact covers mix types instead of
@@ -1012,21 +1063,64 @@ class HomeViewModel(
      * ([YoinRepository.getAlbum] is LRU + disk backed), so this is usually a
      * local read; any failure just drops the line.
      */
-    private suspend fun loadActivityHeroFootnote(activities: List<ActivityEvent>): String? {
-        val hero = selectHomeHeroActivity(activities) ?: return null
-        if (hero.entityType != ActivityEntityType.ALBUM.name) return null
+    private suspend fun loadActivityHeroFootnote(activities: List<ActivityEvent>): HeroFootnote {
+        val hero = selectHomeHeroActivity(activities) ?: return HeroFootnote()
+        if (hero.entityType != ActivityEntityType.ALBUM.name) return HeroFootnote()
         val album = try {
             repository.getAlbum(MediaId(hero.provider, MediaId.storedRawId(hero.provider, hero.entityId)))
         } catch (cancellation: CancellationException) {
             throw cancellation
         } catch (_: Exception) {
             null
-        } ?: return null
+        } ?: return HeroFootnote()
+        val year = album.year
+        val songs = album.songCount?.takeIf { count -> count > 0 }
+        val minutes = album.durationSec?.takeIf { seconds -> seconds > 60 }?.let { it / 60 }
         val parts = mutableListOf<String>()
-        album.year?.let { parts += it.toString() }
-        album.songCount?.takeIf { count -> count > 0 }?.let { parts += if (it == 1) "1 song" else "$it songs" }
-        album.durationSec?.takeIf { seconds -> seconds > 60 }?.let { parts += "${it / 60} min" }
-        return parts.takeIf { it.isNotEmpty() }?.joinToString(" · ")
+        year?.let { parts += it.toString() }
+        songs?.let { parts += if (it == 1) "1 song" else "$it songs" }
+        minutes?.let { parts += "$it min" }
+        return HeroFootnote(
+            text = parts.takeIf { it.isNotEmpty() }?.joinToString(" · "),
+            year = year,
+            songCount = songs,
+            minutes = minutes,
+        )
+    }
+
+    private data class HeroFootnote(
+        val text: String? = null,
+        val year: Int? = null,
+        val songCount: Int? = null,
+        val minutes: Int? = null,
+    )
+
+    private fun albumSubtitle(artist: String?): Pair<String, UiText> {
+        val name = artist?.takeIf { it.isNotBlank() }
+        return if (name != null) {
+            "Album · $name" to UiText.Res(R.string.home_widget_album_artist, listOf(name))
+        } else {
+            "Album" to UiText.Res(R.string.home_widget_album)
+        }
+    }
+
+    private fun singleSubtitle(artist: String?): Pair<String, UiText> {
+        val name = artist?.takeIf { it.isNotBlank() }
+        return if (name != null) {
+            "Single · $name" to UiText.Res(R.string.home_widget_single_artist, listOf(name))
+        } else {
+            "Single" to UiText.Res(R.string.home_widget_single)
+        }
+    }
+
+    /** "Playlist" here is a provider placeholder owner, matched as data, not as UI copy. */
+    private fun playlistSubtitle(owner: String?): Pair<String, UiText> {
+        val name = owner?.takeIf { it.isNotBlank() && it != "Playlist" }
+        return if (name != null) {
+            "Playlist · $name" to UiText.Res(R.string.home_widget_playlist_owner, listOf(name))
+        } else {
+            "Playlist" to UiText.Res(R.string.home_widget_playlist)
+        }
     }
 
     private suspend fun <T> guardedList(block: suspend () -> List<T>): List<T> = try {

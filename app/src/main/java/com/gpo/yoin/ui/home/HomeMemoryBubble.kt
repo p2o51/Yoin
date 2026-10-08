@@ -50,6 +50,7 @@ import androidx.compose.ui.layout.onPlaced
 import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
@@ -64,6 +65,7 @@ import androidx.core.content.edit
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
+import com.gpo.yoin.R
 import com.gpo.yoin.symbols.YoinSymbols
 import com.gpo.yoin.ui.component.rememberExpressiveBackdropColors
 import com.gpo.yoin.ui.experience.LocalMotionProfile
@@ -631,6 +633,7 @@ private fun MemoryArrow(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val memoriesArrow = stringResource(R.string.home_cd_memories_arrow)
     Box(
         modifier = modifier
             .clearAndSetSemantics {
@@ -638,7 +641,7 @@ private fun MemoryArrow(
                 // (Pointer taps are routed by Home's root, never here.)
                 if (enabled) {
                     role = Role.Button
-                    contentDescription = "Memories"
+                    contentDescription = memoriesArrow
                     onClick {
                         onClick()
                         true
@@ -697,8 +700,17 @@ private fun MemoryBubble(
     )
     val hornX = with(density) { BubbleHornX.toPx() }
     val shape = remember(hornX) { SpeechBubbleShape(hornX) }
-    val description = latest?.let { "Memories. Latest: ${it.albumName}" + (it.artistName?.let { a -> " by $a" } ?: "") }
-        ?: "Memories"
+    val item = latest
+    val description = if (item == null) {
+        stringResource(R.string.home_cd_bubble_memories)
+    } else {
+        val artist = item.artistName
+        if (artist != null) {
+            stringResource(R.string.home_cd_bubble_latest_by, item.albumName, artist)
+        } else {
+            stringResource(R.string.home_cd_bubble_latest, item.albumName)
+        }
+    }
 
     Layout(
         modifier = modifier
@@ -749,7 +761,7 @@ private fun MemoryBubble(
                 )
             } else {
                 Text(
-                    text = "Memories",
+                    text = stringResource(R.string.home_memory_bubble_title),
                     style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
                     color = colors.onSurfaceVariant,
                     maxLines = 1,

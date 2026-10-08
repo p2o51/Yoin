@@ -1,5 +1,6 @@
 package com.gpo.yoin.ui.home
 
+import android.content.res.Resources
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -32,7 +33,9 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.layout
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.text.TextMeasurer
@@ -67,6 +70,7 @@ import com.gpo.yoin.ui.memories.MemoryScoreKind
 import com.gpo.yoin.ui.theme.YoinContainerShapes
 import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinShapeTokens
+import com.gpo.yoin.R
 import com.gpo.yoin.ui.theme.YoinTheme
 import com.gpo.yoin.ui.theme.withTabularFigures
 import java.time.Instant
@@ -90,7 +94,7 @@ import java.util.Locale
 
 /** Edit mode's placeholder copy when Rediscover has nothing to bring back. */
 internal const val RediscoverPlaceholderText =
-    "Albums and songs you rated or wrote about come back here when it's been a while"
+    "Albums and songs you rated or wrote about come back here when it's been a while" // i18n-allow: RediscoverCopyTest asserts this English
 
 /** Before × fontScale: the 104dp backdrop plus 14dp padding above and below. */
 private val RediscoverCardHeight = 132.dp
@@ -147,25 +151,26 @@ internal fun RediscoverSection(
     // off-screen cards included), so the row's titles line up.
     val eyebrowStyle = MaterialTheme.typography.labelMedium
     val eyebrowMeasurer = rememberTextMeasurer()
-    val albumEyebrows = remember(shown, nowMillis, eyebrowMeasurer, eyebrowStyle) {
+    val resources = LocalContext.current.resources
+    val albumEyebrows = remember(shown, nowMillis, eyebrowMeasurer, eyebrowStyle, resources.configuration) {
         RediscoverEyebrowReserve(
             measurer = eyebrowMeasurer,
             style = eyebrowStyle,
-            eyebrows = shown.filter { it.song == null }.map { rediscoverEyebrow(it, nowMillis) },
+            eyebrows = shown.filter { it.song == null }.map { rediscoverEyebrow(it, nowMillis, resources) },
         )
     }
-    val songEyebrows = remember(shown, nowMillis, eyebrowMeasurer, eyebrowStyle) {
+    val songEyebrows = remember(shown, nowMillis, eyebrowMeasurer, eyebrowStyle, resources.configuration) {
         RediscoverEyebrowReserve(
             measurer = eyebrowMeasurer,
             style = eyebrowStyle,
-            eyebrows = shown.filter { it.song != null }.map { rediscoverEyebrow(it, nowMillis) },
+            eyebrows = shown.filter { it.song != null }.map { rediscoverEyebrow(it, nowMillis, resources) },
         )
     }
     Column(
         modifier = modifier,
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        HomeSectionTitle(text = HomeSection.Rediscover.title)
+        HomeSectionTitle(text = stringResource(HomeSection.Rediscover.titleRes))
         val shelfState = rememberLazyListState()
         val sidePadding = remember(frame) { FeedFrameSidePadding(frame) }
         LazyRow(
@@ -252,8 +257,13 @@ private fun RediscoverCard(
     val interactionSource = remember { MutableInteractionSource() }
     // The Activities wash: hue-faithful to this album's own cover.
     val colors = rememberActivityCardColors(item.coverArtUrl, extractBackdropColors)
-    val eyebrow = remember(item, nowMillis) { rediscoverEyebrow(item, nowMillis) }
-    val footnote = remember(item) { rediscoverFootnote(item.firstPlayedAt, item.playCount) }
+    val resources = LocalContext.current.resources
+    val eyebrow = remember(item, nowMillis, resources.configuration) {
+        rediscoverEyebrow(item, nowMillis, resources)
+    }
+    val footnote = remember(item, resources.configuration) {
+        rediscoverFootnote(item.firstPlayedAt, item.playCount, resources = resources)
+    }
     Surface(
         // The tinted card and its cover break up as one print; the text on it
         // is lifted out and passes under the bar whole.
@@ -366,7 +376,10 @@ private fun RediscoverSongCard(
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val colors = rememberActivityCardColors(item.coverArtUrl, extractBackdropColors)
-    val eyebrow = remember(item, nowMillis) { rediscoverEyebrow(item, nowMillis) }
+    val resources = LocalContext.current.resources
+    val eyebrow = remember(item, nowMillis, resources.configuration) {
+        rediscoverEyebrow(item, nowMillis, resources)
+    }
     val subtitle = remember(item) { rediscoverSongSubtitle(item) }
     val snippet = item.noteSnippet?.takeIf { item.scoreText == null }
     Surface(
@@ -384,7 +397,7 @@ private fun RediscoverSongCard(
                 .noRippleClickable(
                     interactionSource = interactionSource,
                     enabled = homeEditInteractive(),
-                    onClickLabel = RediscoverPlayLabel,
+                    onClickLabel = stringResource(R.string.home_rediscover_play),
                     onClick = onClick,
                 )
                 .padding(RediscoverSongCardPadding),
@@ -545,7 +558,7 @@ private fun RediscoverScoreBadge(
     modifier: Modifier = Modifier,
 ) {
     val solid = kind != MemoryScoreKind.AVERAGE_TRACK_RATING
-    val description = rediscoverBadgeDescription(scoreText, kind)
+    val description = rediscoverBadgeDescription(scoreText, kind, LocalContext.current.resources)
     Box(
         modifier = modifier
             .height(RediscoverBadgeHeight)
@@ -582,14 +595,26 @@ private val RediscoverMonthFormatter: DateTimeFormatter = DateTimeFormatter.ofPa
  * How long since the last play in Yoin: whole months (days / 30) under a
  * year, whole years (days / 365) from 365 days — "7 months", "1 year".
  */
-internal fun rediscoverAwayText(lastPlayedAt: Long, nowMillis: Long): String {
+internal fun rediscoverAwayText(
+    lastPlayedAt: Long,
+    nowMillis: Long,
+    resources: Resources? = null,
+): String {
     val days = ((nowMillis - lastPlayedAt) / DayMillis).coerceAtLeast(0L)
     return if (days >= 365) {
-        val years = days / 365
-        if (years == 1L) "1 year" else "$years years"
+        val years = (days / 365).toInt()
+        if (resources == null) {
+            if (years == 1) "1 year" else "$years years" // i18n-allow: RediscoverCopyTest asserts this English
+        } else {
+            resources.getQuantityString(R.plurals.home_rediscover_years, years, years)
+        }
     } else {
-        val months = (days / 30).coerceAtLeast(1L)
-        if (months == 1L) "1 month" else "$months months"
+        val months = (days / 30).coerceAtLeast(1L).toInt()
+        if (resources == null) {
+            if (months == 1) "1 month" else "$months months" // i18n-allow: RediscoverCopyTest asserts this English
+        } else {
+            resources.getQuantityString(R.plurals.home_rediscover_months, months, months)
+        }
     }
 }
 
@@ -602,13 +627,25 @@ internal fun rediscoverScoreText(score: Float): String = String.format(Locale.US
  * exists (the badge says it), on a song card (its note snippet says it) or
  * when nothing is known.
  */
-internal fun rediscoverReason(item: HomeRediscoverItem): String? = when {
+internal fun rediscoverReason(item: HomeRediscoverItem, resources: Resources? = null): String? = when {
     item.scoreText != null -> null
     item.song != null -> null
-    item.hasReview -> "Reviewed"
-    item.noteCount > 0 -> if (item.noteCount == 1) "1 note" else "${item.noteCount} notes"
-    item.ratedTrackCount > 0 ->
-        if (item.ratedTrackCount == 1) "1 track rated" else "${item.ratedTrackCount} tracks rated"
+    item.hasReview -> resources?.getString(R.string.home_rediscover_reviewed)
+        ?: "Reviewed" // i18n-allow: RediscoverCopyTest asserts this English
+    item.noteCount > 0 -> if (resources == null) {
+        if (item.noteCount == 1) "1 note" else "${item.noteCount} notes" // i18n-allow: RediscoverCopyTest asserts this English
+    } else {
+        resources.getQuantityString(R.plurals.home_rediscover_notes, item.noteCount, item.noteCount)
+    }
+    item.ratedTrackCount > 0 -> if (resources == null) {
+        if (item.ratedTrackCount == 1) "1 track rated" else "${item.ratedTrackCount} tracks rated" // i18n-allow: RediscoverCopyTest asserts this English
+    } else {
+        resources.getQuantityString(
+            R.plurals.home_rediscover_tracks_rated,
+            item.ratedTrackCount,
+            item.ratedTrackCount,
+        )
+    }
     else -> null
 }
 
@@ -616,9 +653,25 @@ internal fun rediscoverReason(item: HomeRediscoverItem): String? = when {
  * "Not played in Yoin for 7 months" — the score sits in the badge beside it —
  * or, with no score, the memory first: "3 notes · Not played in Yoin for 7 months".
  */
-internal fun rediscoverEyebrow(item: HomeRediscoverItem, nowMillis: Long): String {
-    val away = "Not played in Yoin for ${rediscoverAwayText(item.lastPlayedAt, nowMillis)}"
-    return rediscoverReason(item)?.let { reason -> "$reason · $away" } ?: away
+internal fun rediscoverEyebrow(
+    item: HomeRediscoverItem,
+    nowMillis: Long,
+    resources: Resources? = null,
+): String {
+    if (resources == null) {
+        val away = "Not played in Yoin for ${rediscoverAwayText(item.lastPlayedAt, nowMillis)}" // i18n-allow: RediscoverCopyTest asserts this English
+        return rediscoverReason(item)?.let { reason -> "$reason · $away" } ?: away // i18n-allow: RediscoverCopyTest asserts this English
+    }
+    val days = ((nowMillis - item.lastPlayedAt) / DayMillis).coerceAtLeast(0L)
+    val away = if (days >= 365) {
+        val years = (days / 365).toInt()
+        resources.getQuantityString(R.plurals.home_rediscover_eyebrow_years, years, years)
+    } else {
+        val months = (days / 30).coerceAtLeast(1L).toInt()
+        resources.getQuantityString(R.plurals.home_rediscover_eyebrow_months, months, months)
+    }
+    val reason = rediscoverReason(item, resources) ?: return away
+    return resources.getString(R.string.home_rediscover_eyebrow_reason, reason, away)
 }
 
 /** A song card's second line: "Artist · Album", either half dropping when unknown. */
@@ -627,27 +680,50 @@ internal fun rediscoverSongSubtitle(item: HomeRediscoverItem): String? =
         .takeIf { it.isNotEmpty() }
         ?.joinToString(" · ")
 
-/** TalkBack's click label on a song card: it plays, it doesn't open. */
-private const val RediscoverPlayLabel = "Play"
-
 /** TalkBack for the badge: "Your rating 9.0" / "Track average 8.4". */
-internal fun rediscoverBadgeDescription(scoreText: String, kind: MemoryScoreKind): String = when (kind) {
-    MemoryScoreKind.AVERAGE_TRACK_RATING -> "Track average $scoreText"
-    else -> "Your rating $scoreText"
+internal fun rediscoverBadgeDescription(
+    scoreText: String,
+    kind: MemoryScoreKind,
+    resources: Resources? = null,
+): String = when (kind) {
+    MemoryScoreKind.AVERAGE_TRACK_RATING ->
+        resources?.getString(R.string.home_rediscover_cd_track_average, scoreText)
+            ?: "Track average $scoreText" // i18n-allow: RediscoverCopyTest asserts this English
+    else ->
+        resources?.getString(R.string.home_rediscover_cd_your_rating, scoreText)
+            ?: "Your rating $scoreText" // i18n-allow: RediscoverCopyTest asserts this English
 }
 
 /**
  * "First played 2025.11 · 23 plays" (local month, play history only); either
- * half drops when history lacks it, null when both do.
+ * half drops when history lacks it, null when both do. The month stamp stays
+ * `yyyy.MM` so the English line remains "2025.11".
  */
-internal fun rediscoverFootnote(firstPlayedAt: Long?, playCount: Int, zone: ZoneId = ZoneId.systemDefault()): String? {
-    val parts = buildList {
-        firstPlayedAt?.let { millis ->
-            add("First played " + Instant.ofEpochMilli(millis).atZone(zone).format(RediscoverMonthFormatter))
-        }
-        if (playCount > 0) add(if (playCount == 1) "1 play" else "$playCount plays")
+internal fun rediscoverFootnote(
+    firstPlayedAt: Long?,
+    playCount: Int,
+    zone: ZoneId = ZoneId.systemDefault(),
+    resources: Resources? = null,
+): String? {
+    val month = firstPlayedAt?.let { millis ->
+        Instant.ofEpochMilli(millis).atZone(zone).format(RediscoverMonthFormatter)
     }
-    return parts.takeIf { it.isNotEmpty() }?.joinToString(" · ")
+    if (resources == null) {
+        val parts = buildList {
+            month?.let { add("First played $it") } // i18n-allow: RediscoverCopyTest asserts this English
+            if (playCount > 0) {
+                add(if (playCount == 1) "1 play" else "$playCount plays") // i18n-allow: RediscoverCopyTest asserts this English
+            }
+        }
+        return parts.takeIf { it.isNotEmpty() }?.joinToString(" · ") // i18n-allow: RediscoverCopyTest asserts this English
+    }
+    return when {
+        month != null && playCount > 0 ->
+            resources.getQuantityString(R.plurals.home_rediscover_footnote, playCount, month, playCount)
+        month != null -> resources.getString(R.string.home_rediscover_footnote_first_played, month)
+        playCount > 0 -> resources.getQuantityString(R.plurals.home_rediscover_plays, playCount, playCount)
+        else -> null
+    }
 }
 
 // ── Previews ───────────────────────────────────────────────────────────

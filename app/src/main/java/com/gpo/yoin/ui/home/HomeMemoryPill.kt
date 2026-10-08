@@ -1,5 +1,6 @@
 package com.gpo.yoin.ui.home
 
+import android.content.res.Resources
 import androidx.compose.animation.AnimatedContent
 import kotlin.math.roundToInt
 import androidx.compose.ui.unit.Constraints
@@ -52,6 +53,8 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.layout.layoutId
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.role
@@ -61,6 +64,7 @@ import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
+import com.gpo.yoin.R
 import com.gpo.yoin.data.memory.AlbumMemoryCandidate
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.symbols.YoinSymbols
@@ -209,13 +213,26 @@ internal fun buildHomeMemoryPill(
 internal fun memoryNewsKey(latest: AlbumMemoryCandidate?, noteCount: Int): String =
     "${latest?.lastWrittenAt ?: 0L}#$noteCount"
 
-internal fun formatNoteCount(count: Int): String = when {
-    count > 999 -> "999+ notes"
-    count == 1 -> "1 note"
-    else -> "$count notes"
+internal fun formatNoteCount(count: Int, resources: Resources? = null): String {
+    if (resources == null) {
+        return when {
+            count > 999 -> "999+ notes" // i18n-allow: HomeMemoryPillTest asserts this English
+            count == 1 -> "1 note" // i18n-allow: HomeMemoryPillTest asserts this English
+            else -> "$count notes" // i18n-allow: HomeMemoryPillTest asserts this English
+        }
+    }
+    return if (count > 999) {
+        resources.getString(R.string.home_notes_capped)
+    } else {
+        resources.getQuantityString(R.plurals.home_notes, count, count)
+    }
 }
 
-internal fun formatNoteCountShort(count: Int): String = if (count > 999) "999+" else count.toString()
+internal fun formatNoteCountShort(count: Int, resources: Resources? = null): String = when {
+    count > 999 -> resources?.getString(R.string.home_notes_capped_short)
+        ?: "999+" // i18n-allow: HomeMemoryPillTest asserts this English
+    else -> count.toString()
+}
 
 internal enum class NotesForm { Full, Short, None }
 
@@ -235,28 +252,78 @@ internal fun chooseNotesForm(
     else -> NotesForm.None
 }
 
-internal fun memoryPillContentDescription(pill: HomeMemoryPill?, form: MemoryPillForm): String {
-    if (pill == null || form == MemoryPillForm.Unresolved) return "Memories"
-    val notes = pill.noteCount.takeIf { it > 0 }?.let(::formatNoteCount)
+internal fun memoryPillContentDescription(
+    pill: HomeMemoryPill?,
+    form: MemoryPillForm,
+    resources: Resources? = null,
+): String {
+    if (resources == null) return memoryPillContentDescriptionEnglish(pill, form)
+    if (pill == null || form == MemoryPillForm.Unresolved) return resources.getString(R.string.home_cd_memories)
+    val notes = pill.noteCount.takeIf { it > 0 }?.let { formatNoteCount(it, resources) }
     val latest = pill.latest
     return when (form) {
-        MemoryPillForm.Ghost -> "Memories, nothing kept yet"
-        MemoryPillForm.NotesOnly -> "Memories, $notes"
+        MemoryPillForm.Ghost -> resources.getString(R.string.home_cd_memories_empty)
+        MemoryPillForm.NotesOnly -> resources.getString(R.string.home_cd_memories_notes, notes)
+        else -> memoryPillLatestDescription(latest, notes, resources)
+    }
+}
+
+private fun memoryPillContentDescriptionEnglish(pill: HomeMemoryPill?, form: MemoryPillForm): String {
+    if (pill == null || form == MemoryPillForm.Unresolved) return "Memories" // i18n-allow: HomeMemoryPillTest asserts this English
+    val notes = pill.noteCount.takeIf { it > 0 }?.let { formatNoteCount(it) }
+    val latest = pill.latest
+    return when (form) {
+        MemoryPillForm.Ghost -> "Memories, nothing kept yet" // i18n-allow: HomeMemoryPillTest asserts this English
+        MemoryPillForm.NotesOnly -> "Memories, $notes" // i18n-allow: HomeMemoryPillTest asserts this English
         else -> buildString {
-            append("Memories. Latest: ")
+            append("Memories. Latest: ") // i18n-allow: HomeMemoryPillTest asserts this English
             append(latest?.albumName.orEmpty())
-            latest?.artistName?.let { append(" by ").append(it) }
+            latest?.artistName?.let { append(" by ").append(it) } // i18n-allow: HomeMemoryPillTest asserts this English
             append(". ")
             append(
                 when (latest?.scoreKind) {
-                    MemoryScoreKind.ALBUM_RATING -> "Your album rating ${latest.scoreText}"
-                    MemoryScoreKind.AVERAGE_TRACK_RATING -> "Track average ${latest.scoreText}"
-                    else -> "Not rated yet"
+                    MemoryScoreKind.ALBUM_RATING -> "Your album rating ${latest.scoreText}" // i18n-allow: HomeMemoryPillTest asserts this English
+                    MemoryScoreKind.AVERAGE_TRACK_RATING -> "Track average ${latest.scoreText}" // i18n-allow: HomeMemoryPillTest asserts this English
+                    else -> "Not rated yet" // i18n-allow: HomeMemoryPillTest asserts this English
                 },
             )
             append(".")
             notes?.let { append(" ").append(it).append(".") }
         }
+    }
+}
+
+private fun memoryPillLatestDescription(
+    latest: HomeMemoryPill.Latest?,
+    notes: String?,
+    resources: Resources,
+): String {
+    val album = latest?.albumName.orEmpty()
+    val artist = latest?.artistName
+    val score = latest?.scoreText.orEmpty()
+    return when {
+        artist != null && latest.scoreKind == MemoryScoreKind.ALBUM_RATING && notes != null ->
+            resources.getString(R.string.home_cd_pill_rating_artist_notes, album, artist, score, notes)
+        artist != null && latest.scoreKind == MemoryScoreKind.ALBUM_RATING ->
+            resources.getString(R.string.home_cd_pill_rating_artist, album, artist, score)
+        artist != null && latest.scoreKind == MemoryScoreKind.AVERAGE_TRACK_RATING && notes != null ->
+            resources.getString(R.string.home_cd_pill_average_artist_notes, album, artist, score, notes)
+        artist != null && latest.scoreKind == MemoryScoreKind.AVERAGE_TRACK_RATING ->
+            resources.getString(R.string.home_cd_pill_average_artist, album, artist, score)
+        artist != null && notes != null ->
+            resources.getString(R.string.home_cd_pill_unrated_artist_notes, album, artist, notes)
+        artist != null ->
+            resources.getString(R.string.home_cd_pill_unrated_artist, album, artist)
+        latest?.scoreKind == MemoryScoreKind.ALBUM_RATING && notes != null ->
+            resources.getString(R.string.home_cd_pill_rating_notes, album, score, notes)
+        latest?.scoreKind == MemoryScoreKind.ALBUM_RATING ->
+            resources.getString(R.string.home_cd_pill_rating, album, score)
+        latest?.scoreKind == MemoryScoreKind.AVERAGE_TRACK_RATING && notes != null ->
+            resources.getString(R.string.home_cd_pill_average_notes, album, score, notes)
+        latest?.scoreKind == MemoryScoreKind.AVERAGE_TRACK_RATING ->
+            resources.getString(R.string.home_cd_pill_average, album, score)
+        notes != null -> resources.getString(R.string.home_cd_pill_unrated_notes, album, notes)
+        else -> resources.getString(R.string.home_cd_pill_unrated, album)
     }
 }
 
@@ -334,7 +401,7 @@ private fun LegacyMemoriesChevron(
     ) {
         Icon(
             imageVector = YoinSymbols.ChevronDown,
-            contentDescription = "Memories",
+            contentDescription = stringResource(R.string.home_cd_memories_chevron),
             tint = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
@@ -426,7 +493,7 @@ private fun MemoryPill(
     val unroll: () -> Float = { if (reduced) 1f else revealProgress() }
     val sizeSpec = YoinMotion.spatialSpring<IntSize>()
 
-    val description = memoryPillContentDescription(pill, form)
+    val description = memoryPillContentDescription(pill, form, LocalContext.current.resources)
     Box(
         modifier = modifier
             .minimumTouchTarget(48.dp)
@@ -532,7 +599,7 @@ private fun MemoryPill(
                 },
                 notesFull = {
                     PillNotes(
-                        text = formatNoteCount(shownNotes),
+                        text = formatNoteCount(shownNotes, LocalContext.current.resources),
                         reduced = reduced,
                         sizeSpec = sizeSpec,
                         modifier = Modifier
@@ -542,7 +609,7 @@ private fun MemoryPill(
                 },
                 notesShort = {
                     PillNotes(
-                        text = formatNoteCountShort(shownNotes),
+                        text = formatNoteCountShort(shownNotes, LocalContext.current.resources),
                         reduced = reduced,
                         sizeSpec = sizeSpec,
                         modifier = Modifier
@@ -552,7 +619,7 @@ private fun MemoryPill(
                 },
                 label = {
                     Text(
-                        text = "Memories",
+                        text = stringResource(R.string.home_memories_label),
                         style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Medium),
                         color = colors.onSurfaceVariant,
                         maxLines = 1,

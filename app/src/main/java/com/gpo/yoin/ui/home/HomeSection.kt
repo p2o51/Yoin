@@ -1,5 +1,7 @@
 package com.gpo.yoin.ui.home
 
+import androidx.annotation.StringRes
+import com.gpo.yoin.R
 import com.gpo.yoin.data.home.HomeSectionPref
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -97,6 +99,39 @@ enum class HomeSection(
         fun fromId(id: String): HomeSection? = byId[id]
     }
 }
+
+@get:StringRes
+internal val HomeSection.titleRes: Int
+    get() = when (this) {
+        HomeSection.Activities -> R.string.home_section_activities
+        HomeSection.JumpBackIn -> R.string.home_section_jump_back_in
+        HomeSection.RecentlyAdded -> R.string.home_section_recently_added
+        HomeSection.Rediscover -> R.string.home_section_rediscover
+        HomeSection.RecentlyPlayed -> R.string.home_section_recently_played
+        HomeSection.YourPlaylists -> R.string.home_section_your_playlists
+    }
+
+@get:StringRes
+internal val HomeSection.supportingRes: Int
+    get() = when (this) {
+        HomeSection.Activities -> R.string.home_section_activities_supporting
+        HomeSection.JumpBackIn -> R.string.home_section_jump_back_in_supporting
+        HomeSection.RecentlyAdded -> R.string.home_section_recently_added_supporting
+        HomeSection.Rediscover -> R.string.home_section_rediscover_supporting
+        HomeSection.RecentlyPlayed -> R.string.home_section_recently_played_supporting
+        HomeSection.YourPlaylists -> R.string.home_section_your_playlists_supporting
+    }
+
+@get:StringRes
+internal val HomeSection.placeholderRes: Int
+    get() = when (this) {
+        HomeSection.Activities -> R.string.home_placeholder_activities
+        HomeSection.JumpBackIn -> R.string.home_placeholder_jump_back_in
+        HomeSection.RecentlyAdded -> R.string.home_placeholder_recently_added
+        HomeSection.Rediscover -> R.string.home_placeholder_rediscover
+        HomeSection.RecentlyPlayed -> R.string.home_placeholder_recently_played
+        HomeSection.YourPlaylists -> R.string.home_placeholder_your_playlists
+    }
 
 /**
  * How many rows a section shows (D1). Presets, not numbers: each screen turns

@@ -27,14 +27,17 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import com.gpo.yoin.R
 import com.gpo.yoin.data.local.ActivityActionType
 import com.gpo.yoin.data.local.ActivityEntityType
 import com.gpo.yoin.data.local.ActivityEvent
 import com.gpo.yoin.data.model.CoverRef
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.Track
+import com.gpo.yoin.ui.common.asString
 // VisualizerData intentionally removed: HomeScreen consumes a pre-smoothed
 // playbackSignal from AudioVisualizerManager instead.
 import com.gpo.yoin.ui.component.ExpressivePageBackground
@@ -198,17 +201,17 @@ fun HomeContent(
                     ) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             Text(
-                                text = uiState.message,
+                                text = uiState.messageText?.asString() ?: uiState.message,
                                 style = MaterialTheme.typography.bodyLarge,
                                 color = MaterialTheme.colorScheme.error,
                             )
                             Spacer(modifier = Modifier.height(8.dp))
                             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                                 TextButton(onClick = onRetry) {
-                                    Text("Retry")
+                                    Text(stringResource(R.string.home_error_retry))
                                 }
                                 TextButton(onClick = onNavigateToSettings) {
-                                    Text("Settings")
+                                    Text(stringResource(R.string.home_error_settings))
                                 }
                             }
                         }
@@ -229,6 +232,9 @@ fun HomeContent(
                             activities = uiState.activities,
                             widgetGrid = uiState.widgetGrid,
                             activityHeroFootnote = uiState.activityHeroFootnote,
+                            activityHeroYear = uiState.activityHeroYear,
+                            activityHeroSongCount = uiState.activityHeroSongCount,
+                            activityHeroMinutes = uiState.activityHeroMinutes,
                             recentlyAddedTracks = uiState.recentlyAddedTracks,
                             recentlyAddedAlbums = uiState.recentlyAddedAlbums,
                             rediscover = uiState.rediscover,

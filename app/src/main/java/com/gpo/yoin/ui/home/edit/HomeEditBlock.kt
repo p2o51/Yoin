@@ -1,5 +1,6 @@
 package com.gpo.yoin.ui.home.edit
 
+import android.content.res.Resources
 import androidx.compose.animation.core.Animatable
 import androidx.compose.foundation.hoverable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -61,8 +62,10 @@ import androidx.compose.ui.node.currentValueOf
 import androidx.compose.ui.node.invalidateSemantics
 import androidx.compose.ui.node.observeReads
 import androidx.compose.ui.platform.InspectorInfo
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.SemanticsPropertyReceiver
 import androidx.compose.ui.semantics.customActions
@@ -79,6 +82,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.isSpecified
 import androidx.compose.ui.unit.offset
 import androidx.compose.ui.unit.sp
+import com.gpo.yoin.R
 import com.gpo.yoin.symbols.YoinSymbols
 import com.gpo.yoin.ui.component.ExpressiveSectionPanel
 import com.gpo.yoin.ui.component.seamDissolve
@@ -87,6 +91,8 @@ import com.gpo.yoin.ui.experience.smoothstep
 import com.gpo.yoin.ui.home.HomeSection
 import com.gpo.yoin.ui.home.HomeSectionTitle
 import com.gpo.yoin.ui.home.RediscoverPlaceholderText
+import com.gpo.yoin.ui.home.placeholderRes
+import com.gpo.yoin.ui.home.titleRes
 import com.gpo.yoin.ui.theme.YoinContainerShapes
 import com.gpo.yoin.ui.theme.YoinTheme
 import kotlin.math.roundToInt
@@ -190,6 +196,22 @@ internal fun HomeEditBlock(
     val rowCount = if (resizable) rowsTrack?.rowCounts?.getOrNull(rowsTrack.restStop) else null
     val canMoreRows = resizable && rowsEngine?.canStep(section, 1) == true
     val canFewerRows = resizable && rowsEngine?.canStep(section, -1) == true
+    val resources = LocalContext.current.resources
+    val sectionState = if (rowCount != null) {
+        resources.getString(
+            R.string.home_cd_section_index_rows,
+            displayIndex + 1,
+            displayCount,
+            homeRowsLabel(rowCount, resources),
+        )
+    } else {
+        resources.getString(R.string.home_cd_section_index, displayIndex + 1, displayCount)
+    }
+    val moveUpLabel = stringResource(R.string.home_edit_move_up)
+    val moveDownLabel = stringResource(R.string.home_edit_move_down)
+    val moreRowsLabel = stringResource(R.string.home_edit_more_rows)
+    val fewerRowsLabel = stringResource(R.string.home_edit_fewer_rows)
+    val hideLabel = stringResource(R.string.home_edit_hide)
     // Remembered: a new semantics block on every recomposition would be a semantics change each time.
     val talkBack = remember(
         editing,
@@ -200,22 +222,27 @@ internal fun HomeEditBlock(
         rowCount,
         canMoreRows,
         canFewerRows,
+        sectionState,
+        moveUpLabel,
+        moveDownLabel,
+        moreRowsLabel,
+        fewerRowsLabel,
+        hideLabel,
     ) {
         if (editing) {
             Modifier.semantics(mergeDescendants = true) {
                 // A step's new count is read out as the block's state changes.
-                stateDescription = "Section ${displayIndex + 1} of $displayCount" +
-                    (rowCount?.let { ", ${homeRowsLabel(it)}" } ?: "")
+                stateDescription = sectionState
                 customActions = buildList {
-                    if (displayIndex > 0) add(CustomAccessibilityAction(MoveUpLabel) { controller.move(section, -1) })
+                    if (displayIndex > 0) add(CustomAccessibilityAction(moveUpLabel) { controller.move(section, -1) })
                     if (displayIndex < displayCount - 1) {
-                        add(CustomAccessibilityAction(MoveDownLabel) { controller.move(section, 1) })
+                        add(CustomAccessibilityAction(moveDownLabel) { controller.move(section, 1) })
                     }
-                    if (canMoreRows) add(CustomAccessibilityAction(MoreRowsLabel) { rowsEngine?.step(section, 1) == true })
+                    if (canMoreRows) add(CustomAccessibilityAction(moreRowsLabel) { rowsEngine?.step(section, 1) == true })
                     if (canFewerRows) {
-                        add(CustomAccessibilityAction(FewerRowsLabel) { rowsEngine?.step(section, -1) == true })
+                        add(CustomAccessibilityAction(fewerRowsLabel) { rowsEngine?.step(section, -1) == true })
                     }
-                    add(CustomAccessibilityAction(HideLabel) { controller.hide(section) })
+                    add(CustomAccessibilityAction(hideLabel) { controller.hide(section) })
                 }
             }
         } else {
@@ -413,8 +440,9 @@ private class HomeEditSectionTitleNode :
 
     override fun SemanticsPropertyReceiver.applySemantics() {
         val scope = scope ?: return
+        val label = currentValueOf(LocalContext).getString(R.string.home_edit_action_section)
         customActions = listOf(
-            CustomAccessibilityAction(EditHomeActionLabel) {
+            CustomAccessibilityAction(label) {
                 scope.enterEdit()
                 true
             },
@@ -461,13 +489,18 @@ private fun Modifier.blockZIndex(zIndex: () -> Float): Modifier = layout { measu
 }
 
 /** The one line an empty section's placeholder says (spec §2.4). */
-internal fun homeEditPlaceholderText(section: HomeSection): String = when (section) {
-    HomeSection.Activities -> "No recent activity yet"
-    HomeSection.JumpBackIn -> "Nothing to jump back into yet"
-    HomeSection.RecentlyAdded -> "Nothing added this month"
-    HomeSection.Rediscover -> RediscoverPlaceholderText
-    HomeSection.RecentlyPlayed -> "Nothing played lately"
-    HomeSection.YourPlaylists -> "No playlists in your library yet"
+internal fun homeEditPlaceholderText(section: HomeSection, resources: Resources? = null): String {
+    if (resources == null) {
+        return when (section) {
+            HomeSection.Activities -> "No recent activity yet" // i18n-allow: HomeEditBlockTest asserts this English
+            HomeSection.JumpBackIn -> "Nothing to jump back into yet" // i18n-allow: HomeEditBlockTest asserts this English
+            HomeSection.RecentlyAdded -> "Nothing added this month" // i18n-allow: HomeEditBlockTest asserts this English
+            HomeSection.Rediscover -> RediscoverPlaceholderText // i18n-allow: HomeEditBlockTest asserts this English
+            HomeSection.RecentlyPlayed -> "Nothing played lately" // i18n-allow: HomeEditBlockTest asserts this English
+            HomeSection.YourPlaylists -> "No playlists in your library yet" // i18n-allow: HomeEditBlockTest asserts this English
+        }
+    }
+    return resources.getString(section.placeholderRes)
 }
 
 /** Test tag of [section]'s drag handle. */
@@ -688,7 +721,7 @@ private fun BoxScope.HomeEditBadges(
                 ) {
                     Icon(
                         imageVector = YoinSymbols.VisibilityOff,
-                        contentDescription = "Hide ${section.title}",
+                        contentDescription = stringResource(R.string.home_cd_hide_section, stringResource(section.titleRes)),
                         modifier = Modifier.size(HideIconSize),
                     )
                 }
@@ -740,9 +773,9 @@ private fun HomeEditPlaceholder(section: HomeSection, modifier: Modifier = Modif
             modifier = Modifier.padding(PanelPadding),
             verticalArrangement = Arrangement.spacedBy(PlaceholderLineGap),
         ) {
-            HomeSectionTitle(text = section.title)
+            HomeSectionTitle(text = stringResource(section.titleRes))
             Text(
-                text = homeEditPlaceholderText(section),
+                text = homeEditPlaceholderText(section, LocalContext.current.resources),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 2,
@@ -785,13 +818,6 @@ private val TitleLineFallback = 28.sp
 // A placeholder's padding, as HomeEmptyCard's: its title row sits this far in.
 private val PanelPadding = 18.dp
 private val PlaceholderLineGap = 4.dp
-
-private const val MoveUpLabel = "Move up"
-private const val MoveDownLabel = "Move down"
-private const val MoreRowsLabel = "More rows"
-private const val FewerRowsLabel = "Fewer rows"
-private const val HideLabel = "Hide"
-private const val EditHomeActionLabel = "Edit Home"
 
 // ── Previews ──────────────────────────────────────────────────────────────
 

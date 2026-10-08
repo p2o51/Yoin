@@ -1,5 +1,6 @@
 package com.gpo.yoin.ui.home.edit
 
+import android.content.res.Resources
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
@@ -45,12 +46,18 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import com.gpo.yoin.R
 import com.gpo.yoin.ui.component.seamDissolve
 import com.gpo.yoin.ui.home.HomeSection
 import com.gpo.yoin.ui.theme.YoinTheme
 
 /** "1 row", "4 rows": TalkBack's count for a resized section. */
-internal fun homeRowsLabel(rows: Int): String = if (rows == 1) "1 row" else "$rows rows"
+internal fun homeRowsLabel(rows: Int, resources: Resources? = null): String =
+    if (resources == null) {
+        if (rows == 1) "1 row" else "$rows rows"
+    } else {
+        resources.getQuantityString(R.plurals.home_edit_rows, rows, rows)
+    }
 
 /** Test tag of [section]'s resize handle. */
 internal fun homeRowsHandleTag(section: HomeSection): String = "home-rows-handle-${section.id}"

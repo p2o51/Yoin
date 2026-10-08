@@ -20,6 +20,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.layout.layout
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.clearAndSetSemantics
@@ -33,6 +34,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.gpo.yoin.R
 import com.gpo.yoin.symbols.YoinSymbols
 import com.gpo.yoin.ui.component.seamFade
 import com.gpo.yoin.ui.experience.smoothstep
@@ -55,12 +57,15 @@ internal fun HomeEditHeaderTitle(
     onEnterEdit: (() -> Unit)? = null,
 ) {
     val color = MaterialTheme.colorScheme.onBackground
+    val homeTitle = stringResource(R.string.home_title)
+    val editTitle = stringResource(R.string.home_edit_title)
+    val editAction = stringResource(R.string.home_edit_action_header)
     val overlayShown by remember(progress) { derivedStateOf { progress() > ComposeFloor } }
     val feedTitle = rememberHomeEditIconsEnabled(progress)
     val enterAction = if (onEnterEdit != null && feedTitle) {
         Modifier.semantics {
             customActions = listOf(
-                CustomAccessibilityAction(EditTitle) {
+                CustomAccessibilityAction(editAction) {
                     onEnterEdit()
                     true
                 },
@@ -71,7 +76,7 @@ internal fun HomeEditHeaderTitle(
     }
     Box(modifier) {
         Text(
-            text = HomeTitle,
+            text = homeTitle,
             style = style,
             color = color,
             maxLines = 1,
@@ -83,7 +88,7 @@ internal fun HomeEditHeaderTitle(
         )
         if (overlayShown) {
             Text(
-                text = EditTitle,
+                text = editTitle,
                 style = style,
                 color = color,
                 maxLines = 1,
@@ -126,7 +131,7 @@ internal fun HomeEditHeaderHint(
     Layout(
         content = {
             Text(
-                text = HintText,
+                text = stringResource(R.string.home_edit_hint_drag),
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
@@ -169,19 +174,17 @@ internal fun rememberHomeEditIconsEnabled(progress: () -> Float): Boolean {
 // How far "Edit Home" runs past "Home" in [style], px.
 @Composable
 private fun rememberEditTitleOverhangPx(style: TextStyle): Int {
+    val homeTitle = stringResource(R.string.home_title)
+    val editTitle = stringResource(R.string.home_edit_title)
     val measurer = rememberTextMeasurer(cacheSize = 2)
-    return remember(style, measurer) {
-        val edit = measurer.measure(EditTitle, style, maxLines = 1, softWrap = false).size.width
-        val home = measurer.measure(HomeTitle, style, maxLines = 1, softWrap = false).size.width
+    return remember(style, measurer, homeTitle, editTitle) {
+        val edit = measurer.measure(editTitle, style, maxLines = 1, softWrap = false).size.width
+        val home = measurer.measure(homeTitle, style, maxLines = 1, softWrap = false).size.width
         (edit - home).coerceAtLeast(0)
     }
 }
 
 private fun clampedP(progress: () -> Float): Float = progress().coerceIn(0f, 1f)
-
-private const val HomeTitle = "Home"
-private const val EditTitle = "Edit Home"
-private const val HintText = "Drag to reorder"
 
 // P above which the edit-only pieces are composed: before either fades in
 // (EditFadeStart, HintFadeStart), but past the entry's first frames, which

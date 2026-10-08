@@ -6,6 +6,7 @@ import com.gpo.yoin.data.model.Album
 import com.gpo.yoin.data.model.Playlist
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.Track
+import com.gpo.yoin.ui.common.UiText
 import com.gpo.yoin.ui.memories.MemoryEntityType
 import com.gpo.yoin.ui.memories.MemoryScoreKind
 
@@ -23,6 +24,11 @@ sealed interface HomeUiState {
         // is an album whose metadata resolved from the detail cache. Null just
         // hides the line — the hero card renders fine without it.
         val activityHeroFootnote: String? = null,
+        // Structured halves of [activityHeroFootnote], resolved in the feed.
+        // Nulls fall back to the string (previews, screenshots).
+        val activityHeroYear: Int? = null,
+        val activityHeroSongCount: Int? = null,
+        val activityHeroMinutes: Int? = null,
         // The "Jump Back In" 3×4 widget grid: plain recommendations mixed with
         // memory-flavoured cards. Empty hides the section.
         val widgetGrid: List<HomeWidgetCard> = emptyList(),
@@ -51,7 +57,11 @@ sealed interface HomeUiState {
         val playlists: List<Playlist> = emptyList(),
     ) : HomeUiState
 
-    data class Error(val message: String) : HomeUiState
+    data class Error(
+        val message: String,
+        // App copy, resolved in the composable. Null keeps [message] (previews).
+        val messageText: UiText? = null,
+    ) : HomeUiState
 }
 
 /** Where tapping a widget-grid card leads. */
@@ -97,6 +107,14 @@ data class HomeWidgetCard(
     // True renders the wide "1×2" card (2 grid cells), false the "1×1" cover.
     val expanded: Boolean = false,
     val target: HomeWidgetTarget,
+    // Localized subtitle. Null keeps [subtitle] (fixtures, previews).
+    val subtitleText: UiText? = null,
+    // Localized rating basis, when it is app copy rather than a date.
+    val ratingBasisText: UiText? = null,
+    // Epoch millis for a date basis. The feed formats it with the locale pattern.
+    val ratingBasisDateMillis: Long? = null,
+    // True shows the localized stand-in for an absent score. [ratingText] stays "N/A".
+    val ratingUnavailable: Boolean = false,
 )
 
 /**

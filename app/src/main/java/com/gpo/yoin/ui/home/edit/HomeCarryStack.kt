@@ -49,6 +49,7 @@ import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -64,6 +65,7 @@ import com.gpo.yoin.symbols.YoinSymbols
 import com.gpo.yoin.ui.component.cachedBackdropColors
 import com.gpo.yoin.ui.home.HomeFeedFrame
 import com.gpo.yoin.ui.home.HomeSection
+import com.gpo.yoin.ui.home.titleRes
 import com.gpo.yoin.ui.theme.YoinTheme
 import kotlin.math.roundToInt
 import kotlinx.coroutines.CoroutineScope
@@ -267,7 +269,7 @@ private fun StripLabel(
     ) {
         if (covers.isNotEmpty()) StripCovers(covers, coverSize)
         Text(
-            text = section.title,
+            text = stringResource(section.titleRes),
             style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
             color = MaterialTheme.colorScheme.onSurface,
             maxLines = 1,

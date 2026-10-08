@@ -32,6 +32,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -40,6 +41,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
+import com.gpo.yoin.R
 import com.gpo.yoin.symbols.YoinSymbols
 import com.gpo.yoin.ui.component.MarqueeText
 import com.gpo.yoin.ui.component.seamDissolve
@@ -47,6 +49,8 @@ import com.gpo.yoin.ui.component.seamFade
 import com.gpo.yoin.ui.home.HomeEmptyCard
 import com.gpo.yoin.ui.home.HomeSection
 import com.gpo.yoin.ui.home.HomeSectionTitle
+import com.gpo.yoin.ui.home.supportingRes
+import com.gpo.yoin.ui.home.titleRes
 import com.gpo.yoin.ui.theme.YoinContainerShapes
 import com.gpo.yoin.ui.theme.YoinShapeTokens
 import com.gpo.yoin.ui.theme.YoinTheme
@@ -80,10 +84,10 @@ internal fun LazyListScope.homeEditTrayItems(
                 .padding(bottom = TrayHeadGap - TrayRowGap),
             verticalArrangement = Arrangement.spacedBy(TrayHeadGap),
         ) {
-            HomeSectionTitle(text = TrayTitle)
+            HomeSectionTitle(text = stringResource(R.string.home_edit_hidden))
             if (hidden.isEmpty()) {
                 Text(
-                    text = TrayEmptyLine,
+                    text = stringResource(R.string.home_edit_hidden_empty),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.seamFade(),
@@ -125,7 +129,7 @@ internal fun LazyListScope.homeEditTrayItems(
                     modifier = Modifier.size(FooterIconSize),
                 )
                 Spacer(Modifier.width(FooterIconGap))
-                Text(text = ResetLabel)
+                Text(text = stringResource(R.string.home_edit_reset))
             }
         }
     }
@@ -166,7 +170,7 @@ internal fun LazyListScope.homeEditFooterEntry(
                     modifier = Modifier.size(FooterIconSize),
                 )
                 Spacer(Modifier.width(FooterIconGap))
-                Text(text = EditHomeLabel, style = MaterialTheme.typography.labelLarge)
+                Text(text = stringResource(R.string.home_edit_footer), style = MaterialTheme.typography.labelLarge)
                 if (newBadge) {
                     Spacer(Modifier.width(FooterIconGap))
                     HomeEditNewChip()
@@ -188,8 +192,8 @@ internal fun LazyListScope.homeAllHiddenItem(
 ) {
     item(key = AllHiddenKey) {
         HomeEmptyCard(
-            title = AllHiddenTitle,
-            supporting = AllHiddenSupporting,
+            title = stringResource(R.string.home_edit_all_hidden_title),
+            supporting = stringResource(R.string.home_edit_all_hidden_supporting),
             modifier = Modifier
                 .fillMaxWidth()
                 .animateItem(fadeInSpec = null, placementSpec = placementSpec(), fadeOutSpec = null)
@@ -212,6 +216,7 @@ private fun HomeEditTrayRow(
     val colors = MaterialTheme.colorScheme
     val fontScale = LocalDensity.current.fontScale.coerceAtLeast(1f)
     val editing = controller.isEditing
+    val title = stringResource(section.titleRes)
     Row(
         modifier = modifier
             .fillMaxWidth()
@@ -226,7 +231,7 @@ private fun HomeEditTrayRow(
             .clickable(
                 enabled = editing,
                 role = Role.Button,
-                onClickLabel = "Show ${section.title}",
+                onClickLabel = stringResource(R.string.home_action_show_section, title),
             ) { controller.show(section) }
             .padding(horizontal = TrayRowPadding),
         verticalAlignment = Alignment.CenterVertically,
@@ -235,7 +240,7 @@ private fun HomeEditTrayRow(
         Column(modifier = Modifier.weight(1f)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    text = section.title,
+                    text = title,
                     style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
                     color = colors.onSurface,
                     maxLines = 1,
@@ -251,7 +256,7 @@ private fun HomeEditTrayRow(
                 }
             }
             MarqueeText(
-                text = section.supportingText,
+                text = stringResource(section.supportingRes),
                 style = MaterialTheme.typography.bodySmall,
                 color = colors.onSurfaceVariant,
                 modifier = Modifier
@@ -269,7 +274,10 @@ private fun HomeEditTrayRow(
             ),
             modifier = Modifier.size(ShowButtonSize),
         ) {
-            Icon(imageVector = YoinSymbols.Add, contentDescription = "Show ${section.title}")
+            Icon(
+                imageVector = YoinSymbols.Add,
+                contentDescription = stringResource(R.string.home_cd_show_section, title),
+            )
         }
     }
 }
@@ -278,7 +286,7 @@ private fun HomeEditTrayRow(
 @Composable
 private fun HomeEditNewChip(modifier: Modifier = Modifier) {
     Text(
-        text = NewLabel,
+        text = stringResource(R.string.home_edit_new),
         style = MaterialTheme.typography.labelSmall,
         color = MaterialTheme.colorScheme.onTertiaryContainer,
         maxLines = 1,
@@ -307,14 +315,6 @@ internal const val AllHiddenKey = "home-all-hidden"
 
 /** The feed item key of [section]'s tray row. */
 internal fun homeEditTrayRowKey(section: HomeSection): String = "tray-${section.id}"
-
-private const val TrayTitle = "Hidden"
-private const val TrayEmptyLine = "Hidden sections appear here"
-private const val ResetLabel = "Reset Home"
-private const val EditHomeLabel = "Edit Home"
-private const val NewLabel = "New"
-private const val AllHiddenTitle = "Your Home is empty"
-private const val AllHiddenSupporting = "Press and hold anywhere, or tap Edit Home, to bring sections back"
 
 /**
  * The tray draws under the sections. A reflow that brings it into view (a

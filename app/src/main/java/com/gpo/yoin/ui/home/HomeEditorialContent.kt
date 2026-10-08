@@ -1,5 +1,6 @@
 package com.gpo.yoin.ui.home
 
+import android.content.res.Resources
 import android.os.SystemClock
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibilityScope
@@ -91,8 +92,11 @@ import androidx.compose.ui.layout.layout
 import androidx.compose.ui.layout.onPlaced
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.layout.positionInRoot
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.preferredFrameRate
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -108,6 +112,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import com.gpo.yoin.R
 import com.gpo.yoin.data.local.ActivityEntityType
 import com.gpo.yoin.data.local.ActivityEvent
 import com.gpo.yoin.data.model.Album
@@ -271,6 +276,9 @@ internal fun HomeEditorialContent(
     activities: List<ActivityEvent>,
     widgetGrid: List<HomeWidgetCard> = emptyList(),
     activityHeroFootnote: String? = null,
+    activityHeroYear: Int? = null,
+    activityHeroSongCount: Int? = null,
+    activityHeroMinutes: Int? = null,
     recentlyAddedTracks: List<Track> = emptyList(),
     recentlyAddedAlbums: List<Album> = emptyList(),
     rediscover: List<HomeRediscoverItem> = emptyList(),
@@ -417,10 +425,12 @@ internal fun HomeEditorialContent(
                 }
             }
     }
-    val activityEntries = remember(activities, buildCoverArtUrl) {
+    val resources = LocalContext.current.resources
+    val activityEntries = remember(activities, buildCoverArtUrl, resources.configuration) {
         buildActivityEntries(
             activities = activities,
             buildCoverArtUrl = buildCoverArtUrl,
+            resources = resources,
         )
     }
     // Keep a single stable dispatcher for entry clicks. Nav lambdas are held
@@ -959,10 +969,12 @@ internal fun HomeEditorialContent(
                                     // Deep enough for the XL preset; the hero is still
                                     // found where it always was (the first 6 / 16), so
                                     // every other preset seats exactly what it did.
-                                    val bentoEntries = remember(activities, buildCoverArtUrl, unitsRecipe) {
+                                    val bentoResources = LocalContext.current.resources
+                                    val bentoEntries = remember(activities, buildCoverArtUrl, unitsRecipe, bentoResources.configuration) {
                                         buildActivityEntries(
                                             activities = activities,
                                             buildCoverArtUrl = buildCoverArtUrl,
+                                            resources = bentoResources,
                                             limit = if (unitsRecipe) {
                                                 ActivityBentoUnitsXlEntries
                                             } else {
@@ -1007,15 +1019,20 @@ internal fun HomeEditorialContent(
                                         candidates = candidates,
                                         spec = bentoSpec,
                                         preset = layout.rowsOf(HomeSection.Activities),
-                                        heroFootnoteExtra = activityHeroFootnote,
+                                        heroFootnoteExtra = homeHeroFootnote(
+                                            year = activityHeroYear,
+                                            songCount = activityHeroSongCount,
+                                            minutes = activityHeroMinutes,
+                                            fallback = activityHeroFootnote,
+                                        ),
                                         extractBackdropColors = shouldExtractBackdropColors,
                                         onEntryClick = onEntryClick,
                                         modifier = bentoModifier,
                                     )
                                 } else {
                                     HomeEmptyCard(
-                                        title = "No recent activity yet",
-                                        supporting = "Once you listen or visit albums and artists, this feed will start filling in.",
+                                        title = stringResource(R.string.home_activities_empty_title),
+                                        supporting = stringResource(R.string.home_activities_empty_supporting),
                                         modifier = Modifier.fillMaxWidth(),
                                     )
                                 }
@@ -1023,7 +1040,7 @@ internal fun HomeEditorialContent(
                                 // The merged Jump Back In × memories widget grid.
                                 // Empty, it only shows (as a placeholder) while editing.
                                 HomeSection.JumpBackIn -> HomeWidgetGridSection(
-                                    title = "Jump Back In",
+                                    title = stringResource(HomeSection.JumpBackIn.titleRes),
                                     cards = widgetGrid,
                                     rows = layout.rowsOf(HomeSection.JumpBackIn),
                                     extractBackdropColors = shouldExtractBackdropColors,
@@ -1086,7 +1103,7 @@ internal fun HomeEditorialContent(
 
                                 // What the account played lately, from the provider's own history.
                                 HomeSection.RecentlyPlayed -> AlbumShelfSection(
-                                    title = "Recently Played",
+                                    title = stringResource(HomeSection.RecentlyPlayed.titleRes),
                                     albums = recentlyPlayed,
                                     extractBackdropColors = shouldExtractBackdropColors,
                                     onAlbumClick = { album ->
@@ -1497,7 +1514,7 @@ private fun HomeContentHeader(
         ) {
             Icon(
                 imageVector = YoinSymbols.Settings,
-                contentDescription = "Settings",
+                contentDescription = stringResource(R.string.home_cd_settings),
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
@@ -1558,7 +1575,7 @@ private fun ActivityBento(
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         HomeSectionTitle(
-            text = "Activities",
+            text = stringResource(HomeSection.Activities.titleRes),
             modifier = Modifier.padding(bottom = 6.dp),
         )
         // Fixed row heights, scaled with the user's font size: IntrinsicSize
@@ -1934,7 +1951,7 @@ private fun ActivityHeroCard(
                 verticalArrangement = Arrangement.spacedBy(3.dp),
             ) {
                 Text(
-                    text = "${entry.typeLabel} · ${entry.timeAgo}",
+                    text = activityTypeTime(entry),
                     style = MaterialTheme.typography.labelSmall,
                     color = colors.contentMuted,
                     maxLines = 1,
@@ -2093,7 +2110,7 @@ private fun ActivityWideCard(
                 verticalArrangement = Arrangement.spacedBy(2.dp),
             ) {
                 Text(
-                    text = "${entry.typeLabel} · ${entry.timeAgo}",
+                    text = activityTypeTime(entry),
                     style = MaterialTheme.typography.labelSmall,
                     color = colors.contentMuted,
                     maxLines = 1,
@@ -2172,7 +2189,7 @@ private fun ActivityStripCard(
                     .seamFade(),
             )
             Text(
-                text = "${entry.typeLabel} · ${entry.timeAgo}",
+                text = activityTypeTime(entry),
                 style = MaterialTheme.typography.labelSmall,
                 color = colors.contentMuted,
                 maxLines = 1,
@@ -2248,7 +2265,7 @@ private fun RecentlyAddedSection(
         modifier = modifier,
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        HomeSectionTitle(text = "Recently Added")
+        HomeSectionTitle(text = stringResource(HomeSection.RecentlyAdded.titleRes))
         // ONE shelf: the 2×2 track grid is the shelf's first card and the
         // albums follow it, all panning together (user call — the albums
         // scrolling alone under a pinned grid read as two disjoint widgets).
@@ -2497,7 +2514,7 @@ private fun YourPlaylistsSection(
 ) {
     val editCardScope = LocalHomeEditCardScope.current
     Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        HomeSectionTitle(text = "Your Playlists")
+        HomeSectionTitle(text = stringResource(HomeSection.YourPlaylists.titleRes))
         val sidePadding = remember(frame) { FeedFrameSidePadding(frame) }
         LazyRow(
             state = rememberLazyListState(),
@@ -2611,7 +2628,7 @@ private fun YourPlaylistCard(
         )
         playlist.songCount?.takeIf { it > 0 }?.let { count ->
             Text(
-                text = if (count == 1) "1 song" else "$count songs",
+                text = pluralStringResource(R.plurals.home_playlist_songs, count, count),
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
@@ -2706,9 +2723,29 @@ private fun homeActivityDedupKey(activity: ActivityEvent): String {
     return "${activity.entityType}:$canonicalEntityId"
 }
 
+@Composable
+private fun homeHeroFootnote(year: Int?, songCount: Int?, minutes: Int?, fallback: String?): String? {
+    if (year == null && songCount == null && minutes == null) return fallback
+    val parts = buildList {
+        if (year != null) add(year.toString())
+        if (songCount != null && songCount > 0) {
+            add(pluralStringResource(R.plurals.home_hero_songs, songCount, songCount))
+        }
+        if (minutes != null && minutes > 0) {
+            add(pluralStringResource(R.plurals.home_hero_minutes, minutes, minutes))
+        }
+    }
+    return parts.takeIf { it.isNotEmpty() }?.joinToString(" · ")
+}
+
+@Composable
+private fun activityTypeTime(entry: HomeMomentEntry): String =
+    stringResource(R.string.home_activity_type_time, entry.typeLabel, entry.timeAgo)
+
 private fun buildActivityEntries(
     activities: List<ActivityEvent>,
     buildCoverArtUrl: (String) -> String,
+    resources: Resources,
     // 6 = the phone bento's historical cap (hero + 3 supporting from the top
     // 6); the unit bento (feed units ≥ 3) asks for [ActivityBentoUnitsMaxEntries].
     // The default keeps the phone pipeline byte-identical.
@@ -2729,12 +2766,12 @@ private fun buildActivityEntries(
         title = activity.title,
         subtitle = activity.subtitle.ifBlank {
             when (activity.entityType) {
-                ActivityEntityType.ARTIST.name -> "Artist"
-                else -> "Recently active"
+                ActivityEntityType.ARTIST.name -> resources.getString(R.string.home_activity_fallback_artist)
+                else -> resources.getString(R.string.home_activity_fallback_recent)
             }
         },
-        typeLabel = activityTypeLabel(activity.entityType),
-        timeAgo = formatTimeAgo(activity.timestamp),
+        typeLabel = activityTypeLabel(activity.entityType, resources),
+        timeAgo = formatTimeAgo(activity.timestamp, resources),
         coverArtUrl = buildActivityCoverArtUrl(activity, buildCoverArtUrl),
         target = target,
     )
@@ -2798,26 +2835,31 @@ private fun resolveHomeCoverArtUrl(
 private fun recentlyAddedTrackCoverUrl(track: Track, buildCoverArtUrl: (String) -> String): String? =
     resolveHomeCoverArtUrl(track.coverArt, buildCoverArtUrl) ?: track.albumId?.let { buildCoverArtUrl(it.rawId) }
 
-private fun activityTypeLabel(entityType: String): String = when (entityType) {
-    ActivityEntityType.ALBUM.name -> "Album"
-    ActivityEntityType.ARTIST.name -> "Artist"
-    ActivityEntityType.PLAYLIST.name -> "Playlist"
-    else -> "Track"
+private fun activityTypeLabel(entityType: String, resources: Resources): String = when (entityType) {
+    ActivityEntityType.ALBUM.name -> resources.getString(R.string.home_activity_type_album)
+    ActivityEntityType.ARTIST.name -> resources.getString(R.string.home_activity_type_artist)
+    ActivityEntityType.PLAYLIST.name -> resources.getString(R.string.home_activity_type_playlist)
+    else -> resources.getString(R.string.home_activity_type_track)
 }
 
 private fun LazyListState.isAtTop(): Boolean =
     firstVisibleItemIndex == 0 && firstVisibleItemScrollOffset == 0
 
-private fun formatTimeAgo(timestampMillis: Long): String {
+private fun formatTimeAgo(timestampMillis: Long, resources: Resources): String {
     val diff = System.currentTimeMillis() - timestampMillis
     val minutes = diff / 60_000L
     val hours = minutes / 60L
     val days = hours / 24L
     return when {
-        minutes < 1L -> "just now"
-        minutes < 60L -> "${minutes}m ago"
-        hours < 24L -> "${hours}h ago"
-        days < 7L -> "${days}d ago"
-        else -> "${days / 7}w ago"
+        minutes < 1L -> resources.getString(R.string.home_time_just_now)
+        minutes < 60L -> resources.quantity(R.plurals.home_time_minutes_ago, minutes)
+        hours < 24L -> resources.quantity(R.plurals.home_time_hours_ago, hours)
+        days < 7L -> resources.quantity(R.plurals.home_time_days_ago, days)
+        else -> resources.quantity(R.plurals.home_time_weeks_ago, days / 7)
     }
+}
+
+private fun Resources.quantity(id: Int, count: Long): String {
+    val n = count.coerceIn(0L, Int.MAX_VALUE.toLong()).toInt()
+    return getQuantityString(id, n, n)
 }
