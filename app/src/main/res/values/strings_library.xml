@@ -23,8 +23,7 @@
     <string name="library_empty_artists">No artists found</string>
     <string name="library_empty_albums">No albums found</string>
     <string name="library_empty_songs">No songs found</string>
-    <string name="library_empty_playlists_create">No playlists yet. Tap + to create one.</string>
-    <string name="library_empty_playlists">No playlists yet.</string>
+    <string name="library_empty_playlists">No playlists</string>
     <string name="library_empty_favorites">No favorites yet</string>
     <string name="library_empty_search">No results found</string>
 
@@ -59,7 +58,8 @@
     <string name="library_error_search_snackbar">Search failed</string>
     <string name="library_error_search">Search failed.</string>
     <string name="library_feedback_added">Added to library</string>
-    <string name="library_feedback_apple_music_pending">Waiting for Apple Music to confirm. Tap again to check.</string>
+    <string name="library_feedback_apple_music_pending">Waiting for Apple Music</string>
+    <string name="library_action_check">Check</string>
     <string name="library_error_add_song">Couldn\'t add this song to the library.</string>
     <string name="library_playlist_created">Created "%1$s"</string>
     <string name="library_playlist_create_failed">Couldn\'t create "%1$s"</string>
@@ -72,8 +72,10 @@
         <item quantity="one">%1$d album</item>
         <item quantity="other">%1$d albums</item>
     </plurals>
-    <plurals name="library_playlist_track_count">
-        <item quantity="one">%1$d track</item>
-        <item quantity="other">%1$d tracks</item>
+    <plurals name="library_playlist_track_unit">
+        <item quantity="one">track</item>
+        <item quantity="other">tracks</item>
     </plurals>
+    <string name="library_duration_hour_unit">h</string>
+    <string name="library_duration_minute_unit">min</string>
 </resources>

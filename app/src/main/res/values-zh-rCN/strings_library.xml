@@ -24,8 +24,7 @@
     <string name="library_empty_artists">没有找到歌手</string>
     <string name="library_empty_albums">没有找到专辑</string>
     <string name="library_empty_songs">没有找到歌曲</string>
-    <string name="library_empty_playlists_create">还没有歌单。点 + 新建一个。</string>
-    <string name="library_empty_playlists">还没有歌单。</string>
+    <string name="library_empty_playlists">没有歌单</string>
     <string name="library_empty_favorites">还没有收藏</string>
     <string name="library_empty_search">没有找到结果</string>
 
@@ -60,7 +59,8 @@
     <string name="library_error_search_snackbar">搜索失败</string>
     <string name="library_error_search">搜索失败。</string>
     <string name="library_feedback_added">已加入资料库</string>
-    <string name="library_feedback_apple_music_pending">正在等待 Apple Music 确认。再点一次即可检查。</string>
+    <string name="library_feedback_apple_music_pending">等待 Apple Music</string>
+    <string name="library_action_check">查看</string>
     <string name="library_error_add_song">无法把这首歌加入资料库。</string>
     <string name="library_playlist_created">已创建“%1$s”</string>
     <string name="library_playlist_create_failed">无法创建“%1$s”</string>
@@ -71,7 +71,9 @@
     <plurals name="library_artist_row_album_count">
         <item quantity="other">%1$d 张专辑</item>
     </plurals>
-    <plurals name="library_playlist_track_count">
-        <item quantity="other">%1$d 首</item>
+    <plurals name="library_playlist_track_unit">
+        <item quantity="other">首</item>
     </plurals>
+    <string name="library_duration_hour_unit">小时</string>
+    <string name="library_duration_minute_unit">分钟</string>
 </resources>

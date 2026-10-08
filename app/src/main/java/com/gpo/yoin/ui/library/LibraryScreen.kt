@@ -112,13 +112,14 @@ import com.gpo.yoin.ui.component.ExpressiveMetaPill
 import com.gpo.yoin.ui.component.ExpressivePageBackground
 import com.gpo.yoin.ui.component.ExpressiveSectionPanel
 import com.gpo.yoin.ui.component.ExpressiveSegmentedTabs
+import com.gpo.yoin.ui.component.MetaGroup
+import com.gpo.yoin.ui.component.MetaLine
 import com.gpo.yoin.ui.component.SongListItem
 import com.gpo.yoin.ui.component.TrackLibraryButton
 import com.gpo.yoin.ui.component.YoinLoadingIndicator
 import com.gpo.yoin.ui.component.elasticPress
 import com.gpo.yoin.ui.component.expressiveEntrance
 import com.gpo.yoin.ui.component.noRippleClickable
-import com.gpo.yoin.ui.component.formatTotalDuration
 import com.gpo.yoin.ui.component.minimumTouchTarget
 import com.gpo.yoin.ui.component.rememberExpressiveEntranceProgress
 import com.gpo.yoin.ui.component.seamDissolve
@@ -1440,11 +1441,7 @@ private fun PlaylistsTabContent(
     ) {
         if (playlists.isEmpty()) {
             EmptyState(
-                message = if (canCreate) {
-                    stringResource(R.string.library_empty_playlists_create)
-                } else {
-                    stringResource(R.string.library_empty_playlists)
-                },
+                message = stringResource(R.string.library_empty_playlists),
                 modifier = Modifier.fillMaxSize(),
             )
         } else {
@@ -1606,13 +1603,7 @@ private fun PlaylistListItem(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-                Text(
-                    text = buildPlaylistMeta(playlist),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
+                PlaylistMeta(playlist)
             }
         }
     }
@@ -1818,21 +1809,44 @@ private fun AlbumListItem(
 }
 
 @Composable
-private fun buildPlaylistMeta(playlist: Playlist): String {
-    val parts = mutableListOf<String>()
-    playlist.owner?.takeIf { it.isNotBlank() }?.let(parts::add)
-    val songCount = playlist.songCount
-    if (songCount != null) {
-        parts.add(
-            pluralStringResource(R.plurals.library_playlist_track_count, songCount, songCount),
-        )
+private fun PlaylistMeta(playlist: Playlist, modifier: Modifier = Modifier) {
+    val groups = buildList {
+        playlist.owner?.takeIf { it.isNotBlank() }?.let { add(MetaGroup.Plain(it)) }
+        playlist.songCount?.let { count ->
+            add(
+                MetaGroup.Stat(
+                    count.toString(),
+                    pluralStringResource(R.plurals.library_playlist_track_unit, count),
+                ),
+            )
+        }
+        playlist.durationSec?.takeIf { it > 0 }?.let { seconds ->
+            val totalMinutes = seconds / 60
+            val hours = totalMinutes / 60
+            val minutes = totalMinutes % 60
+            if (hours > 0) {
+                add(MetaGroup.Stat(hours.toString(), stringResource(R.string.library_duration_hour_unit)))
+            }
+            if (minutes > 0 || hours == 0) {
+                add(MetaGroup.Stat(minutes.toString(), stringResource(R.string.library_duration_minute_unit)))
+            }
+        }
     }
-    playlist.durationSec?.takeIf { it > 0 }?.let { parts.add(formatTotalDuration(it)) }
-    val joined = parts.joinToString(" · ")
-    return if (joined.isBlank()) {
-        stringResource(R.string.library_playlist_fallback)
+    if (groups.isEmpty()) {
+        Text(
+            text = stringResource(R.string.library_playlist_fallback),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = modifier,
+        )
     } else {
-        joined
+        MetaLine(
+            groups = groups,
+            style = MaterialTheme.typography.bodySmall,
+            modifier = modifier,
+        )
     }
 }
 

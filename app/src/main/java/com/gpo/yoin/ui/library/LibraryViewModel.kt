@@ -67,6 +67,7 @@ class LibraryViewModel(
     private data class LibraryOperationKey(val profileId: String, val trackId: MediaId)
     private val libraryOperations = mutableMapOf<LibraryOperationKey, Long>()
     private var libraryOperationToken = 0L
+    private var pendingLibraryCheck: Track? = null
 
     private val searchRequestFlow = MutableStateFlow(
         LibrarySearchRequest("", LibrarySearchScope.CurrentLibrary),
@@ -756,6 +757,11 @@ class LibraryViewModel(
     private fun isDataLoadCurrent(generation: Long, profileId: String?): Boolean =
         generation == libraryDataGeneration && profileId == repository.currentProfileId()
 
+    /** Snackbar "Check" on a pending Apple Music add: ask the library again. */
+    fun checkPendingLibraryAddition() {
+        pendingLibraryCheck?.let { addSongToLibrary(it) }
+    }
+
     fun addSongToLibrary(track: Track) {
         val current = _uiState.value as? LibraryUiState.Content ?: return
         if (!current.canAddToLibrary) return
@@ -776,6 +782,7 @@ class LibraryViewModel(
                         if (repository.currentProfileId() != profileId) return@onSuccess
                         when (membership) {
                             LibraryMembership.Added -> {
+                                if (pendingLibraryCheck?.id == track.id) pendingLibraryCheck = null
                                 val message = shownCopy(
                                     R.string.library_feedback_added,
                                     "Added to library",
@@ -784,6 +791,7 @@ class LibraryViewModel(
                                 _messages.tryEmit(message)
                             }
                             LibraryMembership.Pending -> {
+                                pendingLibraryCheck = track
                                 val message = shownCopy(
                                     R.string.library_feedback_apple_music_pending,
                                     APPLE_MUSIC_PENDING_ENGLISH,
@@ -1001,7 +1009,7 @@ class LibraryViewModel(
 }
 
 private const val APPLE_MUSIC_PENDING_ENGLISH =
-    "Waiting for Apple Music to confirm. Tap again to check." // i18n-allow: LibraryViewModelTest asserts this English
+    "Waiting for Apple Music" // i18n-allow: LibraryViewModelTest asserts this English
 
 private fun LibraryTab.loadFailureRes(): Int = when (this) {
     LibraryTab.Artists -> R.string.library_error_load_tab_artists

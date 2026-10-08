@@ -212,7 +212,7 @@ class LibraryViewModelTest {
         advanceUntilIdle()
         assertEquals(emptySet<MediaId>(), viewModel.workingLibraryTrackIds.value)
         val feedback = (viewModel.uiState.value as LibraryUiState.Content).libraryActionFeedback[track.id]
-        assertTrue(feedback?.message?.contains("confirm") == true)
+        assertTrue(feedback?.message?.contains("Waiting for Apple Music") == true)
         assertFalse(feedback!!.isError)
 
         viewModel.addSongToLibrary(track)
