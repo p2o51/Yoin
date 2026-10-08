@@ -55,7 +55,8 @@ class AppleMusicValidationViewModel(application: Application) : AndroidViewModel
                         UiText.Res(R.string.settings_apple_status_connected_profiles)
                     } else {
                         UiText.Res(R.string.settings_apple_status_need_service)
-                    }
+                    },
+                    retryable = false,
                 )
             } finally {
                 mutableState.update { it.copy(busy = false) }
@@ -70,7 +71,11 @@ class AppleMusicValidationViewModel(application: Application) : AndroidViewModel
         val developerToken = AppleMusicDeveloperTokenProvider(url).token()
         pendingEndpoint = url.toString()
         mutableState.update {
-            it.copy(endpoint = url.toString(), status = UiText.Res(R.string.settings_apple_status_authorize))
+            it.copy(
+                endpoint = url.toString(),
+                status = UiText.Res(R.string.settings_apple_status_authorize),
+                retryable = false,
+            )
         }
         authIntents.send(
             auth.createIntentBuilder(developerToken).setHideStartScreen(false)
@@ -83,7 +88,9 @@ class AppleMusicValidationViewModel(application: Application) : AndroidViewModel
         val endpoint = pendingEndpoint ?: error("Authorization session expired")
         pendingEndpoint = null
         if (data == null) {
-            mutableState.update { it.copy(status = UiText.Res(R.string.settings_apple_status_no_token)) }
+            mutableState.update {
+                it.copy(status = UiText.Res(R.string.settings_apple_status_failed), retryable = true)
+            }
             return@launchOperation
         }
         val result = auth.handleTokenResult(data)
@@ -94,7 +101,7 @@ class AppleMusicValidationViewModel(application: Application) : AndroidViewModel
                     UiText.Res(R.string.settings_apple_status_subscription)
                 else -> UiText.Res(R.string.settings_apple_status_auth_failed)
             }
-            mutableState.update { it.copy(status = message) }
+            mutableState.update { it.copy(status = message, retryable = true) }
             return@launchOperation
         }
         val token = requireNotNull(result.musicUserToken?.takeIf { it.isNotBlank() })
@@ -117,7 +124,8 @@ class AppleMusicValidationViewModel(application: Application) : AndroidViewModel
             it.copy(
                 connected = true,
                 storefront = storefront,
-                status = UiText.Res(R.string.settings_apple_status_connected_store, listOf(storefront)),
+                status = UiText.Res(R.string.settings_apple_status_connected_profiles),
+                retryable = false,
             )
         }
         savedProfiles.send(savedId)
@@ -136,7 +144,9 @@ class AppleMusicValidationViewModel(application: Application) : AndroidViewModel
                 withTimeout(30_000) { block() }
             } catch (_: TimeoutCancellationException) {
                 pendingEndpoint = null
-                mutableState.update { it.copy(status = UiText.Res(R.string.settings_apple_status_timeout)) }
+                mutableState.update {
+                    it.copy(status = UiText.Res(R.string.settings_apple_status_failed), retryable = true)
+                }
             } catch (
                 cancelled: CancellationException
             ) {
@@ -145,7 +155,7 @@ class AppleMusicValidationViewModel(application: Application) : AndroidViewModel
                 _: Exception
             ) {
                 mutableState.update {
-                    it.copy(status = UiText.Res(R.string.settings_apple_status_failed))
+                    it.copy(status = UiText.Res(R.string.settings_apple_status_failed), retryable = true)
                 }
             } finally {
                 mutableState.update { it.copy(busy = false) }
@@ -160,4 +170,5 @@ data class AppleMusicValidationUiState(
     val storefront: String? = null,
     val busy: Boolean = false,
     val status: UiText = UiText.Res(R.string.settings_apple_status_need_service),
+    val retryable: Boolean = false,
 )

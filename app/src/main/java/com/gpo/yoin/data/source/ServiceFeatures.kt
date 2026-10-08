@@ -25,7 +25,6 @@ data class ServiceFeature(
 data class ServiceFeatures(
     val id: String,
     @param:StringRes @get:StringRes val nameRes: Int,
-    @param:StringRes @get:StringRes val summaryRes: Int,
     val integrated: Boolean,
     val capabilities: Set<Capability>,
     val features: List<ServiceFeature>,
@@ -43,7 +42,6 @@ object ServiceFeatureCatalog {
         id = MediaId.PROVIDER_SUBSONIC,
         nameRes = R.string.settings_feature_name_subsonic,
         supportsYoinCast = true,
-        summaryRes = R.string.settings_feature_summary_subsonic,
         integrated = true,
         capabilities = setOf(
             Capability.FAVORITES,
@@ -96,7 +94,6 @@ object ServiceFeatureCatalog {
         nameRes = R.string.settings_feature_name_spotify,
         saveLabel = R.string.settings_feature_save_spotify,
         removeLabel = R.string.settings_feature_remove_spotify,
-        summaryRes = R.string.settings_feature_summary_spotify,
         integrated = true,
         capabilities = setOf(
             Capability.FAVORITES,
@@ -148,7 +145,6 @@ object ServiceFeatureCatalog {
     val appleMusic = ServiceFeatures(
         id = MediaId.PROVIDER_APPLE_MUSIC,
         nameRes = R.string.settings_feature_name_apple,
-        summaryRes = R.string.settings_feature_summary_apple,
         integrated = true,
         capabilities = setOf(
             Capability.SEARCH,
@@ -198,7 +194,6 @@ object ServiceFeatureCatalog {
     val local = ServiceFeatures(
         id = MediaId.PROVIDER_LOCAL,
         nameRes = R.string.settings_feature_name_local,
-        summaryRes = R.string.settings_feature_summary_local,
         integrated = false,
         capabilities = emptySet(),
         features = listOf(
@@ -215,7 +210,6 @@ object ServiceFeatureCatalog {
         ?: ServiceFeatures(
             id = id.orEmpty(),
             nameRes = R.string.settings_feature_name_unknown,
-            summaryRes = R.string.settings_feature_summary_unknown,
             integrated = false,
             capabilities = emptySet(),
             features = listOf(

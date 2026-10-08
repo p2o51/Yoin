@@ -7,6 +7,7 @@ import android.content.SharedPreferences
 import android.os.Build
 import android.provider.Settings
 import android.util.Log
+import com.gpo.yoin.R
 import com.gpo.yoin.data.local.YoinDatabase
 import com.gpo.yoin.data.profile.ProfileManager
 import com.gpo.yoin.data.sync.adapters.SharedPrefsSeamStyleGateway
@@ -713,14 +714,14 @@ class CloudSyncManager(
     private suspend fun summarize(applied: ApplyResult, bindings: BindingSnapshot) {
         dao.deleteMeta(SyncMetaKeys.LAST_SUMMARY)
         fun count(kind: String) = applied.appliedLive.values.sumOf { it[kind] ?: 0 }
-        val restoredNotes = count(SyncKinds.SONG_NOTE)
-        val restoredRatings = count(SyncKinds.TRACK_RATING) + count(SyncKinds.ALBUM_RATING)
-        if (restoredNotes + restoredRatings == 0) return
-        val parts = buildList {
-            if (restoredNotes > 0) add("$restoredNotes ${if (restoredNotes == 1) "note" else "notes"}")
-            if (restoredRatings > 0) add("$restoredRatings ${if (restoredRatings == 1) "rating" else "ratings"}")
-        }
-        putMeta(SyncMetaKeys.LAST_SUMMARY, "Synced " + parts.joinToString(" and ") + " from your other devices")
+        val restored = count(SyncKinds.SONG_NOTE) +
+            count(SyncKinds.TRACK_RATING) +
+            count(SyncKinds.ALBUM_RATING)
+        if (restored == 0) return
+        putMeta(
+            SyncMetaKeys.LAST_SUMMARY,
+            appContext.getString(R.string.settings_sync_synced_other_devices_count, restored),
+        )
     }
 
     // ---- observers

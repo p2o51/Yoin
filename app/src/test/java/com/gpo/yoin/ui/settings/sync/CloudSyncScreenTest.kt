@@ -116,7 +116,8 @@ class CloudSyncScreenTest {
         }
 
         rule.onNodeWithText("Cloud sync").assertIsDisplayed()
-        rule.onNodeWithText("On · Synced 2 min ago").assertIsDisplayed()
+        rule.onNodeWithText("On").assertIsDisplayed()
+        rule.onNodeWithText("Synced 2 min ago").assertIsDisplayed()
     }
 
     @Test
@@ -127,7 +128,8 @@ class CloudSyncScreenTest {
             }
         }
 
-        rule.onNodeWithText("Paused · Reconnect Google").assertIsDisplayed()
+        rule.onNodeWithText("Paused").assertIsDisplayed()
+        rule.onNodeWithText("Reconnect Google").assertIsDisplayed()
     }
 
     @Test

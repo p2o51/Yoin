@@ -235,6 +235,8 @@ internal fun SettingsItem(
     title: String,
     modifier: Modifier = Modifier,
     summary: String? = null,
+    summaryDetail: String? = null,
+    summaryContent: (@Composable ColumnScope.() -> Unit)? = null,
     onClick: (() -> Unit)? = null,
     iconTone: SettingsTone? = null,
     trailing: (@Composable RowScope.() -> Unit)? = null,
@@ -256,14 +258,27 @@ internal fun SettingsItem(
                     style = MaterialTheme.typography.titleMedium,
                     color = MaterialTheme.colorScheme.onSurface,
                 )
-                if (summary != null) {
-                    Text(
-                        text = summary,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                    )
+                if (summaryContent != null) {
+                    summaryContent()
+                } else {
+                    if (summary != null) {
+                        Text(
+                            text = summary,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                    if (summaryDetail != null) {
+                        Text(
+                            text = summaryDetail,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
                 }
             }
             if (trailing != null) {

@@ -4,6 +4,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import com.gpo.yoin.data.profile.ProfileManager
 import com.gpo.yoin.data.profile.ProviderKind
+import com.gpo.yoin.ui.component.MetaGroup
 import hct.Hct
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -85,19 +86,22 @@ class AccountIdentityTest {
     @Test
     fun should_showServiceAndHost_when_subsonicAccount() {
         assertEquals(
-            "Subsonic · music.example.com",
-            serviceLineOf("Subsonic", title = "chen", detail = "music.example.com"),
+            listOf(MetaGroup.Kind("Subsonic"), MetaGroup.Plain("music.example.com")),
+            serviceLineGroups("Subsonic", title = "chen", detail = "music.example.com"),
         )
     }
 
     @Test
     fun should_dropServiceName_when_titleAlreadySaysIt() {
-        assertNull(serviceLineOf("Apple Music", title = "Apple Music", detail = null))
-        assertEquals("Spotify", serviceLineOf("Spotify", title = "Chen", detail = null))
+        assertNull(serviceLineGroups("Apple Music", title = "Apple Music", detail = null))
+        assertEquals(
+            listOf(MetaGroup.Kind("Spotify")),
+            serviceLineGroups("Spotify", title = "Chen", detail = null),
+        )
         // A legacy "user @ host" title already carries the host.
         assertEquals(
-            "Subsonic",
-            serviceLineOf("Subsonic", title = "chen @ music.example.com", detail = "music.example.com"),
+            listOf(MetaGroup.Kind("Subsonic")),
+            serviceLineGroups("Subsonic", title = "chen @ music.example.com", detail = "music.example.com"),
         )
     }
 

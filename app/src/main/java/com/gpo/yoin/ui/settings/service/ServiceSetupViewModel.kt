@@ -251,7 +251,7 @@ class ServiceSetupViewModel(
                         profileManager.update(
                             id = targetProfileId,
                             displayName = existing?.displayName
-                                ?: result.displayName.ifBlank { "Spotify · ${result.userId}" },
+                                ?: result.displayName.ifBlank { result.userId },
                             credentials = result.credentials,
                         )
                         container.profileAvatarStore.put(targetProfileId, result.avatarUrl)
@@ -262,7 +262,7 @@ class ServiceSetupViewModel(
                         _events.tryEmit(ServiceSetupEvent.Done(activateProfileId = null))
                     } else {
                         val created = profileManager.create(
-                            displayName = result.displayName.ifBlank { "Spotify · ${result.userId}" },
+                            displayName = result.displayName.ifBlank { result.userId },
                             credentials = result.credentials,
                         )
                         container.profileAvatarStore.put(created.id, result.avatarUrl)

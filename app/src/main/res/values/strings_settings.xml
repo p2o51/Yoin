@@ -5,8 +5,6 @@
     <string name="settings_service_name_spotify" translatable="false">Spotify</string>
     <string name="settings_service_name_apple" translatable="false">Apple Music</string>
     <string name="settings_service_name_local">Files on this device</string>
-    <string name="settings_service_name_line">%1$s · %2$s</string>
-
     <!-- Feature catalog: support labels -->
     <string name="settings_feature_support_available">Available</string>
     <string name="settings_feature_support_partial">Limited</string>
@@ -21,11 +19,6 @@
     <string name="settings_feature_name_apple" translatable="false">Apple Music</string>
     <string name="settings_feature_name_local">Local files</string>
     <string name="settings_feature_name_unknown">Music service</string>
-    <string name="settings_feature_summary_subsonic">Plays in Yoin · Server features may vary</string>
-    <string name="settings_feature_summary_spotify">Plays through Spotify · Premium required</string>
-    <string name="settings_feature_summary_apple">Plays in Yoin with MusicKit · Subscription required</string>
-    <string name="settings_feature_summary_local">Not in Yoin yet</string>
-    <string name="settings_feature_summary_unknown">Service capabilities have not been verified</string>
     <string name="settings_feature_save_favorites">Add to favorites</string>
     <string name="settings_feature_remove_favorites">Remove from favorites</string>
     <string name="settings_feature_save_spotify">Save to Spotify liked songs</string>
@@ -92,8 +85,7 @@
     <string name="settings_section_accounts">Accounts</string>
     <string name="settings_accounts_count">%1$d of %2$d</string>
     <string name="settings_accounts_add">Add account</string>
-    <string name="settings_accounts_empty_title">Bring your music</string>
-    <string name="settings_accounts_empty_body">Connect a server or a streaming account to start listening.</string>
+    <string name="settings_accounts_empty_title">No accounts</string>
     <string name="settings_accounts_add_short">Add</string>
     <string name="settings_accounts_use">Use this account</string>
     <string name="settings_accounts_manage">Manage</string>
@@ -104,7 +96,6 @@
     <string name="settings_cd_manage_account">Manage account</string>
     <string name="settings_cd_switch_account">Switch to this account</string>
     <string name="settings_account_in_use">In use</string>
-    <string name="settings_account_issue_in_use">%1$s · In use</string>
     <string name="settings_account_reconnect">Reconnect</string>
     <string name="settings_account_credentials_missing">Credentials missing</string>
     <string name="settings_spotify_no_client_id">No Client ID</string>
@@ -117,12 +108,12 @@
     <string name="settings_provider_apple_summary">Your Apple Music library and catalog</string>
     <string name="settings_provider_badge_preview">Preview</string>
     <string name="settings_provider_local_summary">Coming later</string>
-    <string name="settings_placeholder">Pick an account to set it up here</string>
+    <string name="settings_placeholder">No account selected</string>
 
     <string name="settings_gemini_title">AI features</string>
     <string name="settings_gemini_title_page">AI features</string>
     <string name="settings_gemini_summary_empty">Song info, Ask Gemini and translation</string>
-    <string name="settings_gemini_summary_set">Gemini · %1$s</string>
+    <string name="settings_gemini_summary_set">%1$s</string>
     <string name="settings_gemini_key_label">Gemini API key</string>
     <string name="settings_gemini_key_placeholder" translatable="false">AIza…</string>
     <string name="settings_gemini_answer_in">Answer in %1$s</string>
@@ -176,39 +167,39 @@
 
     <!-- Service setup intros -->
     <string name="settings_intro_subsonic_name" translatable="false">Subsonic</string>
-    <string name="settings_intro_subsonic_tagline">Your own music server — Navidrome, Airsonic, Gonic or anything OpenSubsonic.</string>
-    <string name="settings_intro_subsonic_play_title">Plays right in Yoin</string>
-    <string name="settings_intro_subsonic_play_body">Streams from your server, with lock-screen and background controls.</string>
-    <string name="settings_intro_subsonic_favorites_title">Favorites stay in sync</string>
-    <string name="settings_intro_subsonic_favorites_body">A heart in Yoin stars the song on your server.</string>
-    <string name="settings_intro_subsonic_playlists_title">Your playlists</string>
-    <string name="settings_intro_subsonic_playlists_body">Browse them all and edit the ones you own.</string>
-    <string name="settings_intro_subsonic_cast_title">Cast and cache</string>
-    <string name="settings_intro_subsonic_cast_body">Send music to a speaker; recent plays are cached for you.</string>
-    <string name="settings_intro_subsonic_need">A server address, username and password</string>
+    <string name="settings_intro_subsonic_tagline">Navidrome, Airsonic, Gonic, OpenSubsonic</string>
+    <string name="settings_intro_subsonic_play_title">Playback</string>
+    <string name="settings_intro_subsonic_play_body">Lock screen</string>
+    <string name="settings_intro_subsonic_favorites_title">Favorites</string>
+    <string name="settings_intro_subsonic_favorites_body">Ratings</string>
+    <string name="settings_intro_subsonic_playlists_title">Playlists</string>
+    <string name="settings_intro_subsonic_playlists_body">Lyrics, notes</string>
+    <string name="settings_intro_subsonic_cast_title">Cast</string>
+    <string name="settings_intro_subsonic_cast_body">Offline cache</string>
+    <string name="settings_intro_subsonic_need">Server address, username, password</string>
 
     <string name="settings_intro_spotify_name" translatable="false">Spotify</string>
-    <string name="settings_intro_spotify_tagline">Your Spotify library in Yoin, played through the Spotify app.</string>
-    <string name="settings_intro_spotify_saved_title">Everything you\'ve saved</string>
-    <string name="settings_intro_spotify_saved_body">Playlists, liked songs, albums and artists.</string>
-    <string name="settings_intro_spotify_hearts_title">Hearts go to Liked Songs</string>
-    <string name="settings_intro_spotify_hearts_body">Save a song in Yoin and it shows up in Spotify.</string>
+    <string name="settings_intro_spotify_tagline">Library, playback</string>
+    <string name="settings_intro_spotify_saved_title">Library</string>
+    <string name="settings_intro_spotify_saved_body">Playlists, albums, artists</string>
+    <string name="settings_intro_spotify_hearts_title">Liked songs</string>
+    <string name="settings_intro_spotify_hearts_body">Favorites</string>
     <string name="settings_intro_spotify_connect_title" translatable="false">Spotify Connect</string>
-    <string name="settings_intro_spotify_connect_body">Play on any speaker or device Spotify can reach.</string>
-    <string name="settings_intro_spotify_extras_title">Yoin\'s extras</string>
-    <string name="settings_intro_spotify_extras_body">Lyrics, ratings and notes, kept in Yoin.</string>
+    <string name="settings_intro_spotify_connect_body">Speakers</string>
+    <string name="settings_intro_spotify_extras_title">Lyrics, ratings, notes</string>
+    <string name="settings_intro_spotify_extras_body">Lyrics, ratings, notes</string>
     <string name="settings_intro_spotify_need_premium">Spotify Premium</string>
-    <string name="settings_intro_spotify_need_app">The Spotify app on this device</string>
+    <string name="settings_intro_spotify_need_app">Spotify app</string>
 
     <string name="settings_intro_apple_name" translatable="false">Apple Music</string>
-    <string name="settings_intro_apple_tagline">Your Apple Music library and catalog, played in Yoin.</string>
+    <string name="settings_intro_apple_tagline">Library, catalog</string>
     <string name="settings_intro_apple_badge">Preview</string>
-    <string name="settings_intro_apple_search_title">Search the catalog</string>
-    <string name="settings_intro_apple_search_body">Find any song on Apple Music.</string>
-    <string name="settings_intro_apple_play_title">Plays in Yoin</string>
-    <string name="settings_intro_apple_play_body">Listen with MusicKit, background playback and system controls.</string>
-    <string name="settings_intro_apple_need_sub">An Apple Music subscription</string>
-    <string name="settings_intro_apple_need_token">A developer token service</string>
+    <string name="settings_intro_apple_search_title">Search</string>
+    <string name="settings_intro_apple_search_body">Catalog</string>
+    <string name="settings_intro_apple_play_title">Playback</string>
+    <string name="settings_intro_apple_play_body">MusicKit</string>
+    <string name="settings_intro_apple_need_sub">Apple Music subscription</string>
+    <string name="settings_intro_apple_need_token">Developer token service</string>
 
     <string name="settings_setup_section_what_you_get">What you get</string>
     <string name="settings_setup_section_need">You\'ll need</string>
@@ -217,36 +208,35 @@
     <string name="settings_setup_section_connect_spotify">Connect</string>
     <string name="settings_setup_section_account">Account</string>
     <string name="settings_setup_section_account_spotify">Account</string>
-    <string name="settings_setup_password_missing">Sign in again — this account\'s saved password is no longer on this device.</string>
+    <string name="settings_setup_password_missing">Password missing</string>
     <string name="settings_setup_address_label">Server address</string>
     <string name="settings_setup_address_placeholder" translatable="false">https://music.example.com</string>
     <string name="settings_setup_username_label">Username</string>
     <string name="settings_setup_username_placeholder">Your username</string>
     <string name="settings_setup_password_label">Password</string>
     <string name="settings_setup_password_placeholder">Password</string>
-    <string name="settings_setup_limit_subsonic">You\'ve reached the account limit. Remove one in Settings to add another.</string>
-    <string name="settings_setup_limit_spotify">You\'ve reached the account limit. Remove one in Settings to add another.</string>
+    <string name="settings_setup_limit_subsonic">Account limit reached</string>
+    <string name="settings_setup_limit_spotify">Account limit reached</string>
     <string name="settings_setup_test">Test</string>
     <string name="settings_setup_save">Save</string>
     <string name="settings_setup_connect">Connect</string>
     <string name="settings_setup_reaching">Reaching your server…</string>
     <string name="settings_setup_connecting">Connecting…</string>
-    <string name="settings_setup_reachable">Server found — ready to connect</string>
+    <string name="settings_setup_reachable">Server found</string>
     <string name="settings_setup_address_required">Server address is required</string>
     <string name="settings_setup_username_required">Username is required</string>
     <string name="settings_setup_password_required">Password is required</string>
     <string name="settings_setup_save_failed">Couldn\'t save</string>
-    <string name="settings_setup_account_limit">You can keep up to %1$d accounts</string>
-    <string name="settings_setup_spotify_account_limit">You can keep up to %1$d accounts</string>
+    <string name="settings_setup_account_limit">Account limit reached</string>
+    <string name="settings_setup_spotify_account_limit">Account limit reached</string>
     <string name="settings_setup_server_error">The server returned an error</string>
-    <string name="settings_setup_http_blocked">Android blocks plain HTTP here — use https://</string>
-    <string name="settings_setup_check_address">Check the address — include http:// or https://</string>
+    <string name="settings_setup_http_blocked">https required</string>
+    <string name="settings_setup_check_address">Invalid address</string>
     <string name="settings_setup_unreachable">Couldn\'t reach the server</string>
     <string name="settings_setup_spotify_need_client">Add your Client ID below first.</string>
     <string name="settings_setup_spotify_need_client_error">Add your Spotify Client ID first</string>
     <string name="settings_setup_spotify_reconnect_body">Sign in again to keep using this account.</string>
     <string name="settings_setup_spotify_connected">Connected. Sign in again to switch Spotify accounts.</string>
-    <string name="settings_setup_spotify_pitch">You\'ll sign in through Spotify and come right back.</string>
     <string name="settings_setup_spotify_sign_in_again">Sign in again</string>
     <string name="settings_setup_spotify_continue">Continue with Spotify</string>
     <string name="settings_setup_spotify_save_failed">Couldn\'t save the Spotify account</string>
@@ -267,29 +257,30 @@
     <string name="settings_apple_working">Working…</string>
     <string name="settings_apple_reconnect">Reconnect Apple Music</string>
     <string name="settings_apple_connect">Connect Apple Music</string>
-    <string name="settings_apple_status_connected_profiles">Connected. Your account is available in Profiles.</string>
+    <string name="settings_apple_status_connected_profiles">Connected</string>
     <string name="settings_apple_status_need_service">Set a developer token service to connect.</string>
     <string name="settings_apple_status_authorize">Complete authorization in Apple Music.</string>
     <string name="settings_apple_auth_start">Connect your Apple Music library and playback to Yoin.</string>
-    <string name="settings_apple_status_no_token">Authorization returned without a token. You can retry.</string>
-    <string name="settings_apple_status_cancelled">Apple Music did not complete authorization. Try again or open Apple Music to check your account.</string>
-    <string name="settings_apple_status_subscription">An active Apple Music subscription is required.</string>
-    <string name="settings_apple_status_auth_failed">Apple Music could not authorize Yoin. Retry authorization.</string>
-    <string name="settings_apple_status_connected_store">Connected · %1$s</string>
-    <string name="settings_apple_status_timeout">Connection timed out. Try again.</string>
-    <string name="settings_apple_status_failed">Could not complete this step. Check the token service or reconnect Apple Music.</string>
+    <string name="settings_apple_status_no_token">Couldn\'t connect</string>
+    <string name="settings_apple_status_cancelled">Couldn\'t connect</string>
+    <string name="settings_apple_status_subscription">Couldn\'t connect</string>
+    <string name="settings_apple_status_auth_failed">Couldn\'t connect</string>
+    <string name="settings_apple_status_connected_store">Connected</string>
+    <string name="settings_apple_retry">Retry</string>
+    <string name="settings_apple_status_timeout">Couldn\'t connect</string>
+    <string name="settings_apple_status_failed">Couldn\'t connect</string>
 
     <!-- Cloud sync -->
     <string name="settings_sync_title">Cloud sync</string>
     <string name="settings_sync_title_bar">Cloud sync</string>
-    <string name="settings_sync_lead">Keep your notes, ratings and translations on all your devices.</string>
+    <string name="settings_sync_lead">Sync notes, ratings and translations</string>
     <string name="settings_sync_reset_on_device">Cloud sync was turned off and its Drive data deleted on %1$s. Turn it on again to start fresh from this device.</string>
     <string name="settings_sync_reset_other_device">Cloud sync was turned off and its Drive data deleted on another device. Turn it on again to start fresh from this device.</string>
     <string name="settings_sync_section_what_you_get">What you get</string>
-    <string name="settings_sync_benefit_notes">Notes &amp; ratings follow your accounts</string>
-    <string name="settings_sync_benefit_translations">AI lyric translations you already paid for</string>
+    <string name="settings_sync_benefit_notes">Notes and ratings</string>
+    <string name="settings_sync_benefit_translations">Translations</string>
     <string name="settings_sync_benefit_settings">Your settings</string>
-    <string name="settings_sync_benefit_offline">Works offline — syncs when it can</string>
+    <string name="settings_sync_benefit_offline">Offline</string>
     <string name="settings_sync_section_good_to_know">Good to know</string>
     <string name="settings_sync_know_drive">Saved in a hidden Yoin folder in your own Google Drive. Only Yoin can open it. It\'s protected by your Google account, not end-to-end encrypted, and counts toward your storage.</string>
     <string name="settings_sync_know_secrets">Passwords, sign-ins and API keys never leave this device. Server addresses and usernames do, so reconnecting is quicker.</string>
@@ -301,7 +292,6 @@
     <string name="settings_sync_try_again">Try again</string>
     <string name="settings_sync_waiting_turn_on">Waiting for Google…</string>
     <string name="settings_sync_turn_on">Turn on with Google</string>
-    <string name="settings_sync_turn_on_hint">Google will ask to let Yoin store its own data in your Drive.</string>
     <string name="settings_sync_cert_unknown">unknown</string>
     <string name="settings_cd_copy_build">Copy build details</string>
     <string name="settings_sync_clip_label">Yoin build details</string>
@@ -310,11 +300,10 @@
     <string name="settings_sync_details">Details</string>
     <string name="settings_sync_unrecognized">Google didn\'t recognize this build</string>
     <string name="settings_sync_fingerprint">%1$s\nSHA-1\n%2$s</string>
-    <string name="settings_sync_long_press_copy">Long-press to copy</string>
-    <string name="settings_sync_reauth_body">Google needs you to sign in again before Yoin can sync. Your changes wait on this device.</string>
+    <string name="settings_sync_reauth_body">Signed out of Google</string>
     <string name="settings_sync_waiting_reconnect">Waiting for Google…</string>
-    <string name="settings_sync_reconnect">Reconnect</string>
-    <string name="settings_sync_copy_removed_body">Yoin\'s data is no longer in your Google Drive — it may have been deleted in Drive settings. Upload it again from this device, or turn sync off.</string>
+    <string name="settings_sync_reconnect">Sign in</string>
+    <string name="settings_sync_copy_removed_body">Drive copy removed</string>
     <string name="settings_sync_upload_again">Upload again</string>
     <string name="settings_sync_turn_off_short">Turn off</string>
     <string name="settings_sync_google_account">Google account</string>
@@ -327,20 +316,17 @@
     <string name="settings_sync_deleting">Deleting…</string>
     <string name="settings_cd_sync_now">Sync now</string>
     <string name="settings_sync_account_syncing">Syncing</string>
-    <string name="settings_sync_account_needs_identity">Not synced yet — open this account once</string>
+    <string name="settings_sync_account_needs_identity">Not synced</string>
     <string name="settings_sync_account_reconnect">Reconnect to sync</string>
-    <string name="settings_sync_account_duplicate">Same account as %1$s — not synced</string>
+    <string name="settings_sync_account_duplicate">Same as %1$s</string>
     <string name="settings_sync_account_not_synced">Not synced</string>
-    <string name="settings_sync_account_changed">Paused — signed in as a different account</string>
-    <string name="settings_sync_account_line">%1$s · %2$s</string>
+    <string name="settings_sync_account_changed">Paused</string>
     <string name="settings_sync_start_syncing">Start syncing</string>
     <string name="settings_sync_keep_before">Keep syncing as before</string>
     <string name="settings_sync_start_fresh">Start fresh</string>
     <string name="settings_sync_link_to">Link to %1$s</string>
     <string name="settings_sync_link_menu">Link…</string>
     <string name="settings_sync_link_from">%1$s from %2$s</string>
-    <string name="settings_sync_from_device">from %1$s</string>
-    <string name="settings_sync_cloud_from">%1$s · from %2$s</string>
     <string name="settings_sync_link">Link</string>
     <string name="settings_sync_add">Add</string>
     <string name="settings_sync_this_device">This device</string>
@@ -356,7 +342,7 @@
     <string name="settings_sync_what_home">Home layout</string>
     <string name="settings_sync_what_translations">AI lyric translations</string>
     <string name="settings_sync_what_settings">Translation language, Spotify Client ID and scroll edge style</string>
-    <string name="settings_sync_what_accounts">Your music accounts\' names and server addresses — never passwords</string>
+    <string name="settings_sync_what_accounts">Account names, server addresses</string>
     <string name="settings_sync_what_stays">Stays on this device</string>
     <string name="settings_sync_what_history">Listening history</string>
     <string name="settings_sync_what_secrets">Passwords, sign-ins and API keys</string>
@@ -373,7 +359,7 @@
     <string name="settings_sync_remove_device_body">Deletes this device\'s copy from your Google Drive. If it\'s still syncing, it uploads again the next time it syncs.</string>
     <string name="settings_sync_remove_device_confirm">Remove</string>
     <string name="settings_sync_remove_device_cancel">Cancel</string>
-    <string name="settings_sync_review_summary">%1$s · Choose what happens to them</string>
+    <string name="settings_sync_review_summary">%1$s</string>
     <string name="settings_sync_review_restore">Restore here</string>
     <string name="settings_sync_review_delete_all">Delete on all devices</string>
     <string name="settings_sync_deleted">Deleted Yoin\'s data from your Google Drive</string>
@@ -391,31 +377,27 @@
     <string name="settings_sync_summary_syncing">Syncing…</string>
     <string name="settings_sync_summary_pending">Changes waiting to upload</string>
     <string name="settings_sync_summary_pending_offline">Changes waiting to upload</string>
-    <string name="settings_sync_summary_synced">On · Synced %1$s</string>
+    <string name="settings_sync_summary_synced">Synced %1$s</string>
     <string name="settings_sync_summary_on">On</string>
-    <string name="settings_sync_summary_offline">On · Offline</string>
-    <string name="settings_sync_summary_reauth">Paused · Reconnect Google</string>
+    <string name="settings_sync_summary_offline">Offline</string>
+    <string name="settings_sync_summary_reauth">Reconnect Google</string>
     <string name="settings_sync_summary_storage">Google storage full</string>
-    <string name="settings_sync_summary_copy_removed">Paused · Drive copy removed</string>
-    <string name="settings_sync_summary_update">On · Update Yoin to sync everything</string>
+    <string name="settings_sync_summary_copy_removed">Drive copy removed</string>
+    <string name="settings_sync_summary_update">Update Yoin</string>
+    <string name="settings_sync_summary_needs_review_status">Needs review</string>
+    <string name="settings_sync_synced_other_devices_count">%1$d\nSynced from other devices</string>
     <string name="settings_sync_summary_error">Couldn\'t sync</string>
     <string name="settings_sync_status_syncing">Syncing…</string>
-    <string name="settings_sync_status_first">First sync — this can take a minute</string>
     <string name="settings_sync_status_pending">Changes waiting to upload</string>
     <string name="settings_sync_status_up_to_date">Up to date</string>
     <string name="settings_sync_status_not_yet">Not synced yet</string>
     <string name="settings_sync_status_last_synced">Last synced %1$s</string>
     <string name="settings_sync_status_offline">Can\'t reach Google</string>
-    <string name="settings_sync_status_offline_body">Changes wait on this device and sync when they can.</string>
     <string name="settings_sync_status_paused">Paused</string>
     <string name="settings_sync_status_storage">Google storage full</string>
-    <string name="settings_sync_status_storage_body">Changes stay on this device and sync when there\'s space.</string>
     <string name="settings_sync_status_review">Needs your review</string>
-    <string name="settings_sync_status_review_body">Everything else keeps syncing.</string>
     <string name="settings_sync_status_removed">Drive copy removed</string>
     <string name="settings_sync_status_update">Update Yoin</string>
-    <string name="settings_sync_status_update_on_device">%1$s has a newer Yoin — some items wait until you update.</string>
-    <string name="settings_sync_status_update_other">Another device has a newer Yoin — some items wait until you update.</string>
     <string name="settings_sync_status_error">Couldn\'t sync</string>
     <string name="settings_sync_status_off">Off</string>
 
@@ -436,8 +418,8 @@
         <item quantity="other">%1$d notes</item>
     </plurals>
     <plurals name="settings_sync_summary_needs_review">
-        <item quantity="one">Needs review · %1$d note disappeared</item>
-        <item quantity="other">Needs review · %1$d notes disappeared</item>
+        <item quantity="one">%1$d note disappeared</item>
+        <item quantity="other">%1$d notes disappeared</item>
     </plurals>
     <plurals name="settings_sync_review_row_title">
         <item quantity="one">%1$d note disappeared on this device</item>

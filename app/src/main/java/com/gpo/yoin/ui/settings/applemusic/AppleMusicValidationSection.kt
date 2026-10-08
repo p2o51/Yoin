@@ -69,6 +69,13 @@ fun AppleMusicValidationContent(state: AppleMusicValidationUiState, onConnect: (
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.testTag("apple_music_status")
         )
+        state.storefront?.takeIf { it.isNotBlank() }?.let { storefront ->
+            Text(
+                storefront,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+        }
         Button(
             onClick = { onConnect(endpoint) },
             enabled = !state.busy && endpoint.startsWith("https://"),
@@ -76,7 +83,11 @@ fun AppleMusicValidationContent(state: AppleMusicValidationUiState, onConnect: (
         ) {
             Text(
                 stringResource(
-                    if (state.connected) R.string.settings_apple_reconnect else R.string.settings_apple_connect,
+                    when {
+                        state.retryable -> R.string.settings_apple_retry
+                        state.connected -> R.string.settings_apple_reconnect
+                        else -> R.string.settings_apple_connect
+                    },
                 ),
             )
         }

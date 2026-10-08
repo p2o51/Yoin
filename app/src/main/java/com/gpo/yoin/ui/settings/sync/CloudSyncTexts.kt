@@ -113,90 +113,118 @@ internal fun notesCount(count: Int, resources: Resources? = null): String {
     return resources.getQuantityString(R.plurals.settings_sync_notes_count, count, count)
 }
 
-/** The Settings row's one-line summary of where sync stands. */
+/** Status on the first line, detail on the second. No connector between them. */
+internal data class CloudSyncEntryText(val status: String, val detail: String? = null)
+
+/** The Settings row: where sync stands, then the detail under it. */
 internal fun cloudSyncEntrySummary(
     state: CloudSyncState,
     nowMs: Long,
     resources: Resources? = null,
-): String {
+): CloudSyncEntryText {
+    fun line(status: String, detail: String? = null) = CloudSyncEntryText(status, detail)
     if (resources == null) {
         return when (val phase = state.phase) {
-            CloudSyncPhase.Off -> "Off" // i18n-allow: CloudSyncTextsTest asserts this English
+            CloudSyncPhase.Off -> line("Off") // i18n-allow: CloudSyncTextsTest asserts this English
             is CloudSyncPhase.Unavailable ->
                 if (phase.updateRequired) {
-                    "Needs a Google Play services update" // i18n-allow: CloudSyncTextsTest asserts this English
+                    line("Needs a Google Play services update") // i18n-allow: CloudSyncTextsTest asserts this English
                 } else {
-                    "Needs Google Play services" // i18n-allow: CloudSyncTextsTest asserts this English
+                    line("Needs Google Play services") // i18n-allow: CloudSyncTextsTest asserts this English
                 }
             is CloudSyncPhase.Misconfigured ->
-                "Not available in this build" // i18n-allow: CloudSyncTextsTest asserts this English
+                line("Not available in this build") // i18n-allow: CloudSyncTextsTest asserts this English
             is CloudSyncPhase.ResetElsewhere ->
-                phase.deviceName?.let { "Turned off on $it" } // i18n-allow: CloudSyncTextsTest asserts this English
-                    ?: "Turned off on another device" // i18n-allow: CloudSyncTextsTest asserts this English
-            CloudSyncPhase.Syncing -> "Syncing…" // i18n-allow: CloudSyncTextsTest asserts this English
+                phase.deviceName?.let { line("Turned off on $it") } // i18n-allow: CloudSyncTextsTest asserts this English
+                    ?: line("Turned off on another device") // i18n-allow: CloudSyncTextsTest asserts this English
+            CloudSyncPhase.Syncing -> line("Syncing…") // i18n-allow: CloudSyncTextsTest asserts this English
             CloudSyncPhase.UpToDate -> when {
                 state.pendingChanges ->
-                    "Changes waiting to upload" // i18n-allow: CloudSyncTextsTest asserts this English
+                    line("Changes waiting to upload") // i18n-allow: CloudSyncTextsTest asserts this English
                 state.lastSyncAt != null ->
-                    "On · Synced ${formatRelativeTime(state.lastSyncAt, nowMs)}" // i18n-allow: CloudSyncTextsTest asserts this English
-                else -> "On" // i18n-allow: CloudSyncTextsTest asserts this English
+                    line(
+                        "On", // i18n-allow: CloudSyncTextsTest asserts this English
+                        "Synced ${formatRelativeTime(state.lastSyncAt, nowMs)}", // i18n-allow: CloudSyncTextsTest asserts this English
+                    )
+                else -> line("On") // i18n-allow: CloudSyncTextsTest asserts this English
             }
             CloudSyncPhase.Offline ->
                 if (state.pendingChanges) {
-                    "Changes waiting to upload" // i18n-allow: CloudSyncTextsTest asserts this English
+                    line("Changes waiting to upload") // i18n-allow: CloudSyncTextsTest asserts this English
                 } else {
-                    "On · Offline" // i18n-allow: CloudSyncTextsTest asserts this English
+                    line("On", "Offline") // i18n-allow: CloudSyncTextsTest asserts this English
                 }
             CloudSyncPhase.NeedsReauth ->
-                "Paused · Reconnect Google" // i18n-allow: CloudSyncTextsTest asserts this English
+                line("Paused", "Reconnect Google") // i18n-allow: CloudSyncTextsTest asserts this English
             CloudSyncPhase.StorageFull ->
-                "Google storage full" // i18n-allow: CloudSyncTextsTest asserts this English
+                line("Google storage full") // i18n-allow: CloudSyncTextsTest asserts this English
             is CloudSyncPhase.NeedsReview ->
-                "Needs review · ${notesCount(phase.count)} disappeared" // i18n-allow: CloudSyncTextsTest asserts this English
+                line(
+                    "Needs review", // i18n-allow: CloudSyncTextsTest asserts this English
+                    "${notesCount(phase.count)} disappeared", // i18n-allow: CloudSyncTextsTest asserts this English
+                )
             CloudSyncPhase.CloudCopyRemoved ->
-                "Paused · Drive copy removed" // i18n-allow: CloudSyncTextsTest asserts this English
+                line("Paused", "Drive copy removed") // i18n-allow: CloudSyncTextsTest asserts this English
             is CloudSyncPhase.UpdateRequired ->
-                "On · Update Yoin to sync everything" // i18n-allow: CloudSyncTextsTest asserts this English
-            is CloudSyncPhase.Error -> "Couldn't sync" // i18n-allow: CloudSyncTextsTest asserts this English
+                line("On", "Update Yoin") // i18n-allow: CloudSyncTextsTest asserts this English
+            is CloudSyncPhase.Error -> line("Couldn't sync") // i18n-allow: CloudSyncTextsTest asserts this English
         }
     }
     return when (val phase = state.phase) {
-        CloudSyncPhase.Off -> resources.getString(R.string.settings_sync_summary_off)
+        CloudSyncPhase.Off -> line(resources.getString(R.string.settings_sync_summary_off))
         is CloudSyncPhase.Unavailable ->
             if (phase.updateRequired) {
-                resources.getString(R.string.settings_sync_summary_play_update)
+                line(resources.getString(R.string.settings_sync_summary_play_update))
             } else {
-                resources.getString(R.string.settings_sync_summary_play_missing)
+                line(resources.getString(R.string.settings_sync_summary_play_missing))
             }
-        is CloudSyncPhase.Misconfigured -> resources.getString(R.string.settings_sync_summary_misconfigured)
+        is CloudSyncPhase.Misconfigured -> line(resources.getString(R.string.settings_sync_summary_misconfigured))
         is CloudSyncPhase.ResetElsewhere ->
-            phase.deviceName?.let { resources.getString(R.string.settings_sync_summary_reset_on, it) }
-                ?: resources.getString(R.string.settings_sync_summary_reset_other)
-        CloudSyncPhase.Syncing -> resources.getString(R.string.settings_sync_summary_syncing)
+            phase.deviceName?.let { line(resources.getString(R.string.settings_sync_summary_reset_on, it)) }
+                ?: line(resources.getString(R.string.settings_sync_summary_reset_other))
+        CloudSyncPhase.Syncing -> line(resources.getString(R.string.settings_sync_summary_syncing))
         CloudSyncPhase.UpToDate -> when {
-            state.pendingChanges -> resources.getString(R.string.settings_sync_summary_pending)
-            state.lastSyncAt != null -> resources.getString(
-                R.string.settings_sync_summary_synced,
-                formatRelativeTime(state.lastSyncAt, nowMs, resources = resources),
+            state.pendingChanges -> line(resources.getString(R.string.settings_sync_summary_pending))
+            state.lastSyncAt != null -> line(
+                resources.getString(R.string.settings_sync_summary_on),
+                resources.getString(
+                    R.string.settings_sync_summary_synced,
+                    formatRelativeTime(state.lastSyncAt, nowMs, resources = resources),
+                ),
             )
-            else -> resources.getString(R.string.settings_sync_summary_on)
+            else -> line(resources.getString(R.string.settings_sync_summary_on))
         }
         CloudSyncPhase.Offline ->
             if (state.pendingChanges) {
-                resources.getString(R.string.settings_sync_summary_pending_offline)
+                line(resources.getString(R.string.settings_sync_summary_pending_offline))
             } else {
-                resources.getString(R.string.settings_sync_summary_offline)
+                line(
+                    resources.getString(R.string.settings_sync_summary_on),
+                    resources.getString(R.string.settings_sync_summary_offline),
+                )
             }
-        CloudSyncPhase.NeedsReauth -> resources.getString(R.string.settings_sync_summary_reauth)
-        CloudSyncPhase.StorageFull -> resources.getString(R.string.settings_sync_summary_storage)
-        is CloudSyncPhase.NeedsReview -> resources.getQuantityString(
-            R.plurals.settings_sync_summary_needs_review,
-            phase.count,
-            phase.count,
+        CloudSyncPhase.NeedsReauth -> line(
+            resources.getString(R.string.settings_sync_status_paused),
+            resources.getString(R.string.settings_sync_summary_reauth),
         )
-        CloudSyncPhase.CloudCopyRemoved -> resources.getString(R.string.settings_sync_summary_copy_removed)
-        is CloudSyncPhase.UpdateRequired -> resources.getString(R.string.settings_sync_summary_update)
-        is CloudSyncPhase.Error -> resources.getString(R.string.settings_sync_summary_error)
+        CloudSyncPhase.StorageFull -> line(resources.getString(R.string.settings_sync_summary_storage))
+        is CloudSyncPhase.NeedsReview -> line(
+            resources.getString(R.string.settings_sync_summary_needs_review_status),
+            resources.getQuantityString(
+                R.plurals.settings_sync_summary_needs_review,
+                phase.count,
+                phase.count,
+            ),
+        )
+        CloudSyncPhase.CloudCopyRemoved -> line(
+            resources.getString(R.string.settings_sync_status_paused),
+            resources.getString(R.string.settings_sync_summary_copy_removed),
+        )
+        is CloudSyncPhase.UpdateRequired -> line(
+            resources.getString(R.string.settings_sync_summary_on),
+            resources.getString(R.string.settings_sync_summary_update),
+        )
+        is CloudSyncPhase.Error -> line(resources.getString(R.string.settings_sync_summary_error))
     }
 }
 
@@ -215,9 +243,7 @@ internal fun cloudSyncStatusText(
         return when (val phase = state.phase) {
             CloudSyncPhase.Syncing -> CloudSyncStatusText(
                 title = "Syncing…", // i18n-allow: CloudSyncTextsTest asserts this English
-                lines = listOf(
-                    lastSynced ?: "First sync — this can take a minute", // i18n-allow: CloudSyncTextsTest asserts this English
-                ),
+                lines = listOfNotNull(lastSynced),
             )
             CloudSyncPhase.UpToDate -> CloudSyncStatusText(
                 title = if (state.pendingChanges) {
@@ -231,10 +257,7 @@ internal fun cloudSyncStatusText(
             )
             CloudSyncPhase.Offline -> CloudSyncStatusText(
                 title = "Can't reach Google", // i18n-allow: CloudSyncTextsTest asserts this English
-                lines = listOfNotNull(
-                    "Changes wait on this device and sync when they can.", // i18n-allow: CloudSyncTextsTest asserts this English
-                    lastSynced,
-                ),
+                lines = listOfNotNull(lastSynced),
             )
             // The Reconnect panel under the row explains what to do.
             CloudSyncPhase.NeedsReauth -> CloudSyncStatusText(
@@ -243,17 +266,11 @@ internal fun cloudSyncStatusText(
             )
             CloudSyncPhase.StorageFull -> CloudSyncStatusText(
                 title = "Google storage full", // i18n-allow: CloudSyncTextsTest asserts this English
-                lines = listOfNotNull(
-                    "Changes stay on this device and sync when there's space.", // i18n-allow: CloudSyncTextsTest asserts this English
-                    lastSynced,
-                ),
+                lines = listOfNotNull(lastSynced),
             )
             is CloudSyncPhase.NeedsReview -> CloudSyncStatusText(
                 title = "Needs your review", // i18n-allow: CloudSyncTextsTest asserts this English
-                lines = listOfNotNull(
-                    "Everything else keeps syncing.", // i18n-allow: CloudSyncTextsTest asserts this English
-                    lastSynced,
-                ),
+                lines = listOfNotNull(lastSynced),
             )
             CloudSyncPhase.CloudCopyRemoved -> CloudSyncStatusText(
                 title = "Drive copy removed", // i18n-allow: CloudSyncTextsTest asserts this English
@@ -261,10 +278,7 @@ internal fun cloudSyncStatusText(
             )
             is CloudSyncPhase.UpdateRequired -> CloudSyncStatusText(
                 title = "Update Yoin", // i18n-allow: CloudSyncTextsTest asserts this English
-                lines = listOfNotNull(
-                    "${phase.deviceName ?: "Another device"} has a newer Yoin — some items wait until you update.", // i18n-allow: CloudSyncTextsTest asserts this English
-                    lastSynced,
-                ),
+                lines = listOfNotNull(phase.deviceName, lastSynced),
             )
             is CloudSyncPhase.Error -> CloudSyncStatusText(
                 title = "Couldn't sync", // i18n-allow: CloudSyncTextsTest asserts this English
@@ -286,7 +300,7 @@ internal fun cloudSyncStatusText(
     return when (val phase = state.phase) {
         CloudSyncPhase.Syncing -> CloudSyncStatusText(
             title = resources.getString(R.string.settings_sync_status_syncing),
-            lines = listOf(lastSynced ?: resources.getString(R.string.settings_sync_status_first)),
+            lines = listOfNotNull(lastSynced),
         )
         CloudSyncPhase.UpToDate -> CloudSyncStatusText(
             title = if (state.pendingChanges) {
@@ -298,7 +312,7 @@ internal fun cloudSyncStatusText(
         )
         CloudSyncPhase.Offline -> CloudSyncStatusText(
             title = resources.getString(R.string.settings_sync_status_offline),
-            lines = listOfNotNull(resources.getString(R.string.settings_sync_status_offline_body), lastSynced),
+            lines = listOfNotNull(lastSynced),
         )
         CloudSyncPhase.NeedsReauth -> CloudSyncStatusText(
             title = resources.getString(R.string.settings_sync_status_paused),
@@ -306,11 +320,11 @@ internal fun cloudSyncStatusText(
         )
         CloudSyncPhase.StorageFull -> CloudSyncStatusText(
             title = resources.getString(R.string.settings_sync_status_storage),
-            lines = listOfNotNull(resources.getString(R.string.settings_sync_status_storage_body), lastSynced),
+            lines = listOfNotNull(lastSynced),
         )
         is CloudSyncPhase.NeedsReview -> CloudSyncStatusText(
             title = resources.getString(R.string.settings_sync_status_review),
-            lines = listOfNotNull(resources.getString(R.string.settings_sync_status_review_body), lastSynced),
+            lines = listOfNotNull(lastSynced),
         )
         CloudSyncPhase.CloudCopyRemoved -> CloudSyncStatusText(
             title = resources.getString(R.string.settings_sync_status_removed),
@@ -318,11 +332,7 @@ internal fun cloudSyncStatusText(
         )
         is CloudSyncPhase.UpdateRequired -> CloudSyncStatusText(
             title = resources.getString(R.string.settings_sync_status_update),
-            lines = listOfNotNull(
-                phase.deviceName?.let { resources.getString(R.string.settings_sync_status_update_on_device, it) }
-                    ?: resources.getString(R.string.settings_sync_status_update_other),
-                lastSynced,
-            ),
+            lines = listOfNotNull(phase.deviceName, lastSynced),
         )
         is CloudSyncPhase.Error -> CloudSyncStatusText(
             title = resources.getString(R.string.settings_sync_status_error),

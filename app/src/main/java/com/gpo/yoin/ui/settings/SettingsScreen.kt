@@ -728,13 +728,12 @@ private fun ProfileAccountRow(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
-                    serviceLineOf(
+                    serviceLineGroups(
                         stringResource(identity.nameRes),
                         card.title,
                         card.subtitle,
-                        LocalContext.current.resources,
-                    )?.let { line ->
-                        ServiceLine(text = line, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    )?.let { groups ->
+                        ServiceLine(groups = groups)
                     }
                     AccountStatusPill(card = card, modifier = Modifier.padding(top = 6.dp))
                 }
@@ -793,10 +792,6 @@ private fun EmptyAccountsCard(onAddAccount: () -> Unit) {
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Text(stringResource(R.string.settings_accounts_empty_title), style = MaterialTheme.typography.titleLarge)
-            Text(
-                stringResource(R.string.settings_accounts_empty_body),
-                style = MaterialTheme.typography.bodyMedium,
-            )
             Button(
                 onClick = {
                     haptics.performClick()
@@ -934,15 +929,13 @@ private fun ProfileCardTile(
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.padding(end = 12.dp),
             )
-            serviceLineOf(
-                        stringResource(identity.nameRes),
-                        card.title,
-                        card.subtitle,
-                        LocalContext.current.resources,
-                    )?.let { line ->
+            serviceLineGroups(
+                stringResource(identity.nameRes),
+                card.title,
+                card.subtitle,
+            )?.let { groups ->
                 ServiceLine(
-                    text = line,
-                    color = secondaryColor,
+                    groups = groups,
                     modifier = Modifier.padding(end = 12.dp),
                 )
             }
@@ -959,19 +952,10 @@ private fun ProfileCardTile(
  */
 @Composable
 private fun AccountStatusPill(card: ProfileCard, modifier: Modifier = Modifier) {
-    val tone = card.provider.serviceIdentity.hue.tone()
     val scheme = MaterialTheme.colorScheme
     val issue = card.unavailableReason?.let { accountIssueLabel(it) }
-    val status: Triple<String, Color, Color>? = when {
-        issue != null -> Triple(
-            // The problem leads: if large text ellipsizes, it eats "In use",
-            // which the card itself already shows.
-            if (card.isActive) stringResource(R.string.settings_account_issue_in_use, issue) else issue,
-            scheme.errorContainer,
-            scheme.onErrorContainer,
-        )
-        card.isActive -> Triple(stringResource(R.string.settings_account_in_use), tone.accent, tone.onAccent)
-        else -> null
+    val status: Triple<String, Color, Color>? = issue?.let {
+        Triple(it, scheme.errorContainer, scheme.onErrorContainer)
     }
     // Keep the last label on screen while the pill shrinks away.
     var shown by remember { mutableStateOf(status) }

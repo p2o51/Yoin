@@ -18,8 +18,6 @@ import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.togetherWith
-import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -68,7 +66,6 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -97,6 +94,8 @@ import com.gpo.yoin.data.sync.SyncAccountRow
 import com.gpo.yoin.data.sync.SyncAccountStatus
 import com.gpo.yoin.data.sync.SyncDeviceRow
 import com.gpo.yoin.symbols.YoinSymbols
+import com.gpo.yoin.ui.component.MetaGroup
+import com.gpo.yoin.ui.component.MetaLine
 import com.gpo.yoin.ui.component.YoinDropdownMenu
 import com.gpo.yoin.ui.component.YoinDropdownMenuItem
 import com.gpo.yoin.ui.component.YoinLoadingIndicator
@@ -116,7 +115,7 @@ import com.gpo.yoin.ui.settings.service.ServiceSetupContract
 import com.gpo.yoin.ui.settings.service.ServiceSetupRequest
 import com.gpo.yoin.ui.settings.service.SetupService
 import com.gpo.yoin.ui.settings.serviceIdentity
-import com.gpo.yoin.ui.settings.serviceLineOf
+import com.gpo.yoin.ui.settings.serviceLineGroups
 import com.gpo.yoin.ui.settings.tone
 import com.gpo.yoin.ui.theme.ProvideYoinMotionRole
 import com.gpo.yoin.ui.theme.YoinMotion
@@ -576,17 +575,10 @@ private fun TurnOnBlock(turningOn: Boolean, onTurnOn: () -> Unit) {
                 ),
             )
         }
-        Text(
-            text = stringResource(R.string.settings_sync_turn_on_hint),
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(horizontal = 8.dp),
-        )
     }
 }
 
-/** Package + signing certificate for the "not set up for this build" case; long-press copies both. */
-@OptIn(ExperimentalFoundationApi::class)
+/** Package + signing certificate for the "not set up for this build" case. */
 @Composable
 private fun BuildDetailsRow(
     packageName: String,
@@ -603,23 +595,6 @@ private fun BuildDetailsRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(LocalSettingsRowShape.current)
-            .combinedClickable(
-                onClick = {},
-                onLongClickLabel = stringResource(R.string.settings_cd_copy_build),
-                onLongClick = {
-                    haptics.performLongPress()
-                    scope.launch {
-                        clipboard.setClipEntry(
-                            ClipData.newPlainText(clipLabel, clipBody).toClipEntry(),
-                        )
-                        // Android 13+ confirms copies itself.
-                        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
-                            snackbarHostState.showSnackbar(copied)
-                        }
-                    }
-                },
-            )
             .heightIn(min = 72.dp)
             .padding(horizontal = 16.dp, vertical = 14.dp),
         horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -642,10 +617,24 @@ private fun BuildDetailsRow(
                 style = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace),
                 color = MaterialTheme.colorScheme.onSurface,
             )
-            Text(
-                text = stringResource(R.string.settings_sync_long_press_copy),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+        }
+        IconButton(
+            onClick = {
+                haptics.performClick()
+                scope.launch {
+                    clipboard.setClipEntry(
+                        ClipData.newPlainText(clipLabel, clipBody).toClipEntry(),
+                    )
+                    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+                        snackbarHostState.showSnackbar(copied)
+                    }
+                }
+            },
+        ) {
+            Icon(
+                imageVector = YoinSymbols.Copy,
+                contentDescription = stringResource(R.string.settings_cd_copy_build),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
     }
@@ -692,15 +681,7 @@ private fun OnContent(
                             },
                             enabled = !turningOn,
                         ) {
-                            Text(
-                                stringResource(
-                                    if (turningOn) {
-                                        R.string.settings_sync_waiting_reconnect
-                                    } else {
-                                        R.string.settings_sync_reconnect
-                                    },
-                                ),
-                            )
+                            Text(stringResource(R.string.settings_sync_reconnect))
                         }
                     }
                 }
@@ -984,17 +965,19 @@ private fun AccountRow(
             icon = identity?.glyph ?: YoinSymbols.Person,
             iconTone = identity?.hue?.tone(),
             title = account.displayName,
-            summary = syncAccountSummary(
-                serviceLine = identity?.let {
-                    serviceLineOf(
-                        stringResource(it.nameRes),
-                        account.displayName,
-                        null,
-                        LocalContext.current.resources,
-                    )
-                },
-                status = accountStatusText(status),
-            ),
+            summaryContent = {
+                val groups = identity?.let {
+                    serviceLineGroups(stringResource(it.nameRes), account.displayName, null)
+                }
+                if (!groups.isNullOrEmpty()) {
+                    MetaLine(groups = groups, style = MaterialTheme.typography.bodyMedium)
+                }
+                Text(
+                    text = accountStatusText(status),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                )
+            },
         )
         val hasActions = status is SyncAccountStatus.NotSynced || status == SyncAccountStatus.AccountChanged
         if (hasActions) {
@@ -1074,23 +1057,6 @@ private fun LinkButton(candidates: List<CloudAccountRow>, onLink: (CloudAccountR
     }
 }
 
-@Composable
-private fun cloudAccountSummary(line: String?, fromDevice: String?): String? {
-    val device = fromDevice?.takeIf { it.isNotBlank() }
-    return when {
-        !line.isNullOrBlank() && device != null -> stringResource(R.string.settings_sync_cloud_from, line, device)
-        !line.isNullOrBlank() -> line
-        device != null -> stringResource(R.string.settings_sync_from_device, device)
-        else -> null
-    }
-}
-
-@Composable
-private fun syncAccountSummary(serviceLine: String?, status: String): String = when {
-    !serviceLine.isNullOrBlank() -> stringResource(R.string.settings_sync_account_line, serviceLine, status)
-    else -> status
-}
-
 /** "Apple Music from Pixel 9": Apple accounts are usually all called "Apple Music". */
 @Composable
 private fun linkLabel(candidate: CloudAccountRow): String {
@@ -1117,17 +1083,24 @@ private fun CloudAccountItem(
         icon = identity?.glyph ?: YoinSymbols.Person,
         iconTone = identity?.hue?.tone(),
         title = cloud.displayName,
-        summary = cloudAccountSummary(
-            line = identity?.let {
-                serviceLineOf(
-                    stringResource(it.nameRes),
-                    cloud.displayName,
-                    cloud.hint,
-                    LocalContext.current.resources,
-                )
-            } ?: cloud.hint?.takeIf { it.isNotBlank() },
-            fromDevice = cloud.fromDeviceName,
-        ),
+        summaryContent = {
+            val groups = buildList {
+                val service = identity?.let {
+                    serviceLineGroups(stringResource(it.nameRes), cloud.displayName, cloud.hint)
+                }
+                if (service != null) {
+                    addAll(service)
+                } else {
+                    cloud.hint?.takeIf { it.isNotBlank() }?.let { add(MetaGroup.Plain(it)) }
+                }
+                cloud.fromDeviceName?.takeIf { it.isNotBlank() }?.let {
+                    add(MetaGroup.Plain(it, muted = true))
+                }
+            }
+            if (groups.isNotEmpty()) {
+                MetaLine(groups = groups, style = MaterialTheme.typography.bodyMedium)
+            }
+        },
         trailing = {
             when {
                 linkTargets.isNotEmpty() -> Box {

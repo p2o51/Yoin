@@ -81,6 +81,8 @@ import com.gpo.yoin.R
 import com.gpo.yoin.data.source.spotify.SpotifyOAuthContract
 import com.gpo.yoin.ui.common.asString
 import com.gpo.yoin.ui.component.ExpressiveTextField
+import com.gpo.yoin.ui.component.MetaGroup
+import com.gpo.yoin.ui.component.MetaLine
 import com.gpo.yoin.ui.component.YoinLoadingIndicator
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
 import com.gpo.yoin.ui.settings.SecretTextField
@@ -95,7 +97,7 @@ import com.gpo.yoin.ui.settings.SettingsPageBackground
 import com.gpo.yoin.ui.settings.monogramOf
 import com.gpo.yoin.ui.settings.provider
 import com.gpo.yoin.ui.settings.serviceIdentity
-import com.gpo.yoin.ui.settings.serviceLineOf
+import com.gpo.yoin.ui.settings.serviceLineGroups
 import com.gpo.yoin.ui.settings.settingsSurfaces
 import com.gpo.yoin.ui.settings.tone
 import com.gpo.yoin.ui.settings.applemusic.AppleMusicValidationSection
@@ -169,13 +171,12 @@ fun ServiceSetupContent(
     } else {
         introName
     }
-    // Managing: the line under the account's name says which service it is
-    // ("Spotify", "Subsonic · host") — the same line its Settings card shows.
-    val heroTagline = if (state.isManaging) {
-        serviceLineOf(serviceName, heroTitle, state.account?.detail, LocalContext.current.resources) ?: serviceName
+    val managingLine = if (state.isManaging) {
+        serviceLineGroups(serviceName, heroTitle, state.account?.detail)
     } else {
-        stringResource(intro.taglineRes)
+        null
     }
+    val heroTagline = if (state.isManaging) null else stringResource(intro.taglineRes)
     // Hero title → app-bar title handoff. Positions land in plain float state
     // and are read only inside the bar title's graphicsLayer, so scrolling
     // redraws one layer and never recomposes the page.
@@ -271,6 +272,7 @@ fun ServiceSetupContent(
                                 account = state.account.takeIf { state.isManaging },
                                 title = heroTitle,
                                 tagline = heroTagline,
+                                serviceLine = managingLine,
                                 compactTitle = true,
                             )
                             if (!state.isManaging) {
@@ -309,6 +311,7 @@ fun ServiceSetupContent(
                         account = state.account.takeIf { state.isManaging },
                         title = heroTitle,
                         tagline = heroTagline,
+                        serviceLine = managingLine,
                         compactTitle = state.isManaging,
                         titleModifier = Modifier.onGloballyPositioned {
                             heroTitleTop.floatValue = it.positionInWindow().y
@@ -337,7 +340,8 @@ private fun ServiceHero(
     identity: ServiceIdentity,
     account: AccountFace?,
     title: String,
-    tagline: String,
+    tagline: String?,
+    serviceLine: List<MetaGroup>? = null,
     compactTitle: Boolean = false,
     titleModifier: Modifier = Modifier,
 ) {
@@ -421,11 +425,18 @@ private fun ServiceHero(
                     }
                 }
             }
-            Text(
-                text = tagline,
-                style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+            if (!serviceLine.isNullOrEmpty()) {
+                MetaLine(
+                    groups = serviceLine,
+                    style = MaterialTheme.typography.bodyLarge,
+                )
+            } else if (tagline != null) {
+                Text(
+                    text = tagline,
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
         }
     }
 }
@@ -668,9 +679,15 @@ private fun SpotifyConnectGroup(
                     spotify.needsReconnect -> stringResource(R.string.settings_setup_spotify_reconnect_body)
                     issue != null -> issue.asString()
                     state.isManaging -> stringResource(R.string.settings_setup_spotify_connected)
-                    else -> stringResource(R.string.settings_setup_spotify_pitch)
+                    else -> null
                 }
-                Text(message, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                if (message != null) {
+                    Text(
+                        message,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
                 if (!state.canAddProfile) {
                     InlineNotice(stringResource(R.string.settings_setup_limit_spotify))
                 }

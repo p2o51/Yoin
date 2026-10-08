@@ -1,6 +1,5 @@
 package com.gpo.yoin.ui.settings
 
-import android.content.res.Resources
 import androidx.annotation.StringRes
 import androidx.compose.animation.core.Animatable
 import androidx.compose.foundation.layout.Arrangement
@@ -33,7 +32,6 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.clearAndSetSemantics
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -43,6 +41,8 @@ import coil3.compose.AsyncImage
 import com.gpo.yoin.R
 import com.gpo.yoin.data.profile.ProviderKind
 import com.gpo.yoin.symbols.YoinSymbols
+import com.gpo.yoin.ui.component.MetaGroup
+import com.gpo.yoin.ui.component.MetaLine
 import com.gpo.yoin.ui.component.MorphPolygonShape
 import com.gpo.yoin.ui.settings.service.SetupService
 import com.gpo.yoin.ui.theme.YoinMotion
@@ -147,30 +147,22 @@ internal fun monogramOf(title: String, serviceName: String? = null): String {
 }
 
 /**
- * The line under an account's name: "Subsonic · music.example.com",
- * "Spotify". The service name drops out when the title already says it
- * (an Apple Music account titled "Apple Music"); null when nothing is left.
+ * The line under an account's name: service kind, then host. The service
+ * name drops out when the title already says it (an Apple Music account
+ * titled "Apple Music"); null when nothing is left.
  */
-@Suppress("ktlint:standard:max-line-length")
-internal fun serviceLineOf(
+internal fun serviceLineGroups(
     serviceName: String,
     title: String,
     detail: String?,
-    resources: Resources? = null,
-): String? {
-    val parts = buildList {
-        if (!title.contains(serviceName, ignoreCase = true)) add(serviceName)
-        detail?.takeIf { it.isNotBlank() && !title.contains(it, ignoreCase = true) }?.let(::add)
+): List<MetaGroup>? {
+    val groups = buildList {
+        if (!title.contains(serviceName, ignoreCase = true)) add(MetaGroup.Kind(serviceName))
+        detail?.takeIf { it.isNotBlank() && !title.contains(it, ignoreCase = true) }?.let {
+            add(MetaGroup.Plain(it))
+        }
     }
-    if (resources == null) {
-        return parts.takeIf { it.isNotEmpty() }
-            ?.joinToString(" · ") // i18n-allow: AccountIdentityTest asserts this English
-    }
-    return when (parts.size) {
-        0 -> null
-        1 -> parts[0]
-        else -> resources.getString(R.string.settings_service_name_line, parts[0], parts[1])
-    }
+    return groups.takeIf { it.isNotEmpty() }
 }
 
 /** Eight clearly different silhouettes — no two scalloped circles. */
@@ -305,21 +297,17 @@ internal fun AccountAvatar(
 private val AvatarBadgeMinSize = 18.dp
 
 /**
- * "Spotify" / "Subsonic · host" under an account's name — which service it
- * lives on. Text only: the avatar's badge already carries the glyph.
+ * Service kind and host under an account's name. The avatar badge already
+ * carries the glyph.
  */
 @Composable
 internal fun ServiceLine(
-    text: String,
-    color: Color,
+    groups: List<MetaGroup>,
     modifier: Modifier = Modifier,
 ) {
-    Text(
-        text = text,
+    MetaLine(
+        groups = groups,
         style = MaterialTheme.typography.bodyMedium,
-        color = color,
-        maxLines = 1,
-        overflow = TextOverflow.Ellipsis,
         modifier = modifier,
     )
 }

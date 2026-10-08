@@ -41,25 +41,25 @@ class CloudSyncTextsTest {
 
     @Test
     fun should_summarizeOffStates_when_syncIsNotRunning() {
-        assertEquals("Off", summary(CloudSyncState()))
+        assertEquals(CloudSyncEntryText("Off"), summary(CloudSyncState()))
         assertEquals(
-            "Not available in this build",
+            CloudSyncEntryText("Not available in this build"),
             summary(CloudSyncState(phase = CloudSyncPhase.Misconfigured("com.gpo.yoin", null))),
         )
         assertEquals(
-            "Needs Google Play services",
+            CloudSyncEntryText("Needs Google Play services"),
             summary(CloudSyncState(phase = CloudSyncPhase.Unavailable(updateRequired = false))),
         )
         assertEquals(
-            "Needs a Google Play services update",
+            CloudSyncEntryText("Needs a Google Play services update"),
             summary(CloudSyncState(phase = CloudSyncPhase.Unavailable(updateRequired = true))),
         )
         assertEquals(
-            "Turned off on Pixel 9",
+            CloudSyncEntryText("Turned off on Pixel 9"),
             summary(CloudSyncState(phase = CloudSyncPhase.ResetElsewhere("Pixel 9"))),
         )
         assertEquals(
-            "Turned off on another device",
+            CloudSyncEntryText("Turned off on another device"),
             summary(CloudSyncState(phase = CloudSyncPhase.ResetElsewhere(null))),
         )
     }
@@ -67,23 +67,32 @@ class CloudSyncTextsTest {
     @Test
     fun should_summarizeOnStates_when_syncIsRunning() {
         val synced = CloudSyncState(phase = CloudSyncPhase.UpToDate, lastSyncAt = now - 2 * minute)
-        assertEquals("On · Synced 2 min ago", summary(synced))
-        assertEquals("On", summary(synced.copy(lastSyncAt = null)))
-        assertEquals("Changes waiting to upload", summary(synced.copy(pendingChanges = true)))
-        assertEquals("Syncing…", summary(synced.copy(phase = CloudSyncPhase.Syncing)))
+        assertEquals(CloudSyncEntryText("On", "Synced 2 min ago"), summary(synced))
+        assertEquals(CloudSyncEntryText("On"), summary(synced.copy(lastSyncAt = null)))
+        assertEquals(CloudSyncEntryText("Changes waiting to upload"), summary(synced.copy(pendingChanges = true)))
+        assertEquals(CloudSyncEntryText("Syncing…"), summary(synced.copy(phase = CloudSyncPhase.Syncing)))
         assertEquals(
-            "Changes waiting to upload",
+            CloudSyncEntryText("Changes waiting to upload"),
             summary(synced.copy(phase = CloudSyncPhase.Offline, pendingChanges = true)),
         )
-        assertEquals("On · Offline", summary(synced.copy(phase = CloudSyncPhase.Offline)))
-        assertEquals("Paused · Reconnect Google", summary(synced.copy(phase = CloudSyncPhase.NeedsReauth)))
-        assertEquals("Google storage full", summary(synced.copy(phase = CloudSyncPhase.StorageFull)))
+        assertEquals(CloudSyncEntryText("On", "Offline"), summary(synced.copy(phase = CloudSyncPhase.Offline)))
         assertEquals(
-            "Needs review · 3 notes disappeared",
+            CloudSyncEntryText("Paused", "Reconnect Google"),
+            summary(synced.copy(phase = CloudSyncPhase.NeedsReauth)),
+        )
+        assertEquals(
+            CloudSyncEntryText("Google storage full"),
+            summary(synced.copy(phase = CloudSyncPhase.StorageFull)),
+        )
+        assertEquals(
+            CloudSyncEntryText("Needs review", "3 notes disappeared"),
             summary(synced.copy(phase = CloudSyncPhase.NeedsReview("demo", 3))),
         )
-        assertEquals("Paused · Drive copy removed", summary(synced.copy(phase = CloudSyncPhase.CloudCopyRemoved)))
-        assertEquals("Couldn't sync", summary(synced.copy(phase = CloudSyncPhase.Error("boom"))))
+        assertEquals(
+            CloudSyncEntryText("Paused", "Drive copy removed"),
+            summary(synced.copy(phase = CloudSyncPhase.CloudCopyRemoved)),
+        )
+        assertEquals(CloudSyncEntryText("Couldn't sync"), summary(synced.copy(phase = CloudSyncPhase.Error("boom"))))
     }
 
     @Test

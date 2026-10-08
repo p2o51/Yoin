@@ -17,7 +17,7 @@ import com.gpo.yoin.ui.settings.SettingsItem
 
 /**
  * Settings › Storage's first row: "Cloud sync" and where it stands
- * ("Off", "On · Synced 2 min ago", "Paused · Reconnect Google"…). Opens
+ * ("Off", then "Synced 2 min ago" under "On"). Opens
  * [CloudSyncActivity].
  */
 @Composable
@@ -28,10 +28,12 @@ fun CloudSyncEntryRow(
     now: Long = rememberTickingNow(),
     showChevron: Boolean = false,
 ) {
+    val text = cloudSyncEntrySummary(state, now, LocalContext.current.resources)
     SettingsItem(
         icon = YoinSymbols.Devices,
         title = stringResource(R.string.settings_sync_title),
-        summary = cloudSyncEntrySummary(state, now, LocalContext.current.resources),
+        summary = text.status,
+        summaryDetail = text.detail,
         onClick = onClick,
         modifier = modifier,
         // List-detail: rows that open a page on the right carry a chevron.

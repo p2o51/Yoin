@@ -796,10 +796,19 @@ private fun YoinShell(
     // composable scope since it's a short-lived push page.
     LaunchedEffect(Unit) {
         libraryViewModel.messages.collect { message ->
-            snackbarHostState.showSnackbar(
+            val pending = shellContext.getString(R.string.library_feedback_apple_music_pending)
+            val result = snackbarHostState.showSnackbar(
                 message = message,
-                duration = SnackbarDuration.Short,
+                actionLabel = if (message == pending) {
+                    shellContext.getString(R.string.library_action_check)
+                } else {
+                    null
+                },
+                duration = if (message == pending) SnackbarDuration.Long else SnackbarDuration.Short,
             )
+            if (result == SnackbarResult.ActionPerformed) {
+                libraryViewModel.checkPendingLibraryAddition()
+            }
         }
     }
 
