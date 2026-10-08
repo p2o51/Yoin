@@ -1,5 +1,6 @@
 package com.gpo.yoin.ui.navigation
 
+import android.content.Context
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.LocalActivity
 import androidx.activity.compose.PredictiveBackHandler
@@ -76,6 +77,7 @@ import androidx.navigation3.ui.LocalNavAnimatedContentScope
 import androidx.navigation3.ui.NavDisplay
 import androidx.navigationevent.compose.LocalNavigationEventDispatcherOwner
 import androidx.navigationevent.compose.rememberNavigationEventDispatcherOwner
+import com.gpo.yoin.R
 import com.gpo.yoin.YoinApplication
 import com.gpo.yoin.data.model.CoverRef
 import com.gpo.yoin.data.model.MediaId
@@ -758,7 +760,7 @@ private fun YoinShell(
         app.container.playbackManager.events.collect { event ->
             when (event) {
                 is PlaybackEvent.SpotifyConnectError -> {
-                    val actionLabel = actionLabelForFailure(event.failure)
+                    val actionLabel = actionLabelForFailure(event.failure, shellContext)
                     val result = snackbarHostState.showSnackbar(
                         message = event.message,
                         actionLabel = actionLabel,
@@ -773,7 +775,7 @@ private fun YoinShell(
                 }
 
                 is PlaybackEvent.SpotifyActionRequired -> {
-                    val actionLabel = actionLabelForFailure(event.failure)
+                    val actionLabel = actionLabelForFailure(event.failure, shellContext)
                     val result = snackbarHostState.showSnackbar(
                         message = event.message,
                         actionLabel = actionLabel,
@@ -1455,11 +1457,16 @@ private fun YoinShell(
  * failure. Returns null when the failure has no user-actionable recovery
  * yet (UX will just show a dismiss affordance instead).
  */
-private fun actionLabelForFailure(failure: SpotifyConnectFailure): String? = when (failure) {
-    SpotifyConnectFailure.NoClientId -> "Open Settings"
+private fun actionLabelForFailure(
+    failure: SpotifyConnectFailure,
+    context: Context,
+): String? = when (failure) {
+    SpotifyConnectFailure.NoClientId ->
+        context.getString(R.string.shell_snackbar_open_settings_no_client_id)
     SpotifyConnectFailure.SpotifyAppMissing -> null // phase 3 wires Play Store intent
     SpotifyConnectFailure.PremiumRequired -> null
-    is SpotifyConnectFailure.AuthFailure -> "Open Settings"
+    is SpotifyConnectFailure.AuthFailure ->
+        context.getString(R.string.shell_snackbar_open_settings_auth)
     is SpotifyConnectFailure.TransportFailure -> null
 }
 

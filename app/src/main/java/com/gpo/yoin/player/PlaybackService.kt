@@ -13,8 +13,11 @@ import androidx.media3.datasource.cache.SimpleCache
 import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import androidx.media3.session.DefaultMediaNotificationProvider
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
+import com.gpo.yoin.R
+import com.gpo.yoin.YoinApplication
 import okhttp3.OkHttpClient
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -25,6 +28,7 @@ class PlaybackService : MediaSessionService() {
 
     private var mediaSession: MediaSession? = null
     private var cache: SimpleCache? = null
+    private var quickActions: SessionQuickActions? = null
 
     @OptIn(UnstableApi::class)
     override fun onCreate() {
@@ -56,7 +60,14 @@ class PlaybackService : MediaSessionService() {
         // applies the user's current mode whenever Yoin starts a queue.
         player.repeatMode = Player.REPEAT_MODE_ALL
 
-        mediaSession = MediaSession.Builder(this, player).build()
+        setMediaNotificationProvider(yoinNotificationProvider())
+        val container = (application as YoinApplication).container
+        val actions = SessionQuickActions(this, { container.playbackManager }, { container.repository })
+        quickActions = actions
+        mediaSession = MediaSession.Builder(this, player)
+            .setCallback(actions.callback)
+            .build()
+            .also(actions::attach)
         _audioSessionId.value = player.audioSessionId
     }
 
@@ -73,6 +84,8 @@ class PlaybackService : MediaSessionService() {
 
     @OptIn(UnstableApi::class)
     override fun onDestroy() {
+        quickActions?.release()
+        quickActions = null
         mediaSession?.run {
             player.release()
             release()
@@ -84,6 +97,13 @@ class PlaybackService : MediaSessionService() {
     }
 
     companion object {
+        /** Media3's notification with Yoin's status-bar mark instead of the default note. */
+        @OptIn(UnstableApi::class)
+        internal fun MediaSessionService.yoinNotificationProvider() =
+            DefaultMediaNotificationProvider.Builder(this).build().apply {
+                setSmallIcon(R.drawable.ic_stat_yoin)
+            }
+
         private const val CACHE_DIR_NAME = "media_cache"
         private const val MAX_CACHE_SIZE_BYTES = 500L * 1024 * 1024 // 500 MB
 

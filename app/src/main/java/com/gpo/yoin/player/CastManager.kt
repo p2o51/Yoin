@@ -6,6 +6,7 @@ import androidx.media3.cast.CastPlayer
 import androidx.media3.cast.SessionAvailabilityListener
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
+import com.gpo.yoin.R
 import com.google.android.gms.cast.framework.CastContext
 import com.google.android.gms.cast.framework.CastState as GmsCastState
 import kotlinx.coroutines.CoroutineScope
@@ -110,7 +111,8 @@ class CastManager(private val context: Context) {
                 override fun onCastSessionAvailable() {
                     val session = ctx.sessionManager.currentCastSession
                     val deviceName =
-                        session?.castDevice?.friendlyName ?: "Cast Device"
+                        session?.castDevice?.friendlyName
+                            ?: context.getString(R.string.player_cast_device_session)
                     _castState.value = CastState.Connected(deviceName)
                     transferToCast()
                 }
@@ -156,7 +158,8 @@ class CastManager(private val context: Context) {
             GmsCastState.CONNECTED -> {
                 val session = ctx.sessionManager.currentCastSession
                 val deviceName =
-                    session?.castDevice?.friendlyName ?: "Cast Device"
+                    session?.castDevice?.friendlyName
+                        ?: context.getString(R.string.player_cast_device_initial)
                 _castState.value = CastState.Connected(deviceName)
             }
             else -> {} // CONNECTING — keep current state

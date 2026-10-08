@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="shell_snackbar_open_settings_no_client_id">Open Settings</string>
+    <string name="shell_snackbar_open_settings_auth">Open Settings</string>
+    <string name="shell_pane_album_go_to_artist">Go to artist</string>
+    <string name="shell_pane_album_share">Share</string>
+    <string name="shell_pane_artist_share">Share</string>
+    <string name="shell_pane_playlist_share">Share</string>
+    <string name="shell_share_album_title">%1$s – %2$s</string>
+    <string name="shell_share_album_fallback">Check out this album</string>
+    <string name="shell_share_artist_fallback">Check out this artist</string>
+    <string name="shell_share_playlist_fallback">Check out this playlist</string>
+
+    <string name="player_spotify_no_client_id">Open Settings → Spotify to enter a Client ID.</string>
+    <string name="player_spotify_app_missing">Install the Spotify app to play Spotify tracks.</string>
+    <string name="player_spotify_premium_required">Spotify Premium is required for in-app playback.</string>
+    <string name="player_spotify_auth_failed">Spotify authorization failed.</string>
+    <string name="player_spotify_connection_lost">Spotify playback connection was lost.</string>
+    <string name="player_spotify_disconnected">Spotify playback connection was lost.</string>
+    <string name="player_spotify_log_in">Log in to the Spotify app to continue.</string>
+    <string name="player_spotify_auth_reconnect">Spotify authorization failed. Reconnect the profile and try again.</string>
+    <string name="player_spotify_offline">Spotify is offline right now.</string>
+    <string name="player_spotify_update_app">Update the Spotify app to use in-app playback.</string>
+    <string name="player_spotify_unavailable">Spotify playback is unavailable.</string>
+    <string name="player_spotify_track_only_fallback">Spotify playback fell back to track-only mode. Open Settings → Spotify and reconnect to restore album / playlist context.</string>
+    <string name="player_spotify_needs_permission">Spotify needs permission in the Spotify app. Open Spotify, approve access if prompted, and try again.</string>
+    <string name="player_spotify_needs_authorization">Spotify needs authorization in the Spotify app. Open Spotify and try again.</string>
+    <string name="player_init_failed">Unable to initialize playback</string>
+    <string name="player_play_failed">Unable to play this song</string>
+    <string name="player_cast_device_session">Cast Device</string>
+    <string name="player_cast_device_initial">Cast Device</string>
+    <string name="player_apple_music_channel" translatable="false">Apple Music</string>
+    <string name="player_apple_music_notification_title" translatable="false">Apple Music</string>
+    <string name="player_apple_music_preparing">Preparing playback…</string>
+    <string name="player_apple_music_connecting">Connecting to Apple Music…</string>
+    <string name="player_apple_music_play_failed">MusicKit could not play this song. Check subscription and reconnect, then retry.</string>
+    <string name="player_apple_music_timeout">Apple Music playback timed out. Check your connection and subscription, then retry.</string>
+</resources>

@@ -16,6 +16,7 @@ import com.apple.android.music.playback.model.PlaybackState as ApplePlaybackStat
 import com.apple.android.music.playback.model.PlayerQueueItem
 import com.apple.android.music.playback.queue.CatalogPlaybackQueueItemProvider
 import com.apple.android.sdk.authentication.TokenProvider
+import com.gpo.yoin.R
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
 
@@ -28,6 +29,7 @@ class AppleMusicMedia3Player(
     private val currentDeveloperToken: () -> String = { developerToken },
     private val onObservation: (AppleMusicPlaybackObservation) -> Unit
 ) : SimpleBasePlayer(Looper.getMainLooper()) {
+    private val appContext = context.applicationContext
     private val handler = Handler(Looper.getMainLooper())
     init {
         // Required by Apple's SDK sample; the Java factory does not load JNI itself.
@@ -35,7 +37,7 @@ class AppleMusicMedia3Player(
         System.loadLibrary("appleMusicSDK")
     }
     private val controller = MediaPlayerControllerFactory.createLocalController(
-        context.applicationContext,
+        appContext,
         object : TokenProvider {
             override fun getDeveloperToken() = currentDeveloperToken()
             override fun getUserToken() = userToken
@@ -83,7 +85,7 @@ class AppleMusicMedia3Player(
         override fun onPlaybackQueueItemsAdded(c: MediaPlayerController, a: Int, b: Int, d: Int) = publish()
         override fun onPlaybackError(c: MediaPlayerController, error: MediaPlayerException) {
             preparing = false
-            failure = "MusicKit could not play this song. Check subscription and reconnect, then retry."
+            failure = appContext.getString(R.string.player_apple_music_play_failed)
             publish()
         }
         override fun onPlaybackRepeatModeChanged(c: MediaPlayerController, mode: Int) = publish()
@@ -92,7 +94,7 @@ class AppleMusicMedia3Player(
     private val prepareTimeout = Runnable {
         if (preparing && !released) {
             preparing = false
-            failure = "Apple Music playback timed out. Check your connection and subscription, then retry."
+            failure = appContext.getString(R.string.player_apple_music_timeout)
             controller.stop()
             publish()
         }

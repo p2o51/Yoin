@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="player_action_shuffle_on">随机播放</string>
+    <string name="player_action_shuffle_off">关闭随机播放</string>
+    <string name="player_action_add_to_library">加入资料库</string>
+    <string name="player_action_in_library">已在资料库</string>
+</resources>

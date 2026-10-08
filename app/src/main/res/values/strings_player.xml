@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Media notification / lock screen buttons (SessionQuickActions). -->
+    <string name="player_action_shuffle_on">Shuffle</string>
+    <string name="player_action_shuffle_off">Turn off shuffle</string>
+    <string name="player_action_add_to_library">Add to library</string>
+    <string name="player_action_in_library">In library</string>
+</resources>

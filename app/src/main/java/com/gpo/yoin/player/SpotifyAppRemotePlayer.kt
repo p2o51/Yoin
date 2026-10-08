@@ -1,8 +1,10 @@
 package com.gpo.yoin.player
 
 import android.content.Context
+import android.content.res.Resources
 import android.util.Log
 import androidx.media3.common.Player
+import com.gpo.yoin.R
 import com.gpo.yoin.data.model.CoverRef
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.Track
@@ -81,12 +83,21 @@ sealed interface SpotifyConnectFailure {
     /** Network / IPC / offline-mode / version mismatch. */
     data class TransportFailure(val message: String) : SpotifyConnectFailure
 
-    fun userMessage(): String = when (this) {
-        NoClientId -> "Open Settings → Spotify to enter a Client ID."
-        SpotifyAppMissing -> "Install the Spotify app to play Spotify tracks."
-        PremiumRequired -> "Spotify Premium is required for in-app playback."
-        is AuthFailure -> message.ifBlank { "Spotify authorization failed." }
-        is TransportFailure -> message.ifBlank { "Spotify playback connection was lost." }
+    fun userMessage(resources: Resources? = null): String = when (this) {
+        NoClientId -> resources?.getString(R.string.player_spotify_no_client_id)
+            ?: "Open Settings → Spotify to enter a Client ID."
+        SpotifyAppMissing -> resources?.getString(R.string.player_spotify_app_missing)
+            ?: "Install the Spotify app to play Spotify tracks."
+        PremiumRequired -> resources?.getString(R.string.player_spotify_premium_required)
+            ?: "Spotify Premium is required for in-app playback." // i18n-allow: SpotifyTypedFailureMappingTest asserts this English
+        is AuthFailure -> message.ifBlank {
+            resources?.getString(R.string.player_spotify_auth_failed)
+                ?: "Spotify authorization failed."
+        }
+        is TransportFailure -> message.ifBlank {
+            resources?.getString(R.string.player_spotify_connection_lost)
+                ?: "Spotify playback connection was lost."
+        }
     }
 }
 
@@ -466,7 +477,9 @@ internal class SpotifyAppRemotePlayer(
             publish(
                 lastSnapshot.copy(
                     connectionPhase = ConnectionPhase.Error,
-                    connectionErrorMessage = SpotifyConnectFailure.NoClientId.userMessage(),
+                    connectionErrorMessage = SpotifyConnectFailure.NoClientId.userMessage(
+                        applicationContext.resources,
+                    ),
                     connectionFailure = SpotifyConnectFailure.NoClientId,
                 ),
             )
@@ -791,7 +804,7 @@ internal class SpotifyAppRemotePlayer(
             return
         }
 
-        val message = failure.userMessage()
+        val message = failure.userMessage(applicationContext.resources)
         // If the user had already been watching something play (observed
         // at least one real PlayerState), preserve `currentTrack` and let
         // UI render an "interrupted" state. If we never observed a frame,
@@ -865,25 +878,30 @@ internal class SpotifyAppRemotePlayer(
 
     private fun failureFor(error: Throwable): SpotifyConnectFailure = when (error) {
         is CouldNotFindSpotifyApp -> SpotifyConnectFailure.SpotifyAppMissing
-        is UserNotAuthorizedException -> userNotAuthorizedFailure(error.message)
+        is UserNotAuthorizedException ->
+            userNotAuthorizedFailure(error.message, applicationContext.resources)
         is NotLoggedInException ->
-            SpotifyConnectFailure.AuthFailure("Log in to the Spotify app to continue.")
+            SpotifyConnectFailure.AuthFailure(
+                applicationContext.getString(R.string.player_spotify_log_in),
+            )
         is AuthenticationFailedException ->
             SpotifyConnectFailure.AuthFailure(
-                "Spotify authorization failed. Reconnect the profile and try again.",
+                applicationContext.getString(R.string.player_spotify_auth_reconnect),
             )
         is OfflineModeException ->
-            SpotifyConnectFailure.TransportFailure("Spotify is offline right now.")
+            SpotifyConnectFailure.TransportFailure(
+                applicationContext.getString(R.string.player_spotify_offline),
+            )
         is UnsupportedFeatureVersionException ->
             SpotifyConnectFailure.TransportFailure(
-                "Update the Spotify app to use in-app playback.",
+                applicationContext.getString(R.string.player_spotify_update_app),
             )
         is SpotifyDisconnectedException, is SpotifyRemoteServiceException ->
             SpotifyConnectFailure.TransportFailure(
-                error.message ?: "Spotify playback connection was lost.",
+                error.message ?: applicationContext.getString(R.string.player_spotify_disconnected),
             )
         else -> SpotifyConnectFailure.TransportFailure(
-            error.message ?: "Spotify playback is unavailable.",
+            error.message ?: applicationContext.getString(R.string.player_spotify_unavailable),
         )
     }
 
@@ -894,14 +912,14 @@ internal class SpotifyAppRemotePlayer(
 
     private fun emitContextPlaybackActionIfNeeded(error: Throwable) {
         val failure = contextPlaybackActionFailure(error) ?: return
-        onActionRequired(failure, failure.userMessage())
+        onActionRequired(failure, failure.userMessage(applicationContext.resources))
     }
 
     private fun contextPlaybackActionFailure(error: Throwable): SpotifyConnectFailure? =
         when (error) {
             is SpotifyAuthException -> when (error.code) {
                 HTTP_UNAUTHORIZED, HTTP_FORBIDDEN -> SpotifyConnectFailure.AuthFailure(
-                    "Spotify playback fell back to track-only mode. Open Settings → Spotify and reconnect to restore album / playlist context.",
+                    applicationContext.getString(R.string.player_spotify_track_only_fallback),
                 )
                 else -> null
             }
@@ -931,7 +949,10 @@ internal fun spotifyImageUrlFromProtocolUri(raw: String): String? {
     return "https://i.scdn.co/image/$imageId"
 }
 
-internal fun userNotAuthorizedFailure(rawMessage: String?): SpotifyConnectFailure {
+internal fun userNotAuthorizedFailure(
+    rawMessage: String?,
+    resources: Resources? = null,
+): SpotifyConnectFailure {
     val normalized = rawMessage.normalizedSpotifyErrorMessage()
     return when {
         normalized?.contains("premium", ignoreCase = true) == true ->
@@ -941,11 +962,13 @@ internal fun userNotAuthorizedFailure(rawMessage: String?): SpotifyConnectFailur
             normalized?.contains("auth-flow", ignoreCase = true) == true ||
             normalized?.contains("authorize", ignoreCase = true) == true ->
             SpotifyConnectFailure.AuthFailure(
-                "Spotify needs permission in the Spotify app. Open Spotify, approve access if prompted, and try again.",
+                resources?.getString(R.string.player_spotify_needs_permission)
+                    ?: "Spotify needs permission in the Spotify app. Open Spotify, approve access if prompted, and try again.", // i18n-allow: SpotifyTypedFailureMappingTest and SpotifyAppRemotePlayerMappingTest assert this English
             )
 
         else -> SpotifyConnectFailure.AuthFailure(
-            normalized ?: "Spotify needs authorization in the Spotify app. Open Spotify and try again.",
+            normalized ?: resources?.getString(R.string.player_spotify_needs_authorization)
+                ?: "Spotify needs authorization in the Spotify app. Open Spotify and try again.",
         )
     }
 }

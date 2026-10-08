@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="shell_snackbar_open_settings_no_client_id">打开设置</string>
+    <string name="shell_snackbar_open_settings_auth">打开设置</string>
+    <string name="shell_pane_album_go_to_artist">前往歌手</string>
+    <string name="shell_pane_album_share">分享</string>
+    <string name="shell_pane_artist_share">分享</string>
+    <string name="shell_pane_playlist_share">分享</string>
+    <string name="shell_share_album_title">%1$s – %2$s</string>
+    <string name="shell_share_album_fallback">看看这张专辑</string>
+    <string name="shell_share_artist_fallback">看看这位歌手</string>
+    <string name="shell_share_playlist_fallback">看看这个播放列表</string>
+
+    <string name="player_spotify_no_client_id">打开设置 → Spotify，填写 Client ID。</string>
+    <string name="player_spotify_app_missing">安装 Spotify 应用才能播放 Spotify 歌曲。</string>
+    <string name="player_spotify_premium_required">应用内播放需要 Spotify Premium。</string>
+    <string name="player_spotify_auth_failed">Spotify 授权失败。</string>
+    <string name="player_spotify_connection_lost">Spotify 播放连接已断开。</string>
+    <string name="player_spotify_disconnected">Spotify 播放连接已断开。</string>
+    <string name="player_spotify_log_in">登录 Spotify 应用后继续。</string>
+    <string name="player_spotify_auth_reconnect">Spotify 授权失败。重新连接账号后再试。</string>
+    <string name="player_spotify_offline">Spotify 当前处于离线状态。</string>
+    <string name="player_spotify_update_app">更新 Spotify 应用后才能在应用内播放。</string>
+    <string name="player_spotify_unavailable">Spotify 播放暂不可用。</string>
+    <string name="player_spotify_track_only_fallback">Spotify 已改为仅播放单曲。打开设置 → Spotify 并重新连接，以恢复专辑和播放列表播放。</string>
+    <string name="player_spotify_needs_permission">需要在 Spotify 应用中授权。打开 Spotify，按提示允许访问后再试。</string>
+    <string name="player_spotify_needs_authorization">需要在 Spotify 应用中授权。打开 Spotify 后再试。</string>
+    <string name="player_init_failed">无法初始化播放</string>
+    <string name="player_play_failed">无法播放这首歌</string>
+    <string name="player_cast_device_session">投屏设备</string>
+    <string name="player_cast_device_initial">投屏设备</string>
+    <string name="player_apple_music_preparing">正在准备播放…</string>
+    <string name="player_apple_music_connecting">正在连接 Apple Music…</string>
+    <string name="player_apple_music_play_failed">MusicKit 无法播放这首歌。检查订阅并重新连接后再试。</string>
+    <string name="player_apple_music_timeout">Apple Music 播放超时。检查你的网络和订阅后再试。</string>
+</resources>

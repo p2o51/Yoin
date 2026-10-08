@@ -10,6 +10,7 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
 import com.gpo.yoin.MainActivity
+import com.gpo.yoin.R
 import com.gpo.yoin.data.remote.applemusic.AppleMusicDeveloperTokenProvider
 import com.gpo.yoin.data.remote.applemusic.AppleMusicValidationStore
 import com.gpo.yoin.symbols.R as SymbolsR
@@ -46,7 +47,11 @@ class AppleMusicValidationService : MediaSessionService() {
         val currentGeneration = ++generation
         val manager = getSystemService(NotificationManager::class.java)
         manager.createNotificationChannel(
-            NotificationChannel(CHANNEL, "Apple Music", NotificationManager.IMPORTANCE_LOW)
+            NotificationChannel(
+                CHANNEL,
+                getString(R.string.player_apple_music_channel),
+                NotificationManager.IMPORTANCE_LOW,
+            ),
         )
         val openApp = PendingIntent.getActivity(
             this,
@@ -57,10 +62,15 @@ class AppleMusicValidationService : MediaSessionService() {
         startForeground(
             BOOTSTRAP_NOTIFICATION,
             NotificationCompat.Builder(this, CHANNEL)
-                .setSmallIcon(SymbolsR.drawable.ic_yoin_music_note).setContentTitle("Apple Music")
-                .setContentText("Preparing playback…").setContentIntent(openApp).build()
+                .setSmallIcon(SymbolsR.drawable.ic_yoin_music_note)
+                .setContentTitle(getString(R.string.player_apple_music_notification_title))
+                .setContentText(getString(R.string.player_apple_music_preparing))
+                .setContentIntent(openApp)
+                .build(),
         )
-        observation.value = AppleMusicPlaybackObservation(message = "Connecting to Apple Music…")
+        observation.value = AppleMusicPlaybackObservation(
+            message = getString(R.string.player_apple_music_connecting),
+        )
         startJob?.cancel()
         startJob = scope.launch {
             try {

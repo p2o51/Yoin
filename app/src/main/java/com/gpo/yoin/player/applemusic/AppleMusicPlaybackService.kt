@@ -8,6 +8,8 @@ import androidx.media3.session.MediaSessionService
 import com.gpo.yoin.YoinApplication
 import com.gpo.yoin.data.profile.ProfileManager.SwitchState
 import com.gpo.yoin.data.source.applemusic.AppleMusicSource
+import com.gpo.yoin.player.PlaybackService.Companion.yoinNotificationProvider
+import com.gpo.yoin.player.SessionQuickActions
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
 import kotlinx.coroutines.CancellationException
@@ -28,9 +30,14 @@ class AppleMusicPlaybackService : MediaSessionService() {
     private var source: AppleMusicSource? = null
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var refreshJob: Job? = null
+    private val quickActions by lazy {
+        val container = (application as YoinApplication).container
+        SessionQuickActions(this, { container.playbackManager }, { container.repository })
+    }
 
     override fun onCreate() {
         super.onCreate()
+        setMediaNotificationProvider(yoinNotificationProvider())
         // System UI keeps this service bound, so PlaybackManager's stopService alone leaves the
         // session alive as the media-button target: a headset "play" after an account switch
         // would resume Apple Music under another profile. The session dies with its source —
@@ -63,8 +70,9 @@ class AppleMusicPlaybackService : MediaSessionService() {
             )
             session = MediaSession.Builder(this, player)
                 .setId("apple-music")
-                .setCallback(CatalogItemsCallback)
+                .setCallback(CatalogItemsCallback(quickActions.callback))
                 .build()
+                .also(quickActions::attach)
             source = active
             refreshJob = scope.launch {
                 while (isActive) {
@@ -85,6 +93,7 @@ class AppleMusicPlaybackService : MediaSessionService() {
     }
     private fun releaseSession() {
         refreshJob?.cancel()
+        quickActions.detach()
         session?.run {
             player.stop()
             player.release()
@@ -95,6 +104,7 @@ class AppleMusicPlaybackService : MediaSessionService() {
     }
     override fun onDestroy() {
         releaseSession()
+        quickActions.release()
         scope.cancel()
         super.onDestroy()
     }
@@ -102,9 +112,10 @@ class AppleMusicPlaybackService : MediaSessionService() {
     /**
      * MusicKit items carry a catalog id instead of a URI. Media3's default
      * onAddMediaItems rejects every item without a localConfiguration, which
-     * silently dropped each setMediaItems from PlaybackManager.
+     * silently dropped each setMediaItems from PlaybackManager. Everything else is the
+     * shared notification quick actions.
      */
-    private object CatalogItemsCallback : MediaSession.Callback {
+    private class CatalogItemsCallback(quickActions: MediaSession.Callback) : MediaSession.Callback by quickActions {
         override fun onAddMediaItems(
             mediaSession: MediaSession,
             controller: MediaSession.ControllerInfo,

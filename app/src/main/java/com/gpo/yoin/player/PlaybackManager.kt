@@ -12,6 +12,7 @@ import androidx.media3.common.Player
 import androidx.media3.common.Timeline
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
+import com.gpo.yoin.R
 import com.gpo.yoin.data.model.CoverRef
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.PlaybackHandle
@@ -176,7 +177,8 @@ class PlaybackManager(
                 pendingCommands.clear()
                 _playbackState.value = _playbackState.value.copy(
                     connectionPhase = ConnectionPhase.Error,
-                    connectionErrorMessage = error.message ?: "Unable to initialize playback",
+                    connectionErrorMessage = error.message
+                        ?: context.getString(R.string.player_init_failed),
                 )
             } finally {
                 connectJob = null
@@ -330,7 +332,8 @@ class PlaybackManager(
                 if (error is CancellationException) throw error
                 _playbackState.value = _playbackState.value.copy(
                     connectionPhase = ConnectionPhase.Error,
-                    connectionErrorMessage = error.message ?: "Unable to play this song"
+                    connectionErrorMessage = error.message
+                        ?: context.getString(R.string.player_play_failed),
                 )
                 Log.w(TAG, "play failed for ${tracks[startIndex].id}", error)
             }
@@ -835,7 +838,7 @@ class PlaybackManager(
         val sameAsBefore = previous.connectionPhase == ConnectionPhase.Error &&
             previous.connectionFailure == failure
         if (sameAsBefore) return
-        val message = next.connectionErrorMessage ?: failure.userMessage()
+        val message = next.connectionErrorMessage ?: failure.userMessage(context.resources)
         scope.launch {
             _events.emit(PlaybackEvent.SpotifyConnectError(failure = failure, message = message))
         }
