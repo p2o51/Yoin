@@ -1160,7 +1160,6 @@ internal fun HomeEditorialContent(
                         homeAllHiddenItem(
                             placementSpec = sectionPlacement,
                             alpha = { motion.footerAlpha.value },
-                            onEdit = { controller.enter(null, lifted = false) },
                         )
                     }
                     homeEditFooterEntry(

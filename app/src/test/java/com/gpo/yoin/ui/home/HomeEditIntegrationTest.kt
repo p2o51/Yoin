@@ -8,7 +8,6 @@ import androidx.compose.ui.test.hasAnyDescendant
 import androidx.compose.ui.test.hasClickAction
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createComposeRule
-import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performTouchInput
@@ -141,13 +140,8 @@ class HomeEditIntegrationTest {
         setHome(layout = allHidden)
 
         rule.onNodeWithText("Home is empty", useUnmergedTree = true).assertExists()
-        // The empty card's button and the footer entry both say Edit Home.
-        assertEquals(
-            2,
-            rule.onAllNodesWithText("Edit Home", useUnmergedTree = true).fetchSemanticsNodes().size,
-        )
-        // The empty card's button and the footer entry.
-        assertEquals(2, footerEntry().fetchSemanticsNodes().size)
+        // One way into edit mode: the footer entry. The empty card is a label only.
+        assertEquals(1, footerEntry().fetchSemanticsNodes().size)
         // No section renders, not even Activities' empty card.
         rule.onNodeWithText(AlbumArtist, useUnmergedTree = true).assertDoesNotExist()
     }

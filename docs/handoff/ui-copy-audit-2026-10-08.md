@@ -175,7 +175,7 @@ sealed interface MetaGroup {
 |ui/home/HomeEditorialContent.kt:1017–1018|"No recent activity yet" + "Once you listen … start filling in."|标签 "No activity yet"，删第二行|
 |ui/home/RediscoverSection.kt:93|"Albums and songs you rated or wrote about come back here when it's been a while"|标签 "Nothing to rediscover yet"|
 |ui/home/edit/HomeEditHeader.kt:184|"Drag to reorder"（编辑态常驻）|删。卡片本身在晃，已经说明可以拖|
-|ui/home/edit/HomeEditTray.kt:316–317|"Your Home is empty" + "Press and hold anywhere, or tap Edit Home…"|标签 "Home is empty"，加一个 "Edit Home" 按钮|
+|ui/home/edit/HomeEditTray.kt:316–317|"Your Home is empty" + "Press and hold anywhere, or tap Edit Home…"|标签 "Home is empty"，不加按钮（下面已有 Edit Home 入口；10-08 修正，曾误加成两个）|
 |HomeEditTray.kt:312|"Hidden sections appear here"|标签 "No hidden sections"|
 |ui/home/edit/HomeEditBlock.kt:466–470|"Nothing to jump back into yet" 等|标签，去掉 "yet"|
 |ui/home/HomeSection.kt:44|"Albums, songs, and playlists to pick back up — memories woven in"|标签 "Albums, songs and playlists"|

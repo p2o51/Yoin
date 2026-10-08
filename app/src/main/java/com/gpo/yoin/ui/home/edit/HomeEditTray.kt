@@ -189,13 +189,11 @@ internal fun LazyListScope.homeEditFooterEntry(
 internal fun LazyListScope.homeAllHiddenItem(
     placementSpec: () -> FiniteAnimationSpec<IntOffset>?,
     alpha: () -> Float,
-    onEdit: () -> Unit,
 ) {
     item(key = AllHiddenKey) {
+        // A label only: the footer's Edit Home entry sits right below it.
         HomeEmptyCard(
             title = stringResource(R.string.home_edit_all_hidden_title),
-            actionLabel = stringResource(R.string.home_edit_title),
-            onAction = onEdit,
             modifier = Modifier
                 .fillMaxWidth()
                 .animateItem(fadeInSpec = null, placementSpec = placementSpec(), fadeOutSpec = null)
@@ -381,7 +379,6 @@ private fun HomeEditFooterEntryPreview() {
             homeAllHiddenItem(
                 placementSpec = { null },
                 alpha = { deps.motion.footerAlpha.value },
-                onEdit = {},
             )
             homeEditFooterEntry(newBadge = true, deps = deps, onEnter = {}, placementSpec = { null })
         }
