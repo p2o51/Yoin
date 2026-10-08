@@ -69,9 +69,10 @@
         <item quantity="other">%1$d songs</item>
     </plurals>
 
-    <string name="cmp_song_info_tap_load">Tap to load song info</string>
+    <string name="cmp_song_info_tap_load">Load song info</string>
+    <string name="cmp_song_info_settings">Settings</string>
     <string name="cmp_song_info_searching">Searching for song info…</string>
-    <string name="cmp_song_info_no_key">Configure your Gemini API key in Settings to see AI-generated song info.</string>
+    <string name="cmp_song_info_no_key">No Gemini API key</string>
     <string name="cmp_song_info_retry">Retry</string>
     <string name="cmp_song_info_about_heading">About</string>
     <string name="cmp_song_info_about_label">About</string>
@@ -85,7 +86,7 @@
 
     <string name="cmp_pill_playback_unavailable">Playback unavailable</string>
     <string name="cmp_pill_nothing_playing">Nothing playing</string>
-    <string name="cmp_pill_tap_open">Tap to open player</string>
+    <string name="cmp_pill_tap_open">Open player</string>
     <string name="cmp_pill_vertical_playback_unavailable">Playback unavailable</string>
     <string name="cmp_pill_vertical_nothing_playing">Nothing playing</string>
     <string name="cmp_pill_cd_current_track">Current track</string>

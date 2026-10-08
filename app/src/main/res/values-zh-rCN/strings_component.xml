@@ -54,9 +54,10 @@
         <item quantity="other">%1$d 首</item>
     </plurals>
 
-    <string name="cmp_song_info_tap_load">点按载入歌曲信息</string>
+    <string name="cmp_song_info_tap_load">载入歌曲信息</string>
+    <string name="cmp_song_info_settings">设置</string>
     <string name="cmp_song_info_searching">正在查找歌曲信息…</string>
-    <string name="cmp_song_info_no_key">在设置中配置 Gemini API 密钥，以查看 AI 生成的歌曲信息。</string>
+    <string name="cmp_song_info_no_key">没有 Gemini API 密钥</string>
     <string name="cmp_song_info_retry">重试</string>
     <string name="cmp_song_info_about_heading">简介</string>
     <string name="cmp_song_info_about_label">简介</string>
@@ -70,7 +71,7 @@
 
     <string name="cmp_pill_playback_unavailable">无法播放</string>
     <string name="cmp_pill_nothing_playing">未在播放</string>
-    <string name="cmp_pill_tap_open">点按打开播放器</string>
+    <string name="cmp_pill_tap_open">打开播放器</string>
     <string name="cmp_pill_vertical_playback_unavailable">无法播放</string>
     <string name="cmp_pill_vertical_nothing_playing">未在播放</string>
     <string name="cmp_pill_cd_current_track">当前曲目</string>

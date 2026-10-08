@@ -37,6 +37,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.onClick
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.draw.drawWithContent
@@ -92,7 +94,7 @@ fun NowPlayingPill(
     val haptics = rememberYoinHaptics()
     val playbackUnavailable = stringResource(R.string.cmp_pill_playback_unavailable)
     val nothingPlaying = stringResource(R.string.cmp_pill_nothing_playing)
-    val tapToOpen = stringResource(R.string.cmp_pill_tap_open)
+    val openPlayer = stringResource(R.string.cmp_pill_tap_open)
     // Theme tokens already share one app-wide wash. Only animate the local
     // empty/playing state; a second color spring would lag behind a new window.
     val trackPresence by animateFloatAsState(
@@ -153,7 +155,12 @@ fun NowPlayingPill(
             haptics.performContextClick()
             onClick()
         },
-        modifier = modifier,
+        modifier = modifier.semantics {
+            onClick(label = openPlayer) {
+                onClick()
+                true
+            }
+        },
         enabled = enabled,
         interactionSource = interactionSource,
         shape = MaterialTheme.shapes.extraLarge,
@@ -235,10 +242,7 @@ fun NowPlayingPill(
                         connectionErrorMessage != null -> playbackUnavailable
                         else -> nothingPlaying
                     }
-                    val artistText = shown.artist ?: when {
-                        connectionErrorMessage != null -> connectionErrorMessage
-                        else -> tapToOpen
-                    }
+                    val artistText = shown.artist ?: connectionErrorMessage
 
                     val titleModifier = if (
                         sharedTransitionScope != null &&
@@ -315,15 +319,17 @@ fun NowPlayingPill(
                     } else {
                         artistModifier
                     }
-                    Text(
-                        text = artistText,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = contentColor.copy(alpha = 0.72f),
-                        maxLines = 1,
-                        softWrap = false,
-                        overflow = if (shown.artist != null) TextOverflow.Clip else TextOverflow.Ellipsis,
-                        modifier = marqueeArtistModifier,
-                    )
+                    if (!artistText.isNullOrBlank()) {
+                        Text(
+                            text = artistText,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = contentColor.copy(alpha = 0.72f),
+                            maxLines = 1,
+                            softWrap = false,
+                            overflow = if (shown.artist != null) TextOverflow.Clip else TextOverflow.Ellipsis,
+                            modifier = marqueeArtistModifier,
+                        )
+                    }
                 }
             }
         }
@@ -360,6 +366,7 @@ fun NowPlayingPillVertical(
     val haptics = rememberYoinHaptics()
     val playbackUnavailable = stringResource(R.string.cmp_pill_vertical_playback_unavailable)
     val nothingPlaying = stringResource(R.string.cmp_pill_vertical_nothing_playing)
+    val openPlayer = stringResource(R.string.cmp_pill_tap_open)
     val trackPresence by animateFloatAsState(
         targetValue = if (currentTrackTitle != null) 1f else 0f,
         animationSpec = YoinMotion.defaultEffectsSpec(),
@@ -403,7 +410,12 @@ fun NowPlayingPillVertical(
             haptics.performContextClick()
             onClick()
         },
-        modifier = modifier,
+        modifier = modifier.semantics {
+            onClick(label = openPlayer) {
+                onClick()
+                true
+            }
+        },
         enabled = enabled,
         shape = shape,
         contentPadding = PaddingValues(0.dp),

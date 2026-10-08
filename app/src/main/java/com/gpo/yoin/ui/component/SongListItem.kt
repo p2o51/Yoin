@@ -143,18 +143,12 @@ fun SongListItem(
                         )
                     }
                 }
-                Text(
-                    text = buildString {
-                        append(artist)
-                        if (album.isNotBlank()) {
-                            append("  ·  ")
-                            append(album)
-                        }
+                MetaLine(
+                    groups = buildList {
+                        if (artist.isNotBlank()) add(MetaGroup.Plain(artist))
+                        if (album.isNotBlank()) add(MetaGroup.Plain(album, muted = true))
                     },
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
                 )
             }
 

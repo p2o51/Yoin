@@ -25,12 +25,14 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.gpo.yoin.R
 import com.gpo.yoin.data.local.SongAboutEntry
 import com.gpo.yoin.ui.nowplaying.AboutUiState
+import com.gpo.yoin.ui.settings.SettingsActivity
 import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinMotionRole
 import com.gpo.yoin.ui.theme.YoinTheme
@@ -63,11 +65,9 @@ fun SongInfoDisplay(
                     modifier = Modifier.fillMaxSize(),
                     contentAlignment = Alignment.CenterStart,
                 ) {
-                    Text(
-                        text = stringResource(R.string.cmp_song_info_tap_load),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+                    TextButton(onClick = onRetry) {
+                        Text(stringResource(R.string.cmp_song_info_tap_load))
+                    }
                 }
             }
 
@@ -89,15 +89,23 @@ fun SongInfoDisplay(
             }
 
             is AboutUiState.ApiKeyMissing -> {
+                val context = LocalContext.current
                 Box(
                     modifier = Modifier.fillMaxSize(),
                     contentAlignment = Alignment.CenterStart,
                 ) {
-                    Text(
-                        text = stringResource(R.string.cmp_song_info_no_key),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+                    Column {
+                        Text(
+                            text = stringResource(R.string.cmp_song_info_no_key),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        TextButton(
+                            onClick = { context.startActivity(SettingsActivity.intent(context)) },
+                        ) {
+                            Text(stringResource(R.string.cmp_song_info_settings))
+                        }
+                    }
                 }
             }
 
