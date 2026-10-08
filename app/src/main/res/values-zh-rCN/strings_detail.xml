@@ -35,8 +35,7 @@
 
     <string name="detail_album_go_to_artist">前往歌手</string>
     <string name="detail_album_share">分享</string>
-    <string name="detail_album_kind">"  ·  专辑"</string>
-    <string name="detail_album_kind_year">"  ·  专辑 %1$d"</string>
+    <string name="detail_album_kind">专辑</string>
     <string name="detail_album_last_play">上次播放</string>
     <string name="detail_album_never">从未</string>
     <string name="detail_relative_today">今天</string>
@@ -50,7 +49,7 @@
     <string name="detail_album_cd_edit_comment">编辑评论</string>
     <string name="detail_album_cd_write_comment">写评论</string>
     <string name="detail_album_rate">评分</string>
-    <string name="detail_album_review_hint">说点什么…</string>
+    <string name="detail_album_review_hint">乐评</string>
     <string name="detail_album_short_comment">短评</string>
     <string name="detail_album_review">长评</string>
     <string name="detail_album_review_count">%1$d / %2$d</string>
@@ -64,28 +63,28 @@
     <string name="detail_album_cd_rate">评分和评论</string>
     <string name="detail_album_rated">%1$d/%2$d 已评分</string>
     <string name="detail_album_feat">"&#160;（合作：%1$s）"</string>
-    <plurals name="detail_album_tracks">
-        <item quantity="other">%1$d 首</item>
+    <plurals name="detail_unit_track">
+        <item quantity="other">首</item>
     </plurals>
-    <plurals name="detail_album_tracks_duration">
-        <item quantity="other">%1$d 首 · %2$s</item>
+    <string name="detail_unit_minute">分钟</string>
+    <string name="detail_unit_hour">小时</string>
+    <plurals name="detail_unit_play">
+        <item quantity="other">次</item>
+    </plurals>
+    <plurals name="detail_unit_release">
+        <item quantity="other">张作品</item>
+    </plurals>
+    <plurals name="detail_unit_song">
+        <item quantity="other">首</item>
     </plurals>
 
     <string name="detail_neodb_sign_in">登录以同步</string>
-    <string name="detail_neodb_pending">关闭后同步</string>
     <string name="detail_neodb_syncing">正在同步…</string>
     <string name="detail_neodb_synced">已同步</string>
-    <string name="detail_neodb_failed">同步失败 · 重试</string>
+    <string name="detail_neodb_failed">同步失败</string>
+    <string name="detail_retry">重试</string>
 
     <string name="detail_artist_share">分享</string>
-    <string name="detail_artist_kind">歌手</string>
-    <string name="detail_artist_kind_span">歌手  ·  %1$s</string>
-    <plurals name="detail_artist_wide">
-        <item quantity="other">歌手  ·  %1$d 张作品</item>
-    </plurals>
-    <plurals name="detail_artist_wide_span">
-        <item quantity="other">歌手  ·  %1$d 张作品  ·  %2$s</item>
-    </plurals>
     <plurals name="detail_artist_releases">
         <item quantity="other">%1$d 张作品</item>
     </plurals>
@@ -104,7 +103,6 @@
     <plurals name="detail_artist_plays">
         <item quantity="other">%1$d 次播放</item>
     </plurals>
-    <string name="detail_artist_played_meta">%1$s  ·  %2$s</string>
     <string name="detail_artist_discography">作品</string>
     <string name="detail_artist_filter_all">全部</string>
     <string name="detail_artist_filter_albums">专辑</string>
@@ -113,26 +111,11 @@
     <string name="detail_artist_no_releases">没有作品</string>
     <string name="detail_artist_show_fewer">收起</string>
     <string name="detail_artist_show_all">显示全部 %1$d</string>
-    <string name="detail_artist_latest">"最新  ·  "</string>
+    <string name="detail_artist_latest">最新</string>
     <string name="detail_artist_kind_album">专辑</string>
     <string name="detail_artist_kind_ep">EP</string>
     <string name="detail_artist_kind_single">单曲</string>
     <string name="detail_artist_kind_compilation">合辑</string>
-    <plurals name="detail_artist_album_songs">
-        <item quantity="other">专辑  ·  %1$d 首</item>
-    </plurals>
-    <plurals name="detail_artist_ep_songs">
-        <item quantity="other">EP  ·  %1$d 首</item>
-    </plurals>
-    <plurals name="detail_artist_single_songs">
-        <item quantity="other">单曲  ·  %1$d 首</item>
-    </plurals>
-    <plurals name="detail_artist_compilation_songs">
-        <item quantity="other">合辑  ·  %1$d 首</item>
-    </plurals>
-    <plurals name="detail_artist_songs">
-        <item quantity="other">%1$d 首</item>
-    </plurals>
 
     <string name="detail_playlist_share">分享</string>
     <string name="detail_playlist_delete_title">删除播放列表？</string>
@@ -141,8 +124,6 @@
     <string name="detail_playlist_delete">删除</string>
     <string name="detail_playlist_cancel_delete">取消</string>
     <string name="detail_playlist_kind">播放列表</string>
-    <string name="detail_playlist_kind_after_owner">"  ·  播放列表"</string>
-    <string name="detail_playlist_owner_name">（%1$s）</string>
     <string name="detail_playlist_cd_more">更多操作</string>
     <string name="detail_playlist_rename">重命名</string>
     <string name="detail_playlist_delete_menu">删除</string>
@@ -160,7 +141,6 @@
     <string name="detail_playlist_public">公开</string>
     <string name="detail_playlist_private">私人</string>
     <string name="detail_playlist_description">简介</string>
-    <string name="detail_playlist_track_credit">%1$s  ·  %2$s</string>
 
     <string name="detail_scrap_cd_rename">重命名</string>
     <string name="detail_scrap_cd_album_note">专辑笔记：%1$s</string>
@@ -169,9 +149,8 @@
     <string name="detail_scrap_cd_write_comment">写评论</string>
     <string name="detail_scrap_action_write_comment">写评论</string>
     <string name="detail_scrap_about">简介</string>
-    <string name="detail_scrap_not_yet">你留下的评分和笔记会出现在这里。</string>
+    <string name="detail_scrap_not_yet">还没有</string>
     <string name="detail_scrap_read_all">查看全部</string>
-    <string name="detail_scrap_read_all_more">查看全部 · +%1$d</string>
     <string name="detail_scrap_cd_read_all">查看全部</string>
     <string name="detail_scrap_cd_ask">关于 %1$s 的提问：%2$s</string>
     <string name="detail_scrap_cd_about">关于 %1$s：%2$s</string>

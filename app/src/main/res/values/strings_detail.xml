@@ -42,8 +42,7 @@
     <!-- Album page -->
     <string name="detail_album_go_to_artist">Go to artist</string>
     <string name="detail_album_share">Share</string>
-    <string name="detail_album_kind">"  ·  Album"</string>
-    <string name="detail_album_kind_year">"  ·  Album %1$d"</string>
+    <string name="detail_album_kind">Album</string>
     <string name="detail_album_last_play">Last Play</string>
     <string name="detail_album_never">Never</string>
     <string name="detail_relative_today">Today</string>
@@ -58,7 +57,7 @@
     <string name="detail_album_cd_edit_comment">Edit comment</string>
     <string name="detail_album_cd_write_comment">Write a comment</string>
     <string name="detail_album_rate">Rate</string>
-    <string name="detail_album_review_hint">Say something about it…</string>
+    <string name="detail_album_review_hint">Review</string>
     <string name="detail_album_short_comment">Short comment</string>
     <string name="detail_album_review">Review</string>
     <string name="detail_album_review_count">%1$d / %2$d</string>
@@ -72,35 +71,35 @@
     <string name="detail_album_cd_rate">Rate and comment</string>
     <string name="detail_album_rated">%1$d/%2$d rated</string>
     <string name="detail_album_feat">"&#160;(feat. %1$s)"</string>
-    <plurals name="detail_album_tracks">
-        <item quantity="one">%1$d track</item>
-        <item quantity="other">%1$d tracks</item>
+    <plurals name="detail_unit_track">
+        <item quantity="one">track</item>
+        <item quantity="other">tracks</item>
     </plurals>
-    <plurals name="detail_album_tracks_duration">
-        <item quantity="one">%1$d track  ·  %2$s</item>
-        <item quantity="other">%1$d tracks  ·  %2$s</item>
+    <string name="detail_unit_minute">min</string>
+    <string name="detail_unit_hour">h</string>
+    <plurals name="detail_unit_play">
+        <item quantity="one">play</item>
+        <item quantity="other">plays</item>
+    </plurals>
+    <plurals name="detail_unit_release">
+        <item quantity="one">release</item>
+        <item quantity="other">releases</item>
+    </plurals>
+    <plurals name="detail_unit_song">
+        <item quantity="one">song</item>
+        <item quantity="other">songs</item>
     </plurals>
 
     <!-- NeoDB rate-sheet line. The name itself is a brand. -->
     <string name="detail_neodb_name" translatable="false">NeoDB</string>
     <string name="detail_neodb_sign_in">Sign in to sync</string>
-    <string name="detail_neodb_pending">Syncs when you close this</string>
     <string name="detail_neodb_syncing">Syncing…</string>
     <string name="detail_neodb_synced">Synced</string>
-    <string name="detail_neodb_failed">Couldn\'t sync · Retry</string>
+    <string name="detail_neodb_failed">Couldn\'t sync</string>
+    <string name="detail_retry">Retry</string>
 
     <!-- Artist page -->
     <string name="detail_artist_share">Share</string>
-    <string name="detail_artist_kind">Artist</string>
-    <string name="detail_artist_kind_span">Artist  ·  %1$s</string>
-    <plurals name="detail_artist_wide">
-        <item quantity="one">Artist  ·  %1$d release</item>
-        <item quantity="other">Artist  ·  %1$d releases</item>
-    </plurals>
-    <plurals name="detail_artist_wide_span">
-        <item quantity="one">Artist  ·  %1$d release  ·  %2$s</item>
-        <item quantity="other">Artist  ·  %1$d releases  ·  %2$s</item>
-    </plurals>
     <plurals name="detail_artist_releases">
         <item quantity="one">%1$d release</item>
         <item quantity="other">%1$d releases</item>
@@ -122,7 +121,6 @@
         <item quantity="one">%1$d play</item>
         <item quantity="other">%1$d plays</item>
     </plurals>
-    <string name="detail_artist_played_meta">%1$s  ·  %2$s</string>
     <string name="detail_artist_discography">Discography</string>
     <string name="detail_artist_filter_all">All</string>
     <string name="detail_artist_filter_albums">Albums</string>
@@ -131,31 +129,11 @@
     <string name="detail_artist_no_releases">No releases</string>
     <string name="detail_artist_show_fewer">Show fewer</string>
     <string name="detail_artist_show_all">Show all %1$d</string>
-    <string name="detail_artist_latest">"Latest  ·  "</string>
+    <string name="detail_artist_latest">Latest</string>
     <string name="detail_artist_kind_album">Album</string>
     <string name="detail_artist_kind_ep">EP</string>
     <string name="detail_artist_kind_single">Single</string>
     <string name="detail_artist_kind_compilation">Compilation</string>
-    <plurals name="detail_artist_album_songs">
-        <item quantity="one">Album  ·  %1$d song</item>
-        <item quantity="other">Album  ·  %1$d songs</item>
-    </plurals>
-    <plurals name="detail_artist_ep_songs">
-        <item quantity="one">EP  ·  %1$d song</item>
-        <item quantity="other">EP  ·  %1$d songs</item>
-    </plurals>
-    <plurals name="detail_artist_single_songs">
-        <item quantity="one">Single  ·  %1$d song</item>
-        <item quantity="other">Single  ·  %1$d songs</item>
-    </plurals>
-    <plurals name="detail_artist_compilation_songs">
-        <item quantity="one">Compilation  ·  %1$d song</item>
-        <item quantity="other">Compilation  ·  %1$d songs</item>
-    </plurals>
-    <plurals name="detail_artist_songs">
-        <item quantity="one">%1$d song</item>
-        <item quantity="other">%1$d songs</item>
-    </plurals>
 
     <!-- Playlist page -->
     <string name="detail_playlist_share">Share</string>
@@ -164,8 +142,6 @@
     <string name="detail_playlist_delete">Delete</string>
     <string name="detail_playlist_cancel_delete">Cancel</string>
     <string name="detail_playlist_kind">Playlist</string>
-    <string name="detail_playlist_kind_after_owner">"  ·  Playlist"</string>
-    <string name="detail_playlist_owner_name">(%1$s)</string>
     <string name="detail_playlist_cd_more">More actions</string>
     <string name="detail_playlist_rename">Rename</string>
     <string name="detail_playlist_delete_menu">Delete</string>
@@ -184,7 +160,6 @@
     <string name="detail_playlist_public">Public</string>
     <string name="detail_playlist_private">Private</string>
     <string name="detail_playlist_description">Description</string>
-    <string name="detail_playlist_track_credit">%1$s  ·  %2$s</string>
 
     <!-- Scrapbook (translatable chrome) -->
     <string name="detail_scrap_cd_rename">Rename</string>
@@ -194,9 +169,8 @@
     <string name="detail_scrap_cd_write_comment">Write a comment</string>
     <string name="detail_scrap_action_write_comment">Write a comment</string>
     <string name="detail_scrap_about">About</string>
-    <string name="detail_scrap_not_yet">Scores and notes you leave show up here.</string>
+    <string name="detail_scrap_not_yet">Nothing yet</string>
     <string name="detail_scrap_read_all">Read all</string>
-    <string name="detail_scrap_read_all_more">Read all · +%1$d</string>
     <string name="detail_scrap_cd_read_all">Read all</string>
     <string name="detail_scrap_cd_ask">Asked about %1$s: %2$s</string>
     <string name="detail_scrap_cd_about">About %1$s: %2$s</string>
@@ -227,9 +201,8 @@
     <string name="detail_scrap_fact_more">%1$s  +%2$d</string>
 
     <!--
-      Monospace receipt and ticket chrome. English only. AlbumScrapbookTest and
-      AlbumScrapbookTicketMetaTest assert the model strings; these copies exist
-      so resource shrinking keeps the same glyphs.
+      Monospace receipt. English only. AlbumScrapbookTest asserts the model
+      strings; these copies exist so resource shrinking keeps the same glyphs.
     -->
     <string name="detail_scrap_receipt_plays" translatable="false">Plays in Yoin</string>
     <string name="detail_scrap_receipt_days_since" translatable="false">Days since first play</string>
@@ -245,10 +218,5 @@
     </plurals>
     <string name="detail_scrap_receipt_date" translatable="false">Mar 14</string>
     <string name="detail_scrap_receipt_date_year" translatable="false">Mar 14, 2025</string>
-    <plurals name="detail_scrap_ticket_plays" translatable="false">
-        <item quantity="one">%1$d&#160;play</item>
-        <item quantity="other">%1$d&#160;plays</item>
-    </plurals>
-    <string name="detail_scrap_ticket_duration_plays" translatable="false">1:10&#160;·&#160;1&#160;play</string>
     <string name="detail_scrap_q" translatable="false">Q</string>
 </resources>

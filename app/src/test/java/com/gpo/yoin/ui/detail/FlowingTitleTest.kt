@@ -28,12 +28,18 @@ class FlowingTitleTest {
     }
 
     @Test
-    fun should_bindBulletToPreviousTitle_when_separatorIsAppended() {
-        // Non-breaking before the bullet (a line can't start with "•"),
-        // plain spaces after it (the only break opportunity).
-        val bullet = FlowingTitleSeparator.indexOf('•')
-        assertTrue(FlowingTitleSeparator.substring(0, bullet).all { it == nbsp })
-        assertTrue(FlowingTitleSeparator.substring(bullet + 1).all { it == ' ' })
-        assertFalse(FlowingTitleSeparator.substring(bullet + 1).isEmpty())
+    fun should_separateTitlesWithASpace_when_theyFlow() {
+        val text = flowingTitleSequence(listOf("Describe", "Gimme Time", "Tell Me"))
+        assertFalse(text.contains('•'))
+        assertFalse(text.contains('·'))
+        assertEquals("Describe Gimme${nbsp}Time Tell${nbsp}Me", text)
+    }
+
+    @Test
+    fun should_usePrimaryTone_when_titleIndexIsEven() {
+        assertTrue(flowingTitleUsesPrimaryTone(0))
+        assertFalse(flowingTitleUsesPrimaryTone(1))
+        assertTrue(flowingTitleUsesPrimaryTone(2))
+        assertFalse(flowingTitleUsesPrimaryTone(3))
     }
 }

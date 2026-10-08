@@ -57,6 +57,7 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.LinkAnnotation
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextLinkStyles
@@ -77,6 +78,7 @@ import com.gpo.yoin.ui.component.BarExtraAction
 import com.gpo.yoin.ui.component.DetailErrorState
 import com.gpo.yoin.ui.component.ExpressiveMediaArtwork
 import com.gpo.yoin.ui.component.ExpressivePageBackground
+import com.gpo.yoin.ui.component.MetaGroup
 import com.gpo.yoin.ui.component.YoinDropdownMenu
 import com.gpo.yoin.ui.component.YoinDropdownMenuItem
 import com.gpo.yoin.ui.component.formatTotalDuration
@@ -157,7 +159,6 @@ fun PlaylistDetailScreen(
     val coverScheme = rememberCoverColorScheme(content?.coverArtUrl)
     val headerScheme = coverScheme ?: MaterialTheme.colorScheme
     val titleColor by animateColorAsState(headerScheme.primary, YoinMotion.effectsSpring(), label = "playlistTitleColor")
-    val accentText = headerScheme.secondary
     // Stacked-V layers, back to front.
     val stackBack by animateColorAsState(headerScheme.tertiary, YoinMotion.effectsSpring(), label = "playlistStackBack")
     val stackMiddle by animateColorAsState(headerScheme.secondary, YoinMotion.effectsSpring(), label = "playlistStackMiddle")
@@ -217,7 +218,6 @@ fun PlaylistDetailScreen(
                             playlistName = content?.playlistName.orEmpty(),
                             owner = content?.owner,
                             titleColor = titleColor,
-                            accentText = accentText,
                             canWrite = content?.canWrite == true,
                             onBackClick = onBackClick,
                             onRename = { showRenameDialog = true },
@@ -357,8 +357,8 @@ fun PlaylistDetailScreen(
 }
 
 /**
- * The Album page's compact header, in playlist terms: back · title over
- * "(owner) · Playlist", plus the Rename/Delete overflow when the current
+ * The Album page's compact header, in playlist terms: back, title, owner, and
+ * Playlist, plus the Rename/Delete overflow when the current
  * profile can write this playlist (Spotify followed-but-not-owned playlists
  * hide it entirely rather than showing disabled items).
  */
@@ -367,7 +367,6 @@ private fun PlaylistTopHeader(
     playlistName: String,
     owner: String?,
     titleColor: Color,
-    accentText: Color,
     canWrite: Boolean,
     onBackClick: () -> Unit,
     onRename: () -> Unit,
@@ -394,29 +393,13 @@ private fun PlaylistTopHeader(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
-            Row {
-                // The owner is parenthesised: "(gpo)  ·  Playlist".
-                owner?.takeIf { it.isNotBlank() }?.let {
-                    Text(
-                        text = stringResource(R.string.detail_playlist_owner_name, it),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f, fill = false),
-                    )
-                }
-                Text(
-                    text = if (owner.isNullOrBlank()) {
-                        stringResource(R.string.detail_playlist_kind)
-                    } else {
-                        stringResource(R.string.detail_playlist_kind_after_owner)
-                    },
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = accentText,
-                    maxLines = 1,
-                )
-            }
+            DetailMetaLine(
+                groups = buildList {
+                    owner?.takeIf { it.isNotBlank() }?.let { add(MetaGroup.Plain(it)) }
+                    add(MetaGroup.Kind(stringResource(R.string.detail_playlist_kind), accent = true))
+                },
+                style = MaterialTheme.typography.bodyMedium,
+            )
         }
         if (canWrite) {
             Box {
@@ -837,7 +820,6 @@ private fun PlaylistLandscapeLayers(
                         Text(
                             text = buildPlaylistTrackTitles(
                                 songs = content.songs,
-                                separatorColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
                                 onSongClick = if (expand < 0.5f) onSongClick else null,
                             ),
                             style = MaterialTheme.typography.headlineSmall,
@@ -876,7 +858,6 @@ private fun PlaylistHeroDetails(
             Text(
                 text = buildPlaylistTrackTitles(
                     songs = content.songs,
-                    separatorColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
                     onSongClick = if (interactive) onSongClick else null,
                 ),
                 style = MaterialTheme.typography.headlineMedium,
@@ -965,15 +946,18 @@ private fun PlaylistTrackList(
 }
 
 @Composable
-private fun playlistTrackCredit(artist: String, album: String): String = when {
-    artist.isNotBlank() && album.isNotBlank() -> stringResource(R.string.detail_playlist_track_credit, artist, album)
-    artist.isNotBlank() -> artist
-    else -> album
+private fun PlaylistTrackCredit(artist: String, album: String) {
+    val groups = buildList {
+        if (artist.isNotBlank()) add(MetaGroup.Plain(artist))
+        if (album.isNotBlank()) add(MetaGroup.Plain(album, muted = artist.isNotBlank()))
+    }
+    if (groups.isEmpty()) return
+    DetailMetaLine(groups = groups, style = MaterialTheme.typography.bodySmall)
 }
 
 /**
  * One playlist row: tracks come from different albums, so the row leads with
- * the album thumbnail (not a track number) and credits "artist · album".
+ * the album thumbnail (not a track number) and credits artist, then album.
  */
 @Composable
 private fun PlaylistTrackRow(
@@ -1019,13 +1003,7 @@ private fun PlaylistTrackRow(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
-            Text(
-                text = playlistTrackCredit(song.artist, song.album),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
+            PlaylistTrackCredit(artist = song.artist, album = song.album)
         }
         song.duration?.let { duration ->
             Text(
@@ -1161,27 +1139,31 @@ private val PlaylistTitleLinkStyles = TextLinkStyles(
     pressedStyle = SpanStyle(textDecoration = TextDecoration.Underline),
 )
 
+@Composable
 private fun buildPlaylistTrackTitles(
     songs: List<PlaylistSong>,
-    separatorColor: Color,
     onSongClick: ((String) -> Unit)?,
-) = buildAnnotatedString {
-    songs.forEachIndexed { index, song ->
-        if (index > 0) {
-            // Same typography as the Album hero: bullet bound to the title
-            // before it, short titles wrap whole (see flowingTitle).
-            withStyle(SpanStyle(color = separatorColor)) { append(FlowingTitleSeparator) }
+): AnnotatedString {
+    val primary = MaterialTheme.colorScheme.onSurface
+    val variant = MaterialTheme.colorScheme.onSurfaceVariant
+    return buildAnnotatedString {
+        fun appendTitle(index: Int, song: PlaylistSong) {
+            val tone = if (flowingTitleUsesPrimaryTone(index)) primary else variant
+            withStyle(SpanStyle(color = tone)) { append(flowingTitle(song.title)) }
         }
-        if (onSongClick != null) {
-            withLink(
-                LinkAnnotation.Clickable(
-                    tag = song.id,
-                    styles = PlaylistTitleLinkStyles,
-                    linkInteractionListener = { onSongClick(song.id) },
-                ),
-            ) { append(flowingTitle(song.title)) }
-        } else {
-            append(flowingTitle(song.title))
+        songs.forEachIndexed { index, song ->
+            if (index > 0) append(FlowingTitleGap)
+            if (onSongClick != null) {
+                withLink(
+                    LinkAnnotation.Clickable(
+                        tag = song.id,
+                        styles = PlaylistTitleLinkStyles,
+                        linkInteractionListener = { onSongClick(song.id) },
+                    ),
+                ) { appendTitle(index, song) }
+            } else {
+                appendTitle(index, song)
+            }
         }
     }
 }

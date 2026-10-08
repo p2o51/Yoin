@@ -70,6 +70,7 @@ import com.gpo.yoin.ui.component.DetailErrorState
 import com.gpo.yoin.ui.component.ExpressiveMediaArtwork
 import com.gpo.yoin.ui.component.ExpressivePageBackground
 import com.gpo.yoin.ui.component.ExpressiveSegmentedTabs
+import com.gpo.yoin.ui.component.MetaGroup
 import com.gpo.yoin.ui.component.YoinDropdownMenuItem
 import com.gpo.yoin.ui.component.expressivePageSeamBackground
 import com.gpo.yoin.ui.component.formatTrackDuration
@@ -103,7 +104,7 @@ import com.gpo.yoin.ui.theme.withTabularFigures
  * them). What remains everywhere: name, portrait, releases. So the page leans
  * on the user's OWN layer instead, like the Album page does:
  *
- *   header      back · name / "Artist · 2016 – 2025" · follow star
+ *   header      back, name, year span, follow star
  *   hero        pinwheel mark around the portrait
  *   meta        Last Play | Avg. of your album ratings (Album hero anatomy)
  *   Most Played your own most-played songs (local play history)
@@ -162,7 +163,6 @@ fun ArtistDetailScreen(
     // animated so the resolve doesn't pop.
     val scheme = rememberCoverColorScheme(heroUrl) ?: MaterialTheme.colorScheme
     val titleColor by animateColorAsState(scheme.primary, YoinMotion.effectsSpring(), label = "artistTitleColor")
-    val accentText = scheme.secondary
     val armLowerLeft by animateColorAsState(scheme.tertiary, YoinMotion.effectsSpring(), label = "artistArmLowerLeft")
     val armUpper by animateColorAsState(scheme.primary, YoinMotion.effectsSpring(), label = "artistArmUpper")
     val armLowerRight by animateColorAsState(scheme.secondary, YoinMotion.effectsSpring(), label = "artistArmLowerRight")
@@ -234,7 +234,6 @@ fun ArtistDetailScreen(
                             artistName = content?.artistName.orEmpty(),
                             activeSpan = content?.let { artistActiveSpan(it.albums) },
                             titleColor = titleColor,
-                            accentText = accentText,
                             showIdentity = !heroCarriesIdentity,
                             showFollow = supportsFollow && !heroCarriesIdentity,
                             following = content?.isStarred == true,
@@ -358,8 +357,8 @@ private class ArtistPageColors(
 // ---------------------------------------------------------------------------
 
 /**
- * The Album / Playlist compact header in artist terms: back · name over
- * "Artist · 2016 – 2025", and the follow star on the right (where Apple Music
+ * The Album / Playlist compact header in artist terms: back, name, and the
+ * year span, and the follow star on the right (where Apple Music
  * keeps "favorite artist"). Hidden for providers without follow/favorite.
  */
 @Composable
@@ -367,7 +366,6 @@ private fun ArtistTopHeader(
     artistName: String,
     activeSpan: String?,
     titleColor: Color,
-    accentText: Color,
     showFollow: Boolean,
     following: Boolean,
     followLabels: Pair<String, String>,
@@ -396,16 +394,12 @@ private fun ArtistTopHeader(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-                Text(
-                    text = if (activeSpan != null) {
-                        stringResource(R.string.detail_artist_kind_span, activeSpan)
-                    } else {
-                        stringResource(R.string.detail_artist_kind)
-                    },
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = accentText,
-                    maxLines = 1,
-                )
+                if (activeSpan != null) {
+                    DetailMetaLine(
+                        groups = listOf(MetaGroup.Plain(activeSpan)),
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                }
             }
         }
         if (showFollow) {
@@ -886,11 +880,7 @@ private fun ArtistWideHero(
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
             )
-            Text(
-                text = artistWideKind(content.albums.size, artistActiveSpan(content.albums)),
-                style = MaterialTheme.typography.titleSmall.withTabularFigures(),
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+            ArtistWideKind(albumCount = content.albums.size, span = artistActiveSpan(content.albums))
             follow?.invoke()
             Spacer(modifier = Modifier.height(4.dp))
             ArtistHeroMeta(
@@ -924,22 +914,36 @@ private const val ArtistPinwheelMediumScale = 1.5f
 private val ArtistWideHeroGap = 56.dp
 
 @Composable
-private fun artistWideKind(albumCount: Int, span: String?): String =
-    if (span != null) {
-        pluralStringResource(R.plurals.detail_artist_wide_span, albumCount, albumCount, span)
-    } else {
-        pluralStringResource(R.plurals.detail_artist_wide, albumCount, albumCount)
-    }
+private fun ArtistWideKind(albumCount: Int, span: String?) {
+    DetailMetaLine(
+        groups = buildList {
+            add(
+                MetaGroup.Stat(
+                    albumCount.toString(),
+                    pluralStringResource(R.plurals.detail_unit_release, albumCount),
+                ),
+            )
+            if (span != null) add(MetaGroup.Plain(span))
+        },
+        style = MaterialTheme.typography.titleSmall.withTabularFigures(),
+    )
+}
 
 @Composable
 private fun artistReleaseCountLabel(count: Int): String =
     pluralStringResource(R.plurals.detail_artist_releases, count, count)
 
 @Composable
-private fun artistPlayedMeta(album: String, duration: String?): String = when {
-    album.isNotBlank() && duration != null -> stringResource(R.string.detail_artist_played_meta, album, duration)
-    album.isNotBlank() -> album
-    else -> duration.orEmpty()
+private fun ArtistPlayedMeta(album: String, duration: String?) {
+    val groups = buildList {
+        if (album.isNotBlank()) add(MetaGroup.Plain(album))
+        if (duration != null) add(MetaGroup.Plain(duration, muted = album.isNotBlank()))
+    }
+    if (groups.isEmpty()) return
+    DetailMetaLine(
+        groups = groups,
+        style = MaterialTheme.typography.bodySmall.withTabularFigures(),
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -1026,13 +1030,7 @@ private fun ArtistPlayedRow(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
-            Text(
-                text = artistPlayedMeta(song.album, song.durationSec?.let(::formatTrackDuration)),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
+            ArtistPlayedMeta(album = song.album, duration = song.durationSec?.let(::formatTrackDuration))
         }
         Text(
             text = pluralStringResource(R.plurals.detail_artist_plays, song.playCount, song.playCount),
@@ -1254,23 +1252,7 @@ private fun ArtistReleaseRow(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
-            Row {
-                if (isLatest) {
-                    Text(
-                        text = stringResource(R.string.detail_artist_latest),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = accent,
-                        maxLines = 1,
-                    )
-                }
-                Text(
-                    text = releaseMetaLine(album),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
+            ReleaseMetaLine(album = album, isLatest = isLatest)
         }
         album.userRating?.let { rating ->
             Text(
@@ -1285,42 +1267,26 @@ private fun ArtistReleaseRow(
     }
 }
 
-/** "Album  ·  11 songs", "EP  ·  4 songs", or just "11 songs" when the kind is unknown. */
+/** Latest, release kind, and song count. Empty when a release has none of them. */
 @Composable
-private fun releaseMetaLine(album: ArtistAlbum): String {
-    val count = album.songCount
-    return when (album.releaseType) {
-        ReleaseType.Album -> releaseKindLine(
-            count,
-            R.string.detail_artist_kind_album,
-            R.plurals.detail_artist_album_songs,
-        )
-        ReleaseType.EP -> releaseKindLine(
-            count,
-            R.string.detail_artist_kind_ep,
-            R.plurals.detail_artist_ep_songs,
-        )
-        ReleaseType.Single -> releaseKindLine(
-            count,
-            R.string.detail_artist_kind_single,
-            R.plurals.detail_artist_single_songs,
-        )
-        ReleaseType.Compilation -> releaseKindLine(
-            count,
-            R.string.detail_artist_kind_compilation,
-            R.plurals.detail_artist_compilation_songs,
-        )
-        null -> count?.let { pluralStringResource(R.plurals.detail_artist_songs, it, it) }.orEmpty()
+private fun ReleaseMetaLine(album: ArtistAlbum, isLatest: Boolean) {
+    val kind = when (album.releaseType) {
+        ReleaseType.Album -> stringResource(R.string.detail_artist_kind_album)
+        ReleaseType.EP -> stringResource(R.string.detail_artist_kind_ep)
+        ReleaseType.Single -> stringResource(R.string.detail_artist_kind_single)
+        ReleaseType.Compilation -> stringResource(R.string.detail_artist_kind_compilation)
+        null -> null
     }
+    val groups = buildList {
+        if (isLatest) add(MetaGroup.Kind(stringResource(R.string.detail_artist_latest), accent = true))
+        if (kind != null) add(MetaGroup.Kind(kind))
+        album.songCount?.let { count ->
+            add(MetaGroup.Stat(count.toString(), pluralStringResource(R.plurals.detail_unit_song, count)))
+        }
+    }
+    if (groups.isEmpty()) return
+    DetailMetaLine(groups = groups, style = MaterialTheme.typography.bodySmall)
 }
-
-@Composable
-private fun releaseKindLine(count: Int?, kind: Int, withSongs: Int): String =
-    if (count == null) {
-        stringResource(kind)
-    } else {
-        pluralStringResource(withSongs, count, count)
-    }
 
 @Composable
 private fun filterLabel(filter: DiscographyFilter): String = when (filter) {

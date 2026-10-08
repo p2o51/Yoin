@@ -48,6 +48,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -69,6 +70,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.pluralStringResource
@@ -82,6 +84,7 @@ import androidx.compose.ui.text.LinkAnnotation
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.TextLinkStyles
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.TextFieldValue
@@ -92,6 +95,8 @@ import androidx.compose.ui.text.withLink
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.constrainHeight
+import androidx.compose.ui.unit.constrainWidth
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
 import com.gpo.yoin.R
@@ -100,6 +105,8 @@ import com.gpo.yoin.data.integration.neodb.isNeoDbShortComment
 import com.gpo.yoin.symbols.YoinSymbols
 import com.gpo.yoin.symbols.rememberEqualizerSymbolPainter
 import com.gpo.yoin.symbols.rememberFavoriteSymbolPainter
+import com.gpo.yoin.ui.component.MetaGroup
+import com.gpo.yoin.ui.component.MetaLine
 import com.gpo.yoin.ui.component.RatingSlider
 import com.gpo.yoin.ui.component.ScoreEmblemAwardMode
 import com.gpo.yoin.ui.component.ScoreEmblemSurface
@@ -111,7 +118,6 @@ import com.gpo.yoin.ui.component.YoinArmTransform
 import com.gpo.yoin.ui.component.YoinMark
 import com.gpo.yoin.ui.component.YoinModalBottomSheet
 import com.gpo.yoin.ui.component.draftFieldValue
-import com.gpo.yoin.ui.component.formatTotalDuration
 import com.gpo.yoin.ui.component.formatTrackDuration
 import com.gpo.yoin.ui.component.minimumTouchTarget
 import com.gpo.yoin.ui.component.ratingBloom
@@ -390,30 +396,75 @@ internal fun AlbumSectionLabel(
 // and the pulled-up list (below the docked band).
 // ---------------------------------------------------------------------------
 
+/**
+ * [MetaLine] inside a slot that may be a tight width (fillMaxWidth, weight).
+ * Trailing groups still drop; the slot keeps the width it was given.
+ */
+@Composable
+internal fun DetailMetaLine(
+    groups: List<MetaGroup>,
+    modifier: Modifier = Modifier,
+    style: TextStyle = MaterialTheme.typography.bodySmall,
+) {
+    Layout(
+        modifier = modifier,
+        content = { MetaLine(groups = groups, style = style) },
+    ) { measurables, constraints ->
+        val child = measurables.single().measure(constraints.copy(minWidth = 0, minHeight = 0))
+        layout(
+            constraints.constrainWidth(child.width),
+            constraints.constrainHeight(child.height),
+        ) {
+            child.placeRelative(0, 0)
+        }
+    }
+}
+
 @Composable
 internal fun AlbumTrackCountLabel(
     count: Int,
     totalDurationSeconds: Int?,
     modifier: Modifier = Modifier,
 ) {
-    val duration = totalDurationSeconds?.takeIf { it > 0 }?.let { seconds ->
-        formatTotalDuration(seconds, LocalContext.current.resources)
+    val groups = buildList {
+        add(
+            MetaGroup.Stat(
+                value = count.toString(),
+                unit = pluralStringResource(R.plurals.detail_unit_track, count),
+            ),
+        )
+        totalDurationSeconds?.takeIf { it > 0 }?.let { seconds ->
+            addAll(totalDurationGroups(seconds))
+        }
     }
-    val text = if (duration != null) {
-        pluralStringResource(R.plurals.detail_album_tracks_duration, count, count, duration)
-    } else {
-        pluralStringResource(R.plurals.detail_album_tracks, count, count)
-    }
-    Text(
-        text = text,
+    DetailMetaLine(
+        groups = groups,
         style = MaterialTheme.typography.labelMedium,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
         modifier = modifier,
     )
 }
 
+/** Hours and leftover minutes as separate stats. Zero leftover minutes are omitted. */
+@Composable
+private fun totalDurationGroups(seconds: Int): List<MetaGroup> {
+    val totalMinutes = seconds / 60
+    val hours = totalMinutes / 60
+    val minutes = totalMinutes % 60
+    val hourUnit = stringResource(R.string.detail_unit_hour)
+    val minuteUnit = stringResource(R.string.detail_unit_minute)
+    return buildList {
+        if (hours > 0) {
+            add(MetaGroup.Stat(hours.toString(), hourUnit))
+            if (minutes > 0) add(MetaGroup.Stat(minutes.toString(), minuteUnit))
+        } else {
+            add(MetaGroup.Stat(minutes.toString(), minuteUnit))
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
-// Flowing "Describe • Gimme Time • … • Tell Me (feat. X)" hero title text.
+// Flowing hero titles. Adjacent titles alternate tone. A space is the break.
+// Feat credits stay attached to their title.
 // ---------------------------------------------------------------------------
 
 // Plain text normally (no link blue / underline — inherit the surrounding
@@ -423,12 +474,15 @@ private val AlbumTitleLinkStyles = TextLinkStyles(
     pressedStyle = SpanStyle(textDecoration = TextDecoration.Underline),
 )
 
-/**
- * Separator between flowing titles. The two NBSPs bind the bullet to the title
- * BEFORE it, so a line may end on "•" but never starts with one; the plain
- * spaces after it are the only break opportunity (trailing spaces hang).
- */
-internal const val FlowingTitleSeparator = "\u00A0\u00A0•  "
+/** Even indexes use the primary tone; odd indexes the variant. */
+internal fun flowingTitleUsesPrimaryTone(index: Int): Boolean = index % 2 == 0
+
+/** One breakable space between flowing titles. */
+internal const val FlowingTitleGap = " "
+
+/** Titles joined the way the hero paints them: a space, never a bullet. */
+internal fun flowingTitleSequence(titles: List<String>): String =
+    titles.joinToString(separator = FlowingTitleGap, transform = ::flowingTitle)
 
 // Titles up to about 60% of a headlineMedium line (CJK counts double) are kept
 // whole; longer ones stay breakable so they can never force an overflow.
@@ -463,17 +517,21 @@ private fun Char.isWideGlyph(): Boolean {
 @Composable
 internal fun buildAlbumTrackTitles(
     songs: List<AlbumSong>,
-    separatorColor: Color,
     featColor: Color,
     onSongClick: ((String) -> Unit)?,
 ): AnnotatedString {
+    val primary = MaterialTheme.colorScheme.onSurface
+    val variant = MaterialTheme.colorScheme.onSurfaceVariant
     val credits = mutableListOf<String?>()
     for (song in songs) {
         credits += song.featArtist?.let { feat -> stringResource(R.string.detail_album_feat, feat) }
     }
     return buildAnnotatedString {
         fun appendTitle(index: Int, song: AlbumSong) {
-            append(flowingTitle(song.title))
+            val tone = if (flowingTitleUsesPrimaryTone(index)) primary else variant
+            withStyle(SpanStyle(color = tone)) {
+                append(flowingTitle(song.title))
+            }
             credits[index]?.let { credit ->
                 withStyle(SpanStyle(fontSize = 0.6.em, color = featColor)) {
                     // NBSP: the small credit never wraps away from its title.
@@ -482,9 +540,7 @@ internal fun buildAlbumTrackTitles(
             }
         }
         songs.forEachIndexed { index, song ->
-            if (index > 0) {
-                withStyle(SpanStyle(color = separatorColor)) { append(FlowingTitleSeparator) }
-            }
+            if (index > 0) append(FlowingTitleGap)
             if (onSongClick != null) {
                 // Each title is its OWN clickable link → plays just that song,
                 // exactly like tapping a row in a normal track list.
@@ -827,7 +883,10 @@ internal fun AlbumRateSheet(
                 )
             }
             AlbumReviewField(text = content.userReview, onTextChange = onReviewDraftChange)
-            if (neoDb != AlbumNeoDbSync.Unknown) {
+            if (neoDb != AlbumNeoDbSync.Unknown &&
+                neoDb != AlbumNeoDbSync.Idle &&
+                neoDb != AlbumNeoDbSync.Pending
+            ) {
                 AlbumNeoDbLine(state = neoDb, onSignIn = onNeoDbSignIn, onRetry = onNeoDbRetry)
             }
         }
@@ -987,22 +1046,17 @@ private val ReviewCaretClearanceAbove = 24.dp
 /** Room kept under the caret: the field's bottom padding and its counter line. */
 private val ReviewCaretClearanceBelow = 48.dp
 
-/** NeoDB's state for this album, one quiet line; signed out or failed, the line is the action. */
+/** NeoDB's state for this album. Signed out, the line is the action; a failure gets a Retry button. */
 @Composable
 private fun AlbumNeoDbLine(state: AlbumNeoDbSync, onSignIn: () -> Unit, onRetry: () -> Unit) {
-    val action: (() -> Unit)? = when (state) {
-        AlbumNeoDbSync.SignedOut -> onSignIn
-        AlbumNeoDbSync.Failed -> onRetry
-        else -> null
-    }
     val scheme = MaterialTheme.colorScheme
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(12.dp))
             .then(
-                if (action != null) {
-                    Modifier.clickable(role = Role.Button, onClick = action)
+                if (state == AlbumNeoDbSync.SignedOut) {
+                    Modifier.clickable(role = Role.Button, onClick = onSignIn)
                 } else {
                     Modifier
                 },
@@ -1024,32 +1078,46 @@ private fun AlbumNeoDbLine(state: AlbumNeoDbSync, onSignIn: () -> Unit, onRetry:
             },
             label = "neoDbLine",
         ) { shown ->
-            Text(
-                text = albumNeoDbLabel(shown, LocalContext.current.resources),
-                style = MaterialTheme.typography.bodyMedium,
-                color = if (shown == AlbumNeoDbSync.Failed || shown == AlbumNeoDbSync.SignedOut) {
-                    scheme.primary
-                } else {
-                    scheme.onSurfaceVariant
-                },
-            )
+            if (shown == AlbumNeoDbSync.Failed) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = albumNeoDbLabel(shown, LocalContext.current.resources),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = scheme.onSurfaceVariant,
+                    )
+                    TextButton(onClick = onRetry) {
+                        Text(stringResource(R.string.detail_retry))
+                    }
+                }
+            } else {
+                val label = albumNeoDbLabel(shown, LocalContext.current.resources)
+                if (label.isNotEmpty()) {
+                    Text(
+                        text = label,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = if (shown == AlbumNeoDbSync.SignedOut) {
+                            scheme.primary
+                        } else {
+                            scheme.onSurfaceVariant
+                        },
+                    )
+                }
+            }
         }
     }
 }
 
-/** The words after "NeoDB" on the sheet's last line. */
+/** The words after "NeoDB" on the sheet's last line. Pending and idle say nothing. */
 internal fun albumNeoDbLabel(state: AlbumNeoDbSync, resources: Resources? = null): String = when (state) {
-    AlbumNeoDbSync.Unknown -> ""
+    AlbumNeoDbSync.Unknown, AlbumNeoDbSync.Idle, AlbumNeoDbSync.Pending -> ""
     AlbumNeoDbSync.SignedOut -> resources?.getString(R.string.detail_neodb_sign_in)
         ?: "Sign in to sync" // i18n-allow: AlbumNeoDbSyncTest asserts this English
-    AlbumNeoDbSync.Idle, AlbumNeoDbSync.Pending -> resources?.getString(R.string.detail_neodb_pending)
-        ?: "Syncs when you close this" // i18n-allow: AlbumNeoDbSyncTest asserts this English
     AlbumNeoDbSync.Syncing -> resources?.getString(R.string.detail_neodb_syncing)
         ?: "Syncing…" // i18n-allow: AlbumNeoDbSyncTest asserts this English
     AlbumNeoDbSync.Synced -> resources?.getString(R.string.detail_neodb_synced)
         ?: "Synced" // i18n-allow: AlbumNeoDbSyncTest asserts this English
     AlbumNeoDbSync.Failed -> resources?.getString(R.string.detail_neodb_failed)
-        ?: "Couldn't sync · Retry" // i18n-allow: AlbumNeoDbSyncTest asserts this English
+        ?: "Couldn't sync" // i18n-allow: AlbumNeoDbSyncTest asserts this English
 }
 
 // ---------------------------------------------------------------------------

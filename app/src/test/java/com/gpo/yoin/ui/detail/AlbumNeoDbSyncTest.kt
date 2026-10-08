@@ -27,6 +27,7 @@ class AlbumNeoDbSyncTest {
         // Rated before signing in counts too: it goes on the next close.
         assertEquals(AlbumNeoDbSync.Pending, albumNeoDbSync(configured = true, row(8f, ratingDirty = true)))
         assertEquals(AlbumNeoDbSync.Pending, albumNeoDbSync(configured = true, row(review = "", reviewDirty = true)))
+        assertEquals("", albumNeoDbLabel(AlbumNeoDbSync.Pending))
     }
 
     @Test
@@ -39,5 +40,11 @@ class AlbumNeoDbSyncTest {
     fun should_readIdle_when_nothingIsWrittenYet() {
         assertEquals(AlbumNeoDbSync.Idle, albumNeoDbSync(configured = true, null))
         assertEquals(AlbumNeoDbSync.Idle, albumNeoDbSync(configured = true, row()))
+        assertEquals("", albumNeoDbLabel(AlbumNeoDbSync.Idle))
+    }
+
+    @Test
+    fun should_nameTheFailure_when_syncFails() {
+        assertEquals("Couldn't sync", albumNeoDbLabel(AlbumNeoDbSync.Failed))
     }
 }

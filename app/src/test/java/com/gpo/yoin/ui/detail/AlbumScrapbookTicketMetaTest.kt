@@ -2,7 +2,6 @@ package com.gpo.yoin.ui.detail
 
 import androidx.compose.foundation.layout.width
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.getBoundsInRoot
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -25,9 +24,8 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.GraphicsMode
 
 /**
- * A small ticket's "duration · N plays" line (device QA 2026-10-05, the Wide right column): one line,
- * never a wrapped "1:10 ·" — the dot and the count are bound by no-break spaces, and the duration
- * goes whole when the line can't hold both.
+ * A ticket's duration and play count stay separate groups on one line.
+ * A narrow row drops the plays and leaves the duration.
  */
 @RunWith(RobolectricTestRunner::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
@@ -37,16 +35,23 @@ class AlbumScrapbookTicketMetaTest {
     val rule = createComposeRule()
 
     @Test
-    fun should_bindTheDotToBothSides_when_aTrackHasDurationAndPlays() {
-        val meta = scrapTicketMeta(durationSec = 70, plays = 1)
-
-        assertEquals(ScrapTicketMeta(full = FULL, short = SHORT), meta)
+    fun should_keepDurationAndPlaysSeparate_when_aTrackHasBoth() {
+        assertEquals(
+            ScrapTicketMeta(duration = "1:10", plays = 1),
+            scrapTicketMeta(durationSec = 70, plays = 1),
+        )
     }
 
     @Test
     fun should_haveNothingToDrop_when_aTrackHasOnlyOneOfThem() {
-        assertEquals(ScrapTicketMeta(full = "1:10", short = null), scrapTicketMeta(durationSec = 70, plays = 0))
-        assertEquals(ScrapTicketMeta(full = "3\u00A0plays", short = null), scrapTicketMeta(durationSec = null, plays = 3))
+        assertEquals(
+            ScrapTicketMeta(duration = "1:10", plays = 0),
+            scrapTicketMeta(durationSec = 70, plays = 0),
+        )
+        assertEquals(
+            ScrapTicketMeta(duration = null, plays = 3),
+            scrapTicketMeta(durationSec = null, plays = 3),
+        )
         assertNull(scrapTicketMeta(durationSec = null, plays = 0))
     }
 
@@ -54,18 +59,18 @@ class AlbumScrapbookTicketMetaTest {
     fun should_showDurationAndPlaysOnOneLine_when_theyFit() {
         show(width = 240.dp)
 
-        assertTrue(placed(FULL))
-        assertFalse(placed(SHORT))
+        assertTrue(placed("1:10"))
+        assertTrue(placed("1"))
+        assertTrue(placed("play"))
         assertOneLine()
     }
 
     @Test
-    fun should_dropTheDurationWhole_when_bothDoNotFitTheLine() {
-        // "1:10 · 1 play" is thirteen 12sp monospace glyphs (~94dp); "1 play" is six (~43dp).
+    fun should_dropThePlays_when_theRowIsNarrow() {
         show(width = 60.dp)
 
-        assertFalse(placed(FULL))
-        assertTrue(placed(SHORT))
+        assertTrue(placed("1:10"))
+        assertFalse(placed("play"))
         assertOneLine()
     }
 
@@ -74,8 +79,11 @@ class AlbumScrapbookTicketMetaTest {
             YoinTheme {
                 ScrapTicketMetaLine(
                     meta = scrapTicketMeta(durationSec = 70, plays = 1)!!,
-                    style = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 12.sp, lineHeight = 16.sp),
-                    color = Color.Black,
+                    style = TextStyle(
+                        fontFamily = FontFamily.Monospace,
+                        fontSize = 12.sp,
+                        lineHeight = 16.sp,
+                    ),
                     modifier = Modifier.width(width).testTag(TAG),
                 )
             }
@@ -95,7 +103,5 @@ class AlbumScrapbookTicketMetaTest {
 
     private companion object {
         const val TAG = "ticket-meta"
-        const val FULL = "1:10\u00A0·\u00A01\u00A0play"
-        const val SHORT = "1\u00A0play"
     }
 }

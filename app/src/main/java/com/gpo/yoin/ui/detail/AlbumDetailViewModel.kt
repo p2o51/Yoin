@@ -429,8 +429,8 @@ class AlbumDetailViewModel(
     }
 
     /**
-     * The sheet's NeoDB line follows what happens while it is open: a score set or words typed after a sync read
-     * "Syncs when you close this" again, not a stale "Synced". Unknown (never read), signed out, a push in flight
+     * The sheet's NeoDB line follows what happens while it is open: a score set or words typed after a sync
+     * becomes pending again, not a stale "Synced". Unknown (never read), signed out, a push in flight
      * and a failure keep their own owners ([onRateSheetOpened], [syncToNeoDb]).
      */
     private fun refreshNeoDbLine() {
@@ -465,7 +465,7 @@ class AlbumDetailViewModel(
         }
     }
 
-    /** The sheet's "Couldn't sync · Retry". */
+    /** Retries a failed NeoDB sync from the sheet. */
     fun retryNeoDbSync() {
         val album = loadedAlbum ?: return
         viewModelScope.launch { syncToNeoDb(album) }

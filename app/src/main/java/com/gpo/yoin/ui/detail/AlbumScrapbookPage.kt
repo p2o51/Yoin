@@ -132,6 +132,7 @@ import com.gpo.yoin.data.local.SongAboutEntry
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.symbols.YoinSymbols
 import com.gpo.yoin.ui.component.ExpressiveMediaArtwork
+import com.gpo.yoin.ui.component.MetaGroup
 import com.gpo.yoin.ui.component.YoinModalBottomSheet
 import com.gpo.yoin.ui.component.dashedOutline
 import com.gpo.yoin.ui.component.expressivePageSeamBackground
@@ -1086,7 +1087,7 @@ private fun ContactSheet(
 }
 
 /**
- * A ticket stub: the number in a perforated stub, then title and "duration · ×plays", and the score in the
+ * A ticket stub: the number in a perforated stub, then title, duration, and plays, and the score in the
  * album ink (the Memories diary's way of writing a track score). The heart sticker marks a liked track.
  */
 @Composable
@@ -1208,11 +1209,9 @@ private fun Ticket(
                             ScrapTicketMetaLine(
                                 meta = meta,
                                 style = MaterialTheme.typography.labelMedium.copy(
-                                    fontFeatureSettings = "tnum",
                                     fontSize = 12.sp,
                                     letterSpacing = 0.sp,
                                 ),
-                                color = ink.copy(alpha = 0.72f),
                                 modifier = Modifier.weight(1f),
                             )
                         } else {
@@ -1247,15 +1246,12 @@ private val TicketStub = 48.dp
 private val FactTagShape = RoundedCornerShape(16.dp)
 
 /**
- * A ticket's meta line: [full] "1:10 · 3 plays", and [short] "3 plays" for when
- * the duration doesn't fit beside it — the plays are the user's own, the
- * duration is on page 1. Words, not "×3" (owner 2026-10-05). The dot and the
- * count are bound by no-break spaces, so the line never breaks inside it, and
- * the duration goes whole ([ScrapTicketMetaLine]). [short] is null when there
- * is nothing to drop (no duration, or no plays).
+ * A ticket's meta: [duration], then [plays]. [ScrapTicketMetaLine] drops the
+ * plays when the row is too narrow and leaves the duration. [plays] is 0 when
+ * there are none; [duration] is null when the track has no length.
  */
 @Immutable
-internal data class ScrapTicketMeta(val full: String, val short: String?)
+internal data class ScrapTicketMeta(val duration: String?, val plays: Int)
 
 @Composable
 private fun ticketContentDescription(track: ScrapTrack): String {
@@ -1299,24 +1295,10 @@ private fun ticketContentDescription(track: ScrapTrack): String {
 /** [ScrapTicketMeta] for a track's [durationSec] and [plays]; null when it has neither. */
 internal fun scrapTicketMeta(durationSec: Int?, plays: Int): ScrapTicketMeta? {
     val duration = durationSec?.let(::formatTrackDuration)
-    val count = plays.takeIf { it > 0 }?.let { playCount ->
-        if (playCount == 1) {
-            "1${NoBreak}play" // i18n-allow: AlbumScrapbookTicketMetaTest asserts this ticket English
-        } else {
-            "$playCount${NoBreak}plays" // i18n-allow: AlbumScrapbookTicketMetaTest asserts this ticket English
-        }
-    }
-    return when {
-        duration != null && count != null -> ScrapTicketMeta(
-            // i18n-allow: AlbumScrapbookTicketMetaTest asserts this ticket English
-            full = "$duration$NoBreak·$NoBreak$count",
-            short = count,
-        )
-        else -> (duration ?: count)?.let { ScrapTicketMeta(full = it, short = null) }
-    }
+    val playCount = plays.takeIf { it > 0 } ?: 0
+    if (duration == null && playCount == 0) return null
+    return ScrapTicketMeta(duration = duration, plays = playCount)
 }
-
-private const val NoBreak = '\u00A0'
 
 /**
  * Receipt glyphs stay the English [receiptLines] / [relativeDayLabel] already painted.
@@ -1363,40 +1345,27 @@ private fun scrapFactLabel(label: String): String = when (label) {
 }
 
 /**
- * One line, never two: [ScrapTicketMeta.full] when it fits the width it's
- * given, else [ScrapTicketMeta.short] — the duration dropped whole rather
- * than a wrapped "1:10 ·" (device QA 2026-10-05, the right column's small
- * tickets). Decided in the layout pass from the full line's intrinsic width,
- * so a width change re-measures without recomposing.
+ * One line. Duration first, then the play count. A narrow row drops the plays
+ * and leaves the duration.
  */
 @Composable
-internal fun ScrapTicketMetaLine(meta: ScrapTicketMeta, style: TextStyle, color: Color, modifier: Modifier = Modifier) {
-    val onePlay = pluralStringResource(R.plurals.detail_scrap_ticket_plays, 1, 1)
-    val threePlays = pluralStringResource(R.plurals.detail_scrap_ticket_plays, 3, 3)
-    val durationPlays = stringResource(R.string.detail_scrap_ticket_duration_plays)
-    fun kept(value: String) = when (value) {
-        onePlay -> onePlay
-        threePlays -> threePlays
-        durationPlays -> durationPlays
-        else -> value
-    }
-    Layout(
-        content = {
-            Text(text = kept(meta.full), style = style, color = color, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            meta.short?.let { short ->
-                Text(text = kept(short), style = style, color = color, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            }
-        },
-        modifier = modifier,
-    ) { measurables, constraints ->
-        val full = measurables[0]
-        val short = measurables.getOrNull(1)
-        val fits = full.maxIntrinsicWidth(constraints.maxHeight) <= constraints.maxWidth
-        val placeable = (if (fits || short == null) full else short).measure(constraints.copy(minWidth = 0))
-        layout(constraints.constrainWidth(placeable.width), constraints.constrainHeight(placeable.height)) {
-            placeable.placeRelative(0, 0)
+internal fun ScrapTicketMetaLine(
+    meta: ScrapTicketMeta,
+    style: TextStyle,
+    modifier: Modifier = Modifier,
+) {
+    val groups = buildList {
+        meta.duration?.let { add(MetaGroup.Stat(it)) }
+        if (meta.plays > 0) {
+            add(
+                MetaGroup.Stat(
+                    meta.plays.toString(),
+                    pluralStringResource(R.plurals.detail_unit_play, meta.plays),
+                ),
+            )
         }
     }
+    DetailMetaLine(groups = groups, style = style, modifier = modifier)
 }
 
 @Composable
@@ -1543,16 +1512,31 @@ private fun AskCard(
                 modifier = Modifier.padding(top = 4.dp),
             )
             if (excerpt.truncated || moreAsks > 0) {
-                Text(
-                    text = if (moreAsks > 0) {
-                        stringResource(R.string.detail_scrap_read_all_more, moreAsks)
-                    } else {
-                        stringResource(R.string.detail_scrap_read_all)
-                    },
-                    style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold, letterSpacing = 0.sp),
-                    color = colors.askMark,
+                Row(
                     modifier = Modifier.padding(top = 6.dp),
-                )
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Text(
+                        text = stringResource(R.string.detail_scrap_read_all),
+                        style = MaterialTheme.typography.labelLarge.copy(
+                            fontWeight = FontWeight.SemiBold,
+                            letterSpacing = 0.sp,
+                        ),
+                        color = colors.askMark,
+                    )
+                    if (moreAsks > 0) {
+                        Text(
+                            text = "+$moreAsks",
+                            style = MaterialTheme.typography.labelSmall.withTabularFigures(),
+                            color = colors.onAskMark,
+                            modifier = Modifier
+                                .clip(CircleShape)
+                                .background(colors.askMark)
+                                .padding(horizontal = 6.dp, vertical = 1.dp),
+                        )
+                    }
+                }
             }
         }
         Sticker(

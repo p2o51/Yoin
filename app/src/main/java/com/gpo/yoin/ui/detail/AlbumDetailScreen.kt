@@ -77,6 +77,7 @@ import com.gpo.yoin.ui.component.BarExtraAction
 import com.gpo.yoin.ui.component.DetailErrorState
 import com.gpo.yoin.ui.component.ExpressiveMediaArtwork
 import com.gpo.yoin.ui.component.ExpressivePageBackground
+import com.gpo.yoin.ui.component.MetaGroup
 import com.gpo.yoin.ui.component.YoinDropdownMenu
 import com.gpo.yoin.ui.component.expressivePageSeamBackground
 import com.gpo.yoin.ui.component.rememberStagedReveal
@@ -593,28 +594,14 @@ private fun AlbumTopHeader(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-                Row {
-                    Text(
-                        text = artistName,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        // fill = false: the artist name ellipsizes but the
-                        // "· Album · year" metadata never gets pushed off.
-                        modifier = Modifier.weight(1f, fill = false),
-                    )
-                    Text(
-                        text = if (year != null) {
-                            stringResource(R.string.detail_album_kind_year, year)
-                        } else {
-                            stringResource(R.string.detail_album_kind)
-                        },
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = accentText,
-                        maxLines = 1,
-                    )
-                }
+                DetailMetaLine(
+                    groups = buildList {
+                        if (artistName.isNotBlank()) add(MetaGroup.Plain(artistName))
+                        add(MetaGroup.Kind(stringResource(R.string.detail_album_kind), accent = true))
+                        if (year != null) add(MetaGroup.Plain(year.toString()))
+                    },
+                    style = MaterialTheme.typography.bodyMedium,
+                )
             }
         }
         if (pageCount > 1) {
@@ -873,7 +860,6 @@ private fun AlbumHeroDetails(
             } else {
                 buildAlbumTrackTitles(
                     songs = content.songs,
-                    separatorColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
                     featColor = MaterialTheme.colorScheme.onSurfaceVariant,
                     onSongClick = if (interactive) onSongClick else null,
                 )
@@ -1253,7 +1239,7 @@ private fun AlbumWideOverview(
 // Landscape handset (AlbumLandscape): the portrait hero turned sideways —
 // cover 256 on the left with the two blocks hugging it, and everything that
 // sits under the cover on a phone on the right (Last Play | Avg., Comment,
-// "12 tracks · 50m", the flowing titles). Pulling up runs the SAME reshape
+// track count and duration, the flowing titles). Pulling up runs the SAME reshape
 // machine as portrait (RevealState + DetailPullUpReconcile) into the list.
 private val AlbumLandscapeCoverSide = 256.dp
 
@@ -1390,7 +1376,6 @@ private fun AlbumLandscapeOverview(
                         } else {
                             buildAlbumTrackTitles(
                                 songs = content.songs,
-                                separatorColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
                                 featColor = MaterialTheme.colorScheme.onSurfaceVariant,
                                 onSongClick = if (expand < 0.5f) onSongClick else null,
                             )
