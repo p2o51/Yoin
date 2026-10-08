@@ -104,7 +104,7 @@ MD3 Expressive 不是 M4，而是 M3 的扩展进化。
 **规则**
 
 - 默认用线性版；「选中」或「已开启」用 *Filled 版（导航的 Home / Library 选中时用 `HomeFilled` / `LibraryFilled`）。
-- 播放控制键用 *Filled 多边形版：`PlayFilled`、`SkipNextFilled`、`SkipPreviousFilled`。PLAY / PAUSE 大按钮只有英文界面显示文字；其他语言换成 `rememberPlayPauseSymbolPainter` 形变图标，居中放在和英文词同宽的胶囊里（`values/bools.xml` 的 `np_transport_word_label`，默认 false，`values-en` 为 true；2026-10-08 owner）。
+- 播放控制键用 *Filled 多边形版：`PlayFilled`、`SkipNextFilled`、`SkipPreviousFilled`。PLAY / PAUSE 大按钮只有英文界面显示文字；其他语言换成 `rememberPlayPauseSymbolPainter` 形变图标，居中放在和英文词同宽的胶囊里（PlaybackControls 里按当前语言判断：只有 `en` 显示文字，以后新加的语言自动用图标；不用 `values-en` 资源，因为它会让 Lint 把英文当成一种翻译；2026-10-08 owner）。
 - 返回、左右箭头、发送在 RTL 布局里自动镜像。
 - 按场景选：专辑封面兜底 `Album`，歌单封面兜底 `Playlist`，单曲兜底 `MusicNote`，歌手 `Artist`，队列 `Queue`。
 
