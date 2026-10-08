@@ -58,8 +58,9 @@ import com.gpo.yoin.ui.experience.DeckIndicatorTransitionState
 import com.gpo.yoin.ui.experience.RevealState
 import com.gpo.yoin.ui.memories.MemoryEntry
 import com.gpo.yoin.ui.memories.formatMemoryChromeDate
-import com.gpo.yoin.ui.memories.memoryArtistLine
 import com.gpo.yoin.ui.memories.MemoryScoreKind
+import com.gpo.yoin.ui.memories.supportParts
+import com.gpo.yoin.ui.memories.supportingArtistAndYear
 import com.gpo.yoin.ui.memories.award.GrooveAwardTarget
 import com.gpo.yoin.ui.memories.award.GrooveDiaryEmblemTarget
 import com.gpo.yoin.ui.memories.award.MemoriesAwardEffects
@@ -494,7 +495,7 @@ private fun ShowcasePage(
     val wide = layout.tier == MemoriesTier.Medium
     val memoryPane = stringResource(R.string.mem_pane_memory, memory.title)
     val diaryPane = stringResource(R.string.mem_pane_diary, memory.title)
-    val artistLine = memory.supportingText.memoryArtistLine()
+    val support = memory.supportParts(stringResource(R.string.mem_album_fallback))
     Box(
         Modifier
             .fillMaxSize()
@@ -574,8 +575,8 @@ private fun ShowcasePage(
         )
         MemoryPageBarSlots(
             album = memory.title,
-            artistLine = artistLine,
-            artistShort = artistLine.artistOnly(),
+            artist = support.artist,
+            year = support.year,
             lastHeard = lastHeard,
             dotCount = dotCount,
             relative = { pagerState.currentPage - page + pagerState.currentPageOffsetFraction },
@@ -713,12 +714,7 @@ internal fun MemoryEntry.grooveModel(palette: MemoryPalette): GrooveModel {
     )
 }
 
-/** "Artist · 2019" → "Artist" (the bar's artist line drops the year first). */
-internal fun String.artistOnly(): String {
-    val cut = lastIndexOf(" · ")
-    if (cut < 0) return this
-    val tail = substring(cut + 3)
-    return if (tail.isNotEmpty() && tail.all(Char::isDigit)) substring(0, cut) else this
-}
+/** Artist with a trailing year removed. A non-year tail stays on the artist. */
+internal fun String.artistOnly(): String = supportingArtistAndYear().first
 
 private const val RestEpsilon = 0.001f

@@ -147,8 +147,6 @@
      "value": 204
     }
    ],
-   "reviewHeader": "Jul 26, 2026 · Your review",
-   "blankHeader": "Oct 4, 2026 · Today",
    "sinceZh": "三月",
    "sinceEn": "March",
    "agoZh": "前天",
@@ -170,8 +168,6 @@
      "value": 13
     }
    ],
-   "reviewHeader": null,
-   "blankHeader": "Oct 4, 2026 · Today",
    "sinceZh": "九月",
    "sinceEn": "September",
    "agoZh": "四天前",
@@ -193,8 +189,6 @@
      "value": 272
     }
    ],
-   "reviewHeader": null,
-   "blankHeader": "Oct 4, 2026 · Today",
    "sinceZh": "一月",
    "sinceEn": "January",
    "agoZh": "三天前",
@@ -216,8 +210,6 @@
      "value": 7
     }
    ],
-   "reviewHeader": "Sep 29, 2026 · Your review",
-   "blankHeader": "Oct 4, 2026 · Today",
    "sinceZh": "九月",
    "sinceEn": "September",
    "agoZh": "五天前",
@@ -239,8 +231,6 @@
      "value": 330
     }
    ],
-   "reviewHeader": "Dec 20, 2025 · Your review",
-   "blankHeader": "Oct 4, 2026 · Today",
    "sinceZh": "2025年十一月",
    "sinceEn": "November 2025",
    "agoZh": "9月20日",

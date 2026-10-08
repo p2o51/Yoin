@@ -5,15 +5,28 @@ import java.time.LocalDate
 /** Type size tier of a card excerpt, by UTF-16 length (the prototype's ts-aq-s / ts-aq-m). */
 enum class MemoryExcerptSize { SHORT, MEDIUM, LONG }
 
+/** Which voice the card is quoting. The label is an app-language string at the call site. */
+enum class MemoryExcerptKind { REVIEW, NOTE }
+
+/**
+ * The signature under a quote: a small label ([kind]) and an optional detail
+ * (a date, or a song title and anchor). The card paints these as two levels.
+ * There is no "in Diary".
+ */
+data class MemoryExcerptAttribution(
+    val kind: MemoryExcerptKind,
+    val detail: String? = null,
+)
+
 /**
  * One candidate for the card's excerpt slot. The card shows the first
- * candidate that fits; [text] null is the last resort, the attribution line
- * alone ("Your review · Jul 26 · in Diary"). Never an ellipsis.
+ * candidate that fits; [text] null is the last resort, the attribution alone.
+ * Never an ellipsis.
  */
 data class MemoryExcerptCandidate(
     /** The user's words, whole sentences, without quotes; null for the attribution-only line. */
     val text: String?,
-    val attribution: String,
+    val attribution: MemoryExcerptAttribution,
 ) {
     val attributionOnly: Boolean get() = text == null
 
@@ -43,7 +56,7 @@ object MemoryExcerpt {
     fun candidates(input: MemoryCopyInput, capped: Boolean, today: LocalDate): List<MemoryExcerptCandidate> {
         val songNotes = input.notes.filter { note -> note.track != null }
         val out = mutableListOf<MemoryExcerptCandidate>()
-        val lastAttribution: String
+        val lastAttribution: MemoryExcerptAttribution
         val review = input.review?.takeIf(String::isNotBlank)
         if (review != null) {
             lastAttribution = reviewAttribution(input.reviewWrittenOn, today)
@@ -65,7 +78,7 @@ object MemoryExcerpt {
         songNotes.minByOrNull { note -> note.text.length }?.let { shortest ->
             out += MemoryExcerptCandidate(shortest.text, noteAttribution(shortest, today))
         }
-        out += MemoryExcerptCandidate(text = null, attribution = "$lastAttribution · in Diary")
+        out += MemoryExcerptCandidate(text = null, attribution = lastAttribution)
         return out
     }
 
@@ -78,18 +91,26 @@ object MemoryExcerpt {
             .thenBy { note -> note.positionMs ?: Long.MAX_VALUE },
     )
 
-    fun reviewAttribution(writtenOn: LocalDate?, today: LocalDate): String =
-        writtenOn?.let { date -> "Your review · ${MemoryDates.day(date, today)}" } ?: "Your review"
+    fun reviewAttribution(writtenOn: LocalDate?, today: LocalDate): MemoryExcerptAttribution =
+        MemoryExcerptAttribution(
+            kind = MemoryExcerptKind.REVIEW,
+            detail = writtenOn?.let { date -> MemoryDates.day(date, today) },
+        )
 
     /**
-     * "Your note · Satellite Hearts 2:21" for a song note, "Your note · Sep 12"
-     * for an album note. Deviation from the prototype: a song note without an
-     * anchor read "… 0:00" there; here it carries no time.
+     * A song note's detail is the title plus its anchor ("Satellite Hearts 2:21");
+     * an album note's detail is the date ("Sep 12"). Deviation from the prototype:
+     * a song note without an anchor read "… 0:00" there; here it carries no time.
      */
-    fun noteAttribution(note: MemoryCopyNote, today: LocalDate): String {
-        val track = note.track ?: return "Your note · ${MemoryDates.day(note.writtenOn, today)}"
-        val anchor = note.positionMs?.let { position -> " ${anchorTime(position)}" }.orEmpty()
-        return "Your note · ${track.title}$anchor"
+    fun noteAttribution(note: MemoryCopyNote, today: LocalDate): MemoryExcerptAttribution {
+        val track = note.track
+        val detail = if (track == null) {
+            MemoryDates.day(note.writtenOn, today)
+        } else {
+            val anchor = note.positionMs?.let { position -> " ${anchorTime(position)}" }.orEmpty()
+            "${track.title}$anchor"
+        }
+        return MemoryExcerptAttribution(kind = MemoryExcerptKind.NOTE, detail = detail)
     }
 
     /** m:ss of a note's anchor, whole seconds. */

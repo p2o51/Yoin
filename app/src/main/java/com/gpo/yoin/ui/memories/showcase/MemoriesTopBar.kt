@@ -45,6 +45,7 @@ import androidx.compose.ui.layout.layout
 import androidx.compose.ui.node.ModifierNodeElement
 import androidx.compose.ui.node.PointerInputModifierNode
 import androidx.compose.ui.platform.InspectorInfo
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
@@ -69,6 +70,8 @@ import com.gpo.yoin.R
 import com.gpo.yoin.symbols.YoinSymbols
 import com.gpo.yoin.ui.component.MarqueeText
 import com.gpo.yoin.ui.experience.DeckIndicatorTransitionState
+import com.gpo.yoin.ui.memories.MemoryArtistYearLine
+import com.gpo.yoin.ui.memories.MemorySupportParts
 import com.gpo.yoin.ui.theme.GoogleSansFlex
 import com.gpo.yoin.ui.theme.YoinArtworkShapes
 import com.gpo.yoin.ui.theme.YoinTheme
@@ -329,8 +332,8 @@ private fun PageDots(
 @Composable
 internal fun MemoryPageBarSlots(
     album: String,
-    artistLine: String,
-    artistShort: String,
+    artist: String,
+    year: String?,
     lastHeard: String?,
     dotCount: Int,
     relative: () -> Float,
@@ -362,7 +365,8 @@ internal fun MemoryPageBarSlots(
     } else {
         stringResource(R.string.mem_cd_topbar)
     }
-    val albumDescription = stringResource(R.string.mem_cd_bar_album, album, artistLine)
+    val spokenArtist = artist.ifBlank { year.orEmpty() }
+    val albumDescription = stringResource(R.string.mem_cd_bar_album, album, spokenArtist)
     val closeDiary = stringResource(R.string.mem_cd_close_diary)
     Box(
         modifier = modifier
@@ -484,7 +488,7 @@ internal fun MemoryPageBarSlots(
                         color = MaterialTheme.colorScheme.onSurface,
                         running = marqueeRunning,
                     )
-                    BarArtistLine(full = artistLine, short = artistShort, running = marqueeRunning)
+                    BarArtistLine(artist = artist, year = year, running = marqueeRunning)
                 }
                 Spacer(Modifier.width(6.dp))
                 Icon(
@@ -501,18 +505,47 @@ internal fun MemoryPageBarSlots(
 /** The bar cover's 48dp hit box around its 40dp art. */
 private val BarCoverHitMargin: Dp = (MemoriesTopBarTokens.HitHeight - MemoriesTopBarTokens.BarCover) / 2
 
-/** The artist line first drops " · year"; only the artist alone still overflowing scrolls. */
+/** Same gap as [com.gpo.yoin.ui.component.MetaLine], so the year drops on the same width. */
+private val BarArtistGap = 12.dp
+
+/** Artist, then the year at 60%. The year drops first; only an overflowing artist scrolls. */
 @Composable
-private fun BarArtistLine(full: String, short: String, running: Boolean) {
+private fun BarArtistLine(artist: String, year: String?, running: Boolean) {
     val style = barTextStyle(12, FontWeight.Medium, lineHeight = 1.35f)
+    val gapPx = with(LocalDensity.current) { BarArtistGap.roundToPx() }
+    val yearText = year?.takeIf { it.isNotBlank() }
     BoxWithConstraints {
         val measurer = rememberTextMeasurer()
         val maxPx = constraints.maxWidth
-        val text = remember(full, short, maxPx, style) {
-            val fits = measurer.measure(full, style, softWrap = false, maxLines = 1).size.width <= maxPx
-            if (fits) full else short
+        val subject = artist.ifBlank { yearText.orEmpty() }
+        val extra = if (artist.isNotBlank()) yearText else null
+        val showExtra = remember(subject, extra, maxPx, style, gapPx) {
+            if (extra == null || subject.isEmpty()) return@remember false
+            val subjectW = measurer.measure(subject, style, softWrap = false, maxLines = 1).size.width
+            val extraW = measurer.measure(extra, style, softWrap = false, maxLines = 1).size.width
+            subjectW + gapPx + extraW <= maxPx
         }
-        MarqueeText(text = text, style = style, color = MaterialTheme.colorScheme.onSurfaceVariant, running = running)
+        val subjectFits = remember(subject, maxPx, style) {
+            subject.isEmpty() ||
+                measurer.measure(subject, style, softWrap = false, maxLines = 1).size.width <= maxPx
+        }
+        if (subject.isEmpty()) return@BoxWithConstraints
+        if (subjectFits) {
+            MemoryArtistYearLine(
+                parts = MemorySupportParts(
+                    artist = artist,
+                    year = if (artist.isBlank()) yearText else extra.takeIf { showExtra },
+                ),
+                style = style,
+            )
+        } else {
+            MarqueeText(
+                text = subject,
+                style = style,
+                color = MaterialTheme.colorScheme.onSurface,
+                running = running,
+            )
+        }
     }
 }
 
@@ -569,8 +602,8 @@ private fun MemoriesTopBarPreview() {
         Box(Modifier.background(MaterialTheme.colorScheme.background)) {
             MemoryPageBarSlots(
                 album = "夜行列车与未寄出的信",
-                artistLine = "椎名林檎 & 东京事变 · 2019",
-                artistShort = "椎名林檎 & 东京事变",
+                artist = "椎名林檎 & 东京事变",
+                year = "2019",
                 lastHeard = "Last heard Oct 2",
                 dotCount = 5,
                 relative = { 0f },

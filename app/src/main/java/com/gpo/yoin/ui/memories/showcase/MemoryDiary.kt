@@ -28,6 +28,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
@@ -989,8 +990,9 @@ private fun DiaryFoot(
 
 /**
  * NeoDB's state for the album, one quiet line (owner, 2026-10-06: it used to say "Push to NeoDB" after a push
- * had landed). Sync is automatic, so it only reports — "Synced to NeoDB" — and becomes the action when a change
- * waits or a push failed. Its 48dp slot is kept while configured, so the diary's end never jumps as it reads.
+ * had landed). Sync is automatic, so it only reports — "Synced to NeoDB". A waiting change is "Sync to NeoDB"
+ * (primary, tappable). A failed push is the status plus a Retry button. Its 48dp slot is kept while configured,
+ * so the diary's end never jumps as it reads.
  */
 @Composable
 private fun DiaryNeoDbLine(
@@ -1001,14 +1003,21 @@ private fun DiaryNeoDbLine(
 ) {
     val state by remember(memory.stableId, host) { host.neoDbSync(memory) }
         .collectAsState(initial = AlbumNeoDbSync.Unknown)
-    val action = state == AlbumNeoDbSync.Pending || state == AlbumNeoDbSync.Failed
+    val pending = state == AlbumNeoDbSync.Pending
     Box(
         modifier = modifier
             .height(48.dp)
-            .clip(RoundedCornerShape(percent = 50))
             .then(
-                if (interactive && action) {
-                    Modifier.clickable(role = Role.Button) { host.pushNeoDb(memory) }
+                if (pending) {
+                    Modifier
+                        .clip(RoundedCornerShape(percent = 50))
+                        .then(
+                            if (interactive) {
+                                Modifier.clickable(role = Role.Button) { host.pushNeoDb(memory) }
+                            } else {
+                                Modifier
+                            },
+                        )
                 } else {
                     Modifier
                 },
@@ -1024,15 +1033,31 @@ private fun DiaryNeoDbLine(
             },
             label = "diaryNeoDb",
         ) { shown ->
-            Text(
-                text = diaryNeoDbText(shown),
-                style = diaryUiText(13.sp, FontWeight.Medium, 1.3f),
-                color = if (shown == AlbumNeoDbSync.Failed || shown == AlbumNeoDbSync.Pending) {
-                    MaterialTheme.colorScheme.primary
-                } else {
-                    MaterialTheme.colorScheme.onSurfaceVariant
-                },
-            )
+            if (shown == AlbumNeoDbSync.Failed) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = stringResource(R.string.mem_neodb_failed),
+                        style = diaryUiText(13.sp, FontWeight.Medium, 1.3f),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    TextButton(
+                        onClick = { host.pushNeoDb(memory) },
+                        enabled = interactive,
+                    ) {
+                        Text(stringResource(R.string.mem_retry))
+                    }
+                }
+            } else {
+                Text(
+                    text = diaryNeoDbText(shown),
+                    style = diaryUiText(13.sp, FontWeight.Medium, 1.3f),
+                    color = if (shown == AlbumNeoDbSync.Pending) {
+                        MaterialTheme.colorScheme.primary
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+                )
+            }
         }
     }
 }

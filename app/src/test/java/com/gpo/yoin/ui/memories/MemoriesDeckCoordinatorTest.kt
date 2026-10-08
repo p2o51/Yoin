@@ -11,6 +11,8 @@ import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.Track
 import com.gpo.yoin.data.repository.YoinRepository
 import com.gpo.yoin.ui.experience.ExperienceSessionStore
+import com.gpo.yoin.ui.memories.copy.MemoryExcerptAttribution
+import com.gpo.yoin.ui.memories.copy.MemoryExcerptKind
 import com.gpo.yoin.ui.memories.copy.MemoryNarrationBrief
 import com.gpo.yoin.ui.memories.copy.MemoryProseLanguage
 import com.gpo.yoin.ui.memories.copy.MemoryTitleKind
@@ -388,7 +390,10 @@ class MemoriesDeckCoordinatorTest {
         assertEquals("Put together, what would you say about the album?", memory.yoinQuestion)
         // the excerpt opens with the first song note in album order
         assertEquals("The intro hums", memory.excerptCandidates.first().text)
-        assertEquals("Your note · Song 1 0:04", memory.excerptCandidates.first().attribution)
+        assertEquals(
+            MemoryExcerptAttribution(MemoryExcerptKind.NOTE, "Song 1 0:04"),
+            memory.excerptCandidates.first().attribution,
+        )
     }
 
     @Test

@@ -2,9 +2,10 @@ package com.gpo.yoin.ui.memories
 
 import android.text.format.DateFormat
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.ReadOnlyComposable
-import androidx.compose.ui.res.stringResource
-import com.gpo.yoin.R
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.TextStyle
+import com.gpo.yoin.ui.component.MetaGroup
+import com.gpo.yoin.ui.component.MetaLine
 import java.time.LocalDate
 import java.time.ZoneId
 import java.util.Calendar
@@ -17,12 +18,42 @@ import java.util.TimeZone
  */
 internal const val MemoryAlbumFallback = "Album"
 
-/** The painted artist line: the blank "Album" sentinel follows the app language; artist and year stay as written. */
+/** A trailing " · 2019" is a year. Any other tail, including " · by", stays with the artist. */
+private val SupportingYearTail = Regex(""" · (\d{4})$""")
+
+internal fun String.supportingArtistAndYear(): Pair<String, String?> {
+    val match = SupportingYearTail.find(this) ?: return this to null
+    return substring(0, match.range.first) to match.groupValues[1]
+}
+
+/** Artist and year for one MetaLine. [albumLabel] replaces the blank-album sentinel. */
+internal data class MemorySupportParts(val artist: String, val year: String?)
+
+internal fun MemoryEntry.supportParts(albumLabel: String): MemorySupportParts {
+    val explicitYear = supportingYear?.takeIf { it.isNotBlank() }
+    val (rawArtist, parsedYear) = if (explicitYear == null) {
+        supportingText.supportingArtistAndYear()
+    } else {
+        supportingText to null
+    }
+    val artist = if (rawArtist == MemoryAlbumFallback) albumLabel else rawArtist
+    return MemorySupportParts(artist = artist, year = explicitYear ?: parsedYear)
+}
+
+/** Artist at full emphasis, year at 60%. A group that does not fit is dropped from the end. */
 @Composable
-@ReadOnlyComposable
-internal fun String.memoryArtistLine(): String {
-    val album = stringResource(R.string.mem_album_fallback)
-    return if (this == MemoryAlbumFallback) album else this
+internal fun MemoryArtistYearLine(
+    parts: MemorySupportParts,
+    style: TextStyle,
+    modifier: Modifier = Modifier,
+) {
+    val groups = buildList {
+        if (parts.artist.isNotBlank()) add(MetaGroup.Plain(parts.artist))
+        val year = parts.year
+        if (!year.isNullOrBlank()) add(MetaGroup.Plain(year, muted = true))
+    }
+    if (groups.isEmpty()) return
+    MetaLine(groups = groups, modifier = modifier, style = style)
 }
 
 /** App-language date for Memories chrome. This year drops the year, matching the old "Oct 3" / "Nov 8, 2025" split. */

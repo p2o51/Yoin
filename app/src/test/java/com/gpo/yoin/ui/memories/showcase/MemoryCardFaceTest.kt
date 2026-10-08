@@ -6,7 +6,9 @@ import com.gpo.yoin.ui.memories.MemoryEntry
 import com.gpo.yoin.ui.memories.MemoryScoreKind
 import com.gpo.yoin.ui.memories.MemoryTrack
 import com.gpo.yoin.ui.memories.MemoryWriting
+import com.gpo.yoin.ui.memories.copy.MemoryExcerptAttribution
 import com.gpo.yoin.ui.memories.copy.MemoryExcerptCandidate
+import com.gpo.yoin.ui.memories.copy.MemoryExcerptKind
 import com.gpo.yoin.ui.memories.emblem.GrooveKind
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -72,11 +74,12 @@ class MemoryCardFaceTest {
 
     @Test
     fun should_pick_whole_sentences_or_attribution_when_slot_is_short() {
+        val review = MemoryExcerptAttribution(MemoryExcerptKind.REVIEW, "Jul 26")
         val candidates = listOf(
-            MemoryExcerptCandidate("One. Two. Three.", "Your review · Jul 26"),
-            MemoryExcerptCandidate("One. Two.", "Your review · Jul 26"),
-            MemoryExcerptCandidate("One.", "Your review · Jul 26"),
-            MemoryExcerptCandidate(null, "Your review · Jul 26 · in Diary"),
+            MemoryExcerptCandidate("One. Two. Three.", review),
+            MemoryExcerptCandidate("One. Two.", review),
+            MemoryExcerptCandidate("One.", review),
+            MemoryExcerptCandidate(null, review),
         )
         val heights = listOf(140, 100, 60, 16)
         assertEquals(0, pickExcerpt(candidates, slotPx = 150) { heights[it] })
@@ -88,10 +91,11 @@ class MemoryCardFaceTest {
         assertNull(pickExcerpt(emptyList(), slotPx = 100) { 0 })
 
         // two candidates with the same words are measured as two slots (by index)
+        val note = MemoryExcerptAttribution(MemoryExcerptKind.NOTE, "序曲 0:12")
         val twins = listOf(
-            MemoryExcerptCandidate("前奏的吉他像在水底。", "Your note · 序曲 0:12"),
-            MemoryExcerptCandidate("前奏的吉他像在水底。", "Your note · 序曲 0:12"),
-            MemoryExcerptCandidate(null, "Your note · 序曲 0:12 · in Diary"),
+            MemoryExcerptCandidate("前奏的吉他像在水底。", note),
+            MemoryExcerptCandidate("前奏的吉他像在水底。", note),
+            MemoryExcerptCandidate(null, note),
         )
         val measured = mutableListOf<Int>()
         val picked = pickExcerpt(twins, slotPx = 10) { index ->
@@ -112,9 +116,6 @@ class MemoryCardFaceTest {
             ),
         )
         assertEquals(2, memory.diaryNoteCount())
-        assertEquals(" · 2 notes", diaryNotesSuffix(2))
-        assertEquals(" · 1 note", diaryNotesSuffix(1))
-        assertNull(diaryNotesSuffix(0))
     }
 
     @Test

@@ -37,15 +37,12 @@ import androidx.compose.ui.layout.onPlaced
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
-import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.ExperimentalTextApi
 import androidx.compose.ui.text.PlatformTextStyle
-import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontVariation
@@ -54,7 +51,7 @@ import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.LineBreak
 import androidx.compose.ui.text.style.LineHeightStyle
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
@@ -65,15 +62,17 @@ import com.gpo.yoin.R
 import com.gpo.yoin.symbols.YoinSymbols
 import com.gpo.yoin.ui.component.YoinPageWidths
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
-import com.gpo.yoin.ui.memories.MemoryAlbumFallback
+import com.gpo.yoin.ui.memories.MemoryArtistYearLine
 import com.gpo.yoin.ui.memories.MemoryEntityType
-import com.gpo.yoin.ui.memories.memoryArtistLine
 import com.gpo.yoin.ui.memories.MemoryEntry
 import com.gpo.yoin.ui.memories.MemoryScoreKind
 import com.gpo.yoin.ui.memories.MemoryWriting
+import com.gpo.yoin.ui.memories.copy.MemoryExcerptAttribution
 import com.gpo.yoin.ui.memories.copy.MemoryExcerptCandidate
+import com.gpo.yoin.ui.memories.copy.MemoryExcerptKind
 import com.gpo.yoin.ui.memories.copy.MemoryExcerptSize
 import com.gpo.yoin.ui.memories.copy.MemoryTitleKind
+import com.gpo.yoin.ui.memories.supportParts
 import com.gpo.yoin.ui.theme.GoogleSansFlex
 import com.gpo.yoin.ui.theme.LocalYoinMotionRole
 import com.gpo.yoin.ui.theme.YoinArtworkShapes
@@ -81,6 +80,7 @@ import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinMotionSpeed
 import com.gpo.yoin.ui.theme.YoinSerifTitle
 import com.gpo.yoin.ui.theme.YoinTheme
+import com.gpo.yoin.ui.theme.withTabularFigures
 import kotlin.math.roundToInt
 
 /*
@@ -88,7 +88,7 @@ import kotlin.math.roundToInt
  *
  *  · The exhibit sits at a fixed height — air1, the cover with the groove emblem pinned to its lower-right
  *    corner, the title, the album row — so every card's cover top is the same.
- *  · The teaser anchors to the bottom — the excerpt, [Diary · N notes | Go to album]. No "Swipe up for Home"
+ *  · The teaser anchors to the bottom — the excerpt, [Diary + note-count badge | Go to album]. No "Swipe up for Home"
  *    cue (owner, 2026-10-05: the bar's Home pill already says it); the buttons keep [MemoryCardTokens.TeaserBottom]
  *    of air under them.
  *  · An album name takes at most two lines and runs the rest as a marquee, never an ellipsis
@@ -191,6 +191,9 @@ internal fun rememberCardMetrics(
     val excerptStyles = MemoryExcerptSize.entries.associateWith { excerptStyle(it) }
     val attribution = attributionStyle()
     val albumLabel = stringResource(R.string.mem_album_fallback)
+    val reviewLabel = stringResource(R.string.mem_review_yours)
+    val noteLabel = stringResource(R.string.mem_note_yours)
+    val labelStyle = MaterialTheme.typography.labelSmall
     return remember(
         memories,
         base,
@@ -202,6 +205,10 @@ internal fun rememberCardMetrics(
         titleStyles,
         excerptStyles,
         albumLabel,
+        reviewLabel,
+        noteLabel,
+        labelStyle,
+        attribution,
     ) {
         with(density) {
             val inner = (minOf(width, MemoryCardTokens.Column) - MemoryCardTokens.SidePadding * 2).toPx()
@@ -224,8 +231,9 @@ internal fun rememberCardMetrics(
             val slacks = memories.map { memory ->
                 val kind = memory.cardTitleKind()
                 val title = memory.memoryTitle?.takeIf(String::isNotBlank) ?: memory.title
-                val artistLine = if (memory.supportingText == MemoryAlbumFallback) albumLabel else memory.supportingText
-                val artist = h(artistLine, artistStyle, titleWidth)
+                val support = memory.supportParts(albumLabel)
+                val artistSample = support.artist.ifBlank { support.year.orEmpty() }
+                val artist = if (artistSample.isEmpty()) 0f else h(artistSample, artistStyle, titleWidth, maxLines = 1)
                 val row = if (kind == MemoryTitleKind.ALBUM) {
                     6f + artist
                 } else {
@@ -243,7 +251,11 @@ internal fun rememberCardMetrics(
                     val quote = c.text?.let { text ->
                         h("“$text”", excerptStyles.getValue(c.size), excerptWidth) + ExcerptAttributionGap.value
                     } ?: 0f
-                    quote + h(c.attribution, attribution, excerptWidth)
+                    val label = if (c.attribution.kind == MemoryExcerptKind.REVIEW) reviewLabel else noteLabel
+                    val labelH = h(label, labelStyle, excerptWidth, maxLines = 1)
+                    val detail = c.attribution.detail?.takeIf { it.isNotBlank() }
+                    val detailH = detail?.let { h(it, attribution, excerptWidth, maxLines = 1) } ?: 0f
+                    quote + maxOf(labelH, detailH)
                 }
                 val slot = avail - teaser - gap - exhibit - clear
                 val excerpt = pickExcerpt(candidates, slot.roundToInt()) { block(it).roundToInt() }?.let(::block) ?: 0f
@@ -264,13 +276,6 @@ internal fun sealOffset(cover: Dp, seal: Dp): Pair<Dp, Dp> {
 
 /** The notes a Diary button counts: album and song notes (the review is not a note). */
 internal fun MemoryEntry.diaryNoteCount(): Int = writings.count { it.kind != MemoryWriting.Kind.REVIEW }
-
-/** "Diary · 4 notes" / "Diary · 1 note" / "Diary". */
-internal fun diaryNotesSuffix(count: Int): String? = when {
-    count <= 0 -> null
-    count == 1 -> " · 1 note" // i18n-allow: MemoryCardFaceTest asserts this English
-    else -> " · $count notes" // i18n-allow: MemoryCardFaceTest asserts this English
-}
 
 /**
  * The index of the excerpt to show: the first candidate whose block height fits [slotPx], else the
@@ -463,7 +468,7 @@ private fun CardExhibit(
                 modifier = Modifier.widthIn(max = metrics.titleMaxWidth),
             )
         }
-        // the album row reads as one line: "album, artist · year"
+        // the album row reads as one line: album name, then artist and year as two MetaLine groups
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
             modifier = Modifier.semantics(mergeDescendants = true) { },
@@ -490,10 +495,9 @@ private fun CardExhibit(
                     Spacer(Modifier.height(2.dp))
                 }
             }
-            Text(
-                text = memory.supportingText.memoryArtistLine(),
+            MemoryArtistYearLine(
+                parts = memory.supportParts(stringResource(R.string.mem_album_fallback)),
                 style = cardArtistStyle(),
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.widthIn(max = metrics.titleMaxWidth).then(rowLayer),
             )
         }
@@ -537,11 +541,7 @@ private fun CardExcerpt(candidate: MemoryExcerptCandidate, maxWidth: Dp, modifie
             )
             Spacer(Modifier.height(ExcerptAttributionGap))
         }
-        Text(
-            text = candidate.attribution,
-            style = attributionStyle(),
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
+        ExcerptAttribution(candidate.attribution)
     }
 }
 
@@ -560,7 +560,6 @@ private fun CardTeaser(
     val openDiary = stringResource(R.string.mem_cd_open_diary)
     val diaryWord = stringResource(R.string.mem_card_diary)
     val noteCount = memory.diaryNoteCount()
-    val withNotes = pluralStringResource(R.plurals.mem_card_diary_with_notes, noteCount, noteCount)
     val goAlbum = stringResource(R.string.mem_card_go_album)
     Column(modifier = modifier, horizontalAlignment = Alignment.CenterHorizontally) {
         Row(horizontalArrangement = Arrangement.spacedBy(MemoryCardTokens.ButtonGap)) {
@@ -589,27 +588,17 @@ private fun CardTeaser(
                     modifier = Modifier.size(18.dp),
                 )
                 Spacer(Modifier.width(8.dp))
-                val label = if (noteCount <= 0) diaryWord else withNotes
                 Text(
-                    text = buildAnnotatedString {
-                        val quietFrom = if (noteCount > 0) label.indexOf(diaryWord).let { at ->
-                            if (at == 0) diaryWord.length else -1
-                        } else {
-                            -1
-                        }
-                        if (quietFrom > 0) {
-                            append(label.substring(0, quietFrom))
-                            val quiet = SpanStyle(fontWeight = FontWeight.Medium, color = tones.ink.copy(alpha = 0.78f))
-                            withStyle(quiet) { append(label.substring(quietFrom)) }
-                        } else {
-                            append(label)
-                        }
-                    },
+                    text = diaryWord,
                     style = cardText(GoogleSansFlex, FontWeight.SemiBold, 15.sp, 1f),
                     color = tones.ink,
                     maxLines = 1,
                     softWrap = false,
                 )
+                if (noteCount > 0) {
+                    Spacer(Modifier.width(6.dp))
+                    DiaryNoteBadge(count = noteCount, ink = tones.ink)
+                }
             }
             if (memory.entityType == MemoryEntityType.ALBUM) {
                 Box(
@@ -682,10 +671,64 @@ internal fun cardAlbumStyle(): TextStyle =
 internal fun cardArtistStyle(): TextStyle =
     cardText(GoogleSansFlex, FontWeight.Medium, LocalMemoriesType.current.cardArtist, 1.35f)
 
-/** The signature under a quote ("Your review · Jul 26"). */
+/** The date (or note detail) under a quote: tabular, painted at 60%. */
 @Composable
 internal fun attributionStyle(): TextStyle =
     cardText(GoogleSansFlex, FontWeight.Medium, 12.sp, 1.3f).copy(letterSpacing = 0.1.sp)
+
+/** Small label, then the date or note detail. No joining glyph, no "in Diary". */
+@Composable
+private fun ExcerptAttribution(attribution: MemoryExcerptAttribution, modifier: Modifier = Modifier) {
+    val label = stringResource(
+        if (attribution.kind == MemoryExcerptKind.REVIEW) R.string.mem_review_yours else R.string.mem_note_yours,
+    )
+    Row(
+        modifier = modifier,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+            softWrap = false,
+        )
+        val detail = attribution.detail?.takeIf { it.isNotBlank() }
+        if (detail != null) {
+            Text(
+                text = detail,
+                style = attributionStyle().withTabularFigures(),
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                maxLines = 1,
+                softWrap = false,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
+}
+
+/** The diary button's note count. Medium at 78%, lighter than the Diary label. */
+@Composable
+private fun DiaryNoteBadge(count: Int, ink: Color) {
+    Box(
+        modifier = Modifier
+            .height(24.dp)
+            .widthIn(min = 24.dp)
+            .clip(RoundedCornerShape(percent = 50))
+            .background(ink.copy(alpha = 0.18f))
+            .padding(horizontal = 6.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = count.toString(),
+            style = cardText(GoogleSansFlex, FontWeight.Medium, 15.sp, 1f).withTabularFigures(),
+            color = ink.copy(alpha = 0.78f),
+            maxLines = 1,
+            softWrap = false,
+        )
+    }
+}
 
 /** Between a quote and its signature. */
 internal val ExcerptAttributionGap: Dp = 8.dp
@@ -758,7 +801,8 @@ private fun MemoryCardFacePreview() {
                     entityId = "a",
                     entityProvider = "subsonic",
                     title = "夜行列车与未寄出的信",
-                    supportingText = "椎名林檎 & 东京事变 · 2019",
+                    supportingText = "椎名林檎 & 东京事变",
+                    supportingYear = "2019",
                     metaText = null,
                     coverArtUrl = null,
                     timestamp = 0L,
@@ -768,8 +812,14 @@ private fun MemoryCardFacePreview() {
                     footerText = null,
                     memoryTitle = "写给自己的、不寄出的信",
                     excerptCandidates = listOf(
-                        MemoryExcerptCandidate("第一次听这张是在去机场的夜班巴士上。", "Your review · Jul 26"),
-                        MemoryExcerptCandidate(null, "Your review · Jul 26 · in Diary"),
+                        MemoryExcerptCandidate(
+                            "第一次听这张是在去机场的夜班巴士上。",
+                            MemoryExcerptAttribution(MemoryExcerptKind.REVIEW, "Jul 26"),
+                        ),
+                        MemoryExcerptCandidate(
+                            null,
+                            MemoryExcerptAttribution(MemoryExcerptKind.REVIEW, "Jul 26"),
+                        ),
                     ),
                     playbackSongs = emptyList(),
                     tracks = emptyList(),

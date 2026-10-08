@@ -79,6 +79,8 @@ data class MemoryEntry(
     val entityProvider: String,
     val title: String,
     val supportingText: String,
+    /** Album year beside [supportingText]. Null when the line has no year. */
+    val supportingYear: String? = null,
     val metaText: String?,
     val coverArtUrl: String?,
     /**

@@ -17,9 +17,6 @@ class MemoryDatesTest {
         assertEquals("Nov 8, 2025", MemoryDates.day(LocalDate.of(2025, 11, 8), TODAY))
         assertEquals("7月26日", MemoryDates.dayZh(LocalDate.of(2026, 7, 26), TODAY))
         assertEquals("2025年11月8日", MemoryDates.dayZh(LocalDate.of(2025, 11, 8), TODAY))
-        // diary entry headers always carry the year
-        assertEquals("Jul 26, 2026 · Your review", MemoryDates.reviewHeader(LocalDate.of(2026, 7, 26)))
-        assertEquals("Oct 4, 2026 · Today", MemoryDates.todayHeader(TODAY))
     }
 
     @Test
@@ -47,7 +44,7 @@ class MemoryDatesTest {
     }
 
     @Test
-    fun should_match_prototype_footer_last_heard_and_headers() {
+    fun should_match_prototype_footer_and_last_heard() {
         CopyGolden.load("copy-dates.json").list("memories").forEach { element ->
             val o = element.jsonObject
             val input = CopyGolden.inputs.getValue(o.text("key"))
@@ -59,9 +56,6 @@ class MemoryDatesTest {
             assertEquals(cells[0].integer("value"), footer.plays)
             assertEquals(cells[1].text("caption"), footer.daysCaption)
             assertEquals(cells[1].integer("value"), footer.days)
-            val reviewHeader = input.reviewWrittenOn?.let(MemoryDates::reviewHeader)
-            assertEquals(o.optText("reviewHeader"), reviewHeader)
-            assertEquals(o.text("blankHeader"), MemoryDates.todayHeader(TODAY))
         }
     }
 

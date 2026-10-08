@@ -31,10 +31,11 @@
     <string name="mem_card_excerpt_quote">“%1$s”</string>
     <string name="mem_review_today">今天</string>
     <string name="mem_review_yours">你的乐评</string>
+    <string name="mem_note_yours">你的笔记</string>
     <string name="mem_cd_review_field">你的乐评</string>
     <string name="mem_cd_write_review">写乐评</string>
     <string name="mem_cd_write_review_action">写乐评</string>
-    <string name="mem_review_placeholder">写几句…</string>
+    <string name="mem_review_placeholder">写</string>
     <string name="mem_review_cancel">取消</string>
     <string name="mem_cd_discard_draft">放弃草稿</string>
     <string name="mem_cd_save_review">保存乐评</string>
@@ -52,7 +53,8 @@
     <string name="mem_neodb_sync">同步到 NeoDB</string>
     <string name="mem_neodb_syncing">正在同步到 NeoDB…</string>
     <string name="mem_neodb_synced">已同步到 NeoDB</string>
-    <string name="mem_neodb_failed">无法同步到 NeoDB · 重试</string>
+    <string name="mem_neodb_failed">无法同步到 NeoDB</string>
+    <string name="mem_retry">重试</string>
     <string name="mem_snackbar_neodb_signin">先登录 NeoDB，才能推送评分和乐评。</string>
     <string name="mem_snackbar_neodb_signin_action">登录</string>
     <string name="mem_snackbar_save_review">乐评没保存。草稿还在。</string>
@@ -60,8 +62,6 @@
     <string name="mem_snackbar_sync">无法同步到 NeoDB</string>
     <!-- REVIEW: 候选：回忆 | 记忆 | Memories -->
     <string name="mem_empty_title">还没有回忆</string>
-    <string name="mem_empty_body">再听一些，这一页会开始出现更早的播放。</string>
-    <string name="mem_error_retry">点按重试</string>
     <!-- REVIEW: 候选：回忆 | 记忆 | Memories -->
     <string name="mem_error_load">回忆加载失败</string>
     <string name="mem_emblem_unrated">未评分</string>
@@ -79,9 +79,6 @@
     <string name="mem_cd_note_at">%1$s 的笔记：%2$s</string>
     <string name="mem_cd_note">笔记：%1$s</string>
     <string name="mem_cd_stat">%1$s %2$s</string>
-    <plurals name="mem_card_diary_with_notes">
-        <item quantity="other">日记 · %1$d 条笔记</item>
-    </plurals>
     <plurals name="mem_footer_plays">
         <item quantity="other">次</item>
     </plurals>

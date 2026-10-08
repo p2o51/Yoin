@@ -430,6 +430,8 @@ class MemoriesDeckCoordinator(
         val narration = gemini?.narration ?: voice.narration
         val question = gemini?.question ?: voice.question
         val reasonChips = buildAlbumReasonChips(candidate)
+        val artistName = (album?.artist ?: candidate.artistName)?.takeIf(String::isNotBlank)
+        val yearText = (album?.year ?: candidate.year)?.toString()
 
         return MemoryEntry(
             stableId = "album:${candidate.profileId}:${candidate.provider}:$rawAlbumId",
@@ -438,12 +440,9 @@ class MemoriesDeckCoordinator(
             entityId = rawAlbumId,
             entityProvider = candidate.provider,
             title = album?.name ?: candidate.albumName,
-            // 印章卡标题区第二行：「艺人 · 年份」。Memories 是这个字段唯一的
-            // 消费方，格式跟着卡走。
-            supportingText = listOfNotNull(
-                (album?.artist ?: candidate.artistName)?.takeIf(String::isNotBlank),
-                (album?.year ?: candidate.year)?.toString(),
-            ).joinToString(" · ").ifBlank { MemoryAlbumFallback },
+            // Artist and year stay separate. The card paints them as a MetaLine.
+            supportingText = artistName ?: if (yearText == null) MemoryAlbumFallback else "",
+            supportingYear = yearText,
             metaText = null,
             coverArtUrl = album?.coverArt?.let { repository.resolveCoverUrl(it, size = 480) }
                 ?: candidate.coverArtUrl

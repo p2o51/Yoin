@@ -56,14 +56,6 @@ object MemoryDates {
         MemoryProseLanguage.EN -> MONTH_EN[month - 1]
     }
 
-    /** A diary entry header: "Jul 26, 2026 · Your review". The date heads the entry. */
-    fun entryHeader(date: LocalDate, label: String): String = "${dayWithYear(date)} · $label"
-
-    fun reviewHeader(writtenOn: LocalDate): String = entryHeader(writtenOn, "Your review")
-
-    /** Today's blank diary page. */
-    fun todayHeader(today: LocalDate): String = entryHeader(today, "Today")
-
     /** The top bar's slot A, under "Memories". Only shown for an album played in Yoin. */
     fun lastHeard(lastHeard: LocalDate, today: LocalDate): String = "Last heard ${day(lastHeard, today)}"
 

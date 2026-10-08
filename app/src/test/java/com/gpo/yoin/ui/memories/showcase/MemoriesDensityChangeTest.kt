@@ -44,8 +44,8 @@ class MemoriesDensityChangeTest {
             YoinTheme {
                 MemoryPageBarSlots(
                     album = "Blue Hour Sessions",
-                    artistLine = "Mira Kade · 2021",
-                    artistShort = "Mira Kade",
+                    artist = "Mira Kade",
+                    year = "2021",
                     lastHeard = "Last heard Sep 28",
                     dotCount = 6,
                     relative = { 0f },
@@ -59,7 +59,7 @@ class MemoriesDensityChangeTest {
         rule.runOnIdle { progress = { second.floatValue } }
         rule.runOnIdle { second.floatValue = 1f }
 
-        rule.onNodeWithContentDescription("Blue Hour Sessions, Mira Kade · 2021").assertExists()
+        rule.onNodeWithContentDescription("Blue Hour Sessions, Mira Kade").assertExists()
     }
 
     @Test

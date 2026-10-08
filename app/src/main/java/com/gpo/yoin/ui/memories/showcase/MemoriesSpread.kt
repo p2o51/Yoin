@@ -70,10 +70,10 @@ import com.gpo.yoin.ui.component.SeamTop
 import com.gpo.yoin.ui.component.seamDissolveViewport
 import com.gpo.yoin.ui.component.verticalEdgeFadeOnScroll
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
-import com.gpo.yoin.ui.memories.MemoryAlbumFallback
+import com.gpo.yoin.ui.memories.MemoryArtistYearLine
 import com.gpo.yoin.ui.memories.MemoryEntityType
-import com.gpo.yoin.ui.memories.memoryArtistLine
 import com.gpo.yoin.ui.memories.MemoryEntry
+import com.gpo.yoin.ui.memories.supportParts
 import com.gpo.yoin.ui.memories.copy.MemoryProseLanguage
 import com.gpo.yoin.ui.memories.copy.MemoryTitleKind
 import com.gpo.yoin.ui.theme.GoogleSansFlex
@@ -189,12 +189,13 @@ internal fun rememberSpreadDeckFit(
                     ?.let { yoinParagraphString(it, question) }
                 val onlyArtist = kind == MemoryTitleKind.ALBUM
                 val byStep = SpreadTightness.entries.associateWith { t ->
-                    val artistLine = if (memory.supportingText == MemoryAlbumFallback) {
-                        albumLabel
+                    val support = memory.supportParts(albumLabel)
+                    val artistSample = support.artist.ifBlank { support.year.orEmpty() }
+                    val artist = if (artistSample.isEmpty()) {
+                        0f
                     } else {
-                        memory.supportingText
+                        h(AnnotatedString(artistSample), artistStyle, albumWidth, maxLines = 1)
                     }
-                    val artist = h(AnnotatedString(artistLine), artistStyle, albumWidth)
                     SpreadCiteHeights(
                         // an album-name title takes two lines at most (the rest runs as a marquee)
                         title = h(
@@ -276,7 +277,7 @@ internal fun MemorySpreadPage(
     val paragraph = rememberHeldParagraph(memory) { pagerState.settledPage != page }
     val top = statusTop + layout.barHeight
     val memoryPane = stringResource(R.string.mem_pane_memory, memory.title)
-    val artistLine = memory.supportingText.memoryArtistLine()
+    val support = memory.supportParts(stringResource(R.string.mem_album_fallback))
     Box(
         Modifier
             .fillMaxSize()
@@ -326,8 +327,8 @@ internal fun MemorySpreadPage(
         )
         MemoryPageBarSlots(
             album = memory.title,
-            artistLine = artistLine,
-            artistShort = artistLine.artistOnly(),
+            artist = support.artist,
+            year = support.year,
             lastHeard = lastHeard,
             dotCount = dotCount,
             relative = { pagerState.currentPage - page + pagerState.currentPageOffsetFraction },
@@ -465,10 +466,9 @@ private fun SpreadExhibit(
                     Spacer(Modifier.height(AlbumArtistGap))
                 }
             }
-            Text(
-                text = memory.supportingText.memoryArtistLine(),
+            MemoryArtistYearLine(
+                parts = memory.supportParts(stringResource(R.string.mem_album_fallback)),
                 style = spreadArtistStyle(),
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
         if (memory.entityType == MemoryEntityType.ALBUM) {

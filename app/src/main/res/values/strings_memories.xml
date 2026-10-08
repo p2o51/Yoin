@@ -22,10 +22,11 @@
     <string name="mem_card_excerpt_quote">“%1$s”</string>
     <string name="mem_review_today">Today</string>
     <string name="mem_review_yours">Your review</string>
+    <string name="mem_note_yours">Your note</string>
     <string name="mem_cd_review_field">Your review</string>
     <string name="mem_cd_write_review">Write a review</string>
     <string name="mem_cd_write_review_action">Write a review</string>
-    <string name="mem_review_placeholder">Write a few lines…</string>
+    <string name="mem_review_placeholder">Write</string>
     <string name="mem_review_cancel">Cancel</string>
     <string name="mem_cd_discard_draft">Discard the draft</string>
     <string name="mem_cd_save_review">Save the review</string>
@@ -43,15 +44,14 @@
     <string name="mem_neodb_sync">Sync to NeoDB</string>
     <string name="mem_neodb_syncing">Syncing to NeoDB…</string>
     <string name="mem_neodb_synced">Synced to NeoDB</string>
-    <string name="mem_neodb_failed">Couldn\'t sync to NeoDB · Retry</string>
+    <string name="mem_neodb_failed">Couldn\'t sync to NeoDB</string>
+    <string name="mem_retry">Retry</string>
     <string name="mem_snackbar_neodb_signin">Sign in to NeoDB first to push ratings and reviews.</string>
     <string name="mem_snackbar_neodb_signin_action">Sign in</string>
     <string name="mem_snackbar_save_review">Couldn\'t save the review. Your draft is kept.</string>
     <string name="mem_snackbar_save_title">Couldn\'t save the title.</string>
     <string name="mem_snackbar_sync">Couldn\'t sync to NeoDB</string>
     <string name="mem_empty_title">No memories yet</string>
-    <string name="mem_empty_body">Listen a little more and this page will start surfacing older plays.</string>
-    <string name="mem_error_retry">Tap to try again</string>
     <string name="mem_error_load">Failed to load memories</string>
     <string name="mem_emblem_unrated">Unrated</string>
     <string name="mem_cd_emblem_unrated">Not rated</string>
@@ -68,10 +68,6 @@
     <string name="mem_cd_note_at">Note at %1$s: %2$s</string>
     <string name="mem_cd_note">Note: %1$s</string>
     <string name="mem_cd_stat">%1$s %2$s</string>
-    <plurals name="mem_card_diary_with_notes">
-        <item quantity="one">Diary · %1$d note</item>
-        <item quantity="other">Diary · %1$d notes</item>
-    </plurals>
     <plurals name="mem_footer_plays">
         <item quantity="one">play</item>
         <item quantity="other">plays</item>

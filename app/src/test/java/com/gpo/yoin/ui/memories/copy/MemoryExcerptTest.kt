@@ -27,7 +27,7 @@ class MemoryExcerptTest {
                 val o = candidate.jsonObject
                 MemoryExcerptCandidate(
                     text = if (o.flag("only")) null else o.optText("text"),
-                    attribution = o.text("by").replace(" 0:00", ""),
+                    attribution = goldenAttribution(o.text("by").replace(" 0:00", "")),
                 )
             }
             val actual = MemoryExcerpt.candidates(
@@ -45,9 +45,10 @@ class MemoryExcerptTest {
         val sentences = MemorySentences.split(review.substringBefore('\n'))
         val wholePrefixes = (1..sentences.size).map { k -> MemorySentences.join(sentences.take(k)) }.toSet()
 
+        val reviewBy = MemoryExcerptAttribution(MemoryExcerptKind.REVIEW, "Jul 26")
         listOf(false, true).forEach { capped ->
             val candidates = MemoryExcerpt.candidates(CopyGolden.inputs.getValue("m1/as-is"), capped, TODAY)
-            val fromReview = candidates.filter { it.attribution == "Your review · Jul 26" }
+            val fromReview = candidates.filter { it.attribution == reviewBy && it.text != null }
             assertTrue(fromReview.isNotEmpty())
             fromReview.forEach { candidate ->
                 assertTrue(candidate.text, candidate.text in wholePrefixes)
@@ -55,13 +56,13 @@ class MemoryExcerptTest {
             }
             // longest first, so the card can walk down to whatever fits the slot
             assertEquals(fromReview.sortedByDescending { it.text!!.length }, fromReview)
-            // the last resort is the attribution alone, never a cut sentence
+            // the last resort is the attribution alone, never a cut sentence, and never "in Diary"
             assertTrue(candidates.last().attributionOnly)
-            assertEquals("Your review · Jul 26 · in Diary", candidates.last().attribution)
+            assertEquals(reviewBy, candidates.last().attribution)
         }
         // a phone may take every whole-sentence prefix
         val phone = MemoryExcerpt.candidates(CopyGolden.inputs.getValue("m1/as-is"), capped = false, today = TODAY)
-        assertEquals(sentences.size, phone.count { it.attribution == "Your review · Jul 26" })
+        assertEquals(sentences.size, phone.count { it.attribution == reviewBy && it.text != null })
     }
 
     @Test
@@ -70,7 +71,8 @@ class MemoryExcerptTest {
         val m1 = MemoryExcerpt.candidates(CopyGolden.inputs.getValue("m1/as-is"), capped = true, today = TODAY)
         assertEquals(
             listOf("第一次听这张是在去机场的夜班巴士上，窗外的高速路灯一盏一盏往后退，耳机里的弦乐刚好起来。"),
-            m1.filter { it.attribution == "Your review · Jul 26" }.map { it.text },
+            m1.filter { it.attribution == MemoryExcerptAttribution(MemoryExcerptKind.REVIEW, "Jul 26") && it.text != null }
+                .map { it.text },
         )
 
         // three short sentences: at most two, longest first
@@ -98,15 +100,36 @@ class MemoryExcerptTest {
         val unanchored = anchored.copy(positionMs = null)
         val album = MemoryCopyNote("y", LocalDate.of(2025, 9, 12))
 
-        assertEquals("Your note · 未寄出的信 1:12", MemoryExcerpt.noteAttribution(anchored, TODAY))
-        assertEquals("Your note · 未寄出的信", MemoryExcerpt.noteAttribution(unanchored, TODAY))
-        assertEquals("Your note · Sep 12, 2025", MemoryExcerpt.noteAttribution(album, TODAY))
+        assertEquals(
+            MemoryExcerptAttribution(MemoryExcerptKind.NOTE, "未寄出的信 1:12"),
+            MemoryExcerpt.noteAttribution(anchored, TODAY),
+        )
+        assertEquals(
+            MemoryExcerptAttribution(MemoryExcerptKind.NOTE, "未寄出的信"),
+            MemoryExcerpt.noteAttribution(unanchored, TODAY),
+        )
+        assertEquals(
+            MemoryExcerptAttribution(MemoryExcerptKind.NOTE, "Sep 12, 2025"),
+            MemoryExcerpt.noteAttribution(album, TODAY),
+        )
     }
 
     @Test
     fun should_size_excerpt_by_length() {
-        assertEquals(MemoryExcerptSize.SHORT, MemoryExcerptCandidate("好听。", "x").size)
-        assertEquals(MemoryExcerptSize.MEDIUM, MemoryExcerptCandidate("a".repeat(17), "x").size)
-        assertEquals(MemoryExcerptSize.LONG, MemoryExcerptCandidate("a".repeat(61), "x").size)
+        val by = MemoryExcerptAttribution(MemoryExcerptKind.REVIEW, "Jul 26")
+        assertEquals(MemoryExcerptSize.SHORT, MemoryExcerptCandidate("好听。", by).size)
+        assertEquals(MemoryExcerptSize.MEDIUM, MemoryExcerptCandidate("a".repeat(17), by).size)
+        assertEquals(MemoryExcerptSize.LONG, MemoryExcerptCandidate("a".repeat(61), by).size)
     }
+}
+
+/** Prototype "by" lines, without the old " · in Diary" tail. */
+private fun goldenAttribution(by: String): MemoryExcerptAttribution {
+    val cleaned = by.removeSuffix(" · in Diary")
+    val (kind, rest) = when {
+        cleaned.startsWith("Your note") -> MemoryExcerptKind.NOTE to cleaned.removePrefix("Your note")
+        cleaned.startsWith("Your review") -> MemoryExcerptKind.REVIEW to cleaned.removePrefix("Your review")
+        else -> error("Unexpected attribution: $cleaned")
+    }
+    return MemoryExcerptAttribution(kind, rest.removePrefix(" · ").ifBlank { null })
 }

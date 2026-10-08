@@ -340,7 +340,7 @@
 
 **两簇布局**
 - 展品簇固定在同一高度：air1 → 封面 + 徽记 → 拟题 → 专辑行。air1 让每张卡的封面顶边都在同一位置。
-- 预告簇贴底：摘录 → [Diary · N notes | Go to album] → "Swipe up for Home"。
+- 预告簇贴底：摘录 → [Diary + 笔记数徽章 | Go to album] → "Swipe up for Home"。
 - 中间的 air2 吃掉多余空间。
 
 **尺寸**
@@ -361,7 +361,7 @@
   3. 只留一行署名。
 - 永远不出省略号。
 - 字号按长度分三档：≤ 16 字 22/500，≤ 60 字 17，更长 16。用户正文用 `FontFamily.Default`。
-- 署名写成 "Your review · Jul 26"。
+- 署名两级：小字 "Your review" / "你的乐评"（笔记是 "Your note" / "你的笔记"），日期 tabular、60%，不写 "in Diary"。
 
 **按钮**
 - Diary 是 tonal：ink 14% 底色，高 48。
@@ -429,7 +429,7 @@
 - slotA："Memories" 和 "Last heard Oct 2"。
 - 40dp 封面：4dp 圆角，点按区 48。
 - slotB：专辑名和艺人行。
-  - 艺人行放不下时，先去掉 " · 年份"，还放不下才滚动。
+  - 艺人行是歌手和年份两段（年份 60%），放不下时先去掉年份，还放不下才滚动。
   - ⌄ 固定在右端，不跟着文字滚。
   - 用 MarqueeText，新增 `running` 参数，只在页面停稳、日记完全打开时才滚。
 - 视差：x 位移 = 0.6·W·rel，可见度 = 1 − |rel|·2.2。

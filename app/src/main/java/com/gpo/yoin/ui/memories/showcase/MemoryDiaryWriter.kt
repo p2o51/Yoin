@@ -41,10 +41,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.SpanStyle
-import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -314,7 +311,7 @@ internal fun MemoryDiaryEntry(
     }
 }
 
-/** "Jul 26, 2026 · Your review": the date heads the entry (in the album's ink), like a diary page. */
+/** "Jul 26, 2026" then "Your review": the date heads the entry (in the album's ink), like a diary page. */
 @Composable
 private fun EntryHeader(date: LocalDate, zone: ZoneId, label: String, tones: MemoryPaletteTones) {
     val style = diaryUiText(13.sp, FontWeight.Medium, 1.35f)
@@ -325,16 +322,15 @@ private fun EntryHeader(date: LocalDate, zone: ZoneId, label: String, tones: Mem
         zone,
         withYear = true,
     )
-    Row(modifier = Modifier.padding(bottom = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+    Row(
+        modifier = Modifier.padding(bottom = 10.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
         Text(
-            text = buildAnnotatedString {
-                withStyle(SpanStyle(fontWeight = FontWeight.SemiBold, color = tones.ink)) {
-                    append(dateText)
-                }
-                append(" · ")
-            },
-            style = style,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            text = dateText,
+            style = style.copy(fontWeight = FontWeight.SemiBold),
+            color = tones.ink,
             modifier = Modifier.seamFade(style.fontSize),
         )
         Crossfade(targetState = label, animationSpec = YoinMotion.fastEffectsSpec(), label = "diaryEntryLabel") { now ->
