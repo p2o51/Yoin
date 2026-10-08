@@ -8,6 +8,7 @@ import androidx.compose.ui.test.hasAnyDescendant
 import androidx.compose.ui.test.hasClickAction
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performTouchInput
@@ -139,8 +140,14 @@ class HomeEditIntegrationTest {
         val allHidden = HomeLayout(HomeLayout.Default.sections.map { it.copy(enabled = false) })
         setHome(layout = allHidden)
 
-        rule.onNodeWithText("Your Home is empty", useUnmergedTree = true).assertExists()
-        assertEquals(1, footerEntry().fetchSemanticsNodes().size)
+        rule.onNodeWithText("Home is empty", useUnmergedTree = true).assertExists()
+        // The empty card's button and the footer entry both say Edit Home.
+        assertEquals(
+            2,
+            rule.onAllNodesWithText("Edit Home", useUnmergedTree = true).fetchSemanticsNodes().size,
+        )
+        // The empty card's button and the footer entry.
+        assertEquals(2, footerEntry().fetchSemanticsNodes().size)
         // No section renders, not even Activities' empty card.
         rule.onNodeWithText(AlbumArtist, useUnmergedTree = true).assertDoesNotExist()
     }
@@ -161,6 +168,6 @@ class HomeEditIntegrationTest {
         const val AlbumArtist = "Muse"
         const val EditHome = "Edit Home"
         const val ResetHome = "Reset Home"
-        const val JbiPlaceholder = "Nothing to jump back into yet"
+        const val JbiPlaceholder = "Nothing to jump back into"
     }
 }

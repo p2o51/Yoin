@@ -81,7 +81,7 @@ class RediscoverSectionTest {
         val song = song("s1", score = 8.5f)
         setShelf(listOf(song))
 
-        rule.onNodeWithText("Ena · Long Way Round", useUnmergedTree = true).performClick()
+        rule.onNodeWithText("Ena", useUnmergedTree = true).performClick()
         rule.waitForIdle()
 
         assertEquals(listOf(song.song), played)
@@ -113,7 +113,7 @@ class RediscoverSectionTest {
         setShelf(listOf(song("s1", score = null, note = "the drums come in late")))
 
         rule.onNodeWithText("the drums come in late", useUnmergedTree = true).assertExists()
-        rule.onNodeWithText("Not played in Yoin for 7 months", useUnmergedTree = true).assertExists()
+        rule.onNodeWithText("7 months away", useUnmergedTree = true).assertExists()
     }
 
     @Test

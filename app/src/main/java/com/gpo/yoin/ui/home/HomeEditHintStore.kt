@@ -70,7 +70,7 @@ data class HomeEditSessionHints(
     val newBadges: Set<HomeSection> = emptySet(),
 )
 
-/** The header "Drag to reorder" hint shows for this many edit sessions (proto.js HINT_SESSIONS). */
+/** Edit sessions recorded for the retired header hint (proto.js HINT_SESSIONS). */
 internal const val HomeEditHeaderHintSessions = 2
 
 /** Whether the session starting after [sessionsBefore] earlier ones shows the header hint. */

@@ -425,7 +425,7 @@ class HomeEditModeTest {
             hingeBounds = null,
             chromeForm = ShellChromeForm.CenteredBar,
         )
-        const val JbiPlaceholder = "Nothing to jump back into yet"
+        const val JbiPlaceholder = "Nothing to jump back into"
 
         // The lift's 1.02 about the press point moves the title a few dp; a placeholder would move it ~130.
         val HeldBlockTolerance = 12.dp

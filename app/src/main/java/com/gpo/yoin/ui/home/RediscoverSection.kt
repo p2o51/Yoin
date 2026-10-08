@@ -35,6 +35,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
@@ -52,6 +53,8 @@ import androidx.compose.ui.unit.sp
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.Track
 import com.gpo.yoin.ui.component.MarqueeText
+import com.gpo.yoin.ui.component.MetaGroup
+import com.gpo.yoin.ui.component.MetaLine
 import com.gpo.yoin.ui.component.elasticPress
 import com.gpo.yoin.ui.component.horizontalEdgeFadeOnScroll
 import com.gpo.yoin.ui.component.ignoreParentHorizontalPadding
@@ -94,7 +97,7 @@ import java.util.Locale
 
 /** Edit mode's placeholder copy when Rediscover has nothing to bring back. */
 internal const val RediscoverPlaceholderText =
-    "Albums and songs you rated or wrote about come back here when it's been a while" // i18n-allow: RediscoverCopyTest asserts this English
+    "Nothing to rediscover yet" // i18n-allow: RediscoverCopyTest asserts this English
 
 /** Before × fontScale: the 104dp backdrop plus 14dp padding above and below. */
 private val RediscoverCardHeight = 132.dp
@@ -151,19 +154,18 @@ internal fun RediscoverSection(
     // off-screen cards included), so the row's titles line up.
     val eyebrowStyle = MaterialTheme.typography.labelMedium
     val eyebrowMeasurer = rememberTextMeasurer()
-    val resources = LocalContext.current.resources
-    val albumEyebrows = remember(shown, nowMillis, eyebrowMeasurer, eyebrowStyle, resources.configuration) {
+    val albumEyebrows = remember(shown, eyebrowMeasurer, eyebrowStyle) {
         RediscoverEyebrowReserve(
             measurer = eyebrowMeasurer,
             style = eyebrowStyle,
-            eyebrows = shown.filter { it.song == null }.map { rediscoverEyebrow(it, nowMillis, resources) },
+            lineCounts = shown.filter { it.song == null }.map(::rediscoverEyebrowLineCount),
         )
     }
-    val songEyebrows = remember(shown, nowMillis, eyebrowMeasurer, eyebrowStyle, resources.configuration) {
+    val songEyebrows = remember(shown, eyebrowMeasurer, eyebrowStyle) {
         RediscoverEyebrowReserve(
             measurer = eyebrowMeasurer,
             style = eyebrowStyle,
-            eyebrows = shown.filter { it.song != null }.map { rediscoverEyebrow(it, nowMillis, resources) },
+            lineCounts = shown.filter { it.song != null }.map(::rediscoverEyebrowLineCount),
         )
     }
     Column(
@@ -257,13 +259,6 @@ private fun RediscoverCard(
     val interactionSource = remember { MutableInteractionSource() }
     // The Activities wash: hue-faithful to this album's own cover.
     val colors = rememberActivityCardColors(item.coverArtUrl, extractBackdropColors)
-    val resources = LocalContext.current.resources
-    val eyebrow = remember(item, nowMillis, resources.configuration) {
-        rediscoverEyebrow(item, nowMillis, resources)
-    }
-    val footnote = remember(item, resources.configuration) {
-        rediscoverFootnote(item.firstPlayedAt, item.playCount, resources = resources)
-    }
     Surface(
         // The tinted card and its cover break up as one print; the text on it
         // is lifted out and passes under the bar whole.
@@ -315,13 +310,11 @@ private fun RediscoverCard(
                     .weight(1f)
                     .seamFade(),
             ) {
-                Text(
-                    text = eyebrow,
-                    style = MaterialTheme.typography.labelMedium,
-                    color = colors.ink,
-                    maxLines = RediscoverEyebrowMaxLines,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.rediscoverEyebrowSlot(eyebrowReserve),
+                RediscoverEyebrowBlock(
+                    item = item,
+                    nowMillis = nowMillis,
+                    ink = colors.ink,
+                    reserve = eyebrowReserve,
                 )
                 MarqueeText(
                     text = item.albumName,
@@ -344,16 +337,7 @@ private fun RediscoverCard(
                         overflow = TextOverflow.Ellipsis,
                     )
                 }
-                footnote?.let { line ->
-                    Text(
-                        text = line,
-                        style = MaterialTheme.typography.labelSmall.withTabularFigures(),
-                        color = colors.contentMuted,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.padding(top = 4.dp),
-                    )
-                }
+                RediscoverFootnoteLine(item.firstPlayedAt, item.playCount)
             }
         }
     }
@@ -362,7 +346,7 @@ private fun RediscoverCard(
 /**
  * A song you rated or noted, as the album card's smaller sibling: the song's
  * Circle backdrop (the Home entity-shape mapping) at 76dp, the away line, the
- * title, "artist · album", and — with no score to badge — one line of its
+ * title, artist and album, and — with no score to badge — one line of its
  * newest note on the journal's track-note rail. Tapping plays it alone.
  */
 @Composable
@@ -376,10 +360,6 @@ private fun RediscoverSongCard(
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val colors = rememberActivityCardColors(item.coverArtUrl, extractBackdropColors)
-    val resources = LocalContext.current.resources
-    val eyebrow = remember(item, nowMillis, resources.configuration) {
-        rediscoverEyebrow(item, nowMillis, resources)
-    }
     val subtitle = remember(item) { rediscoverSongSubtitle(item) }
     val snippet = item.noteSnippet?.takeIf { item.scoreText == null }
     Surface(
@@ -430,13 +410,11 @@ private fun RediscoverSongCard(
                     .weight(1f)
                     .seamFade(),
             ) {
-                Text(
-                    text = eyebrow,
-                    style = MaterialTheme.typography.labelMedium,
-                    color = colors.ink,
-                    maxLines = RediscoverEyebrowMaxLines,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.rediscoverEyebrowSlot(eyebrowReserve),
+                RediscoverEyebrowBlock(
+                    item = item,
+                    nowMillis = nowMillis,
+                    ink = colors.ink,
+                    reserve = eyebrowReserve,
                 )
                 MarqueeText(
                     text = item.title,
@@ -451,13 +429,7 @@ private fun RediscoverSongCard(
                         .padding(top = 2.dp),
                 )
                 subtitle?.let { line ->
-                    Text(
-                        text = line,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = colors.contentMuted,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
+                    RediscoverSongLine(line)
                 }
                 snippet?.let { note ->
                     Text(
@@ -480,10 +452,9 @@ private fun RediscoverSongCard(
 /**
  * The eyebrow's slot: as tall as the shelf's tallest eyebrow of the same card
  * kind ([RediscoverEyebrowReserve]), the card's own eyebrow sitting on its
- * bottom, against the title. So one card's two-line "1 note · Not played in
- * Yoin for 8 months" no longer leaves its title, artist and footnote lower
- * than its neighbours' — every card in the row keeps the same lines, the copy
- * whole. Layout only: a width spring re-measures, never recomposes.
+ * bottom, against the title. A card with a reason line above the away label
+ * no longer leaves its title and artist lower than its neighbours'. Layout
+ * only: a width spring re-measures, never recomposes.
  */
 private fun Modifier.rediscoverEyebrowSlot(reserve: RediscoverEyebrowReserve): Modifier =
     layout { measurable, constraints ->
@@ -493,40 +464,112 @@ private fun Modifier.rediscoverEyebrowSlot(reserve: RediscoverEyebrowReserve): M
         layout(placeable.width, height) { placeable.placeRelative(0, height - placeable.height) }
     }
 
-/** An eyebrow wraps to this many lines at most ("1 note · Not played in Yoin for 8 months" on a phone). */
-private const val RediscoverEyebrowMaxLines = 2
-
 /**
- * The tallest of one card kind's [eyebrows] on the shelf, laid out in [style]
- * at a card's text width ([heightAt], px) — at most [RediscoverEyebrowMaxLines]
- * lines. Every card of the kind shares the width, so the last answer is kept
- * for the next card asking at it.
+ * The tallest eyebrow of one card kind, in whole lines of [style]. A reason
+ * above the away label is two lines; the away label alone is one. Every card
+ * of the kind shares the width, so the last answer is kept for the next card
+ * asking at it.
  */
 @Stable
 internal class RediscoverEyebrowReserve(
     private val measurer: TextMeasurer,
     private val style: TextStyle,
-    private val eyebrows: List<String>,
+    private val lineCounts: List<Int>,
 ) {
     private var lastWidth = -1
     private var lastHeight = 0
 
     fun heightAt(maxWidth: Int): Int {
-        if (maxWidth == Constraints.Infinity || eyebrows.isEmpty()) return 0
+        if (maxWidth == Constraints.Infinity || lineCounts.isEmpty()) return 0
         if (maxWidth != lastWidth) {
-            lastHeight = eyebrows.maxOf { text ->
-                measurer.measure(
-                    text = text,
-                    style = style,
-                    overflow = TextOverflow.Ellipsis,
-                    maxLines = RediscoverEyebrowMaxLines,
-                    constraints = Constraints(maxWidth = maxWidth),
-                ).size.height
-            }
+            val line = measurer.measure(
+                text = "0",
+                style = style,
+                overflow = TextOverflow.Clip,
+                maxLines = 1,
+                softWrap = false,
+                constraints = Constraints(maxWidth = maxWidth),
+            ).size.height
+            lastHeight = line * (lineCounts.maxOrNull() ?: 1)
             lastWidth = maxWidth
         }
         return lastHeight
     }
+}
+
+@Composable
+private fun RediscoverEyebrowBlock(
+    item: HomeRediscoverItem,
+    nowMillis: Long,
+    ink: Color,
+    reserve: RediscoverEyebrowReserve,
+) {
+    val resources = LocalContext.current.resources
+    val away = remember(item.lastPlayedAt, nowMillis, resources.configuration) {
+        rediscoverEyebrow(item, nowMillis, resources)
+    }
+    val notes = rediscoverNoteCount(item)
+    val reason = if (notes == null) rediscoverReason(item, resources) else null
+    Column(modifier = Modifier.rediscoverEyebrowSlot(reserve)) {
+        if (notes != null) {
+            MetaLine(
+                groups = listOf(
+                    MetaGroup.Stat(
+                        notes.toString(),
+                        pluralStringResource(R.plurals.home_unit_notes, notes),
+                    ),
+                ),
+                style = MaterialTheme.typography.labelMedium,
+            )
+        } else if (reason != null) {
+            Text(
+                text = reason,
+                style = MaterialTheme.typography.labelMedium,
+                color = ink,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        Text(
+            text = away,
+            style = MaterialTheme.typography.labelMedium,
+            color = ink,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
+@Composable
+private fun RediscoverFootnoteLine(firstPlayedAt: Long?, playCount: Int) {
+    val footnote = rediscoverFootnote(firstPlayedAt, playCount) ?: return
+    val groups = buildList {
+        footnote.month?.let { add(MetaGroup.Plain(it)) }
+        if (footnote.playCount > 0) {
+            add(
+                MetaGroup.Stat(
+                    footnote.playCount.toString(),
+                    rediscoverPlayUnit(footnote.playCount, LocalContext.current.resources),
+                ),
+            )
+        }
+    }
+    if (groups.isEmpty()) return
+    MetaLine(
+        groups = groups,
+        style = MaterialTheme.typography.labelSmall,
+        modifier = Modifier.padding(top = 4.dp),
+    )
+}
+
+@Composable
+private fun RediscoverSongLine(line: RediscoverSongSubtitle) {
+    val groups = buildList {
+        line.artist?.let { add(MetaGroup.Plain(it)) }
+        line.album?.let { add(MetaGroup.Plain(it, muted = true)) }
+    }
+    if (groups.isEmpty()) return
+    MetaLine(groups = groups, style = MaterialTheme.typography.bodyMedium)
 }
 
 /** The journal's track-note rail down the snippet's leading edge (draw only). */
@@ -649,36 +692,42 @@ internal fun rediscoverReason(item: HomeRediscoverItem, resources: Resources? = 
     else -> null
 }
 
-/**
- * "Not played in Yoin for 7 months" — the score sits in the badge beside it —
- * or, with no score, the memory first: "3 notes · Not played in Yoin for 7 months".
- */
+/** Notes shown as [MetaGroup.Stat] above the away label. Null when a score, review, or song card says it instead. */
+internal fun rediscoverNoteCount(item: HomeRediscoverItem): Int? =
+    if (item.scoreText == null && item.song == null && !item.hasReview && item.noteCount > 0) item.noteCount else null
+
+/** Two lines when a reason sits above the away label, otherwise the away label alone. */
+internal fun rediscoverEyebrowLineCount(item: HomeRediscoverItem): Int =
+    if (rediscoverReason(item) != null) 2 else 1
+
+/** "7 months away" / "1 year away". The reason, when there is one, is a separate line. */
 internal fun rediscoverEyebrow(
     item: HomeRediscoverItem,
     nowMillis: Long,
     resources: Resources? = null,
 ): String {
     if (resources == null) {
-        val away = "Not played in Yoin for ${rediscoverAwayText(item.lastPlayedAt, nowMillis)}" // i18n-allow: RediscoverCopyTest asserts this English
-        return rediscoverReason(item)?.let { reason -> "$reason · $away" } ?: away // i18n-allow: RediscoverCopyTest asserts this English
+        return "${rediscoverAwayText(item.lastPlayedAt, nowMillis)} away" // i18n-allow: RediscoverCopyTest asserts this English
     }
     val days = ((nowMillis - item.lastPlayedAt) / DayMillis).coerceAtLeast(0L)
-    val away = if (days >= 365) {
+    return if (days >= 365) {
         val years = (days / 365).toInt()
         resources.getQuantityString(R.plurals.home_rediscover_eyebrow_years, years, years)
     } else {
         val months = (days / 30).coerceAtLeast(1L).toInt()
         resources.getQuantityString(R.plurals.home_rediscover_eyebrow_months, months, months)
     }
-    val reason = rediscoverReason(item, resources) ?: return away
-    return resources.getString(R.string.home_rediscover_eyebrow_reason, reason, away)
 }
 
-/** A song card's second line: "Artist · Album", either half dropping when unknown. */
-internal fun rediscoverSongSubtitle(item: HomeRediscoverItem): String? =
-    listOfNotNull(item.artistName?.takeIf(String::isNotBlank), item.albumName.takeIf(String::isNotBlank))
-        .takeIf { it.isNotEmpty() }
-        ?.joinToString(" · ")
+/** A song card's artist and album, either half dropping when unknown. */
+internal data class RediscoverSongSubtitle(val artist: String?, val album: String?)
+
+internal fun rediscoverSongSubtitle(item: HomeRediscoverItem): RediscoverSongSubtitle? {
+    val artist = item.artistName?.takeIf(String::isNotBlank)
+    val album = item.albumName.takeIf(String::isNotBlank)
+    if (artist == null && album == null) return null
+    return RediscoverSongSubtitle(artist, album)
+}
 
 /** TalkBack for the badge: "Your rating 9.0" / "Track average 8.4". */
 internal fun rediscoverBadgeDescription(
@@ -695,35 +744,30 @@ internal fun rediscoverBadgeDescription(
 }
 
 /**
- * "First played 2025.11 · 23 plays" (local month, play history only); either
- * half drops when history lacks it, null when both do. The month stamp stays
- * `yyyy.MM` so the English line remains "2025.11".
+ * The first-play month (`yyyy.MM`) and play count. Either half is absent when
+ * history lacks it; null when both are. The month stamp stays `yyyy.MM`.
  */
+internal data class RediscoverFootnote(val month: String?, val playCount: Int)
+
 internal fun rediscoverFootnote(
     firstPlayedAt: Long?,
     playCount: Int,
     zone: ZoneId = ZoneId.systemDefault(),
-    resources: Resources? = null,
-): String? {
+): RediscoverFootnote? {
     val month = firstPlayedAt?.let { millis ->
         Instant.ofEpochMilli(millis).atZone(zone).format(RediscoverMonthFormatter)
     }
+    val plays = playCount.takeIf { it > 0 }
+    if (month == null && plays == null) return null
+    return RediscoverFootnote(month, plays ?: 0)
+}
+
+/** English "play" / "plays", or the localized unit. The count stays separate. */
+internal fun rediscoverPlayUnit(playCount: Int, resources: Resources? = null): String {
     if (resources == null) {
-        val parts = buildList {
-            month?.let { add("First played $it") } // i18n-allow: RediscoverCopyTest asserts this English
-            if (playCount > 0) {
-                add(if (playCount == 1) "1 play" else "$playCount plays") // i18n-allow: RediscoverCopyTest asserts this English
-            }
-        }
-        return parts.takeIf { it.isNotEmpty() }?.joinToString(" · ") // i18n-allow: RediscoverCopyTest asserts this English
+        return if (playCount == 1) "play" else "plays" // i18n-allow: RediscoverCopyTest asserts this English
     }
-    return when {
-        month != null && playCount > 0 ->
-            resources.getQuantityString(R.plurals.home_rediscover_footnote, playCount, month, playCount)
-        month != null -> resources.getString(R.string.home_rediscover_footnote_first_played, month)
-        playCount > 0 -> resources.getQuantityString(R.plurals.home_rediscover_plays, playCount, playCount)
-        else -> null
-    }
+    return resources.getQuantityString(R.plurals.home_unit_plays, playCount)
 }
 
 // ── Previews ───────────────────────────────────────────────────────────

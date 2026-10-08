@@ -43,7 +43,7 @@ enum class HomeSection(
     JumpBackIn(
         id = "jump_back_in",
         title = "Jump Back In",
-        supportingText = "Albums, songs, and playlists to pick back up — memories woven in",
+        supportingText = "Albums, songs and playlists",
         defaultEnabled = true,
         appendEnabled = true,
     ),

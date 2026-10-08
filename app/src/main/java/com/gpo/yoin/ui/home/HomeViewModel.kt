@@ -1056,7 +1056,7 @@ class HomeViewModel(
     }
 
     /**
-     * "2024 · 12 songs · 44 min" for the hero bento slot — the same entry
+     * Year, song count and minutes for the hero bento slot — the same entry
      * [selectHomeHeroActivity] crowns for the UI (first album/playlist).
      * Albums only: playlist metadata isn't disk-cached, so a playlist hero
      * just skips the line. Resolved through the detail cache
@@ -1076,12 +1076,7 @@ class HomeViewModel(
         val year = album.year
         val songs = album.songCount?.takeIf { count -> count > 0 }
         val minutes = album.durationSec?.takeIf { seconds -> seconds > 60 }?.let { it / 60 }
-        val parts = mutableListOf<String>()
-        year?.let { parts += it.toString() }
-        songs?.let { parts += if (it == 1) "1 song" else "$it songs" }
-        minutes?.let { parts += "$it min" }
         return HeroFootnote(
-            text = parts.takeIf { it.isNotEmpty() }?.joinToString(" · "),
             year = year,
             songCount = songs,
             minutes = minutes,
@@ -1098,18 +1093,18 @@ class HomeViewModel(
     private fun albumSubtitle(artist: String?): Pair<String, UiText> {
         val name = artist?.takeIf { it.isNotBlank() }
         return if (name != null) {
-            "Album · $name" to UiText.Res(R.string.home_widget_album_artist, listOf(name))
+            name to UiText.Raw(name)
         } else {
-            "Album" to UiText.Res(R.string.home_widget_album)
+            "" to UiText.Raw("")
         }
     }
 
     private fun singleSubtitle(artist: String?): Pair<String, UiText> {
         val name = artist?.takeIf { it.isNotBlank() }
         return if (name != null) {
-            "Single · $name" to UiText.Res(R.string.home_widget_single_artist, listOf(name))
+            name to UiText.Raw(name)
         } else {
-            "Single" to UiText.Res(R.string.home_widget_single)
+            "" to UiText.Raw("")
         }
     }
 
@@ -1117,9 +1112,9 @@ class HomeViewModel(
     private fun playlistSubtitle(owner: String?): Pair<String, UiText> {
         val name = owner?.takeIf { it.isNotBlank() && it != "Playlist" }
         return if (name != null) {
-            "Playlist · $name" to UiText.Res(R.string.home_widget_playlist_owner, listOf(name))
+            name to UiText.Raw(name)
         } else {
-            "Playlist" to UiText.Res(R.string.home_widget_playlist)
+            "" to UiText.Raw("")
         }
     }
 

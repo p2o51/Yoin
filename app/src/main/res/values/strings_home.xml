@@ -2,7 +2,6 @@
 <resources>
     <string name="home_title">Home</string>
     <string name="home_edit_title">Edit Home</string>
-    <string name="home_edit_hint_drag">Drag to reorder</string>
     <string name="home_edit_action_header">Edit Home</string>
     <string name="home_edit_action_section">Edit Home</string>
     <string name="home_edit_action_card">Edit Home</string>
@@ -20,28 +19,26 @@
     <string name="home_section_your_playlists">Your Playlists</string>
 
     <string name="home_section_activities_supporting">Your recent plays and visits</string>
-    <string name="home_section_jump_back_in_supporting">Albums, songs, and playlists to pick back up — memories woven in</string>
+    <string name="home_section_jump_back_in_supporting">Albums, songs and playlists</string>
     <string name="home_section_recently_added_supporting">Added to your library this month</string>
     <string name="home_section_rediscover_supporting">Albums and songs you rated or wrote about, not played in a while</string>
     <string name="home_section_recently_played_supporting">Albums you played lately, on any device</string>
     <string name="home_section_your_playlists_supporting">Playlists in your library</string>
 
-    <string name="home_placeholder_activities">No recent activity yet</string>
-    <string name="home_placeholder_jump_back_in">Nothing to jump back into yet</string>
+    <string name="home_placeholder_activities">No recent activity</string>
+    <string name="home_placeholder_jump_back_in">Nothing to jump back into</string>
     <string name="home_placeholder_recently_added">Nothing added this month</string>
-    <string name="home_placeholder_rediscover">Albums and songs you rated or wrote about come back here when it\'s been a while</string>
+    <string name="home_placeholder_rediscover">Nothing to rediscover yet</string>
     <string name="home_placeholder_recently_played">Nothing played lately</string>
-    <string name="home_placeholder_your_playlists">No playlists in your library yet</string>
+    <string name="home_placeholder_your_playlists">No playlists in your library</string>
 
-    <string name="home_activities_empty_title">No recent activity yet</string>
-    <string name="home_activities_empty_supporting">Once you listen or visit albums and artists, this feed will start filling in.</string>
+    <string name="home_activities_empty_title">No activity yet</string>
 
     <string name="home_edit_hidden">Hidden</string>
-    <string name="home_edit_hidden_empty">Hidden sections appear here</string>
+    <string name="home_edit_hidden_empty">No hidden sections</string>
     <string name="home_edit_reset">Reset Home</string>
     <string name="home_edit_new">New</string>
-    <string name="home_edit_all_hidden_title">Your Home is empty</string>
-    <string name="home_edit_all_hidden_supporting">Press and hold anywhere, or tap Edit Home, to bring sections back</string>
+    <string name="home_edit_all_hidden_title">Home is empty</string>
     <string name="home_cd_hide_section">Hide %1$s</string>
     <string name="home_cd_show_section">Show %1$s</string>
     <string name="home_action_show_section">Show %1$s</string>
@@ -57,21 +54,23 @@
         <item quantity="other">%1$d rows</item>
     </plurals>
 
-    <string name="home_widget_album">Album</string>
-    <string name="home_widget_album_artist">Album · %1$s</string>
-    <string name="home_widget_single">Single</string>
-    <string name="home_widget_single_artist">Single · %1$s</string>
-    <string name="home_widget_playlist">Playlist</string>
-    <string name="home_widget_playlist_owner">Playlist · %1$s</string>
     <string name="home_widget_basis_tracks">Based on %1$d/%2$d tracks</string>
     <string name="home_widget_rating_na">N/A</string>
-    <plurals name="home_hero_songs">
-        <item quantity="one">%1$d song</item>
-        <item quantity="other">%1$d songs</item>
+    <plurals name="home_unit_songs">
+        <item quantity="one">song</item>
+        <item quantity="other">songs</item>
     </plurals>
-    <plurals name="home_hero_minutes">
-        <item quantity="one">%1$d min</item>
-        <item quantity="other">%1$d min</item>
+    <plurals name="home_unit_minutes">
+        <item quantity="one">min</item>
+        <item quantity="other">min</item>
+    </plurals>
+    <plurals name="home_unit_notes">
+        <item quantity="one">note</item>
+        <item quantity="other">notes</item>
+    </plurals>
+    <plurals name="home_unit_plays">
+        <item quantity="one">play</item>
+        <item quantity="other">plays</item>
     </plurals>
 
     <string name="home_activity_type_album">Album</string>
@@ -80,7 +79,6 @@
     <string name="home_activity_type_track">Track</string>
     <string name="home_activity_fallback_artist">Artist</string>
     <string name="home_activity_fallback_recent">Recently active</string>
-    <string name="home_activity_type_time">%1$s · %2$s</string>
     <string name="home_time_just_now">just now</string>
     <plurals name="home_time_minutes_ago">
         <item quantity="one">%1$dm ago</item>
@@ -121,33 +119,23 @@
         <item quantity="other">%1$d years</item>
     </plurals>
     <plurals name="home_rediscover_eyebrow_months">
-        <item quantity="one">Not played in Yoin for %1$d month</item>
-        <item quantity="other">Not played in Yoin for %1$d months</item>
+        <item quantity="one">%1$d month away</item>
+        <item quantity="other">%1$d months away</item>
     </plurals>
     <plurals name="home_rediscover_eyebrow_years">
-        <item quantity="one">Not played in Yoin for %1$d year</item>
-        <item quantity="other">Not played in Yoin for %1$d years</item>
+        <item quantity="one">%1$d year away</item>
+        <item quantity="other">%1$d years away</item>
     </plurals>
-    <string name="home_rediscover_eyebrow_reason">%1$s · %2$s</string>
     <string name="home_rediscover_cd_your_rating">Your rating %1$s</string>
     <string name="home_rediscover_cd_track_average">Track average %1$s</string>
     <string name="home_rediscover_play">Play</string>
-    <string name="home_rediscover_footnote_first_played">First played %1$s</string>
-    <plurals name="home_rediscover_footnote">
-        <item quantity="one">First played %1$s · %2$d play</item>
-        <item quantity="other">First played %1$s · %2$d plays</item>
-    </plurals>
-    <plurals name="home_rediscover_plays">
-        <item quantity="one">%1$d play</item>
-        <item quantity="other">%1$d plays</item>
-    </plurals>
 
     <string name="home_memories_label">Memories</string>
     <string name="home_memory_bubble_title">Memories</string>
     <string name="home_cd_memories_chevron">Memories</string>
     <string name="home_cd_memories_arrow">Memories</string>
     <string name="home_cd_memories">Memories</string>
-    <string name="home_cd_memories_empty">Memories, nothing kept yet</string>
+    <string name="home_cd_memories_empty">Memories, empty</string>
     <string name="home_cd_memories_notes">Memories, %1$s</string>
     <string name="home_notes_capped">999+ notes</string>
     <string name="home_notes_capped_short" translatable="false">999+</string>

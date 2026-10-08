@@ -88,12 +88,16 @@ class RediscoverEyebrowLinesTest {
         items = listOf(paperLetters, glacierAvenue(score = null, notes = 1))
         rule.waitForIdle()
 
-        val wrapped = lines("1 note · Not played in Yoin for 8 months")
-        // The copy stays whole and wraps at phone width…
-        assertTrue("the long eyebrow wraps: $wrapped", wrapped.height >= 1.5f * SingleLine)
-        // …and both cards keep its two lines: the one-line eyebrow sits on the slot's bottom, against
-        // the title, so the eyebrows end and the artists start at the same height on both cards.
-        assertEquals(wrapped.endInclusive, lines("Not played in Yoin for 7 months").endInclusive, .5f)
+        val reasonTop = top("note")
+        val wrappedAway = lines("8 months away")
+        // The note count sits on its own line above the away label.
+        assertTrue(
+            "the reason line sits above the away label: $reasonTop..${wrappedAway.endInclusive}",
+            wrappedAway.endInclusive - reasonTop >= 1.5f * SingleLine,
+        )
+        // Both cards keep that second line: the one-line eyebrow sits on the slot's bottom, against
+        // the title, so the away labels end and the artists start at the same height on both cards.
+        assertEquals(wrappedAway.endInclusive, lines("7 months away").endInclusive, .5f)
         assertEquals(top("Artist Two"), top("Artist One"), .5f)
         // The one-line card took the second line too: its text sits lower than in a one-line row.
         assertTrue(top("Artist One") > oneLineArtist + 1f)
@@ -103,8 +107,8 @@ class RediscoverEyebrowLinesTest {
     fun should_keepOneLineEyebrows_when_noEyebrowInTheRowWraps() {
         setShelf(listOf(paperLetters, glacierAvenue(score = 8.1f)))
 
-        val first = lines("Not played in Yoin for 7 months")
-        val second = lines("Not played in Yoin for 8 months")
+        val first = lines("7 months away")
+        val second = lines("8 months away")
         assertTrue("one line: $first", first.height < 1.5f * SingleLine)
         assertEquals(first.height, second.height, .5f)
         assertEquals(first.start, second.start, .5f)

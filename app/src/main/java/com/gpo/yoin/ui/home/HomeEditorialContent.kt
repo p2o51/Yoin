@@ -50,6 +50,7 @@ import androidx.compose.material3.MaterialShapes
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.toShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -98,11 +99,8 @@ import androidx.compose.ui.preferredFrameRate
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.clearAndSetSemantics
-import androidx.compose.ui.text.SpanStyle
-import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
@@ -125,6 +123,8 @@ import com.gpo.yoin.ui.component.ExpressiveMediaArtwork
 import com.gpo.yoin.ui.component.ExpressiveSectionPanel
 import com.gpo.yoin.ui.component.LocalSeamBarField
 import com.gpo.yoin.ui.component.MarqueeText
+import com.gpo.yoin.ui.component.MetaGroup
+import com.gpo.yoin.ui.component.MetaLine
 import com.gpo.yoin.ui.component.SeamBackground
 import com.gpo.yoin.ui.component.SeamDissolveTokens
 import com.gpo.yoin.ui.component.SeamFlow
@@ -216,7 +216,6 @@ import com.gpo.yoin.ui.theme.YoinContainerShapes
 import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinMotionRole
 import com.gpo.yoin.ui.theme.YoinShapeTokens
-import com.gpo.yoin.ui.theme.withTabularFigures
 import kotlin.math.roundToInt
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -1032,7 +1031,6 @@ internal fun HomeEditorialContent(
                                 } else {
                                     HomeEmptyCard(
                                         title = stringResource(R.string.home_activities_empty_title),
-                                        supporting = stringResource(R.string.home_activities_empty_supporting),
                                         modifier = Modifier.fillMaxWidth(),
                                     )
                                 }
@@ -1158,7 +1156,13 @@ internal fun HomeEditorialContent(
                         itemSpacing = itemSpacing,
                     )
                 } else {
-                    if (allHidden) homeAllHiddenItem(placementSpec = sectionPlacement, alpha = { motion.footerAlpha.value })
+                    if (allHidden) {
+                        homeAllHiddenItem(
+                            placementSpec = sectionPlacement,
+                            alpha = { motion.footerAlpha.value },
+                            onEdit = { controller.enter(null, lifted = false) },
+                        )
+                    }
                     homeEditFooterEntry(
                         newBadge = footerNewBadge,
                         deps = editDeps,
@@ -1432,7 +1436,7 @@ private fun HomeContentHeader(
     editTargets: HomeEditTargets,
     onEnterEdit: () -> Unit,
     modifier: Modifier = Modifier,
-    // The first edit sessions: "Drag to reorder" in the free span.
+    // Unused. The reorder hint no longer draws.
     editHint: Boolean = false,
     // Non-null = the Memories entry is the safe-area bubble overlay: the
     // header only reports the span it leaves between the title and Settings.
@@ -1565,7 +1569,7 @@ private fun ActivityBento(
     candidates: List<HomeMomentEntry>,
     spec: ActivityBentoSpec,
     preset: HomeRowPreset,
-    heroFootnoteExtra: String?,
+    heroFootnoteExtra: List<MetaGroup>,
     extractBackdropColors: Boolean,
     onEntryClick: (HomeEntryTarget) -> Unit,
     modifier: Modifier = Modifier,
@@ -1668,7 +1672,7 @@ private fun ActivityBentoRows(
     rows: List<ActivityCodeRow>,
     hero: HomeMomentEntry?,
     supporting: List<HomeMomentEntry>,
-    heroFootnoteExtra: String?,
+    heroFootnoteExtra: List<MetaGroup>,
     extractBackdropColors: Boolean,
     onEntryClick: (HomeEntryTarget) -> Unit,
     fontScale: Float,
@@ -1760,7 +1764,7 @@ private fun ActivityUnitGrid(
     slots: List<ActivitySlot>,
     hero: HomeMomentEntry?,
     supporting: List<HomeMomentEntry>,
-    heroFootnoteExtra: String?,
+    heroFootnoteExtra: List<MetaGroup>,
     extractBackdropColors: Boolean,
     onEntryClick: (HomeEntryTarget) -> Unit,
     fontScale: Float,
@@ -1906,7 +1910,7 @@ internal fun rememberActivityCardColors(
 @Composable
 private fun ActivityHeroCard(
     entry: HomeMomentEntry,
-    footnoteExtra: String?,
+    footnoteExtra: List<MetaGroup>,
     extractBackdropColors: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
@@ -1950,8 +1954,9 @@ private fun ActivityHeroCard(
                     .seamFade(),
                 verticalArrangement = Arrangement.spacedBy(3.dp),
             ) {
+                MetaLine(groups = listOf(MetaGroup.Kind(entry.typeLabel)))
                 Text(
-                    text = activityTypeTime(entry),
+                    text = entry.timeAgo,
                     style = MaterialTheme.typography.labelSmall,
                     color = colors.contentMuted,
                     maxLines = 1,
@@ -1970,13 +1975,10 @@ private fun ActivityHeroCard(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-                footnoteExtra?.let { extra ->
-                    Text(
-                        text = extra,
-                        style = MaterialTheme.typography.labelSmall.withTabularFigures(),
-                        color = colors.contentMuted,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
+                if (footnoteExtra.isNotEmpty()) {
+                    MetaLine(
+                        groups = footnoteExtra,
+                        style = MaterialTheme.typography.labelSmall,
                     )
                 }
             }
@@ -2110,7 +2112,7 @@ private fun ActivityWideCard(
                 verticalArrangement = Arrangement.spacedBy(2.dp),
             ) {
                 Text(
-                    text = activityTypeTime(entry),
+                    text = entry.timeAgo,
                     style = MaterialTheme.typography.labelSmall,
                     color = colors.contentMuted,
                     maxLines = 1,
@@ -2142,20 +2144,7 @@ private fun ActivityStripCard(
     modifier: Modifier = Modifier,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
-    // Text-only, per the design — no cover chip. The TITLE is bold (Figma),
-    // the ・artist tail stays regular so the pair reads as one line without
-    // flattening into a single weight.
-    val stripTitle = remember(entry) {
-        buildAnnotatedString {
-            withStyle(SpanStyle(fontWeight = FontWeight.SemiBold)) {
-                append(entry.title)
-            }
-            if (entry.subtitle.isNotBlank()) {
-                append("・")
-                append(entry.subtitle)
-            }
-        }
-    }
+    // Text-only. Title and artist are separate, 12dp apart, no joining glyph.
     val colors = rememberActivityCardColors(entry.coverArtUrl, extractBackdropColors)
     Surface(
         modifier = modifier
@@ -2178,18 +2167,34 @@ private fun ActivityStripCard(
             horizontalArrangement = Arrangement.spacedBy(10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(
-                text = stripTitle,
-                style = MaterialTheme.typography.bodyMedium,
-                color = colors.content,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
+            Row(
                 modifier = Modifier
                     .weight(1f)
                     .seamFade(),
-            )
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = entry.title,
+                    style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
+                    color = colors.content,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false),
+                )
+                if (entry.subtitle.isNotBlank()) {
+                    Text(
+                        text = entry.subtitle,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = colors.content.copy(alpha = 0.6f),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false),
+                    )
+                }
+            }
             Text(
-                text = activityTypeTime(entry),
+                text = entry.timeAgo,
                 style = MaterialTheme.typography.labelSmall,
                 color = colors.contentMuted,
                 maxLines = 1,
@@ -2641,7 +2646,9 @@ private fun YourPlaylistCard(
 @Composable
 internal fun HomeEmptyCard(
     title: String,
-    supporting: String,
+    supporting: String? = null,
+    actionLabel: String? = null,
+    onAction: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     ExpressiveSectionPanel(
@@ -2661,11 +2668,18 @@ internal fun HomeEmptyCard(
                 style = MaterialTheme.typography.titleLarge,
                 color = MaterialTheme.colorScheme.onSurface,
             )
-            Text(
-                text = supporting,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+            if (!supporting.isNullOrBlank()) {
+                Text(
+                    text = supporting,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            if (actionLabel != null && onAction != null) {
+                TextButton(onClick = onAction) {
+                    Text(text = actionLabel)
+                }
+            }
         }
     }
 }
@@ -2724,23 +2738,20 @@ private fun homeActivityDedupKey(activity: ActivityEvent): String {
 }
 
 @Composable
-private fun homeHeroFootnote(year: Int?, songCount: Int?, minutes: Int?, fallback: String?): String? {
-    if (year == null && songCount == null && minutes == null) return fallback
-    val parts = buildList {
-        if (year != null) add(year.toString())
+private fun homeHeroFootnote(year: Int?, songCount: Int?, minutes: Int?, fallback: String?): List<MetaGroup> {
+    if (year == null && songCount == null && minutes == null) {
+        return fallback?.let { listOf(MetaGroup.Plain(it)) } ?: emptyList()
+    }
+    return buildList {
+        if (year != null) add(MetaGroup.Plain(year.toString()))
         if (songCount != null && songCount > 0) {
-            add(pluralStringResource(R.plurals.home_hero_songs, songCount, songCount))
+            add(MetaGroup.Stat(songCount.toString(), pluralStringResource(R.plurals.home_unit_songs, songCount)))
         }
         if (minutes != null && minutes > 0) {
-            add(pluralStringResource(R.plurals.home_hero_minutes, minutes, minutes))
+            add(MetaGroup.Stat(minutes.toString(), pluralStringResource(R.plurals.home_unit_minutes, minutes)))
         }
     }
-    return parts.takeIf { it.isNotEmpty() }?.joinToString(" · ")
 }
-
-@Composable
-private fun activityTypeTime(entry: HomeMomentEntry): String =
-    stringResource(R.string.home_activity_type_time, entry.typeLabel, entry.timeAgo)
 
 private fun buildActivityEntries(
     activities: List<ActivityEvent>,

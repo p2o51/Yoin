@@ -692,14 +692,17 @@ private fun WidgetCoverCaption(card: HomeWidgetCard) {
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.seamFade(),
         )
-        Text(
-            text = card.shownSubtitle(),
-            style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp),
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.seamFade(),
-        )
+        val subtitle = card.shownSubtitle()
+        if (subtitle.isNotBlank()) {
+            Text(
+                text = subtitle,
+                style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.seamFade(),
+            )
+        }
     }
 }
 

@@ -492,12 +492,12 @@ private fun Modifier.blockZIndex(zIndex: () -> Float): Modifier = layout { measu
 internal fun homeEditPlaceholderText(section: HomeSection, resources: Resources? = null): String {
     if (resources == null) {
         return when (section) {
-            HomeSection.Activities -> "No recent activity yet" // i18n-allow: HomeEditBlockTest asserts this English
-            HomeSection.JumpBackIn -> "Nothing to jump back into yet" // i18n-allow: HomeEditBlockTest asserts this English
+            HomeSection.Activities -> "No recent activity" // i18n-allow: HomeEditBlockTest asserts this English
+            HomeSection.JumpBackIn -> "Nothing to jump back into" // i18n-allow: HomeEditBlockTest asserts this English
             HomeSection.RecentlyAdded -> "Nothing added this month" // i18n-allow: HomeEditBlockTest asserts this English
             HomeSection.Rediscover -> RediscoverPlaceholderText // i18n-allow: HomeEditBlockTest asserts this English
             HomeSection.RecentlyPlayed -> "Nothing played lately" // i18n-allow: HomeEditBlockTest asserts this English
-            HomeSection.YourPlaylists -> "No playlists in your library yet" // i18n-allow: HomeEditBlockTest asserts this English
+            HomeSection.YourPlaylists -> "No playlists in your library" // i18n-allow: HomeEditBlockTest asserts this English
         }
     }
     return resources.getString(section.placeholderRes)

@@ -57,28 +57,35 @@ class RediscoverCopyTest {
     fun should_leaveScoreToBadge_when_itemHasScore() {
         val item = item(score = 8.4f, lastPlayedAt = now - 214 * day).copy(hasReview = true, noteCount = 3)
 
-        assertEquals("Not played in Yoin for 7 months", rediscoverEyebrow(item, now))
+        assertNull(rediscoverReason(item))
+        assertEquals("7 months away", rediscoverEyebrow(item, now))
     }
 
     @Test
     fun should_leadWithTheMemory_when_itemHasNoScore() {
         val unscored = item(score = null, lastPlayedAt = now - 214 * day)
 
-        assertEquals(
-            "Reviewed · Not played in Yoin for 7 months",
-            rediscoverEyebrow(unscored.copy(hasReview = true, noteCount = 3, ratedTrackCount = 2), now),
-        )
-        assertEquals("3 notes · Not played in Yoin for 7 months", rediscoverEyebrow(unscored.copy(noteCount = 3), now))
-        assertEquals("1 note · Not played in Yoin for 7 months", rediscoverEyebrow(unscored.copy(noteCount = 1), now))
-        assertEquals(
-            "2 tracks rated · Not played in Yoin for 7 months",
-            rediscoverEyebrow(unscored.copy(ratedTrackCount = 2), now),
-        )
-        assertEquals(
-            "1 track rated · Not played in Yoin for 7 months",
-            rediscoverEyebrow(unscored.copy(ratedTrackCount = 1), now),
-        )
-        assertEquals("Not played in Yoin for 7 months", rediscoverEyebrow(unscored, now))
+        val reviewed = unscored.copy(hasReview = true, noteCount = 3, ratedTrackCount = 2)
+        assertEquals("Reviewed", rediscoverReason(reviewed))
+        assertNull(rediscoverNoteCount(reviewed))
+        assertEquals("7 months away", rediscoverEyebrow(reviewed, now))
+
+        val notes = unscored.copy(noteCount = 3)
+        assertEquals("3 notes", rediscoverReason(notes))
+        assertEquals(3, rediscoverNoteCount(notes))
+        assertEquals("7 months away", rediscoverEyebrow(notes, now))
+
+        val oneNote = unscored.copy(noteCount = 1)
+        assertEquals("1 note", rediscoverReason(oneNote))
+        assertEquals(1, rediscoverNoteCount(oneNote))
+        assertEquals("7 months away", rediscoverEyebrow(oneNote, now))
+
+        assertEquals("2 tracks rated", rediscoverReason(unscored.copy(ratedTrackCount = 2)))
+        assertEquals("7 months away", rediscoverEyebrow(unscored.copy(ratedTrackCount = 2), now))
+        assertEquals("1 track rated", rediscoverReason(unscored.copy(ratedTrackCount = 1)))
+        assertEquals("7 months away", rediscoverEyebrow(unscored.copy(ratedTrackCount = 1), now))
+        assertNull(rediscoverReason(unscored))
+        assertEquals("7 months away", rediscoverEyebrow(unscored, now))
     }
 
     @Test
@@ -91,8 +98,14 @@ class RediscoverCopyTest {
     fun should_pluralizePlays_when_formattingFootnote() {
         val firstPlayed = LocalDate.of(2025, 11, 20).atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli()
 
-        assertEquals("First played 2025.11 · 23 plays", rediscoverFootnote(firstPlayed, 23, ZoneOffset.UTC))
-        assertEquals("First played 2025.11 · 1 play", rediscoverFootnote(firstPlayed, 1, ZoneOffset.UTC))
+        val many = rediscoverFootnote(firstPlayed, 23, ZoneOffset.UTC)
+        assertEquals("2025.11", many?.month)
+        assertEquals(23, many?.playCount)
+        assertEquals("plays", rediscoverPlayUnit(23))
+        val one = rediscoverFootnote(firstPlayed, 1, ZoneOffset.UTC)
+        assertEquals("2025.11", one?.month)
+        assertEquals(1, one?.playCount)
+        assertEquals("play", rediscoverPlayUnit(1))
     }
 
     @Test
@@ -101,12 +114,17 @@ class RediscoverCopyTest {
         val firstPlayed = LocalDate.of(2025, 11, 30).atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli() +
             (23 * 60 + 30) * 60 * 1000L
 
-        assertEquals("First played 2025.12 · 4 plays", rediscoverFootnote(firstPlayed, 4, ZoneId.of("Asia/Tokyo")))
+        val footnote = rediscoverFootnote(firstPlayed, 4, ZoneId.of("Asia/Tokyo"))
+        assertEquals("2025.12", footnote?.month)
+        assertEquals(4, footnote?.playCount)
     }
 
     @Test
     fun should_dropMissingHalves_when_historyIsPartial() {
-        assertEquals("5 plays", rediscoverFootnote(null, 5))
+        val playsOnly = rediscoverFootnote(null, 5)
+        assertNull(playsOnly?.month)
+        assertEquals(5, playsOnly?.playCount)
+        assertEquals("plays", rediscoverPlayUnit(5))
         assertNull(rediscoverFootnote(null, 0))
     }
 
@@ -114,15 +132,18 @@ class RediscoverCopyTest {
     fun should_leaveTheMemoryToTheSnippet_when_itemIsASong() {
         val noted = song(score = null).copy(noteCount = 3, noteSnippet = "kept")
 
-        assertEquals("Not played in Yoin for 7 months", rediscoverEyebrow(noted, now))
         assertNull(rediscoverReason(noted))
+        assertEquals("7 months away", rediscoverEyebrow(noted, now))
     }
 
     @Test
     fun should_joinArtistAndAlbum_when_formattingSongSubtitle() {
-        assertEquals("Ena · Long Way Round", rediscoverSongSubtitle(song(score = 8f)))
-        assertEquals("Ena", rediscoverSongSubtitle(song(score = 8f).copy(albumName = "")))
-        assertEquals("Long Way Round", rediscoverSongSubtitle(song(score = 8f).copy(artistName = null)))
+        assertEquals(RediscoverSongSubtitle("Ena", "Long Way Round"), rediscoverSongSubtitle(song(score = 8f)))
+        assertEquals(RediscoverSongSubtitle("Ena", null), rediscoverSongSubtitle(song(score = 8f).copy(albumName = "")))
+        assertEquals(
+            RediscoverSongSubtitle(null, "Long Way Round"),
+            rediscoverSongSubtitle(song(score = 8f).copy(artistName = null)),
+        )
         assertNull(rediscoverSongSubtitle(song(score = 8f).copy(artistName = " ", albumName = "")))
     }
 
@@ -140,7 +161,7 @@ class RediscoverCopyTest {
     @Test
     fun should_mentionSongs_when_rediscoverPlaceholderShows() {
         assertEquals(
-            "Albums and songs you rated or wrote about come back here when it's been a while",
+            "Nothing to rediscover yet",
             RediscoverPlaceholderText,
         )
     }

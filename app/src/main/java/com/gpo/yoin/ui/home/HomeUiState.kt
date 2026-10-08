@@ -20,9 +20,8 @@ sealed interface HomeUiState {
         // observer uses this to decide whether it owns the feed — see
         // HomeViewModel.observeRecentHistory.
         val activitiesFromRemote: Boolean = false,
-        // "2024 · 12 songs, 44 min" line for the hero (first) activity when it
-        // is an album whose metadata resolved from the detail cache. Null just
-        // hides the line — the hero card renders fine without it.
+        // Fallback footnote when the structured year / count / minutes are absent.
+        // Null just hides the line — the hero card renders fine without it.
         val activityHeroFootnote: String? = null,
         // Structured halves of [activityHeroFootnote], resolved in the feed.
         // Nulls fall back to the string (previews, screenshots).

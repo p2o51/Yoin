@@ -18,18 +18,15 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.customActions
-import androidx.compose.ui.semantics.hideFromAccessibility
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
@@ -109,14 +106,8 @@ internal fun HomeEditHeaderTitle(
     }
 }
 
-/**
- * "Drag to reorder" at the end of the header's free span, for the first edit
- * sessions ([visible]). It shows only where it clears "Edit Home" (set in
- * [titleStyle]) by 16dp, the prototype's fit check (critique 16): the
- * overlay's overhang past "Home" first runs through the title's
- * [titleEndPadding], and only the rest of it is reserved. Never changes the
- * header's height.
- */
+/** No instructional line. The cards already wiggle, which is the reorder affordance. */
+@Suppress("UNUSED_PARAMETER")
 @Composable
 internal fun HomeEditHeaderHint(
     progress: () -> Float,
@@ -124,37 +115,7 @@ internal fun HomeEditHeaderHint(
     titleStyle: TextStyle,
     modifier: Modifier = Modifier,
     titleEndPadding: Dp = HomeHeaderTitleBreathing,
-) {
-    val shown by remember(progress) { derivedStateOf { progress() > ComposeFloor } }
-    if (!visible || !shown) return
-    val editOverhang = rememberEditTitleOverhangPx(titleStyle)
-    Layout(
-        content = {
-            Text(
-                text = stringResource(R.string.home_edit_hint_drag),
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-                softWrap = false,
-                modifier = Modifier
-                    .graphicsLayer { alpha = smoothstep(HintFadeStart, HintFadeEnd, clampedP(progress)) }
-                    // The "Edit Home" announcement already covers it.
-                    .semantics { hideFromAccessibility() },
-            )
-        },
-        modifier = modifier,
-    ) { measurables, constraints ->
-        val text = measurables.first().measure(Constraints())
-        val width = if (constraints.hasBoundedWidth) constraints.maxWidth else text.width
-        val height = constraints.minHeight
-        // Only the overhang past the title's end padding reaches into this span.
-        val reserve = (editOverhang - titleEndPadding.roundToPx()).coerceAtLeast(0) + HintGap.roundToPx()
-        val fits = reserve + text.width <= width
-        layout(width, height) {
-            if (fits) text.place(width - text.width, (height - text.height) / 2)
-        }
-    }
-}
+) = Unit
 
 /** The header icons (the Memories entry, Settings) fade out over the first half of P. Layer only. */
 internal fun Modifier.homeEditHeaderIcon(progress: () -> Float): Modifier = graphicsLayer {
@@ -171,35 +132,18 @@ internal fun rememberHomeEditIconsEnabled(progress: () -> Float): Boolean {
     return enabled
 }
 
-// How far "Edit Home" runs past "Home" in [style], px.
-@Composable
-private fun rememberEditTitleOverhangPx(style: TextStyle): Int {
-    val homeTitle = stringResource(R.string.home_title)
-    val editTitle = stringResource(R.string.home_edit_title)
-    val measurer = rememberTextMeasurer(cacheSize = 2)
-    return remember(style, measurer, homeTitle, editTitle) {
-        val edit = measurer.measure(editTitle, style, maxLines = 1, softWrap = false).size.width
-        val home = measurer.measure(homeTitle, style, maxLines = 1, softWrap = false).size.width
-        (edit - home).coerceAtLeast(0)
-    }
-}
-
 private fun clampedP(progress: () -> Float): Float = progress().coerceIn(0f, 1f)
 
-// P above which the edit-only pieces are composed: before either fades in
-// (EditFadeStart, HintFadeStart), but past the entry's first frames, which
-// already compose the feed's edit state.
+// P above which the edit-only pieces are composed: before they fade in,
+// but past the entry's first frames, which already compose the feed's edit state.
 private const val ComposeFloor = .3f
 private const val HomeFadeStart = .2f
 private const val HomeFadeEnd = .6f
 private const val EditFadeStart = .4f
 private const val EditFadeEnd = .8f
-private const val HintFadeStart = .5f
-private const val HintFadeEnd = 1f
 
 // The icons are gone, and stop taking input, at P one half.
 private const val IconsOffAt = .5f
-private val HintGap = 16.dp
 
 // ── Previews ──────────────────────────────────────────────────────────────
 

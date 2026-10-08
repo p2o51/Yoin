@@ -131,7 +131,7 @@ class HomeMemoryPillTest {
         assertTrue(description.contains("Your album rating 8.4"))
         assertTrue(description.contains("12 notes"))
         assertEquals(
-            "Memories, nothing kept yet",
+            "Memories, empty",
             memoryPillContentDescription(HomeMemoryPill(null, 0), MemoryPillForm.Ghost),
         )
     }

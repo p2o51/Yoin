@@ -189,11 +189,13 @@ internal fun LazyListScope.homeEditFooterEntry(
 internal fun LazyListScope.homeAllHiddenItem(
     placementSpec: () -> FiniteAnimationSpec<IntOffset>?,
     alpha: () -> Float,
+    onEdit: () -> Unit,
 ) {
     item(key = AllHiddenKey) {
         HomeEmptyCard(
             title = stringResource(R.string.home_edit_all_hidden_title),
-            supporting = stringResource(R.string.home_edit_all_hidden_supporting),
+            actionLabel = stringResource(R.string.home_edit_title),
+            onAction = onEdit,
             modifier = Modifier
                 .fillMaxWidth()
                 .animateItem(fadeInSpec = null, placementSpec = placementSpec(), fadeOutSpec = null)
@@ -376,7 +378,11 @@ private fun HomeEditFooterEntryPreview() {
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(TrayFeedSpacing),
         ) {
-            homeAllHiddenItem(placementSpec = { null }, alpha = { deps.motion.footerAlpha.value })
+            homeAllHiddenItem(
+                placementSpec = { null },
+                alpha = { deps.motion.footerAlpha.value },
+                onEdit = {},
+            )
             homeEditFooterEntry(newBadge = true, deps = deps, onEnter = {}, placementSpec = { null })
         }
     }

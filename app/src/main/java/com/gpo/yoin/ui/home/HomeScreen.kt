@@ -360,7 +360,7 @@ private fun HomeContentPreview() {
                         stableId = "grid-memory:preview",
                         entityType = MemoryEntityType.ALBUM,
                         title = "Describe",
-                        subtitle = "Album · Hannah Jadagu",
+                        subtitle = "Hannah Jadagu",
                         coverArtUrl = null,
                         ratingText = "7.0",
                         ratingBasis = "Based on 5/5 tracks",
@@ -372,7 +372,7 @@ private fun HomeContentPreview() {
                         stableId = "grid-song:preview",
                         entityType = MemoryEntityType.SONG,
                         title = "Little House",
-                        subtitle = "Single · Rachel Chinouriri",
+                        subtitle = "Rachel Chinouriri",
                         coverArtUrl = null,
                         target = HomeWidgetTarget.PlaySong(
                             Track(
@@ -395,7 +395,7 @@ private fun HomeContentPreview() {
                         stableId = "grid-playlist:preview",
                         entityType = MemoryEntityType.PLAYLIST,
                         title = "Endless Natsu",
-                        subtitle = "Playlist · 51",
+                        subtitle = "51",
                         coverArtUrl = null,
                         target = HomeWidgetTarget.PlaylistDetail("subsonic:pl1"),
                     ),

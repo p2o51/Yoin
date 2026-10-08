@@ -130,7 +130,7 @@ internal enum class MemoryPillForm {
     /** Nothing kept yet: a dashed "Memories ⌄" pill. */
     Ghost,
 
-    /** Notes but no memory yet: dashed "Memories · 3 notes ⌄". */
+    /** Notes but no memory yet: dashed Memories label, then the note count. */
     NotesOnly,
 
     /** The latest memory: cover, score, notes. */
@@ -273,7 +273,7 @@ private fun memoryPillContentDescriptionEnglish(pill: HomeMemoryPill?, form: Mem
     val notes = pill.noteCount.takeIf { it > 0 }?.let { formatNoteCount(it) }
     val latest = pill.latest
     return when (form) {
-        MemoryPillForm.Ghost -> "Memories, nothing kept yet" // i18n-allow: HomeMemoryPillTest asserts this English
+        MemoryPillForm.Ghost -> "Memories, empty" // i18n-allow: HomeMemoryPillTest asserts this English
         MemoryPillForm.NotesOnly -> "Memories, $notes" // i18n-allow: HomeMemoryPillTest asserts this English
         else -> buildString {
             append("Memories. Latest: ") // i18n-allow: HomeMemoryPillTest asserts this English

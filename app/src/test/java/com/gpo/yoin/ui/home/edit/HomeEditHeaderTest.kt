@@ -19,7 +19,6 @@ import androidx.compose.ui.test.getBoundsInRoot
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
-import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.gpo.yoin.symbols.YoinSymbols
@@ -34,7 +33,7 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 
-/** The header through P: constant height, no width for "Edit Home", the hint only where it fits beside it. */
+/** The header through P: constant height, no width for "Edit Home", no reorder hint. */
 @RunWith(RobolectricTestRunner::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 @Config(qualifiers = "w800dp-h800dp")
@@ -132,14 +131,12 @@ class HomeEditHeaderTest {
 
     @Test
     fun should_showHintClearOfEditTitle_when_phoneHeader() {
-        // A 360dp phone's header (16dp margins): the prototype shows the hint here.
+        // A 360dp phone's header (16dp margins): the reorder hint stays off.
         setHeader(width = 328.dp)
         rule.runOnIdle { progress = 1f }
         rule.waitForIdle()
-        assertTrue(hintShown())
-        val hint = placedNodes(Hint).single().boundsInRoot
-        val edit = placedNodes(EditTitle).single().boundsInRoot
-        assertTrue(hint.left >= edit.right + rule.density.run { 16.dp.toPx() })
+        assertFalse(hintShown())
+        assertTrue(placedNodes(EditTitle).isNotEmpty())
     }
 
     @Test
@@ -147,46 +144,16 @@ class HomeEditHeaderTest {
         setHeader(width = 600.dp)
         rule.runOnIdle { progress = 1f }
         rule.waitForIdle()
-        assertTrue(hintShown())
-        val hint = placedNodes(Hint).single().boundsInRoot
-        val edit = placedNodes(EditTitle).single().boundsInRoot
-        assertTrue(hint.left >= edit.right + rule.density.run { 16.dp.toPx() })
+        assertFalse(hintShown())
+        assertTrue(placedNodes(EditTitle).isNotEmpty())
     }
 
     @Test
     fun should_reserveEditTitleOverhangPastTitlePadding_when_fittingHint() {
-        // Fits on its own, not once 16dp and the part of "Edit Home"'s overhang past the
-        // title's 24dp end padding are reserved (critique 16, the prototype's fit check).
-        var hintPx = 0
-        var overhangPx = 0
-        var width by mutableFloatStateOf(0f)
-        rule.setContent {
-            YoinTheme {
-                val style = MaterialTheme.typography.headlineLarge
-                val measurer = rememberTextMeasurer()
-                val label = MaterialTheme.typography.labelMedium
-                hintPx = measurer.measure(Hint, label, maxLines = 1, softWrap = false).size.width
-                overhangPx = measurer.measure(EditTitle, style, maxLines = 1, softWrap = false).size.width -
-                    measurer.measure("Home", style, maxLines = 1, softWrap = false).size.width
-                if (width > 0f) {
-                    Box(Modifier.width(rule.density.run { width.toDp() })) {
-                        HomeEditHeaderHint(progress = p, visible = true, titleStyle = style)
-                    }
-                }
-            }
-        }
+        setHeader(width = 600.dp)
         rule.runOnIdle { progress = 1f }
-        val gap = rule.density.run { 16.dp.roundToPx() }
-        val reserved = overhangPx - rule.density.run { 24.dp.roundToPx() }
-        assertTrue(reserved > 0)
-
-        rule.runOnIdle { width = (hintPx + gap + reserved - 1).toFloat() }
         rule.waitForIdle()
         assertFalse(hintShown())
-
-        rule.runOnIdle { width = (hintPx + gap + reserved + 1).toFloat() }
-        rule.waitForIdle()
-        assertTrue(hintShown())
     }
 
     @Test

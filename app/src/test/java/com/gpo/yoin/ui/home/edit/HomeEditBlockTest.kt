@@ -230,14 +230,14 @@ class HomeEditBlockTest {
     fun should_renderPlaceholderCopy_when_placeholder() {
         setBlock(placeholder = true)
 
-        rule.onNodeWithText("Nothing to jump back into yet").assertExists()
+        rule.onNodeWithText("Nothing to jump back into").assertExists()
         rule.onNodeWithText("Jump Back In").assertExists()
         // The placeholder stands in for the content.
         rule.onNodeWithText(BodyText).assertDoesNotExist()
         assertEquals("Nothing added this month", homeEditPlaceholderText(HomeSection.RecentlyAdded))
         // No score bar any more: any album or song rated or written about comes back.
         assertEquals(
-            "Albums and songs you rated or wrote about come back here when it's been a while",
+            "Nothing to rediscover yet",
             homeEditPlaceholderText(HomeSection.Rediscover),
         )
     }
