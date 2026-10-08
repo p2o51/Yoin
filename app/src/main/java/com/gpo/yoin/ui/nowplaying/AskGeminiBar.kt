@@ -239,12 +239,6 @@ private fun FocusedLayout(
                 }
             },
         )
-        Text(
-            text = stringResource(R.string.np_ask_enter),
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f),
-            modifier = Modifier.padding(top = 8.dp),
-        )
     }
 }
 

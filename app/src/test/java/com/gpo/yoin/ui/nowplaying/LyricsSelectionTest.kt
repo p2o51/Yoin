@@ -1,11 +1,16 @@
 package com.gpo.yoin.ui.nowplaying
 
+import android.content.Context
+import androidx.test.core.app.ApplicationProvider
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
 
+@RunWith(RobolectricTestRunner::class)
 class LyricsSelectionTest {
 
     private val lyrics = listOf(
@@ -85,15 +90,22 @@ class LyricsSelectionTest {
 
     @Test
     fun should_labelTheCount_when_linesArePicked() {
-        assertEquals("Tap lines to select", lyricsSelectionLabel(0))
-        assertEquals("1 line selected", lyricsSelectionLabel(1))
-        assertEquals("3 lines selected", lyricsSelectionLabel(3))
+        val resources = ApplicationProvider.getApplicationContext<Context>().resources
+        assertEquals("Select lines", lyricsSelectionLabel(0))
+        assertEquals("1 / 15", lyricsSelectionLabel(1))
+        assertEquals("3 / 15", lyricsSelectionLabel(3))
+        assertEquals("Select lines", lyricsSelectionLabel(0, resources = resources))
+        assertEquals("1 / 15", lyricsSelectionLabel(1, resources = resources))
+        assertEquals("3 / 15", lyricsSelectionLabel(3, resources = resources))
     }
 
     @Test
     fun should_flagTheCap_when_theRunIsFullOrATapWasRefused() {
-        assertEquals("15 lines selected · max", lyricsSelectionLabel(15))
-        assertEquals("Up to 15 lines at a time", lyricsSelectionLabel(15, limitNudge = true))
+        val resources = ApplicationProvider.getApplicationContext<Context>().resources
+        assertEquals("15 / 15", lyricsSelectionLabel(15))
+        assertEquals("15 / 15", lyricsSelectionLabel(15, limitNudge = true))
+        assertEquals("15 / 15", lyricsSelectionLabel(15, resources = resources))
+        assertEquals("15 / 15", lyricsSelectionLabel(15, limitNudge = true, resources = resources))
     }
 
     // --- W1 (owner 2026-10-05): spotoolfy's free pick, its 15-line cap ---

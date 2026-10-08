@@ -4173,8 +4173,8 @@ internal fun OneLineLyricPreview(
  * line, and the whole row is the button that expands the lyrics page.
  *
  * When a line holds for [LyricIdleHintDelayMs] (intro, break, a long note)
- * the row cross-fades — at most once a day — to an animated unfold symbol
- * with "Tap to expand", shown only while the symbol moves, then fades back.
+ * the row cross-fades, at most once a day, to an animated unfold symbol,
+ * shown only while the symbol moves, then fades back.
  */
 @Composable
 private fun OneLineLyricRow(
@@ -4238,13 +4238,6 @@ private fun OneLineLyricRow(
                     playing = hintShowing,
                     color = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.size(24.dp),
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = stringResource(R.string.np_lyric_tap_to_expand),
-                    style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Bold),
-                    color = MaterialTheme.colorScheme.primary,
-                    maxLines = 1,
                 )
             }
         }

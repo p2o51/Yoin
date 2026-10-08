@@ -31,7 +31,6 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -53,6 +52,7 @@ import com.gpo.yoin.data.local.SongAboutEntry
 import com.gpo.yoin.ui.component.markdownBoldAnnotatedString
 import com.gpo.yoin.ui.component.YoinLoadingIndicator
 import com.gpo.yoin.ui.component.verticalEdgeFadeOnScroll
+import com.gpo.yoin.ui.settings.SettingsActivity
 import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinMotionRole
 
@@ -68,6 +68,7 @@ fun AboutFullscreenPane(
     modifier: Modifier = Modifier,
     contentBottomPadding: androidx.compose.ui.unit.Dp = 96.dp,
 ) {
+    val context = LocalContext.current
     AnimatedContent(
         targetState = aboutUiState,
         transitionSpec = {
@@ -79,9 +80,7 @@ fun AboutFullscreenPane(
         label = "aboutContent",
     ) { state ->
         when (state) {
-            AboutUiState.Idle -> EmptyAboutHint(
-                text = stringResource(R.string.np_about_tap_start),
-            )
+            AboutUiState.Idle -> Box(modifier = Modifier.fillMaxSize())
             AboutUiState.Loading -> Box(
                 modifier = Modifier.fillMaxSize(),
                 contentAlignment = Alignment.Center,
@@ -96,9 +95,20 @@ fun AboutFullscreenPane(
                     )
                 }
             }
-            AboutUiState.ApiKeyMissing -> EmptyAboutHint(
-                text = stringResource(R.string.np_about_api_key),
-            )
+            AboutUiState.ApiKeyMissing -> Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(vertical = 12.dp),
+            ) {
+                Text(
+                    text = stringResource(R.string.np_about_api_key),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                TextButton(
+                    onClick = { context.startActivity(SettingsActivity.intent(context)) },
+                ) { Text(stringResource(R.string.np_about_open_settings)) }
+            }
             is AboutUiState.Error -> Column(
                 modifier = Modifier
                     .fillMaxSize()
@@ -116,21 +126,6 @@ fun AboutFullscreenPane(
                 bottomPadding = contentBottomPadding,
             )
         }
-    }
-}
-
-@Composable
-private fun EmptyAboutHint(text: String, modifier: Modifier = Modifier) {
-    Box(
-        modifier = modifier.fillMaxSize(),
-        contentAlignment = Alignment.CenterStart,
-    ) {
-        Text(
-            text = text,
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(horizontal = 4.dp),
-        )
     }
 }
 

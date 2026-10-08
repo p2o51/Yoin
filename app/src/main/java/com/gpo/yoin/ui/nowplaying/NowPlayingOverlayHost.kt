@@ -738,10 +738,16 @@ fun BoxScope.NowPlayingAccessories(
 
     LaunchedEffect(viewModel, context) {
         viewModel.addToPlaylistMessages.collect { message ->
-            snackbarHostState.showSnackbar(
-                message = message.asString(context),
-                duration = SnackbarDuration.Short,
+            val text = message.asString(context)
+            val pending = context.getString(R.string.np_msg_apple_pending)
+            val result = snackbarHostState.showSnackbar(
+                message = text,
+                actionLabel = if (text == pending) context.getString(R.string.np_msg_check) else null,
+                duration = if (text == pending) SnackbarDuration.Long else SnackbarDuration.Short,
             )
+            if (result == SnackbarResult.ActionPerformed) {
+                viewModel.addCurrentToLibrary()
+            }
         }
     }
 

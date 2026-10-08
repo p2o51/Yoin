@@ -210,30 +210,20 @@ internal fun lyricsSelectionLabel(
     limitNudge: Boolean = false,
     resources: Resources? = null,
 ): String = when {
-    limitNudge -> if (resources == null) {
-        "Up to $maxLines lines at a time" // i18n-allow: LyricsSelectionTest asserts this English
+    limitNudge || count >= maxLines -> if (resources == null) {
+        "$maxLines / $maxLines" // i18n-allow: LyricsSelectionTest asserts this English
     } else {
-        resources.getQuantityString(R.plurals.np_lyrics_select_limit, maxLines, maxLines)
+        resources.getString(R.string.np_lyrics_select_count, maxLines, maxLines)
     }
     count == 0 -> if (resources == null) {
-        "Tap lines to select" // i18n-allow: LyricsSelectionTest asserts this English
+        "Select lines" // i18n-allow: LyricsSelectionTest asserts this English
     } else {
         resources.getString(R.string.np_lyrics_select_tap)
     }
-    count == 1 -> if (resources == null) {
-        "1 line selected" // i18n-allow: LyricsSelectionTest asserts this English
-    } else {
-        resources.getQuantityString(R.plurals.np_lyrics_selected, count, count)
-    }
-    count >= maxLines -> if (resources == null) {
-        "$count lines selected · max" // i18n-allow: LyricsSelectionTest asserts this English
-    } else {
-        resources.getQuantityString(R.plurals.np_lyrics_selected_max, count, count)
-    }
     else -> if (resources == null) {
-        "$count lines selected" // i18n-allow: LyricsSelectionTest asserts this English
+        "$count / $maxLines" // i18n-allow: LyricsSelectionTest asserts this English
     } else {
-        resources.getQuantityString(R.plurals.np_lyrics_selected, count, count)
+        resources.getString(R.string.np_lyrics_select_count, count, maxLines)
     }
 }
 

@@ -40,7 +40,6 @@
     <string name="np_cd_add_favorite">加入收藏</string>
     <string name="np_cd_remove_favorite">取消收藏</string>
     <string name="np_lyric_loading">正在加载歌词</string>
-    <string name="np_lyric_tap_to_expand">点按展开</string>
     <string name="np_lyrics_none">没有歌词</string>
 
     <string name="np_dock_playing_from_album">来自专辑</string>
@@ -53,9 +52,9 @@
     <string name="np_cd_back_to_panel">回到侧栏</string>
     <string name="np_cd_full_screen">全屏</string>
 
-    <string name="np_about_tap_start">点按 About 开始 — 首次打开时获取歌曲信息。</string>
     <string name="np_about_searching">正在查找歌曲信息…</string>
-    <string name="np_about_api_key">在设置里配置你的 Gemini API 密钥，以查看 AI 生成的歌曲信息。</string>
+    <string name="np_about_api_key">没有 Gemini API 密钥</string>
+    <string name="np_about_open_settings">设置</string>
     <string name="np_about_retry">重试</string>
     <string name="np_about_creation_time">创作时间</string>
     <string name="np_about_creation_location">创作地点</string>
@@ -64,9 +63,8 @@
     <string name="np_about_producer">制作人</string>
     <string name="np_about_review">简介</string>
 
-    <string name="np_ask_placeholder">这首歌想表达什么？</string>
-    <string name="np_ask_enter">回车询问 Gemini</string>
-    <string name="np_ask_gemini">询问 Gemini</string>
+    <string name="np_ask_placeholder">问 Gemini</string>
+    <string name="np_ask_gemini">问 Gemini</string>
     <string name="np_ask_api_key_missing">缺少 Gemini API 密钥</string>
 
     <string name="np_lyrics_search_placeholder">歌曲或歌手</string>
@@ -95,16 +93,8 @@
     <string name="np_cd_share_lyrics_image">把所选歌词分享为图片</string>
     <string name="np_cd_edit_lyrics">编辑歌词</string>
     <string name="np_lyrics_clip_label">歌词</string>
-    <string name="np_lyrics_select_tap">点按歌词行来选择</string>
-    <plurals name="np_lyrics_selected">
-        <item quantity="other">已选 %1$d 行</item>
-    </plurals>
-    <plurals name="np_lyrics_selected_max">
-        <item quantity="other">已选 %1$d 行 · 已满</item>
-    </plurals>
-    <plurals name="np_lyrics_select_limit">
-        <item quantity="other">一次最多 %1$d 行</item>
-    </plurals>
+    <string name="np_lyrics_select_tap">选择行</string>
+    <string name="np_lyrics_select_count">%1$d / %2$d</string>
     <plurals name="np_lyrics_copied">
         <item quantity="other">已复制 %1$d 行</item>
     </plurals>
@@ -127,7 +117,7 @@
     <string name="np_share_file_untitled">Yoin 歌词 %1$s.png</string>
     <string name="np_share_file_named">Yoin 歌词 - %1$s - %2$s.png</string>
 
-    <string name="np_note_tap_to_write">点按写笔记</string>
+    <string name="np_note_tap_to_write">写笔记</string>
     <plurals name="np_note_count">
         <item quantity="other">%1$d 条笔记</item>
     </plurals>
@@ -163,7 +153,8 @@
     <string name="np_msg_couldnt_save_favorite">无法加入收藏</string>
     <string name="np_msg_couldnt_remove_favorite">无法取消收藏</string>
     <string name="np_msg_added_apple">已加入 Apple Music 资料库</string>
-    <string name="np_msg_apple_pending">Apple Music 已接受添加。出现后点勾确认。</string>
+    <string name="np_msg_apple_pending">已加入 Apple Music</string>
+    <string name="np_msg_check">查看</string>
     <string name="np_msg_couldnt_add_apple">无法加入 Apple Music 资料库</string>
     <string name="np_msg_spotify_devices_permission">列出设备需要重新连接 Spotify（新权限）。</string>
     <string name="np_msg_couldnt_load_devices">无法加载设备。</string>
@@ -181,7 +172,7 @@
     <string name="np_msg_translation_available">%1$s的翻译可用</string>
     <string name="np_msg_switch">切换</string>
 
-    <string name="np_device_switch_back_cast">从 Cast 胶囊切回</string>
-    <string name="np_device_connected_cast">已通过 Cast 连接</string>
-    <string name="np_device_use_cast_pill">用 Cast 胶囊选择设备</string>
+    <string name="np_device_switch_back_cast">未投屏</string>
+    <string name="np_device_connected_cast">正在投屏</string>
+    <string name="np_device_use_cast_pill">未投屏</string>
 </resources>

@@ -62,7 +62,7 @@ class LyricsSelectionPaneTest {
         rule.onNodeWithText("Line 9").performClick()
         rule.waitForIdle()
         assertEquals(setOf(2, 3, 9), selection.selected)
-        rule.onNodeWithText("3 lines selected").assertExists()
+        rule.onNodeWithText("3 / $MaxSelectedLyricLines").assertExists()
 
         rule.onNodeWithText("Line 3").performClick()
         rule.waitForIdle()
@@ -75,13 +75,13 @@ class LyricsSelectionPaneTest {
         repeat(MaxSelectedLyricLines) { selection.toggle(it) }
         val toggled = mutableListOf<Int>()
         showPane(selection, toggled)
-        rule.onNodeWithText("$MaxSelectedLyricLines lines selected · max").assertExists()
+        rule.onNodeWithText("$MaxSelectedLyricLines / $MaxSelectedLyricLines").assertExists()
 
         rule.onNodeWithText("Line $MaxSelectedLyricLines").performClick()
         rule.waitForIdle()
 
         assertTrue("a refused tap never reaches the state", toggled.isEmpty())
         assertEquals((0 until MaxSelectedLyricLines).toSet(), selection.selected)
-        rule.onNodeWithText("Up to $MaxSelectedLyricLines lines at a time").assertExists()
+        rule.onNodeWithText("$MaxSelectedLyricLines / $MaxSelectedLyricLines").assertExists()
     }
 }

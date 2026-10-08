@@ -1576,9 +1576,9 @@ private fun fallbackDevices(
 }
 
 /** English keys stored on [YoinDevice.statusText]; the sheet resolves them. */
-internal const val NpDeviceStatusSwitchBack = "Switch back from the Cast pill"
-internal const val NpDeviceStatusConnected = "Connected through Cast"
-internal const val NpDeviceStatusUsePill = "Use the Cast pill to choose a device"
+internal const val NpDeviceStatusSwitchBack = "Not casting"
+internal const val NpDeviceStatusConnected = "Casting"
+internal const val NpDeviceStatusUsePill = "Not casting"
 
 private fun userMessage(
     raw: String?,
