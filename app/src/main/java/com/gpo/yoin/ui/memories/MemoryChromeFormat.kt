@@ -1,6 +1,7 @@
 package com.gpo.yoin.ui.memories
 
 import android.text.format.DateFormat
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.TextStyle
@@ -53,7 +54,8 @@ internal fun MemoryArtistYearLine(
         if (!year.isNullOrBlank()) add(MetaGroup.Plain(year, muted = true))
     }
     if (groups.isEmpty()) return
-    MetaLine(groups = groups, modifier = modifier, style = style)
+    // Same ink the line had as one Text; the year steps back from it.
+    MetaLine(groups = groups, modifier = modifier, style = style, color = MaterialTheme.colorScheme.onSurfaceVariant)
 }
 
 /** App-language date for Memories chrome. This year drops the year, matching the old "Oct 3" / "Nov 8, 2025" split. */

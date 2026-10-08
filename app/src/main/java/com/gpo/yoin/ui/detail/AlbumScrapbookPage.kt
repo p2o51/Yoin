@@ -1212,6 +1212,7 @@ private fun Ticket(
                                     fontSize = 12.sp,
                                     letterSpacing = 0.sp,
                                 ),
+                                color = ink.copy(alpha = 0.72f),
                                 modifier = Modifier.weight(1f),
                             )
                         } else {
@@ -1352,6 +1353,7 @@ private fun scrapFactLabel(label: String): String = when (label) {
 internal fun ScrapTicketMetaLine(
     meta: ScrapTicketMeta,
     style: TextStyle,
+    color: Color,
     modifier: Modifier = Modifier,
 ) {
     val groups = buildList {
@@ -1365,7 +1367,7 @@ internal fun ScrapTicketMetaLine(
             )
         }
     }
-    DetailMetaLine(groups = groups, style = style, modifier = modifier)
+    DetailMetaLine(groups = groups, style = style, color = color, modifier = modifier)
 }
 
 @Composable

@@ -405,10 +405,11 @@ internal fun DetailMetaLine(
     groups: List<MetaGroup>,
     modifier: Modifier = Modifier,
     style: TextStyle = MaterialTheme.typography.bodySmall,
+    color: Color = Color.Unspecified,
 ) {
     Layout(
         modifier = modifier,
-        content = { MetaLine(groups = groups, style = style) },
+        content = { MetaLine(groups = groups, style = style, color = color) },
     ) { measurables, constraints ->
         val child = measurables.single().measure(constraints.copy(minWidth = 0, minHeight = 0))
         layout(

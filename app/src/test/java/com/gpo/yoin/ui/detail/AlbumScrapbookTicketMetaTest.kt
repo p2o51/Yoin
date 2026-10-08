@@ -1,6 +1,7 @@
 package com.gpo.yoin.ui.detail
 
 import androidx.compose.foundation.layout.width
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.getBoundsInRoot
@@ -84,6 +85,7 @@ class AlbumScrapbookTicketMetaTest {
                         fontSize = 12.sp,
                         lineHeight = 16.sp,
                     ),
+                    color = Color.Black,
                     modifier = Modifier.width(width).testTag(TAG),
                 )
             }

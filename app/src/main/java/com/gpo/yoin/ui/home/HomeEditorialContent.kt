@@ -1953,7 +1953,8 @@ private fun ActivityHeroCard(
                     .seamFade(),
                 verticalArrangement = Arrangement.spacedBy(3.dp),
             ) {
-                MetaLine(groups = listOf(MetaGroup.Kind(entry.typeLabel)))
+                // No kind label: the backdrop shape already says album / artist
+                // / playlist, and the card's height has no room for a fifth line.
                 Text(
                     text = entry.timeAgo,
                     style = MaterialTheme.typography.labelSmall,
@@ -1978,6 +1979,7 @@ private fun ActivityHeroCard(
                     MetaLine(
                         groups = footnoteExtra,
                         style = MaterialTheme.typography.labelSmall,
+                        color = colors.contentMuted,
                     )
                 }
             }

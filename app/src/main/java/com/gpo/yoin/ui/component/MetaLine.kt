@@ -7,6 +7,8 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.takeOrElse
 import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.layout.Placeable
 import androidx.compose.ui.text.TextStyle
@@ -55,13 +57,17 @@ fun MetaLine(
     modifier: Modifier = Modifier,
     style: TextStyle = MaterialTheme.typography.bodySmall,
     maxLines: Int = 1,
+    // The line's ink. Unspecified = the theme's onSurface; a coloured card
+    // (Activities) passes its own content colour so the line matches its text.
+    color: Color = Color.Unspecified,
 ) {
     val gap = MetaGroupGap
+    val ink = color.takeOrElse { MaterialTheme.colorScheme.onSurface }
     Layout(
         modifier = modifier,
         content = {
             groups.forEach { group ->
-                MetaGroupText(group, style, maxLines)
+                MetaGroupText(group, style, maxLines, ink, inkIsTheme = color == Color.Unspecified)
             }
         },
     ) { measurables, constraints ->
@@ -85,7 +91,7 @@ fun MetaLine(
 }
 
 @Composable
-private fun MetaGroupText(group: MetaGroup, style: TextStyle, maxLines: Int) {
+private fun MetaGroupText(group: MetaGroup, style: TextStyle, maxLines: Int, ink: Color, inkIsTheme: Boolean) {
     val scheme = MaterialTheme.colorScheme
     when (group) {
         is MetaGroup.Stat -> Row(
@@ -95,7 +101,7 @@ private fun MetaGroupText(group: MetaGroup, style: TextStyle, maxLines: Int) {
             Text(
                 text = group.value,
                 style = style.copy(fontWeight = FontWeight.Medium).withTabularFigures(),
-                color = scheme.onSurface,
+                color = ink,
                 maxLines = maxLines,
                 softWrap = false,
             )
@@ -103,7 +109,7 @@ private fun MetaGroupText(group: MetaGroup, style: TextStyle, maxLines: Int) {
                 Text(
                     text = group.unit,
                     style = style.copy(fontWeight = FontWeight.Normal),
-                    color = scheme.onSurface.copy(alpha = 0.6f),
+                    color = ink.copy(alpha = ink.alpha * 0.6f),
                     maxLines = maxLines,
                     softWrap = false,
                 )
@@ -112,14 +118,18 @@ private fun MetaGroupText(group: MetaGroup, style: TextStyle, maxLines: Int) {
         is MetaGroup.Plain -> Text(
             text = group.text,
             style = style,
-            color = scheme.onSurface.copy(alpha = if (group.muted) 0.6f else 1f),
+            color = if (group.muted) ink.copy(alpha = ink.alpha * 0.6f) else ink,
             maxLines = maxLines,
             softWrap = false,
         )
         is MetaGroup.Kind -> Text(
             text = group.text,
             style = MaterialTheme.typography.labelSmall,
-            color = if (group.accent) scheme.primary else scheme.onSurfaceVariant,
+            color = when {
+                group.accent -> scheme.primary
+                inkIsTheme -> scheme.onSurfaceVariant
+                else -> ink.copy(alpha = ink.alpha * 0.75f)
+            },
             maxLines = maxLines,
             softWrap = false,
         )

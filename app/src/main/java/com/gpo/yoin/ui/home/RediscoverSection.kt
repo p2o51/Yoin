@@ -337,7 +337,7 @@ private fun RediscoverCard(
                         overflow = TextOverflow.Ellipsis,
                     )
                 }
-                RediscoverFootnoteLine(item.firstPlayedAt, item.playCount)
+                RediscoverFootnoteLine(item.firstPlayedAt, item.playCount, colors.contentMuted)
             }
         }
     }
@@ -429,7 +429,7 @@ private fun RediscoverSongCard(
                         .padding(top = 2.dp),
                 )
                 subtitle?.let { line ->
-                    RediscoverSongLine(line)
+                    RediscoverSongLine(line, colors.contentMuted)
                 }
                 snippet?.let { note ->
                     Text(
@@ -520,6 +520,7 @@ private fun RediscoverEyebrowBlock(
                     ),
                 ),
                 style = MaterialTheme.typography.labelMedium,
+                color = ink,
             )
         } else if (reason != null) {
             Text(
@@ -541,7 +542,7 @@ private fun RediscoverEyebrowBlock(
 }
 
 @Composable
-private fun RediscoverFootnoteLine(firstPlayedAt: Long?, playCount: Int) {
+private fun RediscoverFootnoteLine(firstPlayedAt: Long?, playCount: Int, color: Color) {
     val footnote = rediscoverFootnote(firstPlayedAt, playCount) ?: return
     val groups = buildList {
         footnote.month?.let { add(MetaGroup.Plain(it)) }
@@ -558,18 +559,19 @@ private fun RediscoverFootnoteLine(firstPlayedAt: Long?, playCount: Int) {
     MetaLine(
         groups = groups,
         style = MaterialTheme.typography.labelSmall,
+        color = color,
         modifier = Modifier.padding(top = 4.dp),
     )
 }
 
 @Composable
-private fun RediscoverSongLine(line: RediscoverSongSubtitle) {
+private fun RediscoverSongLine(line: RediscoverSongSubtitle, color: Color) {
     val groups = buildList {
         line.artist?.let { add(MetaGroup.Plain(it)) }
         line.album?.let { add(MetaGroup.Plain(it, muted = true)) }
     }
     if (groups.isEmpty()) return
-    MetaLine(groups = groups, style = MaterialTheme.typography.bodyMedium)
+    MetaLine(groups = groups, style = MaterialTheme.typography.bodyMedium, color = color)
 }
 
 /** The journal's track-note rail down the snippet's leading edge (draw only). */
