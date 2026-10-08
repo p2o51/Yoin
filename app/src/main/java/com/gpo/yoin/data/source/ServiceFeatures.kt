@@ -1,33 +1,37 @@
 package com.gpo.yoin.data.source
 
+import androidx.annotation.StringRes
+import com.gpo.yoin.R
 import com.gpo.yoin.data.model.MediaId
 
 /** Service support in this build, independent of a particular account's auth state. */
-enum class FeatureSupport(val label: String) {
-    AVAILABLE("Available"),
-    PARTIAL("Limited"),
-    LOCAL("By Yoin"),
-    NOT_IMPLEMENTED("Not in Yoin yet"),
-    SERVICE_UNAVAILABLE("Not exposed by service"),
-    UNVERIFIED("Not verified")
+enum class FeatureSupport(
+    @param:StringRes @get:StringRes val labelRes: Int,
+) {
+    AVAILABLE(R.string.settings_feature_support_available),
+    PARTIAL(R.string.settings_feature_support_partial),
+    LOCAL(R.string.settings_feature_support_local),
+    NOT_IMPLEMENTED(R.string.settings_feature_support_not_implemented),
+    SERVICE_UNAVAILABLE(R.string.settings_feature_support_unavailable),
+    UNVERIFIED(R.string.settings_feature_support_unverified),
 }
 
 data class ServiceFeature(
-    val title: String,
+    @param:StringRes @get:StringRes val titleRes: Int,
     val support: FeatureSupport,
-    val explanation: String
+    @param:StringRes @get:StringRes val explanationRes: Int,
 )
 
 data class ServiceFeatures(
     val id: String,
-    val name: String,
-    val summary: String,
+    @param:StringRes @get:StringRes val nameRes: Int,
+    @param:StringRes @get:StringRes val summaryRes: Int,
     val integrated: Boolean,
     val capabilities: Set<Capability>,
     val features: List<ServiceFeature>,
     val supportsYoinCast: Boolean = false,
-    val saveLabel: String = "Add to favorites",
-    val removeLabel: String = "Remove from favorites"
+    @param:StringRes @get:StringRes val saveLabel: Int = R.string.settings_feature_save_favorites,
+    @param:StringRes @get:StringRes val removeLabel: Int = R.string.settings_feature_remove_favorites,
 ) {
     val supportsFavorites: Boolean get() = Capability.FAVORITES in capabilities
     val supportsLibraryAdd: Boolean get() = Capability.LIBRARY_ADD in capabilities
@@ -37,9 +41,9 @@ data class ServiceFeatures(
 object ServiceFeatureCatalog {
     val subsonic = ServiceFeatures(
         id = MediaId.PROVIDER_SUBSONIC,
-        name = "Subsonic",
+        nameRes = R.string.settings_feature_name_subsonic,
         supportsYoinCast = true,
-        summary = "Plays in Yoin · Server features may vary",
+        summaryRes = R.string.settings_feature_summary_subsonic,
         integrated = true,
         capabilities = setOf(
             Capability.FAVORITES,
@@ -47,51 +51,52 @@ object ServiceFeatureCatalog {
             Capability.RANDOM_SONGS,
             Capability.PLAYLISTS_READ,
             Capability.PLAYLISTS_WRITE,
-            Capability.LYRICS
+            Capability.LYRICS,
         ),
         features = listOf(
             ServiceFeature(
-                "Playback",
+                R.string.settings_feature_subsonic_playback_title,
                 FeatureSupport.AVAILABLE,
-                "Stream from your server in Yoin, with background and system playback controls."
+                R.string.settings_feature_subsonic_playback_body,
             ),
-            ServiceFeature("Favorites", FeatureSupport.AVAILABLE, "The heart stars or unstars music on your server."),
             ServiceFeature(
-                "Playlists",
+                R.string.settings_feature_subsonic_favorites_title,
+                FeatureSupport.AVAILABLE,
+                R.string.settings_feature_subsonic_favorites_body,
+            ),
+            ServiceFeature(
+                R.string.settings_feature_subsonic_playlists_title,
                 FeatureSupport.PARTIAL,
-                "Browse and edit writable playlists. Permissions and supported operations depend on your server."
+                R.string.settings_feature_subsonic_playlists_body,
             ),
             ServiceFeature(
-                "Lyrics",
+                R.string.settings_feature_subsonic_lyrics_title,
                 FeatureSupport.PARTIAL,
-                "Use server lyrics when available, with Yoin's additional lyric sources. Matches are not " +
-                    "guaranteed."
+                R.string.settings_feature_subsonic_lyrics_body,
             ),
             ServiceFeature(
-                "Ratings & notes",
+                R.string.settings_feature_subsonic_ratings_title,
                 FeatureSupport.LOCAL,
-                "Saved separately for each profile. Track ratings also sync to servers that support ratings."
+                R.string.settings_feature_subsonic_ratings_body,
             ),
             ServiceFeature(
-                "Audio quality",
+                R.string.settings_feature_subsonic_quality_title,
                 FeatureSupport.PARTIAL,
-                "Your server supplies the stream and may transcode it. The original file format does not " +
-                    "confirm the current output."
+                R.string.settings_feature_subsonic_quality_body,
             ),
             ServiceFeature(
-                "Devices & cache",
+                R.string.settings_feature_subsonic_devices_title,
                 FeatureSupport.PARTIAL,
-                "Yoin supports Cast and automatic playback caching. The cache is not a managed offline " +
-                    "download library."
-            )
-        )
+                R.string.settings_feature_subsonic_devices_body,
+            ),
+        ),
     )
     val spotify = ServiceFeatures(
         id = MediaId.PROVIDER_SPOTIFY,
-        name = "Spotify",
-        saveLabel = "Save to Spotify liked songs",
-        removeLabel = "Remove from Spotify liked songs",
-        summary = "Plays through Spotify · Premium required",
+        nameRes = R.string.settings_feature_name_spotify,
+        saveLabel = R.string.settings_feature_save_spotify,
+        removeLabel = R.string.settings_feature_remove_spotify,
+        summaryRes = R.string.settings_feature_summary_spotify,
         integrated = true,
         capabilities = setOf(
             Capability.FAVORITES,
@@ -99,124 +104,126 @@ object ServiceFeatureCatalog {
             Capability.CATALOG_SEARCH,
             Capability.RANDOM_SONGS,
             Capability.PLAYLISTS_READ,
-            Capability.PLAYLISTS_WRITE
+            Capability.PLAYLISTS_WRITE,
         ),
         features = listOf(
             ServiceFeature(
-                "Playback",
+                R.string.settings_feature_spotify_playback_title,
                 FeatureSupport.PARTIAL,
-                "Requires the Spotify app and Premium. Spotify handles audio and system playback " +
-                    "controls; Yoin controls playback remotely."
+                R.string.settings_feature_spotify_playback_body,
             ),
             ServiceFeature(
-                "Saved music",
+                R.string.settings_feature_spotify_saved_title,
                 FeatureSupport.AVAILABLE,
-                "The heart saves or removes a song from your Spotify liked songs."
+                R.string.settings_feature_spotify_saved_body,
             ),
             ServiceFeature(
-                "Playlists",
+                R.string.settings_feature_spotify_playlists_title,
                 FeatureSupport.PARTIAL,
-                "Browse playlists and edit those you can write to. Removing your playlist in Yoin " +
-                    "unfollows it on Spotify."
+                R.string.settings_feature_spotify_playlists_body,
             ),
             ServiceFeature(
-                "Lyrics",
+                R.string.settings_feature_spotify_lyrics_title,
                 FeatureSupport.LOCAL,
-                "Yoin uses additional lyric sources. Spotify's official lyrics are not available through " +
-                    "this integration; matches may differ."
+                R.string.settings_feature_spotify_lyrics_body,
             ),
             ServiceFeature(
-                "Ratings & notes",
+                R.string.settings_feature_spotify_ratings_title,
                 FeatureSupport.LOCAL,
-                "Saved separately for each Yoin profile. Ratings do not sync to Spotify."
+                R.string.settings_feature_spotify_ratings_body,
             ),
             ServiceFeature(
-                "Audio quality",
+                R.string.settings_feature_spotify_quality_title,
                 FeatureSupport.PARTIAL,
-                "Managed in Spotify. Yoin cannot select or confirm the current stream's audio quality."
+                R.string.settings_feature_spotify_quality_body,
             ),
             ServiceFeature(
-                "Devices & cache",
+                R.string.settings_feature_spotify_devices_title,
                 FeatureSupport.PARTIAL,
-                "Use Spotify Connect for playback targets. Yoin's Cast and audio cache do not apply to " +
-                    "Spotify; manage downloads in Spotify."
-            )
-        )
+                R.string.settings_feature_spotify_devices_body,
+            ),
+        ),
     )
 
     val appleMusic = ServiceFeatures(
         id = MediaId.PROVIDER_APPLE_MUSIC,
-        name = "Apple Music",
-        summary = "Plays in Yoin with MusicKit · Subscription required",
+        nameRes = R.string.settings_feature_name_apple,
+        summaryRes = R.string.settings_feature_summary_apple,
         integrated = true,
         capabilities = setOf(
-            Capability.SEARCH, Capability.CATALOG_SEARCH, Capability.LIBRARY_ADD,
-            Capability.LIBRARY_SONGS, Capability.PLAYLISTS_READ,
+            Capability.SEARCH,
+            Capability.CATALOG_SEARCH,
+            Capability.LIBRARY_ADD,
+            Capability.LIBRARY_SONGS,
+            Capability.PLAYLISTS_READ,
         ),
         features = listOf(
             ServiceFeature(
-                "Playback",
+                R.string.settings_feature_apple_playback_title,
                 FeatureSupport.PARTIAL,
-                "MusicKit plays catalog songs in Yoin, with background and system " +
-                    "controls. Imported songs without a catalog match must be played in Apple Music."
+                R.string.settings_feature_apple_playback_body,
             ),
             ServiceFeature(
-                "Library & search",
+                R.string.settings_feature_apple_library_title,
                 FeatureSupport.AVAILABLE,
-                "Browse library songs, albums, artists and playlists. Search your library or the Apple Music catalog."
+                R.string.settings_feature_apple_library_body,
             ),
             ServiceFeature(
-                "Add to library",
+                R.string.settings_feature_apple_add_title,
                 FeatureSupport.AVAILABLE,
-                "Add catalog songs to your library; Yoin confirms membership before showing a checkmark. " +
-                    "Library membership is separate from favorites."
+                R.string.settings_feature_apple_add_body,
             ),
             ServiceFeature(
-                "Playlists",
+                R.string.settings_feature_apple_playlists_title,
                 FeatureSupport.PARTIAL,
-                "Browse and play playlists. Edit them in Apple Music."
+                R.string.settings_feature_apple_playlists_body,
             ),
             ServiceFeature(
-                "Lyrics, ratings & notes",
+                R.string.settings_feature_apple_lyrics_title,
                 FeatureSupport.LOCAL,
-                "Yoin's additional lyric sources, local ratings and notes. Apple's official lyrics are not included."
+                R.string.settings_feature_apple_lyrics_body,
             ),
             ServiceFeature(
-                "Audio quality",
+                R.string.settings_feature_apple_quality_title,
                 FeatureSupport.UNVERIFIED,
-                "MusicKit manages the stream. Yoin does not confirm lossless or spatial audio output."
+                R.string.settings_feature_apple_quality_body,
             ),
             ServiceFeature(
-                "Offline & devices",
+                R.string.settings_feature_apple_offline_title,
                 FeatureSupport.NOT_IMPLEMENTED,
-                "Yoin's Cast and audio cache are not available for Apple Music."
-            )
-        )
+                R.string.settings_feature_apple_offline_body,
+            ),
+        ),
     )
     val local = ServiceFeatures(
-        MediaId.PROVIDER_LOCAL,
-        "Local files",
-        "Not in Yoin yet",
-        false,
-        emptySet(),
-        listOf(
+        id = MediaId.PROVIDER_LOCAL,
+        nameRes = R.string.settings_feature_name_local,
+        summaryRes = R.string.settings_feature_summary_local,
+        integrated = false,
+        capabilities = emptySet(),
+        features = listOf(
             ServiceFeature(
-                "Local library",
+                R.string.settings_feature_local_library_title,
                 FeatureSupport.NOT_IMPLEMENTED,
-                "Browsing and importing local files is not implemented in Yoin yet."
-            )
-        )
+                R.string.settings_feature_local_library_body,
+            ),
+        ),
     )
     val entries = listOf(subsonic, spotify, appleMusic, local)
 
     fun forProvider(id: String?): ServiceFeatures = entries.firstOrNull { it.id == id }
         ?: ServiceFeatures(
-            id.orEmpty(), "Music service", "Service capabilities have not been verified", false, emptySet(),
-            listOf(
+            id = id.orEmpty(),
+            nameRes = R.string.settings_feature_name_unknown,
+            summaryRes = R.string.settings_feature_summary_unknown,
+            integrated = false,
+            capabilities = emptySet(),
+            features = listOf(
                 ServiceFeature(
-                    "Service features", FeatureSupport.UNVERIFIED,
-                    "No verified feature information is available for this service."
-                )
-            )
+                    R.string.settings_feature_unknown_title,
+                    FeatureSupport.UNVERIFIED,
+                    R.string.settings_feature_unknown_body,
+                ),
+            ),
         )
 }

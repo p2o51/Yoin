@@ -42,6 +42,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Outline
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -50,6 +51,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
+import com.gpo.yoin.R
 import com.gpo.yoin.symbols.YoinSymbols
 import com.gpo.yoin.symbols.rememberExpandSymbolPainter
 import com.gpo.yoin.ui.component.ExpressiveTextField
@@ -332,7 +334,9 @@ internal fun SettingsExpandableItem(
                     {
                         Icon(
                             painter = rememberExpandSymbolPainter(expanded),
-                            contentDescription = if (expanded) "Collapse" else "Expand",
+                            contentDescription = stringResource(
+                                if (expanded) R.string.settings_cd_collapse else R.string.settings_cd_expand,
+                            ),
                             tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
@@ -396,7 +400,10 @@ internal fun SecretTextField(
                 ) {
                     Icon(
                         imageVector = if (visible) YoinSymbols.VisibilityOff else YoinSymbols.Visibility,
-                        contentDescription = if (visible) "Hide $label" else "Show $label",
+                        contentDescription = stringResource(
+                            if (visible) R.string.settings_cd_hide else R.string.settings_cd_show,
+                            label,
+                        ),
                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.size(18.dp),
                     )

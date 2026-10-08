@@ -68,14 +68,18 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInWindow
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import com.gpo.yoin.R
 import com.gpo.yoin.data.source.spotify.SpotifyOAuthContract
+import com.gpo.yoin.ui.common.asString
 import com.gpo.yoin.ui.component.ExpressiveTextField
 import com.gpo.yoin.ui.component.YoinLoadingIndicator
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
@@ -113,6 +117,7 @@ fun ServiceSetupScreen(
     val uiState by viewModel.uiState.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
     val spotifyOAuthLauncher = rememberLauncherForActivityResult(SpotifyOAuthContract()) {
         viewModel.commitSpotifyOAuth(it)
     }
@@ -120,7 +125,8 @@ fun ServiceSetupScreen(
         viewModel.events.collect { event ->
             when (event) {
                 is ServiceSetupEvent.LaunchSpotifyOAuth -> spotifyOAuthLauncher.launch(event.targetProfileId)
-                is ServiceSetupEvent.ShowError -> scope.launch { snackbarHostState.showSnackbar(event.message) }
+                is ServiceSetupEvent.ShowError ->
+                    scope.launch { snackbarHostState.showSnackbar(event.message.asString(context)) }
                 is ServiceSetupEvent.Done -> onDone(event.activateProfileId)
             }
         }
@@ -156,17 +162,19 @@ fun ServiceSetupContent(
     val intro = state.service.intro
     val identity = state.service.provider.serviceIdentity
     val haptics = rememberYoinHaptics()
+    val introName = stringResource(intro.nameRes)
+    val serviceName = stringResource(identity.nameRes)
     val heroTitle = if (state.isManaging) {
-        state.account?.title ?: state.existingProfileName ?: intro.name
+        state.account?.title ?: state.existingProfileName ?: introName
     } else {
-        intro.name
+        introName
     }
     // Managing: the line under the account's name says which service it is
     // ("Spotify", "Subsonic · host") — the same line its Settings card shows.
     val heroTagline = if (state.isManaging) {
-        serviceLineOf(identity.name, heroTitle, state.account?.detail) ?: identity.name
+        serviceLineOf(serviceName, heroTitle, state.account?.detail, LocalContext.current.resources) ?: serviceName
     } else {
-        intro.tagline
+        stringResource(intro.taglineRes)
     }
     // Hero title → app-bar title handoff. Positions land in plain float state
     // and are read only inside the bar title's graphicsLayer, so scrolling
@@ -226,7 +234,9 @@ fun ServiceSetupContent(
                             onSaveClientId = onSaveSpotifyClientId,
                             onConnect = onConnectSpotify,
                         )
-                        SetupService.AppleMusic -> SettingsGroup(title = "Account") {
+                        SetupService.AppleMusic -> SettingsGroup(
+                            title = stringResource(R.string.settings_setup_section_account),
+                        ) {
                             item { appleMusicContent() }
                         }
                     }
@@ -356,7 +366,7 @@ private fun ServiceHero(
             // Managing: the account's own avatar — same shape, letter and
             // service badge as its card in Settings.
             AccountAvatar(
-                monogram = monogramOf(account.title, identity.name),
+                monogram = monogramOf(account.title, stringResource(identity.nameRes)),
                 shapeIndex = account.avatarShape,
                 photoUrl = account.photoUrl,
                 identity = identity,
@@ -397,14 +407,14 @@ private fun ServiceHero(
                         .weight(1f, fill = false)
                         .semantics { heading() },
                 )
-                intro.badge?.let { badge ->
+                intro.badgeRes?.let { badgeRes ->
                     Surface(
                         shape = YoinShapeTokens.Full,
                         color = MaterialTheme.colorScheme.tertiaryContainer,
                         contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
                     ) {
                         Text(
-                            text = badge,
+                            text = stringResource(badgeRes),
                             style = MaterialTheme.typography.labelLarge,
                             modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
                         )
@@ -424,10 +434,14 @@ private fun ServiceHero(
 
 @Composable
 private fun HighlightsGroup(intro: ServiceIntro) {
-    SettingsGroup(title = "What you get") {
+    SettingsGroup(title = stringResource(R.string.settings_setup_section_what_you_get)) {
         intro.highlights.forEach { highlight ->
-            item(key = highlight.title) {
-                SettingsItem(icon = highlight.icon, title = highlight.title, summary = highlight.body)
+            item(key = highlight.titleRes) {
+                SettingsItem(
+                    icon = highlight.icon,
+                    title = stringResource(highlight.titleRes),
+                    summary = stringResource(highlight.bodyRes),
+                )
             }
         }
     }
@@ -435,10 +449,10 @@ private fun HighlightsGroup(intro: ServiceIntro) {
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun RequirementsGroup(requirements: List<String>) {
+private fun RequirementsGroup(requirements: List<Int>) {
     if (requirements.isEmpty()) return
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        SettingsGroupLabel(title = "You'll need")
+        SettingsGroupLabel(title = stringResource(R.string.settings_setup_section_need))
         FlowRow(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -460,7 +474,7 @@ private fun RequirementsGroup(requirements: List<String>) {
                             tint = MaterialTheme.colorScheme.primary,
                             modifier = Modifier.size(18.dp),
                         )
-                        Text(text = requirement, style = MaterialTheme.typography.labelLarge)
+                        Text(text = stringResource(requirement), style = MaterialTheme.typography.labelLarge)
                     }
                 }
             }
@@ -485,53 +499,63 @@ private fun SubsonicConnectGroup(
     val filled = serverUrl.isNotBlank() && username.isNotBlank() && password.isNotBlank()
     val canSubmit = filled && !form.isBusy && form.loaded && state.canAddProfile
 
-    SettingsGroup(title = if (state.isManaging) "Server" else "Connect") {
+    SettingsGroup(
+        title = stringResource(
+            if (state.isManaging) R.string.settings_setup_section_server else R.string.settings_setup_section_connect,
+        ),
+    ) {
         item {
             Column(
                 modifier = Modifier.padding(horizontal = 18.dp, vertical = 18.dp),
                 verticalArrangement = Arrangement.spacedBy(14.dp),
             ) {
                 if (form.credentialsMissing) {
-                    InlineNotice("Sign in again — this account's saved password is no longer on this device.")
+                    InlineNotice(stringResource(R.string.settings_setup_password_missing))
                 }
                 ExpressiveTextField(
                     value = serverUrl,
                     onValueChange = { serverUrl = it },
-                    label = "Server address",
-                    placeholder = "https://music.example.com",
+                    label = stringResource(R.string.settings_setup_address_label),
+                    placeholder = stringResource(R.string.settings_setup_address_placeholder),
                     modifier = Modifier.fillMaxWidth(),
                 )
                 ExpressiveTextField(
                     value = username,
                     onValueChange = { username = it },
-                    label = "Username",
-                    placeholder = "Your username",
+                    label = stringResource(R.string.settings_setup_username_label),
+                    placeholder = stringResource(R.string.settings_setup_username_placeholder),
                     modifier = Modifier.fillMaxWidth(),
                 )
                 SecretTextField(
                     value = password,
                     onValueChange = { password = it },
-                    label = "Password",
-                    placeholder = "Password",
+                    label = stringResource(R.string.settings_setup_password_label),
+                    placeholder = stringResource(R.string.settings_setup_password_placeholder),
                     modifier = Modifier.fillMaxWidth(),
                 )
                 SubsonicStatusLine(form.status)
                 if (!state.canAddProfile) {
-                    InlineNotice("You've reached the account limit. Remove one in Settings to add another.")
+                    InlineNotice(stringResource(R.string.settings_setup_limit_subsonic))
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     OutlinedButton(
                         onClick = { onTest(serverUrl, username, password) },
                         enabled = filled && !form.isBusy,
                         modifier = Modifier.weight(1f),
-                    ) { Text("Test") }
+                    ) { Text(stringResource(R.string.settings_setup_test)) }
                     Button(
                         onClick = { onSave(serverUrl, username, password) },
                         enabled = canSubmit,
                         modifier = Modifier
                             .weight(1f)
                             .testTag("subsonic_connect"),
-                    ) { Text(if (state.isManaging) "Save" else "Connect") }
+                    ) {
+                        Text(
+                            stringResource(
+                                if (state.isManaging) R.string.settings_setup_save else R.string.settings_setup_connect,
+                            ),
+                        )
+                    }
                 }
             }
         }
@@ -567,13 +591,23 @@ private fun SubsonicStatusLine(status: SubsonicStatus) {
             ) {
                 YoinLoadingIndicator(size = 24.dp)
                 Text(
-                    text = if (current == SubsonicStatus.Testing) "Reaching your server…" else "Connecting…",
+                    text = stringResource(
+                        if (current == SubsonicStatus.Testing) {
+                            R.string.settings_setup_reaching
+                        } else {
+                            R.string.settings_setup_connecting
+                        },
+                    ),
                     style = MaterialTheme.typography.bodyMedium,
                     color = color,
                 )
             }
-            SubsonicStatus.Reachable -> StatusRow(YoinSymbols.Check, "Server found — ready to connect", color)
-            is SubsonicStatus.Failed -> StatusRow(YoinSymbols.Error, current.message, color)
+            SubsonicStatus.Reachable -> StatusRow(
+                YoinSymbols.Check,
+                stringResource(R.string.settings_setup_reachable),
+                color,
+            )
+            is SubsonicStatus.Failed -> StatusRow(YoinSymbols.Error, current.message.asString(), color)
         }
     }
 }
@@ -614,22 +648,31 @@ private fun SpotifyConnectGroup(
     val hasClientId = spotify.clientId.isNotBlank()
     val haptics = rememberYoinHaptics()
 
-    SettingsGroup(title = if (state.isManaging) "Account" else "Connect") {
+    SettingsGroup(
+        title = stringResource(
+            if (state.isManaging) {
+                R.string.settings_setup_section_account_spotify
+            } else {
+                R.string.settings_setup_section_connect_spotify
+            },
+        ),
+    ) {
         item {
             Column(
                 modifier = Modifier.padding(horizontal = 18.dp, vertical = 18.dp),
                 verticalArrangement = Arrangement.spacedBy(14.dp),
             ) {
+                val issue = spotify.accountIssue
                 val message = when {
-                    !hasClientId -> "Add your Client ID below first."
-                    spotify.needsReconnect -> "Sign in again to keep using this account."
-                    spotify.accountIssue != null -> spotify.accountIssue
-                    state.isManaging -> "Connected. Sign in again to switch Spotify accounts."
-                    else -> "You'll sign in through Spotify and come right back."
+                    !hasClientId -> stringResource(R.string.settings_setup_spotify_need_client)
+                    spotify.needsReconnect -> stringResource(R.string.settings_setup_spotify_reconnect_body)
+                    issue != null -> issue.asString()
+                    state.isManaging -> stringResource(R.string.settings_setup_spotify_connected)
+                    else -> stringResource(R.string.settings_setup_spotify_pitch)
                 }
                 Text(message, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 if (!state.canAddProfile) {
-                    InlineNotice("You've reached the account limit. Remove one in Settings to add another.")
+                    InlineNotice(stringResource(R.string.settings_setup_limit_spotify))
                 }
                 Button(
                     onClick = {
@@ -640,7 +683,17 @@ private fun SpotifyConnectGroup(
                     modifier = Modifier
                         .fillMaxWidth()
                         .testTag("spotify_connect"),
-                ) { Text(if (state.isManaging) "Sign in again" else "Continue with Spotify") }
+                ) {
+                    Text(
+                        stringResource(
+                            if (state.isManaging) {
+                                R.string.settings_setup_spotify_sign_in_again
+                            } else {
+                                R.string.settings_setup_spotify_continue
+                            },
+                        ),
+                    )
+                }
             }
         }
     }
@@ -670,27 +723,27 @@ private fun SpotifyDeveloperGroup(
     LaunchedEffect(focusClientId) {
         if (focusClientId) runCatching { focusRequester.requestFocus() }
     }
-    SettingsGroup(title = "Developer setup") {
+    SettingsGroup(title = stringResource(R.string.settings_setup_developer)) {
         item {
             SettingsExpandableItem(
                 icon = YoinSymbols.Code,
-                title = "Client ID",
+                title = stringResource(R.string.settings_setup_client_id),
                 summary = when {
-                    clientId.isBlank() -> "Not set"
-                    usesBuildFallback -> "Using this build's default"
-                    else -> "Set"
+                    clientId.isBlank() -> stringResource(R.string.settings_setup_client_not_set)
+                    usesBuildFallback -> stringResource(R.string.settings_setup_client_fallback)
+                    else -> stringResource(R.string.settings_setup_client_set)
                 },
                 expanded = expanded,
                 onExpandedChange = { expanded = it },
             ) {
                 Text(
-                    text = "Create an app at developer.spotify.com and register these redirect URIs:",
+                    text = stringResource(R.string.settings_setup_client_help),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 SelectionContainer {
                     Text(
-                        text = "yoin://auth/spotify/callback\nyoin://auth/spotify/app-remote",
+                        text = stringResource(R.string.settings_setup_client_uris),
                         style = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace),
                         color = MaterialTheme.colorScheme.onSurface,
                     )
@@ -698,8 +751,8 @@ private fun SpotifyDeveloperGroup(
                 ExpressiveTextField(
                     value = draft,
                     onValueChange = { draft = it },
-                    label = "Client ID",
-                    placeholder = "32-character ID",
+                    label = stringResource(R.string.settings_setup_client_id_field),
+                    placeholder = stringResource(R.string.settings_setup_client_placeholder),
                     modifier = Modifier
                         .testTag("spotify_client_id_field")
                         .fillMaxWidth()
@@ -708,7 +761,7 @@ private fun SpotifyDeveloperGroup(
                 Button(
                     onClick = { onSaveClientId(draft) },
                     enabled = draft.isNotBlank() && draft.trim() != clientId,
-                ) { Text("Save") }
+                ) { Text(stringResource(R.string.settings_setup_client_save)) }
             }
         }
     }

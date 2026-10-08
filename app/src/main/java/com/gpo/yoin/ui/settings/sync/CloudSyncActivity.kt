@@ -28,7 +28,9 @@ class CloudSyncActivity : ComponentActivity() {
         val controller = (application as YoinApplication).container.cloudSync
         setContent {
             YoinActivityRoot {
-                val viewModel: CloudSyncViewModel = viewModel(factory = CloudSyncViewModel.Factory(controller))
+                val viewModel: CloudSyncViewModel = viewModel(
+                    factory = CloudSyncViewModel.Factory(controller, application.resources),
+                )
                 CloudSyncScreen(
                     viewModel = viewModel,
                     onBack = { finish() },

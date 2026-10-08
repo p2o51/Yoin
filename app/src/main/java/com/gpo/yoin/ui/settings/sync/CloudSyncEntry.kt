@@ -8,6 +8,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
+import com.gpo.yoin.R
 import com.gpo.yoin.YoinApplication
 import com.gpo.yoin.data.sync.CloudSyncState
 import com.gpo.yoin.symbols.YoinSymbols
@@ -28,8 +30,8 @@ fun CloudSyncEntryRow(
 ) {
     SettingsItem(
         icon = YoinSymbols.Devices,
-        title = "Cloud sync",
-        summary = cloudSyncEntrySummary(state, now),
+        title = stringResource(R.string.settings_sync_title),
+        summary = cloudSyncEntrySummary(state, now, LocalContext.current.resources),
         onClick = onClick,
         modifier = modifier,
         // List-detail: rows that open a page on the right carry a chevron.

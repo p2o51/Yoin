@@ -76,8 +76,11 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.platform.toClipEntry
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
@@ -85,6 +88,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
+import com.gpo.yoin.R
 import com.gpo.yoin.data.profile.ProviderKind
 import com.gpo.yoin.data.sync.CloudAccountRow
 import com.gpo.yoin.data.sync.CloudSyncPhase
@@ -269,7 +273,7 @@ fun CloudSyncContent(
                     TopAppBar(
                         title = {
                             Text(
-                                text = PageTitle,
+                                text = stringResource(R.string.settings_sync_title_bar),
                                 modifier = Modifier.graphicsLayer {
                                     alpha = handoffProgress(viewportTop, headlineTop, headlineHeight)
                                     translationY = (1f - alpha) * size.height * 0.5f
@@ -389,8 +393,6 @@ fun CloudSyncContent(
         }
 }
 
-private const val PageTitle = "Cloud sync"
-
 /**
  * The Settings sub-page header (large title on the 24dp line, same air as
  * `SettingsHeadline`) plus, while sync is off, the one-line pitch under it.
@@ -400,7 +402,7 @@ private fun CloudSyncHeadline(showLead: Boolean, titleModifier: Modifier = Modif
     Column(modifier = Modifier.fillMaxWidth()) {
         Spacer(Modifier.height(40.dp))
         Text(
-            text = PageTitle,
+            text = stringResource(R.string.settings_sync_title),
             style = MaterialTheme.typography.displaySmall,
             color = MaterialTheme.colorScheme.onSurface,
             modifier = titleModifier
@@ -415,7 +417,7 @@ private fun CloudSyncHeadline(showLead: Boolean, titleModifier: Modifier = Modif
                 YoinMotion.fadeOut(role = YoinMotionRole.Standard),
         ) {
             Text(
-                text = "Keep your notes, ratings and translations on all your devices.",
+                text = stringResource(R.string.settings_sync_lead),
                 style = MaterialTheme.typography.bodyLarge,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(start = 8.dp, end = 8.dp, top = 12.dp),
@@ -438,39 +440,53 @@ private fun OffContent(
         if (phase is CloudSyncPhase.ResetElsewhere) {
             SettingsSegments {
                 item {
+                    val resetOn = phase.deviceName
                     TextRow(
                         icon = YoinSymbols.Info,
-                        text = "Cloud sync was turned off and its Drive data deleted " +
-                            "${phase.deviceName?.let { "on $it" } ?: "on another device"}. " +
-                            "Turn it on again to start fresh from this device.",
+                        text = if (resetOn != null) {
+                            stringResource(R.string.settings_sync_reset_on_device, resetOn)
+                        } else {
+                            stringResource(R.string.settings_sync_reset_other_device)
+                        },
                         emphasized = true,
                     )
                 }
             }
         }
-        SettingsGroup(title = "What you get") {
-            item { SettingsItem(icon = YoinSymbols.EditNote, title = "Notes & ratings follow your accounts") }
-            item { SettingsItem(icon = YoinSymbols.Translate, title = "AI lyric translations you already paid for") }
-            item { SettingsItem(icon = YoinSymbols.Settings, title = "Your settings") }
-            item { SettingsItem(icon = YoinSymbols.CloudOffline, title = "Works offline — syncs when it can") }
+        SettingsGroup(title = stringResource(R.string.settings_sync_section_what_you_get)) {
+            item {
+                SettingsItem(
+                    icon = YoinSymbols.EditNote,
+                    title = stringResource(R.string.settings_sync_benefit_notes),
+                )
+            }
+            item {
+                SettingsItem(
+                    icon = YoinSymbols.Translate,
+                    title = stringResource(R.string.settings_sync_benefit_translations),
+                )
+            }
+            item {
+                SettingsItem(
+                    icon = YoinSymbols.Settings,
+                    title = stringResource(R.string.settings_sync_benefit_settings),
+                )
+            }
+            item {
+                SettingsItem(
+                    icon = YoinSymbols.CloudOffline,
+                    title = stringResource(R.string.settings_sync_benefit_offline),
+                )
+            }
         }
-        SettingsGroup(title = "Good to know") {
+        SettingsGroup(title = stringResource(R.string.settings_sync_section_good_to_know)) {
             item {
-                TextRow(
-                    icon = YoinSymbols.Folder,
-                    text = "Saved in a hidden Yoin folder in your own Google Drive. Only Yoin can open it. " +
-                        "It's protected by your Google account, not end-to-end encrypted, and counts " +
-                        "toward your storage.",
-                )
+                TextRow(icon = YoinSymbols.Folder, text = stringResource(R.string.settings_sync_know_drive))
             }
             item {
-                TextRow(
-                    icon = YoinSymbols.Person,
-                    text = "Passwords, sign-ins and API keys never leave this device. Server addresses and " +
-                        "usernames do, so reconnecting is quicker.",
-                )
+                TextRow(icon = YoinSymbols.Person, text = stringResource(R.string.settings_sync_know_secrets))
             }
-            item { TextRow(icon = YoinSymbols.Insights, text = "Listening history stays on each device.") }
+            item { TextRow(icon = YoinSymbols.Insights, text = stringResource(R.string.settings_sync_know_history)) }
         }
         // The action changes with what this device can do; keyed on the kind
         // so a turn-on that comes back "not set up" swaps in place.
@@ -489,11 +505,13 @@ private fun OffContent(
                     item {
                         TextRow(
                             icon = YoinSymbols.Error,
-                            text = if (current.updateRequired) {
-                                "Update Google Play services to use Cloud sync."
-                            } else {
-                                "Cloud sync needs Google Play services, which this device doesn't have."
-                            },
+                            text = stringResource(
+                                if (current.updateRequired) {
+                                    R.string.settings_sync_play_update
+                                } else {
+                                    R.string.settings_sync_play_missing
+                                },
+                            ),
                             emphasized = true,
                         )
                     }
@@ -503,7 +521,7 @@ private fun OffContent(
                         item {
                             TextRow(
                                 icon = YoinSymbols.Error,
-                                text = "Cloud sync isn't available in this build of Yoin.",
+                                text = stringResource(R.string.settings_sync_unavailable),
                                 emphasized = true,
                             )
                         }
@@ -520,7 +538,17 @@ private fun OffContent(
                         onClick = onTurnOn,
                         enabled = !turningOn,
                         modifier = Modifier.fillMaxWidth(),
-                    ) { Text(if (turningOn) "Waiting for Google…" else "Try again") }
+                    ) {
+                        Text(
+                            stringResource(
+                                if (turningOn) {
+                                    R.string.settings_sync_waiting_retry
+                                } else {
+                                    R.string.settings_sync_try_again
+                                },
+                            ),
+                        )
+                    }
                 }
                 else -> TurnOnBlock(turningOn = turningOn, onTurnOn = onTurnOn)
             }
@@ -541,9 +569,15 @@ private fun TurnOnBlock(turningOn: Boolean, onTurnOn: () -> Unit) {
             modifier = Modifier
                 .fillMaxWidth()
                 .testTag("cloud_sync_turn_on"),
-        ) { Text(if (turningOn) "Waiting for Google…" else "Turn on with Google") }
+        ) {
+            Text(
+                stringResource(
+                    if (turningOn) R.string.settings_sync_waiting_turn_on else R.string.settings_sync_turn_on,
+                ),
+            )
+        }
         Text(
-            text = "Google will ask to let Yoin store its own data in your Drive.",
+            text = stringResource(R.string.settings_sync_turn_on_hint),
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(horizontal = 8.dp),
@@ -562,24 +596,26 @@ private fun BuildDetailsRow(
     val clipboard = LocalClipboard.current
     val haptics = rememberYoinHaptics()
     val scope = rememberCoroutineScope()
-    val sha1 = certSha1?.let(::formatCertSha1) ?: "unknown"
+    val sha1 = certSha1?.let(::formatCertSha1) ?: stringResource(R.string.settings_sync_cert_unknown)
+    val clipLabel = stringResource(R.string.settings_sync_clip_label)
+    val clipBody = stringResource(R.string.settings_sync_clip_body, packageName, sha1)
+    val copied = stringResource(R.string.settings_sync_copied)
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .clip(LocalSettingsRowShape.current)
             .combinedClickable(
                 onClick = {},
-                onLongClickLabel = "Copy build details",
+                onLongClickLabel = stringResource(R.string.settings_cd_copy_build),
                 onLongClick = {
                     haptics.performLongPress()
                     scope.launch {
                         clipboard.setClipEntry(
-                            ClipData.newPlainText("Yoin build details", "Package: $packageName\nSHA-1: $sha1")
-                                .toClipEntry(),
+                            ClipData.newPlainText(clipLabel, clipBody).toClipEntry(),
                         )
                         // Android 13+ confirms copies itself.
                         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
-                            snackbarHostState.showSnackbar("Copied")
+                            snackbarHostState.showSnackbar(copied)
                         }
                     }
                 },
@@ -592,22 +628,22 @@ private fun BuildDetailsRow(
         SettingsRowIcon(YoinSymbols.Code)
         Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Text(
-                text = "Details",
+                text = stringResource(R.string.settings_sync_details),
                 style = MaterialTheme.typography.titleMedium,
                 color = MaterialTheme.colorScheme.onSurface,
             )
             Text(
-                text = "Google didn't recognize this build",
+                text = stringResource(R.string.settings_sync_unrecognized),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Text(
-                text = "$packageName\nSHA-1\n${wrapFingerprint(sha1)}",
+                text = stringResource(R.string.settings_sync_fingerprint, packageName, wrapFingerprint(sha1)),
                 style = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace),
                 color = MaterialTheme.colorScheme.onSurface,
             )
             Text(
-                text = "Long-press to copy",
+                text = stringResource(R.string.settings_sync_long_press_copy),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -647,8 +683,7 @@ private fun OnContent(
             when (val phase = state.phase) {
                 CloudSyncPhase.NeedsReauth -> item(key = "reauth") {
                     ActionPanel(
-                        text = "Google needs you to sign in again before Yoin can sync. " +
-                            "Your changes wait on this device.",
+                        text = stringResource(R.string.settings_sync_reauth_body),
                     ) {
                         Button(
                             onClick = {
@@ -656,14 +691,28 @@ private fun OnContent(
                                 onTurnOn()
                             },
                             enabled = !turningOn,
-                        ) { Text(if (turningOn) "Waiting for Google…" else "Reconnect") }
+                        ) {
+                            Text(
+                                stringResource(
+                                    if (turningOn) {
+                                        R.string.settings_sync_waiting_reconnect
+                                    } else {
+                                        R.string.settings_sync_reconnect
+                                    },
+                                ),
+                            )
+                        }
                     }
                 }
                 is CloudSyncPhase.NeedsReview -> item(key = "review") {
                     SettingsItem(
                         icon = YoinSymbols.Note,
-                        title = "${notesCount(phase.count)} disappeared on this device",
-                        summary = "${phase.accountName} · Choose what happens to them",
+                        title = pluralStringResource(
+                            R.plurals.settings_sync_review_row_title,
+                            phase.count,
+                            phase.count,
+                        ),
+                        summary = stringResource(R.string.settings_sync_review_summary, phase.accountName),
                         onClick = onOpenReview,
                         trailing = {
                             Icon(
@@ -676,38 +725,38 @@ private fun OnContent(
                 }
                 CloudSyncPhase.CloudCopyRemoved -> item(key = "copyRemoved") {
                     ActionPanel(
-                        text = "Yoin's data is no longer in your Google Drive — it may have been deleted " +
-                            "in Drive settings. Upload it again from this device, or turn sync off.",
+                        text = stringResource(R.string.settings_sync_copy_removed_body),
                     ) {
                         Button(
                             onClick = {
                                 haptics.performConfirm()
                                 onUploadAgain()
                             },
-                        ) { Text("Upload again") }
+                        ) { Text(stringResource(R.string.settings_sync_upload_again)) }
                         OutlinedButton(
                             onClick = {
                                 haptics.performClick()
                                 onTurnOff()
                             },
-                        ) { Text("Turn off") }
+                        ) { Text(stringResource(R.string.settings_sync_turn_off_short)) }
                     }
                 }
                 else -> Unit
             }
             item(key = "account") {
                 val account = state.account
-                val title = account?.email ?: account?.displayName ?: GoogleAccountLabel
+                val googleAccount = stringResource(R.string.settings_sync_google_account)
+                val title = account?.email ?: account?.displayName ?: googleAccount
                 SettingsItem(
                     icon = YoinSymbols.Person,
                     title = title,
-                    summary = GoogleAccountLabel.takeIf { title != GoogleAccountLabel },
+                    summary = googleAccount.takeIf { title != googleAccount },
                 )
             }
         }
 
         if (state.accounts.isNotEmpty()) {
-            SettingsGroup(title = "Accounts") {
+            SettingsGroup(title = stringResource(R.string.settings_sync_section_accounts)) {
                 state.accounts.forEach { account ->
                     item(key = account.localProfileId) {
                         AccountRow(
@@ -723,7 +772,7 @@ private fun OnContent(
         }
 
         if (state.cloudOnlyAccounts.isNotEmpty()) {
-            SettingsGroup(title = "In your Drive, not on this device") {
+            SettingsGroup(title = stringResource(R.string.settings_sync_section_cloud_only)) {
                 state.cloudOnlyAccounts.forEach { cloud ->
                     item(key = cloud.syncProfileId) {
                         CloudAccountItem(
@@ -744,7 +793,7 @@ private fun OnContent(
         }
 
         if (state.devices.isNotEmpty()) {
-            SettingsGroup(title = "Devices") {
+            SettingsGroup(title = stringResource(R.string.settings_sync_section_devices)) {
                 state.devices.sortedByDescending { it.isThisDevice }.forEach { device ->
                     item(key = device.deviceId) {
                         DeviceItem(device = device, now = now, onRequestRemove = onRequestRemoveDevice)
@@ -758,16 +807,16 @@ private fun OnContent(
             item(key = "turnOff") {
                 SettingsItem(
                     icon = YoinSymbols.CloudOffline,
-                    title = "Turn off on this device",
-                    summary = "Your data stays here and in your Drive. Other devices keep syncing.",
+                    title = stringResource(R.string.settings_sync_turn_off_title),
+                    summary = stringResource(R.string.settings_sync_turn_off_summary),
                     onClick = onTurnOff,
                 )
             }
             item(key = "delete") {
                 DestructiveItem(
                     icon = YoinSymbols.Delete,
-                    title = "Delete cloud data…",
-                    summary = if (deleting) "Deleting…" else null,
+                    title = stringResource(R.string.settings_sync_delete_title),
+                    summary = if (deleting) stringResource(R.string.settings_sync_deleting) else null,
                     enabled = !deleting,
                     onClick = onRequestDelete,
                 )
@@ -775,8 +824,6 @@ private fun OnContent(
         }
     }
 }
-
-private const val GoogleAccountLabel = "Google account"
 
 private enum class StatusVisual(val icon: ImageVector, val problem: Boolean) {
     Syncing(YoinSymbols.Refresh, problem = false),
@@ -802,7 +849,7 @@ private fun statusVisualOf(state: CloudSyncState): StatusVisual = when (state.ph
 /** Where sync stands: icon by state, what's happening, when it last synced, and Sync now. */
 @Composable
 private fun StatusRow(state: CloudSyncState, now: Long, onSyncNow: () -> Unit) {
-    val text = cloudSyncStatusText(state, now)
+    val text = cloudSyncStatusText(state, now, LocalContext.current.resources)
     val visual = statusVisualOf(state)
     val haptics = rememberYoinHaptics()
     val tint by animateColorAsState(
@@ -877,7 +924,10 @@ private fun StatusRow(state: CloudSyncState, now: Long, onSyncNow: () -> Unit) {
             },
             enabled = state.phase != CloudSyncPhase.Syncing,
         ) {
-            Icon(imageVector = YoinSymbols.Refresh, contentDescription = "Sync now")
+            Icon(
+                imageVector = YoinSymbols.Refresh,
+                contentDescription = stringResource(R.string.settings_cd_sync_now),
+            )
         }
     }
 }
@@ -906,13 +956,15 @@ private fun ActionPanel(text: String, actions: @Composable () -> Unit) {
 
 // ── Accounts ─────────────────────────────────────────────────────────
 
+@Composable
 private fun accountStatusText(status: SyncAccountStatus): String = when (status) {
-    SyncAccountStatus.Syncing -> "Syncing"
-    SyncAccountStatus.NeedsIdentity -> "Not synced yet — open this account once"
-    SyncAccountStatus.NeedsReconnect -> "Reconnect to sync"
-    is SyncAccountStatus.DuplicateOf -> "Same account as ${status.otherDisplayName} — not synced"
-    is SyncAccountStatus.NotSynced -> "Not synced"
-    SyncAccountStatus.AccountChanged -> "Paused — signed in as a different account"
+    SyncAccountStatus.Syncing -> stringResource(R.string.settings_sync_account_syncing)
+    SyncAccountStatus.NeedsIdentity -> stringResource(R.string.settings_sync_account_needs_identity)
+    SyncAccountStatus.NeedsReconnect -> stringResource(R.string.settings_sync_account_reconnect)
+    is SyncAccountStatus.DuplicateOf ->
+        stringResource(R.string.settings_sync_account_duplicate, status.otherDisplayName)
+    is SyncAccountStatus.NotSynced -> stringResource(R.string.settings_sync_account_not_synced)
+    SyncAccountStatus.AccountChanged -> stringResource(R.string.settings_sync_account_changed)
 }
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -932,10 +984,17 @@ private fun AccountRow(
             icon = identity?.glyph ?: YoinSymbols.Person,
             iconTone = identity?.hue?.tone(),
             title = account.displayName,
-            summary = listOfNotNull(
-                identity?.let { serviceLineOf(it.name, account.displayName, null) },
-                accountStatusText(status),
-            ).joinToString(" · "),
+            summary = syncAccountSummary(
+                serviceLine = identity?.let {
+                    serviceLineOf(
+                        stringResource(it.nameRes),
+                        account.displayName,
+                        null,
+                        LocalContext.current.resources,
+                    )
+                },
+                status = accountStatusText(status),
+            ),
         )
         val hasActions = status is SyncAccountStatus.NotSynced || status == SyncAccountStatus.AccountChanged
         if (hasActions) {
@@ -951,7 +1010,7 @@ private fun AccountRow(
                                 haptics.performConfirm()
                                 onStartSyncing(account.localProfileId)
                             },
-                        ) { Text("Start syncing") }
+                        ) { Text(stringResource(R.string.settings_sync_start_syncing)) }
                         LinkButton(
                             candidates = status.linkCandidates,
                             onLink = { cloud -> onLink(account.localProfileId, cloud.syncProfileId) },
@@ -963,13 +1022,13 @@ private fun AccountRow(
                                 haptics.performConfirm()
                                 onKeepAsBefore(account.localProfileId)
                             },
-                        ) { Text("Keep syncing as before") }
+                        ) { Text(stringResource(R.string.settings_sync_keep_before)) }
                         OutlinedButton(
                             onClick = {
                                 haptics.performClick()
                                 onRequestStartFresh(account.localProfileId)
                             },
-                        ) { Text("Start fresh") }
+                        ) { Text(stringResource(R.string.settings_sync_start_fresh)) }
                     }
                 }
             }
@@ -989,7 +1048,7 @@ private fun LinkButton(candidates: List<CloudAccountRow>, onLink: (CloudAccountR
                 haptics.performConfirm()
                 onLink(single)
             },
-        ) { Text("Link to ${linkLabel(single)}") }
+        ) { Text(stringResource(R.string.settings_sync_link_to, linkLabel(single))) }
         return
     }
     var menuOpen by remember { mutableStateOf(false) }
@@ -999,7 +1058,7 @@ private fun LinkButton(candidates: List<CloudAccountRow>, onLink: (CloudAccountR
                 haptics.performTick()
                 menuOpen = true
             },
-        ) { Text("Link…") }
+        ) { Text(stringResource(R.string.settings_sync_link_menu)) }
         YoinDropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
             candidates.forEach { candidate ->
                 YoinDropdownMenuItem(
@@ -1015,9 +1074,33 @@ private fun LinkButton(candidates: List<CloudAccountRow>, onLink: (CloudAccountR
     }
 }
 
+@Composable
+private fun cloudAccountSummary(line: String?, fromDevice: String?): String? {
+    val device = fromDevice?.takeIf { it.isNotBlank() }
+    return when {
+        !line.isNullOrBlank() && device != null -> stringResource(R.string.settings_sync_cloud_from, line, device)
+        !line.isNullOrBlank() -> line
+        device != null -> stringResource(R.string.settings_sync_from_device, device)
+        else -> null
+    }
+}
+
+@Composable
+private fun syncAccountSummary(serviceLine: String?, status: String): String = when {
+    !serviceLine.isNullOrBlank() -> stringResource(R.string.settings_sync_account_line, serviceLine, status)
+    else -> status
+}
+
 /** "Apple Music from Pixel 9": Apple accounts are usually all called "Apple Music". */
-private fun linkLabel(candidate: CloudAccountRow): String =
-    listOfNotNull(candidate.displayName, candidate.fromDeviceName?.let { "from $it" }).joinToString(" ")
+@Composable
+private fun linkLabel(candidate: CloudAccountRow): String {
+    val device = candidate.fromDeviceName
+    return if (device.isNullOrBlank()) {
+        candidate.displayName
+    } else {
+        stringResource(R.string.settings_sync_link_from, candidate.displayName, device)
+    }
+}
 
 @Composable
 private fun CloudAccountItem(
@@ -1034,10 +1117,17 @@ private fun CloudAccountItem(
         icon = identity?.glyph ?: YoinSymbols.Person,
         iconTone = identity?.hue?.tone(),
         title = cloud.displayName,
-        summary = listOfNotNull(
-            identity?.let { serviceLineOf(it.name, cloud.displayName, cloud.hint) } ?: cloud.hint,
-            cloud.fromDeviceName?.let { "from $it" },
-        ).joinToString(" · ").ifEmpty { null },
+        summary = cloudAccountSummary(
+            line = identity?.let {
+                serviceLineOf(
+                    stringResource(it.nameRes),
+                    cloud.displayName,
+                    cloud.hint,
+                    LocalContext.current.resources,
+                )
+            } ?: cloud.hint?.takeIf { it.isNotBlank() },
+            fromDevice = cloud.fromDeviceName,
+        ),
         trailing = {
             when {
                 linkTargets.isNotEmpty() -> Box {
@@ -1052,7 +1142,7 @@ private fun CloudAccountItem(
                                 menuOpen = true
                             }
                         },
-                    ) { Text("Link") }
+                    ) { Text(stringResource(R.string.settings_sync_link)) }
                     YoinDropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
                         linkTargets.forEach { local ->
                             YoinDropdownMenuItem(
@@ -1071,7 +1161,7 @@ private fun CloudAccountItem(
                         haptics.performClick()
                         onAdd(service)
                     },
-                ) { Text("Add") }
+                ) { Text(stringResource(R.string.settings_sync_add)) }
             }
         },
     )
@@ -1091,9 +1181,12 @@ private fun DeviceItem(device: SyncDeviceRow, now: Long, onRequestRemove: (Strin
         icon = if (tablet) YoinSymbols.Tablet else YoinSymbols.Smartphone,
         title = device.name,
         summary = when {
-            device.isThisDevice -> "This device"
-            device.lastSyncAt != null -> "Last synced ${formatRelativeTime(device.lastSyncAt, now)}"
-            else -> "Hasn't synced yet"
+            device.isThisDevice -> stringResource(R.string.settings_sync_this_device)
+            device.lastSyncAt != null -> stringResource(
+                R.string.settings_sync_device_last_synced,
+                formatRelativeTime(device.lastSyncAt, now, resources = LocalContext.current.resources),
+            )
+            else -> stringResource(R.string.settings_sync_device_never)
         },
         trailing = if (device.isThisDevice) {
             null
@@ -1108,13 +1201,13 @@ private fun DeviceItem(device: SyncDeviceRow, now: Long, onRequestRemove: (Strin
                     ) {
                         Icon(
                             imageVector = YoinSymbols.MoreVertical,
-                            contentDescription = "More options for ${device.name}",
+                            contentDescription = stringResource(R.string.settings_cd_device_options, device.name),
                             tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                     YoinDropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
                         YoinDropdownMenuItem(
-                            text = "Remove from sync",
+                            text = stringResource(R.string.settings_sync_remove_device_menu),
                             leadingIcon = { Icon(imageVector = YoinSymbols.Delete, contentDescription = null) },
                             onClick = {
                                 haptics.performContextClick()
@@ -1139,25 +1232,29 @@ private fun WhatSyncsItem() {
     var expanded by rememberSaveable { mutableStateOf(false) }
     SettingsExpandableItem(
         icon = YoinSymbols.Info,
-        title = "What syncs",
-        summary = "Notes, ratings, translations and a few settings",
+        title = stringResource(R.string.settings_sync_what_title),
+        summary = stringResource(R.string.settings_sync_what_summary),
         expanded = expanded,
         onExpandedChange = { expanded = it },
     ) {
         WhatSyncsList(
-            title = "Syncs",
+            title = stringResource(R.string.settings_sync_what_syncs),
             lines = listOf(
-                "Notes on songs",
-                "Song and album ratings, album reviews",
-                "Home layout",
-                "AI lyric translations",
-                "Translation language, Spotify Client ID and scroll edge style",
-                "Your music accounts' names and server addresses — never passwords",
+                stringResource(R.string.settings_sync_what_notes),
+                stringResource(R.string.settings_sync_what_ratings),
+                stringResource(R.string.settings_sync_what_home),
+                stringResource(R.string.settings_sync_what_translations),
+                stringResource(R.string.settings_sync_what_settings),
+                stringResource(R.string.settings_sync_what_accounts),
             ),
         )
         WhatSyncsList(
-            title = "Stays on this device",
-            lines = listOf("Listening history", "Passwords, sign-ins and API keys", "Caches and downloads"),
+            title = stringResource(R.string.settings_sync_what_stays),
+            lines = listOf(
+                stringResource(R.string.settings_sync_what_history),
+                stringResource(R.string.settings_sync_what_secrets),
+                stringResource(R.string.settings_sync_what_caches),
+            ),
         )
     }
 }
@@ -1264,12 +1361,16 @@ private fun ReviewDialog(
     AlertDialog(
         onDismissRequest = onDismiss,
         icon = { Icon(imageVector = YoinSymbols.Note, contentDescription = null) },
-        title = { Text("${notesCount(review.count)} disappeared") },
+        title = {
+            Text(pluralStringResource(R.plurals.settings_sync_review_dialog_title, review.count, review.count))
+        },
         text = {
             Text(
-                "${if (review.count == 1) "It was" else "They were"} removed on this device from " +
-                    "${review.accountName}. Restore ${if (review.count == 1) "it" else "them"} here, " +
-                    "or delete ${if (review.count == 1) "it" else "them"} on all your devices.",
+                pluralStringResource(
+                    R.plurals.settings_sync_review_dialog_body,
+                    review.count,
+                    review.accountName,
+                ),
             )
         },
         confirmButton = {
@@ -1278,7 +1379,7 @@ private fun ReviewDialog(
                     haptics.performConfirm()
                     onResolve(true)
                 },
-            ) { Text("Restore here") }
+            ) { Text(stringResource(R.string.settings_sync_review_restore)) }
         },
         dismissButton = {
             TextButton(
@@ -1287,7 +1388,7 @@ private fun ReviewDialog(
                     onResolve(false)
                 },
                 colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
-            ) { Text("Delete on all devices") }
+            ) { Text(stringResource(R.string.settings_sync_review_delete_all)) }
         },
     )
 }
@@ -1297,13 +1398,8 @@ private fun DeleteCloudDataDialog(onDismiss: () -> Unit, onConfirm: () -> Unit) 
     val haptics = rememberYoinHaptics()
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Delete cloud data?") },
-        text = {
-            Text(
-                "Deletes Yoin's data from your Google Drive for all devices, and turns sync off on " +
-                    "them. Data on this device stays.",
-            )
-        },
+        title = { Text(stringResource(R.string.settings_sync_delete_dialog_title)) },
+        text = { Text(stringResource(R.string.settings_sync_delete_dialog_body)) },
         confirmButton = {
             TextButton(
                 onClick = {
@@ -1311,9 +1407,11 @@ private fun DeleteCloudDataDialog(onDismiss: () -> Unit, onConfirm: () -> Unit) 
                     onConfirm()
                 },
                 colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
-            ) { Text("Delete") }
+            ) { Text(stringResource(R.string.settings_sync_delete_confirm)) }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.settings_sync_delete_cancel)) }
+        },
     )
 }
 
@@ -1322,14 +1420,8 @@ private fun StartFreshDialog(account: SyncAccountRow, onDismiss: () -> Unit, onC
     val haptics = rememberYoinHaptics()
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Start fresh as this account?") },
-        text = {
-            Text(
-                "“${account.displayName}” is now signed in as a different account. Notes and ratings it " +
-                    "synced before are removed from this device, and it syncs as the new account from now " +
-                    "on. Your Drive and your other devices keep the old ones.",
-            )
-        },
+        title = { Text(stringResource(R.string.settings_sync_fresh_title)) },
+        text = { Text(stringResource(R.string.settings_sync_fresh_body, account.displayName)) },
         confirmButton = {
             TextButton(
                 onClick = {
@@ -1337,9 +1429,11 @@ private fun StartFreshDialog(account: SyncAccountRow, onDismiss: () -> Unit, onC
                     onConfirm()
                 },
                 colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
-            ) { Text("Start fresh") }
+            ) { Text(stringResource(R.string.settings_sync_fresh_confirm)) }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.settings_sync_fresh_cancel)) }
+        },
     )
 }
 
@@ -1348,13 +1442,8 @@ private fun RemoveDeviceDialog(device: SyncDeviceRow, onDismiss: () -> Unit, onC
     val haptics = rememberYoinHaptics()
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Remove ${device.name} from sync?") },
-        text = {
-            Text(
-                "Deletes this device's copy from your Google Drive. If it's still syncing, it uploads " +
-                    "again the next time it syncs.",
-            )
-        },
+        title = { Text(stringResource(R.string.settings_sync_remove_device_title, device.name)) },
+        text = { Text(stringResource(R.string.settings_sync_remove_device_body)) },
         confirmButton = {
             TextButton(
                 onClick = {
@@ -1362,8 +1451,10 @@ private fun RemoveDeviceDialog(device: SyncDeviceRow, onDismiss: () -> Unit, onC
                     onConfirm()
                 },
                 colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
-            ) { Text("Remove") }
+            ) { Text(stringResource(R.string.settings_sync_remove_device_confirm)) }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.settings_sync_remove_device_cancel)) }
+        },
     )
 }

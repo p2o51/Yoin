@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.gpo.yoin.AppContainer
+import com.gpo.yoin.R
 import com.gpo.yoin.data.local.SpotifyConfig
 import com.gpo.yoin.data.profile.ProfileCredentials
 import com.gpo.yoin.data.profile.ProfileLimitReachedException
@@ -15,6 +16,7 @@ import com.gpo.yoin.data.repository.SubsonicException
 import com.gpo.yoin.data.source.spotify.SpotifyAuthConfig
 import com.gpo.yoin.data.source.spotify.SpotifyOAuthResult
 import com.gpo.yoin.data.source.subsonic.SubsonicMusicSource
+import com.gpo.yoin.ui.common.UiText
 import com.gpo.yoin.ui.settings.assignAvatarShapes
 import java.net.URI
 import java.net.UnknownServiceException
@@ -65,10 +67,9 @@ class ServiceSetupViewModel(
             clientId = effective,
             usesBuildFallback = override.isBlank() && effective.isNotBlank(),
             accountIssue = when (status) {
-                SpotifyProviderStatus.SpotifyAppMissing,
-                SpotifyProviderStatus.NoPremium,
-                is SpotifyProviderStatus.AuthFailure,
-                -> status.userLabel
+                SpotifyProviderStatus.SpotifyAppMissing -> UiText.Res(R.string.settings_spotify_install)
+                SpotifyProviderStatus.NoPremium -> UiText.Res(R.string.settings_spotify_premium_required)
+                is SpotifyProviderStatus.AuthFailure -> UiText.Res(R.string.settings_account_reconnect)
                 else -> null
             },
             needsReconnect = needsReconnect,
@@ -180,11 +181,21 @@ class ServiceSetupViewModel(
                 }
             } catch (limit: ProfileLimitReachedException) {
                 subsonicForm.update {
-                    it.copy(isBusy = false, status = SubsonicStatus.Failed("You can keep up to ${limit.limit} accounts"))
+                    it.copy(
+                        isBusy = false,
+                        status = SubsonicStatus.Failed(
+                            UiText.Res(R.string.settings_setup_account_limit, listOf(limit.limit)),
+                        ),
+                    )
                 }
             } catch (t: Throwable) {
                 subsonicForm.update {
-                    it.copy(isBusy = false, status = SubsonicStatus.Failed(t.message ?: "Couldn't save"))
+                    it.copy(
+                        isBusy = false,
+                        status = SubsonicStatus.Failed(
+                            t.message?.let(UiText::Raw) ?: UiText.Res(R.string.settings_setup_save_failed),
+                        ),
+                    )
                 }
             }
         }
@@ -194,9 +205,9 @@ class ServiceSetupViewModel(
         val normalizedUrl = url.trim().trimEnd('/')
         val normalizedUsername = username.trim()
         val error = when {
-            normalizedUrl.isBlank() -> "Server address is required"
-            normalizedUsername.isBlank() -> "Username is required"
-            password.isBlank() -> "Password is required"
+            normalizedUrl.isBlank() -> UiText.Res(R.string.settings_setup_address_required)
+            normalizedUsername.isBlank() -> UiText.Res(R.string.settings_setup_username_required)
+            password.isBlank() -> UiText.Res(R.string.settings_setup_password_required)
             else -> null
         }
         if (error != null) {
@@ -220,7 +231,7 @@ class ServiceSetupViewModel(
 
     fun connectSpotify() {
         if (container.spotifyClientIdFlow.value.isBlank()) {
-            _events.tryEmit(ServiceSetupEvent.ShowError("Add your Spotify Client ID first"))
+            _events.tryEmit(ServiceSetupEvent.ShowError(UiText.Res(R.string.settings_setup_spotify_need_client_error)))
             return
         }
         _events.tryEmit(ServiceSetupEvent.LaunchSpotifyOAuth(targetProfileId = request.profileId))
@@ -229,7 +240,7 @@ class ServiceSetupViewModel(
     fun commitSpotifyOAuth(result: SpotifyOAuthResult) {
         when (result) {
             SpotifyOAuthResult.Cancelled -> Unit
-            is SpotifyOAuthResult.Failure -> _events.tryEmit(ServiceSetupEvent.ShowError(result.message))
+            is SpotifyOAuthResult.Failure -> _events.tryEmit(ServiceSetupEvent.ShowError(UiText.Raw(result.message)))
             is SpotifyOAuthResult.Success -> viewModelScope.launch {
                 try {
                     val targetProfileId = result.targetProfileId ?: request.profileId
@@ -258,9 +269,17 @@ class ServiceSetupViewModel(
                         finishWithNewProfile(created.id)
                     }
                 } catch (limit: ProfileLimitReachedException) {
-                    _events.tryEmit(ServiceSetupEvent.ShowError("You can keep up to ${limit.limit} accounts"))
+                    _events.tryEmit(
+                        ServiceSetupEvent.ShowError(
+                            UiText.Res(R.string.settings_setup_spotify_account_limit, listOf(limit.limit)),
+                        ),
+                    )
                 } catch (t: Throwable) {
-                    _events.tryEmit(ServiceSetupEvent.ShowError(t.message ?: "Couldn't save the Spotify account"))
+                    _events.tryEmit(
+                        ServiceSetupEvent.ShowError(
+                            t.message?.let(UiText::Raw) ?: UiText.Res(R.string.settings_setup_spotify_save_failed),
+                        ),
+                    )
                 }
             }
         }
@@ -293,11 +312,11 @@ class ServiceSetupViewModel(
         }
     }
 
-    private fun Throwable.toConnectionErrorMessage(): String = when (this) {
-        is SubsonicException -> message ?: "The server returned an error"
-        is UnknownServiceException -> "Android blocks plain HTTP here — use https://"
-        is IllegalArgumentException -> "Check the address — include http:// or https://"
-        else -> message ?: "Couldn't reach the server"
+    private fun Throwable.toConnectionErrorMessage(): UiText = when (this) {
+        is SubsonicException -> message?.let(UiText::Raw) ?: UiText.Res(R.string.settings_setup_server_error)
+        is UnknownServiceException -> UiText.Res(R.string.settings_setup_http_blocked)
+        is IllegalArgumentException -> UiText.Res(R.string.settings_setup_check_address)
+        else -> message?.let(UiText::Raw) ?: UiText.Res(R.string.settings_setup_unreachable)
     }
 
     class Factory(

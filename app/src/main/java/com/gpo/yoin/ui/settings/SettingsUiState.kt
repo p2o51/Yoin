@@ -2,6 +2,7 @@ package com.gpo.yoin.ui.settings
 
 import com.gpo.yoin.data.profile.ProfileManager
 import com.gpo.yoin.data.profile.ProviderKind
+import com.gpo.yoin.ui.common.UiText
 import com.gpo.yoin.ui.settings.service.AccountFace
 
 sealed interface SettingsUiState {
@@ -72,5 +73,5 @@ sealed interface SettingsOneShotEvent {
     data class LaunchNeoDbOAuth(val instance: String) : SettingsOneShotEvent
 
     /** Show a transient error snackbar; used when there's no form sheet to put the error in. */
-    data class ShowError(val message: String) : SettingsOneShotEvent
+    data class ShowError(val message: UiText) : SettingsOneShotEvent
 }

@@ -80,6 +80,7 @@ import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.selected
@@ -91,11 +92,13 @@ import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.gpo.yoin.BuildConfig
+import com.gpo.yoin.R
 import com.gpo.yoin.data.integration.neodb.NeoDBOAuthContract
 import com.gpo.yoin.data.local.GeminiConfig
 import com.gpo.yoin.data.profile.ProfileManager
 import com.gpo.yoin.data.profile.ProviderKind
 import com.gpo.yoin.symbols.YoinSymbols
+import com.gpo.yoin.ui.common.asString
 import com.gpo.yoin.ui.component.ExpressiveTextField
 import com.gpo.yoin.ui.component.SeamTopPreference
 import com.gpo.yoin.ui.component.SeamTopStyle
@@ -184,7 +187,7 @@ fun SettingsScreen(
             when (event) {
                 is SettingsOneShotEvent.LaunchNeoDbOAuth -> neoDbOAuthLauncher.launch(event.instance)
                 is SettingsOneShotEvent.ShowError ->
-                    scope.launch { snackbarHostState.showSnackbar(event.message) }
+                    scope.launch { snackbarHostState.showSnackbar(event.message.asString(context)) }
             }
         }
     }
@@ -304,7 +307,7 @@ fun SettingsContent(
                         TopAppBar(
                             title = {
                                 Text(
-                                    text = "Settings",
+                                    text = stringResource(R.string.settings_title),
                                     modifier = Modifier.graphicsLayer {
                                         alpha = handoffProgress(viewportTop, headlineTop, headlineHeight)
                                         translationY = (1f - alpha) * size.height * 0.5f
@@ -344,7 +347,7 @@ fun SettingsContent(
                             .padding(start = 16.dp, top = 8.dp, end = 16.dp, bottom = 24.dp + navBottom),
                     ) {
                         SettingsHeadline(
-                            title = "Settings",
+                            title = stringResource(R.string.settings_title),
                             modifier = Modifier.onSizeChanged { headerHeightPx = it.height },
                             titleModifier = Modifier.onGloballyPositioned {
                                 headlineTop.floatValue = it.positionInWindow().y
@@ -384,7 +387,7 @@ fun SettingsContent(
                                         openAccountId = openAccountId,
                                     )
                                     SettingsGroup(
-                                        title = "Features",
+                                        title = stringResource(R.string.settings_section_features),
                                         modifier = Modifier.onGloballyPositioned { coords ->
                                             neoDbTopPx = coords.positionInParent().y.toInt().coerceAtLeast(0)
                                         },
@@ -421,10 +424,10 @@ fun SettingsContent(
                                             )
                                         }
                                     }
-                                    SettingsGroup(title = "Motion") {
+                                    SettingsGroup(title = stringResource(R.string.settings_section_motion)) {
                                         item { ScrollEdgeItem() }
                                     }
-                                    SettingsGroup(title = "Storage") {
+                                    SettingsGroup(title = stringResource(R.string.settings_section_storage)) {
                                         cloudSyncRow?.let { row ->
                                             item(key = "cloud-sync", paintsOwnSegment = listDetail) {
                                                 if (listDetail) SelectableSegment(selected = cloudSyncSelected) { row() } else row()
@@ -432,12 +435,15 @@ fun SettingsContent(
                                         }
                                         item { CacheItem(state.cacheSizeBytes, onClearCache) }
                                     }
-                                    SettingsGroup(title = "About") {
+                                    SettingsGroup(title = stringResource(R.string.settings_section_about)) {
                                         item {
                                             SettingsItem(
                                                 icon = YoinSymbols.Info,
-                                                title = "Yoin",
-                                                summary = "Version ${BuildConfig.VERSION_NAME}",
+                                                title = stringResource(R.string.settings_about_name),
+                                                summary = stringResource(
+                                                    R.string.settings_about_version,
+                                                    BuildConfig.VERSION_NAME,
+                                                ),
                                             )
                                         }
                                     }
@@ -542,8 +548,12 @@ private fun AccountsSection(
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         SettingsGroupLabel(
-            title = "Accounts",
-            trailingLabel = if (profileCards.isEmpty()) null else "${profileCards.size} of $maxProfiles",
+            title = stringResource(R.string.settings_section_accounts),
+            trailingLabel = if (profileCards.isEmpty()) {
+                null
+            } else {
+                stringResource(R.string.settings_accounts_count, profileCards.size, maxProfiles)
+            },
         )
         if (profileCards.isEmpty()) {
             EmptyAccountsCard(onAddAccount)
@@ -572,7 +582,7 @@ private fun AccountsSection(
                     item(key = "add") {
                         SettingsItem(
                             icon = YoinSymbols.Add,
-                            title = "Add account",
+                            title = stringResource(R.string.settings_accounts_add),
                             onClick = onAddAccount,
                         )
                     }
@@ -631,7 +641,9 @@ private fun AccountCardRow(
                     fadeOutSpec = YoinMotion.defaultEffectsSpec(),
                 ),
                 card = card,
-                tapLabel = if (opensPage) "Manage account" else "Switch to this account",
+                tapLabel = stringResource(
+                    if (opensPage) R.string.settings_cd_manage_account else R.string.settings_cd_switch_account,
+                ),
                 onTap = {
                     if (opensPage) manage() else onSwitchToProfile(card.id)
                 },
@@ -702,7 +714,7 @@ private fun ProfileAccountRow(
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 AccountAvatar(
-                    monogram = monogramOf(card.title, identity.name),
+                    monogram = monogramOf(card.title, stringResource(identity.nameRes)),
                     shapeIndex = card.avatarShape,
                     photoUrl = card.photoUrl,
                     identity = identity,
@@ -716,7 +728,12 @@ private fun ProfileAccountRow(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
-                    serviceLineOf(identity.name, card.title, card.subtitle)?.let { line ->
+                    serviceLineOf(
+                        stringResource(identity.nameRes),
+                        card.title,
+                        card.subtitle,
+                        LocalContext.current.resources,
+                    )?.let { line ->
                         ServiceLine(text = line, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     AccountStatusPill(card = card, modifier = Modifier.padding(top = 6.dp))
@@ -731,7 +748,7 @@ private fun ProfileAccountRow(
                     ) {
                         Icon(
                             imageVector = YoinSymbols.MoreVertical,
-                            contentDescription = "Options for ${card.title}",
+                            contentDescription = stringResource(R.string.settings_cd_account_options_row, card.title),
                             tint = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.size(20.dp),
                         )
@@ -739,7 +756,7 @@ private fun ProfileAccountRow(
                     YoinDropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
                         if (!card.isActive) {
                             YoinDropdownMenuItem(
-                                text = "Use this account",
+                                text = stringResource(R.string.settings_accounts_use),
                                 onClick = {
                                     haptics.performContextClick()
                                     menuOpen = false
@@ -748,7 +765,7 @@ private fun ProfileAccountRow(
                             )
                         }
                         YoinDropdownMenuItem(
-                            text = "Remove",
+                            text = stringResource(R.string.settings_accounts_remove_menu),
                             onClick = {
                                 haptics.performReject()
                                 menuOpen = false
@@ -775,9 +792,9 @@ private fun EmptyAccountsCard(onAddAccount: () -> Unit) {
             modifier = Modifier.padding(20.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Text("Bring your music", style = MaterialTheme.typography.titleLarge)
+            Text(stringResource(R.string.settings_accounts_empty_title), style = MaterialTheme.typography.titleLarge)
             Text(
-                "Connect a server or a streaming account to start listening.",
+                stringResource(R.string.settings_accounts_empty_body),
                 style = MaterialTheme.typography.bodyMedium,
             )
             Button(
@@ -788,7 +805,7 @@ private fun EmptyAccountsCard(onAddAccount: () -> Unit) {
             ) {
                 Icon(YoinSymbols.Add, contentDescription = null, modifier = Modifier.size(18.dp))
                 Spacer(Modifier.width(8.dp))
-                Text("Add account")
+                Text(stringResource(R.string.settings_accounts_add))
             }
         }
     }
@@ -866,7 +883,7 @@ private fun ProfileCardTile(
         ) {
             Row(verticalAlignment = Alignment.Top) {
                 AccountAvatar(
-                    monogram = monogramOf(card.title, identity.name),
+                    monogram = monogramOf(card.title, stringResource(identity.nameRes)),
                     shapeIndex = card.avatarShape,
                     photoUrl = card.photoUrl,
                     identity = identity,
@@ -883,14 +900,14 @@ private fun ProfileCardTile(
                     ) {
                         Icon(
                             imageVector = YoinSymbols.MoreVertical,
-                            contentDescription = "Options for ${card.title}",
+                            contentDescription = stringResource(R.string.settings_cd_account_options_card, card.title),
                             tint = secondaryColor,
                             modifier = Modifier.size(20.dp),
                         )
                     }
                     YoinDropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
                         YoinDropdownMenuItem(
-                            text = "Manage",
+                            text = stringResource(R.string.settings_accounts_manage),
                             onClick = {
                                 haptics.performContextClick()
                                 menuOpen = false
@@ -898,7 +915,7 @@ private fun ProfileCardTile(
                             },
                         )
                         YoinDropdownMenuItem(
-                            text = "Remove",
+                            text = stringResource(R.string.settings_accounts_remove_card),
                             onClick = {
                                 haptics.performReject()
                                 menuOpen = false
@@ -917,7 +934,12 @@ private fun ProfileCardTile(
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.padding(end = 12.dp),
             )
-            serviceLineOf(identity.name, card.title, card.subtitle)?.let { line ->
+            serviceLineOf(
+                        stringResource(identity.nameRes),
+                        card.title,
+                        card.subtitle,
+                        LocalContext.current.resources,
+                    )?.let { line ->
                 ServiceLine(
                     text = line,
                     color = secondaryColor,
@@ -939,16 +961,16 @@ private fun ProfileCardTile(
 private fun AccountStatusPill(card: ProfileCard, modifier: Modifier = Modifier) {
     val tone = card.provider.serviceIdentity.hue.tone()
     val scheme = MaterialTheme.colorScheme
-    val issue = card.unavailableReason
+    val issue = card.unavailableReason?.let { accountIssueLabel(it) }
     val status: Triple<String, Color, Color>? = when {
         issue != null -> Triple(
             // The problem leads: if large text ellipsizes, it eats "In use",
             // which the card itself already shows.
-            if (card.isActive) "$issue · In use" else issue,
+            if (card.isActive) stringResource(R.string.settings_account_issue_in_use, issue) else issue,
             scheme.errorContainer,
             scheme.onErrorContainer,
         )
-        card.isActive -> Triple("In use", tone.accent, tone.onAccent)
+        card.isActive -> Triple(stringResource(R.string.settings_account_in_use), tone.accent, tone.onAccent)
         else -> null
     }
     // Keep the last label on screen while the pill shrinks away.
@@ -1023,7 +1045,7 @@ private fun AddAccountTile(onClick: () -> Unit, modifier: Modifier = Modifier) {
             verticalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterVertically),
         ) {
             Icon(YoinSymbols.Add, contentDescription = null, modifier = Modifier.size(28.dp))
-            Text("Add", style = MaterialTheme.typography.labelLarge)
+            Text(stringResource(R.string.settings_accounts_add_short), style = MaterialTheme.typography.labelLarge)
         }
     }
 }
@@ -1080,30 +1102,30 @@ private fun AddAccountSheet(
                 .padding(bottom = 16.dp),
         ) {
             Text(
-                text = "Add an account",
+                text = stringResource(R.string.settings_add_sheet_title),
                 style = MaterialTheme.typography.headlineSmall,
                 color = MaterialTheme.colorScheme.onSurface,
                 modifier = Modifier.padding(start = 24.dp, end = 24.dp, bottom = 12.dp),
             )
             ServiceChoiceRow(
                 identity = ProviderKind.SUBSONIC.serviceIdentity,
-                summary = "Navidrome, Airsonic and other servers",
+                summary = stringResource(R.string.settings_provider_subsonic_summary),
                 onClick = { pick(SetupService.Subsonic) },
             )
             ServiceChoiceRow(
                 identity = ProviderKind.SPOTIFY.serviceIdentity,
-                summary = "Your Spotify library",
+                summary = stringResource(R.string.settings_provider_spotify_summary),
                 onClick = { pick(SetupService.Spotify) },
             )
             ServiceChoiceRow(
                 identity = ProviderKind.APPLE_MUSIC.serviceIdentity,
-                summary = "Your Apple Music library and catalog",
-                badge = "Preview",
+                summary = stringResource(R.string.settings_provider_apple_summary),
+                badge = stringResource(R.string.settings_provider_badge_preview),
                 onClick = { pick(SetupService.AppleMusic) },
             )
             ServiceChoiceRow(
                 identity = ProviderKind.LOCAL.serviceIdentity,
-                summary = "Coming later",
+                summary = stringResource(R.string.settings_provider_local_summary),
                 onClick = null,
             )
         }
@@ -1140,7 +1162,7 @@ private fun ServiceChoiceRow(
             SettingsRowIcon(identity.glyph, tone = identity.hue.tone())
             Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text(identity.name, style = MaterialTheme.typography.titleMedium)
+                    Text(stringResource(identity.nameRes), style = MaterialTheme.typography.titleMedium)
                     if (badge != null) {
                         Surface(
                             shape = YoinShapeTokens.Full,
@@ -1187,14 +1209,17 @@ private fun GeminiItem(
     asPage: Boolean = false,
 ) {
     val summaryText = if (apiKey.isBlank()) {
-        "Song info, Ask Gemini and translation"
+        stringResource(R.string.settings_gemini_summary_empty)
     } else {
-        "Gemini · ${GeminiConfig.normalizeTargetLanguage(targetLanguage)}"
+        stringResource(
+            R.string.settings_gemini_summary_set,
+            GeminiConfig.normalizeTargetLanguage(targetLanguage),
+        )
     }
     if (onOpenPage != null) {
         FeaturePageRow(
             icon = YoinSymbols.Sparkle,
-            title = "AI features",
+            title = stringResource(R.string.settings_gemini_title),
             summary = summaryText,
             selected = selected,
             onClick = onOpenPage,
@@ -1209,7 +1234,7 @@ private fun GeminiItem(
 
     SettingsExpandableItem(
         icon = YoinSymbols.Sparkle,
-        title = "AI features",
+        title = stringResource(R.string.settings_gemini_title),
         summary = summaryText,
         expanded = expanded,
         onExpandedChange = { expanded = it },
@@ -1218,8 +1243,8 @@ private fun GeminiItem(
         SecretTextField(
             value = draftKey,
             onValueChange = { draftKey = it },
-            label = "Gemini API key",
-            placeholder = "AIza…",
+            label = stringResource(R.string.settings_gemini_key_label),
+            placeholder = stringResource(R.string.settings_gemini_key_placeholder),
             modifier = Modifier.fillMaxWidth(),
         )
         Box {
@@ -1230,7 +1255,7 @@ private fun GeminiItem(
                 },
                 modifier = Modifier.fillMaxWidth(),
             ) {
-                Text("Answer in $language", modifier = Modifier.weight(1f))
+                Text(stringResource(R.string.settings_gemini_answer_in, language), modifier = Modifier.weight(1f))
             }
             YoinDropdownMenu(expanded = languageMenuOpen, onDismissRequest = { languageMenuOpen = false }) {
                 GeminiConfig.SUPPORTED_TARGET_LANGUAGES.forEach { option ->
@@ -1248,7 +1273,7 @@ private fun GeminiItem(
         Button(
             onClick = { onSaveApiKey(draftKey) },
             enabled = draftKey.isNotBlank() && draftKey.trim() != apiKey,
-        ) { Text("Save key") }
+        ) { Text(stringResource(R.string.settings_gemini_save_key)) }
     }
 }
 
@@ -1267,12 +1292,14 @@ private fun NeoDbItem(
     if (onOpenPage != null) {
         FeaturePageRow(
             icon = YoinSymbols.Reviews,
-            title = "NeoDB",
-            summary = if (accessToken.isNotBlank()) {
-                "Album ratings and reviews sync"
-            } else {
-                "Sync album ratings and reviews"
-            },
+            title = stringResource(R.string.settings_neodb_title),
+            summary = stringResource(
+                if (accessToken.isNotBlank()) {
+                    R.string.settings_neodb_summary_on
+                } else {
+                    R.string.settings_neodb_summary_off
+                },
+            ),
             selected = selected,
             onClick = onOpenPage,
         )
@@ -1286,8 +1313,10 @@ private fun NeoDbItem(
 
     SettingsExpandableItem(
         icon = YoinSymbols.Reviews,
-        title = "NeoDB",
-        summary = if (signedIn) "Album ratings and reviews sync" else "Sync album ratings and reviews",
+        title = stringResource(R.string.settings_neodb_title_page),
+        summary = stringResource(
+            if (signedIn) R.string.settings_neodb_summary_on_page else R.string.settings_neodb_summary_off_page,
+        ),
         expanded = expanded,
         onExpandedChange = { expanded = it },
         collapsible = !asPage,
@@ -1295,13 +1324,17 @@ private fun NeoDbItem(
         ExpressiveTextField(
             value = draftInstance,
             onValueChange = { draftInstance = it },
-            label = "Instance",
-            placeholder = "https://neodb.social",
+            label = stringResource(R.string.settings_neodb_instance_label),
+            placeholder = stringResource(R.string.settings_neodb_instance_placeholder),
             modifier = Modifier.fillMaxWidth(),
         )
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
             Button(onClick = { onOpenSignIn(draftInstance) }) {
-                Text(if (signedIn) "Sign in again" else "Sign in")
+                Text(
+                    stringResource(
+                        if (signedIn) R.string.settings_neodb_sign_in_again else R.string.settings_neodb_sign_in,
+                    ),
+                )
             }
             if (signedIn) {
                 TextButton(
@@ -1309,7 +1342,7 @@ private fun NeoDbItem(
                         draftToken = ""
                         onClearToken()
                     },
-                ) { Text("Sign out") }
+                ) { Text(stringResource(R.string.settings_neodb_sign_out)) }
             }
         }
         // Manual token is an escape hatch, not a step — hidden until asked for.
@@ -1323,20 +1356,22 @@ private fun NeoDbItem(
             label = "neoDbManualToken",
         ) { manual ->
             if (!manual) {
-                TextButton(onClick = { showManualToken = true }) { Text("Use an access token instead") }
+                TextButton(onClick = { showManualToken = true }) {
+                    Text(stringResource(R.string.settings_neodb_use_token))
+                }
             } else {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     SecretTextField(
                         value = draftToken,
                         onValueChange = { draftToken = it },
-                        label = "Access token",
-                        placeholder = "Paste token",
+                        label = stringResource(R.string.settings_neodb_token_label),
+                        placeholder = stringResource(R.string.settings_neodb_token_placeholder),
                         modifier = Modifier.fillMaxWidth(),
                     )
                     OutlinedButton(
                         onClick = { onSaveConfig(draftInstance, draftToken) },
                         enabled = draftToken.isNotBlank() && draftToken.trim() != accessToken.trim(),
-                    ) { Text("Save token") }
+                    ) { Text(stringResource(R.string.settings_neodb_save_token)) }
                 }
             }
         }
@@ -1418,6 +1453,7 @@ internal fun SettingsFeatureScreen(
     val uiState by viewModel.uiState.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
     val neoDbOAuthLauncher = rememberLauncherForActivityResult(NeoDBOAuthContract()) { result ->
         viewModel.commitNeoDbOAuth(result)
     }
@@ -1426,13 +1462,13 @@ internal fun SettingsFeatureScreen(
             when (event) {
                 is SettingsOneShotEvent.LaunchNeoDbOAuth -> neoDbOAuthLauncher.launch(event.instance)
                 is SettingsOneShotEvent.ShowError ->
-                    scope.launch { snackbarHostState.showSnackbar(event.message) }
+                    scope.launch { snackbarHostState.showSnackbar(event.message.asString(context)) }
             }
         }
     }
     val featureTitle = when (feature) {
-        SettingsFeature.Gemini -> "AI features"
-        SettingsFeature.NeoDb -> "NeoDB"
+        SettingsFeature.Gemini -> stringResource(R.string.settings_gemini_title_page)
+        SettingsFeature.NeoDb -> stringResource(R.string.settings_neodb_title_page)
     }
     val viewportTop = remember { mutableFloatStateOf(0f) }
     val headlineTop = remember { mutableFloatStateOf(Float.NaN) }
@@ -1532,8 +1568,8 @@ private fun ScrollEdgeItem() {
     Box {
         SettingsItem(
             icon = YoinSymbols.UnfoldLess,
-            title = "Scroll edge",
-            summary = style.label,
+            title = stringResource(R.string.settings_motion_scroll_edge),
+            summary = stringResource(style.labelRes()),
             onClick = { menuOpen = true },
         )
         YoinDropdownMenu(
@@ -1544,7 +1580,7 @@ private fun ScrollEdgeItem() {
             SeamTopStyle.entries.forEach { option ->
                 val chosen = option == style
                 YoinDropdownMenuItem(
-                    text = option.label,
+                    text = stringResource(option.labelRes()),
                     onClick = {
                         haptics.performContextClick()
                         menuOpen = false
@@ -1569,8 +1605,8 @@ private fun CacheItem(cacheSizeBytes: Long, onClearCache: () -> Unit) {
     val haptics = rememberYoinHaptics()
     SettingsItem(
         icon = YoinSymbols.Storage,
-        title = "Playback cache",
-        summary = formatBytes(cacheSizeBytes),
+        title = stringResource(R.string.settings_storage_cache),
+        summary = formatBytes(cacheSizeBytes, LocalContext.current.resources),
         trailing = {
             TextButton(
                 onClick = {
@@ -1578,7 +1614,7 @@ private fun CacheItem(cacheSizeBytes: Long, onClearCache: () -> Unit) {
                     onClearCache()
                 },
                 enabled = cacheSizeBytes > 0,
-            ) { Text("Clear") }
+            ) { Text(stringResource(R.string.settings_storage_clear)) }
         },
     )
 }
@@ -1625,7 +1661,7 @@ private fun ProfileSwitchOverlay(
                     is ProfileManager.SwitchState.Switching -> {
                         YoinLoadingIndicator(size = 36.dp)
                         Text(
-                            text = "Switching account",
+                            text = stringResource(R.string.settings_switch_title),
                             style = MaterialTheme.typography.titleMedium,
                             color = MaterialTheme.colorScheme.onSurface,
                         )
@@ -1642,13 +1678,16 @@ private fun ProfileSwitchOverlay(
                             tint = MaterialTheme.colorScheme.error,
                             modifier = Modifier.size(36.dp),
                         )
-                        Text(text = "Couldn't switch account", style = MaterialTheme.typography.titleMedium)
+                        Text(
+                            text = stringResource(R.string.settings_switch_failed),
+                            style = MaterialTheme.typography.titleMedium,
+                        )
                         Text(
                             text = switchingState.message,
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
-                        Button(onClick = onDismissError) { Text("OK") }
+                        Button(onClick = onDismissError) { Text(stringResource(R.string.settings_switch_ok)) }
                     }
                     ProfileManager.SwitchState.Idle -> Unit
                 }
@@ -1657,12 +1696,18 @@ private fun ProfileSwitchOverlay(
     }
 }
 
+@Composable
 private fun stageLabel(stage: ProfileManager.SwitchState.Stage, activeName: String?): String {
-    val name = activeName.orEmpty().ifBlank { "the new account" }
+    val name = activeName.orEmpty()
     return when (stage) {
-        ProfileManager.SwitchState.Stage.Preparing -> "Closing the current session…"
-        ProfileManager.SwitchState.Stage.Connecting -> "Connecting to $name…"
-        ProfileManager.SwitchState.Stage.Priming -> "Warming caches…"
+        ProfileManager.SwitchState.Stage.Preparing -> stringResource(R.string.settings_switch_preparing)
+        ProfileManager.SwitchState.Stage.Connecting ->
+            if (name.isBlank()) {
+                stringResource(R.string.settings_switch_connecting_unnamed)
+            } else {
+                stringResource(R.string.settings_switch_connecting, name)
+            }
+        ProfileManager.SwitchState.Stage.Priming -> stringResource(R.string.settings_switch_priming)
     }
 }
 
@@ -1677,8 +1722,8 @@ private fun DeleteProfileDialog(
     val haptics = rememberYoinHaptics()
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Remove this account?") },
-        text = { Text("“$displayName” will be removed from Yoin. Your ratings, notes and history stay.") },
+        title = { Text(stringResource(R.string.settings_remove_title)) },
+        text = { Text(stringResource(R.string.settings_remove_body, displayName)) },
         confirmButton = {
             TextButton(
                 onClick = {
@@ -1686,18 +1731,35 @@ private fun DeleteProfileDialog(
                     onConfirm()
                 },
                 colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
-            ) { Text("Remove") }
+            ) { Text(stringResource(R.string.settings_remove_confirm)) }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.settings_remove_cancel)) } },
     )
 }
 
-private fun formatBytes(bytes: Long): String = when {
-    bytes <= 0L -> "Empty"
-    bytes < 1_024L -> "$bytes B"
-    bytes < 1_048_576L -> "%.1f KB".format(bytes / 1_024.0)
-    bytes < 1_073_741_824L -> "%.1f MB".format(bytes / 1_048_576.0)
-    else -> "%.2f GB".format(bytes / 1_073_741_824.0)
+private fun formatBytes(bytes: Long, resources: android.content.res.Resources): String = when {
+    bytes <= 0L -> resources.getString(R.string.settings_cache_empty)
+    bytes < 1_024L -> resources.getString(R.string.settings_cache_bytes, bytes)
+    bytes < 1_048_576L -> resources.getString(R.string.settings_cache_kb, bytes / 1_024.0)
+    bytes < 1_073_741_824L -> resources.getString(R.string.settings_cache_mb, bytes / 1_048_576.0)
+    else -> resources.getString(R.string.settings_cache_gb, bytes / 1_073_741_824.0)
+}
+
+@Composable
+private fun accountIssueLabel(reason: String): String = when (reason) {
+    "No Client ID" -> stringResource(R.string.settings_spotify_no_client_id)
+    "Install Spotify" -> stringResource(R.string.settings_spotify_install)
+    "Premium required" -> stringResource(R.string.settings_spotify_premium_required)
+    "Reconnect" -> stringResource(R.string.settings_account_reconnect)
+    "Restore sign-in" -> stringResource(R.string.settings_spotify_restore_sign_in)
+    "Credentials missing" -> stringResource(R.string.settings_account_credentials_missing)
+    else -> reason
+}
+
+private fun SeamTopStyle.labelRes(): Int = when (this) {
+    SeamTopStyle.Tide -> R.string.settings_motion_tide_line
+    SeamTopStyle.Dots -> R.string.settings_motion_dots
+    SeamTopStyle.Cookie -> R.string.settings_motion_cookie_wave
 }
 
 // ── Previews ─────────────────────────────────────────────────────────

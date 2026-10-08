@@ -1,5 +1,7 @@
 package com.gpo.yoin.ui.settings.service
 
+import com.gpo.yoin.ui.common.UiText
+
 data class ServiceSetupUiState(
     val service: SetupService,
     /** Adding a new account vs. managing (edit / reconnect) an existing one. */
@@ -38,19 +40,19 @@ sealed interface SubsonicStatus {
     data object Testing : SubsonicStatus
     data object Saving : SubsonicStatus
     data object Reachable : SubsonicStatus
-    data class Failed(val message: String) : SubsonicStatus
+    data class Failed(val message: UiText) : SubsonicStatus
 }
 
 data class SpotifySetupState(
     val clientId: String = "",
     val usesBuildFallback: Boolean = false,
     /** Runtime blocker worth one line (Premium / app missing / auth). Null = nothing to say. */
-    val accountIssue: String? = null,
+    val accountIssue: UiText? = null,
     val needsReconnect: Boolean = false,
 )
 
 sealed interface ServiceSetupEvent {
     data class LaunchSpotifyOAuth(val targetProfileId: String?) : ServiceSetupEvent
-    data class ShowError(val message: String) : ServiceSetupEvent
+    data class ShowError(val message: UiText) : ServiceSetupEvent
     data class Done(val activateProfileId: String?) : ServiceSetupEvent
 }

@@ -21,9 +21,12 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.gpo.yoin.R
+import com.gpo.yoin.ui.common.asString
 import com.gpo.yoin.ui.component.ExpressiveTextField
 import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinTheme
@@ -56,12 +59,12 @@ fun AppleMusicValidationContent(state: AppleMusicValidationUiState, onConnect: (
         ExpressiveTextField(
             endpoint,
             { endpoint = it },
-            "Developer token service",
-            "https://…/token",
+            stringResource(R.string.settings_apple_endpoint_label),
+            stringResource(R.string.settings_apple_endpoint_placeholder),
             modifier = Modifier.fillMaxWidth().testTag("apple_music_token_endpoint")
         )
         Text(
-            if (state.busy) "Working…" else state.status,
+            if (state.busy) stringResource(R.string.settings_apple_working) else state.status.asString(),
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.testTag("apple_music_status")
@@ -71,7 +74,11 @@ fun AppleMusicValidationContent(state: AppleMusicValidationUiState, onConnect: (
             enabled = !state.busy && endpoint.startsWith("https://"),
             modifier = Modifier.fillMaxWidth()
         ) {
-            Text(if (state.connected) "Reconnect Apple Music" else "Connect Apple Music")
+            Text(
+                stringResource(
+                    if (state.connected) R.string.settings_apple_reconnect else R.string.settings_apple_connect,
+                ),
+            )
         }
     }
 }

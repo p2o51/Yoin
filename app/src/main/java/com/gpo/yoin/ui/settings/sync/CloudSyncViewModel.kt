@@ -2,9 +2,11 @@ package com.gpo.yoin.ui.settings.sync
 
 import android.content.Intent
 import android.content.IntentSender
+import android.content.res.Resources
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
+import com.gpo.yoin.R
 import com.gpo.yoin.data.sync.CloudSyncController
 import com.gpo.yoin.data.sync.CloudSyncState
 import com.gpo.yoin.data.sync.TurnOnStep
@@ -39,6 +41,7 @@ sealed interface CloudSyncEvent {
 class CloudSyncViewModel(
     private val controller: CloudSyncController,
     private val actionScope: CoroutineScope = ControllerCallScope,
+    private val resources: Resources? = null,
 ) : ViewModel() {
     val state: StateFlow<CloudSyncState> = controller.state
 
@@ -65,7 +68,7 @@ class CloudSyncViewModel(
         actionScope.launch {
             // A throw is a controller bug, not a user-facing reason: never show its raw text.
             val step = runCatching { controller.beginTurnOn() }
-                .getOrElse { TurnOnStep.Failed(TurnOnFailedMessage) }
+                .getOrElse { TurnOnStep.Failed(turnOnFailedMessage()) }
             handle(step)
         }
     }
@@ -78,15 +81,21 @@ class CloudSyncViewModel(
         _turningOn.value = true
         actionScope.launch {
             val step = runCatching { controller.completeTurnOn(resultCode, data) }
-                .getOrElse { TurnOnStep.Failed(TurnOnFailedMessage) }
-            handle(if (sheetNotShown && step == TurnOnStep.Canceled) TurnOnStep.Failed(TurnOnFailedMessage) else step)
+                .getOrElse { TurnOnStep.Failed(turnOnFailedMessage()) }
+            handle(
+                if (sheetNotShown && step == TurnOnStep.Canceled) {
+                    TurnOnStep.Failed(turnOnFailedMessage())
+                } else {
+                    step
+                },
+            )
         }
     }
 
     /** The consent sheet couldn't be shown at all. */
     fun onConsentLaunchFailed() {
         _turningOn.value = false
-        _events.trySend(CloudSyncEvent.ShowMessage(TurnOnFailedMessage))
+        _events.trySend(CloudSyncEvent.ShowMessage(turnOnFailedMessage()))
     }
 
     private fun handle(step: TurnOnStep) {
@@ -114,9 +123,11 @@ class CloudSyncViewModel(
             _events.trySend(
                 CloudSyncEvent.ShowMessage(
                     if (result.isSuccess) {
-                        "Deleted Yoin's data from your Google Drive"
+                        resources?.getString(R.string.settings_sync_deleted)
+                            ?: "Deleted Yoin's data from your Google Drive"
                     } else {
-                        "Couldn't delete the cloud data. Check your connection and try again."
+                        resources?.getString(R.string.settings_sync_delete_failed)
+                            ?: "Couldn't delete the cloud data. Check your connection and try again."
                     },
                 ),
             )
@@ -145,14 +156,17 @@ class CloudSyncViewModel(
 
     class Factory(
         private val controller: CloudSyncController,
+        private val resources: Resources,
     ) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T =
-            CloudSyncViewModel(controller) as T
+            CloudSyncViewModel(controller, resources = resources) as T
     }
 
+    private fun turnOnFailedMessage(): String = resources?.getString(R.string.settings_sync_turn_on_failed)
+        ?: "Couldn't reach Google. Try again in a moment." // i18n-allow: CloudSyncViewModelTest asserts this English
+
     private companion object {
-        const val TurnOnFailedMessage = "Couldn't reach Google. Try again in a moment."
 
         const val SendIntentExceptionExtra =
             ActivityResultContracts.StartIntentSenderForResult.EXTRA_SEND_INTENT_EXCEPTION

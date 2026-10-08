@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.gpo.yoin.AppContainer
+import com.gpo.yoin.R
 import com.gpo.yoin.data.local.GeminiConfig
 import com.gpo.yoin.data.local.NeoDBConfig
 import com.gpo.yoin.data.local.Profile
@@ -14,6 +15,7 @@ import com.gpo.yoin.data.profile.SpotifyProviderStatus
 import com.gpo.yoin.data.integration.neodb.NeoDBOAuthResult
 import com.gpo.yoin.data.source.spotify.SpotifyAuthConfig
 import com.gpo.yoin.data.source.spotify.SpotifyMusicSource
+import com.gpo.yoin.ui.common.UiText
 import java.net.URI
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -271,7 +273,7 @@ class SettingsViewModel(
         when (result) {
             NeoDBOAuthResult.Cancelled -> Unit
             is NeoDBOAuthResult.Failure ->
-                emitEvent(SettingsOneShotEvent.ShowError(result.message))
+                emitEvent(SettingsOneShotEvent.ShowError(UiText.Raw(result.message)))
             is NeoDBOAuthResult.Success ->
                 saveNeoDbConfig(result.instance, result.accessToken)
         }
@@ -395,7 +397,7 @@ class SettingsViewModel(
             uri.resolve("/").toString().trimEnd('/')
         }.getOrNull()
         if (normalized == null) {
-            emitEvent(SettingsOneShotEvent.ShowError("Invalid NeoDB URL. Include a valid host."))
+            emitEvent(SettingsOneShotEvent.ShowError(UiText.Res(R.string.settings_neodb_invalid_url)))
         }
         return normalized
     }

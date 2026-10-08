@@ -6,7 +6,9 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.apple.android.sdk.authentication.AuthenticationFactory
 import com.apple.android.sdk.authentication.TokenError
+import com.gpo.yoin.R
 import com.gpo.yoin.YoinApplication
+import com.gpo.yoin.ui.common.UiText
 import com.gpo.yoin.data.remote.applemusic.AppleMusicApiClient
 import com.gpo.yoin.data.remote.applemusic.AppleMusicDeveloperTokenProvider
 import com.gpo.yoin.data.remote.applemusic.AppleMusicValidationAccount
@@ -50,9 +52,9 @@ class AppleMusicValidationViewModel(application: Application) : AndroidViewModel
                 mutableState.value = AppleMusicValidationUiState(
                     endpoint = credentials?.endpoint.orEmpty(), connected = credentials != null,
                     status = if (credentials != null) {
-                        "Connected. Your account is available in Profiles."
+                        UiText.Res(R.string.settings_apple_status_connected_profiles)
                     } else {
-                        "Set a developer token service to connect."
+                        UiText.Res(R.string.settings_apple_status_need_service)
                     }
                 )
             } finally {
@@ -67,10 +69,13 @@ class AppleMusicValidationViewModel(application: Application) : AndroidViewModel
         require(url.isHttps && url.username.isEmpty() && url.password.isEmpty())
         val developerToken = AppleMusicDeveloperTokenProvider(url).token()
         pendingEndpoint = url.toString()
-        mutableState.update { it.copy(endpoint = url.toString(), status = "Complete authorization in Apple Music.") }
+        mutableState.update {
+            it.copy(endpoint = url.toString(), status = UiText.Res(R.string.settings_apple_status_authorize))
+        }
         authIntents.send(
             auth.createIntentBuilder(developerToken).setHideStartScreen(false)
-                .setStartScreenMessage("Connect your Apple Music library and playback to Yoin.").build()
+                .setStartScreenMessage(getApplication<Application>().getString(R.string.settings_apple_auth_start))
+                .build(),
         )
     }
 
@@ -78,18 +83,16 @@ class AppleMusicValidationViewModel(application: Application) : AndroidViewModel
         val endpoint = pendingEndpoint ?: error("Authorization session expired")
         pendingEndpoint = null
         if (data == null) {
-            mutableState.update { it.copy(status = "Authorization returned without a token. You can retry.") }
+            mutableState.update { it.copy(status = UiText.Res(R.string.settings_apple_status_no_token)) }
             return@launchOperation
         }
         val result = auth.handleTokenResult(data)
         if (result.isError) {
             val message = when (result.error) {
-                TokenError.USER_CANCELLED ->
-                    "Apple Music did not complete authorization. Try again or open " +
-                        "Apple Music to check your account."
+                TokenError.USER_CANCELLED -> UiText.Res(R.string.settings_apple_status_cancelled)
                 TokenError.NO_SUBSCRIPTION, TokenError.SUBSCRIPTION_EXPIRED ->
-                    "An active Apple Music subscription is required."
-                else -> "Apple Music could not authorize Yoin. Retry authorization."
+                    UiText.Res(R.string.settings_apple_status_subscription)
+                else -> UiText.Res(R.string.settings_apple_status_auth_failed)
             }
             mutableState.update { it.copy(status = message) }
             return@launchOperation
@@ -111,7 +114,11 @@ class AppleMusicValidationViewModel(application: Application) : AndroidViewModel
         profileId = savedId
         container.notifyMusicConfigurationChanged()
         mutableState.update {
-            it.copy(connected = true, storefront = storefront, status = "Connected · $storefront")
+            it.copy(
+                connected = true,
+                storefront = storefront,
+                status = UiText.Res(R.string.settings_apple_status_connected_store, listOf(storefront)),
+            )
         }
         savedProfiles.send(savedId)
     }
@@ -129,7 +136,7 @@ class AppleMusicValidationViewModel(application: Application) : AndroidViewModel
                 withTimeout(30_000) { block() }
             } catch (_: TimeoutCancellationException) {
                 pendingEndpoint = null
-                mutableState.update { it.copy(status = "Connection timed out. Try again.") }
+                mutableState.update { it.copy(status = UiText.Res(R.string.settings_apple_status_timeout)) }
             } catch (
                 cancelled: CancellationException
             ) {
@@ -138,7 +145,7 @@ class AppleMusicValidationViewModel(application: Application) : AndroidViewModel
                 _: Exception
             ) {
                 mutableState.update {
-                    it.copy(status = "Could not complete this step. Check the token service or reconnect Apple Music.")
+                    it.copy(status = UiText.Res(R.string.settings_apple_status_failed))
                 }
             } finally {
                 mutableState.update { it.copy(busy = false) }
@@ -152,5 +159,5 @@ data class AppleMusicValidationUiState(
     val connected: Boolean = false,
     val storefront: String? = null,
     val busy: Boolean = false,
-    val status: String = "Set a developer token service to connect."
+    val status: UiText = UiText.Res(R.string.settings_apple_status_need_service),
 )

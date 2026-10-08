@@ -1,5 +1,7 @@
 package com.gpo.yoin.ui.settings
 
+import android.content.res.Resources
+import androidx.annotation.StringRes
 import androidx.compose.animation.core.Animatable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -29,6 +31,7 @@ import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
@@ -37,6 +40,7 @@ import androidx.compose.ui.unit.dp
 import androidx.graphics.shapes.Morph
 import androidx.graphics.shapes.RoundedPolygon
 import coil3.compose.AsyncImage
+import com.gpo.yoin.R
 import com.gpo.yoin.data.profile.ProviderKind
 import com.gpo.yoin.symbols.YoinSymbols
 import com.gpo.yoin.ui.component.MorphPolygonShape
@@ -54,17 +58,33 @@ import com.gpo.yoin.ui.theme.YoinTheme
 /** A service's face in Settings: its name, its Yoin Symbol and its hue. */
 @Immutable
 internal data class ServiceIdentity(
-    val name: String,
+    @param:StringRes @get:StringRes val nameRes: Int,
     val glyph: ImageVector,
     val hue: SettingsHue,
 )
 
 internal val ProviderKind.serviceIdentity: ServiceIdentity
     get() = when (this) {
-        ProviderKind.SUBSONIC -> ServiceIdentity("Subsonic", YoinSymbols.Cloud, SettingsHue.Blue)
-        ProviderKind.SPOTIFY -> ServiceIdentity("Spotify", ServiceMarks.Spotify, SettingsHue.Green)
-        ProviderKind.APPLE_MUSIC -> ServiceIdentity("Apple Music", ServiceMarks.AppleMusic, SettingsHue.Rose)
-        ProviderKind.LOCAL -> ServiceIdentity("Files on this device", YoinSymbols.Folder, SettingsHue.Amber)
+        ProviderKind.SUBSONIC -> ServiceIdentity(
+            R.string.settings_service_name_subsonic,
+            YoinSymbols.Cloud,
+            SettingsHue.Blue,
+        )
+        ProviderKind.SPOTIFY -> ServiceIdentity(
+            R.string.settings_service_name_spotify,
+            ServiceMarks.Spotify,
+            SettingsHue.Green,
+        )
+        ProviderKind.APPLE_MUSIC -> ServiceIdentity(
+            R.string.settings_service_name_apple,
+            ServiceMarks.AppleMusic,
+            SettingsHue.Rose,
+        )
+        ProviderKind.LOCAL -> ServiceIdentity(
+            R.string.settings_service_name_local,
+            YoinSymbols.Folder,
+            SettingsHue.Amber,
+        )
     }
 
 internal val SetupService.provider: ProviderKind
@@ -131,12 +151,26 @@ internal fun monogramOf(title: String, serviceName: String? = null): String {
  * "Spotify". The service name drops out when the title already says it
  * (an Apple Music account titled "Apple Music"); null when nothing is left.
  */
-internal fun serviceLineOf(serviceName: String, title: String, detail: String?): String? {
+@Suppress("ktlint:standard:max-line-length")
+internal fun serviceLineOf(
+    serviceName: String,
+    title: String,
+    detail: String?,
+    resources: Resources? = null,
+): String? {
     val parts = buildList {
         if (!title.contains(serviceName, ignoreCase = true)) add(serviceName)
         detail?.takeIf { it.isNotBlank() && !title.contains(it, ignoreCase = true) }?.let(::add)
     }
-    return parts.takeIf { it.isNotEmpty() }?.joinToString(" · ")
+    if (resources == null) {
+        return parts.takeIf { it.isNotEmpty() }
+            ?.joinToString(" · ") // i18n-allow: AccountIdentityTest asserts this English
+    }
+    return when (parts.size) {
+        0 -> null
+        1 -> parts[0]
+        else -> resources.getString(R.string.settings_service_name_line, parts[0], parts[1])
+    }
 }
 
 /** Eight clearly different silhouettes — no two scalloped circles. */
@@ -300,7 +334,7 @@ private fun AccountAvatarPreview() {
         ) {
             ProviderKind.entries.forEachIndexed { index, provider ->
                 AccountAvatar(
-                    monogram = monogramOf(provider.serviceIdentity.name),
+                    monogram = monogramOf(stringResource(provider.serviceIdentity.nameRes)),
                     shapeIndex = index,
                     identity = provider.serviceIdentity,
                     ringColor = MaterialTheme.colorScheme.surfaceBright,

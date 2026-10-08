@@ -1,6 +1,8 @@
 package com.gpo.yoin.ui.settings.service
 
+import androidx.annotation.StringRes
 import androidx.compose.ui.graphics.vector.ImageVector
+import com.gpo.yoin.R
 import com.gpo.yoin.symbols.YoinSymbols
 
 /**
@@ -11,14 +13,18 @@ import com.gpo.yoin.symbols.YoinSymbols
  * The service's glyph and colour come from its `ServiceIdentity`.
  */
 internal data class ServiceIntro(
-    val name: String,
-    val tagline: String,
+    @param:StringRes @get:StringRes val nameRes: Int,
+    @param:StringRes @get:StringRes val taglineRes: Int,
     val highlights: List<Highlight>,
-    val requirements: List<String>,
+    val requirements: List<Int>,
     /** Short badge next to the name — e.g. "Preview" for connection-test-only services. */
-    val badge: String? = null,
+    @param:StringRes @get:StringRes val badgeRes: Int? = null,
 ) {
-    data class Highlight(val icon: ImageVector, val title: String, val body: String)
+    data class Highlight(
+        val icon: ImageVector,
+        @param:StringRes @get:StringRes val titleRes: Int,
+        @param:StringRes @get:StringRes val bodyRes: Int,
+    )
 }
 
 internal val SetupService.intro: ServiceIntro
@@ -29,76 +35,82 @@ internal val SetupService.intro: ServiceIntro
     }
 
 private val SubsonicIntro = ServiceIntro(
-    name = "Subsonic",
-    tagline = "Your own music server — Navidrome, Airsonic, Gonic or anything OpenSubsonic.",
+    nameRes = R.string.settings_intro_subsonic_name,
+    taglineRes = R.string.settings_intro_subsonic_tagline,
     highlights = listOf(
         ServiceIntro.Highlight(
             YoinSymbols.Equalizer,
-            "Plays right in Yoin",
-            "Streams from your server, with lock-screen and background controls.",
+            R.string.settings_intro_subsonic_play_title,
+            R.string.settings_intro_subsonic_play_body,
         ),
         ServiceIntro.Highlight(
             YoinSymbols.Favorite,
-            "Favorites stay in sync",
-            "A heart in Yoin stars the song on your server.",
+            R.string.settings_intro_subsonic_favorites_title,
+            R.string.settings_intro_subsonic_favorites_body,
         ),
         ServiceIntro.Highlight(
             YoinSymbols.Playlist,
-            "Your playlists",
-            "Browse them all and edit the ones you own.",
+            R.string.settings_intro_subsonic_playlists_title,
+            R.string.settings_intro_subsonic_playlists_body,
         ),
         ServiceIntro.Highlight(
             YoinSymbols.Cast,
-            "Cast and cache",
-            "Send music to a speaker; recent plays are cached for you.",
+            R.string.settings_intro_subsonic_cast_title,
+            R.string.settings_intro_subsonic_cast_body,
         ),
     ),
-    requirements = listOf("A server address, username and password"),
+    requirements = listOf(R.string.settings_intro_subsonic_need),
 )
 
 private val SpotifyIntro = ServiceIntro(
-    name = "Spotify",
-    tagline = "Your Spotify library in Yoin, played through the Spotify app.",
+    nameRes = R.string.settings_intro_spotify_name,
+    taglineRes = R.string.settings_intro_spotify_tagline,
     highlights = listOf(
         ServiceIntro.Highlight(
             YoinSymbols.Library,
-            "Everything you've saved",
-            "Playlists, liked songs, albums and artists.",
+            R.string.settings_intro_spotify_saved_title,
+            R.string.settings_intro_spotify_saved_body,
         ),
         ServiceIntro.Highlight(
             YoinSymbols.Favorite,
-            "Hearts go to Liked Songs",
-            "Save a song in Yoin and it shows up in Spotify.",
+            R.string.settings_intro_spotify_hearts_title,
+            R.string.settings_intro_spotify_hearts_body,
         ),
         ServiceIntro.Highlight(
             YoinSymbols.Speaker,
-            "Spotify Connect",
-            "Play on any speaker or device Spotify can reach.",
+            R.string.settings_intro_spotify_connect_title,
+            R.string.settings_intro_spotify_connect_body,
         ),
         ServiceIntro.Highlight(
             YoinSymbols.EditNote,
-            "Yoin's extras",
-            "Lyrics, ratings and notes, kept in Yoin.",
+            R.string.settings_intro_spotify_extras_title,
+            R.string.settings_intro_spotify_extras_body,
         ),
     ),
-    requirements = listOf("Spotify Premium", "The Spotify app on this device"),
+    requirements = listOf(
+        R.string.settings_intro_spotify_need_premium,
+        R.string.settings_intro_spotify_need_app,
+    ),
 )
 
 private val AppleMusicIntro = ServiceIntro(
-    name = "Apple Music",
-    tagline = "Your Apple Music library and catalog, played in Yoin.",
-    badge = "Preview",
+    nameRes = R.string.settings_intro_apple_name,
+    taglineRes = R.string.settings_intro_apple_tagline,
+    badgeRes = R.string.settings_intro_apple_badge,
     highlights = listOf(
         ServiceIntro.Highlight(
             YoinSymbols.Search,
-            "Search the catalog",
-            "Find any song on Apple Music.",
+            R.string.settings_intro_apple_search_title,
+            R.string.settings_intro_apple_search_body,
         ),
         ServiceIntro.Highlight(
             YoinSymbols.PlayCircle,
-            "Plays in Yoin",
-            "Listen with MusicKit, background playback and system controls.",
+            R.string.settings_intro_apple_play_title,
+            R.string.settings_intro_apple_play_body,
         ),
     ),
-    requirements = listOf("An Apple Music subscription", "A developer token service"),
+    requirements = listOf(
+        R.string.settings_intro_apple_need_sub,
+        R.string.settings_intro_apple_need_token,
+    ),
 )
