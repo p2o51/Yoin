@@ -64,6 +64,28 @@ secrets exist, the Release workflow fails fast with a clear message.
 | `RELEASE_KEY_PASSWORD` | yes | signing key password |
 | `SPOTIFY_CLIENT_ID` | optional | baked into the release build config |
 | `PLAY_SERVICE_ACCOUNT_JSON` | optional | Google Play service-account JSON; presence enables the Play upload step |
+| `CI_ASSETS_TOKEN` | yes (CI + Release) | fine-grained token, **Contents: read-only** on `p2o51/yoin-ci-assets`; lets CI download the Apple MusicKit AARs |
+
+### Apple MusicKit AARs
+
+Apple's Android MusicKit SDK (`app/libs/musickitauth-release-1.1.2.aar`,
+`app/libs/mediaplayback-release-1.1.1.aar`) may not be redistributed, so the
+files are gitignored. CI and Release fetch them from the
+`apple-musickit-1.1.2` release of the **private** repository
+`p2o51/yoin-ci-assets` through [`.github/actions/apple-musickit`](../.github/actions/apple-musickit/action.yml),
+which checks their SHA-256 against [`app/libs/README-apple-music.md`](../app/libs/README-apple-music.md).
+
+- `CI_ASSETS_TOKEN` expires (fine-grained tokens last at most a year). When it
+  does, every CI job fails at "Fetch Apple MusicKit SDK"; create a new token with
+  the same scope and replace the secret.
+- Dependabot PRs don't receive repository secrets, so their CI fails at that
+  step. Add the same token under **Secrets and variables → Dependabot** if those
+  PRs should go green.
+- Upgrading the SDK: upload the new AARs as a new release in `yoin-ci-assets`,
+  then update the tag and the sums in the action, `app/build.gradle.kts` and the README.
+
+Yoin Symbols is checked out at a pinned commit of `p2o51/yoin-symbols` (that repo
+has no tags yet). Bump the `ref:` in both workflows when the app needs newer glyphs.
 
 Generate the keystore base64 locally:
 
