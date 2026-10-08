@@ -19,6 +19,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.gpo.yoin.R
 import com.gpo.yoin.YoinActivityRoot
 import com.gpo.yoin.YoinApplication
 import com.gpo.yoin.data.model.MediaId
@@ -181,7 +182,7 @@ class ArtistDetailActivity : ComponentActivity() {
                     onMostPlayedClick = { index -> playMostPlayed(index) },
                     onShare = {
                         val title = (uiState as? ArtistDetailUiState.Content)?.artistName
-                            ?: "Check out this artist"
+                            ?: context.getString(R.string.detail_share_artist)
                         val text = detailShareText(title, webLink)
                         val send = Intent(Intent.ACTION_SEND).apply {
                             type = "text/plain"

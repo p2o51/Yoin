@@ -1,5 +1,6 @@
 package com.gpo.yoin.ui.detail
 
+import android.content.res.Resources
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
@@ -68,11 +69,15 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.LinkAnnotation
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextLayoutResult
@@ -89,6 +94,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
+import com.gpo.yoin.R
 import com.gpo.yoin.data.integration.neodb.NeoDbShortCommentMax
 import com.gpo.yoin.data.integration.neodb.isNeoDbShortComment
 import com.gpo.yoin.symbols.YoinSymbols
@@ -122,6 +128,8 @@ import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.time.temporal.ChronoUnit
+import java.util.Calendar
+import java.util.TimeZone
 import kotlin.math.absoluteValue
 import kotlin.math.roundToInt
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -228,8 +236,6 @@ private fun AlbumArrowBackgroundPreview() {
 // Two-page indicator dots (overview  ·  scrapbook). Tappable: a dot pages to it.
 // ---------------------------------------------------------------------------
 
-private val AlbumPageDotLabels = listOf("Overview", "Scrapbook")
-
 /**
  * The page dots. [activeFraction] (pager position, 0…count-1) is read only while drawing, so a swipe never
  * recomposes the header; [selectedPage] (the settled page) only feeds the accessibility state.
@@ -248,8 +254,18 @@ internal fun AlbumPageDots(
         modifier = modifier.selectableGroup(),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        val overview = stringResource(R.string.detail_album_page_overview)
+        val scrapbook = stringResource(R.string.detail_album_page_scrapbook)
+        val labels = mutableListOf<String>()
+        for (i in 0 until count) {
+            labels += when (i) {
+                0 -> overview
+                1 -> scrapbook
+                else -> stringResource(R.string.detail_album_page_n, i + 1)
+            }
+        }
         repeat(count) { i ->
-            val label = AlbumPageDotLabels.getOrElse(i) { "Page ${i + 1}" }
+            val label = labels[i]
             Box(
                 modifier = Modifier
                     // 24 × 20 cells (the dots stay 6dp apart as before); Compose
@@ -314,7 +330,7 @@ internal fun AlbumScoreEmblem(
                 .clickable(
                     enabled = enabled,
                     role = Role.Button,
-                    onClickLabel = "Rate and comment",
+                    onClickLabel = stringResource(R.string.detail_album_cd_rate),
                     onClick = onClick,
                 ),
         )
@@ -334,7 +350,7 @@ internal fun AlbumScoreEmblem(
 @Composable
 private fun AlbumRatedCoverage(ratedCount: Int, total: Int) {
     Text(
-        text = "$ratedCount/$total rated",
+        text = stringResource(R.string.detail_album_rated, ratedCount, total),
         style = MaterialTheme.typography.labelSmall.withTabularFigures(),
         color = MaterialTheme.colorScheme.onSurfaceVariant,
         maxLines = 1,
@@ -380,14 +396,16 @@ internal fun AlbumTrackCountLabel(
     totalDurationSeconds: Int?,
     modifier: Modifier = Modifier,
 ) {
-    val tracks = if (count == 1) "1 track" else "$count tracks"
+    val duration = totalDurationSeconds?.takeIf { it > 0 }?.let { seconds ->
+        formatTotalDuration(seconds, LocalContext.current.resources)
+    }
+    val text = if (duration != null) {
+        pluralStringResource(R.plurals.detail_album_tracks_duration, count, count, duration)
+    } else {
+        pluralStringResource(R.plurals.detail_album_tracks, count, count)
+    }
     Text(
-        text = buildString {
-            append(tracks)
-            totalDurationSeconds?.takeIf { it > 0 }?.let {
-                append("  ·  ${formatTotalDuration(it)}")
-            }
-        },
+        text = text,
         style = MaterialTheme.typography.labelMedium,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
         modifier = modifier,
@@ -442,37 +460,44 @@ private fun Char.isWideGlyph(): Boolean {
         code in 0xFF00..0xFFEF // full-width forms
 }
 
+@Composable
 internal fun buildAlbumTrackTitles(
     songs: List<AlbumSong>,
     separatorColor: Color,
     featColor: Color,
     onSongClick: ((String) -> Unit)?,
-) = buildAnnotatedString {
-    fun appendTitle(song: AlbumSong) {
-        append(flowingTitle(song.title))
-        song.featArtist?.let { feat ->
-            withStyle(SpanStyle(fontSize = 0.6.em, color = featColor)) {
-                // NBSP: the small credit never wraps away from its title.
-                append("\u00A0(feat. $feat)")
+): AnnotatedString {
+    val credits = mutableListOf<String?>()
+    for (song in songs) {
+        credits += song.featArtist?.let { feat -> stringResource(R.string.detail_album_feat, feat) }
+    }
+    return buildAnnotatedString {
+        fun appendTitle(index: Int, song: AlbumSong) {
+            append(flowingTitle(song.title))
+            credits[index]?.let { credit ->
+                withStyle(SpanStyle(fontSize = 0.6.em, color = featColor)) {
+                    // NBSP: the small credit never wraps away from its title.
+                    append(credit)
+                }
             }
         }
-    }
-    songs.forEachIndexed { index, song ->
-        if (index > 0) {
-            withStyle(SpanStyle(color = separatorColor)) { append(FlowingTitleSeparator) }
-        }
-        if (onSongClick != null) {
-            // Each title is its OWN clickable link → plays just that song,
-            // exactly like tapping a row in a normal track list.
-            withLink(
-                LinkAnnotation.Clickable(
-                    tag = song.id,
-                    styles = AlbumTitleLinkStyles,
-                    linkInteractionListener = { onSongClick(song.id) },
-                ),
-            ) { appendTitle(song) }
-        } else {
-            appendTitle(song)
+        songs.forEachIndexed { index, song ->
+            if (index > 0) {
+                withStyle(SpanStyle(color = separatorColor)) { append(FlowingTitleSeparator) }
+            }
+            if (onSongClick != null) {
+                // Each title is its OWN clickable link → plays just that song,
+                // exactly like tapping a row in a normal track list.
+                withLink(
+                    LinkAnnotation.Clickable(
+                        tag = song.id,
+                        styles = AlbumTitleLinkStyles,
+                        linkInteractionListener = { onSongClick(song.id) },
+                    ),
+                ) { appendTitle(index, song) }
+            } else {
+                appendTitle(index, song)
+            }
         }
     }
 }
@@ -529,7 +554,7 @@ internal fun AlbumTrackRow(
             ) {
                 Icon(
                     painter = rememberEqualizerSymbolPainter(playing = isPlaying),
-                    contentDescription = "Now playing",
+                    contentDescription = stringResource(R.string.detail_album_cd_now_playing),
                     tint = accent,
                     modifier = Modifier.size(16.dp),
                 )
@@ -562,7 +587,7 @@ internal fun AlbumTrackRow(
                 if (hasNote) {
                     Icon(
                         imageVector = YoinSymbols.Note,
-                        contentDescription = "Has note",
+                        contentDescription = stringResource(R.string.detail_album_cd_has_note),
                         tint = accent.copy(alpha = 0.8f),
                         modifier = Modifier.size(12.dp),
                     )
@@ -673,7 +698,9 @@ private fun AlbumCircleToggle(
         ) {
             Icon(
                 painter = rememberFavoriteSymbolPainter(favorite = active),
-                contentDescription = if (active) "Remove from favorites" else "Add to favorites",
+                contentDescription = stringResource(
+                    if (active) R.string.detail_album_cd_remove_favorite else R.string.detail_album_cd_add_favorite,
+                ),
                 tint = if (active) {
                     MaterialTheme.colorScheme.onPrimary
                 } else {
@@ -820,7 +847,7 @@ private fun RateSheetTitle(albumName: String, modifier: Modifier = Modifier) {
         verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {
         Text(
-            text = "Rate",
+            text = stringResource(R.string.detail_album_rate),
             style = MaterialTheme.typography.labelLarge,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -916,7 +943,7 @@ private fun AlbumReviewField(text: String, onTextChange: (String) -> Unit) {
                 Box {
                     if (text.isEmpty()) {
                         Text(
-                            text = "Say something about it…",
+                            text = stringResource(R.string.detail_album_review_hint),
                             style = MaterialTheme.typography.bodyLarge,
                             color = scheme.onSurfaceVariant,
                         )
@@ -934,12 +961,18 @@ private fun AlbumReviewField(text: String, onTextChange: (String) -> Unit) {
             val short = isNeoDbShortComment(text)
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 Text(
-                    text = if (short) "Short comment" else "Review",
+                    text = stringResource(
+                        if (short) R.string.detail_album_short_comment else R.string.detail_album_review,
+                    ),
                     style = MaterialTheme.typography.labelMedium,
                     color = scheme.onSurfaceVariant,
                 )
                 Text(
-                    text = if (short) "$count / $NeoDbShortCommentMax" else "$count",
+                    text = if (short) {
+                        stringResource(R.string.detail_album_review_count, count, NeoDbShortCommentMax)
+                    } else {
+                        "$count"
+                    },
                     style = MaterialTheme.typography.labelMedium.withTabularFigures(),
                     color = scheme.onSurfaceVariant,
                 )
@@ -979,7 +1012,7 @@ private fun AlbumNeoDbLine(state: AlbumNeoDbSync, onSignIn: () -> Unit, onRetry:
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Text(
-            text = "NeoDB",
+            text = stringResource(R.string.detail_neodb_name),
             style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold),
             color = scheme.onSurface,
         )
@@ -992,7 +1025,7 @@ private fun AlbumNeoDbLine(state: AlbumNeoDbSync, onSignIn: () -> Unit, onRetry:
             label = "neoDbLine",
         ) { shown ->
             Text(
-                text = albumNeoDbLabel(shown),
+                text = albumNeoDbLabel(shown, LocalContext.current.resources),
                 style = MaterialTheme.typography.bodyMedium,
                 color = if (shown == AlbumNeoDbSync.Failed || shown == AlbumNeoDbSync.SignedOut) {
                     scheme.primary
@@ -1005,13 +1038,18 @@ private fun AlbumNeoDbLine(state: AlbumNeoDbSync, onSignIn: () -> Unit, onRetry:
 }
 
 /** The words after "NeoDB" on the sheet's last line. */
-internal fun albumNeoDbLabel(state: AlbumNeoDbSync): String = when (state) {
+internal fun albumNeoDbLabel(state: AlbumNeoDbSync, resources: Resources? = null): String = when (state) {
     AlbumNeoDbSync.Unknown -> ""
-    AlbumNeoDbSync.SignedOut -> "Sign in to sync"
-    AlbumNeoDbSync.Idle, AlbumNeoDbSync.Pending -> "Syncs when you close this"
-    AlbumNeoDbSync.Syncing -> "Syncing…"
-    AlbumNeoDbSync.Synced -> "Synced"
-    AlbumNeoDbSync.Failed -> "Couldn't sync · Retry"
+    AlbumNeoDbSync.SignedOut -> resources?.getString(R.string.detail_neodb_sign_in)
+        ?: "Sign in to sync" // i18n-allow: AlbumNeoDbSyncTest asserts this English
+    AlbumNeoDbSync.Idle, AlbumNeoDbSync.Pending -> resources?.getString(R.string.detail_neodb_pending)
+        ?: "Syncs when you close this" // i18n-allow: AlbumNeoDbSyncTest asserts this English
+    AlbumNeoDbSync.Syncing -> resources?.getString(R.string.detail_neodb_syncing)
+        ?: "Syncing…" // i18n-allow: AlbumNeoDbSyncTest asserts this English
+    AlbumNeoDbSync.Synced -> resources?.getString(R.string.detail_neodb_synced)
+        ?: "Synced" // i18n-allow: AlbumNeoDbSyncTest asserts this English
+    AlbumNeoDbSync.Failed -> resources?.getString(R.string.detail_neodb_failed)
+        ?: "Couldn't sync · Retry" // i18n-allow: AlbumNeoDbSyncTest asserts this English
 }
 
 // ---------------------------------------------------------------------------
@@ -1029,18 +1067,27 @@ internal fun formatAlbumScore(rating: Float): String {
  * Album-level "last play" → (dayLabel, time), e.g. ("Yesterday", "16:04").
  * Pure local time; minSdk 26 so java.time is available without desugaring.
  */
-internal fun albumLastPlayLabels(epochMillis: Long): Pair<String, String> {
+internal fun albumLastPlayLabels(epochMillis: Long, resources: Resources): Pair<String, String> {
     val zone = ZoneId.systemDefault()
     val moment = Instant.ofEpochMilli(epochMillis).atZone(zone)
     val date = moment.toLocalDate()
     val today = LocalDate.now(zone)
     val days = ChronoUnit.DAYS.between(date, today)
     val day = when {
-        days <= 0L -> "Today"
-        days == 1L -> "Yesterday"
-        days < 7L -> "$days days ago"
-        else -> date.format(DateTimeFormatter.ofPattern("MMM d"))
+        days <= 0L -> resources.getString(R.string.detail_relative_today)
+        days == 1L -> resources.getString(R.string.detail_relative_yesterday)
+        days < 7L -> resources.getQuantityString(R.plurals.detail_relative_days_ago, days.toInt(), days.toInt())
+        else -> formatAlbumMonthDay(epochMillis, zone, resources)
     }
     val time = moment.format(DateTimeFormatter.ofPattern("HH:mm"))
     return day to time
+}
+
+private fun formatAlbumMonthDay(epochMillis: Long, zone: ZoneId, resources: Resources): String {
+    val locale = resources.configuration.locales[0]
+    val pattern = android.text.format.DateFormat.getBestDateTimePattern(locale, "MMMd")
+    val calendar = Calendar.getInstance(TimeZone.getTimeZone(zone.id)).apply {
+        timeInMillis = epochMillis
+    }
+    return android.text.format.DateFormat.format(pattern, calendar).toString()
 }

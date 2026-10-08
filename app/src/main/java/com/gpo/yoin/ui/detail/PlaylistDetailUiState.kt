@@ -1,5 +1,7 @@
 package com.gpo.yoin.ui.detail
 
+import com.gpo.yoin.ui.common.UiText
+
 sealed interface PlaylistDetailUiState {
     data object Loading : PlaylistDetailUiState
 
@@ -17,7 +19,7 @@ sealed interface PlaylistDetailUiState {
         val canWrite: Boolean = false,
     ) : PlaylistDetailUiState
 
-    data class Error(val message: String) : PlaylistDetailUiState
+    data class Error(val message: UiText) : PlaylistDetailUiState
 }
 
 data class PlaylistSong(

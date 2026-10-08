@@ -4,12 +4,13 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.gpo.yoin.AppContainer
+import com.gpo.yoin.R
 import com.gpo.yoin.data.model.ArtistDetail
 import com.gpo.yoin.data.model.CoverRef
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.Track
 import com.gpo.yoin.data.repository.YoinRepository
-import com.gpo.yoin.ui.component.toUserMessage
+import com.gpo.yoin.ui.common.UiText
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -51,7 +52,7 @@ class ArtistDetailViewModel(
             try {
                 val artist = repository.getArtist(MediaId.parse(artistId))
                 if (artist == null) {
-                    _uiState.value = ArtistDetailUiState.Error("Artist not found")
+                    _uiState.value = ArtistDetailUiState.Error(UiText.Res(R.string.detail_artist_error_not_found))
                     return@launch
                 }
                 loadedArtist = artist
@@ -77,7 +78,7 @@ class ArtistDetailViewModel(
                 loadPersonal(artist)
             } catch (e: Exception) {
                 _uiState.value = ArtistDetailUiState.Error(
-                    e.toUserMessage("Couldn't load this artist."),
+                    e.toDetailMessage(R.string.detail_artist_error_load),
                 )
             }
         }

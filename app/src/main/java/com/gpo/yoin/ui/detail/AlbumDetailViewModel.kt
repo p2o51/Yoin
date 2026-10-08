@@ -1,10 +1,12 @@
 package com.gpo.yoin.ui.detail
 
 import android.util.Log
+import androidx.annotation.StringRes
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.gpo.yoin.AppContainer
+import com.gpo.yoin.R
 import com.gpo.yoin.data.album.AlbumScrapbookData
 import com.gpo.yoin.data.album.AlbumScrapbookQuery
 import com.gpo.yoin.data.album.AlbumScrapbookSource
@@ -21,6 +23,7 @@ import com.gpo.yoin.data.model.isUnplayableAppleImport
 import com.gpo.yoin.data.repository.YoinRepository
 import com.gpo.yoin.data.source.ServiceFeatureCatalog
 import com.gpo.yoin.player.PlaybackState
+import com.gpo.yoin.ui.common.UiText
 import com.gpo.yoin.ui.component.toUserMessage
 import com.gpo.yoin.ui.memories.ResolvedMemoryTitle
 import kotlinx.coroutines.CancellationException
@@ -80,10 +83,10 @@ class AlbumDetailViewModel(
     /** Where NeoDB stands for this album — the rate sheet's quiet last line (owner R3, 2026-10-06). */
     val neoDb: StateFlow<AlbumNeoDbSync> = _neoDb.asStateFlow()
 
-    private val _messages = MutableSharedFlow<String>(extraBufferCapacity = 4)
+    private val _messages = MutableSharedFlow<UiText>(extraBufferCapacity = 4)
 
     /** One-line notices for the window's snackbar (a failed NeoDB sync). */
-    val messages: SharedFlow<String> = _messages.asSharedFlow()
+    val messages: SharedFlow<UiText> = _messages.asSharedFlow()
     private val albumTrackIds = MutableStateFlow<List<MediaId>>(emptyList())
     private val _expandedSongId = MutableStateFlow<String?>(null)
     val expandedSongId: StateFlow<String?> = _expandedSongId.asStateFlow()
@@ -169,7 +172,7 @@ class AlbumDetailViewModel(
                 val parsedAlbumId = MediaId.parse(albumId)
                 val album = repository.getAlbum(parsedAlbumId)
                 if (album == null) {
-                    _uiState.value = AlbumDetailUiState.Error("Album not found")
+                    _uiState.value = AlbumDetailUiState.Error(UiText.Res(R.string.detail_album_error_not_found))
                     return@launch
                 }
                 loadedAlbum = album
@@ -254,7 +257,7 @@ class AlbumDetailViewModel(
                 }
             } catch (e: Exception) {
                 _uiState.value = AlbumDetailUiState.Error(
-                    e.toUserMessage("Couldn't load this album."),
+                    e.toDetailMessage(R.string.detail_album_error_load),
                 )
             }
         }
@@ -501,7 +504,7 @@ class AlbumDetailViewModel(
         _neoDb.value = if (result.isSuccess) AlbumNeoDbSync.Synced else AlbumNeoDbSync.Failed
         if (result.isFailure) {
             Log.w(TAG, "NeoDB sync failed for ${album.id}", result.exceptionOrNull())
-            _messages.tryEmit("Couldn't sync to NeoDB")
+            _messages.tryEmit(UiText.Res(R.string.detail_album_neodb_failed))
         }
     }
 
@@ -609,7 +612,7 @@ data class AlbumPrimaryNote(
 )
 
 data class AlbumCrossProviderNote(
-    val providerLabel: String,
+    val providerLabel: UiText,
     val content: String,
 )
 
@@ -626,11 +629,20 @@ private fun Track.toAlbumSong(albumArtist: String?): AlbumSong = AlbumSong(
     },
 )
 
-private fun String.toProviderLabel(): String = when (this) {
-    MediaId.PROVIDER_SPOTIFY -> "Spotify"
-    MediaId.PROVIDER_SUBSONIC -> "Subsonic"
-    MediaId.PROVIDER_LOCAL -> "Local"
-    else -> replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() }
+private fun String.toProviderLabel(): UiText = when (this) {
+    MediaId.PROVIDER_SPOTIFY -> UiText.Raw("Spotify")
+    MediaId.PROVIDER_SUBSONIC -> UiText.Raw("Subsonic")
+    MediaId.PROVIDER_LOCAL -> UiText.Res(R.string.detail_provider_local)
+    else -> UiText.Raw(replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() })
+}
+
+/**
+ * [toUserMessage] owns the connectivity lines. A sentinel fallback means this
+ * screen's own load line, which is a resource.
+ */
+internal fun Throwable.toDetailMessage(@StringRes fallback: Int): UiText {
+    val resolved = toUserMessage("\u0000")
+    return if (resolved == "\u0000") UiText.Res(fallback) else UiText.Raw(resolved)
 }
 
 /** Page 2's title from the shared resolver; none over the bare album name (the header already says it). */

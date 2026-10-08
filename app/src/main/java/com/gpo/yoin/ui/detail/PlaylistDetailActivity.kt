@@ -25,10 +25,12 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.gpo.yoin.R
 import com.gpo.yoin.YoinActivityRoot
 import com.gpo.yoin.YoinApplication
 import com.gpo.yoin.data.repository.ActivityContext
 import com.gpo.yoin.enableYoinEdgeToEdge
+import com.gpo.yoin.ui.common.asString
 import com.gpo.yoin.ui.experience.installCoveredWindowAnimationGate
 import com.gpo.yoin.ui.navigation.trackCoverArtId
 import com.gpo.yoin.ui.nowplaying.NowPlayingAccessories
@@ -90,7 +92,7 @@ class PlaylistDetailActivity : ComponentActivity() {
                 // Rename/delete/remove outcomes surface as snackbars.
                 LaunchedEffect(viewModel) {
                     viewModel.messages.collect { message ->
-                        snackbarHostState.showSnackbar(message, duration = SnackbarDuration.Short)
+                        snackbarHostState.showSnackbar(message.asString(context), duration = SnackbarDuration.Short)
                     }
                 }
                 // Leave on successful delete.
@@ -180,7 +182,7 @@ class PlaylistDetailActivity : ComponentActivity() {
                         onShare = {
                             val text = (uiState as? PlaylistDetailUiState.Content)
                                 ?.playlistName
-                                ?: "Check out this playlist"
+                                ?: context.getString(R.string.detail_share_playlist)
                             val send = Intent(Intent.ACTION_SEND).apply {
                                 type = "text/plain"
                                 putExtra(Intent.EXTRA_TEXT, text)

@@ -4,12 +4,13 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.gpo.yoin.AppContainer
+import com.gpo.yoin.R
 import com.gpo.yoin.data.model.CoverRef
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.PlaylistItemRef
 import com.gpo.yoin.data.model.Track
 import com.gpo.yoin.data.repository.YoinRepository
-import com.gpo.yoin.ui.component.toUserMessage
+import com.gpo.yoin.ui.common.UiText
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -33,9 +34,9 @@ class PlaylistDetailViewModel(
     private val _uiState = MutableStateFlow<PlaylistDetailUiState>(PlaylistDetailUiState.Loading)
     val uiState: StateFlow<PlaylistDetailUiState> = _uiState.asStateFlow()
 
-    private val _messages = MutableSharedFlow<String>(extraBufferCapacity = 4)
+    private val _messages = MutableSharedFlow<UiText>(extraBufferCapacity = 4)
     /** One-shot toasts (rename/delete/remove result). */
-    val messages: SharedFlow<String> = _messages.asSharedFlow()
+    val messages: SharedFlow<UiText> = _messages.asSharedFlow()
 
     private val _deleted = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
     /**
@@ -86,11 +87,11 @@ class PlaylistDetailViewModel(
             repository.renamePlaylist(MediaId.parse(playlistId), trimmed)
                 .onSuccess {
                     onPlaylistMutated()
-                    _messages.tryEmit("Renamed")
+                    _messages.tryEmit(UiText.Res(R.string.detail_playlist_renamed))
                     loadPlaylist() // refresh name + snapshot
                 }
                 .onFailure {
-                    _messages.tryEmit(it.message ?: "Couldn't rename playlist")
+                    _messages.tryEmit(it.message?.let(UiText::Raw) ?: UiText.Res(R.string.detail_playlist_error_rename))
                 }
         }
     }
@@ -100,11 +101,11 @@ class PlaylistDetailViewModel(
             repository.deletePlaylist(MediaId.parse(playlistId))
                 .onSuccess {
                     onPlaylistMutated()
-                    _messages.tryEmit("Playlist deleted")
+                    _messages.tryEmit(UiText.Res(R.string.detail_playlist_deleted))
                     _deleted.tryEmit(Unit)
                 }
                 .onFailure {
-                    _messages.tryEmit(it.message ?: "Couldn't delete playlist")
+                    _messages.tryEmit(it.message?.let(UiText::Raw) ?: UiText.Res(R.string.detail_playlist_error_delete))
                 }
         }
     }
@@ -126,7 +127,7 @@ class PlaylistDetailViewModel(
                     loadPlaylist()
                 }
                 .onFailure {
-                    _messages.tryEmit(it.message ?: "Couldn't remove track")
+                    _messages.tryEmit(it.message?.let(UiText::Raw) ?: UiText.Res(R.string.detail_playlist_error_remove))
                 }
         }
     }
@@ -136,7 +137,7 @@ class PlaylistDetailViewModel(
             try {
                 val playlist = repository.getPlaylist(MediaId.parse(playlistId))
                 if (playlist == null) {
-                    _uiState.value = PlaylistDetailUiState.Error("Playlist not found")
+                    _uiState.value = PlaylistDetailUiState.Error(UiText.Res(R.string.detail_playlist_error_not_found))
                     return@launch
                 }
                 playlistSongs = playlist.tracks
@@ -175,7 +176,7 @@ class PlaylistDetailViewModel(
                 )
             } catch (e: Exception) {
                 _uiState.value = PlaylistDetailUiState.Error(
-                    e.toUserMessage("Couldn't load this playlist."),
+                    e.toDetailMessage(R.string.detail_playlist_error_load),
                 )
             }
         }

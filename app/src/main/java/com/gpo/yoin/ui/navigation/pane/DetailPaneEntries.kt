@@ -15,13 +15,16 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation3.runtime.NavKey
+import com.gpo.yoin.R
 import com.gpo.yoin.YoinApplication
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.repository.ActivityContext
 import com.gpo.yoin.data.source.WebLinkKind
 import com.gpo.yoin.symbols.YoinSymbols
+import com.gpo.yoin.ui.common.asString
 import com.gpo.yoin.ui.component.BarExtraAction
 import com.gpo.yoin.ui.component.BarPlaySplitActions
 import com.gpo.yoin.ui.detail.AlbumDetailScreen
@@ -106,7 +109,7 @@ internal fun AlbumPaneEntry(
     val currentOnMessage by rememberUpdatedState(onMessage)
     // A failed NeoDB sync surfaces on the shell's snackbar.
     LaunchedEffect(viewModel) {
-        viewModel.messages.collect { message -> currentOnMessage(message) }
+        viewModel.messages.collect { message -> currentOnMessage(message.asString(context)) }
     }
     val content = uiState as? AlbumDetailUiState.Content
 
@@ -149,7 +152,9 @@ internal fun AlbumPaneEntry(
         onAddToPlaylist = onAddToPlaylist,
     )
     val share = {
-        val title = content?.let { "${it.albumName} – ${it.artistName}" } ?: "Check out this album"
+        val title = content?.let {
+            context.getString(R.string.shell_share_album_title, it.albumName, it.artistName)
+        } ?: context.getString(R.string.shell_share_album_fallback)
         context.startActivity(Intent.createChooser(shareIntent(detailShareText(title, webLink)), null))
     }
     val artistId = content?.artistId
@@ -157,6 +162,8 @@ internal fun AlbumPaneEntry(
     // The bar's Play rides the cover-seeded primary (the shell bar animates
     // the colour change itself, so the registry only sees targets).
     val barScheme = rememberCoverColorScheme(content?.coverArtUrl) ?: MaterialTheme.colorScheme
+    val goToArtist = stringResource(R.string.shell_pane_album_go_to_artist)
+    val shareAlbum = stringResource(R.string.shell_pane_album_share)
     PublishPaneBarActions(
         registry = registry,
         key = route,
@@ -167,9 +174,9 @@ internal fun AlbumPaneEntry(
             onShuffle = { playFrom(startIndex = 0, shuffle = true) },
             promotable = listOfNotNull(
                 artistId?.let { id ->
-                    BarExtraAction(icon = YoinSymbols.Artist, label = "Go to artist") { onOpenArtist(id) }
+                    BarExtraAction(icon = YoinSymbols.Artist, label = goToArtist) { onOpenArtist(id) }
                 },
-                BarExtraAction(icon = YoinSymbols.Share, label = "Share", onClick = share),
+                BarExtraAction(icon = YoinSymbols.Share, label = shareAlbum, onClick = share),
             ),
             menuItems = { dismissMenu -> DetailMenuRows(menu, dismissMenu) },
         ),
@@ -274,7 +281,7 @@ internal fun ArtistPaneEntry(
         onAddToPlaylist = null,
     )
     val share = {
-        val title = content?.artistName ?: "Check out this artist"
+        val title = content?.artistName ?: context.getString(R.string.shell_share_artist_fallback)
         context.startActivity(Intent.createChooser(shareIntent(detailShareText(title, webLink)), null))
     }
 
@@ -288,7 +295,13 @@ internal fun ArtistPaneEntry(
             playContent = scheme.onPrimary,
             onPlay = { playArtist(shuffle = false) },
             onShuffle = { playArtist(shuffle = true) },
-            promotable = listOf(BarExtraAction(icon = YoinSymbols.Share, label = "Share", onClick = share)),
+            promotable = listOf(
+                BarExtraAction(
+                    icon = YoinSymbols.Share,
+                    label = stringResource(R.string.shell_pane_artist_share),
+                    onClick = share,
+                ),
+            ),
             menuItems = { dismissMenu -> DetailMenuRows(menu, dismissMenu) },
         ),
     )
@@ -330,7 +343,7 @@ internal fun PlaylistPaneEntry(
     // Rename/delete/remove outcomes surface on the shell's snackbar; a
     // successful delete leaves the column.
     LaunchedEffect(viewModel) {
-        viewModel.messages.collect { message -> currentOnMessage(message) }
+        viewModel.messages.collect { message -> currentOnMessage(message.asString(context)) }
     }
     LaunchedEffect(viewModel) {
         viewModel.deleted.collect { currentOnBack() }
@@ -360,7 +373,7 @@ internal fun PlaylistPaneEntry(
         }
     }
     val share = {
-        val text = content?.playlistName ?: "Check out this playlist"
+        val text = content?.playlistName ?: context.getString(R.string.shell_share_playlist_fallback)
         context.startActivity(Intent.createChooser(shareIntent(text), null))
     }
 
@@ -373,7 +386,13 @@ internal fun PlaylistPaneEntry(
             playContent = scheme.onPrimary,
             onPlay = { playFrom(startIndex = 0, shuffle = false) },
             onShuffle = { playFrom(startIndex = 0, shuffle = true) },
-            promotable = listOf(BarExtraAction(icon = YoinSymbols.Share, label = "Share", onClick = share)),
+            promotable = listOf(
+                BarExtraAction(
+                    icon = YoinSymbols.Share,
+                    label = stringResource(R.string.shell_pane_playlist_share),
+                    onClick = share,
+                ),
+            ),
         ),
     )
 

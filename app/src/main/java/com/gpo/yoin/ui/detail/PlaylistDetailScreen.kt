@@ -55,6 +55,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.LinkAnnotation
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextLinkStyles
@@ -68,7 +70,9 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.lerp
+import com.gpo.yoin.R
 import com.gpo.yoin.symbols.YoinSymbols
+import com.gpo.yoin.ui.common.asString
 import com.gpo.yoin.ui.component.BarExtraAction
 import com.gpo.yoin.ui.component.DetailErrorState
 import com.gpo.yoin.ui.component.ExpressiveMediaArtwork
@@ -249,7 +253,7 @@ fun PlaylistDetailScreen(
                                 // carries the back affordance on this page.
                                 is PlaylistDetailUiState.Error ->
                                     DetailErrorState(
-                                        message = state.message,
+                                        message = state.message.asString(),
                                         onRetry = onRetry,
                                     )
 
@@ -300,7 +304,7 @@ fun PlaylistDetailScreen(
                 promotable = listOf(
                     BarExtraAction(
                         icon = YoinSymbols.Share,
-                        label = "Share",
+                        label = stringResource(R.string.detail_playlist_share),
                         onClick = onShare,
                     ),
                 ),
@@ -324,12 +328,12 @@ fun PlaylistDetailScreen(
         val haptics = rememberYoinHaptics()
         AlertDialog(
             onDismissRequest = { showDeleteConfirm = false },
-            title = { Text("Delete playlist?") },
+            title = { Text(stringResource(R.string.detail_playlist_delete_title)) },
             text = {
                 // Spotify implements delete as unfollow-own, but the user-
                 // visible effect is the same: the playlist disappears. The
                 // message stays product-neutral.
-                Text("\"${content.playlistName}\" will be removed from your library.")
+                Text(stringResource(R.string.detail_playlist_delete_body, content.playlistName))
             },
             confirmButton = {
                 TextButton(
@@ -341,10 +345,12 @@ fun PlaylistDetailScreen(
                     colors = ButtonDefaults.textButtonColors(
                         contentColor = MaterialTheme.colorScheme.error,
                     ),
-                ) { Text("Delete") }
+                ) { Text(stringResource(R.string.detail_playlist_delete)) }
             },
             dismissButton = {
-                TextButton(onClick = { showDeleteConfirm = false }) { Text("Cancel") }
+                TextButton(onClick = { showDeleteConfirm = false }) {
+                    Text(stringResource(R.string.detail_playlist_cancel_delete))
+                }
             },
         )
     }
@@ -392,7 +398,7 @@ private fun PlaylistTopHeader(
                 // The owner is parenthesised: "(gpo)  ·  Playlist".
                 owner?.takeIf { it.isNotBlank() }?.let {
                     Text(
-                        text = "($it)",
+                        text = stringResource(R.string.detail_playlist_owner_name, it),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
@@ -401,7 +407,11 @@ private fun PlaylistTopHeader(
                     )
                 }
                 Text(
-                    text = if (owner.isNullOrBlank()) "Playlist" else "  ·  Playlist",
+                    text = if (owner.isNullOrBlank()) {
+                        stringResource(R.string.detail_playlist_kind)
+                    } else {
+                        stringResource(R.string.detail_playlist_kind_after_owner)
+                    },
                     style = MaterialTheme.typography.bodyMedium,
                     color = accentText,
                     maxLines = 1,
@@ -418,7 +428,7 @@ private fun PlaylistTopHeader(
                 ) {
                     Icon(
                         imageVector = YoinSymbols.MoreVertical,
-                        contentDescription = "More actions",
+                        contentDescription = stringResource(R.string.detail_playlist_cd_more),
                     )
                 }
                 YoinDropdownMenu(
@@ -426,7 +436,7 @@ private fun PlaylistTopHeader(
                     onDismissRequest = { showOverflow = false },
                 ) {
                     YoinDropdownMenuItem(
-                        text = "Rename",
+                        text = stringResource(R.string.detail_playlist_rename),
                         leadingIcon = { Icon(YoinSymbols.Edit, contentDescription = null) },
                         onClick = {
                             showOverflow = false
@@ -434,7 +444,7 @@ private fun PlaylistTopHeader(
                         },
                     )
                     YoinDropdownMenuItem(
-                        text = "Delete",
+                        text = stringResource(R.string.detail_playlist_delete_menu),
                         leadingIcon = { Icon(YoinSymbols.Delete, contentDescription = null) },
                         onClick = {
                             showOverflow = false
@@ -456,12 +466,12 @@ private fun RenamePlaylistDialog(
     var name by remember { mutableStateOf(initialName) }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Rename playlist") },
+        title = { Text(stringResource(R.string.detail_playlist_rename_title)) },
         text = {
             OutlinedTextField(
                 value = name,
                 onValueChange = { name = it },
-                label = { Text("Name") },
+                label = { Text(stringResource(R.string.detail_playlist_name)) },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
             )
@@ -470,10 +480,10 @@ private fun RenamePlaylistDialog(
             TextButton(
                 onClick = { onConfirm(name.trim()) },
                 enabled = name.trim().isNotEmpty() && name.trim() != initialName,
-            ) { Text("Rename") }
+            ) { Text(stringResource(R.string.detail_playlist_rename_confirm)) }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Cancel") }
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.detail_playlist_cancel_rename)) }
         },
     )
 }
@@ -880,7 +890,7 @@ private fun PlaylistHeroDetails(
             // Quiet empty state. The always-armed bottom bar stays; Play just
             // no-ops here.
             Text(
-                text = "This playlist is empty.",
+                text = stringResource(R.string.detail_playlist_empty_hero),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center,
@@ -929,7 +939,7 @@ private fun PlaylistTrackList(
         } else {
             item(key = "playlist-empty") {
                 Text(
-                    text = "This playlist is empty.",
+                    text = stringResource(R.string.detail_playlist_empty_list),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(start = 8.dp, top = 8.dp),
@@ -952,6 +962,13 @@ private fun PlaylistTrackList(
             }
         }
     }
+}
+
+@Composable
+private fun playlistTrackCredit(artist: String, album: String): String = when {
+    artist.isNotBlank() && album.isNotBlank() -> stringResource(R.string.detail_playlist_track_credit, artist, album)
+    artist.isNotBlank() -> artist
+    else -> album
 }
 
 /**
@@ -1003,7 +1020,7 @@ private fun PlaylistTrackRow(
                 overflow = TextOverflow.Ellipsis,
             )
             Text(
-                text = listOf(song.artist, song.album).filter { it.isNotBlank() }.joinToString("  ·  "),
+                text = playlistTrackCredit(song.artist, song.album),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
@@ -1088,9 +1105,9 @@ private fun PlaylistHeroMeta(
             horizontalArrangement = Arrangement.SpaceBetween,
         ) {
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                AlbumSectionLabel(text = "Length")
+                AlbumSectionLabel(text = stringResource(R.string.detail_playlist_length))
                 Text(
-                    text = if (count == 1) "1 track" else "$count tracks",
+                    text = pluralStringResource(R.plurals.detail_playlist_tracks, count, count),
                     style = MaterialTheme.typography.bodyLarge.withTabularFigures(),
                     color = MaterialTheme.colorScheme.onSurface,
                 )
@@ -1102,7 +1119,7 @@ private fun PlaylistHeroMeta(
             }
             if (content.owner.isNotBlank()) {
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    AlbumSectionLabel(text = "Owner")
+                    AlbumSectionLabel(text = stringResource(R.string.detail_playlist_owner))
                     Text(
                         text = content.owner,
                         style = MaterialTheme.typography.bodyLarge,
@@ -1112,7 +1129,9 @@ private fun PlaylistHeroMeta(
                     )
                     content.isPublic?.let { public ->
                         Text(
-                            text = if (public) "Public" else "Private",
+                            text = stringResource(
+                                if (public) R.string.detail_playlist_public else R.string.detail_playlist_private,
+                            ),
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -1122,7 +1141,7 @@ private fun PlaylistHeroMeta(
         }
         content.comment?.takeIf { it.isNotBlank() }?.let { description ->
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                AlbumSectionLabel(text = "Description")
+                AlbumSectionLabel(text = stringResource(R.string.detail_playlist_description))
                 Text(
                     text = description,
                     style = MaterialTheme.typography.bodyMedium,

@@ -362,19 +362,24 @@ private fun receiptLines(
 ): List<Pair<String, String>> = buildList {
     // Only the songs on this page count (a score on a track the provider no longer lists stays out).
     val songIds = content.songs.mapTo(HashSet()) { it.id }
-    add("Plays in Yoin" to data.plays.count.toString())
+    add("Plays in Yoin" to data.plays.count.toString()) // i18n-allow: AlbumScrapbookTest asserts this receipt English
     data.plays.firstPlayedAt?.let { first ->
-        add("Days since first play" to daysBetween(first, nowMillis, zone).toString())
+        val daysSince = daysBetween(first, nowMillis, zone).toString()
+        // i18n-allow: AlbumScrapbookTest asserts this receipt English
+        add("Days since first play" to daysSince)
     }
-    data.plays.lastPlayedAt?.let { last -> add("Last played" to relativeDayLabel(last, nowMillis, zone)) }
+    data.plays.lastPlayedAt?.let { last ->
+        // i18n-allow: AlbumScrapbookTest asserts this receipt English
+        add("Last played" to relativeDayLabel(last, nowMillis, zone))
+    }
     val rated = data.ratings.keys.count { it.toString() in songIds }
-    add("Rated" to "$rated / ${content.trackTotal}")
+    add("Rated" to "$rated / ${content.trackTotal}") // i18n-allow: AlbumScrapbookTest asserts this receipt English
     val trackNotes = data.notes.entries.filter { it.key.toString() in songIds }.sumOf { it.value.size }
     // the album's one album note counts with the track notes (D3's receipt)
     val albumNotes = if (data.albumNote?.content.isNullOrBlank()) 0 else 1
-    add("Notes" to (trackNotes + albumNotes).toString())
+    add("Notes" to (trackNotes + albumNotes).toString()) // i18n-allow: AlbumScrapbookTest asserts this receipt English
     val askCount = data.about.entries.filter { it.key.toString() in songIds }.sumOf { it.value.asks.size }
-    add("Asked" to askCount.toString())
+    add("Asked" to askCount.toString()) // i18n-allow: AlbumScrapbookTest asserts this receipt English
 }
 
 /** Whole calendar days from [fromMillis] to [nowMillis] in [zone] (0 on the same day). */
@@ -390,11 +395,13 @@ internal fun relativeDayLabel(epochMillis: Long, nowMillis: Long, zone: ZoneId):
     val date = Instant.ofEpochMilli(epochMillis).atZone(zone).toLocalDate()
     val today = Instant.ofEpochMilli(nowMillis).atZone(zone).toLocalDate()
     return when {
-        days <= 0L -> "Today"
-        days == 1L -> "Yesterday"
-        days < 7L -> "$days days ago"
+        days <= 0L -> "Today" // i18n-allow: AlbumScrapbookTest asserts this receipt English
+        days == 1L -> "Yesterday" // i18n-allow: AlbumScrapbookTest asserts this receipt English
+        days < 7L -> "$days days ago" // i18n-allow: AlbumScrapbookTest asserts this receipt English
         // Another year says which one.
+        // i18n-allow: AlbumScrapbookTest asserts this receipt English
         date.year != today.year -> date.format(DateTimeFormatter.ofPattern("MMM d, yyyy", Locale.ENGLISH))
+        // i18n-allow: AlbumScrapbookTest asserts this receipt English
         else -> date.format(DateTimeFormatter.ofPattern("MMM d", Locale.ENGLISH))
     }
 }
@@ -459,12 +466,12 @@ internal fun scrapScoreText(score: Float): String {
 }
 
 internal fun factLabel(key: String): String = when (key) {
-    SongAboutEntry.CANON_CREATION_TIME -> "Created"
-    SongAboutEntry.CANON_CREATION_LOCATION -> "Recorded in"
-    SongAboutEntry.CANON_LYRICIST -> "Lyricist"
-    SongAboutEntry.CANON_COMPOSER -> "Composer"
-    SongAboutEntry.CANON_PRODUCER -> "Producer"
-    SongAboutEntry.CANON_REVIEW -> "About"
+    SongAboutEntry.CANON_CREATION_TIME -> "Created" // i18n-allow: AlbumScrapbookTest asserts this English
+    SongAboutEntry.CANON_CREATION_LOCATION -> "Recorded in" // i18n-allow: AlbumScrapbookTest asserts this English
+    SongAboutEntry.CANON_LYRICIST -> "Lyricist" // i18n-allow: AlbumScrapbookTest asserts this English
+    SongAboutEntry.CANON_COMPOSER -> "Composer" // i18n-allow: AlbumScrapbookTest asserts this English
+    SongAboutEntry.CANON_PRODUCER -> "Producer" // i18n-allow: AlbumScrapbookTest asserts this English
+    SongAboutEntry.CANON_REVIEW -> "About" // i18n-allow: AlbumScrapbookTest asserts this English
     else -> key
 }
 

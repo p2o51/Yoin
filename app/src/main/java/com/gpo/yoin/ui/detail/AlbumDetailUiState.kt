@@ -1,6 +1,7 @@
 package com.gpo.yoin.ui.detail
 
 import com.gpo.yoin.data.model.LibraryMembership
+import com.gpo.yoin.ui.common.UiText
 
 sealed interface AlbumDetailUiState {
     data object Loading : AlbumDetailUiState
@@ -52,7 +53,7 @@ sealed interface AlbumDetailUiState {
         val trackTotal: Int get() = if (songs.isNotEmpty()) songs.size else (songCount ?: 0)
     }
 
-    data class Error(val message: String) : AlbumDetailUiState
+    data class Error(val message: UiText) : AlbumDetailUiState
 }
 
 /** Bun 评分卡要显示的三态。 */

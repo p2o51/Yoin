@@ -49,6 +49,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.text.style.TextAlign
@@ -56,10 +59,12 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.gpo.yoin.R
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.ReleaseType
 import com.gpo.yoin.data.source.ServiceFeatureCatalog
 import com.gpo.yoin.symbols.YoinSymbols
+import com.gpo.yoin.ui.common.asString
 import com.gpo.yoin.ui.component.BarExtraAction
 import com.gpo.yoin.ui.component.DetailErrorState
 import com.gpo.yoin.ui.component.ExpressiveMediaArtwork
@@ -265,7 +270,7 @@ fun ArtistDetailScreen(
                                 // No onBack: the persistent header carries it.
                                 is ArtistDetailUiState.Error ->
                                     DetailErrorState(
-                                        message = state.message,
+                                        message = state.message.asString(),
                                         onRetry = onRetry,
                                     )
 
@@ -330,7 +335,7 @@ fun ArtistDetailScreen(
                 promotable = listOf(
                     BarExtraAction(
                         icon = YoinSymbols.Share,
-                        label = "Share",
+                        label = stringResource(R.string.detail_artist_share),
                         onClick = onShare,
                     ),
                 ),
@@ -392,7 +397,11 @@ private fun ArtistTopHeader(
                     overflow = TextOverflow.Ellipsis,
                 )
                 Text(
-                    text = if (activeSpan != null) "Artist  ·  $activeSpan" else "Artist",
+                    text = if (activeSpan != null) {
+                        stringResource(R.string.detail_artist_kind_span, activeSpan)
+                    } else {
+                        stringResource(R.string.detail_artist_kind)
+                    },
                     style = MaterialTheme.typography.bodyMedium,
                     color = accentText,
                     maxLines = 1,
@@ -466,10 +475,12 @@ private fun ArtistFollowStar(
  * (idle, active) labels for the follow star, by provider. Spotify has a real
  * "Follow"; Subsonic only stars, so it reads "Favorite".
  */
+@Composable
 private fun artistFollowLabels(provider: String?): Pair<String, String> =
-    when (provider) {
-        MediaId.PROVIDER_SPOTIFY -> "Follow" to "Following"
-        else -> "Favorite" to "Favorited"
+    if (provider == MediaId.PROVIDER_SPOTIFY) {
+        stringResource(R.string.detail_artist_follow) to stringResource(R.string.detail_artist_following)
+    } else {
+        stringResource(R.string.detail_artist_favorite) to stringResource(R.string.detail_artist_favorited)
     }
 
 /** "2016 – 2025" from the releases' years; one year alone; null when none carry a year. */
@@ -752,8 +763,9 @@ private fun ArtistHeroMeta(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            AlbumSectionLabel(text = "Last Play")
-            val labels = listening?.lastPlayedAt?.let { albumLastPlayLabels(it) }
+            AlbumSectionLabel(text = stringResource(R.string.detail_artist_last_play))
+            val resources = LocalContext.current.resources
+            val labels = listening?.lastPlayedAt?.let { albumLastPlayLabels(it, resources) }
             Text(
                 text = labels?.first ?: "—",
                 style = MaterialTheme.typography.bodyLarge,
@@ -765,7 +777,7 @@ private fun ArtistHeroMeta(
                 text = when {
                     labels != null -> labels.second
                     listening == null -> " "
-                    else -> "Never"
+                    else -> stringResource(R.string.detail_artist_never)
                 },
                 style = MaterialTheme.typography.bodyMedium.withTabularFigures(),
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -803,10 +815,16 @@ internal fun ArtistDetailUiState.Content.albumAverageEmblemSpec(): AlbumEmblemSp
 }
 
 /** TalkBack for the artist's emblem: the emblem itself would say "Track average". */
+@Composable
 internal fun artistAverageDescription(content: ArtistDetailUiState.Content): String {
-    val average = content.averageAlbumRating ?: return "No albums rated"
+    val average = content.averageAlbumRating ?: return stringResource(R.string.detail_artist_no_albums_rated)
     val score = "%.1f".format(java.util.Locale.ROOT, average)
-    return "Album average $score, ${content.ratedAlbumCount} of ${content.albums.size} albums rated"
+    return stringResource(
+        R.string.detail_artist_album_average,
+        score,
+        content.ratedAlbumCount,
+        content.albums.size,
+    )
 }
 
 /**
@@ -869,11 +887,7 @@ private fun ArtistWideHero(
                 overflow = TextOverflow.Ellipsis,
             )
             Text(
-                text = listOfNotNull(
-                    "Artist",
-                    artistReleaseCountLabel(content.albums.size),
-                    artistActiveSpan(content.albums),
-                ).joinToString("  ·  "),
+                text = artistWideKind(content.albums.size, artistActiveSpan(content.albums)),
                 style = MaterialTheme.typography.titleSmall.withTabularFigures(),
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -909,8 +923,24 @@ private const val ArtistPinwheelWideScale = 1.7f
 private const val ArtistPinwheelMediumScale = 1.5f
 private val ArtistWideHeroGap = 56.dp
 
+@Composable
+private fun artistWideKind(albumCount: Int, span: String?): String =
+    if (span != null) {
+        pluralStringResource(R.plurals.detail_artist_wide_span, albumCount, albumCount, span)
+    } else {
+        pluralStringResource(R.plurals.detail_artist_wide, albumCount, albumCount)
+    }
+
+@Composable
 private fun artistReleaseCountLabel(count: Int): String =
-    if (count == 1) "1 release" else "$count releases"
+    pluralStringResource(R.plurals.detail_artist_releases, count, count)
+
+@Composable
+private fun artistPlayedMeta(album: String, duration: String?): String = when {
+    album.isNotBlank() && duration != null -> stringResource(R.string.detail_artist_played_meta, album, duration)
+    album.isNotBlank() -> album
+    else -> duration.orEmpty()
+}
 
 // ---------------------------------------------------------------------------
 // Most Played
@@ -930,8 +960,10 @@ private fun ArtistMostPlayed(
     val songs = listening?.mostPlayed.orEmpty()
     Column(modifier = modifier.fillMaxWidth()) {
         ArtistSectionHeader(
-            title = "Most Played",
-            trailing = listening?.playCount?.takeIf { it > 0 }?.let { if (it == 1) "1 play" else "$it plays" },
+            title = stringResource(R.string.detail_artist_most_played),
+            trailing = listening?.playCount?.takeIf { it > 0 }?.let { count ->
+                pluralStringResource(R.plurals.detail_artist_plays_total, count, count)
+            },
         )
         Spacer(modifier = Modifier.height(6.dp))
         songs.forEachIndexed { index, song ->
@@ -995,10 +1027,7 @@ private fun ArtistPlayedRow(
                 overflow = TextOverflow.Ellipsis,
             )
             Text(
-                text = listOfNotNull(
-                    song.album.takeIf { it.isNotBlank() },
-                    song.durationSec?.let(::formatTrackDuration),
-                ).joinToString("  ·  "),
+                text = artistPlayedMeta(song.album, song.durationSec?.let(::formatTrackDuration)),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
@@ -1006,7 +1035,7 @@ private fun ArtistPlayedRow(
             )
         }
         Text(
-            text = if (song.playCount == 1) "1 play" else "${song.playCount} plays",
+            text = pluralStringResource(R.plurals.detail_artist_plays, song.playCount, song.playCount),
             style = MaterialTheme.typography.labelLarge.withTabularFigures(),
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.seamFade(),
@@ -1039,11 +1068,11 @@ private fun ArtistSectionHeader(title: String, trailing: String?, modifier: Modi
 // Discography — a release timeline
 // ---------------------------------------------------------------------------
 
-private enum class DiscographyFilter(val label: String) {
-    All("All"),
-    Albums("Albums"),
-    SinglesAndEps("Singles & EPs"),
-    Compilations("Compilations"),
+private enum class DiscographyFilter {
+    All,
+    Albums,
+    SinglesAndEps,
+    Compilations,
     ;
 
     fun accepts(type: ReleaseType?): Boolean = when (this) {
@@ -1076,15 +1105,22 @@ private fun ArtistDiscography(
     var showAll by rememberSaveable { mutableStateOf(false) }
     val shown = albums.filter { filter.accepts(it.releaseType) }
     val newestId = albums.firstOrNull()?.id
+    val filterLabels = mutableMapOf<DiscographyFilter, String>()
+    for (item in filters) {
+        filterLabels[item] = filterLabel(item)
+    }
 
     Column(modifier = modifier.fillMaxWidth()) {
-        ArtistSectionHeader(title = "Discography", trailing = artistReleaseCountLabel(albums.size))
+        ArtistSectionHeader(
+            title = stringResource(R.string.detail_artist_discography),
+            trailing = artistReleaseCountLabel(albums.size),
+        )
         if (filters.isNotEmpty()) {
             Spacer(modifier = Modifier.height(12.dp))
             ExpressiveSegmentedTabs(
                 items = filters,
                 selectedItem = filter,
-                label = { it.label },
+                label = { filterLabels.getValue(it) },
                 onSelectedChange = { filter = it },
                 modifier = Modifier.seamFade(),
             )
@@ -1092,7 +1128,7 @@ private fun ArtistDiscography(
         Spacer(modifier = Modifier.height(8.dp))
         if (albums.isEmpty()) {
             Text(
-                text = "No releases",
+                text = stringResource(R.string.detail_artist_no_releases),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(horizontal = 8.dp, vertical = 8.dp),
@@ -1138,7 +1174,11 @@ private fun ArtistDiscography(
                     .seamFade(),
             ) {
                 Text(
-                    text = if (showAll) "Show fewer" else "Show all ${shown.size}",
+                    text = if (showAll) {
+                        stringResource(R.string.detail_artist_show_fewer)
+                    } else {
+                        stringResource(R.string.detail_artist_show_all, shown.size)
+                    },
                     style = MaterialTheme.typography.labelLarge,
                     color = accent,
                 )
@@ -1217,7 +1257,7 @@ private fun ArtistReleaseRow(
             Row {
                 if (isLatest) {
                     Text(
-                        text = "Latest  ·  ",
+                        text = stringResource(R.string.detail_artist_latest),
                         style = MaterialTheme.typography.bodySmall,
                         color = accent,
                         maxLines = 1,
@@ -1245,17 +1285,49 @@ private fun ArtistReleaseRow(
     }
 }
 
-/** "Album · 11 songs", "EP · 4 songs", or just "11 songs" when the kind is unknown. */
+/** "Album  ·  11 songs", "EP  ·  4 songs", or just "11 songs" when the kind is unknown. */
+@Composable
 private fun releaseMetaLine(album: ArtistAlbum): String {
-    val kind = when (album.releaseType) {
-        ReleaseType.Album -> "Album"
-        ReleaseType.EP -> "EP"
-        ReleaseType.Single -> "Single"
-        ReleaseType.Compilation -> "Compilation"
-        null -> null
+    val count = album.songCount
+    return when (album.releaseType) {
+        ReleaseType.Album -> releaseKindLine(
+            count,
+            R.string.detail_artist_kind_album,
+            R.plurals.detail_artist_album_songs,
+        )
+        ReleaseType.EP -> releaseKindLine(
+            count,
+            R.string.detail_artist_kind_ep,
+            R.plurals.detail_artist_ep_songs,
+        )
+        ReleaseType.Single -> releaseKindLine(
+            count,
+            R.string.detail_artist_kind_single,
+            R.plurals.detail_artist_single_songs,
+        )
+        ReleaseType.Compilation -> releaseKindLine(
+            count,
+            R.string.detail_artist_kind_compilation,
+            R.plurals.detail_artist_compilation_songs,
+        )
+        null -> count?.let { pluralStringResource(R.plurals.detail_artist_songs, it, it) }.orEmpty()
     }
-    val songs = album.songCount?.let { if (it == 1) "1 song" else "$it songs" }
-    return listOfNotNull(kind, songs).joinToString("  ·  ")
+}
+
+@Composable
+private fun releaseKindLine(count: Int?, kind: Int, withSongs: Int): String =
+    if (count == null) {
+        stringResource(kind)
+    } else {
+        pluralStringResource(withSongs, count, count)
+    }
+
+@Composable
+private fun filterLabel(filter: DiscographyFilter): String = when (filter) {
+    DiscographyFilter.All -> stringResource(R.string.detail_artist_filter_all)
+    DiscographyFilter.Albums -> stringResource(R.string.detail_artist_filter_albums)
+    DiscographyFilter.SinglesAndEps -> stringResource(R.string.detail_artist_filter_singles)
+    DiscographyFilter.Compilations -> stringResource(R.string.detail_artist_filter_compilations)
 }
 
 @Preview(showBackground = true, backgroundColor = 0xFF1C1B1F)

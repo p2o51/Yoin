@@ -1,6 +1,7 @@
 package com.gpo.yoin.ui.detail
 
 import com.gpo.yoin.data.model.ReleaseType
+import com.gpo.yoin.ui.common.UiText
 
 sealed interface ArtistDetailUiState {
     data object Loading : ArtistDetailUiState
@@ -35,7 +36,7 @@ sealed interface ArtistDetailUiState {
             get() = albums.mapNotNull { it.userRating }.takeIf { it.isNotEmpty() }?.average()?.toFloat()
     }
 
-    data class Error(val message: String) : ArtistDetailUiState
+    data class Error(val message: UiText) : ArtistDetailUiState
 }
 
 data class ArtistAlbum(

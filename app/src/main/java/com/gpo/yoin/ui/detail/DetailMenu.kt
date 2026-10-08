@@ -1,6 +1,7 @@
 package com.gpo.yoin.ui.detail
 
 import android.content.Intent
+import android.content.res.Resources
 import android.net.Uri
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.runtime.Composable
@@ -11,7 +12,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import com.gpo.yoin.AppContainer
+import com.gpo.yoin.R
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.Track
 import com.gpo.yoin.data.source.Capability
@@ -39,9 +42,15 @@ class DetailMenu internal constructor(
 /** [menu]'s rows, in the Play menu's own look. */
 @Composable
 internal fun ColumnScope.DetailMenuRows(menu: DetailMenu, dismissMenu: () -> Unit) {
-    menu.onPlayNext?.let { PlayMenuItem("Play next", YoinSymbols.SkipNext, dismissMenu, it) }
-    menu.onAddToQueue?.let { PlayMenuItem("Add to queue", YoinSymbols.Queue, dismissMenu, it) }
-    menu.onAddToPlaylist?.let { PlayMenuItem("Add to playlist", YoinSymbols.Playlist, dismissMenu, it) }
+    menu.onPlayNext?.let {
+        PlayMenuItem(stringResource(R.string.detail_menu_play_next), YoinSymbols.SkipNext, dismissMenu, it)
+    }
+    menu.onAddToQueue?.let {
+        PlayMenuItem(stringResource(R.string.detail_menu_add_to_queue), YoinSymbols.Queue, dismissMenu, it)
+    }
+    menu.onAddToPlaylist?.let {
+        PlayMenuItem(stringResource(R.string.detail_menu_add_to_playlist), YoinSymbols.Playlist, dismissMenu, it)
+    }
     val openIn = menu.onOpenIn
     if (menu.openInLabel != null && openIn != null) {
         PlayMenuItem(menu.openInLabel, YoinSymbols.Launch, dismissMenu, openIn)
@@ -59,10 +68,14 @@ internal fun rememberDetailWebLink(container: AppContainer, kind: WebLinkKind, i
 }
 
 /** "Open in Spotify" / "Open in Apple Music" for [link]'s host; null for any other link. */
-internal fun openInLabel(link: String?): String? = when {
+internal fun openInLabel(link: String?, resources: Resources? = null): String? = when {
     link == null -> null
-    link.startsWith("https://open.spotify.com/") -> "Open in Spotify"
-    link.startsWith("https://music.apple.com/") -> "Open in Apple Music"
+    link.startsWith("https://open.spotify.com/") ->
+        resources?.getString(R.string.detail_menu_open_spotify)
+            ?: "Open in Spotify" // i18n-allow: DetailMenuTest asserts this English
+    link.startsWith("https://music.apple.com/") ->
+        resources?.getString(R.string.detail_menu_open_apple_music)
+            ?: "Open in Apple Music" // i18n-allow: DetailMenuTest asserts this English
     else -> null
 }
 
@@ -70,9 +83,21 @@ internal fun openInLabel(link: String?): String? = when {
 internal fun detailShareText(title: String, link: String?): String = if (link == null) title else "$title\n$link"
 
 /** The snackbar line after a page's songs were queued. */
-internal fun queuedMessage(count: Int, next: Boolean): String {
-    val songs = if (count == 1) "1 song" else "$count songs"
-    return if (next) "$songs will play next" else "Added $songs to the queue"
+internal fun queuedMessage(count: Int, next: Boolean, resources: Resources? = null): String {
+    if (resources == null) {
+        val songs = if (count == 1) {
+            "1 song" // i18n-allow: DetailMenuTest asserts this English
+        } else {
+            "$count songs" // i18n-allow: DetailMenuTest asserts this English
+        }
+        return if (next) {
+            "$songs will play next" // i18n-allow: DetailMenuTest asserts this English
+        } else {
+            "Added $songs to the queue" // i18n-allow: DetailMenuTest asserts this English
+        }
+    }
+    val id = if (next) R.plurals.detail_menu_play_next_count else R.plurals.detail_menu_queued
+    return resources.getQuantityString(id, count, count)
 }
 
 /**
@@ -93,6 +118,7 @@ internal fun rememberDetailMenu(
     onAddToPlaylist: ((List<MediaId>) -> Unit)?,
 ): DetailMenu {
     val context = LocalContext.current
+    val resources = context.resources
     val scope = rememberCoroutineScope()
     val latestTracks by rememberUpdatedState(tracks)
     val latestOnMessage by rememberUpdatedState(onMessage)
@@ -106,7 +132,7 @@ internal fun rememberDetailMenu(
                 val source = container.profileManager.activeSource.value ?: return@launch
                 if (songs.isEmpty()) return@launch
                 container.playbackManager.addToQueue(songs, source, next)
-                latestOnMessage(queuedMessage(songs.size, next))
+                latestOnMessage(queuedMessage(songs.size, next, resources))
             }
         }
         DetailMenu(
@@ -122,7 +148,7 @@ internal fun rememberDetailMenu(
             } else {
                 null
             },
-            openInLabel = openInLabel(link),
+            openInLabel = openInLabel(link, resources),
             onOpenIn = link?.let { url ->
                 { runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) } }
             },

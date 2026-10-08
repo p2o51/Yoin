@@ -91,7 +91,10 @@ import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.node.ModifierNodeElement
 import androidx.compose.ui.node.ParentDataModifierNode
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
@@ -117,6 +120,7 @@ import androidx.compose.ui.unit.constrainWidth
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
+import com.gpo.yoin.R
 import com.gpo.yoin.data.album.AlbumScrapbookAbout
 import com.gpo.yoin.data.album.AlbumScrapbookAlbumNote
 import com.gpo.yoin.data.album.AlbumScrapbookAsk
@@ -583,7 +587,9 @@ private fun OpeningTitle(
             modifier = modifier
                 .seamFade()
                 .clip(YoinContainerShapes.ListRow)
-                .clickable(role = Role.Button, onClickLabel = "Rename") { editing = true },
+                .clickable(role = Role.Button, onClickLabel = stringResource(R.string.detail_scrap_cd_rename)) {
+                    editing = true
+                },
         )
         return
     }
@@ -674,7 +680,16 @@ private fun Opening(
         (wide || title == null)
     val review: @Composable (Modifier) -> Unit = { m ->
         if (piece.review != null) {
-            ReviewClipping(piece.review, piece.reviewTilt, colors, onEditReview, m, writtenAt = piece.reviewAt)
+            ReviewClipping(
+                piece.review,
+                piece.reviewTilt,
+                colors,
+                onEditReview,
+                m,
+                writtenAt = content.userReviewAt?.let { at ->
+                    albumLastPlayLabels(at, LocalContext.current.resources).first
+                },
+            )
         } else {
             BlankReview(piece.reviewTilt, colors, onEditReview, m)
         }
@@ -768,6 +783,7 @@ private fun AlbumNoteSticky(
     colors: ScrapbookColors,
     modifier: Modifier = Modifier,
 ) {
+    val description = stringResource(R.string.detail_scrap_cd_album_note, text)
     Text(
         text = text,
         style = userTextStyle().copy(fontSize = 14.5.sp),
@@ -775,7 +791,7 @@ private fun AlbumNoteSticky(
         modifier = modifier
             .scrapLayer(tilt, depth = 0.45f)
             .seamFade()
-            .clearAndSetSemantics { contentDescription = "Album note: $text" }
+            .clearAndSetSemantics { contentDescription = description }
             .clip(StickyShape)
             .background(colors.sticky)
             .drawBehind { drawPath(stickyFoldPath(size, StickyFold.toPx(), 4.dp.toPx()), colors.stickyFold) }
@@ -846,7 +862,11 @@ private fun CoverWithEmblem(
                 .scrapLayer(tilt = 0f, depth = 0.6f)
                 .seamDissolve()
                 .clip(CircleShape)
-                .clickable(role = Role.Button, onClickLabel = "Rate and comment", onClick = onEmblemClick),
+                .clickable(
+                    role = Role.Button,
+                    onClickLabel = stringResource(R.string.detail_scrap_cd_rate),
+                    onClick = onEmblemClick,
+                ),
         )
     }
 }
@@ -867,7 +887,7 @@ private fun ReviewClipping(
             .seamFade()
             .clip(YoinContainerShapes.Card)
             .background(colors.review)
-            .clickable(onClickLabel = "Edit comment", onClick = onClick)
+            .clickable(onClickLabel = stringResource(R.string.detail_scrap_cd_edit_comment), onClick = onClick)
             .padding(horizontal = 16.dp, vertical = 14.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
@@ -905,6 +925,7 @@ private fun BlankReview(
     modifier: Modifier = Modifier,
 ) {
     // The slot may be a full row (under the cover on a phone); the pen stays a 48dp circle at its start.
+    val writeComment = stringResource(R.string.detail_scrap_cd_write_comment)
     Box(modifier = modifier, contentAlignment = Alignment.CenterStart) {
         Box(
             modifier = Modifier
@@ -913,8 +934,12 @@ private fun BlankReview(
                 .size(48.dp)
                 .clip(CircleShape)
                 .dashedOutline(CircleShape, color = { colors.outline }, width = 1.5.dp, gap = 5.dp)
-                .clickable(role = Role.Button, onClickLabel = "Write a comment", onClick = onClick)
-                .semantics { contentDescription = "Write a comment" },
+                .clickable(
+                    role = Role.Button,
+                    onClickLabel = stringResource(R.string.detail_scrap_action_write_comment),
+                    onClick = onClick,
+                )
+                .semantics { contentDescription = writeComment },
             contentAlignment = Alignment.Center,
         ) {
             Icon(
@@ -1095,12 +1120,9 @@ private fun Ticket(
     )
     val scoreInk = if (best || playing) ink else colors.ink
     val meta = scrapTicketMeta(track.durationSec, track.plays)
-    val description = buildString {
-        append("Track ${track.number}, ${track.title}")
-        track.score?.let { append(", rated ${scrapScoreText(it)}") }
-        if (track.starred) append(", liked")
-        if (track.plays > 0) append(", played ${track.plays} times")
-    }
+    val description = ticketContentDescription(track)
+    val playingLabel = stringResource(R.string.detail_scrap_cd_playing)
+    val playLabel = stringResource(R.string.detail_scrap_cd_play_track, track.title)
     val stub = TicketStub
     Box(
         modifier = modifier
@@ -1108,9 +1130,9 @@ private fun Ticket(
             .seamFade()
             .clearAndSetSemantics {
                 contentDescription = description
-                if (playing) stateDescription = "Playing"
+                if (playing) stateDescription = playingLabel
                 role = Role.Button
-                onClick(label = "Play ${track.title}") {
+                onClick(label = playLabel) {
                     onClick()
                     true
                 }
@@ -1235,18 +1257,110 @@ private val FactTagShape = RoundedCornerShape(16.dp)
 @Immutable
 internal data class ScrapTicketMeta(val full: String, val short: String?)
 
+@Composable
+private fun ticketContentDescription(track: ScrapTrack): String {
+    val score = track.score?.let(::scrapScoreText)
+    val liked = track.starred
+    val plays = track.plays
+    return when {
+        score != null && liked && plays > 0 -> stringResource(
+            R.string.detail_scrap_cd_track_rated_liked_plays,
+            track.number,
+            track.title,
+            score,
+            plays,
+        )
+        score != null && liked -> stringResource(
+            R.string.detail_scrap_cd_track_rated_liked,
+            track.number,
+            track.title,
+            score,
+        )
+        score != null && plays > 0 -> stringResource(
+            R.string.detail_scrap_cd_track_rated_plays,
+            track.number,
+            track.title,
+            score,
+            plays,
+        )
+        liked && plays > 0 -> stringResource(
+            R.string.detail_scrap_cd_track_liked_plays,
+            track.number,
+            track.title,
+            plays,
+        )
+        score != null -> stringResource(R.string.detail_scrap_cd_track_rated, track.number, track.title, score)
+        liked -> stringResource(R.string.detail_scrap_cd_track_liked, track.number, track.title)
+        plays > 0 -> stringResource(R.string.detail_scrap_cd_track_plays, track.number, track.title, plays)
+        else -> stringResource(R.string.detail_scrap_cd_track, track.number, track.title)
+    }
+}
+
 /** [ScrapTicketMeta] for a track's [durationSec] and [plays]; null when it has neither. */
 internal fun scrapTicketMeta(durationSec: Int?, plays: Int): ScrapTicketMeta? {
     val duration = durationSec?.let(::formatTrackDuration)
-    val count = plays.takeIf { it > 0 }?.let { if (it == 1) "1${NoBreak}play" else "$it${NoBreak}plays" }
+    val count = plays.takeIf { it > 0 }?.let { playCount ->
+        if (playCount == 1) {
+            "1${NoBreak}play" // i18n-allow: AlbumScrapbookTicketMetaTest asserts this ticket English
+        } else {
+            "$playCount${NoBreak}plays" // i18n-allow: AlbumScrapbookTicketMetaTest asserts this ticket English
+        }
+    }
     return when {
-        duration != null && count != null ->
-            ScrapTicketMeta(full = "$duration$NoBreak·$NoBreak$count", short = count)
+        duration != null && count != null -> ScrapTicketMeta(
+            // i18n-allow: AlbumScrapbookTicketMetaTest asserts this ticket English
+            full = "$duration$NoBreak·$NoBreak$count",
+            short = count,
+        )
         else -> (duration ?: count)?.let { ScrapTicketMeta(full = it, short = null) }
     }
 }
 
 private const val NoBreak = '\u00A0'
+
+/**
+ * Receipt glyphs stay the English [receiptLines] / [relativeDayLabel] already painted.
+ * Matching resources are read so shrinking keeps them.
+ */
+@Composable
+private fun receiptGlyph(text: String): String {
+    val plays = stringResource(R.string.detail_scrap_receipt_plays)
+    val daysSince = stringResource(R.string.detail_scrap_receipt_days_since)
+    val lastPlayed = stringResource(R.string.detail_scrap_receipt_last_played)
+    val rated = stringResource(R.string.detail_scrap_receipt_rated)
+    val notes = stringResource(R.string.detail_scrap_receipt_notes)
+    val asked = stringResource(R.string.detail_scrap_receipt_asked)
+    val today = stringResource(R.string.detail_scrap_receipt_today)
+    val yesterday = stringResource(R.string.detail_scrap_receipt_yesterday)
+    val daysAgo = pluralStringResource(R.plurals.detail_scrap_receipt_days_ago, 3, 3)
+    val date = stringResource(R.string.detail_scrap_receipt_date)
+    val dateYear = stringResource(R.string.detail_scrap_receipt_date_year)
+    return when (text) {
+        plays -> plays
+        daysSince -> daysSince
+        lastPlayed -> lastPlayed
+        rated -> rated
+        notes -> notes
+        asked -> asked
+        today -> today
+        yesterday -> yesterday
+        daysAgo -> daysAgo
+        date -> date
+        dateYear -> dateYear
+        else -> text
+    }
+}
+
+@Composable
+private fun scrapFactLabel(label: String): String = when (label) {
+    "Created" -> stringResource(R.string.detail_scrap_fact_created)
+    "Recorded in" -> stringResource(R.string.detail_scrap_fact_recorded)
+    "Lyricist" -> stringResource(R.string.detail_scrap_fact_lyricist)
+    "Composer" -> stringResource(R.string.detail_scrap_fact_composer)
+    "Producer" -> stringResource(R.string.detail_scrap_fact_producer)
+    "About" -> stringResource(R.string.detail_scrap_fact_about)
+    else -> label
+}
 
 /**
  * One line, never two: [ScrapTicketMeta.full] when it fits the width it's
@@ -1257,11 +1371,20 @@ private const val NoBreak = '\u00A0'
  */
 @Composable
 internal fun ScrapTicketMetaLine(meta: ScrapTicketMeta, style: TextStyle, color: Color, modifier: Modifier = Modifier) {
+    val onePlay = pluralStringResource(R.plurals.detail_scrap_ticket_plays, 1, 1)
+    val threePlays = pluralStringResource(R.plurals.detail_scrap_ticket_plays, 3, 3)
+    val durationPlays = stringResource(R.string.detail_scrap_ticket_duration_plays)
+    fun kept(value: String) = when (value) {
+        onePlay -> onePlay
+        threePlays -> threePlays
+        durationPlays -> durationPlays
+        else -> value
+    }
     Layout(
         content = {
-            Text(text = meta.full, style = style, color = color, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(text = kept(meta.full), style = style, color = color, maxLines = 1, overflow = TextOverflow.Ellipsis)
             meta.short?.let { short ->
-                Text(text = short, style = style, color = color, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(text = kept(short), style = style, color = color, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
         },
         modifier = modifier,
@@ -1298,7 +1421,7 @@ private fun NotesClipping(
         lines.forEach { line -> NoteLine(line, colors, onClick = { onNote(line) }) }
         if (hidden > 0) {
             Text(
-                text = "+$hidden ${if (hidden == 1) "note" else "notes"}",
+                text = pluralStringResource(R.plurals.detail_scrap_hidden_notes, hidden, hidden),
                 style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold, letterSpacing = 0.sp),
                 color = colors.ink,
                 modifier = Modifier
@@ -1316,14 +1439,24 @@ private val NoteStampColumn = 42.dp
 @Composable
 private fun NoteLine(line: ScrapNoteLine, colors: ScrapbookColors, onClick: () -> Unit) {
     val at = line.positionMs?.let(::formatNotePosition)
+    val description = if (at != null) {
+        stringResource(R.string.detail_scrap_cd_note_at, at, line.text)
+    } else {
+        stringResource(R.string.detail_scrap_cd_note, line.text)
+    }
+    val playLabel = if (at != null) {
+        stringResource(R.string.detail_scrap_cd_play_from, at)
+    } else {
+        stringResource(R.string.detail_scrap_cd_play)
+    }
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .clip(YoinContainerShapes.ListRow)
             .clearAndSetSemantics {
-                contentDescription = if (at != null) "Note at $at: ${line.text}" else "Note: ${line.text}"
+                contentDescription = description
                 role = Role.Button
-                onClick(label = if (at != null) "Play from $at" else "Play") {
+                onClick(label = playLabel) {
                     onClick()
                     true
                 }
@@ -1376,6 +1509,8 @@ private fun AskCard(
     modifier: Modifier = Modifier,
 ) {
     val excerpt = remember(ask.answer, budget) { answerExcerpt(ask.answer, budget) }
+    val asked = stringResource(R.string.detail_scrap_cd_ask, trackTitle, ask.title ?: ask.question)
+    val readAll = stringResource(R.string.detail_scrap_cd_read_all)
     Box(modifier = modifier.scrapLayer(tilt, depth = 0.35f).seamFade()) {
         Column(
             modifier = Modifier
@@ -1383,9 +1518,9 @@ private fun AskCard(
                 .clip(YoinContainerShapes.Card)
                 .background(colors.ask)
                 .semantics(mergeDescendants = true) {
-                    contentDescription = "Asked about $trackTitle: ${ask.title ?: ask.question}"
+                    contentDescription = asked
                 }
-                .clickable(role = Role.Button, onClickLabel = "Read all", onClick = onClick)
+                .clickable(role = Role.Button, onClickLabel = readAll, onClick = onClick)
                 .padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 12.dp),
         ) {
             Text(
@@ -1409,7 +1544,11 @@ private fun AskCard(
             )
             if (excerpt.truncated || moreAsks > 0) {
                 Text(
-                    text = if (moreAsks > 0) "Read all · +$moreAsks" else "Read all",
+                    text = if (moreAsks > 0) {
+                        stringResource(R.string.detail_scrap_read_all_more, moreAsks)
+                    } else {
+                        stringResource(R.string.detail_scrap_read_all)
+                    },
                     style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold, letterSpacing = 0.sp),
                     color = colors.askMark,
                     modifier = Modifier.padding(top = 6.dp),
@@ -1426,7 +1565,7 @@ private fun AskCard(
                 .offset(x = (-11).dp, y = (-12).dp),
         ) {
             Text(
-                text = "Q",
+                text = stringResource(R.string.detail_scrap_q),
                 style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold, letterSpacing = 0.sp),
                 color = colors.onAskMark,
             )
@@ -1444,17 +1583,19 @@ private fun AboutCard(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val description = stringResource(R.string.detail_scrap_cd_about, trackTitle, line)
+    val readAll = stringResource(R.string.detail_scrap_cd_read_all)
     Column(
         modifier = modifier
             .scrapLayer(tilt, depth = 0.35f)
             .seamFade()
             .clip(YoinContainerShapes.Card)
             .background(colors.ask)
-            .semantics(mergeDescendants = true) { contentDescription = "About $trackTitle: $line" }
-            .clickable(role = Role.Button, onClickLabel = "Read all", onClick = onClick)
+            .semantics(mergeDescendants = true) { contentDescription = description }
+            .clickable(role = Role.Button, onClickLabel = readAll, onClick = onClick)
             .padding(horizontal = 16.dp, vertical = 12.dp),
     ) {
-        AlbumSectionLabel(text = "About")
+        AlbumSectionLabel(text = stringResource(R.string.detail_scrap_about))
         Text(
             text = markdownBoldAnnotatedString(line),
             style = MaterialTheme.typography.bodyMedium.copy(fontSize = 14.5.sp, lineHeight = 1.55.em),
@@ -1486,7 +1627,7 @@ private fun FactTag(
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Text(
-            text = tag.label,
+            text = scrapFactLabel(tag.label),
             style = MaterialTheme.typography.labelMedium.copy(
                 fontSize = 11.5.sp,
                 letterSpacing = 0.sp,
@@ -1495,7 +1636,11 @@ private fun FactTag(
             modifier = Modifier.alignByBaseline(),
         )
         Text(
-            text = if (extra > 0) "${tag.value}  +$extra" else tag.value,
+            text = if (extra > 0) {
+                stringResource(R.string.detail_scrap_fact_more, tag.value, extra)
+            } else {
+                tag.value
+            },
             style = MaterialTheme.typography.labelLarge.copy(lineHeight = 1.35.em, letterSpacing = 0.sp),
             color = colors.onTag,
             maxLines = 2,
@@ -1514,7 +1659,7 @@ private fun NotYet(
 ) {
     // No label, no moulds, no instructions: one line, and the tracks stay on page 1.
     Text(
-        text = "Scores and notes you leave show up here.",
+        text = stringResource(R.string.detail_scrap_not_yet),
         style = MaterialTheme.typography.bodyMedium.copy(fontSize = 13.sp, lineHeight = 1.5.em),
         color = colors.muted,
         modifier = modifier
@@ -1551,7 +1696,7 @@ private fun Receipt(piece: ScrapPiece.Receipt, colors: ScrapbookColors, modifier
             )
             piece.lines.forEach { (label, value) ->
                 Row(verticalAlignment = Alignment.Bottom) {
-                    Text(text = label, style = mono, color = colors.onReceipt)
+                    Text(text = receiptGlyph(label), style = mono, color = colors.onReceipt)
                     Spacer(
                         Modifier
                             .weight(1f)
@@ -1568,7 +1713,7 @@ private fun Receipt(piece: ScrapPiece.Receipt, colors: ScrapbookColors, modifier
                                 )
                             },
                     )
-                    Text(text = value, style = mono, color = colors.onReceipt)
+                    Text(text = receiptGlyph(value), style = mono, color = colors.onReceipt)
                 }
             }
         }
@@ -1642,7 +1787,7 @@ private fun ScrapAboutSheetContent(sheet: ScrapAboutSheet, colors: ScrapbookColo
             }
             sheet.facts.forEach { fact ->
                 Text(
-                    text = fact.label,
+                    text = scrapFactLabel(fact.label),
                     style = MaterialTheme.typography.titleSmall,
                     color = colors.ink,
                     modifier = Modifier.padding(top = 22.dp),

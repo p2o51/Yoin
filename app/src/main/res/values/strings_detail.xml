@@ -1,0 +1,254 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Back -->
+    <string name="detail_cd_back">Back</string>
+
+    <!-- Menu and queue confirmation -->
+    <string name="detail_menu_play_next">Play next</string>
+    <string name="detail_menu_add_to_queue">Add to queue</string>
+    <string name="detail_menu_add_to_playlist">Add to playlist</string>
+    <string name="detail_menu_open_spotify">Open in Spotify</string>
+    <string name="detail_menu_open_apple_music">Open in Apple Music</string>
+    <plurals name="detail_menu_queued">
+        <item quantity="one">Added %1$d song to the queue</item>
+        <item quantity="other">Added %1$d songs to the queue</item>
+    </plurals>
+    <plurals name="detail_menu_play_next_count">
+        <item quantity="one">%1$d song will play next</item>
+        <item quantity="other">%1$d songs will play next</item>
+    </plurals>
+
+    <!-- Share sheet -->
+    <string name="detail_share_album">Check out this album</string>
+    <string name="detail_share_album_title">%1$s – %2$s</string>
+    <string name="detail_share_artist">Check out this artist</string>
+    <string name="detail_share_playlist">Check out this playlist</string>
+
+    <!-- Load and sync errors -->
+    <string name="detail_album_error_not_found">Album not found</string>
+    <string name="detail_album_error_load">Couldn\'t load this album.</string>
+    <string name="detail_album_neodb_failed">Couldn\'t sync to NeoDB</string>
+    <string name="detail_artist_error_not_found">Artist not found</string>
+    <string name="detail_artist_error_load">Couldn\'t load this artist.</string>
+    <string name="detail_playlist_error_not_found">Playlist not found</string>
+    <string name="detail_playlist_error_load">Couldn\'t load this playlist.</string>
+    <string name="detail_playlist_renamed">Renamed</string>
+    <string name="detail_playlist_error_rename">Couldn\'t rename playlist</string>
+    <string name="detail_playlist_deleted">Playlist deleted</string>
+    <string name="detail_playlist_error_delete">Couldn\'t delete playlist</string>
+    <string name="detail_playlist_error_remove">Couldn\'t remove track</string>
+    <string name="detail_provider_local">Local</string>
+
+    <!-- Album page -->
+    <string name="detail_album_go_to_artist">Go to artist</string>
+    <string name="detail_album_share">Share</string>
+    <string name="detail_album_kind">"  ·  Album"</string>
+    <string name="detail_album_kind_year">"  ·  Album %1$d"</string>
+    <string name="detail_album_last_play">Last Play</string>
+    <string name="detail_album_never">Never</string>
+    <string name="detail_relative_today">Today</string>
+    <string name="detail_relative_yesterday">Yesterday</string>
+    <plurals name="detail_relative_days_ago">
+        <item quantity="one">%1$d day ago</item>
+        <item quantity="other">%1$d days ago</item>
+    </plurals>
+    <string name="detail_album_notes">Notes</string>
+    <string name="detail_album_no_notes">No notes yet</string>
+    <string name="detail_album_note_cross">%1$s: %2$s</string>
+    <string name="detail_album_cd_edit_comment">Edit comment</string>
+    <string name="detail_album_cd_write_comment">Write a comment</string>
+    <string name="detail_album_rate">Rate</string>
+    <string name="detail_album_review_hint">Say something about it…</string>
+    <string name="detail_album_short_comment">Short comment</string>
+    <string name="detail_album_review">Review</string>
+    <string name="detail_album_review_count">%1$d / %2$d</string>
+    <string name="detail_album_page_overview">Overview</string>
+    <string name="detail_album_page_scrapbook">Scrapbook</string>
+    <string name="detail_album_page_n">Page %1$d</string>
+    <string name="detail_album_cd_now_playing">Now playing</string>
+    <string name="detail_album_cd_has_note">Has note</string>
+    <string name="detail_album_cd_remove_favorite">Remove from favorites</string>
+    <string name="detail_album_cd_add_favorite">Add to favorites</string>
+    <string name="detail_album_cd_rate">Rate and comment</string>
+    <string name="detail_album_rated">%1$d/%2$d rated</string>
+    <string name="detail_album_feat">"&#160;(feat. %1$s)"</string>
+    <plurals name="detail_album_tracks">
+        <item quantity="one">%1$d track</item>
+        <item quantity="other">%1$d tracks</item>
+    </plurals>
+    <plurals name="detail_album_tracks_duration">
+        <item quantity="one">%1$d track  ·  %2$s</item>
+        <item quantity="other">%1$d tracks  ·  %2$s</item>
+    </plurals>
+
+    <!-- NeoDB rate-sheet line. The name itself is a brand. -->
+    <string name="detail_neodb_name" translatable="false">NeoDB</string>
+    <string name="detail_neodb_sign_in">Sign in to sync</string>
+    <string name="detail_neodb_pending">Syncs when you close this</string>
+    <string name="detail_neodb_syncing">Syncing…</string>
+    <string name="detail_neodb_synced">Synced</string>
+    <string name="detail_neodb_failed">Couldn\'t sync · Retry</string>
+
+    <!-- Artist page -->
+    <string name="detail_artist_share">Share</string>
+    <string name="detail_artist_kind">Artist</string>
+    <string name="detail_artist_kind_span">Artist  ·  %1$s</string>
+    <plurals name="detail_artist_wide">
+        <item quantity="one">Artist  ·  %1$d release</item>
+        <item quantity="other">Artist  ·  %1$d releases</item>
+    </plurals>
+    <plurals name="detail_artist_wide_span">
+        <item quantity="one">Artist  ·  %1$d release  ·  %2$s</item>
+        <item quantity="other">Artist  ·  %1$d releases  ·  %2$s</item>
+    </plurals>
+    <plurals name="detail_artist_releases">
+        <item quantity="one">%1$d release</item>
+        <item quantity="other">%1$d releases</item>
+    </plurals>
+    <string name="detail_artist_last_play">Last Play</string>
+    <string name="detail_artist_never">Never</string>
+    <string name="detail_artist_no_albums_rated">No albums rated</string>
+    <string name="detail_artist_album_average">Album average %1$s, %2$d of %3$d albums rated</string>
+    <string name="detail_artist_follow">Follow</string>
+    <string name="detail_artist_following">Following</string>
+    <string name="detail_artist_favorite">Favorite</string>
+    <string name="detail_artist_favorited">Favorited</string>
+    <string name="detail_artist_most_played">Most Played</string>
+    <plurals name="detail_artist_plays_total">
+        <item quantity="one">%1$d play</item>
+        <item quantity="other">%1$d plays</item>
+    </plurals>
+    <plurals name="detail_artist_plays">
+        <item quantity="one">%1$d play</item>
+        <item quantity="other">%1$d plays</item>
+    </plurals>
+    <string name="detail_artist_played_meta">%1$s  ·  %2$s</string>
+    <string name="detail_artist_discography">Discography</string>
+    <string name="detail_artist_filter_all">All</string>
+    <string name="detail_artist_filter_albums">Albums</string>
+    <string name="detail_artist_filter_singles">Singles &amp; EPs</string>
+    <string name="detail_artist_filter_compilations">Compilations</string>
+    <string name="detail_artist_no_releases">No releases</string>
+    <string name="detail_artist_show_fewer">Show fewer</string>
+    <string name="detail_artist_show_all">Show all %1$d</string>
+    <string name="detail_artist_latest">"Latest  ·  "</string>
+    <string name="detail_artist_kind_album">Album</string>
+    <string name="detail_artist_kind_ep">EP</string>
+    <string name="detail_artist_kind_single">Single</string>
+    <string name="detail_artist_kind_compilation">Compilation</string>
+    <plurals name="detail_artist_album_songs">
+        <item quantity="one">Album  ·  %1$d song</item>
+        <item quantity="other">Album  ·  %1$d songs</item>
+    </plurals>
+    <plurals name="detail_artist_ep_songs">
+        <item quantity="one">EP  ·  %1$d song</item>
+        <item quantity="other">EP  ·  %1$d songs</item>
+    </plurals>
+    <plurals name="detail_artist_single_songs">
+        <item quantity="one">Single  ·  %1$d song</item>
+        <item quantity="other">Single  ·  %1$d songs</item>
+    </plurals>
+    <plurals name="detail_artist_compilation_songs">
+        <item quantity="one">Compilation  ·  %1$d song</item>
+        <item quantity="other">Compilation  ·  %1$d songs</item>
+    </plurals>
+    <plurals name="detail_artist_songs">
+        <item quantity="one">%1$d song</item>
+        <item quantity="other">%1$d songs</item>
+    </plurals>
+
+    <!-- Playlist page -->
+    <string name="detail_playlist_share">Share</string>
+    <string name="detail_playlist_delete_title">Delete playlist?</string>
+    <string name="detail_playlist_delete_body">\"%1$s\" will be removed from your library.</string>
+    <string name="detail_playlist_delete">Delete</string>
+    <string name="detail_playlist_cancel_delete">Cancel</string>
+    <string name="detail_playlist_kind">Playlist</string>
+    <string name="detail_playlist_kind_after_owner">"  ·  Playlist"</string>
+    <string name="detail_playlist_owner_name">(%1$s)</string>
+    <string name="detail_playlist_cd_more">More actions</string>
+    <string name="detail_playlist_rename">Rename</string>
+    <string name="detail_playlist_delete_menu">Delete</string>
+    <string name="detail_playlist_rename_title">Rename playlist</string>
+    <string name="detail_playlist_name">Name</string>
+    <string name="detail_playlist_rename_confirm">Rename</string>
+    <string name="detail_playlist_cancel_rename">Cancel</string>
+    <string name="detail_playlist_empty_hero">This playlist is empty.</string>
+    <string name="detail_playlist_empty_list">This playlist is empty.</string>
+    <string name="detail_playlist_length">Length</string>
+    <plurals name="detail_playlist_tracks">
+        <item quantity="one">%1$d track</item>
+        <item quantity="other">%1$d tracks</item>
+    </plurals>
+    <string name="detail_playlist_owner">Owner</string>
+    <string name="detail_playlist_public">Public</string>
+    <string name="detail_playlist_private">Private</string>
+    <string name="detail_playlist_description">Description</string>
+    <string name="detail_playlist_track_credit">%1$s  ·  %2$s</string>
+
+    <!-- Scrapbook (translatable chrome) -->
+    <string name="detail_scrap_cd_rename">Rename</string>
+    <string name="detail_scrap_cd_album_note">Album note: %1$s</string>
+    <string name="detail_scrap_cd_rate">Rate and comment</string>
+    <string name="detail_scrap_cd_edit_comment">Edit comment</string>
+    <string name="detail_scrap_cd_write_comment">Write a comment</string>
+    <string name="detail_scrap_action_write_comment">Write a comment</string>
+    <string name="detail_scrap_about">About</string>
+    <string name="detail_scrap_not_yet">Scores and notes you leave show up here.</string>
+    <string name="detail_scrap_read_all">Read all</string>
+    <string name="detail_scrap_read_all_more">Read all · +%1$d</string>
+    <string name="detail_scrap_cd_read_all">Read all</string>
+    <string name="detail_scrap_cd_ask">Asked about %1$s: %2$s</string>
+    <string name="detail_scrap_cd_about">About %1$s: %2$s</string>
+    <string name="detail_scrap_cd_note">Note: %1$s</string>
+    <string name="detail_scrap_cd_note_at">Note at %1$s: %2$s</string>
+    <string name="detail_scrap_cd_play">Play</string>
+    <string name="detail_scrap_cd_play_from">Play from %1$s</string>
+    <string name="detail_scrap_cd_play_track">Play %1$s</string>
+    <string name="detail_scrap_cd_playing">Playing</string>
+    <string name="detail_scrap_cd_track">Track %1$d, %2$s</string>
+    <string name="detail_scrap_cd_track_rated">Track %1$d, %2$s, rated %3$s</string>
+    <string name="detail_scrap_cd_track_liked">Track %1$d, %2$s, liked</string>
+    <string name="detail_scrap_cd_track_plays">Track %1$d, %2$s, played %3$d times</string>
+    <string name="detail_scrap_cd_track_rated_liked">Track %1$d, %2$s, rated %3$s, liked</string>
+    <string name="detail_scrap_cd_track_rated_plays">Track %1$d, %2$s, rated %3$s, played %4$d times</string>
+    <string name="detail_scrap_cd_track_liked_plays">Track %1$d, %2$s, liked, played %3$d times</string>
+    <string name="detail_scrap_cd_track_rated_liked_plays">Track %1$d, %2$s, rated %3$s, liked, played %4$d times</string>
+    <plurals name="detail_scrap_hidden_notes">
+        <item quantity="one">+%1$d note</item>
+        <item quantity="other">+%1$d notes</item>
+    </plurals>
+    <string name="detail_scrap_fact_created">Created</string>
+    <string name="detail_scrap_fact_recorded">Recorded in</string>
+    <string name="detail_scrap_fact_lyricist">Lyricist</string>
+    <string name="detail_scrap_fact_composer">Composer</string>
+    <string name="detail_scrap_fact_producer">Producer</string>
+    <string name="detail_scrap_fact_about">About</string>
+    <string name="detail_scrap_fact_more">%1$s  +%2$d</string>
+
+    <!--
+      Monospace receipt and ticket chrome. English only. AlbumScrapbookTest and
+      AlbumScrapbookTicketMetaTest assert the model strings; these copies exist
+      so resource shrinking keeps the same glyphs.
+    -->
+    <string name="detail_scrap_receipt_plays" translatable="false">Plays in Yoin</string>
+    <string name="detail_scrap_receipt_days_since" translatable="false">Days since first play</string>
+    <string name="detail_scrap_receipt_last_played" translatable="false">Last played</string>
+    <string name="detail_scrap_receipt_rated" translatable="false">Rated</string>
+    <string name="detail_scrap_receipt_notes" translatable="false">Notes</string>
+    <string name="detail_scrap_receipt_asked" translatable="false">Asked</string>
+    <string name="detail_scrap_receipt_today" translatable="false">Today</string>
+    <string name="detail_scrap_receipt_yesterday" translatable="false">Yesterday</string>
+    <plurals name="detail_scrap_receipt_days_ago" translatable="false">
+        <item quantity="one">%1$d day ago</item>
+        <item quantity="other">%1$d days ago</item>
+    </plurals>
+    <string name="detail_scrap_receipt_date" translatable="false">Mar 14</string>
+    <string name="detail_scrap_receipt_date_year" translatable="false">Mar 14, 2025</string>
+    <plurals name="detail_scrap_ticket_plays" translatable="false">
+        <item quantity="one">%1$d&#160;play</item>
+        <item quantity="other">%1$d&#160;plays</item>
+    </plurals>
+    <string name="detail_scrap_ticket_duration_plays" translatable="false">1:10&#160;·&#160;1&#160;play</string>
+    <string name="detail_scrap_q" translatable="false">Q</string>
+</resources>

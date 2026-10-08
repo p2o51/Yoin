@@ -18,12 +18,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.gpo.yoin.R
 import com.gpo.yoin.YoinActivityRoot
 import com.gpo.yoin.YoinApplication
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.repository.ActivityContext
 import com.gpo.yoin.data.source.WebLinkKind
 import com.gpo.yoin.enableYoinEdgeToEdge
+import com.gpo.yoin.ui.common.asString
 import com.gpo.yoin.ui.experience.installCoveredWindowAnimationGate
 import com.gpo.yoin.ui.nowplaying.NowPlayingAccessories
 import com.gpo.yoin.ui.nowplaying.NowPlayingOverlayHost
@@ -141,8 +143,11 @@ class AlbumDetailActivity : ComponentActivity() {
                     factory = NowPlayingViewModel.Factory(app.container),
                 )
                 // The page's one-line notices (a failed NeoDB sync) ride this window's snackbar.
+                val messageContext = LocalContext.current
                 LaunchedEffect(viewModel) {
-                    viewModel.messages.collect(nowPlayingViewModel::postMessage)
+                    viewModel.messages.collect { message ->
+                        nowPlayingViewModel.postMessage(message.asString(messageContext))
+                    }
                 }
                 var nowPlayingOpen by rememberSaveable { mutableStateOf(false) }
 
@@ -216,9 +221,16 @@ class AlbumDetailActivity : ComponentActivity() {
                     onPlayAlbum = { playFrom(startIndex = 0, shuffle = false) },
                     onShufflePlay = { playFrom(startIndex = 0, shuffle = true) },
                     onShare = {
-                        val title = (uiState as? AlbumDetailUiState.Content)
-                            ?.let { "${it.albumName} – ${it.artistName}" }
-                            ?: "Check out this album"
+                        val content = uiState as? AlbumDetailUiState.Content
+                        val title = if (content != null) {
+                            context.getString(
+                                R.string.detail_share_album_title,
+                                content.albumName,
+                                content.artistName,
+                            )
+                        } else {
+                            context.getString(R.string.detail_share_album)
+                        }
                         val text = detailShareText(title, webLink)
                         val send = Intent(Intent.ACTION_SEND).apply {
                             type = "text/plain"

@@ -60,7 +60,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.style.TextOverflow
@@ -68,7 +70,9 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.lerp
+import com.gpo.yoin.R
 import com.gpo.yoin.symbols.YoinSymbols
+import com.gpo.yoin.ui.common.asString
 import com.gpo.yoin.ui.component.BarExtraAction
 import com.gpo.yoin.ui.component.DetailErrorState
 import com.gpo.yoin.ui.component.ExpressiveMediaArtwork
@@ -96,7 +100,6 @@ import com.gpo.yoin.ui.theme.YoinMotionRole
 import com.gpo.yoin.ui.theme.YoinTheme
 import com.gpo.yoin.ui.theme.rememberCoverColorScheme
 import com.gpo.yoin.ui.theme.withTabularFigures
-import java.time.ZoneId
 import kotlinx.coroutines.launch
 
 // At or below this track count the cover docks to a big rounded "capsule"; above
@@ -242,7 +245,7 @@ fun AlbumDetailScreen(
 
                             is AlbumDetailUiState.Error ->
                                 DetailErrorState(
-                                    message = state.message,
+                                    message = state.message.asString(),
                                     onRetry = onRetry,
                                     onBack = onBackClick,
                                 )
@@ -316,13 +319,13 @@ fun AlbumDetailScreen(
                         onOpenArtist?.let { openArtist ->
                             BarExtraAction(
                                 icon = YoinSymbols.Artist,
-                                label = "Go to artist",
+                                label = stringResource(R.string.detail_album_go_to_artist),
                                 onClick = openArtist,
                             )
                         },
                         BarExtraAction(
                             icon = YoinSymbols.Share,
-                            label = "Share",
+                            label = stringResource(R.string.detail_album_share),
                             onClick = onShare,
                         ),
                     ),
@@ -602,9 +605,10 @@ private fun AlbumTopHeader(
                         modifier = Modifier.weight(1f, fill = false),
                     )
                     Text(
-                        text = buildString {
-                            append("  ·  Album")
-                            year?.let { append(" $it") }
+                        text = if (year != null) {
+                            stringResource(R.string.detail_album_kind_year, year)
+                        } else {
+                            stringResource(R.string.detail_album_kind)
                         },
                         style = MaterialTheme.typography.bodyMedium,
                         color = accentText,
@@ -906,10 +910,11 @@ private fun AlbumHeroMetaBlocks(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                AlbumSectionLabel(text = "Last Play")
-                val labels = content.lastPlayedAt?.let { albumLastPlayLabels(it) }
+                AlbumSectionLabel(text = stringResource(R.string.detail_album_last_play))
+                val resources = LocalContext.current.resources
+                val labels = content.lastPlayedAt?.let { albumLastPlayLabels(it, resources) }
                 Text(
-                    text = labels?.first ?: "Never",
+                    text = labels?.first ?: stringResource(R.string.detail_album_never),
                     style = MaterialTheme.typography.bodyLarge,
                     color = MaterialTheme.colorScheme.onSurface,
                 )
@@ -935,14 +940,14 @@ private fun AlbumHeroMetaBlocks(
         // The comment is the user's own words, so no "Comment" caption: written,
         // it shows as text (tap to edit); not written yet, only a pen.
         if (content.userReview.isNotBlank()) {
-            val writtenAt = remember(content.userReviewAt) {
-                content.userReviewAt?.let { relativeDayLabel(it, System.currentTimeMillis(), ZoneId.systemDefault()) }
+            val writtenAt = content.userReviewAt?.let { at ->
+                albumLastPlayLabels(at, LocalContext.current.resources).first
             }
             Column(
                 modifier = Modifier.clickable(
                     enabled = interactive,
                     role = Role.Button,
-                    onClickLabel = "Edit comment",
+                    onClickLabel = stringResource(R.string.detail_album_cd_edit_comment),
                     onClick = onEditComment,
                 ),
                 verticalArrangement = Arrangement.spacedBy(4.dp),
@@ -971,7 +976,7 @@ private fun AlbumHeroMetaBlocks(
             ) {
                 Icon(
                     imageVector = YoinSymbols.Edit,
-                    contentDescription = "Write a comment",
+                    contentDescription = stringResource(R.string.detail_album_cd_write_comment),
                     modifier = Modifier.size(18.dp),
                 )
             }
@@ -1419,13 +1424,13 @@ private fun AlbumSongNotes(
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Text(
-            text = "Notes",
+            text = stringResource(R.string.detail_album_notes),
             style = MaterialTheme.typography.labelMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         if (bundle.primaryNotes.isEmpty()) {
             Text(
-                text = "No notes yet",
+                text = stringResource(R.string.detail_album_no_notes),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -1440,7 +1445,11 @@ private fun AlbumSongNotes(
         }
         bundle.crossProviderNotes.forEach { note ->
             Text(
-                text = "${note.providerLabel}: ${note.content}",
+                text = stringResource(
+                    R.string.detail_album_note_cross,
+                    note.providerLabel.asString(),
+                    note.content,
+                ),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
