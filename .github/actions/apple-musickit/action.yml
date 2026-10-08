@@ -1,0 +1,29 @@
+name: Fetch Apple MusicKit SDK
+description: >-
+  Downloads Apple's Android MusicKit AARs into app/libs. Apple does not allow
+  redistributing them, so they are gitignored here and live as release assets
+  in the private p2o51/yoin-ci-assets repository. Checks their SHA-256 against
+  app/libs/README-apple-music.md before the build uses them.
+inputs:
+  token:
+    description: Read-only token for p2o51/yoin-ci-assets (the CI_ASSETS_TOKEN secret).
+    required: true
+runs:
+  using: composite
+  steps:
+    - name: Download and verify
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.token }}
+      run: |
+        if [ -z "$GH_TOKEN" ]; then
+          echo "::error::CI_ASSETS_TOKEN is not set, so the Apple MusicKit AARs can't be fetched. See docs/ci-cd.md."
+          exit 1
+        fi
+        gh release download apple-musickit-1.1.2 --repo p2o51/yoin-ci-assets \
+          --dir app/libs --pattern '*.aar' --clobber
+        cd app/libs
+        sha256sum --check --strict - <<'SUMS'
+        c8f6f7ffec1baa5fb7fcdf04d3fcacfeb52c1de0c84c34b92a44dc6e431c4ef5  musickitauth-release-1.1.2.aar
+        39bc28cbc2413c0ce0477c1ef4d3b9e51bb163a7723d930c46bc089715116e3c  mediaplayback-release-1.1.1.aar
+        SUMS
