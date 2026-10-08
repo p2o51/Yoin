@@ -63,6 +63,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberSearchBarState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.ui.unit.Dp
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -79,6 +80,9 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -86,6 +90,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
+import com.gpo.yoin.R
 import com.gpo.yoin.data.model.Album
 import com.gpo.yoin.data.model.Artist
 import com.gpo.yoin.data.model.CoverRef
@@ -99,6 +104,8 @@ import com.gpo.yoin.data.model.Track
 // VisualizerData intentionally removed: LibraryScreen consumes a
 // pre-smoothed playbackSignal from AudioVisualizerManager instead.
 import com.gpo.yoin.symbols.YoinSymbols
+import com.gpo.yoin.ui.common.UiText
+import com.gpo.yoin.ui.common.asString
 import com.gpo.yoin.ui.component.ExpressiveBackdropArtwork
 import com.gpo.yoin.ui.component.ExpressiveBackdropVariant
 import com.gpo.yoin.ui.component.ExpressiveMetaPill
@@ -262,6 +269,8 @@ fun LibraryScreen(
     val notedSongIds by viewModel.notedSongIds.collectAsState()
     val trackLibraryStates by viewModel.trackLibraryStates.collectAsState()
     val workingLibraryTrackIds by viewModel.workingLibraryTrackIds.collectAsState()
+    val copyResources = LocalContext.current.resources
+    SideEffect { viewModel.updateCopyResources(copyResources) }
 
     LibraryContent(
         uiState = uiState,
@@ -361,7 +370,7 @@ fun LibraryContent(
                                 verticalArrangement = Arrangement.spacedBy(8.dp),
                             ) {
                                 Text(
-                                    text = state.message,
+                                    text = state.message.asString(),
                                     color = MaterialTheme.colorScheme.error,
                                     style = MaterialTheme.typography.bodyLarge,
                                 )
@@ -372,7 +381,7 @@ fun LibraryContent(
                                             onRetry()
                                         },
                                     ) {
-                                        Text("Retry")
+                                        Text(stringResource(R.string.library_error_retry))
                                     }
                                     TextButton(
                                         onClick = {
@@ -380,7 +389,7 @@ fun LibraryContent(
                                             onNavigateToSettings()
                                         },
                                     ) {
-                                        Text("Settings")
+                                        Text(stringResource(R.string.library_error_settings))
                                     }
                                 }
                             }
@@ -555,7 +564,7 @@ private fun LibraryContentBody(
                     ) {
                         Icon(
                             imageVector = YoinSymbols.Back,
-                            contentDescription = "Close search",
+                            contentDescription = stringResource(R.string.library_cd_close_search),
                         )
                     }
                 } else {
@@ -574,7 +583,7 @@ private fun LibraryContentBody(
                     ) {
                         Icon(
                             imageVector = YoinSymbols.Close,
-                            contentDescription = "Clear search",
+                            contentDescription = stringResource(R.string.library_cd_clear_search),
                         )
                     }
                 }
@@ -660,7 +669,7 @@ private fun LibraryContentBody(
                     ) {
                         Icon(
                             imageVector = YoinSymbols.Settings,
-                            contentDescription = "Settings",
+                            contentDescription = stringResource(R.string.library_cd_settings),
                         )
                     }
                 },
@@ -822,10 +831,11 @@ private fun LibraryFilterChips(
     // Full-width row; contentPadding keeps the resting chips on the 16dp
     // page margin while scrolled chips run under the screen edges with the
     // scroll-aware fade.
+    val labels = libraryTabLabels()
     ExpressiveSegmentedTabs(
         items = tabs,
         selectedItem = selectedTab,
-        label = { it.name },
+        label = { labels.getValue(it) },
         onSelectedChange = onTabSelected,
         modifier = modifier.fillMaxWidth(),
         contentPadding = PaddingValues(horizontal = 16.dp),
@@ -839,13 +849,17 @@ private fun LibrarySearchScopeChips(
     onScopeSelected: (LibrarySearchScope) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val catalogLabel = catalogScope.chipLabel()
+    val libraryLabel = LibrarySearchScope.CurrentLibrary.chipLabel()
     ExpressiveSegmentedTabs(
         items = listOf(
             catalogScope,
             LibrarySearchScope.CurrentLibrary,
         ),
         selectedItem = selectedScope,
-        label = LibrarySearchScope::chipLabel,
+        label = { scope ->
+            if (scope == LibrarySearchScope.CurrentLibrary) libraryLabel else catalogLabel
+        },
         onSelectedChange = onScopeSelected,
         modifier = modifier.fillMaxWidth(),
     )
@@ -895,7 +909,7 @@ private fun LibraryWideHeaderRow(
     ) {
         if (showTitle) {
             Text(
-                text = "Library",
+                text = stringResource(R.string.library_title),
                 style = titleStyle,
                 color = MaterialTheme.colorScheme.onSurface,
             )
@@ -927,22 +941,33 @@ private fun LibraryWideHeaderRow(
         ) {
             Icon(
                 imageVector = YoinSymbols.Settings,
-                contentDescription = "Settings",
+                contentDescription = stringResource(R.string.library_cd_settings_header),
             )
         }
     }
 }
 
+@Composable
+private fun libraryTabLabels(): Map<LibraryTab, String> = mapOf(
+    LibraryTab.Artists to stringResource(R.string.library_tab_artists),
+    LibraryTab.Albums to stringResource(R.string.library_tab_albums),
+    LibraryTab.Songs to stringResource(R.string.library_tab_songs),
+    LibraryTab.Playlists to stringResource(R.string.library_tab_playlists),
+    LibraryTab.Favorites to stringResource(R.string.library_tab_favorites),
+)
+
+@Composable
 private fun LibrarySearchScope.placeholder(): String = when (this) {
-    LibrarySearchScope.SpotifyGlobal -> "Search Spotify"
-    LibrarySearchScope.AppleMusicGlobal -> "Search Apple Music"
-    LibrarySearchScope.CurrentLibrary -> "Search library"
+    LibrarySearchScope.SpotifyGlobal -> stringResource(R.string.library_search_placeholder_spotify)
+    LibrarySearchScope.AppleMusicGlobal -> stringResource(R.string.library_search_placeholder_apple_music)
+    LibrarySearchScope.CurrentLibrary -> stringResource(R.string.library_search_placeholder_library)
 }
 
+@Composable
 private fun LibrarySearchScope.chipLabel(): String = when (this) {
-    LibrarySearchScope.SpotifyGlobal -> "Spotify"
-    LibrarySearchScope.AppleMusicGlobal -> "Apple Music"
-    LibrarySearchScope.CurrentLibrary -> "Library"
+    LibrarySearchScope.SpotifyGlobal -> stringResource(R.string.library_search_scope_spotify)
+    LibrarySearchScope.AppleMusicGlobal -> stringResource(R.string.library_search_scope_apple_music)
+    LibrarySearchScope.CurrentLibrary -> stringResource(R.string.library_search_scope_library)
 }
 
 // ── Tab content composables ─────────────────────────────────────────────
@@ -960,7 +985,7 @@ private fun ArtistsTabContent(
         return
     }
     if (artists.isEmpty()) {
-        EmptyState(message = "No artists found", modifier = modifier)
+        EmptyState(message = stringResource(R.string.library_empty_artists), modifier = modifier)
         return
     }
     KeepGridAnchorAcrossWidthChanges(gridState)
@@ -1064,9 +1089,14 @@ private fun ArtistGridItem(
             textAlign = TextAlign.Center,
             modifier = Modifier.fillMaxWidth().seamFade(),
         )
-        artist.albumCount?.let { count ->
+        val albumCount = artist.albumCount
+        if (albumCount != null) {
             Text(
-                text = if (count == 1) "1 album" else "$count albums",
+                text = pluralStringResource(
+                    R.plurals.library_artist_grid_album_count,
+                    albumCount,
+                    albumCount,
+                ),
                 style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp),
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
@@ -1133,10 +1163,15 @@ private fun ArtistListItem(
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f).seamFade(),
             )
-            artist.albumCount?.let { count ->
+            val albumCount = artist.albumCount
+            if (albumCount != null) {
                 Spacer(modifier = Modifier.width(8.dp))
                 ExpressiveMetaPill(
-                    text = if (count == 1) "1 album" else "$count albums",
+                    text = pluralStringResource(
+                        R.plurals.library_artist_row_album_count,
+                        albumCount,
+                        albumCount,
+                    ),
                     modifier = Modifier.seamFade(),
                 )
             }
@@ -1157,7 +1192,7 @@ private fun AlbumsTabContent(
         return
     }
     if (albums.isEmpty()) {
-        EmptyState(message = "No albums found", modifier = modifier)
+        EmptyState(message = stringResource(R.string.library_empty_albums), modifier = modifier)
         return
     }
     KeepGridAnchorAcrossWidthChanges(gridState)
@@ -1272,7 +1307,7 @@ private fun SongsTabContent(
             )
         }
         if (songs.isEmpty()) {
-            EmptyState(message = "No songs found", modifier = Modifier.weight(1f))
+            EmptyState(message = stringResource(R.string.library_empty_songs), modifier = Modifier.weight(1f))
         } else {
             LazyColumn(
                 state = listState,
@@ -1336,7 +1371,7 @@ private fun RandomMixHeader(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
-            text = "Random mix",
+            text = stringResource(R.string.library_songs_random_mix),
             style = MaterialTheme.typography.labelLarge,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.weight(1f),
@@ -1350,7 +1385,7 @@ private fun RandomMixHeader(
         ) {
             Icon(
                 imageVector = YoinSymbols.Shuffle,
-                contentDescription = "Reshuffle",
+                contentDescription = stringResource(R.string.library_cd_reshuffle),
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.size(20.dp),
             )
@@ -1406,9 +1441,9 @@ private fun PlaylistsTabContent(
         if (playlists.isEmpty()) {
             EmptyState(
                 message = if (canCreate) {
-                    "No playlists yet. Tap + to create one."
+                    stringResource(R.string.library_empty_playlists_create)
                 } else {
-                    "No playlists yet."
+                    stringResource(R.string.library_empty_playlists)
                 },
                 modifier = Modifier.fillMaxSize(),
             )
@@ -1471,7 +1506,7 @@ private fun PlaylistsTabContent(
                         contentDescription = null,
                     )
                 },
-                text = { Text("New playlist") },
+                text = { Text(stringResource(R.string.library_playlist_fab)) },
                 containerColor = MaterialTheme.colorScheme.primaryContainer,
                 contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
                 modifier = Modifier
@@ -1504,12 +1539,12 @@ private fun CreatePlaylistDialog(
     var name by remember { mutableStateOf("") }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("New playlist") },
+        title = { Text(stringResource(R.string.library_playlist_dialog_title)) },
         text = {
             OutlinedTextField(
                 value = name,
                 onValueChange = { name = it },
-                label = { Text("Name") },
+                label = { Text(stringResource(R.string.library_playlist_name_label)) },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
             )
@@ -1518,10 +1553,10 @@ private fun CreatePlaylistDialog(
             TextButton(
                 onClick = { onConfirm(name.trim()) },
                 enabled = name.trim().isNotEmpty(),
-            ) { Text("Create") }
+            ) { Text(stringResource(R.string.library_playlist_create)) }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Cancel") }
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.library_playlist_cancel)) }
         },
     )
 }
@@ -1608,7 +1643,7 @@ private fun FavoritesTabContent(
         favorites.tracks.isNotEmpty()
 
     if (!hasContent) {
-        EmptyState(message = "No favorites yet", modifier = modifier)
+        EmptyState(message = stringResource(R.string.library_empty_favorites), modifier = modifier)
         return
     }
 
@@ -1629,7 +1664,7 @@ private fun FavoritesTabContent(
     ) {
         if (favorites.artists.isNotEmpty()) {
             item {
-                SectionHeader(title = "Artists")
+                SectionHeader(title = stringResource(R.string.library_favorites_section_artists))
             }
             itemsIndexed(
                 items = favorites.artists,
@@ -1656,7 +1691,7 @@ private fun FavoritesTabContent(
         }
         if (favorites.albums.isNotEmpty()) {
             item {
-                SectionHeader(title = "Albums")
+                SectionHeader(title = stringResource(R.string.library_favorites_section_albums))
             }
             itemsIndexed(
                 items = favorites.albums,
@@ -1686,7 +1721,7 @@ private fun FavoritesTabContent(
         }
         if (favorites.tracks.isNotEmpty()) {
             item {
-                SectionHeader(title = "Songs")
+                SectionHeader(title = stringResource(R.string.library_favorites_section_songs))
             }
             itemsIndexed(
                 items = favorites.tracks,
@@ -1782,19 +1817,30 @@ private fun AlbumListItem(
     }
 }
 
+@Composable
 private fun buildPlaylistMeta(playlist: Playlist): String {
     val parts = mutableListOf<String>()
     playlist.owner?.takeIf { it.isNotBlank() }?.let(parts::add)
-    playlist.songCount?.let { parts.add(if (it == 1) "1 track" else "$it tracks") }
+    val songCount = playlist.songCount
+    if (songCount != null) {
+        parts.add(
+            pluralStringResource(R.plurals.library_playlist_track_count, songCount, songCount),
+        )
+    }
     playlist.durationSec?.takeIf { it > 0 }?.let { parts.add(formatTotalDuration(it)) }
-    return parts.joinToString(" · ").ifBlank { "Playlist" }
+    val joined = parts.joinToString(" · ")
+    return if (joined.isBlank()) {
+        stringResource(R.string.library_playlist_fallback)
+    } else {
+        joined
+    }
 }
 
 @Composable
 private fun SearchResultsContent(
     searchResults: SearchResults?,
     isSearching: Boolean,
-    searchError: String? = null,
+    searchError: UiText? = null,
     onRetrySearch: () -> Unit = {},
     activeSongId: String? = null,
     isPlaying: Boolean = false,
@@ -1838,7 +1884,7 @@ private fun SearchResultsContent(
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 Text(
-                    text = searchError,
+                    text = searchError.asString(),
                     color = MaterialTheme.colorScheme.error,
                     style = MaterialTheme.typography.bodyLarge,
                     textAlign = TextAlign.Center,
@@ -1849,7 +1895,7 @@ private fun SearchResultsContent(
                         onRetrySearch()
                     },
                 ) {
-                    Text("Retry")
+                    Text(stringResource(R.string.library_search_retry))
                 }
             }
         }
@@ -1864,7 +1910,7 @@ private fun SearchResultsContent(
         searchResults.tracks.isNotEmpty()
 
     if (!hasResults) {
-        EmptyState(message = "No results found", modifier = modifier)
+        EmptyState(message = stringResource(R.string.library_empty_search), modifier = modifier)
         return
     }
 
@@ -1900,7 +1946,7 @@ private fun SearchResultsContent(
         ) {
             if (searchResults.artists.isNotEmpty()) {
                 item {
-                    SectionHeader(title = "Artists")
+                    SectionHeader(title = stringResource(R.string.library_search_section_artists))
                 }
                 itemsIndexed(
                     items = searchResults.artists,
@@ -1928,7 +1974,7 @@ private fun SearchResultsContent(
             }
             if (searchResults.albums.isNotEmpty()) {
                 item {
-                    SectionHeader(title = "Albums")
+                    SectionHeader(title = stringResource(R.string.library_search_section_albums))
                 }
                 // Keep cover sizes consistent with the main Library grid.
                 items(
@@ -1965,7 +2011,7 @@ private fun SearchResultsContent(
             }
             if (searchResults.playlists.isNotEmpty()) {
                 item {
-                    SectionHeader(title = "Playlists")
+                    SectionHeader(title = stringResource(R.string.library_search_section_playlists))
                 }
                 itemsIndexed(
                     items = searchResults.playlists,
@@ -1993,7 +2039,7 @@ private fun SearchResultsContent(
             }
             if (searchResults.tracks.isNotEmpty()) {
                 item {
-                    SectionHeader(title = "Songs")
+                    SectionHeader(title = stringResource(R.string.library_search_section_songs))
                 }
                 itemsIndexed(
                     items = searchResults.tracks,
@@ -2048,10 +2094,11 @@ private fun SearchResultsContent(
                             exit = shrinkVertically(YoinMotion.spatialSpring()) +
                                 YoinMotion.fadeOut(role = YoinMotionRole.Standard),
                         ) {
+                            val addedLabel = stringResource(R.string.library_search_added)
                             feedback?.let { action ->
                                 val added = membership == LibraryMembership.Added
                                 Text(
-                                    text = if (added) "Added to library" else action.message,
+                                    text = if (added) addedLabel else action.message,
                                     style = MaterialTheme.typography.bodySmall,
                                     color = when {
                                         added -> MaterialTheme.colorScheme.primary
@@ -2342,7 +2389,7 @@ private fun LibraryContentLoadingPreview() {
 private fun LibraryContentErrorPreview() {
     YoinTheme {
         LibraryContent(
-            uiState = LibraryUiState.Error("Unable to connect to server"),
+            uiState = LibraryUiState.Error(UiText.Raw("Unable to connect to server")),
             onTabSelected = {},
             onSearchQueryChanged = {},
             onClearSearch = {},

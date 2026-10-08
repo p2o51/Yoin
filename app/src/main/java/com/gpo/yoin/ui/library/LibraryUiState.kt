@@ -7,6 +7,7 @@ import com.gpo.yoin.data.model.Playlist
 import com.gpo.yoin.data.model.SearchResults
 import com.gpo.yoin.data.model.Starred
 import com.gpo.yoin.data.model.Track
+import com.gpo.yoin.ui.common.UiText
 
 sealed interface LibraryUiState {
     data object Loading : LibraryUiState
@@ -33,7 +34,7 @@ sealed interface LibraryUiState {
          * while idle, in flight, or after a success. Distinguishes "the
          * search failed" from "the search genuinely matched nothing".
          */
-        val searchError: String? = null,
+        val searchError: UiText? = null,
         val searchScope: LibrarySearchScope = LibrarySearchScope.CurrentLibrary,
         val canSearchSpotifyCatalog: Boolean = false,
         val canSearchAppleMusicCatalog: Boolean = false,
@@ -58,7 +59,7 @@ sealed interface LibraryUiState {
         val libraryActionFeedback: Map<MediaId, LibraryActionFeedback> = emptyMap(),
     ) : LibraryUiState
 
-    data class Error(val message: String) : LibraryUiState
+    data class Error(val message: UiText) : LibraryUiState
 }
 
 enum class LibraryTab { Artists, Albums, Songs, Playlists, Favorites }

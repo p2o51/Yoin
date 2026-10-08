@@ -1,9 +1,11 @@
 package com.gpo.yoin.ui.library
 
+import android.content.res.Resources
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.gpo.yoin.AppContainer
+import com.gpo.yoin.R
 import com.gpo.yoin.data.model.Album
 import com.gpo.yoin.data.model.Artist
 import com.gpo.yoin.data.model.ArtistIndex
@@ -15,6 +17,7 @@ import com.gpo.yoin.data.model.Starred
 import com.gpo.yoin.data.model.Track
 import com.gpo.yoin.data.repository.YoinRepository
 import com.gpo.yoin.data.source.Capability
+import com.gpo.yoin.ui.common.UiText
 import com.gpo.yoin.ui.component.toUserMessage
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.coroutineScope
@@ -81,6 +84,7 @@ class LibraryViewModel(
     private var initialLoadJob: Job? = null
     private var tabLoadJob: Job? = null
     private var reshuffleJob: Job? = null
+    private var copyResources: Resources? = null
 
     /** Monotonic id per selectTab load; a stale failure must not revert a newer selection. */
     private var tabLoadGeneration = 0L
@@ -222,7 +226,7 @@ class LibraryViewModel(
                     )
                 } else {
                     _uiState.value = LibraryUiState.Error(
-                        e.message ?: "Failed to load library",
+                        e.uiTextOr(UiText.Res(R.string.library_error_load_library)),
                     )
                 }
             }
@@ -328,7 +332,7 @@ class LibraryViewModel(
                 val content = _uiState.value as? LibraryUiState.Content
                 if (content == null) {
                     _uiState.value = LibraryUiState.Error(
-                        e.message ?: "Failed to load ${tab.name}",
+                        e.uiTextOr(tab.loadFailure()),
                     )
                     return@launch
                 }
@@ -343,8 +347,7 @@ class LibraryViewModel(
                     _uiState.value = content.copy(selectedTab = previousTab)
                 }
                 _messages.tryEmit(
-                    e.message?.takeIf { it.isNotBlank() }
-                        ?: "Failed to load ${tab.name}",
+                    e.snackbarOr(tab.loadFailureRes(), "Failed to load ${tab.name}"),
                 )
             }
         }
@@ -380,8 +383,7 @@ class LibraryViewModel(
                 cachedSongs = previousSongs
                 updateContent { copy(songs = previousSongs) }
                 _messages.tryEmit(
-                    e.message?.takeIf { it.isNotBlank() }
-                        ?: "Couldn't reshuffle songs",
+                    e.snackbarOr(R.string.library_error_reshuffle, "Couldn't reshuffle songs"),
                 )
             }
         }
@@ -534,8 +536,7 @@ class LibraryViewModel(
                         if (e is CancellationException) throw e
                         if (!isDataLoadCurrent(generation, profileId)) return@collectLatest
                         _messages.tryEmit(
-                            e.message?.takeIf { it.isNotBlank() }
-                                ?: "Search failed",
+                            e.snackbarOr(R.string.library_error_search_snackbar, "Search failed"),
                         )
                         // A failure is not "no results": null results plus a
                         // populated searchError drive the retryable error
@@ -550,7 +551,7 @@ class LibraryViewModel(
                                 copy(
                                     searchResults = null,
                                     isSearching = false,
-                                    searchError = e.toUserMessage("Search failed."),
+                                    searchError = e.searchFailure(),
                                 )
                             }
                         }
@@ -775,11 +776,18 @@ class LibraryViewModel(
                         if (repository.currentProfileId() != profileId) return@onSuccess
                         when (membership) {
                             LibraryMembership.Added -> {
-                                showLibraryActionFeedback(track.id, "Added to library")
-                                _messages.tryEmit("Added to library")
+                                val message = shownCopy(
+                                    R.string.library_feedback_added,
+                                    "Added to library",
+                                )
+                                showLibraryActionFeedback(track.id, message)
+                                _messages.tryEmit(message)
                             }
                             LibraryMembership.Pending -> {
-                                val message = "Waiting for Apple Music to confirm. Tap again to check."
+                                val message = shownCopy(
+                                    R.string.library_feedback_apple_music_pending,
+                                    APPLE_MUSIC_PENDING_ENGLISH,
+                                )
                                 showLibraryActionFeedback(track.id, message)
                                 _messages.tryEmit(message)
                             }
@@ -789,7 +797,12 @@ class LibraryViewModel(
                     .onFailure { error ->
                         if (error is CancellationException) throw error
                         if (repository.currentProfileId() != profileId) return@onFailure
-                        val message = error.toUserMessage("Couldn't add this song to the library.")
+                        val message = error.toUserMessage(
+                            shownCopy(
+                                R.string.library_error_add_song,
+                                "Couldn't add this song to the library.",
+                            ),
+                        )
                         showLibraryActionFeedback(track.id, message, isError = true)
                         _messages.tryEmit(message)
                     }
@@ -891,12 +904,20 @@ class LibraryViewModel(
                     cachedPlaylists = updated
                     updateContent { copy(playlists = updated) }
                     onPlaylistMutated()
-                    _messages.tryEmit("Created \"$trimmed\"")
+                    _messages.tryEmit(
+                        shownCopy(R.string.library_playlist_created, "Created \"$trimmed\"", trimmed),
+                    )
                 }
                 .onFailure {
                     if (it is CancellationException) throw it
                     if (!isDataLoadCurrent(generation, profileId)) return@onFailure
-                    _messages.tryEmit(it.message ?: "Couldn't create \"$trimmed\"")
+                    _messages.tryEmit(
+                        it.message ?: shownCopy(
+                            R.string.library_playlist_create_failed,
+                            "Couldn't create \"$trimmed\"",
+                            trimmed,
+                        ),
+                    )
                 }
         }
     }
@@ -932,6 +953,34 @@ class LibraryViewModel(
         return searchFocusRequestCounter
     }
 
+    /** [LibraryScreen] supplies this so one-shot snackbar copy can resolve. Tests leave it unset. */
+    internal fun updateCopyResources(resources: Resources) {
+        copyResources = resources
+    }
+
+    private fun shownCopy(id: Int, english: String, vararg args: Any): String {
+        val resources = copyResources ?: return english
+        return if (args.isEmpty()) resources.getString(id) else resources.getString(id, *args)
+    }
+
+    private fun Throwable.uiTextOr(fallback: UiText): UiText {
+        val raw = message
+        return if (raw != null) UiText.Raw(raw) else fallback
+    }
+
+    private fun Throwable.snackbarOr(id: Int, english: String): String =
+        message?.takeIf { it.isNotBlank() } ?: shownCopy(id, english)
+
+    private fun Throwable.searchFailure(): UiText {
+        val resolved = shownCopy(R.string.library_error_search, "Search failed.")
+        val message = toUserMessage(resolved)
+        return if (message == resolved) {
+            UiText.Res(R.string.library_error_search)
+        } else {
+            UiText.Raw(message)
+        }
+    }
+
     class Factory(private val container: AppContainer) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T =
@@ -950,6 +999,19 @@ class LibraryViewModel(
         private const val LOCAL_SEARCH_LIMIT_PER_TYPE = 40
     }
 }
+
+private const val APPLE_MUSIC_PENDING_ENGLISH =
+    "Waiting for Apple Music to confirm. Tap again to check." // i18n-allow: LibraryViewModelTest asserts this English
+
+private fun LibraryTab.loadFailureRes(): Int = when (this) {
+    LibraryTab.Artists -> R.string.library_error_load_tab_artists
+    LibraryTab.Albums -> R.string.library_error_load_tab_albums
+    LibraryTab.Songs -> R.string.library_error_load_tab_songs
+    LibraryTab.Playlists -> R.string.library_error_load_tab_playlists
+    LibraryTab.Favorites -> R.string.library_error_load_tab_favorites
+}
+
+private fun LibraryTab.loadFailure(): UiText = UiText.Res(loadFailureRes())
 
 private data class LibrarySearchRequest(
     val query: String,
