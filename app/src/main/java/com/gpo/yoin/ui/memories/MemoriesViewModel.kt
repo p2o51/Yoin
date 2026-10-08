@@ -5,10 +5,12 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.gpo.yoin.AppContainer
+import com.gpo.yoin.R
 import com.gpo.yoin.data.memory.AlbumMemoryTitleStore
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.repository.YoinRepository
 import com.gpo.yoin.player.PlaybackState
+import com.gpo.yoin.ui.common.UiText
 import com.gpo.yoin.ui.detail.AlbumNeoDbSync
 import com.gpo.yoin.ui.detail.albumNeoDbSync
 import com.gpo.yoin.ui.experience.ExperienceSessionStore
@@ -208,7 +210,7 @@ class MemoriesViewModel(
                 throw cancellation
             } catch (error: Exception) {
                 _uiState.value = MemoriesUiState.Error(
-                    error.message ?: "Failed to load memories",
+                    error.message?.let(UiText::Raw) ?: UiText.Res(R.string.mem_error_load),
                 )
             } finally {
                 if (initialLoadJob === coroutineContext[Job]) initialLoadJob = null
@@ -245,7 +247,7 @@ class MemoriesViewModel(
                 throw cancellation
             } catch (error: Exception) {
                 _uiState.value = MemoriesUiState.Error(
-                    error.message ?: "Failed to load memories",
+                    error.message?.let(UiText::Raw) ?: UiText.Res(R.string.mem_error_load),
                 )
             } finally {
                 // Compare-and-clear: only retire the focus request this job is
@@ -361,7 +363,7 @@ class MemoriesViewModel(
                 _events.tryEmit(
                     MemoriesOneShotEvent.ReviewSaveFailed(
                         memoryStableId = key,
-                        message = "Couldn't save the review. Your draft is kept.",
+                        message = UiText.Res(R.string.mem_snackbar_save_review),
                     ),
                 )
             }
@@ -504,7 +506,7 @@ class MemoriesViewModel(
                 _events.tryEmit(
                     MemoriesOneShotEvent.TitleSaveFailed(
                         memoryStableId = key,
-                        message = "Couldn't save the title.",
+                        message = UiText.Res(R.string.mem_snackbar_save_title),
                     ),
                 )
             }
@@ -615,7 +617,7 @@ class MemoriesViewModel(
             MemoriesOneShotEvent.NeoDBSyncResult(
                 memoryStableId = memory.stableId,
                 success = false,
-                message = "Couldn't sync to NeoDB",
+                message = UiText.Res(R.string.mem_snackbar_sync),
             ),
         )
     }
@@ -735,18 +737,18 @@ sealed interface MemoriesOneShotEvent {
     data class NeoDBSyncResult(
         val memoryStableId: String,
         val success: Boolean,
-        val message: String,
+        val message: UiText,
     ) : MemoriesOneShotEvent
 
     /** A diary review didn't save; its draft is kept ([MemoriesViewModel.reviewDrafts]). */
     data class ReviewSaveFailed(
         val memoryStableId: String,
-        val message: String,
+        val message: UiText,
     ) : MemoriesOneShotEvent
 
     /** A title edit didn't land; the card is back on the title it had ([MemoriesViewModel.saveMemoryTitle]). */
     data class TitleSaveFailed(
         val memoryStableId: String,
-        val message: String,
+        val message: UiText,
     ) : MemoriesOneShotEvent
 }

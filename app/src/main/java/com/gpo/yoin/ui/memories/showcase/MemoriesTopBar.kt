@@ -45,6 +45,7 @@ import androidx.compose.ui.layout.layout
 import androidx.compose.ui.node.ModifierNodeElement
 import androidx.compose.ui.node.PointerInputModifierNode
 import androidx.compose.ui.platform.InspectorInfo
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
@@ -64,6 +65,7 @@ import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.lerp
 import androidx.compose.ui.unit.sp
+import com.gpo.yoin.R
 import com.gpo.yoin.symbols.YoinSymbols
 import com.gpo.yoin.ui.component.MarqueeText
 import com.gpo.yoin.ui.experience.DeckIndicatorTransitionState
@@ -194,6 +196,8 @@ internal fun MemoriesTopBar(
 private fun HomePill(diaryProgress: () -> Float, onClick: () -> Unit, modifier: Modifier = Modifier) {
     val interaction = remember { MutableInteractionSource() }
     val shape = RoundedCornerShape(percent = 50)
+    val home = stringResource(R.string.mem_cd_home)
+    val close = stringResource(R.string.mem_cd_close_home)
     Box(
         modifier = modifier
             // 88 → 36 as the diary opens: a layout-phase read of p, never a recomposition
@@ -207,9 +211,9 @@ private fun HomePill(diaryProgress: () -> Float, onClick: () -> Unit, modifier: 
             }
             // one node for TalkBack: "Home, button" (the chevron and the fading label are drawing only)
             .clearAndSetSemantics {
-                contentDescription = "Home"
+                contentDescription = home
                 role = Role.Button
-                onClick(label = "Close Memories, back to Home") {
+                onClick(label = close) {
                     onClick()
                     true
                 }
@@ -243,7 +247,7 @@ private fun HomePill(diaryProgress: () -> Float, onClick: () -> Unit, modifier: 
             )
             Spacer(Modifier.width(3.dp))
             Text(
-                text = "Home",
+                text = stringResource(R.string.mem_topbar_home),
                 style = barTextStyle(14, FontWeight.SemiBold),
                 color = MaterialTheme.colorScheme.onSurface,
                 maxLines = 1,
@@ -266,6 +270,7 @@ private fun PageDots(
     modifier: Modifier = Modifier,
 ) {
     val count = colors.size
+    val showThis = stringResource(R.string.mem_cd_show_memory)
     Layout(
         modifier = modifier
             .pointerInput(count, onDot) {
@@ -296,7 +301,7 @@ private fun PageDots(
                         role = Role.Tab
                         contentDescription = label
                         selected = i == current
-                        onClick(label = "Show this memory") {
+                        onClick(label = showThis) {
                             onDot(i)
                             true
                         }
@@ -351,6 +356,14 @@ internal fun MemoryPageBarSlots(
     val diaryOpen by remember { derivedStateOf { currentDiaryProgress() >= 0.5f } }
     val marqueeRunning by remember { derivedStateOf { currentDiaryProgress() >= 1f && currentSettled() } }
     val shown = onShow
+    val memoriesLabel = stringResource(R.string.mem_topbar_memories)
+    val slotDescription = if (lastHeard != null) {
+        stringResource(R.string.mem_cd_topbar_heard, lastHeard)
+    } else {
+        stringResource(R.string.mem_cd_topbar)
+    }
+    val albumDescription = stringResource(R.string.mem_cd_bar_album, album, artistLine)
+    val closeDiary = stringResource(R.string.mem_cd_close_diary)
     Box(
         modifier = modifier
             .fillMaxWidth()
@@ -370,7 +383,7 @@ internal fun MemoryPageBarSlots(
                 // the page's heading while the card shows; gone with the diary (slot B speaks then)
                 .clearAndSetSemantics {
                     if (shown && !diaryOpen) {
-                        contentDescription = listOfNotNull("Memories", lastHeard).joinToString(", ")
+                        contentDescription = slotDescription
                         heading()
                     }
                 }
@@ -387,7 +400,7 @@ internal fun MemoryPageBarSlots(
             verticalArrangement = Arrangement.Center,
         ) {
             Text(
-                text = "Memories",
+                text = memoriesLabel,
                 style = barTextStyle(15, FontWeight.SemiBold, lineHeight = 1.25f),
                 color = MaterialTheme.colorScheme.onSurface,
                 maxLines = 1,
@@ -439,9 +452,9 @@ internal fun MemoryPageBarSlots(
                     .padding(start = insets.slotBStart, end = slotEnd)
                     .clearAndSetSemantics {
                         if (interactive) {
-                            contentDescription = "$album, $artistLine"
+                            contentDescription = albumDescription
                             role = Role.Button
-                            onClick(label = "Close the diary, back to the card") {
+                            onClick(label = closeDiary) {
                                 onCloseDiary()
                                 true
                             }

@@ -41,7 +41,9 @@ import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.onPlaced
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.paneTitle
 import androidx.compose.ui.semantics.semantics
@@ -49,11 +51,14 @@ import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.max
+import com.gpo.yoin.R
 import com.gpo.yoin.symbols.YoinSymbols
 import com.gpo.yoin.ui.component.ExpressiveMediaArtwork
 import com.gpo.yoin.ui.experience.DeckIndicatorTransitionState
 import com.gpo.yoin.ui.experience.RevealState
 import com.gpo.yoin.ui.memories.MemoryEntry
+import com.gpo.yoin.ui.memories.formatMemoryChromeDate
+import com.gpo.yoin.ui.memories.memoryArtistLine
 import com.gpo.yoin.ui.memories.MemoryScoreKind
 import com.gpo.yoin.ui.memories.award.GrooveAwardTarget
 import com.gpo.yoin.ui.memories.award.GrooveDiaryEmblemTarget
@@ -268,8 +273,12 @@ internal fun MemoriesShowcase(
                     .then(if (pagerConnection != null) Modifier.nestedScroll(pagerConnection) else Modifier),
             ) { page ->
                 val memory = memories[page]
+                val locale = LocalConfiguration.current.locales[0]
                 val lastHeard = memory.lastHeardAt?.let { heard ->
-                    MemoryDates.lastHeard(MemoryDates.localDate(heard, zone), day)
+                    stringResource(
+                        R.string.mem_topbar_last_heard,
+                        formatMemoryChromeDate(MemoryDates.localDate(heard, zone), day, locale, zone),
+                    )
                 }
                 if (spreadFit != null) {
                     val tones = remember(palettes[page], dark) { palettes[page].tones(dark) }
@@ -345,7 +354,9 @@ internal fun MemoriesShowcase(
             }
             MemoriesTopBar(
                 dotColors = palettes.map { it.tones(dark).dot },
-                dotLabels = memories.mapIndexed { i, memory -> "Memory ${i + 1} of ${memories.size}: ${memory.title}" },
+                dotLabels = memories.mapIndexed { i, memory ->
+                    stringResource(R.string.mem_cd_page, i + 1, memories.size, memory.title)
+                },
                 position = { pagerState.currentPage + pagerState.currentPageOffsetFraction },
                 // the pill makes room for the bar cover: it follows the current page's cover flight (a spread
                 // has no diary state, so the pill keeps its label there)
@@ -481,6 +492,9 @@ private fun ShowcasePage(
     }
     val cover: @Composable (Modifier) -> Unit = { m -> MemoryCoverArt(memory, fixtures, m) }
     val wide = layout.tier == MemoriesTier.Medium
+    val memoryPane = stringResource(R.string.mem_pane_memory, memory.title)
+    val diaryPane = stringResource(R.string.mem_pane_diary, memory.title)
+    val artistLine = memory.supportingText.memoryArtistLine()
     Box(
         Modifier
             .fillMaxSize()
@@ -490,7 +504,7 @@ private fun ShowcasePage(
             .then(
                 if (isCurrent) {
                     Modifier.semantics {
-                        paneTitle = if (diaryOpen) "Diary, ${memory.title}" else "Memory, ${memory.title}"
+                        paneTitle = if (diaryOpen) diaryPane else memoryPane
                     }
                 } else {
                     Modifier.clearAndSetSemantics { }
@@ -560,8 +574,8 @@ private fun ShowcasePage(
         )
         MemoryPageBarSlots(
             album = memory.title,
-            artistLine = memory.supportingText,
-            artistShort = memory.supportingText.artistOnly(),
+            artistLine = artistLine,
+            artistShort = artistLine.artistOnly(),
             lastHeard = lastHeard,
             dotCount = dotCount,
             relative = { pagerState.currentPage - page + pagerState.currentPageOffsetFraction },

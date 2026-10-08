@@ -52,6 +52,7 @@ import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.findRootCoordinates
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.semantics.Role
@@ -68,6 +69,7 @@ import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.gpo.yoin.R
 import com.gpo.yoin.ui.component.JournalSavePill
 import com.gpo.yoin.ui.component.noRippleClickable
 import com.gpo.yoin.ui.memories.MemoryEntityType
@@ -348,6 +350,7 @@ internal fun MemoryTitleSlot(
     val motionScheme = MaterialTheme.motionScheme
     val sizeSpec = YoinMotion.defaultSpatialSpec<IntSize>()
     val interaction = remember { MutableInteractionSource() }
+    val editTitle = stringResource(R.string.mem_cd_edit_title)
     AnimatedContent(
         targetState = face,
         transitionSpec = {
@@ -370,7 +373,7 @@ internal fun MemoryTitleSlot(
                 now.text,
                 now.kind,
                 if (editable && enabled && editor != null) {
-                    Modifier.noRippleClickable(interactionSource = interaction, onClickLabel = "Edit title") {
+                    Modifier.noRippleClickable(interactionSource = interaction, onClickLabel = editTitle) {
                         editor.begin(key, memory.titleDraftSeed())
                     }
                 } else {
@@ -440,6 +443,7 @@ private fun MemoryTitleField(
     modifier: Modifier = Modifier,
 ) {
     val focus = remember { FocusRequester() }
+    val titleField = stringResource(R.string.mem_cd_title_field)
     val keyboard = LocalSoftwareKeyboardController.current
     val currentOnSave by rememberUpdatedState(onSave)
     LaunchedEffect(Unit) { focus.requestFocus() }
@@ -465,7 +469,7 @@ private fun MemoryTitleField(
         modifier = modifier
             .fillMaxWidth()
             .focusRequester(focus)
-            .semantics { contentDescription = "Title" },
+            .semantics { contentDescription = titleField },
         decorationBox = { inner ->
             // the inner field takes the whole width, so a centred title stays centred (it would wrap its text
             // and sit at the start otherwise)
@@ -502,6 +506,14 @@ internal fun MemoryTitleEditRow(
     keepAboveIme: Boolean,
     modifier: Modifier = Modifier,
 ) {
+    val restoreAi = stringResource(R.string.mem_title_restore_ai)
+    val restoreMotif = stringResource(R.string.mem_title_restore_motif)
+    val cancel = stringResource(R.string.mem_title_cancel)
+    val discardTitle = stringResource(R.string.mem_cd_discard_title)
+    val saveTitle = stringResource(R.string.mem_cd_save_title)
+    val saveDescription = stringResource(R.string.mem_cd_title_save)
+    val save = stringResource(R.string.mem_title_save)
+    val restoreLabel = if (memory.yoinOwnTitle()?.kind == MemoryTitleKind.MOTIF) restoreMotif else restoreAi
     val editor = editing?.editor ?: return
     val open = editor.isEditing(surface.keyFor(memory))
     val focusManager = LocalFocusManager.current
@@ -528,7 +540,7 @@ internal fun MemoryTitleEditRow(
             val labelStyle = diaryUiText(14.sp, FontWeight.SemiBold, 1f)
             if (memory.canRestoreGeneratedTitle()) {
                 QuietTextButton(
-                    label = memory.restoreTitleLabel(),
+                    label = restoreLabel,
                     style = labelStyle,
                     onClick = {
                         editing.haptics.confirm("title restored")
@@ -539,9 +551,9 @@ internal fun MemoryTitleEditRow(
                 )
             }
             QuietTextButton(
-                label = "Cancel",
+                label = cancel,
                 style = labelStyle,
-                clickLabel = "Discard the title edit",
+                clickLabel = discardTitle,
                 onClick = {
                     editor.end()
                     focusManager.clearFocus()
@@ -551,18 +563,18 @@ internal fun MemoryTitleEditRow(
             Box(
                 modifier = Modifier
                     .height(DiaryWriterTokens.RowHit)
-                    .noRippleClickable(interactionSource = saveInteraction, onClickLabel = "Save the title") {
+                    .noRippleClickable(interactionSource = saveInteraction, onClickLabel = saveTitle) {
                         // the same save as the keyboard's Done
                         editor.requestSave()
                     }
                     .semantics {
-                        contentDescription = "Save"
+                        contentDescription = saveDescription
                         role = Role.Button
                     },
                 contentAlignment = Alignment.Center,
             ) {
                 JournalSavePill(
-                    label = "Save",
+                    label = save,
                     containerColor = tones.ink,
                     contentColor = tones.onButton,
                     textStyle = labelStyle,

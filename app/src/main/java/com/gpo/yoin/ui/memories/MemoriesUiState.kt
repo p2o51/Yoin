@@ -1,6 +1,7 @@
 package com.gpo.yoin.ui.memories
 
 import com.gpo.yoin.data.model.Track
+import com.gpo.yoin.ui.common.UiText
 import com.gpo.yoin.ui.memories.copy.MemoryExcerptCandidate
 import com.gpo.yoin.ui.memories.copy.MemoryProseLanguage
 import com.gpo.yoin.ui.memories.copy.MemoryTitleKind
@@ -10,7 +11,7 @@ sealed interface MemoriesUiState {
 
     data object Empty : MemoriesUiState
 
-    data class Error(val message: String) : MemoriesUiState
+    data class Error(val message: UiText) : MemoriesUiState
 
     data class Content(
         val memories: List<MemoryEntry>,
@@ -32,7 +33,9 @@ enum class MemoryEntityType {
 }
 
 enum class MemoryScoreKind(val label: String) {
+    // i18n-allow: MemoriesDeckCoordinatorTest asserts this English
     ALBUM_RATING("Album rating"),
+    // i18n-allow: MemoriesDeckCoordinatorTest asserts this English
     AVERAGE_TRACK_RATING("Track average"),
     NONE("No rating yet"),
 }

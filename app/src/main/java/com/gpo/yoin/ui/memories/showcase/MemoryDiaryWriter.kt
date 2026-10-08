@@ -34,7 +34,9 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.role
@@ -46,12 +48,14 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.gpo.yoin.R
 import com.gpo.yoin.ui.component.JournalRail
 import com.gpo.yoin.ui.component.JournalSavePill
 import com.gpo.yoin.ui.component.noRippleClickable
 import com.gpo.yoin.ui.component.seamFade
 import com.gpo.yoin.ui.memories.MemoryWriting
 import com.gpo.yoin.ui.memories.copy.MemoryDates
+import com.gpo.yoin.ui.memories.formatMemoryChromeDate
 import com.gpo.yoin.ui.theme.GoogleSansFlex
 import com.gpo.yoin.ui.theme.LocalYoinMotionRole
 import com.gpo.yoin.ui.theme.YoinMotion
@@ -141,6 +145,18 @@ internal fun MemoryDiaryEntry(
     // keep Save above the keyboard while writing (shared with the title editor's row)
     val keepAboveIme = rememberKeepAboveImeModifier(active = writing && blank)
 
+    val writeReview = stringResource(R.string.mem_cd_write_review)
+    val writeReviewAction = stringResource(R.string.mem_cd_write_review_action)
+    val reviewField = stringResource(R.string.mem_cd_review_field)
+    val placeholder = stringResource(R.string.mem_review_placeholder)
+    val cancel = stringResource(R.string.mem_review_cancel)
+    val discardDraft = stringResource(R.string.mem_cd_discard_draft)
+    val saveReview = stringResource(R.string.mem_cd_save_review)
+    val saveDescription = stringResource(R.string.mem_cd_review_save)
+    val save = stringResource(R.string.mem_review_save)
+    val todayLabel = stringResource(R.string.mem_review_today)
+    val yoursLabel = stringResource(R.string.mem_review_yours)
+    val headerLabel = if (blank) todayLabel else yoursLabel
     val open = {
         if (enabled && blank) {
             writing = true
@@ -158,11 +174,11 @@ internal fun MemoryDiaryEntry(
                     Modifier
                         .noRippleClickable(
                             interactionSource = interaction,
-                            onClickLabel = "Write a review",
+                            onClickLabel = writeReviewAction,
                             onClick = open,
                         )
                         .semantics {
-                            contentDescription = "Write a review"
+                            contentDescription = writeReview
                             role = Role.Button
                         }
                 } else {
@@ -172,7 +188,8 @@ internal fun MemoryDiaryEntry(
     ) {
         EntryHeader(
             date = review?.let { MemoryDates.localDate(it.writtenAt, zone) } ?: today,
-            label = if (blank) "Today" else "Your review",
+            zone = zone,
+            label = headerLabel,
             tones = tones,
         )
         Box(Modifier.fillMaxWidth()) {
@@ -209,13 +226,13 @@ internal fun MemoryDiaryEntry(
                                 focused = state.isFocused
                                 if (state.isFocused) writing = true
                             }
-                            .semantics { contentDescription = "Your review" }
+                            .semantics { contentDescription = reviewField }
                             .seamFade(type.review),
                         decorationBox = { inner ->
                             Box {
                                 if (text.isEmpty()) {
                                     Text(
-                                        text = "Write a few lines…",
+                                        text = placeholder,
                                         style = diaryUserText(type.review, type.reviewLine),
                                         color = MaterialTheme.colorScheme.onSurfaceVariant.copy(
                                             alpha = DiaryWriterTokens.PlaceholderAlpha,
@@ -248,7 +265,7 @@ internal fun MemoryDiaryEntry(
                 Box(
                     modifier = Modifier
                         .height(DiaryWriterTokens.RowHit)
-                        .noRippleClickable(interactionSource = cancelInteraction, onClickLabel = "Discard the draft") {
+                        .noRippleClickable(interactionSource = cancelInteraction, onClickLabel = discardDraft) {
                             text = ""
                             writing = false
                             focusManager.clearFocus()
@@ -258,7 +275,7 @@ internal fun MemoryDiaryEntry(
                     contentAlignment = Alignment.Center,
                 ) {
                     Text(
-                        text = "Cancel",
+                        text = cancel,
                         style = diaryUiText(14.sp, FontWeight.SemiBold, 1f),
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -267,7 +284,7 @@ internal fun MemoryDiaryEntry(
                 Box(
                     modifier = Modifier
                         .height(DiaryWriterTokens.RowHit)
-                        .noRippleClickable(interactionSource = saveInteraction, onClickLabel = "Save the review") {
+                        .noRippleClickable(interactionSource = saveInteraction, onClickLabel = saveReview) {
                             val words = text.trim()
                             if (words.isEmpty()) {
                                 focus.requestFocus()
@@ -278,13 +295,13 @@ internal fun MemoryDiaryEntry(
                             }
                         }
                         .semantics {
-                            this.contentDescription = "Save"
+                            this.contentDescription = saveDescription
                             role = Role.Button
                         },
                     contentAlignment = Alignment.Center,
                 ) {
                     JournalSavePill(
-                        label = "Save",
+                        label = save,
                         containerColor = tones.ink,
                         contentColor = tones.onButton,
                         textStyle = diaryUiText(14.sp, FontWeight.SemiBold, 1f),
@@ -299,13 +316,20 @@ internal fun MemoryDiaryEntry(
 
 /** "Jul 26, 2026 · Your review": the date heads the entry (in the album's ink), like a diary page. */
 @Composable
-private fun EntryHeader(date: LocalDate, label: String, tones: MemoryPaletteTones) {
+private fun EntryHeader(date: LocalDate, zone: ZoneId, label: String, tones: MemoryPaletteTones) {
     val style = diaryUiText(13.sp, FontWeight.Medium, 1.35f)
+    val dateText = formatMemoryChromeDate(
+        date,
+        date,
+        LocalConfiguration.current.locales[0],
+        zone,
+        withYear = true,
+    )
     Row(modifier = Modifier.padding(bottom = 10.dp), verticalAlignment = Alignment.CenterVertically) {
         Text(
             text = buildAnnotatedString {
                 withStyle(SpanStyle(fontWeight = FontWeight.SemiBold, color = tones.ink)) {
-                    append(MemoryDates.dayWithYear(date))
+                    append(dateText)
                 }
                 append(" · ")
             },

@@ -53,8 +53,11 @@ data class GrooveModel(
 
     val contentDescription: String
         get() = when {
+            // i18n-allow: ScoreEmblemModelTest asserts this English
             kind == GrooveKind.Unrated || score == null -> "Not rated"
+            // i18n-allow: ScoreEmblemModelTest asserts this English
             kind == GrooveKind.Album -> "Album rating $scoreText"
+            // i18n-allow: ScoreEmblemModelTest asserts this English
             else -> "Track average $scoreText"
         }
 }

@@ -39,13 +39,17 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.layout.onPlaced
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.gpo.yoin.R
+import com.gpo.yoin.ui.common.asString
 import com.gpo.yoin.ui.component.ExpressivePageBackground
 import com.gpo.yoin.ui.component.YoinLoadingIndicator
 import com.gpo.yoin.ui.component.YoinPageWidths
@@ -228,13 +232,14 @@ fun MemoriesScreen(
     // Sync is automatic (a saved review goes on its own); the diary's last line
     // shows where it stands and retries. A diary review that didn't save reports
     // here too (its draft is kept).
-    LaunchedEffect(viewModel) {
+    val context = LocalContext.current
+    LaunchedEffect(viewModel, context) {
         viewModel.events.collect { event ->
             when (event) {
                 MemoriesOneShotEvent.NeoDBNotConfigured -> {
                     val result = snackbarHostState.showSnackbar(
-                        message = "Sign in to NeoDB first to push ratings and reviews.",
-                        actionLabel = "Sign in",
+                        message = context.getString(R.string.mem_snackbar_neodb_signin),
+                        actionLabel = context.getString(R.string.mem_snackbar_neodb_signin_action),
                         duration = SnackbarDuration.Long,
                     )
                     if (result == SnackbarResult.ActionPerformed) {
@@ -244,21 +249,21 @@ fun MemoriesScreen(
 
                 is MemoriesOneShotEvent.NeoDBSyncResult -> {
                     snackbarHostState.showSnackbar(
-                        message = event.message,
+                        message = event.message.asString(context),
                         duration = SnackbarDuration.Short,
                     )
                 }
 
                 is MemoriesOneShotEvent.ReviewSaveFailed -> {
                     snackbarHostState.showSnackbar(
-                        message = event.message,
+                        message = event.message.asString(context),
                         duration = SnackbarDuration.Long,
                     )
                 }
 
                 is MemoriesOneShotEvent.TitleSaveFailed -> {
                     snackbarHostState.showSnackbar(
-                        message = event.message,
+                        message = event.message.asString(context),
                         duration = SnackbarDuration.Short,
                     )
                 }
@@ -315,7 +320,7 @@ fun MemoriesScreen(
 
                     is MemoriesUiState.Error -> {
                         MemoriesErrorState(
-                            message = state.message,
+                            message = state.message.asString(),
                             onRetry = viewModel::refresh,
                         )
                     }
@@ -414,13 +419,13 @@ private fun MemoriesEmptyState() {
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Text(
-            text = "No memories yet",
+            text = stringResource(R.string.mem_empty_title),
             style = MaterialTheme.typography.headlineSmall,
             color = MaterialTheme.colorScheme.onSurface,
         )
         Spacer(modifier = Modifier.height(8.dp))
         Text(
-            text = "Listen a little more and this page will start surfacing older plays.",
+            text = stringResource(R.string.mem_empty_body),
             style = MaterialTheme.typography.bodyLarge,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center,
@@ -450,7 +455,7 @@ private fun MemoriesErrorState(
         )
         Spacer(modifier = Modifier.height(12.dp))
         Text(
-            text = "Tap to try again",
+            text = stringResource(R.string.mem_error_retry),
             style = MaterialTheme.typography.titleMedium,
             color = MaterialTheme.colorScheme.primary,
             modifier = Modifier.clickable(onClick = onRetry),

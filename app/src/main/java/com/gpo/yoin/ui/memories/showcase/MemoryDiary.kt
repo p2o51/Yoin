@@ -50,7 +50,10 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.layout.onPlaced
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
@@ -71,6 +74,7 @@ import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.isSpecified
 import androidx.compose.ui.unit.sp
+import com.gpo.yoin.R
 import com.gpo.yoin.ui.component.MarqueeText
 import com.gpo.yoin.ui.component.SeamTop
 import com.gpo.yoin.ui.component.formatNotePosition
@@ -82,6 +86,7 @@ import com.gpo.yoin.ui.detail.AlbumNeoDbSync
 import com.gpo.yoin.ui.experience.YoinHaptics
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
 import com.gpo.yoin.ui.memories.MemoryDiaryTrack
+import com.gpo.yoin.ui.memories.formatMemoryChromeDate
 import com.gpo.yoin.ui.memories.MemoryEntityType
 import com.gpo.yoin.ui.memories.MemoryEntry
 import com.gpo.yoin.ui.memories.MemoryTrack
@@ -435,6 +440,8 @@ internal fun DiaryBlocks(
         host = host,
         onOpenAlbum = onOpenAlbum,
         showGo = showGo,
+        today = today,
+        zone = zone,
         modifier = block(k),
     )
 }
@@ -699,11 +706,12 @@ private fun DiaryLiner(
 private fun AlbumNoteRow(note: MemoryWriting) {
     val type = LocalMemoriesType.current
     val lineHeight = type.noteLine
+    val description = stringResource(R.string.mem_cd_album_note, note.text)
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .heightIn(min = MemoryDiaryTokens.RowMin)
-            .semantics(mergeDescendants = true) { contentDescription = "Album note: ${note.text}" }
+            .semantics(mergeDescendants = true) { contentDescription = description }
             .padding(top = 8.dp, bottom = 10.dp),
         verticalAlignment = Alignment.Top,
     ) {
@@ -739,13 +747,21 @@ private fun TrackGroup(
     val track = group.track
     val playing = track.trackId != null && host.playingTrackId == track.trackId
     val rated = track.rating != null
-    val playLabel = "Play ${track.title}"
+    val playLabel = stringResource(R.string.mem_cd_play_track, track.title)
+    val playingState = stringResource(R.string.mem_cd_playing_track)
+    val scoreText = track.rating?.let(MemoryScores::text)
+    val number = track.number ?: 0
+    val score = scoreText.orEmpty()
+    val numberedRated = stringResource(R.string.mem_cd_track_numbered_rated, number, track.title, score)
+    val numbered = stringResource(R.string.mem_cd_track_numbered, number, track.title)
+    val ratedLine = stringResource(R.string.mem_cd_track_rated, track.title, score)
     // one TalkBack stop per row, spoken as a reading: "Track 3, Thin Ice, rated 8.5"
-    val rowDescription = listOfNotNull(
-        track.number?.let { "Track $it" },
-        track.title,
-        track.rating?.let { "rated ${MemoryScores.text(it)}" },
-    ).joinToString(", ")
+    val rowDescription = when {
+        track.number != null && scoreText != null -> numberedRated
+        track.number != null -> numbered
+        scoreText != null -> ratedLine
+        else -> track.title
+    }
     val numberColor by animateColorAsState(
         targetValue = if (playing) tones.highlight else MaterialTheme.colorScheme.onSurfaceVariant,
         animationSpec = YoinMotion.defaultEffectsSpec(),
@@ -759,7 +775,7 @@ private fun TrackGroup(
                 .clip(YoinContainerShapes.ListRow)
                 .clearAndSetSemantics {
                     contentDescription = rowDescription
-                    if (playing) stateDescription = "Playing"
+                    if (playing) stateDescription = playingState
                     if (interactive) {
                         role = Role.Button
                         onClick(label = playLabel) {
@@ -795,15 +811,15 @@ private fun TrackGroup(
             }
         }
         group.notes.forEach { note ->
+            val from = note.positionMs?.let(::formatNotePosition).orEmpty()
+            val fromLabel = stringResource(R.string.mem_cd_play_from, track.title, from)
             NoteRow(
                 note = note,
                 lit = note.noteId != null && host.litNoteId == note.noteId,
                 tones = tones,
                 interactive = interactive,
                 onPlay = { onNote(track, note) },
-                label = note.positionMs
-                    ?.let { "Play ${track.title} from ${formatNotePosition(it)}" }
-                    ?: playLabel,
+                label = if (note.positionMs != null) fromLabel else playLabel,
             )
         }
     }
@@ -831,6 +847,12 @@ private fun NoteRow(
     )
     val type = LocalMemoriesType.current
     val at = note.positionMs?.let(::formatNotePosition)
+    val description = if (at != null) {
+        stringResource(R.string.mem_cd_note_at, at, note.text)
+    } else {
+        stringResource(R.string.mem_cd_note, note.text)
+    }
+    val playingState = stringResource(R.string.mem_cd_playing_note)
     Row(
         modifier = Modifier
             .bleed(MemoryDiaryTokens.RowBleed)
@@ -838,8 +860,8 @@ private fun NoteRow(
             .clip(YoinContainerShapes.ListRow)
             // "Note at 2:05: …", lit while the playhead is inside it
             .clearAndSetSemantics {
-                contentDescription = if (at != null) "Note at $at: ${note.text}" else "Note: ${note.text}"
-                if (lit) stateDescription = "Playing"
+                contentDescription = description
+                if (lit) stateDescription = playingState
                 if (interactive) {
                     role = Role.Button
                     onClick(label = label) {
@@ -902,13 +924,28 @@ private fun DiaryFoot(
     host: MemoriesDiaryHost,
     onOpenAlbum: () -> Unit,
     showGo: Boolean,
+    today: LocalDate,
+    zone: ZoneId,
     modifier: Modifier = Modifier,
 ) {
+    val goAlbum = stringResource(R.string.mem_diary_go_album)
     Column(modifier = modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
         if (history != null) {
+            val since = formatMemoryChromeDate(
+                MemoryDates.localDate(checkNotNull(memory.firstHeardAt), zone),
+                today,
+                LocalConfiguration.current.locales[0],
+                zone,
+            )
             Row(horizontalArrangement = Arrangement.spacedBy(MemoryDiaryTokens.StatGap, Alignment.CenterHorizontally)) {
-                Stat(history.plays.toString(), history.playsCaption)
-                Stat(history.days.toString(), history.daysCaption)
+                Stat(
+                    history.plays.toString(),
+                    pluralStringResource(R.plurals.mem_footer_plays, history.plays),
+                )
+                Stat(
+                    history.days.toString(),
+                    pluralStringResource(R.plurals.mem_footer_days_since, history.days, since),
+                )
             }
         }
         if (memory.entityType == MemoryEntityType.ALBUM) {
@@ -930,7 +967,7 @@ private fun DiaryFoot(
                     contentAlignment = Alignment.Center,
                 ) {
                     Text(
-                        text = "Go to album",
+                        text = goAlbum,
                         style = diaryUiText(15.sp, FontWeight.SemiBold, 1f),
                         color = tones.onButton,
                         maxLines = 1,
@@ -988,7 +1025,7 @@ private fun DiaryNeoDbLine(
             label = "diaryNeoDb",
         ) { shown ->
             Text(
-                text = diaryNeoDbLabel(shown),
+                text = diaryNeoDbText(shown),
                 style = diaryUiText(13.sp, FontWeight.Medium, 1.3f),
                 color = if (shown == AlbumNeoDbSync.Failed || shown == AlbumNeoDbSync.Pending) {
                     MaterialTheme.colorScheme.primary
@@ -1001,20 +1038,22 @@ private fun DiaryNeoDbLine(
 }
 
 /** The diary's NeoDB words; blank where there is nothing to say (signed out, nothing written yet). */
-internal fun diaryNeoDbLabel(state: AlbumNeoDbSync): String = when (state) {
+@Composable
+private fun diaryNeoDbText(state: AlbumNeoDbSync): String = when (state) {
     AlbumNeoDbSync.Unknown, AlbumNeoDbSync.SignedOut, AlbumNeoDbSync.Idle -> ""
-    AlbumNeoDbSync.Pending -> "Sync to NeoDB"
-    AlbumNeoDbSync.Syncing -> "Syncing to NeoDB…"
-    AlbumNeoDbSync.Synced -> "Synced to NeoDB"
-    AlbumNeoDbSync.Failed -> "Couldn't sync to NeoDB · Retry"
+    AlbumNeoDbSync.Pending -> stringResource(R.string.mem_neodb_sync)
+    AlbumNeoDbSync.Syncing -> stringResource(R.string.mem_neodb_syncing)
+    AlbumNeoDbSync.Synced -> stringResource(R.string.mem_neodb_synced)
+    AlbumNeoDbSync.Failed -> stringResource(R.string.mem_neodb_failed)
 }
 
 @Composable
 private fun Stat(numeral: String, caption: String) {
     val size = LocalMemoriesType.current.stat
+    val description = stringResource(R.string.mem_cd_stat, numeral, caption)
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
-        modifier = Modifier.semantics(mergeDescendants = true) { contentDescription = "$numeral $caption" },
+        modifier = Modifier.semantics(mergeDescendants = true) { contentDescription = description },
     ) {
         Text(
             text = numeral,

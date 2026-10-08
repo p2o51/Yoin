@@ -37,6 +37,8 @@ import androidx.compose.ui.layout.onPlaced
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.ExperimentalTextApi
@@ -63,7 +65,9 @@ import com.gpo.yoin.R
 import com.gpo.yoin.symbols.YoinSymbols
 import com.gpo.yoin.ui.component.YoinPageWidths
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
+import com.gpo.yoin.ui.memories.MemoryAlbumFallback
 import com.gpo.yoin.ui.memories.MemoryEntityType
+import com.gpo.yoin.ui.memories.memoryArtistLine
 import com.gpo.yoin.ui.memories.MemoryEntry
 import com.gpo.yoin.ui.memories.MemoryScoreKind
 import com.gpo.yoin.ui.memories.MemoryWriting
@@ -186,7 +190,19 @@ internal fun rememberCardMetrics(
     val artistStyle = cardArtistStyle()
     val excerptStyles = MemoryExcerptSize.entries.associateWith { excerptStyle(it) }
     val attribution = attributionStyle()
-    return remember(memories, base, width, height, statusTop, navBottom, density, titleStyles, excerptStyles) {
+    val albumLabel = stringResource(R.string.mem_album_fallback)
+    return remember(
+        memories,
+        base,
+        width,
+        height,
+        statusTop,
+        navBottom,
+        density,
+        titleStyles,
+        excerptStyles,
+        albumLabel,
+    ) {
         with(density) {
             val inner = (minOf(width, MemoryCardTokens.Column) - MemoryCardTokens.SidePadding * 2).toPx()
             val titleWidth = minOf(inner, base.titleMaxWidth.toPx()).roundToInt().coerceAtLeast(1)
@@ -208,7 +224,8 @@ internal fun rememberCardMetrics(
             val slacks = memories.map { memory ->
                 val kind = memory.cardTitleKind()
                 val title = memory.memoryTitle?.takeIf(String::isNotBlank) ?: memory.title
-                val artist = h(memory.supportingText, artistStyle, titleWidth)
+                val artistLine = if (memory.supportingText == MemoryAlbumFallback) albumLabel else memory.supportingText
+                val artist = h(artistLine, artistStyle, titleWidth)
                 val row = if (kind == MemoryTitleKind.ALBUM) {
                     6f + artist
                 } else {
@@ -251,8 +268,8 @@ internal fun MemoryEntry.diaryNoteCount(): Int = writings.count { it.kind != Mem
 /** "Diary · 4 notes" / "Diary · 1 note" / "Diary". */
 internal fun diaryNotesSuffix(count: Int): String? = when {
     count <= 0 -> null
-    count == 1 -> " · 1 note"
-    else -> " · $count notes"
+    count == 1 -> " · 1 note" // i18n-allow: MemoryCardFaceTest asserts this English
+    else -> " · $count notes" // i18n-allow: MemoryCardFaceTest asserts this English
 }
 
 /**
@@ -474,7 +491,7 @@ private fun CardExhibit(
                 }
             }
             Text(
-                text = memory.supportingText,
+                text = memory.supportingText.memoryArtistLine(),
                 style = cardArtistStyle(),
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.widthIn(max = metrics.titleMaxWidth).then(rowLayer),
@@ -514,7 +531,7 @@ private fun CardExcerpt(candidate: MemoryExcerptCandidate, maxWidth: Dp, modifie
         if (text != null) {
             Text(
                 // Yoin quoting you: quotes on the card, your signature under it
-                text = "“$text”",
+                text = stringResource(R.string.mem_card_excerpt_quote, text),
                 style = excerptStyle(candidate.size),
                 color = MaterialTheme.colorScheme.onSurface,
             )
@@ -540,6 +557,11 @@ private fun CardTeaser(
 ) {
     val haptics = rememberYoinHaptics()
     val pill = RoundedCornerShape(percent = 50)
+    val openDiary = stringResource(R.string.mem_cd_open_diary)
+    val diaryWord = stringResource(R.string.mem_card_diary)
+    val noteCount = memory.diaryNoteCount()
+    val withNotes = pluralStringResource(R.plurals.mem_card_diary_with_notes, noteCount, noteCount)
+    val goAlbum = stringResource(R.string.mem_card_go_album)
     Column(modifier = modifier, horizontalAlignment = Alignment.CenterHorizontally) {
         Row(horizontalArrangement = Arrangement.spacedBy(MemoryCardTokens.ButtonGap)) {
             Row(
@@ -549,7 +571,7 @@ private fun CardTeaser(
                     .background(tones.ink.copy(alpha = MemoryCardTokens.DiaryTonalAlpha))
                     .then(
                         if (interactive) {
-                            Modifier.clickable(role = Role.Button, onClickLabel = "Open the diary") {
+                            Modifier.clickable(role = Role.Button, onClickLabel = openDiary) {
                                 haptics.performClick()
                                 onOpenDiary()
                             }
@@ -567,15 +589,20 @@ private fun CardTeaser(
                     modifier = Modifier.size(18.dp),
                 )
                 Spacer(Modifier.width(8.dp))
-                val suffix = diaryNotesSuffix(memory.diaryNoteCount())
+                val label = if (noteCount <= 0) diaryWord else withNotes
                 Text(
                     text = buildAnnotatedString {
-                        append("Diary")
-                        if (suffix != null) {
+                        val quietFrom = if (noteCount > 0) label.indexOf(diaryWord).let { at ->
+                            if (at == 0) diaryWord.length else -1
+                        } else {
+                            -1
+                        }
+                        if (quietFrom > 0) {
+                            append(label.substring(0, quietFrom))
                             val quiet = SpanStyle(fontWeight = FontWeight.Medium, color = tones.ink.copy(alpha = 0.78f))
-                            withStyle(quiet) {
-                                append(suffix)
-                            }
+                            withStyle(quiet) { append(label.substring(quietFrom)) }
+                        } else {
+                            append(label)
                         }
                     },
                     style = cardText(GoogleSansFlex, FontWeight.SemiBold, 15.sp, 1f),
@@ -605,7 +632,7 @@ private fun CardTeaser(
                 ) {
                     // no arrow (owner, v4)
                     Text(
-                        text = "Go to album",
+                        text = goAlbum,
                         style = cardText(GoogleSansFlex, FontWeight.SemiBold, 15.sp, 1f),
                         color = tones.onButton,
                         maxLines = 1,

@@ -30,6 +30,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.role
@@ -48,6 +49,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.graphics.shapes.toPath
+import com.gpo.yoin.R
 import com.gpo.yoin.ui.memories.showcase.MemoryPalette
 import com.gpo.yoin.ui.memories.showcase.MemoryPaletteSamples
 import com.gpo.yoin.ui.theme.YoinTheme
@@ -102,6 +104,8 @@ fun GrooveEmblem(
     val colors = remember(model.palette, model.kind, neutrals, surface) {
         grooveColors(model.palette, model.kind, neutrals.dark, surface, neutrals)
     }
+    val unratedWord = stringResource(R.string.mem_emblem_unrated)
+    val description = grooveContentDescription(model)
     val textMeasurer = rememberTextMeasurer(cacheSize = 4)
     val layer = if (award != null) {
         Modifier.graphicsLayer {
@@ -117,15 +121,22 @@ fun GrooveEmblem(
         modifier = modifier
             .size(size)
             .semantics {
-                contentDescription = model.contentDescription
+                contentDescription = description
                 role = Role.Image
             }
             .then(layer)
             .drawWithCache {
-                val art = GrooveArt(this.size, density, geometry, colors, model, textMeasurer)
+                val art = GrooveArt(this.size, density, geometry, colors, model, textMeasurer, unratedWord)
                 onDrawBehind { art.draw(this, tilt(), award, captionAlpha()) }
             },
     )
+}
+
+@Composable
+private fun grooveContentDescription(model: GrooveModel): String = when {
+    model.kind == GrooveKind.Unrated || model.score == null -> stringResource(R.string.mem_cd_emblem_unrated)
+    model.kind == GrooveKind.Album -> stringResource(R.string.mem_cd_emblem_album, model.scoreText)
+    else -> stringResource(R.string.mem_cd_emblem_average, model.scoreText)
 }
 
 /** Everything that depends only on size and model, built once per cache (paths, dot lattices, type). */
@@ -136,6 +147,7 @@ private class GrooveArt(
     private val c: GrooveColors,
     model: GrooveModel,
     textMeasurer: TextMeasurer,
+    unratedWord: String,
 ) {
     /** px per dp, from the actual drawing size (so it matches layout exactly). */
     private val k: Float
@@ -211,7 +223,7 @@ private class GrooveArt(
             scoreText = null
             captionText = null
             unratedText = if (g.showsUnratedWord) {
-                measure("Unrated", GrooveType.unratedWord(g.unratedWidthAxis, g.unratedFontSize), g.unratedFontSize)
+                measure(unratedWord, GrooveType.unratedWord(g.unratedWidthAxis, g.unratedFontSize), g.unratedFontSize)
             } else {
                 null
             }

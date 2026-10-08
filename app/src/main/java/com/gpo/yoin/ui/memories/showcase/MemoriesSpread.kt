@@ -45,6 +45,7 @@ import androidx.compose.ui.layout.layout
 import androidx.compose.ui.layout.onPlaced
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.paneTitle
@@ -64,11 +65,14 @@ import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.max
 import androidx.compose.ui.unit.sp
+import com.gpo.yoin.R
 import com.gpo.yoin.ui.component.SeamTop
 import com.gpo.yoin.ui.component.seamDissolveViewport
 import com.gpo.yoin.ui.component.verticalEdgeFadeOnScroll
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
+import com.gpo.yoin.ui.memories.MemoryAlbumFallback
 import com.gpo.yoin.ui.memories.MemoryEntityType
+import com.gpo.yoin.ui.memories.memoryArtistLine
 import com.gpo.yoin.ui.memories.MemoryEntry
 import com.gpo.yoin.ui.memories.copy.MemoryProseLanguage
 import com.gpo.yoin.ui.memories.copy.MemoryTitleKind
@@ -163,7 +167,8 @@ internal fun rememberSpreadDeckFit(
     val artistStyle = spreadArtistStyle()
     val question = yoinQuestionSpan(MaterialTheme.colorScheme.onSurface)
     val styles = Triple(titleStyles, paragraphStyles, albumStyles)
-    return remember(memories, layout, height, statusTop, navBottom, density, styles) {
+    val albumLabel = stringResource(R.string.mem_album_fallback)
+    return remember(memories, layout, height, statusTop, navBottom, density, styles, albumLabel) {
         with(density) {
             val content = (layout.leftPage - SpreadPagePadding * 2).toPx()
             val citeWidth = min(content, SpreadCiteMax.toPx()).roundToInt().coerceAtLeast(1)
@@ -184,7 +189,12 @@ internal fun rememberSpreadDeckFit(
                     ?.let { yoinParagraphString(it, question) }
                 val onlyArtist = kind == MemoryTitleKind.ALBUM
                 val byStep = SpreadTightness.entries.associateWith { t ->
-                    val artist = h(AnnotatedString(memory.supportingText), artistStyle, albumWidth)
+                    val artistLine = if (memory.supportingText == MemoryAlbumFallback) {
+                        albumLabel
+                    } else {
+                        memory.supportingText
+                    }
+                    val artist = h(AnnotatedString(artistLine), artistStyle, albumWidth)
                     SpreadCiteHeights(
                         // an album-name title takes two lines at most (the rest runs as a marquee)
                         title = h(
@@ -265,12 +275,14 @@ internal fun MemorySpreadPage(
     // drops it from the refreshed card, but the left page doesn't reflow under the reader
     val paragraph = rememberHeldParagraph(memory) { pagerState.settledPage != page }
     val top = statusTop + layout.barHeight
+    val memoryPane = stringResource(R.string.mem_pane_memory, memory.title)
+    val artistLine = memory.supportingText.memoryArtistLine()
     Box(
         Modifier
             .fillMaxSize()
             .then(
                 if (isCurrent) {
-                    Modifier.semantics { paneTitle = "Memory, ${memory.title}" }
+                    Modifier.semantics { paneTitle = memoryPane }
                 } else {
                     Modifier.clearAndSetSemantics { }
                 },
@@ -314,8 +326,8 @@ internal fun MemorySpreadPage(
         )
         MemoryPageBarSlots(
             album = memory.title,
-            artistLine = memory.supportingText,
-            artistShort = memory.supportingText.artistOnly(),
+            artistLine = artistLine,
+            artistShort = artistLine.artistOnly(),
             lastHeard = lastHeard,
             dotCount = dotCount,
             relative = { pagerState.currentPage - page + pagerState.currentPageOffsetFraction },
@@ -454,7 +466,7 @@ private fun SpreadExhibit(
                 }
             }
             Text(
-                text = memory.supportingText,
+                text = memory.supportingText.memoryArtistLine(),
                 style = spreadArtistStyle(),
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -481,7 +493,7 @@ private fun SpreadExhibit(
             ) {
                 // no arrow (owner, v4)
                 Text(
-                    text = "Go to album",
+                    text = stringResource(R.string.mem_spread_go_album),
                     style = cardText(GoogleSansFlex, FontWeight.SemiBold, 15.sp, 1f),
                     color = tones.onButton,
                     maxLines = 1,

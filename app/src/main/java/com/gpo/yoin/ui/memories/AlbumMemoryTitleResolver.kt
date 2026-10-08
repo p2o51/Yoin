@@ -196,7 +196,11 @@ data class ResolvedMemoryTitle(
  * not an AI line, so it is not called one. Memories' title editor and the album page both label with this.
  */
 fun memoryTitleRestoreLabel(generatedKind: MemoryTitleKind?): String =
-    if (generatedKind == MemoryTitleKind.MOTIF) "Restore Yoin's title" else "Restore AI title"
+    if (generatedKind == MemoryTitleKind.MOTIF) {
+        "Restore Yoin's title" // i18n-allow: MemoryTitleEditorTest, ScrapTitleMappingTest assert this English
+    } else {
+        "Restore AI title" // i18n-allow: AlbumMemoryTitleResolverTest, MemoryTitleEditorTest assert this English
+    }
 
 /** Yoin's side of a title before the user's is laid over it ([withUserTitle]). */
 internal data class YoinTitleParts(

@@ -443,7 +443,7 @@ class MemoriesDeckCoordinator(
             supportingText = listOfNotNull(
                 (album?.artist ?: candidate.artistName)?.takeIf(String::isNotBlank),
                 (album?.year ?: candidate.year)?.toString(),
-            ).joinToString(" · ").ifBlank { "Album" },
+            ).joinToString(" · ").ifBlank { MemoryAlbumFallback },
             metaText = null,
             coverArtUrl = album?.coverArt?.let { repository.resolveCoverUrl(it, size = 480) }
                 ?: candidate.coverArtUrl
@@ -767,25 +767,26 @@ internal fun buildCollectionFooter(
 private fun buildAlbumReasonChips(candidate: AlbumMemoryCandidate): List<String> {
     val chips = mutableListOf<String>()
     if (candidate.hasAlbumReview) {
-        chips += "Album review"
+        chips += "Album review" // i18n-allow: MemoriesDeckCoordinatorTest asserts this English
     }
     if (candidate.totalTracks > 0 && candidate.ratedTrackCount > 0) {
+        // i18n-allow: MemoriesDeckCoordinatorTest asserts this English
         chips += "${candidate.ratedTrackCount}/${candidate.totalTracks} songs rated"
     }
     if (candidate.noteCount > 0) {
         val noun = if (candidate.noteCount == 1) "note" else "notes"
-        chips += "${candidate.noteCount} $noun"
+        chips += "${candidate.noteCount} $noun" // i18n-allow: MemoriesDeckCoordinatorTest asserts this English
     }
     if (candidate.askAiCount > 0) {
-        chips += "Ask AI references"
+        chips += "Ask AI references" // i18n-allow: MemoriesDeckCoordinatorTest asserts this English
     }
     if (candidate.lastPlayedAt != null) {
-        chips += "Recently revisited"
+        chips += "Recently revisited" // i18n-allow: MemoriesDeckCoordinatorTest asserts this English
     }
     if (candidate.neoDbSynced) {
-        chips += "Synced to NeoDB"
+        chips += "Synced to NeoDB" // i18n-allow: MemoriesDeckCoordinatorTest asserts this English
     } else if (candidate.hasAlbumReview && candidate.albumRating != null) {
-        chips += "NeoDB ready"
+        chips += "NeoDB ready" // i18n-allow: MemoriesDeckCoordinatorTest asserts this English
     }
     return chips
 }
