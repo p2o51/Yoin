@@ -23,6 +23,8 @@ data class NoteTarget(
     val songId: String,
     val title: String,
     val artist: String,
+    /** Shown in the write bar's stamp when a draft is carried over to another song. */
+    val coverArtUrl: String? = null,
 )
 
 /**
@@ -78,7 +80,7 @@ data class NoteDraft(
     /** After a save: an empty draft for what's playing now. */
     fun cleared(current: NoteTarget, positionMs: Long): NoteDraft = NoteDraft(anchorMs = positionMs, target = current)
 
-    internal fun toSaveable(): List<Any?> = listOf(text, anchorMs, target?.songId, target?.title, target?.artist)
+    internal fun toSaveable(): List<Any?> = listOf(text, anchorMs, target?.songId, target?.title, target?.artist, target?.coverArtUrl)
 
     internal companion object {
         fun fromSaveable(saved: List<Any?>): NoteDraft {
@@ -91,6 +93,7 @@ data class NoteDraft(
                         songId = it,
                         title = saved.getOrNull(3) as? String ?: "",
                         artist = saved.getOrNull(4) as? String ?: "",
+                        coverArtUrl = saved.getOrNull(5) as? String,
                     )
                 },
             )

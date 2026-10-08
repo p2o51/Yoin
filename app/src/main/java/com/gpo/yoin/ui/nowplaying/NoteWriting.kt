@@ -36,7 +36,7 @@ import kotlinx.coroutines.launch
 
 /** The song this screen is drawing, as a note target. */
 internal fun NowPlayingUiState.Playing.noteTarget(): NoteTarget =
-    NoteTarget(songId = songId, title = songTitle, artist = artist)
+    NoteTarget(songId = songId, title = songTitle, artist = artist, coverArtUrl = coverArtUrl)
 
 /**
  * Keyboard up over the expanded Note page: the write bar owns the bottom edge.

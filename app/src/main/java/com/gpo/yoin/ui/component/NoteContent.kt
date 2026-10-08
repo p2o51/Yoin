@@ -1,6 +1,7 @@
 package com.gpo.yoin.ui.component
 
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
@@ -12,6 +13,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -68,6 +70,7 @@ import com.gpo.yoin.symbols.YoinSymbols
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
 import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinMotionRole
+import com.gpo.yoin.ui.theme.YoinArtworkShapes
 import com.gpo.yoin.ui.theme.YoinShapeTokens
 import com.gpo.yoin.ui.theme.YoinTheme
 import java.text.DateFormat
@@ -419,7 +422,7 @@ internal fun noteWriteBarOpen(focused: Boolean, draftText: String): Boolean = fo
 internal fun shouldCollapseNoteWriteBar(imeWasShown: Boolean, imeVisible: Boolean, draftEmpty: Boolean): Boolean =
     imeWasShown && !imeVisible && draftEmpty
 
-/** The realign hint appears once the playhead has moved this far from the draft's moment. */
+/** The stamp's realign glyph appears once the playhead has moved this far from the draft's moment. */
 internal const val NoteRealignHintDriftMs = 2_000L
 
 internal fun showNoteRealignHint(anchorMs: Long?, positionMs: Long): Boolean =
@@ -429,17 +432,17 @@ internal fun showNoteRealignHint(anchorMs: Long?, positionMs: Long): Boolean =
  * Now Playing's one note writer, docked in the bottom accessory slot of the
  * Note page (where Lyrics keeps its tools and About its Ask bar).
  *
- * At rest it is a 56dp capsule: the live playhead in a stamp, "这一刻想到什么？".
+ * At rest it is a 56dp capsule: the live playhead in a stamp, "记录笔记".
  * Writing (focus, or words waiting) opens it into a card that grows with the
  * words (2–6 lines, then it scrolls inside). The stamp is the card's first
  * column: the moment the note will be filed at, so the card reads like the
- * line it becomes. Tapping the stamp re-aligns that moment to "now"; once the
- * playhead has wandered off, a hint says so. 记下 saves and keeps the
+ * line it becomes. Tapping the stamp re-aligns that moment to "now"; the
+ * stamp itself shows when it can (no hint line). 记下 saves and keeps the
  * keyboard up for the next line.
  *
  * The words live in [NoteWriteBarState.draftState]: bound to the song and
  * moment writing began on, they survive a page switch, a collapse and a skip
- * (a carried-over draft names its song in the footer). When the keyboard goes
+ * (a carried-over draft shows its song's cover in the stamp). When the keyboard goes
  * down over an empty draft the bar returns to its capsule — the system back
  * that closed the keyboard needs no handler of its own.
  *
@@ -448,7 +451,7 @@ internal fun showNoteRealignHint(anchorMs: Long?, positionMs: Long): Boolean =
  * landscape keyboard), the words keep at least a line — they scroll inside —
  * and the footer fades in only as room opens under them.
  * [inline] (the landscape phone, where the keyboard leaves little height)
- * puts 记下 at the end of the line and keeps the card to 3 lines.
+ * puts 记下 at the end of the line and keeps the card to 3 lines (no footer).
  * [focusGate] holds a pending [NoteWriteBarState.requestWriting] until the
  * host's page has landed.
  */
@@ -526,7 +529,7 @@ fun NoteWriteBar(
         animationSpec = YoinMotion.defaultSpatialSpec(role = YoinMotionRole.Expressive),
         label = "noteWriteBarCorner",
     )
-    val carriedTitle = draft.target?.title?.takeIf { draft.isForOtherTrack(current) }
+    val carried = draft.isForOtherTrack(current)
     val minLines = if (open && !inline) NoteWriteBarDefaults.OpenMinLines else 1
     val maxLines = when {
         !open -> 1
@@ -539,6 +542,9 @@ fun NoteWriteBar(
         NoteStampChip(
             open = open,
             anchorMs = draft.anchorMs,
+            carriedCoverUrl = draft.target?.coverArtUrl?.takeIf { carried },
+            carried = carried,
+            hasWords = draft.text.isNotBlank(),
             positionMs = positionMs,
             onClick = {
                 if (open) {
@@ -580,7 +586,7 @@ fun NoteWriteBar(
                 Box {
                     if (draftState.draft.text.isEmpty()) {
                         Text(
-                            text = "这一刻想到什么？",
+                            text = "记录笔记",
                             style = MaterialTheme.typography.bodyLarge,
                             color = scheme.onSurfaceVariant.copy(alpha = 0.8f),
                             maxLines = 1,
@@ -604,26 +610,10 @@ fun NoteWriteBar(
         }
     }
     val footerSlot: @Composable () -> Unit = {
-        if (open && (!inline || carriedTitle != null)) {
+        if (open && !inline) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(modifier = Modifier.weight(1f)) {
-                    if (carriedTitle != null) {
-                        // A draft carried over a song change still belongs to
-                        // the song it was started on (and saves there).
-                        Text(
-                            text = "写给《$carriedTitle》· ${formatNotePosition(draft.anchorMs ?: 0L)}",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = scheme.onSurfaceVariant,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                    } else {
-                        NoteRealignHint(anchorMs = draft.anchorMs, positionMs = positionMs)
-                    }
-                }
-                if (!inline) {
-                    NoteSavePill(enabled = draft.text.isNotBlank(), onClick = save)
-                }
+                Spacer(modifier = Modifier.weight(1f))
+                NoteSavePill(enabled = draft.text.isNotBlank(), onClick = save)
             }
         }
     }
@@ -720,19 +710,29 @@ private fun Placeable.PlacementScope.placeFooter(footer: Placeable, x: Int, y: I
 
 /**
  * The write bar's first column: the live playhead at rest (what writing would
- * anchor to right now), the draft's moment while writing. Only this chip and
- * [NoteRealignHint] read the playhead — once a second.
+ * anchor to right now), the draft's moment while writing. No words explain it:
+ * a draft carried over from another song shows that song's cover beside its
+ * moment, and once words are down and the playhead has wandered off their
+ * moment a realign glyph slides in — tapping the stamp files the note at "now".
+ * Only this chip reads the playhead, once a second.
  */
 @Composable
 private fun NoteStampChip(
     open: Boolean,
     anchorMs: Long?,
+    carriedCoverUrl: String?,
+    carried: Boolean,
+    hasWords: Boolean,
     positionMs: () -> Long,
     onClick: () -> Unit,
 ) {
     val interaction = remember { MutableInteractionSource() }
     val scheme = MaterialTheme.colorScheme
-    Box(
+    val latest by rememberUpdatedState(positionMs)
+    val drifted by remember(anchorMs) {
+        derivedStateOf { showNoteRealignHint(anchorMs?.let { it / 1_000L * 1_000L }, latest() / 1_000L * 1_000L) }
+    }
+    Row(
         modifier = Modifier
             .height(36.dp)
             .clip(YoinShapeTokens.Full)
@@ -742,11 +742,31 @@ private fun NoteStampChip(
                 onClickLabel = if (open) "对齐到当前时刻" else "写笔记",
                 onClick = onClick,
             )
-            .padding(horizontal = 12.dp),
-        contentAlignment = Alignment.Center,
+            .padding(start = if (open && carried) 6.dp else 12.dp, end = 12.dp)
+            .animateContentSize(animationSpec = YoinMotion.defaultSpatialSpec()),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
         val style = MaterialTheme.typography.labelLarge.copy(fontFeatureSettings = "tnum")
         if (open && anchorMs != null) {
+            if (carried) {
+                ExpressiveMediaArtwork(
+                    model = carriedCoverUrl,
+                    contentDescription = null,
+                    shape = YoinArtworkShapes.Thumb,
+                    fallbackIcon = YoinSymbols.MusicNote,
+                    tonalElevation = 0.dp,
+                    modifier = Modifier.size(24.dp),
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+            } else if (drifted && hasWords) {
+                Icon(
+                    imageVector = YoinSymbols.Refresh,
+                    contentDescription = null,
+                    tint = scheme.primary,
+                    modifier = Modifier.size(16.dp),
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+            }
             Text(
                 text = formatNotePosition(anchorMs),
                 style = style,
@@ -765,28 +785,6 @@ private fun LivePositionText(positionMs: () -> Long, style: TextStyle, color: Co
     // Whole seconds: the 4Hz tick recomposes nothing until the label changes.
     val seconds by remember { derivedStateOf { latest() / 1_000L } }
     Text(text = formatNotePosition(seconds * 1_000L), style = style, fontWeight = FontWeight.SemiBold, color = color)
-}
-
-/** "点时间对齐到现在 · 1:34" — once the playhead has moved ≥ 2s from the draft's moment. */
-@Composable
-private fun NoteRealignHint(anchorMs: Long?, positionMs: () -> Long) {
-    val latest by rememberUpdatedState(positionMs)
-    val seconds by remember { derivedStateOf { latest() / 1_000L } }
-    val nowMs = seconds * 1_000L
-    val shown = showNoteRealignHint(anchorMs?.let { it / 1_000L * 1_000L }, nowMs)
-    val alpha = animateFloatAsState(
-        targetValue = if (shown) 1f else 0f,
-        animationSpec = YoinMotion.effectsSpring(),
-        label = "noteRealignHint",
-    )
-    Text(
-        text = "点时间对齐到现在 · ${formatNotePosition(nowMs)}",
-        style = MaterialTheme.typography.labelMedium,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-        maxLines = 1,
-        overflow = TextOverflow.Ellipsis,
-        modifier = Modifier.graphicsLayer { this.alpha = alpha.value },
-    )
 }
 
 @Composable

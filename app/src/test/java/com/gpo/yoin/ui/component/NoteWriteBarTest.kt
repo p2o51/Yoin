@@ -133,7 +133,7 @@ class NoteWriteBarTest {
     }
 
     @Test
-    fun should_nameStartSong_when_draftCarriedOverSkip() {
+    fun should_keepStartMomentWithoutSentence_when_draftCarriedOverSkip() {
         val bar = NoteWriteBarState(
             NoteDraftState(NoteDraft(text = "the outro hits", anchorMs = 58_000L, target = songA)),
         )
@@ -141,7 +141,10 @@ class NoteWriteBarTest {
             Bar(bar, current = songB, positionMs = { 4_000L }, onSave = {})
         }
 
-        rule.onNodeWithText("写给《Harbour Lights》· 0:58").assertExists()
+        // The stamp keeps the start song's moment (its cover sits beside it);
+        // no sentence names the song.
+        rule.onNodeWithText("0:58").assertExists()
+        rule.onNodeWithText("写给", substring = true).assertDoesNotExist()
     }
 
     @Test

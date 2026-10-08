@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+    Now Playing's transport pill spells PLAY / PAUSE only in English; every
+    other language shows the play/pause morph symbol, centred in a pill of the
+    same width. Default false so a newly added language gets the symbol.
+    -->
+    <bool name="np_transport_word_label">false</bool>
+</resources>

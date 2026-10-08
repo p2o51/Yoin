@@ -308,7 +308,17 @@ private fun LyricsFullscreenList(
             }
         }
     }
-    val revealEase = FastOutSlowInEasing.transform(upNextReveal)
+    // The next title waits out the first half of the outro (the last line
+    // stretches alone), then surfaces faintly; its lines stay hidden until the
+    // hand-over — a quiet "what's next", not a second lyric sheet.
+    val revealEase = FastOutSlowInEasing.transform(
+        ((upNextReveal - UpNextRevealLateStart) / (1f - UpNextRevealLateStart)).coerceIn(0f, 1f),
+    )
+    val upNextLinesAlpha by animateFloatAsState(
+        targetValue = if (shownUpNext != null && handingOver) 1f else 0f,
+        animationSpec = YoinMotion.slowEffectsSpec(),
+        label = "upNextLinesAlpha",
+    )
     val upNextAlpha by animateFloatAsState(
         targetValue = when {
             shownUpNext == null -> 0f
@@ -555,6 +565,7 @@ private fun LyricsFullscreenList(
                         // translations off as they are after a song change), so
                         // the hand-over swap is invisible below the title.
                         val upNextBlock: () -> Float = { upNextAlpha }
+                        val upNextLinesBlock: () -> Float = { upNextLinesAlpha }
                         val upNextRise: () -> Float = { upNextRisePx }
                         item(key = "upNextGap") { Spacer(modifier = Modifier.height(UpNextGap)) }
                         item(key = "upNextHeader") {
@@ -578,7 +589,7 @@ private fun LyricsFullscreenList(
                                 isActive = item == focusItem,
                                 distance = if (focusItem >= 0) abs(item - focusItem) else 0,
                                 onTap = null,
-                                blockAlpha = upNextBlock,
+                                blockAlpha = upNextLinesBlock,
                                 blockOffsetY = upNextRise,
                             )
                         }
@@ -849,8 +860,11 @@ private const val OutsideLineAlpha = 0.42f
 /** How long the caption names the cap after a refused tap. */
 private const val SelectLimitNudgeMs = 1_800L
 
-/** Reveal is a half-strength preview; the hand-over brings it to full. */
-private const val UpNextRevealAlpha = 0.75f
+/** Reveal is a faint preview of the title only; the hand-over brings it to full. */
+private const val UpNextRevealAlpha = 0.4f
+
+/** Share of the outro window that passes before the next title starts to surface. */
+private const val UpNextRevealLateStart = 0.5f
 
 /** Distance the next song's lines rise while being revealed. */
 private val UpNextRise = 28.dp

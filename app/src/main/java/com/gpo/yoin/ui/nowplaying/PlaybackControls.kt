@@ -6,6 +6,7 @@ import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -47,6 +48,7 @@ import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.booleanResource
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.rememberTextMeasurer
@@ -54,10 +56,12 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.gpo.yoin.R
 import com.gpo.yoin.player.PlayMode
 import com.gpo.yoin.symbols.SymbolPlayMode
 import com.gpo.yoin.symbols.YoinSymbols
 import com.gpo.yoin.symbols.rememberPlayModeSymbolPainter
+import com.gpo.yoin.symbols.rememberPlayPauseSymbolPainter
 import com.gpo.yoin.ui.component.WaveProgressBar
 import com.gpo.yoin.ui.component.formatTrackDurationMs
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
@@ -164,6 +168,8 @@ internal fun PlaybackControls(
             animationSpec = textStretchSpec,
             label = "textStretch",
         )
+        val wordLabel = booleanResource(R.bool.np_transport_word_label)
+        val wordMeasurer = rememberTextMeasurer()
 
         Column(modifier = Modifier.fillMaxWidth()) {
             Row(
@@ -210,20 +216,46 @@ internal fun PlaybackControls(
                                     contentColor = MaterialTheme.colorScheme.onPrimary,
                                 ),
                             ) {
-                                Text(
-                                    text = if (isPlaying) "PAUSE" else "PLAY",
-                                    style = MaterialTheme.typography.titleLarge.copy(
-                                        fontSize = MaterialTheme.typography.titleLarge.fontSize * 0.9f,
-                                        fontWeight = if (isPlaying) FontWeight.Bold else FontWeight.Medium,
-                                        letterSpacing = if (isPlaying) 0.5.sp else 0.sp,
-                                    ),
-                                    maxLines = 1,
-                                    softWrap = false,
-                                    modifier = Modifier.graphicsLayer {
-                                        scaleX = textStretchScale
-                                        transformOrigin = TransformOrigin(0f, 0.5f)
-                                    },
+                                val word = if (isPlaying) PauseWord else PlayWord
+                                val wordStyle = MaterialTheme.typography.titleLarge.copy(
+                                    fontSize = MaterialTheme.typography.titleLarge.fontSize * 0.9f,
+                                    fontWeight = if (isPlaying) FontWeight.Bold else FontWeight.Medium,
+                                    letterSpacing = if (isPlaying) 0.5.sp else 0.sp,
                                 )
+                                if (wordLabel) {
+                                    Text(
+                                        text = word,
+                                        style = wordStyle,
+                                        maxLines = 1,
+                                        softWrap = false,
+                                        modifier = Modifier.graphicsLayer {
+                                            scaleX = textStretchScale
+                                            transformOrigin = TransformOrigin(0f, 0.5f)
+                                        },
+                                    )
+                                } else {
+                                    // Same pill as the English word: the symbol sits in
+                                    // a box the word's width, and swells with its stretch.
+                                    val wordWidth = with(LocalDensity.current) {
+                                        wordMeasurer.measure(word, wordStyle, maxLines = 1, softWrap = false)
+                                            .size.width.toDp()
+                                    }
+                                    Box(
+                                        modifier = Modifier.width(wordWidth),
+                                        contentAlignment = Alignment.Center,
+                                    ) {
+                                        Icon(
+                                            painter = rememberPlayPauseSymbolPainter(playing = isPlaying),
+                                            contentDescription = if (isPlaying) "Pause" else "Play",
+                                            modifier = Modifier
+                                                .size(controlIconSize)
+                                                .graphicsLayer {
+                                                    scaleX = textStretchScale
+                                                    scaleY = textStretchScale
+                                                },
+                                        )
+                                    }
+                                }
                             }
                         },
                         menuContent = { _ -> },
@@ -521,7 +553,7 @@ internal fun rememberPlaybackControlsFit(
     val density = LocalDensity.current
     return remember(maxWidth, controlSize, hasExpandToggle, style, density) {
         val playTextWidth = with(density) {
-            textMeasurer.measure("PAUSE", style, maxLines = 1, softWrap = false).size.width.toDp()
+            textMeasurer.measure(PauseWord, style, maxLines = 1, softWrap = false).size.width.toDp()
         }
         fitPlaybackControls(maxWidth, controlSize, playTextWidth, hasExpandToggle)
     }
@@ -542,6 +574,11 @@ private val TransportRowGap = 4.dp
 private val PlayRestPadding = 24.dp
 private val TransportGap = 8.dp
 private val CompactControlSize = 48.dp
+
+// English only (np_transport_word_label); other languages show the symbol in a
+// pill measured from these, so the shape never changes with the language.
+private const val PlayWord = "PLAY"
+private const val PauseWord = "PAUSE"
 
 /** PLAY's text stretch peaks at 1.10 while pressed. */
 private const val PlayTextStretchMax = 1.1f

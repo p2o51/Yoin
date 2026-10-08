@@ -9,6 +9,7 @@ import androidx.compose.foundation.interaction.DragInteraction
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
@@ -167,7 +168,7 @@ fun NoteFullscreenPane(
             .then(if (regionFits) Modifier else Modifier.swallowTouches()),
     ) {
         if (empty) {
-            NoteEmptyState()
+            NoteEmptyState(songId = current.songId, modifier = Modifier.weight(1f))
         } else {
             NoteRowsList(
                 notes = notes,
@@ -457,30 +458,32 @@ private fun NoteDraftLine(anchorMs: Long?, modifier: Modifier = Modifier) {
     }
 }
 
+/**
+ * No notes on this song: one of the [NoteDoodle]s (picked at random per song)
+ * over a plain label — no prompt (2026-10-08 owner). The doodle drops out when
+ * the region is too short for it (keyboard up on a short window); the label
+ * alone still fits [NoteEmptyMinHeight].
+ */
 @Composable
-private fun NoteEmptyState() {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 16.dp, horizontal = 4.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
+private fun NoteEmptyState(songId: String, modifier: Modifier = Modifier) {
+    val doodle = remember(songId) { NoteDoodle.entries.random() }
+    BoxWithConstraints(
+        modifier = modifier.fillMaxWidth(),
+        contentAlignment = Alignment.Center,
     ) {
-        Icon(
-            imageVector = YoinSymbols.EditNote,
-            contentDescription = null,
-            tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.8f),
-            modifier = Modifier.size(28.dp),
-        )
-        Column {
+        val doodleWidth = minOf(maxWidth, NoteDoodleMaxWidth)
+        val doodleHeight = doodleWidth * (NoteDoodleViewBoxHeight / NoteDoodleViewBoxWidth)
+        val showDoodle = maxHeight >= doodleHeight + NoteEmptyMinHeight
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            if (showDoodle) {
+                NoteEmptyDoodle(doodle = doodle, modifier = Modifier.size(doodleWidth, doodleHeight))
+            }
             Text(
                 text = "还没有笔记",
                 style = MaterialTheme.typography.titleSmall,
-                color = MaterialTheme.colorScheme.onSurface,
-            )
-            Text(
-                text = "写下这首歌让你想到的",
-                style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
@@ -524,8 +527,11 @@ private val NoteDeletedRowHeight = 48.dp
 /** Shortest list viewport that still holds one whole line — below it, no sliver. */
 private val NoteListMinViewport = 56.dp
 
-/** Height of the empty-state row; a shorter region hides it rather than clip it. */
+/** Height of the empty-state label; a shorter region hides it rather than clip it. */
 private val NoteEmptyMinHeight = 64.dp
+
+/** The empty-state doodle's widest; narrower columns shrink it at its aspect ratio. */
+private val NoteDoodleMaxWidth = 240.dp
 
 private val NoteListTopFade = 24.dp
 private val NoteListBottomFade = 64.dp
