@@ -9,8 +9,10 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import com.gpo.yoin.R
 import com.gpo.yoin.data.model.LibraryMembership
 import com.gpo.yoin.symbols.YoinSymbols
 import com.gpo.yoin.ui.theme.YoinMotion
@@ -38,6 +40,9 @@ fun TrackLibraryButton(
             },
             label = "libraryMembership",
         ) { (working, state) ->
+            val addedDescription = stringResource(R.string.cmp_library_cd_added)
+            val pendingDescription = stringResource(R.string.cmp_library_cd_pending)
+            val addDescription = stringResource(R.string.cmp_library_cd_add)
             if (working) {
                 CircularProgressIndicator(modifier = Modifier.size(22.dp), strokeWidth = 2.dp)
             } else {
@@ -48,9 +53,9 @@ fun TrackLibraryButton(
                         else -> YoinSymbols.LibraryAdd
                     },
                     contentDescription = when (state) {
-                        LibraryMembership.Added -> "In Apple Music library"
-                        LibraryMembership.Pending -> "Check library addition"
-                        else -> "Add to Apple Music library"
+                        LibraryMembership.Added -> addedDescription
+                        LibraryMembership.Pending -> pendingDescription
+                        else -> addDescription
                     },
                     tint = if (state == LibraryMembership.Added) MaterialTheme.colorScheme.primary
                     else MaterialTheme.colorScheme.onSurfaceVariant,

@@ -35,7 +35,9 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import com.gpo.yoin.R
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.YoinDevice
 import com.gpo.yoin.symbols.YoinSymbols
@@ -57,6 +59,14 @@ fun DevicesSheet(
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = false)
     val haptics = rememberYoinHaptics()
+    val devicesTitle = stringResource(R.string.cmp_devices_title)
+    val spotifySubtitle = stringResource(R.string.cmp_devices_subtitle_spotify)
+    val subsonicSubtitle = stringResource(R.string.cmp_devices_subtitle_subsonic)
+    val otherSubtitle = stringResource(R.string.cmp_devices_subtitle_other)
+    val refreshDescription = stringResource(R.string.cmp_devices_cd_refresh)
+    val spotifyEmpty = stringResource(R.string.cmp_devices_empty_spotify)
+    val subsonicEmpty = stringResource(R.string.cmp_devices_empty_subsonic)
+    val otherEmpty = stringResource(R.string.cmp_devices_empty_other)
     // Fetch on open: the sheet used to show whatever stale snapshot the VM
     // held until the user found the manual refresh button.
     LaunchedEffect(Unit) {
@@ -83,15 +93,15 @@ fun DevicesSheet(
             ) {
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = "Devices",
+                        text = devicesTitle,
                         style = MaterialTheme.typography.titleMedium,
                         color = MaterialTheme.colorScheme.onSurface,
                     )
                     Text(
                         text = when (providerId) {
-                            MediaId.PROVIDER_SPOTIFY -> "Spotify Connect"
-                            MediaId.PROVIDER_SUBSONIC -> "Local + Cast status"
-                            else -> "Current playback targets"
+                            MediaId.PROVIDER_SPOTIFY -> spotifySubtitle
+                            MediaId.PROVIDER_SUBSONIC -> subsonicSubtitle
+                            else -> otherSubtitle
                         },
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -112,7 +122,7 @@ fun DevicesSheet(
                     } else {
                         Icon(
                             imageVector = YoinSymbols.Refresh,
-                            contentDescription = "Refresh devices",
+                            contentDescription = refreshDescription,
                         )
                     }
                 }
@@ -150,9 +160,9 @@ fun DevicesSheet(
                         item {
                             Text(
                                 text = when (providerId) {
-                                    MediaId.PROVIDER_SPOTIFY -> "No Spotify devices found."
-                                    MediaId.PROVIDER_SUBSONIC -> "Only local playback is available right now."
-                                    else -> "No devices found."
+                                    MediaId.PROVIDER_SPOTIFY -> spotifyEmpty
+                                    MediaId.PROVIDER_SUBSONIC -> subsonicEmpty
+                                    else -> otherEmpty
                                 },
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -185,6 +195,7 @@ private fun DeviceRow(
     modifier: Modifier = Modifier,
 ) {
     val enabled = device.isSelectable && !busy
+    val currentDevice = stringResource(R.string.cmp_devices_cd_current)
     androidx.compose.material3.Surface(
         onClick = onClick,
         enabled = enabled,
@@ -239,7 +250,7 @@ private fun DeviceRow(
                     )
                     device.isActive -> Icon(
                         imageVector = YoinSymbols.Check,
-                        contentDescription = "Current device",
+                        contentDescription = currentDevice,
                         tint = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.size(24.dp),
                     )

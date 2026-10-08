@@ -55,6 +55,7 @@ import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.layout.Placeable
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.TextFieldValue
@@ -65,6 +66,7 @@ import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.constrainHeight
 import androidx.compose.ui.unit.dp
+import com.gpo.yoin.R
 import com.gpo.yoin.data.local.SongNote
 import com.gpo.yoin.symbols.YoinSymbols
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
@@ -74,6 +76,7 @@ import com.gpo.yoin.ui.theme.YoinArtworkShapes
 import com.gpo.yoin.ui.theme.YoinShapeTokens
 import com.gpo.yoin.ui.theme.YoinTheme
 import java.text.DateFormat
+import java.util.Calendar
 import java.util.Date
 import java.util.concurrent.TimeUnit
 import kotlin.math.abs
@@ -287,7 +290,7 @@ fun NoteSortToggle(
     ) {
         Row(modifier = Modifier.padding(3.dp)) {
             NoteSortOption(
-                label = "时间线",
+                label = stringResource(R.string.cmp_note_sort_timeline),
                 selected = mode == NoteSortMode.Timeline,
                 onClick = {
                     if (mode != NoteSortMode.Timeline) {
@@ -297,7 +300,7 @@ fun NoteSortToggle(
                 },
             )
             NoteSortOption(
-                label = "先后",
+                label = stringResource(R.string.cmp_note_sort_created),
                 selected = mode == NoteSortMode.Created,
                 onClick = {
                     if (mode != NoteSortMode.Created) {
@@ -537,6 +540,7 @@ fun NoteWriteBar(
         else -> NoteWriteBarDefaults.OpenMaxLines
     }
     val cardInteraction = remember { MutableInteractionSource() }
+    val writeBarLabel = stringResource(R.string.cmp_note_write_bar_cd)
 
     val stampSlot: @Composable () -> Unit = {
         NoteStampChip(
@@ -557,6 +561,7 @@ fun NoteWriteBar(
         )
     }
     val fieldSlot: @Composable () -> Unit = {
+        val placeholder = stringResource(R.string.cmp_note_placeholder)
         BasicTextField(
             value = draftFieldValue(draft.text, heldFieldValue),
             onValueChange = { value ->
@@ -586,7 +591,7 @@ fun NoteWriteBar(
                 Box {
                     if (draftState.draft.text.isEmpty()) {
                         Text(
-                            text = "记录笔记",
+                            text = placeholder,
                             style = MaterialTheme.typography.bodyLarge,
                             color = scheme.onSurfaceVariant.copy(alpha = 0.8f),
                             maxLines = 1,
@@ -632,7 +637,7 @@ fun NoteWriteBar(
             .noRippleClickable(
                 interactionSource = cardInteraction,
                 enabled = !open,
-                onClickLabel = "写笔记",
+                onClickLabel = writeBarLabel,
                 onClick = { focusRequester.requestFocus() },
             ),
     ) { measurables, constraints ->
@@ -728,6 +733,8 @@ private fun NoteStampChip(
 ) {
     val interaction = remember { MutableInteractionSource() }
     val scheme = MaterialTheme.colorScheme
+    val realignLabel = stringResource(R.string.cmp_note_stamp_cd_realign)
+    val writeLabel = stringResource(R.string.cmp_note_stamp_cd_write)
     val latest by rememberUpdatedState(positionMs)
     val drifted by remember(anchorMs) {
         derivedStateOf { showNoteRealignHint(anchorMs?.let { it / 1_000L * 1_000L }, latest() / 1_000L * 1_000L) }
@@ -739,7 +746,7 @@ private fun NoteStampChip(
             .background(scheme.primary.copy(alpha = 0.12f))
             .noRippleClickable(
                 interactionSource = interaction,
-                onClickLabel = if (open) "对齐到当前时刻" else "写笔记",
+                onClickLabel = if (open) realignLabel else writeLabel,
                 onClick = onClick,
             )
             .padding(start = if (open && carried) 6.dp else 12.dp, end = 12.dp)
@@ -807,7 +814,7 @@ private fun NoteSavePill(
         MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
     }
     JournalSavePill(
-        label = "记下",
+        label = stringResource(R.string.cmp_note_save),
         containerColor = container,
         contentColor = content,
         enabled = enabled,
@@ -887,17 +894,52 @@ internal fun JournalSavePill(
 }
 
 /** When a note was written, relative while recent ("3 天前"), then the date. */
-internal fun formatNoteDate(epochMs: Long, nowMs: Long = System.currentTimeMillis()): String {
+internal fun formatNoteDate(
+    epochMs: Long,
+    nowMs: Long = System.currentTimeMillis(),
+    resources: android.content.res.Resources? = null,
+): String {
     val delta = (nowMs - epochMs).coerceAtLeast(0L)
     val minutes = TimeUnit.MILLISECONDS.toMinutes(delta)
     val hours = TimeUnit.MILLISECONDS.toHours(delta)
     val days = TimeUnit.MILLISECONDS.toDays(delta)
+    if (resources == null) {
+        val legacyDate = DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date(epochMs))
+        return when {
+            minutes < 1L ->
+                "刚刚" // i18n-allow: NoteLineTest calls formatNoteDate without Resources
+            minutes < 60L ->
+                "$minutes 分钟前" // i18n-allow: NoteLineTest calls formatNoteDate without Resources
+            hours < 24L ->
+                "$hours 小时前" // i18n-allow: NoteLineTest calls formatNoteDate without Resources
+            days < 7L ->
+                "$days 天前" // i18n-allow: NoteLineTest calls formatNoteDate without Resources
+            else -> legacyDate // i18n-allow: NoteLineTest calls formatNoteDate without Resources
+        }
+    }
     return when {
-        minutes < 1L -> "刚刚"
-        minutes < 60L -> "$minutes 分钟前"
-        hours < 24L -> "$hours 小时前"
-        days < 7L -> "$days 天前"
-        else -> DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date(epochMs))
+        minutes < 1L -> resources.getString(R.string.cmp_note_just_now)
+        minutes < 60L -> resources.getQuantityString(
+            R.plurals.cmp_note_minutes_ago,
+            minutes.toInt(),
+            minutes.toInt(),
+        )
+        hours < 24L -> resources.getQuantityString(
+            R.plurals.cmp_note_hours_ago,
+            hours.toInt(),
+            hours.toInt(),
+        )
+        days < 7L -> resources.getQuantityString(
+            R.plurals.cmp_note_days_ago,
+            days.toInt(),
+            days.toInt(),
+        )
+        else -> {
+            val locale = resources.configuration.locales[0]
+            val pattern = android.text.format.DateFormat.getBestDateTimePattern(locale, "yMMMd")
+            val calendar = Calendar.getInstance().apply { timeInMillis = epochMs }
+            android.text.format.DateFormat.format(pattern, calendar).toString()
+        }
     }
 }
 

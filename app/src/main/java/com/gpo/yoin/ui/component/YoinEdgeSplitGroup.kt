@@ -34,12 +34,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.lerp
+import com.gpo.yoin.R
 import com.gpo.yoin.symbols.YoinSymbols
 import com.gpo.yoin.ui.experience.EdgeSplitGroupInset
 import com.gpo.yoin.ui.experience.EdgeSplitGroupWidth
@@ -234,6 +236,9 @@ private fun UpperCapsuleContent(
     onLibraryLongClick: () -> Unit,
 ) {
     val haptics = rememberYoinHaptics()
+    val homeDescription = stringResource(R.string.cmp_edge_cd_home)
+    val libraryDescription = stringResource(R.string.cmp_edge_cd_library)
+    val doneDescription = stringResource(R.string.cmp_edge_cd_done)
     val homeSelection by animateFloatAsState(
         targetValue = if (selectedSection == YoinSection.HOME) 1f else 0f,
         animationSpec = YoinMotion.defaultSpatialSpec(),
@@ -309,7 +314,7 @@ private fun UpperCapsuleContent(
                                 } else {
                                     YoinSymbols.Home
                                 },
-                                contentDescription = if (editing) null else "Home",
+                                contentDescription = if (editing) null else homeDescription,
                                 modifier = Modifier
                                     .size(EdgeNavIconSize)
                                     .graphicsLayer { alpha = 1f - editSwap },
@@ -363,7 +368,7 @@ private fun UpperCapsuleContent(
                                 }
                             },
                         )
-                        .then(if (editing) Modifier.semantics { contentDescription = "Done" } else Modifier),
+                        .then(if (editing) Modifier.semantics { contentDescription = doneDescription } else Modifier),
                 ) {
                     Box(contentAlignment = Alignment.Center) {
                         if (editSwap < 0.99f) {
@@ -373,7 +378,7 @@ private fun UpperCapsuleContent(
                                 } else {
                                     YoinSymbols.Library
                                 },
-                                contentDescription = if (editing) null else "Library",
+                                contentDescription = if (editing) null else libraryDescription,
                                 modifier = Modifier
                                     .size(EdgeNavIconSize)
                                     .graphicsLayer { alpha = 1f - editSwap },

@@ -30,12 +30,14 @@ import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.input.pointer.PointerInputChange
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.ProgressBarRangeInfo
 import androidx.compose.ui.semantics.progressBarRangeInfo
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import com.gpo.yoin.R
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
 import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinShapeTokens
@@ -71,6 +73,7 @@ fun RatingSlider(
 ) {
     val isVertical = orientation == Orientation.Vertical
     val haptics = rememberYoinHaptics()
+    val ratingState = stringResource(R.string.cmp_rating_state, formatRatingLabel(rating))
     // The gesture outlives recompositions (keyed on orientation): read the
     // callers' latest lambdas, not the first ones.
     val latestOnRatingChange by rememberUpdatedState(onRatingChange)
@@ -102,7 +105,7 @@ fun RatingSlider(
                     // 0.1-step control: 99 discrete values between the endpoints.
                     steps = 99,
                 )
-                stateDescription = "Rated ${formatRatingLabel(rating)} out of 10"
+                stateDescription = ratingState
             }
             // One gesture handler for both tap and drag. We set the rating on the
             // initial DOWN (so a plain tap always registers) and CONSUME the down

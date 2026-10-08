@@ -1,0 +1,131 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="cmp_note_sort_timeline">时间线</string>
+    <string name="cmp_note_sort_created">先后</string>
+    <string name="cmp_note_placeholder">记录笔记</string>
+    <string name="cmp_note_write_bar_cd">写笔记</string>
+    <string name="cmp_note_stamp_cd_write">写笔记</string>
+    <string name="cmp_note_stamp_cd_realign">对齐到当前时刻</string>
+    <string name="cmp_note_save">记下</string>
+    <string name="cmp_note_just_now">刚刚</string>
+    <plurals name="cmp_note_minutes_ago">
+        <item quantity="other">%1$d 分钟前</item>
+    </plurals>
+    <plurals name="cmp_note_hours_ago">
+        <item quantity="other">%1$d 小时前</item>
+    </plurals>
+    <plurals name="cmp_note_days_ago">
+        <item quantity="other">%1$d 天前</item>
+    </plurals>
+
+    <string name="cmp_duration_minutes">%1$d 分钟</string>
+    <string name="cmp_duration_hours_minutes">%1$d 小时 %2$d 分钟</string>
+
+    <string name="cmp_queue_next_up">接下来</string>
+    <string name="cmp_queue_next_from_album">接下来：%1$s</string>
+    <string name="cmp_queue_next_from_playlist">接下来：%1$s</string>
+    <string name="cmp_queue_section_now">正在播放</string>
+    <string name="cmp_queue_section_queued">队列中接下来</string>
+    <string name="cmp_queue_playing_from">播放来自</string>
+    <string name="cmp_queue_title">播放队列</string>
+    <string name="cmp_queue_clear">清除</string>
+    <string name="cmp_queue_cd_remove">从播放队列移除</string>
+    <string name="cmp_queue_cd_playing">正在播放</string>
+    <string name="cmp_queue_cd_paused">已暂停</string>
+    <string name="cmp_queue_cd_move">移动 %1$s</string>
+
+    <string name="cmp_devices_title">设备</string>
+    <string name="cmp_devices_subtitle_spotify">Spotify Connect</string>
+    <string name="cmp_devices_subtitle_subsonic">本机 + 投屏状态</string>
+    <string name="cmp_devices_subtitle_other">当前播放目标</string>
+    <string name="cmp_devices_cd_refresh">刷新设备</string>
+    <string name="cmp_devices_empty_spotify">没有找到 Spotify 设备。</string>
+    <string name="cmp_devices_empty_subsonic">目前只能在本机播放。</string>
+    <string name="cmp_devices_empty_other">没有找到设备。</string>
+    <string name="cmp_devices_cd_current">当前设备</string>
+
+    <string name="cmp_playlist_sheet_title">添加到歌单</string>
+    <string name="cmp_playlist_create_row">新建歌单…</string>
+    <string name="cmp_playlist_new_title">新建歌单</string>
+    <string name="cmp_playlist_name_label">名称</string>
+    <string name="cmp_playlist_create">创建</string>
+    <string name="cmp_playlist_cancel">取消</string>
+    <plurals name="cmp_playlist_song_count">
+        <item quantity="other">%1$d 首</item>
+    </plurals>
+
+    <string name="cmp_song_info_tap_load">点按载入歌曲信息</string>
+    <string name="cmp_song_info_searching">正在查找歌曲信息…</string>
+    <string name="cmp_song_info_no_key">在设置中配置 Gemini API 密钥，以查看 AI 生成的歌曲信息。</string>
+    <string name="cmp_song_info_retry">重试</string>
+    <string name="cmp_song_info_about_heading">简介</string>
+    <string name="cmp_song_info_about_label">简介</string>
+    <string name="cmp_song_info_created">创作时间</string>
+    <string name="cmp_song_info_location">地点</string>
+    <string name="cmp_song_info_lyricist">作词</string>
+    <string name="cmp_song_info_composer">作曲</string>
+    <string name="cmp_song_info_producer">制作</string>
+
+    <string name="cmp_detail_retry">重试</string>
+
+    <string name="cmp_pill_playback_unavailable">无法播放</string>
+    <string name="cmp_pill_nothing_playing">未在播放</string>
+    <string name="cmp_pill_tap_open">点按打开播放器</string>
+    <string name="cmp_pill_vertical_playback_unavailable">无法播放</string>
+    <string name="cmp_pill_vertical_nothing_playing">未在播放</string>
+    <string name="cmp_pill_cd_current_track">当前曲目</string>
+
+    <string name="cmp_play_label">播放</string>
+    <string name="cmp_play_cd_more">更多播放选项</string>
+    <string name="cmp_play_vertical_cd">播放</string>
+    <string name="cmp_play_vertical_cd_more">更多播放选项</string>
+    <string name="cmp_play_menu_shuffle">随机播放</string>
+    <string name="cmp_play_vertical_cd_shuffle">随机播放</string>
+
+    <string name="cmp_cast_cd">投屏到设备</string>
+
+    <string name="cmp_rating_state">评分 %1$s，满分 10</string>
+
+    <!-- REVIEW: 候选：首页 | 主页 | Home -->
+    <string name="cmp_bar_label_home">首页</string>
+    <!-- REVIEW: 候选：首页 | 主页 | Home -->
+    <string name="cmp_bar_cd_home">首页</string>
+    <!-- REVIEW: 候选：资料库 | 音乐库 | 库 -->
+    <string name="cmp_bar_label_library">资料库</string>
+    <!-- REVIEW: 候选：资料库 | 音乐库 | 库 -->
+    <string name="cmp_bar_cd_library">资料库</string>
+    <string name="cmp_bar_label_done">完成</string>
+    <string name="cmp_bar_cd_done">完成</string>
+    <string name="cmp_bar_label_add">添加</string>
+    <string name="cmp_bar_label_undo">撤销</string>
+    <string name="cmp_bar_cd_undo">撤销</string>
+    <string name="cmp_bar_cd_show_hidden">显示隐藏的分区</string>
+    <string name="cmp_bar_label_shuffle">随机播放</string>
+    <string name="cmp_bar_cd_search">搜索快捷方式</string>
+
+    <!-- REVIEW: 候选：首页 | 主页 | Home -->
+    <string name="cmp_edge_cd_home">首页</string>
+    <!-- REVIEW: 候选：资料库 | 音乐库 | 库 -->
+    <string name="cmp_edge_cd_library">资料库</string>
+    <string name="cmp_edge_cd_done">完成</string>
+
+    <string name="cmp_song_cd_has_note">有笔记</string>
+    <string name="cmp_lyrics_empty">没有歌词</string>
+    <string name="cmp_wave_note">笔记</string>
+    <string name="cmp_unavailable_cd">为什么不能播放</string>
+    <string name="cmp_unavailable_apple_import">这首歌导入自你的 Apple Music 资料库，没有目录版本。MusicKit 只能播放目录歌曲，请在 Apple Music 应用中播放。</string>
+    <string name="cmp_library_cd_added">已在 Apple Music 资料库</string>
+    <string name="cmp_library_cd_pending">检查是否已加入资料库</string>
+    <string name="cmp_library_cd_add">添加到 Apple Music 资料库</string>
+
+    <string name="cmp_error_unreachable_connect">连不上服务器。检查你的网络。</string>
+    <string name="cmp_error_unreachable_io">连不上服务器。检查你的网络。</string>
+    <string name="cmp_error_timeout">服务器响应太久。再试一次。</string>
+    <string name="cmp_error_ssl">安全连接失败。检查服务器地址。</string>
+    <string name="cmp_error_spotify_busy">Spotify 正忙。过一会儿再试。</string>
+    <string name="cmp_error_spotify_reconnect">Spotify 授权已过期。在设置中重新连接。</string>
+    <string name="cmp_error_apple_reconnect">Apple Music 授权已过期。在设置中重新连接。</string>
+    <string name="cmp_error_apple_token">Apple Music 拒绝了开发者令牌。检查令牌服务。</string>
+    <string name="cmp_error_apple_denied">Apple Music 拒绝访问。检查你的订阅。</string>
+    <string name="cmp_error_apple_busy">Apple Music 正忙。过一会儿再试。</string>
+</resources>

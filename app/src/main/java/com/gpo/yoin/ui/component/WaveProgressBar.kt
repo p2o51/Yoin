@@ -33,9 +33,11 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import com.gpo.yoin.R
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
 import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinShapeTokens
@@ -263,12 +265,13 @@ fun WaveProgressBar(
 
         val activePreviewFraction = previewFraction
         if (activePreviewFraction != null) {
+            val noteLabel = stringResource(R.string.cmp_wave_note)
             val onNote = noteAnchorFractions.any {
                 kotlin.math.abs(activePreviewFraction - it) <= noteWindow
             }
             PreviewTimeBubble(
                 timeText = if (onNote) {
-                    "Note"
+                    noteLabel
                 } else {
                     formatTrackDurationMs((durationMs.toFloat() * activePreviewFraction).roundToLong())
                 },

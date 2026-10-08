@@ -36,6 +36,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.draw.drawWithContent
@@ -49,6 +50,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.gpo.yoin.R
 import com.gpo.yoin.symbols.YoinSymbols
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
 import com.gpo.yoin.ui.navigation.nowPlayingCoverSharedKey
@@ -88,6 +90,9 @@ fun NowPlayingPill(
     enabled: Boolean = true,
 ) {
     val haptics = rememberYoinHaptics()
+    val playbackUnavailable = stringResource(R.string.cmp_pill_playback_unavailable)
+    val nothingPlaying = stringResource(R.string.cmp_pill_nothing_playing)
+    val tapToOpen = stringResource(R.string.cmp_pill_tap_open)
     // Theme tokens already share one app-wide wash. Only animate the local
     // empty/playing state; a second color spring would lag behind a new window.
     val trackPresence by animateFloatAsState(
@@ -227,12 +232,12 @@ fun NowPlayingPill(
                 Spacer(modifier = Modifier.width(10.dp))
                 Column(modifier = Modifier.weight(1f).wrapContentHeight(unbounded = true)) {
                     val titleText = shown.title ?: when {
-                        connectionErrorMessage != null -> "Playback unavailable"
-                        else -> "Nothing playing"
+                        connectionErrorMessage != null -> playbackUnavailable
+                        else -> nothingPlaying
                     }
                     val artistText = shown.artist ?: when {
                         connectionErrorMessage != null -> connectionErrorMessage
-                        else -> "Tap to open player"
+                        else -> tapToOpen
                     }
 
                     val titleModifier = if (
@@ -353,6 +358,8 @@ fun NowPlayingPillVertical(
     enabled: Boolean = true,
 ) {
     val haptics = rememberYoinHaptics()
+    val playbackUnavailable = stringResource(R.string.cmp_pill_vertical_playback_unavailable)
+    val nothingPlaying = stringResource(R.string.cmp_pill_vertical_nothing_playing)
     val trackPresence by animateFloatAsState(
         targetValue = if (currentTrackTitle != null) 1f else 0f,
         animationSpec = YoinMotion.defaultEffectsSpec(),
@@ -449,8 +456,8 @@ fun NowPlayingPillVertical(
                 Column(modifier = Modifier.rotateBottomToTop()) {
                     Text(
                         text = shown.title ?: when {
-                            connectionErrorMessage != null -> "Playback unavailable"
-                            else -> "Nothing playing"
+                            connectionErrorMessage != null -> playbackUnavailable
+                            else -> nothingPlaying
                         },
                         style = MaterialTheme.typography.labelLarge.copy(
                             fontSize = 13.sp,
@@ -570,9 +577,10 @@ private fun NowPlayingPillArtwork(
     // layout-sized load returns. Larger than the 34dp slot because the pill
     // art is scaled up by the Now Playing shared-bounds rise.
     val requestSizePx = with(LocalDensity.current) { PillArtworkRequestSize.roundToPx() }
+    val currentTrackDescription = stringResource(R.string.cmp_pill_cd_current_track)
     ExpressiveMediaArtwork(
         model = currentTrackCoverArtUrl,
-        contentDescription = currentTrackTitle ?: "Current track",
+        contentDescription = currentTrackTitle ?: currentTrackDescription,
         modifier = finalModifier,
         shape = YoinArtworkShapes.ThumbAnimated,
         fallbackIcon = YoinSymbols.MusicNote,

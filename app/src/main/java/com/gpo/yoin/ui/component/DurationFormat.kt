@@ -1,5 +1,7 @@
 package com.gpo.yoin.ui.component
 
+import com.gpo.yoin.R
+
 // ---------------------------------------------------------------------------
 // Shared duration formatting. One home for the m:ss / "1h 12m" strings that
 // track rows, playback pills and header meta lines all render.
@@ -21,9 +23,20 @@ internal fun formatTrackDurationMs(ms: Long): String {
 }
 
 /** Total runtime in whole seconds → "38m" / "1h 12m" (album header + playlist pill format). */
-internal fun formatTotalDuration(seconds: Int): String {
+internal fun formatTotalDuration(seconds: Int, resources: android.content.res.Resources? = null): String {
     val totalMin = seconds / 60
     val h = totalMin / 60
     val m = totalMin % 60
-    return if (h > 0) "${h}h ${m}m" else "${m}m"
+    if (resources == null) {
+        return if (h > 0) {
+            "${h}h ${m}m" // i18n-allow: callers outside ui/component omit Resources
+        } else {
+            "${m}m" // i18n-allow: callers outside ui/component omit Resources
+        }
+    }
+    return if (h > 0) {
+        resources.getString(R.string.cmp_duration_hours_minutes, h, m)
+    } else {
+        resources.getString(R.string.cmp_duration_minutes, m)
+    }
 }

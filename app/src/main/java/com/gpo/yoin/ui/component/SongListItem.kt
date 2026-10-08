@@ -26,10 +26,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import com.gpo.yoin.R
 import com.gpo.yoin.symbols.YoinSymbols
 import com.gpo.yoin.ui.theme.YoinArtworkShapes
 import com.gpo.yoin.ui.theme.YoinContainerShapes
@@ -135,7 +137,7 @@ fun SongListItem(
                     if (hasNote) {
                         Icon(
                             imageVector = YoinSymbols.Note,
-                            contentDescription = "Has note",
+                            contentDescription = stringResource(R.string.cmp_song_cd_has_note),
                             tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.72f),
                             modifier = Modifier.size(12.dp),
                         )

@@ -1,0 +1,140 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- REVIEW: English drafted from the existing Chinese UI. -->
+    <string name="cmp_note_sort_timeline">Timeline</string>
+    <!-- REVIEW: English drafted from the existing Chinese UI. -->
+    <string name="cmp_note_sort_created">Created</string>
+    <!-- REVIEW: English drafted from the existing Chinese UI. -->
+    <string name="cmp_note_placeholder">Write a note</string>
+    <!-- REVIEW: English drafted from the existing Chinese UI. -->
+    <string name="cmp_note_write_bar_cd">Write a note</string>
+    <!-- REVIEW: English drafted from the existing Chinese UI. -->
+    <string name="cmp_note_stamp_cd_write">Write a note</string>
+    <!-- REVIEW: English drafted from the existing Chinese UI. -->
+    <string name="cmp_note_stamp_cd_realign">Align to now</string>
+    <!-- REVIEW: English drafted from the existing Chinese UI. -->
+    <string name="cmp_note_save">Save</string>
+    <!-- REVIEW: English drafted from the existing Chinese UI. -->
+    <string name="cmp_note_just_now">Just now</string>
+    <!-- REVIEW: English drafted from the existing Chinese UI. -->
+    <plurals name="cmp_note_minutes_ago">
+        <item quantity="one">%1$d minute ago</item>
+        <item quantity="other">%1$d minutes ago</item>
+    </plurals>
+    <!-- REVIEW: English drafted from the existing Chinese UI. -->
+    <plurals name="cmp_note_hours_ago">
+        <item quantity="one">%1$d hour ago</item>
+        <item quantity="other">%1$d hours ago</item>
+    </plurals>
+    <!-- REVIEW: English drafted from the existing Chinese UI. -->
+    <plurals name="cmp_note_days_ago">
+        <item quantity="one">%1$d day ago</item>
+        <item quantity="other">%1$d days ago</item>
+    </plurals>
+
+    <string name="cmp_duration_minutes">%1$dm</string>
+    <string name="cmp_duration_hours_minutes">%1$dh %2$dm</string>
+
+    <string name="cmp_queue_next_up">Next up</string>
+    <string name="cmp_queue_next_from_album">Next from: %1$s</string>
+    <string name="cmp_queue_next_from_playlist">Next from: %1$s</string>
+    <string name="cmp_queue_section_now">Now playing</string>
+    <string name="cmp_queue_section_queued">Next in queue</string>
+    <string name="cmp_queue_playing_from">Playing from</string>
+    <string name="cmp_queue_title">Queue</string>
+    <string name="cmp_queue_clear">Clear</string>
+    <string name="cmp_queue_cd_remove">Remove from queue</string>
+    <string name="cmp_queue_cd_playing">Playing</string>
+    <string name="cmp_queue_cd_paused">Paused</string>
+    <string name="cmp_queue_cd_move">Move %1$s</string>
+
+    <string name="cmp_devices_title">Devices</string>
+    <string name="cmp_devices_subtitle_spotify">Spotify Connect</string>
+    <string name="cmp_devices_subtitle_subsonic">Local + Cast status</string>
+    <string name="cmp_devices_subtitle_other">Current playback targets</string>
+    <string name="cmp_devices_cd_refresh">Refresh devices</string>
+    <string name="cmp_devices_empty_spotify">No Spotify devices found.</string>
+    <string name="cmp_devices_empty_subsonic">Only local playback is available right now.</string>
+    <string name="cmp_devices_empty_other">No devices found.</string>
+    <string name="cmp_devices_cd_current">Current device</string>
+
+    <string name="cmp_playlist_sheet_title">Add to playlist</string>
+    <string name="cmp_playlist_create_row">Create new playlist…</string>
+    <string name="cmp_playlist_new_title">New playlist</string>
+    <string name="cmp_playlist_name_label">Name</string>
+    <string name="cmp_playlist_create">Create</string>
+    <string name="cmp_playlist_cancel">Cancel</string>
+    <plurals name="cmp_playlist_song_count">
+        <item quantity="one">%1$d song</item>
+        <item quantity="other">%1$d songs</item>
+    </plurals>
+
+    <string name="cmp_song_info_tap_load">Tap to load song info</string>
+    <string name="cmp_song_info_searching">Searching for song info…</string>
+    <string name="cmp_song_info_no_key">Configure your Gemini API key in Settings to see AI-generated song info.</string>
+    <string name="cmp_song_info_retry">Retry</string>
+    <string name="cmp_song_info_about_heading">About</string>
+    <string name="cmp_song_info_about_label">About</string>
+    <string name="cmp_song_info_created">Created</string>
+    <string name="cmp_song_info_location">Location</string>
+    <string name="cmp_song_info_lyricist">Lyricist</string>
+    <string name="cmp_song_info_composer">Composer</string>
+    <string name="cmp_song_info_producer">Producer</string>
+
+    <string name="cmp_detail_retry">Retry</string>
+
+    <string name="cmp_pill_playback_unavailable">Playback unavailable</string>
+    <string name="cmp_pill_nothing_playing">Nothing playing</string>
+    <string name="cmp_pill_tap_open">Tap to open player</string>
+    <string name="cmp_pill_vertical_playback_unavailable">Playback unavailable</string>
+    <string name="cmp_pill_vertical_nothing_playing">Nothing playing</string>
+    <string name="cmp_pill_cd_current_track">Current track</string>
+
+    <string name="cmp_play_label">Play</string>
+    <string name="cmp_play_cd_more">More play options</string>
+    <string name="cmp_play_vertical_cd">Play</string>
+    <string name="cmp_play_vertical_cd_more">More play options</string>
+    <string name="cmp_play_menu_shuffle">Shuffle play</string>
+    <string name="cmp_play_vertical_cd_shuffle">Shuffle play</string>
+
+    <string name="cmp_cast_cd">Cast to device</string>
+
+    <string name="cmp_rating_state">Rated %1$s out of 10</string>
+
+    <string name="cmp_bar_label_home">Home</string>
+    <string name="cmp_bar_cd_home">Home</string>
+    <string name="cmp_bar_label_library">Library</string>
+    <string name="cmp_bar_cd_library">Library</string>
+    <string name="cmp_bar_label_done">Done</string>
+    <string name="cmp_bar_cd_done">Done</string>
+    <string name="cmp_bar_label_add">Add</string>
+    <string name="cmp_bar_label_undo">Undo</string>
+    <string name="cmp_bar_cd_undo">Undo</string>
+    <string name="cmp_bar_cd_show_hidden">Show hidden sections</string>
+    <string name="cmp_bar_label_shuffle">Shuffle play</string>
+    <string name="cmp_bar_cd_search">Search shortcut</string>
+
+    <string name="cmp_edge_cd_home">Home</string>
+    <string name="cmp_edge_cd_library">Library</string>
+    <string name="cmp_edge_cd_done">Done</string>
+
+    <string name="cmp_song_cd_has_note">Has note</string>
+    <string name="cmp_lyrics_empty">No lyrics available</string>
+    <string name="cmp_wave_note">Note</string>
+    <string name="cmp_unavailable_cd">Why can\'t this play</string>
+    <string name="cmp_unavailable_apple_import">This song was imported into your Apple Music library and has no Apple Music catalog version. MusicKit can only play catalog songs, so play it in the Apple Music app.</string>
+    <string name="cmp_library_cd_added">In Apple Music library</string>
+    <string name="cmp_library_cd_pending">Check library addition</string>
+    <string name="cmp_library_cd_add">Add to Apple Music library</string>
+
+    <string name="cmp_error_unreachable_connect">Can\'t reach the server. Check your connection.</string>
+    <string name="cmp_error_unreachable_io">Can\'t reach the server. Check your connection.</string>
+    <string name="cmp_error_timeout">The server is taking too long. Try again.</string>
+    <string name="cmp_error_ssl">Secure connection failed. Check the server address.</string>
+    <string name="cmp_error_spotify_busy">Spotify is busy right now. Try again in a moment.</string>
+    <string name="cmp_error_spotify_reconnect">Spotify access expired. Reconnect in Settings.</string>
+    <string name="cmp_error_apple_reconnect">Apple Music access expired. Reconnect in Settings.</string>
+    <string name="cmp_error_apple_token">Apple Music rejected the developer token. Check the token service.</string>
+    <string name="cmp_error_apple_denied">Apple Music denied access. Check your subscription.</string>
+    <string name="cmp_error_apple_busy">Apple Music is busy right now. Try again in a moment.</string>
+</resources>

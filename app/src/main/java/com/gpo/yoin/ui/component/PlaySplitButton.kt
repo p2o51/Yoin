@@ -30,9 +30,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.gpo.yoin.R
 import com.gpo.yoin.symbols.YoinSymbols
 import com.gpo.yoin.symbols.rememberExpandSymbolPainter
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
@@ -108,7 +110,7 @@ fun PlaySplitButton(
             )
             Spacer(modifier = Modifier.width(ButtonDefaults.IconSpacing))
             Text(
-                "Play",
+                stringResource(R.string.cmp_play_label),
                 style = MaterialTheme.typography.titleMedium,
                 maxLines = 1,
                 overflow = TextOverflow.Clip,
@@ -125,7 +127,7 @@ fun PlaySplitButton(
             // ▾ folds over like a hinge while the menu is open (Yoin Symbols).
             Icon(
                 painter = rememberExpandSymbolPainter(menuOpen),
-                contentDescription = "More play options",
+                contentDescription = stringResource(R.string.cmp_play_cd_more),
                 modifier = Modifier.size(SplitButtonDefaults.TrailingIconSize),
             )
             YoinDropdownMenu(
@@ -175,9 +177,10 @@ private fun ColumnScope.PlayMenuContent(
     dismissMenu: () -> Unit,
     trailingMenuItems: @Composable ColumnScope.(dismissMenu: () -> Unit) -> Unit,
 ) {
+    val shuffleLabel = stringResource(R.string.cmp_play_menu_shuffle)
     if (showShuffle) {
         YoinDropdownMenuItem(
-            text = "Shuffle play",
+            text = shuffleLabel,
             onClick = {
                 dismissMenu()
                 onShuffle()
@@ -218,6 +221,9 @@ fun PlaySplitButtonVertical(
 ) {
     var menuOpen by remember { mutableStateOf(false) }
     val haptics = rememberYoinHaptics()
+    val playDescription = stringResource(R.string.cmp_play_vertical_cd)
+    val moreDescription = stringResource(R.string.cmp_play_vertical_cd_more)
+    val shuffleDescription = stringResource(R.string.cmp_play_vertical_cd_shuffle)
     val colors = ButtonDefaults.buttonColors(
         containerColor = playContainer,
         contentColor = playContent,
@@ -246,7 +252,7 @@ fun PlaySplitButtonVertical(
         ) {
             Icon(
                 imageVector = YoinSymbols.PlayFilled,
-                contentDescription = "Play",
+                contentDescription = playDescription,
                 modifier = Modifier.size(26.dp),
             )
         }
@@ -270,7 +276,7 @@ fun PlaySplitButtonVertical(
             ) {
                 Icon(
                     painter = rememberExpandSymbolPainter(menuOpen),
-                    contentDescription = "More play options",
+                    contentDescription = moreDescription,
                     modifier = Modifier.size(20.dp),
                 )
             }
@@ -305,7 +311,7 @@ fun PlaySplitButtonVertical(
             ) {
                 Icon(
                     imageVector = YoinSymbols.Shuffle,
-                    contentDescription = "Shuffle play",
+                    contentDescription = shuffleDescription,
                     modifier = Modifier.size(20.dp),
                 )
             }

@@ -39,10 +39,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
+import com.gpo.yoin.R
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.symbols.YoinSymbols
 import com.gpo.yoin.ui.experience.rememberYoinHaptics
@@ -113,7 +116,7 @@ fun AddToPlaylistSheet(
     ) {
         Column {
             Text(
-                text = "Add to playlist",
+                text = stringResource(R.string.cmp_playlist_sheet_title),
                 style = MaterialTheme.typography.titleMedium,
                 color = MaterialTheme.colorScheme.onSurface,
                 modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp),
@@ -193,7 +196,7 @@ private fun CreateNewRow(onClick: () -> Unit) {
         }
         Spacer(modifier = Modifier.width(12.dp))
         Text(
-            text = "Create new playlist…",
+            text = stringResource(R.string.cmp_playlist_create_row),
             style = MaterialTheme.typography.bodyLarge,
             color = MaterialTheme.colorScheme.primary,
         )
@@ -249,9 +252,10 @@ private fun PlaylistRow(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
-            row.songCount?.let { count ->
+            val songCount = row.songCount
+            if (songCount != null) {
                 Text(
-                    text = "$count song${if (count == 1) "" else "s"}",
+                    text = pluralStringResource(R.plurals.cmp_playlist_song_count, songCount, songCount),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -268,12 +272,12 @@ private fun CreatePlaylistDialog(
     var name by remember { mutableStateOf("") }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("New playlist") },
+        title = { Text(stringResource(R.string.cmp_playlist_new_title)) },
         text = {
             OutlinedTextField(
                 value = name,
                 onValueChange = { name = it },
-                label = { Text("Name") },
+                label = { Text(stringResource(R.string.cmp_playlist_name_label)) },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
             )
@@ -282,10 +286,10 @@ private fun CreatePlaylistDialog(
             TextButton(
                 onClick = { onConfirm(name.trim()) },
                 enabled = name.trim().isNotEmpty(),
-            ) { Text("Create") }
+            ) { Text(stringResource(R.string.cmp_playlist_create)) }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Cancel") }
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.cmp_playlist_cancel)) }
         },
     )
 }

@@ -16,10 +16,11 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
-import com.gpo.yoin.data.model.UNPLAYABLE_APPLE_IMPORT_REASON
+import com.gpo.yoin.R
 import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinMotionRole
 import com.gpo.yoin.ui.theme.YoinTheme
@@ -41,7 +42,7 @@ fun UnavailableTrackBadge(
             .size(18.dp)
             .clip(CircleShape)
             .background(MaterialTheme.colorScheme.secondaryContainer)
-            .clickable(role = Role.Button, onClickLabel = "Why can't this play") { onClick() },
+            .clickable(role = Role.Button, onClickLabel = stringResource(R.string.cmp_unavailable_cd)) { onClick() },
         contentAlignment = Alignment.Center,
     ) {
         Text(
@@ -58,8 +59,10 @@ fun UnavailableTrackReason(
     visible: Boolean,
     modifier: Modifier = Modifier,
     contentPadding: PaddingValues = PaddingValues(start = 76.dp, end = 16.dp, bottom = 10.dp),
-    reason: String = UNPLAYABLE_APPLE_IMPORT_REASON,
+    reason: String? = null,
 ) {
+    val fallback = stringResource(R.string.cmp_unavailable_apple_import)
+    val explanation = reason ?: fallback
     AnimatedVisibility(
         visible = visible,
         enter = expandVertically(YoinMotion.spatialSpring()) + YoinMotion.fadeIn(role = YoinMotionRole.Standard),
@@ -67,7 +70,7 @@ fun UnavailableTrackReason(
         modifier = modifier,
     ) {
         Text(
-            text = reason,
+            text = explanation,
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(contentPadding),

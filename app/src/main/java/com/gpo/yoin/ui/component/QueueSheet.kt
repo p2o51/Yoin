@@ -53,7 +53,9 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
@@ -61,6 +63,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import coil3.compose.AsyncImage
+import com.gpo.yoin.R
 import com.gpo.yoin.data.repository.ActivityContext
 import com.gpo.yoin.player.QueueEdit
 import com.gpo.yoin.symbols.YoinSymbols
@@ -106,10 +109,24 @@ internal fun queueSections(queue: List<QueueItem>, currentIndex: Int, upcoming: 
 }
 
 /** "Next from: Lantern Letters" — or "Next up" when the songs came from no album or playlist. */
-internal fun queueNextFromLabel(context: ActivityContext): String = when (context) {
-    is ActivityContext.Album -> "Next from: ${context.albumName}"
-    is ActivityContext.Playlist -> "Next from: ${context.playlistName}"
-    else -> "Next up"
+internal fun queueNextFromLabel(
+    context: ActivityContext,
+    resources: android.content.res.Resources? = null,
+): String {
+    if (resources == null) {
+        return when (context) {
+            is ActivityContext.Album ->
+                "Next from: ${context.albumName}" // i18n-allow: QueueSectionsTest asserts this English
+            is ActivityContext.Playlist ->
+                "Next from: ${context.playlistName}" // i18n-allow: QueueSectionsTest asserts this English
+            else -> "Next up" // i18n-allow: QueueSectionsTest asserts this English
+        }
+    }
+    return when (context) {
+        is ActivityContext.Album -> resources.getString(R.string.cmp_queue_next_from_album, context.albumName)
+        is ActivityContext.Playlist -> resources.getString(R.string.cmp_queue_next_from_playlist, context.playlistName)
+        else -> resources.getString(R.string.cmp_queue_next_up)
+    }
 }
 
 /** The header's name for what is playing; null without an album or playlist. */
@@ -164,6 +181,7 @@ fun QueueSheet(
         modifier = modifier,
     ) {
         val navBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+        val resources = LocalContext.current.resources
         val reorderQueued = rememberQueueReorderState(sections.queued)
         val reorderNext = rememberQueueReorderState(sections.next)
         LazyColumn(
@@ -174,7 +192,7 @@ fun QueueSheet(
                 QueueHeader(playingFrom = queuePlayingFrom(activityContext))
             }
             sections.now?.let { now ->
-                item(key = "now-label") { QueueSectionLabel("Now playing") }
+                item(key = "now-label") { QueueSectionLabel(stringResource(R.string.cmp_queue_section_now)) }
                 item(key = "now:${now.item.entryId}") {
                     QueueTrackRow(
                         row = now,
@@ -187,7 +205,7 @@ fun QueueSheet(
             if (sections.queued.isNotEmpty()) {
                 item(key = "queued-label") {
                     QueueSectionLabel(
-                        text = "Next in queue",
+                        text = stringResource(R.string.cmp_queue_section_queued),
                         action = if (canRemove) {
                             {
                                 haptics.performConfirm()
@@ -201,7 +219,7 @@ fun QueueSheet(
                 queueSection(sections.queued, reorderQueued, canMove, canRemove, haptics::performTick, onItemClick, editor)
             }
             if (sections.next.isNotEmpty()) {
-                item(key = "next-label") { QueueSectionLabel(queueNextFromLabel(activityContext)) }
+                item(key = "next-label") { QueueSectionLabel(queueNextFromLabel(activityContext, resources)) }
                 queueSection(sections.next, reorderNext, canMove, canRemove, haptics::performTick, onItemClick, editor)
             }
         }
@@ -393,7 +411,7 @@ private fun QueueRemoveBackdrop() {
     ) {
         Icon(
             imageVector = YoinSymbols.Delete,
-            contentDescription = "Remove from queue",
+            contentDescription = stringResource(R.string.cmp_queue_cd_remove),
             tint = MaterialTheme.colorScheme.onErrorContainer,
         )
     }
@@ -408,7 +426,7 @@ private fun QueueHeader(playingFrom: String?) {
     ) {
         if (playingFrom != null) {
             Text(
-                text = "Playing from",
+                text = stringResource(R.string.cmp_queue_playing_from),
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -421,7 +439,7 @@ private fun QueueHeader(playingFrom: String?) {
             )
         } else {
             Text(
-                text = "Queue",
+                text = stringResource(R.string.cmp_queue_title),
                 style = MaterialTheme.typography.titleLarge,
                 color = MaterialTheme.colorScheme.onSurface,
             )
@@ -431,6 +449,7 @@ private fun QueueHeader(playingFrom: String?) {
 
 @Composable
 private fun QueueSectionLabel(text: String, action: (() -> Unit)? = null) {
+    val clearLabel = stringResource(R.string.cmp_queue_clear)
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -446,7 +465,7 @@ private fun QueueSectionLabel(text: String, action: (() -> Unit)? = null) {
             modifier = Modifier.weight(1f),
         )
         if (action != null) {
-            TextButton(onClick = action) { Text("Clear") }
+            TextButton(onClick = action) { Text(clearLabel) }
         }
     }
 }
@@ -468,6 +487,9 @@ private fun QueueTrackRow(
 ) {
     val item = row.item
     val scheme = MaterialTheme.colorScheme
+    val playingDescription = stringResource(R.string.cmp_queue_cd_playing)
+    val pausedDescription = stringResource(R.string.cmp_queue_cd_paused)
+    val moveDescription = stringResource(R.string.cmp_queue_cd_move, item.title)
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -500,7 +522,7 @@ private fun QueueTrackRow(
         if (current) {
             Icon(
                 painter = rememberEqualizerSymbolPainter(playing = isPlaying),
-                contentDescription = if (isPlaying) "Playing" else "Paused",
+                contentDescription = if (isPlaying) playingDescription else pausedDescription,
                 tint = scheme.primary,
                 modifier = Modifier.size(22.dp),
             )
@@ -514,7 +536,7 @@ private fun QueueTrackRow(
             ) {
                 Icon(
                     imageVector = YoinSymbols.DragHandle,
-                    contentDescription = "Move ${item.title}",
+                    contentDescription = moveDescription,
                     tint = scheme.onSurfaceVariant,
                 )
             }

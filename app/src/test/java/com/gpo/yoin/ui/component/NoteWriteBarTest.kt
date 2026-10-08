@@ -94,7 +94,7 @@ class NoteWriteBarTest {
         field().performTextInput("call: hai hai")
         playhead = 63_000L
 
-        rule.onNodeWithText("记下").performClick()
+        rule.onNodeWithText("Save").performClick()
         rule.waitForIdle()
 
         assertEquals(listOf(NoteSaveRequest(content = "call: hai hai", anchorMs = 58_000L, target = songA)), saved)
@@ -186,7 +186,7 @@ class NoteWriteBarTest {
             }
         }
 
-        val save = rule.onNodeWithText("记下").getUnclippedBoundsInRoot()
+        val save = rule.onNodeWithText("Save").getUnclippedBoundsInRoot()
         val stamp = rule.onNodeWithText("1:01").getUnclippedBoundsInRoot()
         assertTrue(save.top >= 0.dp && save.bottom <= 60.dp)
         assertTrue(stamp.top >= 0.dp && stamp.bottom <= 60.dp)

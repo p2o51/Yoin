@@ -25,8 +25,10 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import com.gpo.yoin.R
 import com.gpo.yoin.data.local.SongAboutEntry
 import com.gpo.yoin.ui.nowplaying.AboutUiState
 import com.gpo.yoin.ui.theme.YoinMotion
@@ -62,7 +64,7 @@ fun SongInfoDisplay(
                     contentAlignment = Alignment.CenterStart,
                 ) {
                     Text(
-                        text = "Tap to load song info",
+                        text = stringResource(R.string.cmp_song_info_tap_load),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -78,7 +80,7 @@ fun SongInfoDisplay(
                         YoinLoadingIndicator()
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(
-                            text = "Searching for song info…",
+                            text = stringResource(R.string.cmp_song_info_searching),
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -92,7 +94,7 @@ fun SongInfoDisplay(
                     contentAlignment = Alignment.CenterStart,
                 ) {
                     Text(
-                        text = "Configure your Gemini API key in Settings to see AI-generated song info.",
+                        text = stringResource(R.string.cmp_song_info_no_key),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -112,7 +114,7 @@ fun SongInfoDisplay(
                         )
                         Spacer(modifier = Modifier.height(4.dp))
                         TextButton(onClick = onRetry) {
-                            Text("Retry")
+                            Text(stringResource(R.string.cmp_song_info_retry))
                         }
                     }
                 }
@@ -163,7 +165,7 @@ private fun ReadyContent(
                     if (key == SongAboutEntry.CANON_REVIEW) {
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(
-                            text = "About",
+                            text = stringResource(R.string.cmp_song_info_about_heading),
                             style = MaterialTheme.typography.labelMedium,
                             color = MaterialTheme.colorScheme.primary,
                             modifier = Modifier.padding(bottom = 2.dp),
@@ -202,13 +204,14 @@ private fun ReadyContent(
     }
 }
 
+@Composable
 private fun labelFor(entryKey: String): String = when (entryKey) {
-    SongAboutEntry.CANON_CREATION_TIME -> "Created"
-    SongAboutEntry.CANON_CREATION_LOCATION -> "Location"
-    SongAboutEntry.CANON_LYRICIST -> "Lyricist"
-    SongAboutEntry.CANON_COMPOSER -> "Composer"
-    SongAboutEntry.CANON_PRODUCER -> "Producer"
-    SongAboutEntry.CANON_REVIEW -> "About"
+    SongAboutEntry.CANON_CREATION_TIME -> stringResource(R.string.cmp_song_info_created)
+    SongAboutEntry.CANON_CREATION_LOCATION -> stringResource(R.string.cmp_song_info_location)
+    SongAboutEntry.CANON_LYRICIST -> stringResource(R.string.cmp_song_info_lyricist)
+    SongAboutEntry.CANON_COMPOSER -> stringResource(R.string.cmp_song_info_composer)
+    SongAboutEntry.CANON_PRODUCER -> stringResource(R.string.cmp_song_info_producer)
+    SongAboutEntry.CANON_REVIEW -> stringResource(R.string.cmp_song_info_about_label)
     else -> entryKey
 }
 

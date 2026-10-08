@@ -54,6 +54,8 @@ import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.disabled
@@ -65,6 +67,7 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.lerp
+import com.gpo.yoin.R
 import com.gpo.yoin.symbols.YoinSymbols
 import com.gpo.yoin.ui.experience.CenteredBarBottomMargin
 import com.gpo.yoin.ui.experience.CenteredBarBottomMarginWide
@@ -171,6 +174,9 @@ fun YoinButtonGroup(
         // Already animated once by YoinChromeGroup (every bar form shares it).
         val playContainer = playSplitActions?.playContainer ?: colors.primary
         val playContent = playSplitActions?.playContent ?: colors.onPrimary
+        val homeLabel = stringResource(R.string.cmp_bar_label_home)
+        val homeDescription = stringResource(R.string.cmp_bar_cd_home)
+        val shuffleLabel = stringResource(R.string.cmp_bar_label_shuffle)
         var showLibrarySearchHint by remember { mutableStateOf(false) }
         // Detail pose extras (CenteredBar): Shuffle + the page's promotable
         // actions as round buttons. The merged pose promotes only Shuffle —
@@ -178,12 +184,12 @@ fun YoinButtonGroup(
         // page's extras as ▾ menu rows.
         val promotedExtras = if (centered) {
             playSplitActions?.let { actions ->
-                listOf(shuffleExtra(actions)) + actions.promotable
+                listOf(shuffleExtra(actions, shuffleLabel)) + actions.promotable
             }.orEmpty()
         } else {
             emptyList()
         }
-        val mergedExtras = listOf(shuffleExtra(playSplitActions))
+        val mergedExtras = listOf(shuffleExtra(playSplitActions, shuffleLabel))
 
         // Interaction sources are hoisted so the press of any one button
         // can drive the widths of the others (neighbour compression).
@@ -427,9 +433,9 @@ fun YoinButtonGroup(
                                     } else {
                                         YoinSymbols.Home
                                     },
-                                    label = "Home",
+                                    label = homeLabel,
                                     labelAlpha = idleLabelAlpha,
-                                    contentDescription = "Home",
+                                    contentDescription = homeDescription,
                                     modifier = Modifier
                                         .graphicsLayer { alpha = 1f - editSwap }
                                         .then(if (editing) Modifier.clearAndSetSemantics {} else Modifier),
@@ -731,6 +737,10 @@ private fun LibraryButton(
     onLongClick: (() -> Unit)?,
     modifier: Modifier = Modifier,
 ) {
+    val libraryLabel = stringResource(R.string.cmp_bar_label_library)
+    val libraryDescription = stringResource(R.string.cmp_bar_cd_library)
+    val doneLabel = stringResource(R.string.cmp_bar_label_done)
+    val doneDescription = stringResource(R.string.cmp_bar_cd_done)
     Surface(
         modifier = modifier
             .width(width)
@@ -741,7 +751,7 @@ private fun LibraryButton(
                 onClick = onClick,
                 onLongClick = onLongClick,
             )
-            .then(if (editing) Modifier.semantics { contentDescription = "Done" } else Modifier),
+            .then(if (editing) Modifier.semantics { contentDescription = doneDescription } else Modifier),
         shape = rememberBarEditPressShape(
             rest = MaterialTheme.shapes.extraLarge,
             interactionSource = interactionSource,
@@ -759,9 +769,9 @@ private fun LibraryButton(
             if (editSwap < 0.99f) {
                 BarIconLabelRow(
                     icon = if (selected) YoinSymbols.LibraryFilled else YoinSymbols.Library,
-                    label = "Library",
+                    label = libraryLabel,
                     labelAlpha = labelAlpha,
-                    contentDescription = "Library",
+                    contentDescription = libraryDescription,
                     modifier = Modifier
                         .graphicsLayer { alpha = 1f - editSwap }
                         .then(if (editing) Modifier.clearAndSetSemantics {} else Modifier),
@@ -770,7 +780,7 @@ private fun LibraryButton(
             if (editSwap > 0.01f) {
                 BarIconLabelRow(
                     icon = YoinSymbols.Check,
-                    label = "Done",
+                    label = doneLabel,
                     labelAlpha = labelAlpha,
                     modifier = Modifier
                         .graphicsLayer { alpha = editSwap }
@@ -820,22 +830,39 @@ private fun BarIconLabelRow(
 internal fun barEditSwap(edit: Float): Float = smoothstep(EDIT_SWAP_START, EDIT_SWAP_END, edit)
 
 /** TalkBack's name for the edit left slot. Disabled Undo also reports disabled. */
-internal fun barEditLeftSlotDescription(slot: BarEditLeftSlot): String = when (slot) {
-    BarEditLeftSlot.Undo, BarEditLeftSlot.UndoDisabled -> "Undo"
-    BarEditLeftSlot.Add -> "Show hidden sections"
+internal fun barEditLeftSlotDescription(
+    slot: BarEditLeftSlot,
+    resources: android.content.res.Resources? = null,
+): String {
+    if (resources == null) {
+        return when (slot) {
+            BarEditLeftSlot.Undo, BarEditLeftSlot.UndoDisabled ->
+                "Undo" // i18n-allow: BarGeometryTest asserts this English
+            BarEditLeftSlot.Add ->
+                "Show hidden sections" // i18n-allow: BarGeometryTest asserts this English
+        }
+    }
+    return when (slot) {
+        BarEditLeftSlot.Undo, BarEditLeftSlot.UndoDisabled -> resources.getString(R.string.cmp_bar_cd_undo)
+        BarEditLeftSlot.Add -> resources.getString(R.string.cmp_bar_cd_show_hidden)
+    }
 }
 
 /**
  * The left slot's button speaks for its stacked layers while editing; the
  * dimmed Undo stays clickable (the controller no-ops it) but reads disabled.
  */
-internal fun Modifier.barEditLeftSlotSemantics(editing: Boolean, slot: BarEditLeftSlot): Modifier = if (editing) {
-    semantics {
-        contentDescription = barEditLeftSlotDescription(slot)
-        if (slot == BarEditLeftSlot.UndoDisabled) disabled()
+@Composable
+internal fun Modifier.barEditLeftSlotSemantics(editing: Boolean, slot: BarEditLeftSlot): Modifier {
+    val description = barEditLeftSlotDescription(slot, LocalContext.current.resources)
+    return if (editing) {
+        semantics {
+            contentDescription = description
+            if (slot == BarEditLeftSlot.UndoDisabled) disabled()
+        }
+    } else {
+        this
     }
-} else {
-    this
 }
 
 /**
@@ -956,7 +983,7 @@ internal fun BarEditLeftSlotLayers(
         )
         BarIconLabelRow(
             icon = YoinSymbols.Add,
-            label = "Add",
+            label = stringResource(R.string.cmp_bar_label_add),
             labelAlpha = labelAlpha,
             color = colors.onSurface,
             iconSize = iconSize,
@@ -972,7 +999,7 @@ internal fun BarEditLeftSlotLayers(
 @Composable
 private fun BarEditUndoLabel(color: Color, modifier: Modifier = Modifier) {
     Text(
-        text = "Undo",
+        text = stringResource(R.string.cmp_bar_label_undo),
         color = color,
         style = MaterialTheme.typography.labelLarge,
         maxLines = 1,
@@ -1032,9 +1059,9 @@ private fun BarExtraButton(action: BarExtraAction, size: Dp, onClick: () -> Unit
     }
 }
 
-private fun shuffleExtra(actions: BarPlaySplitActions?): BarExtraAction = BarExtraAction(
+private fun shuffleExtra(actions: BarPlaySplitActions?, label: String): BarExtraAction = BarExtraAction(
     icon = YoinSymbols.Shuffle,
-    label = "Shuffle play",
+    label = label,
     onClick = actions?.onShuffle ?: {},
 )
 
@@ -1073,7 +1100,7 @@ internal fun LibrarySearchShortcutHint(
                 ) {
                     Icon(
                         imageVector = YoinSymbols.Search,
-                        contentDescription = "Search shortcut",
+                        contentDescription = stringResource(R.string.cmp_bar_cd_search),
                         modifier = Modifier.size(21.dp),
                     )
                 }
