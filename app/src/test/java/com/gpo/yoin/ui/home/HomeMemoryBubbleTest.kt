@@ -97,11 +97,12 @@ class HomeMemoryBubbleTest {
     // ---- Where it hangs ----
 
     @Test
-    fun should_hangUnderCutout_when_bubbleHasRoomToTheRight() {
-        // 412dp phone: span 128..348, horn 30dp in, bubble at least 136dp.
+    fun should_hangUnderCutout_when_bubbleHasRoomOnBothSides() {
+        // 412dp phone: title at 16, Settings from 348; 150dp left of the
+        // arrow, the body ending 40dp past it.
         assertEquals(
             206f to true,
-            memoryArrowCenterX(206f, width = 412f, freeStart = 128f, freeEnd = 348f, hornX = 30f, minWidth = 136f),
+            memoryArrowCenterX(206f, width = 412f, titleLeft = 16f, freeEnd = 348f, minLeft = 150f, reach = 40f),
         )
     }
 
@@ -109,25 +110,31 @@ class HomeMemoryBubbleTest {
     fun should_fallBackToPageCentre_when_noCutout() {
         assertEquals(
             400f to false,
-            memoryArrowCenterX(null, width = 800f, freeStart = 150f, freeEnd = 720f, hornX = 30f, minWidth = 136f),
+            memoryArrowCenterX(null, width = 800f, titleLeft = 24f, freeEnd = 720f, minLeft = 150f, reach = 40f),
         )
     }
 
     @Test
-    fun should_centreTheBubbleInTheSpan_when_cornerHoleAndCentreLeaveNoRoom() {
-        // A top-left punch hole sits over the title; the page centre leaves
-        // the bubble too little room to its right → the minimum bubble is
-        // centred in the span, the arrow 30dp into it.
+    fun should_fallBackToPageCentre_when_cornerHoleOverTheTitle() {
+        // A top-left punch hole sits over the title: no room left of it.
+        assertEquals(
+            206f to false,
+            memoryArrowCenterX(40f, width = 412f, titleLeft = 16f, freeEnd = 348f, minLeft = 150f, reach = 40f),
+        )
+    }
+
+    @Test
+    fun should_keepTheBubblesLeftRoom_when_centreIsTooFarLeft() {
         val (x, under) = memoryArrowCenterX(
-            40f,
-            width = 412f,
-            freeStart = 128f,
-            freeEnd = 300f,
-            hornX = 30f,
-            minWidth = 136f,
+            null,
+            width = 300f,
+            titleLeft = 16f,
+            freeEnd = 260f,
+            minLeft = 150f,
+            reach = 40f,
         )
         assertFalse(under)
-        assertEquals((128f + 300f - 136f) / 2f + 30f, x)
+        assertEquals(166f, x)
     }
 
     // ---- Who takes the tap ----

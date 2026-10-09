@@ -2,6 +2,16 @@
 <resources>
     <!-- REVIEW: 候选：首页 | 主页 | Home -->
     <string name="home_title">首页</string>
+    <string name="home_greeting_morning">早上好</string>
+    <string name="home_greeting_noon">中午好</string>
+    <string name="home_greeting_afternoon">下午好</string>
+    <string name="home_greeting_evening">晚上好</string>
+    <string name="home_account_cd">账号：%1$s</string>
+    <string name="home_account_close">关闭</string>
+    <string name="home_account_manage">管理账号</string>
+    <string name="home_account_switch">切换账号</string>
+    <string name="home_account_add">添加账号</string>
+    <string name="home_account_settings">设置</string>
     <!-- REVIEW: 候选：首页 | 主页 | Home -->
     <string name="home_edit_title">编辑首页</string>
     <!-- REVIEW: 候选：首页 | 主页 | Home -->

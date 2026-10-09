@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="widget_play_label">播放</string>
+    <string name="widget_play_description">最近在听</string>
+    <string name="widget_play_empty">还没有播放记录</string>
+    <!-- REVIEW: 候选：回忆 | 记忆 | Memories（与 strings_memories 同步） -->
+    <string name="widget_memory_label">回忆</string>
+    <string name="widget_memory_description">你的专辑回忆</string>
+    <string name="widget_memory_empty">还没有回忆</string>
+    <string name="widget_last_heard_today">今天</string>
+    <plurals name="widget_last_heard_days">
+        <item quantity="other">%d 天前</item>
+    </plurals>
+    <plurals name="widget_last_heard_months">
+        <item quantity="other">%d 个月前</item>
+    </plurals>
+    <plurals name="widget_last_heard_years">
+        <item quantity="other">%d 年前</item>
+    </plurals>
+</resources>

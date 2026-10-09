@@ -12,6 +12,7 @@ import coil3.ImageLoader
 import coil3.PlatformContext
 import coil3.SingletonImageLoader
 import com.gpo.yoin.player.applemusic.AppleMusicNativeMemoryPolicy
+import com.gpo.yoin.widget.WidgetRefresher
 
 class YoinApplication : Application(), SingletonImageLoader.Factory {
     lateinit var container: AppContainer
@@ -42,6 +43,7 @@ class YoinApplication : Application(), SingletonImageLoader.Factory {
         container = containerOverrideForTests ?: AppContainer(this)
         registerHostLifecycle()
         registerActivityEmbeddingRules()
+        if (containerOverrideForTests == null) WidgetRefresher.start(this, container)
     }
 
     /**

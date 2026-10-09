@@ -220,7 +220,7 @@
 | 日记滚到顶后继续下拉 | 来自嵌套滚动的 UserInput post-scroll。如果手势起点在正文中间（fromScrolled），越过顶部后的前 24dp 只走一半，对应原型的 `wToV` / `vToW`。松手按 `releaseV`：fromScrolled 且还在半速带里 → 留在日记；否则 |v| > 350dp/s 按方向走，否则 p > 0.5 留在日记。惯性滚到顶只停住 |
 | 日记态从顶栏往下拉 | 先 `freezeScroll`，再 1:1 擦洗 p |
 | 顶栏封面 / ⌄ 点按 | 先 freeze，再 `launchAnimateTo(0)` |
-| 系统返回（p ≥ 0.5 时） | 先 stop 正在走的弹簧，取当前值 p0；`p = p0 · (1 − backGestureEasing(progress))`，全程擦洗，不封顶也不追赶。提交 → 0，取消 → 1，同一条 morph 弹簧 |
+| 系统返回（p ≥ 0.5 时） | 先 stop 正在走的弹簧，取当前值 p0；**p 不随手势擦洗**（2026-10-09 owner：全程擦洗时缓动前段太陡，一划就收掉大半，像返回占了整段行程），改为整页做 AOSP 预览姿态（缩向 0.9、偏向手势一侧、竖向跟手，同 Now Playing 的 StageBackPreview）。提交 → p 走 morph 弹簧到 0，取消 → 1；两端姿态都弹回 |
 
 ### 3.3 和 doctrine 不变量逐条对照
 

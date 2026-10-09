@@ -25,6 +25,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
@@ -38,8 +39,6 @@ import com.gpo.yoin.data.model.CoverRef
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.Track
 import com.gpo.yoin.ui.common.asString
-// VisualizerData intentionally removed: HomeScreen consumes a pre-smoothed
-// playbackSignal from AudioVisualizerManager instead.
 import com.gpo.yoin.ui.component.ExpressivePageBackground
 import com.gpo.yoin.ui.component.YoinLoadingIndicator
 import com.gpo.yoin.ui.experience.ReportMotionPressure
@@ -47,11 +46,13 @@ import com.gpo.yoin.ui.experience.RevealState
 import com.gpo.yoin.ui.experience.rememberRevealState
 import com.gpo.yoin.ui.home.edit.HomeEditController
 import com.gpo.yoin.ui.memories.MemoryEntityType
+import com.gpo.yoin.ui.settings.ProfileCard
 import com.gpo.yoin.ui.theme.ProvideYoinMotionRole
 import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinMotionRole
 import com.gpo.yoin.ui.theme.YoinTheme
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
 
 private const val HomeLoadingIndicatorDelayMillis = 180L
 private val HomeInitialEntranceOffset = 16.dp
@@ -81,7 +82,45 @@ fun HomeScreen(
     sharedTransitionScope: SharedTransitionScope? = null,
     animatedVisibilityScope: AnimatedVisibilityScope? = null,
     modifier: Modifier = Modifier,
+    // The account switcher behind the header avatar (null = the plain Settings gear).
+    accountSwitcher: AccountSwitcherViewModel? = null,
 ) {
+    val accountCards by (accountSwitcher?.cards ?: remember { MutableStateFlow(emptyList()) }).collectAsState()
+    val activeAccount = accountCards.firstOrNull { it.isActive }
+    // Shown = the dialog window exists; open = its card is in (it animates out before the window goes).
+    var switcherShown by rememberSaveable { mutableStateOf(false) }
+    var switcherOpen by rememberSaveable { mutableStateOf(false) }
+    var accountAnchor by remember { mutableStateOf<Rect?>(null) }
+    if (switcherShown && accountSwitcher != null) {
+        HomeAccountSwitcherDialog(
+            visible = switcherOpen,
+            anchor = accountAnchor,
+            cards = accountCards,
+            onRequestClose = { switcherOpen = false },
+            onDismissed = { switcherShown = false },
+            onSwitch = { card ->
+                switcherOpen = false
+                // An account that can't be used right now is recovered in Settings.
+                if (card.unavailableReason != null) onNavigateToSettings() else accountSwitcher.switchTo(card.id)
+            },
+            onManageAccounts = {
+                switcherOpen = false
+                onNavigateToSettings()
+            },
+            onAddAccount = {
+                switcherOpen = false
+                onNavigateToSettings()
+            },
+            onOpenSettings = {
+                switcherOpen = false
+                onNavigateToSettings()
+            },
+            onEditHome = {
+                switcherOpen = false
+                editController?.enter(null, lifted = false)
+            },
+        )
+    }
     val uiState by viewModel.uiState.collectAsState()
     val homeLayout by viewModel.homeLayout.collectAsState()
     // A section new since the last edit session waits in the tray (Q6a).
@@ -96,6 +135,13 @@ fun HomeScreen(
         playbackSignal = playbackSignal,
         activeSongId = activeSongId,
         onNavigateToSettings = onNavigateToSettings,
+        activeAccount = activeAccount,
+        onOpenAccounts = {
+            switcherShown = true
+            switcherOpen = true
+        },
+        accountButtonHidden = switcherShown,
+        onAccountAnchor = { accountAnchor = it },
         onNavigateToMemories = onNavigateToMemories,
         onOpenMemoryFocus = onOpenMemoryFocus,
         memoriesRevealState = memoriesRevealState,
@@ -126,6 +172,11 @@ fun HomeContent(
     playbackSignal: Float,
     activeSongId: String? = null,
     onNavigateToSettings: () -> Unit,
+    // The account in use (null = none yet) and opening the account switcher.
+    activeAccount: ProfileCard? = null,
+    onOpenAccounts: () -> Unit = onNavigateToSettings,
+    accountButtonHidden: Boolean = false,
+    onAccountAnchor: (Rect) -> Unit = {},
     onNavigateToMemories: () -> Unit,
     onOpenMemoryFocus: (sessionId: Long) -> Unit = {},
     memoriesRevealState: RevealState = rememberRevealState(),
@@ -244,6 +295,10 @@ fun HomeContent(
                             homeCovered = homeCovered,
                             sections = sections,
                             onNavigateToSettings = onNavigateToSettings,
+                            activeAccount = activeAccount,
+                            onOpenAccounts = onOpenAccounts,
+                            accountButtonHidden = accountButtonHidden,
+                            onAccountAnchor = onAccountAnchor,
                             onNavigateToMemories = onNavigateToMemories,
                             editController = editController,
                             footerNewBadge = footerNewBadge,

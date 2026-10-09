@@ -229,6 +229,10 @@ dependencies {
     implementation(libs.palette)
     implementation(libs.graphics.shapes)
 
+    // Home-screen widgets
+    implementation(libs.glance.appwidget)
+    implementation(libs.glance.material3)
+
     // Core AndroidX
     implementation(libs.core.ktx)
     implementation(libs.androidx.core.splashscreen)

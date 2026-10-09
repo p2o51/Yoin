@@ -866,6 +866,7 @@ class HomeViewModel(
         }
         if (!matchesCurrentScope(providerId, profileId)) return null
         val pill = buildHomeMemoryPill(candidates, noteCount, scope = homeScopeKey(providerId, profileId))
+            .withMemoryTitle(candidates)
         val memoryCard = pickJbiMemoryCandidate(
             candidates = candidates,
             avoidRawAlbumId = pill.latest?.albumId?.rawId,
@@ -881,6 +882,19 @@ class HomeViewModel(
         val provider = rest.substringBefore(':', missingDelimiterValue = "")
         val rawId = rest.substringAfter(':', missingDelimiterValue = "")
         return if (provider.isNotBlank() && rawId.isNotBlank()) MediaId(provider, rawId) else null
+    }
+
+    /**
+     * The bubble's latest memory with its Memory title, resolved as the card's
+     * is (cache-only on the AI side); the bare album name doesn't count.
+     */
+    private suspend fun HomeMemoryPill.withMemoryTitle(candidates: List<AlbumMemoryCandidate>): HomeMemoryPill {
+        val shown = latest ?: return this
+        val candidate = candidates.firstOrNull { it.sessionId == shown.sessionId } ?: return this
+        val resolved = guardedOrNull { memoryTitle(candidate) }
+            ?.takeIf { it.source != AlbumMemoryTitleSource.ALBUM }
+            ?: return this
+        return copy(latest = shown.copy(memoryTitle = resolved.text))
     }
 
     /**

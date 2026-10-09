@@ -33,6 +33,36 @@
             android:exported="false" android:foregroundServiceType="mediaPlayback">
             <intent-filter><action android:name="androidx.media3.session.MediaSessionService" /></intent-filter>
         </service>
+        <!-- Home-screen widgets (Glance). -->
+        <receiver
+            android:name=".widget.PlayWidgetReceiver"
+            android:exported="true"
+            android:label="@string/widget_play_label">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_play_info" />
+        </receiver>
+        <receiver
+            android:name=".widget.MemoryWidgetReceiver"
+            android:exported="true"
+            android:label="@string/widget_memory_label">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_memory_info" />
+        </receiver>
+        <activity
+            android:name=".widget.WidgetPlayActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:taskAffinity=""
+            android:theme="@style/Theme.Yoin.WidgetTrampoline" />
         <activity
             android:name=".MainActivity"
             android:exported="true"

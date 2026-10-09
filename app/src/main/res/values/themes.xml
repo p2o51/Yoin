@@ -56,4 +56,12 @@
         <item name="windowSplashScreenAnimationDuration">950</item>
         <item name="postSplashScreenTheme">@style/Theme.Yoin</item>
     </style>
+
+    <!-- The widget play button's invisible host (WidgetPlayActivity): no window, no animation, no preview. -->
+    <style name="Theme.Yoin.WidgetTrampoline" parent="@android:style/Theme.Translucent.NoTitleBar">
+        <item name="android:windowAnimationStyle">@null</item>
+        <item name="android:windowDisablePreview">true</item>
+        <item name="android:windowNoDisplay">false</item>
+        <item name="android:backgroundDimEnabled">false</item>
+    </style>
 </resources>
