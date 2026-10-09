@@ -93,7 +93,11 @@ class SpotifyGuideActivity : ComponentActivity() {
             // Let the full-screen card show for a beat, then shrink into the corner.
             lifecycleScope.launch {
                 delay(EnterDelayMs)
-                runCatching { enterPictureInPictureMode(pipParams()) }.onFailure { openBrowser() }
+                // No picture-in-picture (turned off for Yoin, or unsupported) returns false or throws: go straight
+                // to the dashboard. The landing still lists the redirect URIs; coming back from the browser
+                // resumes this window, which then hands back to Yoin.
+                val entered = runCatching { enterPictureInPictureMode(pipParams()) }.getOrDefault(false)
+                if (!entered) openBrowser()
             }
         } else if (browserOpened && !isInPictureInPictureMode) {
             // Expanded back to full screen: the user is done with the browser.
