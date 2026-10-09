@@ -3,6 +3,8 @@ package com.gpo.yoin.data.source.applemusic
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.profile.ProfileCredentials
 import com.gpo.yoin.data.remote.applemusic.AppleMusicApiClient
+import com.gpo.yoin.data.remote.applemusic.AppleMusicApiException
+import com.gpo.yoin.data.remote.applemusic.AppleMusicApiFailure
 import com.gpo.yoin.data.remote.applemusic.AppleMusicSong
 import kotlinx.coroutines.test.runTest
 import okhttp3.mockwebserver.MockResponse
@@ -87,6 +89,72 @@ class AppleMusicAlbumAlignmentTest {
         server.takeRequest()
         server.takeRequest()
         assertEquals("/v1/me/library/albums/l.9/tracks", server.takeRequest().requestUrl!!.encodedPath)
+    }
+
+    @Test fun should_openCatalogAlbumUnmarked_when_libraryLookupFails() = runTest {
+        reply(storefront())
+        server.enqueue(MockResponse().setResponseCode(500))
+        reply(catalogAlbum("900"))
+        reply(catalogSongs("10", "11"))
+
+        val album = source.getAlbum(MediaId("applemusic", "900"))!!
+
+        assertEquals(listOf("10", "11"), album.tracks.map { it.id.rawId })
+        assertTrue(album.tracks.none { it.extras.containsKey(AppleMusicSong.EXTRA_LIBRARY_CHECKED) })
+        server.takeRequest()
+        assertEquals("artists,library", server.takeRequest().requestUrl!!.queryParameter("include"))
+        assertEquals("artists", server.takeRequest().requestUrl!!.queryParameter("include"))
+    }
+
+    @Test fun should_openCatalogAlbum_when_tracklistRelationshipsFail() = runTest {
+        reply(storefront())
+        reply(catalogAlbum("900"))
+        server.enqueue(MockResponse().setResponseCode(500))
+        reply(catalogSongs("10", "11"))
+
+        val album = source.getAlbum(MediaId("applemusic", "900"))!!
+
+        assertEquals(listOf("10", "11"), album.tracks.map { it.id.rawId })
+        assertTrue(album.tracks.all { it.albumId == MediaId("applemusic", "900") })
+        repeat(2) { server.takeRequest() }
+        assertEquals("albums,artists", server.takeRequest().requestUrl!!.queryParameter("include"))
+        assertNull(server.takeRequest().requestUrl!!.queryParameter("include"))
+    }
+
+    @Test fun should_openCatalogAlbumUnmarked_when_libraryCopyTracksFail() = runTest {
+        reply(storefront())
+        reply(catalogAlbum("900", libraryId = "l.9"))
+        server.enqueue(MockResponse().setResponseCode(404))
+        reply(catalogSongs("10", "11"))
+
+        val album = source.getAlbum(MediaId("applemusic", "900"))!!
+
+        assertEquals(2, album.tracks.size)
+        assertTrue(album.tracks.none { it.extras.containsKey(AppleMusicSong.EXTRA_LIBRARY_CHECKED) })
+        assertTrue(album.tracks.none { it.extras.containsKey(AppleMusicSong.EXTRA_LIBRARY_ID) })
+    }
+
+    @Test fun should_failAlbum_when_libraryLookupIsRateLimited() = runTest {
+        reply(storefront())
+        server.enqueue(MockResponse().setResponseCode(429))
+
+        val failure = runCatching { source.getAlbum(MediaId("applemusic", "900")) }.exceptionOrNull()
+
+        assertEquals(AppleMusicApiFailure.RateLimited, (failure as AppleMusicApiException).failure)
+        assertEquals(2, server.requestCount)
+    }
+
+    @Test fun should_keepLibraryTracklist_when_catalogMatchIsNotServed() = runTest {
+        reply(libraryAlbum("l.1", catalogId = "900"))
+        reply(storefront())
+        server.enqueue(MockResponse().setResponseCode(404))
+        server.enqueue(MockResponse().setResponseCode(404))
+        reply(librarySongs("i.1" to "10", "i.3" to null))
+
+        val album = source.getAlbum(MediaId("applemusic", "library:l.1"))!!
+
+        assertEquals(MediaId("applemusic", "library:l.1"), album.id)
+        assertEquals(listOf("10", "library:i.3"), album.tracks.map { it.id.rawId })
     }
 
     @Test fun should_keepLibraryTracklistDeduplicated_when_albumHasNoCatalogMatch() = runTest {

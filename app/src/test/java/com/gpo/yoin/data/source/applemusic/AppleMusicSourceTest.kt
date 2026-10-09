@@ -249,6 +249,21 @@ class AppleMusicSourceTest {
         )
     }
 
+    @Test fun should_listOneRow_when_twoLibrarySongsShareACatalogSong() = runTest {
+        reply(
+            """{
+              "results":{
+                "library-songs":{"data":[
+                  {"id":"i.a","type":"library-songs","attributes":{"name":"Song","playParams":{"catalogId":"123"}}},
+                  {"id":"i.b","type":"library-songs","attributes":{"name":"Song","playParams":{"catalogId":"123"}}}
+                ]}
+              }
+            }"""
+        )
+        val results = source.searchLibrary("song")
+        assertEquals(listOf(MediaId("applemusic", "123")), results.tracks.map { it.id })
+    }
+
     @Test fun should_loadRequestedLibrarySongPages_when_providerCannotReturnRandomSongs() = runTest {
         reply(
             """{

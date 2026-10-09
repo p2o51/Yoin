@@ -155,9 +155,15 @@ class AppleMusicSource(
         val resource = page(path, mapOf("include" to "artists,catalog")).resources().firstOrNull() ?: return null
         val catalog = resource.related("catalog").firstOrNull { it.text("type") == "albums" }
         if (catalog != null) {
-            catalogAlbum(catalog.mediaId(), libraryAlbumPath = path)?.let { return it }
+            try {
+                catalogAlbum(catalog.mediaId(), libraryAlbumPath = path)?.let { return it }
+            } catch (error: AppleMusicApiException) {
+                // A catalog match the storefront no longer serves still has the user's own tracklist.
+                if (error.failsCatalogToo()) throw error
+            }
         }
-        val mappedAlbum = album(resource)
+        // Unmatched, or matched to a catalog album that would not open: the library album is its own identity.
+        val mappedAlbum = album(resource).copy(id = id)
         val tracks = all(path + "tracks", mapOf("include" to "catalog")).songTracks()
             .map { track -> track.copy(albumId = track.albumId ?: id, artistId = track.artistId ?: mappedAlbum.artistId) }
             .distinctBy { it.id }
@@ -171,7 +177,9 @@ class AppleMusicSource(
         val resource = try {
             page(path, mapOf("include" to "artists,library"), personal = true).resources().firstOrNull()
         } catch (error: AppleMusicApiException) {
-            if (error.failure != AppleMusicApiFailure.Http(400)) throw error
+            // Membership only marks rows. Apple fails this personal lookup with 400, and with 500 for catalog
+            // albums it serves fine without it (207192046 from search, 2026-10-09): open the album unmarked.
+            if (error.failsCatalogToo()) throw error
             libraryKnown = false
             page(path, mapOf("include" to "artists")).resources().firstOrNull()
         } ?: return null
@@ -181,19 +189,35 @@ class AppleMusicSource(
                 ?.let { path("albums", it.mediaId()) }
         // First library copy wins when Apple holds two library songs for one catalog song.
         val libraryIdsByCatalogId = mutableMapOf<String, String>()
+        var libraryTracksRead = true
         libraryPath?.let { libraryTracks ->
-            all(libraryTracks + "tracks", mapOf("include" to "catalog")).songTracks().forEach { track ->
-                val catalogId = track.extras[AppleMusicSong.EXTRA_CATALOG_ID] ?: return@forEach
-                val libraryId = track.extras[AppleMusicSong.EXTRA_LIBRARY_ID] ?: return@forEach
-                libraryIdsByCatalogId.putIfAbsent(catalogId, libraryId)
+            try {
+                all(libraryTracks + "tracks", mapOf("include" to "catalog")).songTracks().forEach { track ->
+                    val catalogId = track.extras[AppleMusicSong.EXTRA_CATALOG_ID] ?: return@forEach
+                    val libraryId = track.extras[AppleMusicSong.EXTRA_LIBRARY_ID] ?: return@forEach
+                    libraryIdsByCatalogId.putIfAbsent(catalogId, libraryId)
+                }
+            } catch (error: AppleMusicApiException) {
+                if (error.failsCatalogToo()) throw error
+                libraryIdsByCatalogId.clear()
+                libraryTracksRead = false
             }
         }
-        val tracks = all(path + "tracks", mapOf("include" to "albums,artists")).songTracks()
+        val tracks = try {
+            all(path + "tracks", mapOf("include" to "albums,artists"))
+        } catch (error: AppleMusicApiException) {
+            // Apple 500s some tracklists' included relationships (catalog 207192046 from search, 2026-10-09)
+            // while serving the bare tracks; those fall back to this album and its artist below.
+            if (error.failure !is AppleMusicApiFailure.Http) throw error
+            all(path + "tracks", emptyMap())
+        }.songTracks()
             .distinctBy { it.id }
             .map { track ->
                 val extras = track.extras.toMutableMap()
                 libraryIdsByCatalogId[track.id.rawId]?.let { extras[AppleMusicSong.EXTRA_LIBRARY_ID] = it }
-                if (libraryKnown || libraryAlbumPath != null) extras[AppleMusicSong.EXTRA_LIBRARY_CHECKED] = "true"
+                if (libraryTracksRead && (libraryKnown || libraryAlbumPath != null)) {
+                    extras[AppleMusicSong.EXTRA_LIBRARY_CHECKED] = "true"
+                }
                 track.copy(
                     albumId = track.albumId ?: id,
                     artistId = track.artistId ?: mappedAlbum.artistId,
@@ -201,6 +225,14 @@ class AppleMusicSource(
                 )
             }
         return mappedAlbum.withTracks(tracks)
+    }
+
+    /** A token or rate-limit failure fails the plain catalog request as well; any other failure is the lookup's. */
+    private fun AppleMusicApiException.failsCatalogToo(): Boolean = when (failure) {
+        AppleMusicApiFailure.DeveloperTokenRequired,
+        AppleMusicApiFailure.DeveloperTokenRejected,
+        AppleMusicApiFailure.RateLimited -> true
+        else -> false
     }
 
     private fun Album.withTracks(tracks: List<Track>) = copy(
@@ -264,9 +296,10 @@ class AppleMusicSource(
                 "limit" to "25"
             )
         )["results"]?.jsonObject ?: return SearchResults()
+        // Two library songs (or albums) can share one catalog identity; the result lists key rows by id.
         return SearchResults(
-            tracks = results["library-songs"]?.jsonObject?.resources().orEmpty().songTracks(),
-            albums = results["library-albums"]?.jsonObject?.resources().orEmpty().map(::album),
+            tracks = results["library-songs"]?.jsonObject?.resources().orEmpty().songTracks().distinctBy { it.id },
+            albums = results["library-albums"]?.jsonObject?.resources().orEmpty().map(::album).distinctBy { it.id },
             artists = results["library-artists"]?.jsonObject?.resources().orEmpty().map(::artist),
             playlists = results["library-playlists"]?.jsonObject?.resources().orEmpty().map(::playlist)
         )

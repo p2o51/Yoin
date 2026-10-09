@@ -256,6 +256,7 @@ class AlbumDetailViewModel(
                         }
                 }
             } catch (e: Exception) {
+                Log.w(TAG, "Album load failed for $albumId", e)
                 _uiState.value = AlbumDetailUiState.Error(
                     e.toDetailMessage(R.string.detail_album_error_load),
                 )

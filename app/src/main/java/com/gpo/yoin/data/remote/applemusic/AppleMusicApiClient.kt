@@ -1,5 +1,7 @@
 package com.gpo.yoin.data.remote.applemusic
 
+import android.util.Log
+import com.gpo.yoin.BuildConfig
 import java.io.IOException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -189,6 +191,10 @@ class AppleMusicApiClient(
                     429 -> AppleMusicApiFailure.RateLimited
                     else -> AppleMusicApiFailure.Http(response.code)
                 }
+                // Path and include only: catalog ids, never tokens or bodies. Which request failed is otherwise lost.
+                if (BuildConfig.DEBUG) {
+                    Log.w(TAG, "${response.code} ${target.encodedPath} include=${target.queryParameter("include")}")
+                }
                 throw AppleMusicApiException(failure)
             }
             response.body.string()
@@ -216,3 +222,5 @@ sealed interface AppleMusicApiFailure {
 }
 
 class AppleMusicApiException(val failure: AppleMusicApiFailure) : IOException("Apple Music: $failure")
+
+private const val TAG = "AppleMusicApi"
