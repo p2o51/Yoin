@@ -197,6 +197,7 @@ internal fun HomeAccountSwitcherDialog(
     onAddAccount: () -> Unit,
     onOpenSettings: () -> Unit,
     onEditHome: () -> Unit,
+    onCardHome: () -> Unit = {},
 ) {
     val reduced = LocalMotionProfile.current == MotionProfile.AdaptiveReduced
     val progress = remember { Animatable(0f) }
@@ -207,6 +208,7 @@ internal fun HomeAccountSwitcherDialog(
     var cardBounds by remember { mutableStateOf(Rect.Zero) }
     var bigAvatarBounds by remember { mutableStateOf(Rect.Zero) }
     val dismissed by rememberUpdatedState(onDismissed)
+    val cardHome by rememberUpdatedState(onCardHome)
     LaunchedEffect(visible) {
         if (visible) {
             // The dialog's window takes a few frames to come up: start once the
@@ -217,8 +219,19 @@ internal fun HomeAccountSwitcherDialog(
             withFrameNanos {}
         }
         // Reduced motion: no flight — the card fades where it sits.
-        progress.animateTo(if (visible) 1f else 0f, if (reduced) effects else spatial)
-        if (!visible) dismissed()
+        // [onCardHome] fires as soon as the card is visibly back in the avatar; the spring's
+        // invisible tail still settles before [onDismissed] removes the window.
+        var home = false
+        progress.animateTo(if (visible) 1f else 0f, if (reduced) effects else spatial) {
+            if (!visible && !home && value <= CardHomeProgress) {
+                home = true
+                cardHome()
+            }
+        }
+        if (!visible) {
+            if (!home) cardHome()
+            dismissed()
+        }
     }
     val active = cards.firstOrNull { it.isActive } ?: cards.firstOrNull()
     val surface = MaterialTheme.colorScheme.surfaceContainer
@@ -600,3 +613,6 @@ private fun HomeAccountCardPreview() {
         )
     }
 }
+
+/** Closing progress at which the card reads as back in the avatar ([HomeAccountSwitcherDialog]'s onCardHome). */
+private const val CardHomeProgress = 0.04f
