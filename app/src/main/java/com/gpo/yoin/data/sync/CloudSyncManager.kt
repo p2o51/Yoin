@@ -191,6 +191,10 @@ class CloudSyncManager(
 
     private var observerJob: Job? = null
 
+    // The latest cycle launched on [scope] (turn-on, syncNow). Only [syncNowAndWait] reads it, so a
+    // test's cycle runs after it rather than racing it for the lock.
+    @Volatile private var launchedCycle: Job? = null
+
     /** Strong reference: SharedPreferences keeps listeners weakly. */
     private val seamListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
         if (key == SEAM_PREF_KEY) localChanges.tryEmit(Unit)
@@ -296,12 +300,12 @@ class CloudSyncManager(
         }
         startObservers()
         refreshState()
-        scope.launch { runCycle(force = true) }
+        launchedCycle = scope.launch { runCycle(force = true) }
         return TurnOnStep.Started
     }
 
     override fun syncNow() {
-        scope.launch {
+        launchedCycle = scope.launch {
             ensureInitialized()
             if (isEnabled()) runCycle(force = true)
         }
@@ -941,10 +945,15 @@ class CloudSyncManager(
 
     private fun syncDbFile() = java.io.File(appContext.noBackupFilesDir, SyncDatabase.FILE_NAME)
 
-    /** Test-only: runs one full cycle and returns when it is done. */
+    /**
+     * Test-only: runs one full cycle and returns when it is done. A cycle already launched on the
+     * scope (turn-on starts one) finishes first; otherwise it could take the lock right after this
+     * one and leave the published phase at Syncing (seen on 2-core CI runners).
+     */
     @androidx.annotation.VisibleForTesting
     internal suspend fun syncNowAndWait() {
         ensureInitialized()
+        launchedCycle?.join()
         runCycle(force = true)
     }
 
