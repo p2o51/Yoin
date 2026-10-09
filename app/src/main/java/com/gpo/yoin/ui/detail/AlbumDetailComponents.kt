@@ -23,7 +23,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.ime
@@ -63,7 +62,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
@@ -93,8 +91,6 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withLink
 import androidx.compose.ui.text.withStyle
-import androidx.compose.ui.tooling.preview.Preview
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.constrainHeight
 import androidx.compose.ui.unit.constrainWidth
 import androidx.compose.ui.unit.dp
@@ -141,53 +137,12 @@ import kotlin.math.roundToInt
 import kotlinx.coroutines.flow.distinctUntilChanged
 
 // ---------------------------------------------------------------------------
-// Arrow-mark background — the two enlarged, off-edge-bled color blocks.
+// Arrow-mark background — the two color blocks hugging the cover.
 // ---------------------------------------------------------------------------
 
-// Tune-on-device knobs for how the mark reads as two abstract color blocks.
-// SquashX > 1 stretches the mark horizontally about the hub, pushing the
-// left block further left and the right block further right (off the edges).
-private const val AlbumArrowScale = 1.8f
-private const val AlbumArrowOffsetYFraction = -0.1f
-private const val AlbumArrowGroupSquashX = 1.8f
-
-/**
- * Reuses the real Yoin three-arrow mark ([YoinMark]) as the album backdrop:
- * the lower-left arm is filled with the cover's [primaryBlock] color, the
- * lower-right arm with [secondaryBlock], and the upper arm is hidden — so it
- * reads as the "two blocks" of the icon, enlarged and bled off the edges.
- * The white centre line on the visible arms is kept as [lineColor].
- */
-@Composable
-internal fun AlbumArrowBackground(
-    primaryBlock: Color,
-    secondaryBlock: Color,
-    lineColor: Color,
-    markHeight: Dp,
-    modifier: Modifier = Modifier,
-) {
-    // `modifier` is the WHOLE page, so the mark is clipped only at the screen
-    // edges (never truncated to a band). The mark is sized to `markHeight` and
-    // top-anchored so it sits over the cover area, then scaled up to bleed out.
-    Box(modifier = modifier.clipToBounds()) {
-        YoinMark(
-            transforms = AlbumArrowArmTransforms,
-            colors = listOf(primaryBlock, Color.Transparent, secondaryBlock),
-            lineColor = lineColor,
-            groupScaleX = AlbumArrowGroupSquashX,
-            groupScaleY = 1f,
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(markHeight)
-                .align(Alignment.TopCenter)
-                .graphicsLayer {
-                    scaleX = AlbumArrowScale
-                    scaleY = AlbumArrowScale
-                    translationY = size.height * AlbumArrowOffsetYFraction
-                },
-        )
-    }
-}
+// The Compact full-bleed backdrop (two blocks bled off the edges) is drawn by
+// the album's spectrum bar layer now (AlbumSpectrumBar.kt), so it can fly into
+// the header; only the hugging form below stays a plain composable (Wide).
 
 /**
  * Landscape handsets (断点交接 §5): the same two blocks as closed shapes
@@ -220,24 +175,6 @@ private val AlbumArrowArmTransforms = listOf(
     YoinArmTransform(alpha = 1f),
 )
 
-/**
- * Pin this preview in Android Studio and edit the `AlbumArrow*` constants above
- * (and `AlbumArrowArmTransforms`) — with "Live Edit of literals" on, the numbers
- * update the render instantly, no device needed. (Colors here are stand-ins; the
- * real ones are cover-derived at runtime, so use this for shape/size/position.)
- */
-@Preview(showBackground = true, widthDp = 412, heightDp = 360, backgroundColor = 0xFFFDFBFF)
-@Composable
-private fun AlbumArrowBackgroundPreview() {
-    AlbumArrowBackground(
-        primaryBlock = Color(0xFF7A4E86),
-        secondaryBlock = Color(0xFF7A5A2A),
-        lineColor = Color.White.copy(alpha = 0.7f),
-        markHeight = 320.dp,
-        modifier = Modifier.fillMaxSize(),
-    )
-}
-
 // ---------------------------------------------------------------------------
 // Two-page indicator dots (overview  ·  scrapbook). Tappable: a dot pages to it.
 // ---------------------------------------------------------------------------
@@ -255,9 +192,11 @@ internal fun AlbumPageDots(
     onPageClick: (Int) -> Unit,
     modifier: Modifier = Modifier,
     count: Int = 2,
+    // Drawn only (the album bar's white twin): no tabs, no semantics.
+    visualOnly: Boolean = false,
 ) {
     Row(
-        modifier = modifier.selectableGroup(),
+        modifier = if (visualOnly) modifier else modifier.selectableGroup(),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         val overview = stringResource(R.string.detail_album_page_overview)
@@ -277,13 +216,20 @@ internal fun AlbumPageDots(
                     // 24 × 20 cells (the dots stay 6dp apart as before); Compose
                     // widens the touch bounds of a target this small on its own.
                     .size(width = 24.dp, height = 20.dp)
-                    .clip(RoundedCornerShape(10.dp))
-                    .selectable(
-                        selected = i == selectedPage,
-                        role = Role.Tab,
-                        onClick = { onPageClick(i) },
+                    .then(
+                        if (visualOnly) {
+                            Modifier
+                        } else {
+                            Modifier
+                                .clip(RoundedCornerShape(10.dp))
+                                .selectable(
+                                    selected = i == selectedPage,
+                                    role = Role.Tab,
+                                    onClick = { onPageClick(i) },
+                                )
+                                .semantics { contentDescription = label }
+                        },
                     )
-                    .semantics { contentDescription = label }
                     .drawBehind {
                         val distance = (i - activeFraction()).absoluteValue.coerceIn(0f, 1f)
                         drawCircle(

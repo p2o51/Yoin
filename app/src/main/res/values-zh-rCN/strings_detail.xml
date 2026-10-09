@@ -53,6 +53,7 @@
     <string name="detail_album_short_comment">短评</string>
     <string name="detail_album_review">长评</string>
     <string name="detail_album_review_count">%1$d / %2$d</string>
+    <string name="detail_album_cd_show_cover">显示封面</string>
     <string name="detail_album_page_overview">概览</string>
     <string name="detail_album_page_scrapbook">手帐</string>
     <string name="detail_album_page_n">第 %1$d 页</string>

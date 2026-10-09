@@ -61,6 +61,7 @@
     <string name="detail_album_short_comment">Short comment</string>
     <string name="detail_album_review">Review</string>
     <string name="detail_album_review_count">%1$d / %2$d</string>
+    <string name="detail_album_cd_show_cover">Show cover</string>
     <string name="detail_album_page_overview">Overview</string>
     <string name="detail_album_page_scrapbook">Scrapbook</string>
     <string name="detail_album_page_n">Page %1$d</string>
