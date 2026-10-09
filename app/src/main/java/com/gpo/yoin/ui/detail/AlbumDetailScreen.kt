@@ -3,9 +3,11 @@ package com.gpo.yoin.ui.detail
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -15,16 +17,17 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.calculateEndPadding
+import androidx.compose.foundation.layout.calculateStartPadding
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.navigationBarsPadding
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
@@ -35,7 +38,6 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
@@ -46,28 +48,43 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
-import androidx.compose.ui.BiasAlignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.graphics.ClipOp
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Paint
+import androidx.compose.ui.graphics.RectangleShape
+import androidx.compose.ui.graphics.drawscope.clipRect
+import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.layout.layout
+import androidx.compose.ui.layout.onPlaced
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.layout.positionInParent
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.lerp
 import com.gpo.yoin.R
@@ -78,10 +95,10 @@ import com.gpo.yoin.ui.component.DetailErrorState
 import com.gpo.yoin.ui.component.ExpressiveMediaArtwork
 import com.gpo.yoin.ui.component.ExpressivePageBackground
 import com.gpo.yoin.ui.component.MetaGroup
+import com.gpo.yoin.ui.component.StagedReveal
 import com.gpo.yoin.ui.component.YoinDropdownMenu
 import com.gpo.yoin.ui.component.expressivePageSeamBackground
 import com.gpo.yoin.ui.component.rememberStagedReveal
-import com.gpo.yoin.ui.component.seamDissolve
 import com.gpo.yoin.ui.component.seamDissolveViewport
 import com.gpo.yoin.ui.component.seamFade
 import com.gpo.yoin.ui.component.seamRemainingPx
@@ -89,7 +106,10 @@ import com.gpo.yoin.ui.component.seamScrolledPx
 import com.gpo.yoin.ui.component.stagedBeat
 import com.gpo.yoin.ui.component.yoinPageContentWidth
 import com.gpo.yoin.ui.experience.LayoutMode
+import com.gpo.yoin.ui.experience.LocalMotionProfile
+import com.gpo.yoin.ui.experience.LocalShellChromeInsets
 import com.gpo.yoin.ui.experience.LocalYoinWindowInfo
+import com.gpo.yoin.ui.experience.MotionProfile
 import com.gpo.yoin.ui.experience.ProvidePreviewWindow
 import com.gpo.yoin.ui.experience.RevealState
 import com.gpo.yoin.ui.experience.rememberRevealState
@@ -101,6 +121,7 @@ import com.gpo.yoin.ui.theme.YoinMotionRole
 import com.gpo.yoin.ui.theme.YoinTheme
 import com.gpo.yoin.ui.theme.rememberCoverColorScheme
 import com.gpo.yoin.ui.theme.withTabularFigures
+import kotlin.math.roundToInt
 import kotlinx.coroutines.launch
 
 // At or below this track count the cover docks to a big rounded "capsule"; above
@@ -234,22 +255,25 @@ fun AlbumDetailScreen(
                         // toggles, rating merges) don't re-trigger the fade.
                         contentKey = { it::class },
                         label = "albumDetailState",
-                        // Landscape: header + body clear the capsule band; the
-                        // background above stays full-bleed.
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .detailChromeBand(),
+                        modifier = Modifier.fillMaxSize(),
                     ) { state ->
+                        // Landscape: header + body clear the capsule band; the
+                        // background above (and the album's spectrum bar) stays
+                        // full-bleed — Content applies the band inside itself.
                         when (state) {
                             is AlbumDetailUiState.Loading ->
-                                AlbumLoadingState(intro = enterIntro, onBackClick = onBackClick)
+                                Box(modifier = Modifier.fillMaxSize().detailChromeBand()) {
+                                    AlbumLoadingState(intro = enterIntro, onBackClick = onBackClick)
+                                }
 
                             is AlbumDetailUiState.Error ->
-                                DetailErrorState(
-                                    message = state.message.asString(),
-                                    onRetry = onRetry,
-                                    onBack = onBackClick,
-                                )
+                                Box(modifier = Modifier.fillMaxSize().detailChromeBand()) {
+                                    DetailErrorState(
+                                        message = state.message.asString(),
+                                        onRetry = onRetry,
+                                        onBack = onBackClick,
+                                    )
+                                }
 
                             is AlbumDetailUiState.Content ->
                                 AlbumDetailContent(
@@ -418,128 +442,367 @@ private fun AlbumDetailContent(
 
     var showEditSheet by remember { mutableStateOf(false) }
 
-    Box(modifier = Modifier.fillMaxSize()) {
-        Column(modifier = Modifier.fillMaxSize()) {
-            AlbumTopHeader(
-                albumName = content.albumName,
-                artistName = content.artistName,
-                year = content.year,
-                titleColor = titleColor,
-                accentText = accentText,
-                pageFraction = { pagerState.currentPage + pagerState.currentPageOffsetFraction },
-                selectedPage = pagerState.settledPage,
-                pageCount = if (hasScrapbook) 2 else 1,
-                onPageClick = { page ->
-                    pagerScope.launch { pagerState.animateScrollToPage(page, animationSpec = pageSpec) }
-                },
-                onBackClick = onBackClick,
-            )
+    // The cover → spectrum bar (AlbumSpectrumBar.kt): one rule for every size —
+    // when the cover leaves view it turns into the header's spectrum. The pull-up
+    // drives it on Compact and landscape, the page scroll on Medium; a Wide full
+    // window keeps its cover in the identity column and never forms the bar.
+    val barLayout = when {
+        useWideOverview -> null
+        useMediumOverview -> AlbumBarLayout.Medium
+        landscape -> AlbumBarLayout.Landscape
+        else -> AlbumBarLayout.Compact
+    }
+    // Staged "启幕" for this album: cover lands first (grow-in), the hero meta
+    // rises a beat later. Once per album per page instance — rotation never
+    // replays, and the reveal compose stays out of the pull-up reshape math.
+    val stagedReveal = rememberStagedReveal("album-${content.albumId}")
+    val mediumListState = rememberLazyListState()
+    val spectrumSource = rememberAlbumSpectrumSource(
+        model = content.coverArtUrl,
+        fallback = listOf(s.primary, s.secondary, s.tertiary),
+    )
+    // The theme's stand-in spectrum hands over to the cover's with an effects
+    // spring (colours never snap).
+    var shownSpectrum by remember { mutableStateOf(spectrumSource.spectrum) }
+    var previousSpectrum by remember { mutableStateOf<AlbumSpectrum?>(null) }
+    val spectrumSwap = remember { Animatable(1f) }
+    val spectrumSwapSpec = YoinMotion.effectsSpring<Float>()
+    LaunchedEffect(spectrumSource.spectrum) {
+        if (spectrumSource.spectrum !== shownSpectrum) {
+            previousSpectrum = shownSpectrum
+            shownSpectrum = spectrumSource.spectrum
+            spectrumSwap.snapTo(0f)
+            spectrumSwap.animateTo(1f, spectrumSwapSpec)
+            previousSpectrum = null
+        }
+    }
+    val density = LocalDensity.current
+    val layoutDirection = LocalLayoutDirection.current
+    val rtl = layoutDirection == LayoutDirection.Rtl
+    val reduced = LocalMotionProfile.current == MotionProfile.AdaptiveReduced
+    val chromeInsets = LocalShellChromeInsets.current
+    val surface = MaterialTheme.colorScheme.surface
+    var headerHeight by remember { mutableIntStateOf(0) }
+    var titleRowTop by remember { mutableIntStateOf(0) }
+    var titleRowHeight by remember { mutableIntStateOf(0) }
+    val statusBarTopPx = WindowInsets.statusBars.getTop(density)
+    val headerTopPaddingPx = with(density) { AlbumHeaderTopPadding.roundToPx() }
 
-            HorizontalPager(
-                state = pagerState,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .weight(1f),
-            ) { page ->
-                when (page) {
-                    0 -> {
-                        // Fork at the overview call site: reveal == null means
-                        // the >=Medium layout; Compact is the untouched call.
-                        val reveal = revealState
-                        if (useWideOverview) {
-                            AlbumWideOverview(
-                                content = content,
-                                primaryBlock = primaryBlock,
-                                secondaryBlock = secondaryBlock,
-                                accent = primaryBlock,
-                                notedSongIds = notedSongIds,
-                                currentTrackId = currentTrackId,
-                                isPlaying = isPlaying,
-                                expandedSongId = expandedSongId,
-                                expandedNoteBundle = expandedNoteBundle,
-                                onSongClick = onSongClick,
-                                onToggleStar = onToggleStar,
-                                onToggleExpandedSong = onToggleExpandedSong,
-                                onEditComment = { showEditSheet = true },
-                            )
-                        } else if (reveal == null) {
-                            AlbumMediumOverview(
-                                content = content,
-                                accent = primaryBlock,
-                                notedSongIds = notedSongIds,
-                                currentTrackId = currentTrackId,
-                                isPlaying = isPlaying,
-                                expandedSongId = expandedSongId,
-                                expandedNoteBundle = expandedNoteBundle,
-                                onSongClick = onSongClick,
-                                onToggleStar = onToggleStar,
-                                onToggleExpandedSong = onToggleExpandedSong,
-                                onEditComment = { showEditSheet = true },
-                            )
-                        } else if (landscape) {
-                            AlbumLandscapeOverview(
-                                content = content,
-                                primaryBlock = primaryBlock,
-                                secondaryBlock = secondaryBlock,
-                                accent = primaryBlock,
-                                revealState = reveal,
-                                expanded = expanded,
-                                onExpandedCommit = { expanded = it },
-                                notedSongIds = notedSongIds,
-                                currentTrackId = currentTrackId,
-                                isPlaying = isPlaying,
-                                expandedSongId = expandedSongId,
-                                expandedNoteBundle = expandedNoteBundle,
-                                onSongClick = onSongClick,
-                                onToggleStar = onToggleStar,
-                                onToggleExpandedSong = onToggleExpandedSong,
-                                onEditComment = { showEditSheet = true },
-                            )
-                        } else {
-                            AlbumOverviewPage(
-                                content = content,
-                                primaryBlock = primaryBlock,
-                                secondaryBlock = secondaryBlock,
-                                accent = primaryBlock,
-                                revealState = reveal,
-                                expanded = expanded,
-                                onExpandedCommit = { expanded = it },
-                                notedSongIds = notedSongIds,
-                                currentTrackId = currentTrackId,
-                                isPlaying = isPlaying,
-                                expandedSongId = expandedSongId,
-                                expandedNoteBundle = expandedNoteBundle,
-                                onSongClick = onSongClick,
-                                onToggleStar = onToggleStar,
-                                onToggleExpandedSong = onToggleExpandedSong,
-                                onEditComment = { showEditSheet = true },
-                            )
-                        }
-                    }
-
-                    else -> AlbumScrapbookPage(
-                        state = scrapbook ?: AlbumScrapbookUiState.Loading,
-                        content = content,
-                        colors = rememberScrapbookColors(s),
-                        currentTrackId = currentTrackId,
-                        pageOffset = {
-                            // 0 settled here, 1 a whole page away (page 0): the
-                            // pieces' parallax, read in their graphicsLayer only.
-                            (1f - (pagerState.currentPage + pagerState.currentPageOffsetFraction))
-                                .coerceIn(0f, 1f)
-                        },
-                        onSongClick = onSongClick,
-                        onNoteMomentClick = onNoteMomentClick,
-                        onEditReview = { showEditSheet = true },
-                        onRenameTitle = onRenameMemoryTitle,
-                        onRestoreTitle = onRestoreMemoryTitle,
-                        settled = pagerState.settledPage == 1,
-                        stamped = scrapbookStamped,
-                        onStamped = { scrapbookStamped = true },
+    BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+        val widthPx = constraints.maxWidth.toFloat()
+        val heightPx = constraints.maxHeight.toFloat()
+        // Landscape handsets: the header and body clear the capsule band and a
+        // cutout (detailChromeBand); the bar itself runs edge to edge under them.
+        val startInsetPx = with(density) {
+            if (landscape) chromeInsets.calculateStartPadding(layoutDirection).toPx() else 0f
+        }
+        val endInsetPx = with(density) {
+            if (landscape) chromeInsets.calculateEndPadding(layoutDirection).toPx() else 0f
+        }
+        // Read lazily (layout / draw): the header measures in the same pass, before
+        // the flying cover, so the cover never misses a frame waiting for it.
+        val inColumn = LocalDetailHostMode.current == DetailHostMode.Pane
+        val geometryState = remember(barLayout, widthPx, heightPx, startInsetPx, endInsetPx, rtl, density, inColumn) {
+            derivedStateOf {
+                if (barLayout == null || headerHeight == 0) {
+                    null
+                } else {
+                    albumBarGeometry(
+                        layout = barLayout,
+                        width = widthPx,
+                        height = heightPx,
+                        headerHeight = headerHeight.toFloat(),
+                        titleRowTop = titleRowTop.toFloat(),
+                        titleRowHeight = titleRowHeight.toFloat(),
+                        startInset = startInsetPx,
+                        endInset = endInsetPx,
+                        rtl = rtl,
+                        density = density,
+                        pageEdgesAreScreenEdges = !inColumn,
                     )
                 }
             }
         }
+        val geometry: () -> AlbumBarGeometry? = { geometryState.value }
+        val progress: () -> Float = when (barLayout) {
+            null -> { { 0f } }
+            AlbumBarLayout.Medium -> {
+                {
+                    val g = geometry()
+                    when {
+                        g == null -> 0f
+                        mediumListState.firstVisibleItemIndex > 0 -> 1f
+                        else -> (mediumListState.firstVisibleItemScrollOffset / g.cover.height).coerceIn(0f, 1f)
+                    }
+                }
+            }
+            else -> { { 1f - (revealState?.fraction ?: 1f) } }
+        }
+        val coverNow: () -> Rect = {
+            val g = geometry()
+            when {
+                g == null -> Rect.Zero
+                barLayout != AlbumBarLayout.Medium -> g.cover
+                mediumListState.firstVisibleItemIndex > 0 -> g.cover.translate(0f, -g.cover.bottom)
+                else -> g.cover.translate(0f, -mediumListState.firstVisibleItemScrollOffset.toFloat())
+            }
+        }
+        // The bar belongs to page 0: it slides away with it.
+        val pageFraction: () -> Float = {
+            (pagerState.currentPage + pagerState.currentPageOffsetFraction).coerceIn(0f, 1f)
+        }
+        val pageShift: () -> Float = { pageFraction() * widthPx * if (rtl) -1f else 1f }
+        val docked by remember(barLayout) {
+            derivedStateOf { barLayout != null && progress() > AlbumBarDockedThreshold && pageFraction() < 0.5f }
+        }
+        AlbumBarStatusBarEffect(
+            enabled = barLayout != null && !inColumn,
+            docked = { docked },
+            darkTheme = isSystemInDarkTheme(),
+        )
+        val stampSize = if (barLayout == AlbumBarLayout.Landscape) AlbumBarLandscapeStampSize else AlbumBarStampSize
+
+        if (barLayout != null) {
+            AlbumSpectrumLayer(
+                geometry = geometry,
+                source = spectrumSource,
+                previous = previousSpectrum,
+                swap = { spectrumSwap.value },
+                blockA = primaryBlock,
+                blockB = secondaryBlock,
+                surface = surface,
+                reduced = reduced,
+                rtl = rtl,
+                progress = progress,
+                coverNow = coverNow,
+                pageShift = pageShift,
+            )
+        }
+
+        // Below the header and pager on purpose: the artwork's Surface swallows
+        // touches, so the page above must get the pull-up drag first. The stamp
+        // still takes taps — nothing in the header is touchable at its spot.
+        if (barLayout != null) {
+            val showCoverLabel = stringResource(R.string.detail_album_cd_show_cover)
+            AlbumFlyingCover(
+                geometry = geometry,
+                progress = progress,
+                coverNow = coverNow,
+                pageShift = pageShift,
+                // Hero → Thumb (YoinArtworkShapes), as arcs while they move.
+                restingCorner = 8.dp,
+                stampCorner = 4.dp,
+                modifier = Modifier.fillMaxSize(),
+                reduced = reduced,
+            ) {
+                ExpressiveMediaArtwork(
+                    model = content.coverArtUrl,
+                    contentDescription = content.albumName,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .then(
+                            if (barLayout == AlbumBarLayout.Compact) {
+                                Modifier.stagedBeat(progress = { stagedReveal.hero }, rise = 20.dp, scaleFrom = 0.94f)
+                            } else {
+                                Modifier
+                            },
+                        )
+                        // Only the stamp is a button; the resting cover is just a picture.
+                        .then(
+                            if (docked) {
+                                Modifier.clickable(
+                                    role = Role.Button,
+                                    onClickLabel = showCoverLabel,
+                                ) {
+                                    if (barLayout == AlbumBarLayout.Medium) {
+                                        pagerScope.launch { mediumListState.animateScrollToItem(0) }
+                                    } else {
+                                        expanded = false
+                                    }
+                                }
+                            } else {
+                                Modifier
+                            },
+                        ),
+                    shape = RectangleShape,
+                    fallbackIcon = YoinSymbols.Album,
+                    border = null,
+                    shadowElevation = 0.dp,
+                    tonalElevation = 3.dp,
+                    requestSizePx = 640,
+                )
+            }
+        }
+
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .detailChromeBand(),
+        ) {
+            // The bar's rect in the header's own coordinates (the header sits
+            // inside the landscape band padding).
+            val headerLeftPx = if (rtl) endInsetPx else startInsetPx
+            val barInHeader: () -> Rect = {
+                Rect(-headerLeftPx - pageShift(), 0f, widthPx - headerLeftPx - pageShift(), headerHeight.toFloat())
+            }
+            val textProgress: () -> Float = { if (barLayout == null) 0f else albumBarTextProgress(progress()) }
+            val pageCount = if (hasScrapbook) 2 else 1
+            Box {
+                AlbumTopHeader(
+                    albumName = content.albumName,
+                    artistName = content.artistName,
+                    year = content.year,
+                    titleColor = titleColor,
+                    accentText = accentText,
+                    pageFraction = { pagerState.currentPage + pagerState.currentPageOffsetFraction },
+                    selectedPage = pagerState.settledPage,
+                    pageCount = pageCount,
+                    onPageClick = { page ->
+                        pagerScope.launch { pagerState.animateScrollToPage(page, animationSpec = pageSpec) }
+                    },
+                    onBackClick = onBackClick,
+                    titleEndRoom = if (barLayout == null) 0.dp else stampSize + AlbumBarTitleGap,
+                    titleEndProgress = {
+                        if (barLayout == null) 0f else smoothStep(0f, 1f, progress()) * (1f - pageFraction())
+                    },
+                    // Inside the header's padding: the status bar and 4dp sit above it.
+                    onTitleRowPlaced = { row ->
+                        titleRowTop = statusBarTopPx + headerTopPaddingPx + row.positionInParent().y.roundToInt()
+                        titleRowHeight = row.size.height
+                    },
+                    modifier = Modifier
+                        .onSizeChanged { headerHeight = it.height }
+                        .albumBarHeaderFade(textProgress, barInHeader),
+                )
+                if (barLayout != null) {
+                    // White twin over the bar (visual only — touches fall through to the header below).
+                    val showTwin by remember(barLayout) { derivedStateOf { textProgress() > 0f } }
+                    if (showTwin) {
+                        AlbumBarHeaderTwin(
+                            albumName = content.albumName,
+                            artistName = content.artistName,
+                            year = content.year,
+                            pageFraction = { pagerState.currentPage + pagerState.currentPageOffsetFraction },
+                            selectedPage = pagerState.settledPage,
+                            pageCount = pageCount,
+                            titleEndRoom = stampSize + AlbumBarTitleGap,
+                            titleEndProgress = { smoothStep(0f, 1f, progress()) * (1f - pageFraction()) },
+                            modifier = Modifier
+                                .graphicsLayer { alpha = textProgress() }
+                                .drawWithContent {
+                                    val r = barInHeader()
+                                    clipRect(r.left, r.top, r.right, r.bottom) { this@drawWithContent.drawContent() }
+                                },
+                        )
+                    }
+                }
+            }
+
+                HorizontalPager(
+                    state = pagerState,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .weight(1f),
+                ) { page ->
+                    when (page) {
+                        0 -> {
+                            // Fork at the overview call site: reveal == null means
+                            // the >=Medium layout; Compact is the untouched call.
+                            val reveal = revealState
+                            if (useWideOverview) {
+                                AlbumWideOverview(
+                                    content = content,
+                                    primaryBlock = primaryBlock,
+                                    secondaryBlock = secondaryBlock,
+                                    accent = primaryBlock,
+                                    notedSongIds = notedSongIds,
+                                    currentTrackId = currentTrackId,
+                                    isPlaying = isPlaying,
+                                    expandedSongId = expandedSongId,
+                                    expandedNoteBundle = expandedNoteBundle,
+                                    onSongClick = onSongClick,
+                                    onToggleStar = onToggleStar,
+                                    onToggleExpandedSong = onToggleExpandedSong,
+                                    onEditComment = { showEditSheet = true },
+                                )
+                            } else if (reveal == null) {
+                                AlbumMediumOverview(
+                                    content = content,
+                                    listState = mediumListState,
+                                    accent = primaryBlock,
+                                    notedSongIds = notedSongIds,
+                                    currentTrackId = currentTrackId,
+                                    isPlaying = isPlaying,
+                                    expandedSongId = expandedSongId,
+                                    expandedNoteBundle = expandedNoteBundle,
+                                    onSongClick = onSongClick,
+                                    onToggleStar = onToggleStar,
+                                    onToggleExpandedSong = onToggleExpandedSong,
+                                    onEditComment = { showEditSheet = true },
+                                )
+                            } else if (landscape) {
+                                AlbumLandscapeOverview(
+                                    content = content,
+                                    accent = primaryBlock,
+                                    revealState = reveal,
+                                    expanded = expanded,
+                                    onExpandedCommit = { expanded = it },
+                                    notedSongIds = notedSongIds,
+                                    currentTrackId = currentTrackId,
+                                    isPlaying = isPlaying,
+                                    expandedSongId = expandedSongId,
+                                    expandedNoteBundle = expandedNoteBundle,
+                                    onSongClick = onSongClick,
+                                    onToggleStar = onToggleStar,
+                                    onToggleExpandedSong = onToggleExpandedSong,
+                                    onEditComment = { showEditSheet = true },
+                                )
+                            } else {
+                                AlbumOverviewPage(
+                                    content = content,
+                                    stagedReveal = stagedReveal,
+                                    accent = primaryBlock,
+                                    revealState = reveal,
+                                    expanded = expanded,
+                                    onExpandedCommit = { expanded = it },
+                                    notedSongIds = notedSongIds,
+                                    currentTrackId = currentTrackId,
+                                    isPlaying = isPlaying,
+                                    expandedSongId = expandedSongId,
+                                    expandedNoteBundle = expandedNoteBundle,
+                                    onSongClick = onSongClick,
+                                    onToggleStar = onToggleStar,
+                                    onToggleExpandedSong = onToggleExpandedSong,
+                                    onEditComment = { showEditSheet = true },
+                                )
+                            }
+                        }
+
+                        else -> AlbumScrapbookPage(
+                            state = scrapbook ?: AlbumScrapbookUiState.Loading,
+                            content = content,
+                            colors = rememberScrapbookColors(s),
+                            currentTrackId = currentTrackId,
+                            pageOffset = {
+                                // 0 settled here, 1 a whole page away (page 0): the
+                                // pieces' parallax, read in their graphicsLayer only.
+                                (1f - (pagerState.currentPage + pagerState.currentPageOffsetFraction))
+                                    .coerceIn(0f, 1f)
+                            },
+                            onSongClick = onSongClick,
+                            onNoteMomentClick = onNoteMomentClick,
+                            onEditReview = { showEditSheet = true },
+                            onRenameTitle = onRenameMemoryTitle,
+                            onRestoreTitle = onRestoreMemoryTitle,
+                            settled = pagerState.settledPage == 1,
+                            stamped = scrapbookStamped,
+                            onStamped = { scrapbookStamped = true },
+                        )
+                    }
+                }
+
+        }
+
     }
 
     LaunchedEffect(showEditSheet) {
@@ -561,6 +824,11 @@ private fun AlbumDetailContent(
     }
 }
 
+private val AlbumHeaderTopPadding = 4.dp
+
+// Room the title leaves the stamp, besides the stamp itself.
+private val AlbumBarTitleGap = 12.dp
+
 @Composable
 private fun AlbumTopHeader(
     albumName: String,
@@ -574,15 +842,31 @@ private fun AlbumTopHeader(
     onPageClick: (Int) -> Unit,
     onBackClick: () -> Unit,
     modifier: Modifier = Modifier,
+    // The bar's stamp: the title gives up this much room at its end as the bar forms.
+    titleEndRoom: Dp = 0.dp,
+    titleEndProgress: () -> Float = { 0f },
+    onTitleRowPlaced: (androidx.compose.ui.layout.LayoutCoordinates) -> Unit = {},
+    // The bar's white twin: drawn only, never touched (the real header sits below it).
+    visualOnly: Boolean = false,
 ) {
     Column(
         modifier = modifier
             .fillMaxWidth()
             .statusBarsPadding()
-            .padding(start = 8.dp, end = 16.dp, top = 4.dp, bottom = 6.dp),
+            .padding(start = 8.dp, end = 16.dp, top = AlbumHeaderTopPadding, bottom = 6.dp),
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            DetailBackButton(onClick = onBackClick)
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.onPlaced(onTitleRowPlaced),
+        ) {
+            if (visualOnly) {
+                DetailBackButtonFace(
+                    containerColor = Color.White.copy(alpha = 0.18f),
+                    contentColor = Color.White,
+                )
+            } else {
+                DetailBackButton(onClick = onBackClick)
+            }
             // Air between the button's touch halo and the title cluster —
             // flush against the arrow it read as one crowded blob.
             Spacer(modifier = Modifier.width(14.dp))
@@ -603,15 +887,28 @@ private fun AlbumTopHeader(
                     style = MaterialTheme.typography.bodyMedium,
                 )
             }
+            // Read in layout only: the title's end follows the stamp frame by frame.
+            Spacer(
+                modifier = Modifier.layout { measurable, constraints ->
+                    val room = (titleEndRoom.toPx() * titleEndProgress().coerceIn(0f, 1f)).roundToInt()
+                    measurable.measure(constraints.copy(minWidth = 0, maxWidth = room))
+                    layout(room, 0) {}
+                },
+            )
         }
         if (pageCount > 1) {
             AlbumPageDots(
                 activeFraction = pageFraction,
                 selectedPage = selectedPage,
                 activeColor = accentText,
-                inactiveColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f),
+                inactiveColor = if (visualOnly) {
+                    Color.White.copy(alpha = 0.4f)
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f)
+                },
                 onPageClick = onPageClick,
                 count = pageCount,
+                visualOnly = visualOnly,
                 // ≈16dp from the subtitle's baseline down to the dots, matching
                 // the ≈16dp from the dots to each page's first piece (the pages'
                 // own top insets are set for it) — owner 2026-10-05: the gap
@@ -624,11 +921,77 @@ private fun AlbumTopHeader(
     }
 }
 
+/**
+ * The header in white, for over the spectrum bar. Same layout as the real
+ * header, so the caller clips it to the bar and fades it in on top; it has no
+ * touch targets and no semantics of its own.
+ */
+@Composable
+private fun AlbumBarHeaderTwin(
+    albumName: String,
+    artistName: String,
+    year: Int?,
+    pageFraction: () -> Float,
+    selectedPage: Int,
+    pageCount: Int,
+    titleEndRoom: Dp,
+    titleEndProgress: () -> Float,
+    modifier: Modifier = Modifier,
+) {
+    val onBar = Color.White
+    MaterialTheme(
+        colorScheme = MaterialTheme.colorScheme.copy(
+            primary = onBar.copy(alpha = 0.88f),
+            onSurface = onBar,
+            onSurfaceVariant = onBar.copy(alpha = 0.82f),
+        ),
+        typography = MaterialTheme.typography,
+        shapes = MaterialTheme.shapes,
+    ) {
+        AlbumTopHeader(
+            albumName = albumName,
+            artistName = artistName,
+            year = year,
+            titleColor = onBar,
+            accentText = onBar,
+            pageFraction = pageFraction,
+            selectedPage = selectedPage,
+            pageCount = pageCount,
+            onPageClick = {},
+            onBackClick = {},
+            titleEndRoom = titleEndRoom,
+            titleEndProgress = titleEndProgress,
+            visualOnly = true,
+            modifier = modifier.clearAndSetSemantics {},
+        )
+    }
+}
+
+/**
+ * The real header over the bar: drawn as usual beside it, faded out inside it
+ * as the white twin fades in on top (so the two never stack into a dark rim).
+ */
+private fun Modifier.albumBarHeaderFade(progress: () -> Float, bar: () -> Rect): Modifier = drawWithContent {
+    val t = progress()
+    if (t <= 0f) {
+        drawContent()
+        return@drawWithContent
+    }
+    val r = bar()
+    clipRect(r.left, r.top, r.right, r.bottom, clipOp = ClipOp.Difference) { this@drawWithContent.drawContent() }
+    if (t < 1f) {
+        drawIntoCanvas { canvas ->
+            canvas.saveLayer(r, Paint().apply { alpha = 1f - t })
+            clipRect(r.left, r.top, r.right, r.bottom) { this@drawWithContent.drawContent() }
+            canvas.restore()
+        }
+    }
+}
+
 @Composable
 private fun AlbumOverviewPage(
     content: AlbumDetailUiState.Content,
-    primaryBlock: Color,
-    secondaryBlock: Color,
+    stagedReveal: StagedReveal,
     accent: Color,
     revealState: RevealState,
     expanded: Boolean,
@@ -645,11 +1008,6 @@ private fun AlbumOverviewPage(
 ) {
     val density = LocalDensity.current
     val listState = rememberLazyListState()
-    // Staged "启幕" for this album: cover lands first (grow-in), the hero meta
-    // rises a beat later. Once per album per page instance — rotation never
-    // replays, and the reveal compose stays out of the pull-up reshape math.
-    val stagedReveal = rememberStagedReveal("album-${content.albumId}")
-    val isMany = content.songs.size > DetailManyTracksThreshold
     // The reshape only traverses the upper region, not the full page height, so
     // scale the drag against a fraction of it for a closer-to-1:1 finger feel.
     // Held in state so the remembered draggable / connection read the latest.
@@ -672,72 +1030,25 @@ private fun AlbumOverviewPage(
         // during the reshape settle. 1 = hero, 0 = track list; expand 0→1.
         val expand = 1f - revealState.fraction
 
-        // Cover geometry: hero square → a thin, full-width straight band docked
-        // under the header (the list's rows dissolve into its lower edge via the
-        // seam halftone, so the edge itself stays plain); everything lerps on `expand`.
+        // The hero slot: the cover's square plus the 56dp band behind it. The cover
+        // and the two blocks are drawn by the bar layer above the pager
+        // (AlbumSpectrumLayer / AlbumFlyingCover); here the slot only makes room
+        // for them, and closes as they fly into the bar, so the list docks
+        // straight under the header.
         val heroCoverSide = minOf(maxW * 0.74f, 300.dp)
-        // Many tracks → thin full-bleed band (the long list needs the room).
-        // Few tracks → a big, centered rounded "capsule" inset from the edges.
-        val state2CoverHeight = if (isMany) 56.dp else minOf(maxHeight * 0.26f, 220.dp)
-        val state2CoverWidth = if (isMany) maxW else maxW - 32.dp
-        val coverHeight = lerp(heroCoverSide, state2CoverHeight, expand)
-        val coverWidth = lerp(heroCoverSide, state2CoverWidth, expand)
-        // Capsule corner (few-tracks only): 8dp hero → ~stadium as it docks.
-        val coverCorner = lerp(8.dp, 100.dp, expand.coerceIn(0f, 1f))
-        // Band corner (many-tracks only): 8dp hero → square, full-bleed.
-        val bandCorner = lerp(8.dp, 0.dp, expand.coerceIn(0f, 1f))
-        // Band behind the cover for the arrow mark; collapses as the cover docks.
-        val arrowBand = lerp(56.dp, 0.dp, expand.coerceIn(0f, 1f))
-        // Centered in both states — no right-dock.
-        val coverBias = 0f
+        val slotHeight = lerp(heroCoverSide + 56.dp, 0.dp, expand.coerceIn(0f, 1f))
 
         Box(modifier = Modifier.fillMaxSize()) {
-            // Full-bleed arrow-mark backdrop in the top cover band — edge to edge,
-            // BEHIND the padded content (no left/right or top/bottom inset).
-            AlbumArrowBackground(
-                primaryBlock = primaryBlock,
-                secondaryBlock = secondaryBlock,
-                lineColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.65f),
-                markHeight = coverHeight + arrowBand,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .graphicsLayer { alpha = (1f - expand).coerceIn(0f, 1f) },
-            )
             Column(
                 modifier = Modifier
                     .fillMaxSize()
                     .then(gestures.heroDrag(enabled = !expanded)),
-                // NOTE: no horizontal padding here — the cover/band is full-bleed;
-                // the 16dp inset lives on the content Box below instead.
             ) {
-                // Cover floats on top of the full-bleed arrow backdrop, edge to edge.
-                Box(
+                Spacer(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(coverHeight + arrowBand)
-                        .stagedBeat(
-                            progress = { stagedReveal.hero },
-                            rise = 20.dp,
-                            scaleFrom = 0.94f,
-                        ),
-                    contentAlignment = BiasAlignment(horizontalBias = coverBias, verticalBias = 0f),
-                ) {
-                    ExpressiveMediaArtwork(
-                        model = content.coverArtUrl,
-                        contentDescription = content.albumName,
-                        modifier = Modifier
-                            .width(coverWidth)
-                            .height(coverHeight),
-                        // Long lists dock to the straight band (8dp hero corner
-                        // relaxing to square); short ones to a capsule.
-                        shape = RoundedCornerShape(if (isMany) bandCorner else coverCorner),
-                        fallbackIcon = YoinSymbols.Album,
-                        border = null,
-                        shadowElevation = 0.dp,
-                        tonalElevation = 3.dp,
-                        requestSizePx = 640,
-                    )
-                }
+                        .height(slotHeight),
+                )
 
                 Box(
                     modifier = Modifier
@@ -1002,7 +1313,7 @@ private fun AlbumTrackList(
             background = expressivePageSeamBackground(),
             remainingPx = { listState.seamRemainingPx() },
         ) { listState.seamScrolledPx() },
-        contentPadding = PaddingValues(top = 4.dp, bottom = 112.dp + navBottom),
+        contentPadding = PaddingValues(top = AlbumTrackListTopPadding, bottom = 112.dp + navBottom),
     ) {
         if (header != null) {
             item(key = "album-medium-hero") { header() }
@@ -1052,9 +1363,12 @@ private fun AlbumTrackList(
     }
 }
 
+/** The track list's top inset (the Medium hero row starts this far below the header). */
+internal val AlbumTrackListTopPadding = 4.dp
+
 // >=Medium hero cover: a fixed side instead of Compact's window-fraction lerp —
 // there is no reshape to travel, so the cover holds one calm size.
-private val AlbumMediumHeroCoverSide = 240.dp
+internal val AlbumMediumHeroCoverSide = 240.dp
 
 // The >=Medium / Wide overview (Tabletop stays on the Compact path): hero row
 // on top — cover left, the hero's metadata blocks right — and the same track
@@ -1067,6 +1381,7 @@ private val AlbumMediumHeroCoverSide = 240.dp
 @Composable
 private fun AlbumMediumOverview(
     content: AlbumDetailUiState.Content,
+    listState: androidx.compose.foundation.lazy.LazyListState,
     accent: Color,
     notedSongIds: Set<String>,
     currentTrackId: String?,
@@ -1079,7 +1394,6 @@ private fun AlbumMediumOverview(
     onEditComment: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val listState = rememberLazyListState()
     AlbumTrackList(
         content = content,
         accent = accent,
@@ -1119,20 +1433,9 @@ private fun AlbumMediumHeroRow(
             .padding(bottom = 24.dp),
         horizontalArrangement = Arrangement.spacedBy(24.dp),
     ) {
-        // Same artwork composable as Compact's hero — bare, no border.
-        ExpressiveMediaArtwork(
-            model = content.coverArtUrl,
-            contentDescription = content.albumName,
-            modifier = Modifier
-                .size(AlbumMediumHeroCoverSide)
-                .seamDissolve(),
-            shape = YoinArtworkShapes.Hero,
-            fallbackIcon = YoinSymbols.Album,
-            border = null,
-            shadowElevation = 0.dp,
-            tonalElevation = 3.dp,
-            requestSizePx = 640,
-        )
+        // The cover (and the two blocks hugging it) is drawn by the bar layer
+        // above the pager, so it can fly into the header as the page scrolls.
+        Spacer(modifier = Modifier.size(AlbumMediumHeroCoverSide))
         // The hero's own sub-blocks, reused unchanged; always interactive here
         // (there is no fading twin layer whose buttons could steal taps).
         Column(modifier = Modifier.weight(1f)) {
@@ -1241,17 +1544,14 @@ private fun AlbumWideOverview(
 // sits under the cover on a phone on the right (Last Play | Avg., Comment,
 // track count and duration, the flowing titles). Pulling up runs the SAME reshape
 // machine as portrait (RevealState + DetailPullUpReconcile) into the list.
-private val AlbumLandscapeCoverSide = 256.dp
+internal val AlbumLandscapeCoverSide = 256.dp
 
 // Room left of the cover for the whole mark (1.3 × cover, centred on it).
-private val AlbumLandscapeCoverInset = 48.dp
-private const val AlbumLandscapeMarkScale = 1.3f
+internal val AlbumLandscapeCoverInset = 48.dp
 
 @Composable
 private fun AlbumLandscapeOverview(
     content: AlbumDetailUiState.Content,
-    primaryBlock: Color,
-    secondaryBlock: Color,
     accent: Color,
     revealState: RevealState,
     expanded: Boolean,
@@ -1324,33 +1624,9 @@ private fun AlbumLandscapeOverview(
                     .padding(start = AlbumLandscapeCoverInset, top = 4.dp, end = 8.dp),
                 horizontalArrangement = Arrangement.spacedBy(40.dp),
             ) {
-                Box(
-                    modifier = Modifier.size(coverSide),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    // The two blocks hang below the cover's top edge (never cut
-                    // by the pager's top) and stay right of the capsule band.
-                    val markSide = coverSide * AlbumLandscapeMarkScale
-                    AlbumArrowBackdropHugging(
-                        primaryBlock = primaryBlock,
-                        secondaryBlock = secondaryBlock,
-                        lineColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.65f),
-                        modifier = Modifier
-                            .requiredSize(markSide)
-                            .offset(y = (markSide - coverSide) / 2),
-                    )
-                    ExpressiveMediaArtwork(
-                        model = content.coverArtUrl,
-                        contentDescription = content.albumName,
-                        modifier = Modifier.fillMaxSize(),
-                        shape = YoinArtworkShapes.Hero,
-                        fallbackIcon = YoinSymbols.Album,
-                        border = null,
-                        shadowElevation = 0.dp,
-                        tonalElevation = 3.dp,
-                        requestSizePx = 640,
-                    )
-                }
+                // The cover and its two blocks are drawn by the bar layer above the
+                // pager (they fly into the header on the pull-up); this keeps their place.
+                Spacer(modifier = Modifier.size(coverSide))
                 Column(modifier = Modifier.weight(1f)) {
                     AlbumHeroMetaBlocks(
                         content = content,
