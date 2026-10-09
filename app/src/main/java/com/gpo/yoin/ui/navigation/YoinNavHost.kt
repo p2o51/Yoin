@@ -113,6 +113,7 @@ import com.gpo.yoin.ui.experience.hasDetailPane
 import com.gpo.yoin.ui.experience.rememberEdgeSplitSide
 import com.gpo.yoin.ui.experience.rememberRevealState
 import com.gpo.yoin.ui.experience.voteHighFrameRate
+import com.gpo.yoin.ui.home.AccountSwitcherViewModel
 import com.gpo.yoin.ui.home.HomeScreen
 import com.gpo.yoin.ui.home.HomeViewModel
 import com.gpo.yoin.ui.home.edit.HomeEditExitReason
@@ -921,8 +922,12 @@ private fun YoinShell(
                         // the wash is a vertical gradient with Home's own
                         // parameters, so the two meet without a seam.
                         ExpressivePageBackground(modifier = Modifier.fillMaxSize()) {
+                            val accountSwitcher: AccountSwitcherViewModel = viewModel(
+                                factory = AccountSwitcherViewModel.Factory(app.container),
+                            )
                             HomeScreen(
                                 viewModel = homeViewModel,
+                                accountSwitcher = accountSwitcher,
                                 isPlaying = isPlaying,
                                 playbackSignal = if (isPlaying) playbackSignal else 0f,
                                 activeSongId = currentTrack?.id?.toString(),

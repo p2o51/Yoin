@@ -8,12 +8,9 @@ import com.gpo.yoin.R
 import com.gpo.yoin.data.local.GeminiConfig
 import com.gpo.yoin.data.local.NeoDBConfig
 import com.gpo.yoin.data.local.Profile
-import com.gpo.yoin.data.profile.ProfileCredentials
 import com.gpo.yoin.data.profile.ProfileManager
 import com.gpo.yoin.data.profile.ProviderKind
-import com.gpo.yoin.data.profile.SpotifyProviderStatus
 import com.gpo.yoin.data.integration.neodb.NeoDBOAuthResult
-import com.gpo.yoin.data.source.spotify.SpotifyAuthConfig
 import com.gpo.yoin.data.source.spotify.SpotifyMusicSource
 import com.gpo.yoin.ui.common.UiText
 import java.net.URI
@@ -114,7 +111,8 @@ class SettingsViewModel(
         val avatarShapes = assignAvatarShapes(profiles.map { it.id to it.createdAt })
         SettingsUiState.Content(
             profileCards = profiles.map {
-                it.toCard(
+                it.toProfileCard(
+                    profileManager = profileManager,
                     activeProfileId = resolvedActiveId,
                     spotifyStatus = spotifyStatus,
                     avatarShape = avatarShapes[it.id] ?: 0,
@@ -294,97 +292,6 @@ class SettingsViewModel(
     }
 
     // ── Internal helpers ─────────────────────────────────────────────
-
-    private fun Profile.toCard(
-        activeProfileId: String?,
-        spotifyStatus: SpotifyProviderStatus,
-        avatarShape: Int,
-    ): ProfileCard {
-        val provider = ProviderKind.fromKeyOrSubsonic(provider)
-        // Subsonic: lead with the username, the server's host goes on the
-        // service line ("Subsonic · host"). Other services have no "where".
-        val subsonic = if (provider == ProviderKind.SUBSONIC) {
-            profileManager.decodeCredentials(this) as? ProfileCredentials.Subsonic
-        } else {
-            null
-        }
-        val subtitle = subsonic?.let {
-            runCatching { URI(it.serverUrl).host }.getOrNull()?.takeIf { host -> host.isNotBlank() }
-        }
-        val title = subsonic?.username?.takeIf { it.isNotBlank() } ?: displayName
-        // Per-Spotify-profile scope drift (legacy profile missing newly-
-        // required scopes) is a static credential check that
-        // [SpotifyProviderStatus] doesn't capture — it describes the
-        // *runtime* backend. Combine the two: runtime status first (a
-        // global blocker like missing client id is more urgent than a
-        // per-profile reconnect), then per-profile scope check.
-        val needsCredentialsReentry = profileHasMissingSubsonicCredentials()
-        val unavailableReason: String? = when (provider) {
-            ProviderKind.SPOTIFY -> when {
-                spotifyStatus is SpotifyProviderStatus.NoClientId ->
-                    spotifyStatus.userLabel
-                spotifyStatus is SpotifyProviderStatus.SpotifyAppMissing ->
-                    spotifyStatus.userLabel
-                spotifyStatus is SpotifyProviderStatus.NoPremium ->
-                    spotifyStatus.userLabel
-                spotifyStatus is SpotifyProviderStatus.AuthFailure ->
-                    spotifyStatus.userLabel
-                profileRequiresSpotifyReconnect() -> "Reconnect"
-                else -> null
-            }
-            ProviderKind.SUBSONIC -> when {
-                needsCredentialsReentry -> "Credentials missing"
-                else -> null
-            }
-            else -> null
-        }
-        return ProfileCard(
-            id = id,
-            displayName = displayName,
-            subtitle = subtitle,
-            provider = provider,
-            isActive = id == activeProfileId,
-            title = title,
-            avatarShape = avatarShape,
-            unavailableReason = unavailableReason,
-            requiresReconnect = provider == ProviderKind.SPOTIFY &&
-                unavailableReason == "Reconnect",
-            requiresCredentialsReentry = needsCredentialsReentry,
-        )
-    }
-
-    private fun Profile.profileRequiresSpotifyReconnect(): Boolean {
-        if (ProviderKind.fromKeyOrSubsonic(provider) != ProviderKind.SPOTIFY) return false
-        val decoded = profileManager.decodeCredentials(this)
-        // Three independent reasons a Spotify profile needs the user to redo
-        // the OAuth flow:
-        //   1. Credentials unavailable: either the Batch 3D file-backed
-        //      secret is missing (post-restore / interrupted write) or a
-        //      legacy inline blob is corrupt. Recover by running OAuth
-        //      again — same profile id, new token.
-        //   2. Runtime token revocation — the refresh endpoint last responded
-        //      with `error: "invalid_grant"`, persisted as `revoked = true`.
-        //   3. Static scope drift — the profile was authorised before the
-        //      current `REQUIRED_SCOPES` set existed (e.g. before
-        //      `playlist-modify-*` was added). Any missing required scope
-        //      means the next API call against that scope will 403.
-        if (decoded == null) return true
-        val spotify = decoded as? ProfileCredentials.Spotify ?: return false
-        if (spotify.revoked) return true
-        return SpotifyAuthConfig.REQUIRED_SCOPES.any { required -> required !in spotify.scopes }
-    }
-
-    /**
-     * Subsonic analogue to the Spotify recovery case. This covers both
-     * post-restore missing files and pre-3D inline blobs that are now
-     * corrupt / undecodable. UI surfaces "Credentials missing" and taps
-     * into the edit form so the user can re-enter URL + username +
-     * password against the same profile id.
-     */
-    private fun Profile.profileHasMissingSubsonicCredentials(): Boolean {
-        if (ProviderKind.fromKeyOrSubsonic(provider) != ProviderKind.SUBSONIC) return false
-        return profileManager.decodeCredentials(this) == null
-    }
 
     private fun normalizeNeoDbInstance(instance: String): String? {
         val raw = instance.trim().trimEnd('/')

@@ -17,6 +17,7 @@ import com.gpo.yoin.ui.landing.LandingGate
 import com.gpo.yoin.ui.landing.LandingHost
 import com.gpo.yoin.ui.landing.SharedPrefsLandingStore
 import com.gpo.yoin.ui.navigation.YoinNavHost
+import com.gpo.yoin.widget.WidgetLaunch
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -82,11 +83,14 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+        // A home-screen widget tap: open its detail over the shell, or Memories at that memory.
+        if (savedInstanceState == null) WidgetLaunch.handle(this, intent, (application as YoinApplication).container)
     }
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         handleLandingIntent(intent, fresh = true)
+        if (WidgetLaunch.handle(this, intent, (application as YoinApplication).container)) setIntent(Intent())
     }
 
     private fun handleLandingIntent(intent: Intent?, fresh: Boolean) {

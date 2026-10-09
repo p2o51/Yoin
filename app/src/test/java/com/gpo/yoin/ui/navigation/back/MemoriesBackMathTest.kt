@@ -37,18 +37,17 @@ class MemoriesBackMathTest {
     }
 
     @Test
-    fun should_scrub_diary_from_p0_when_back_starts_mid_spring() {
-        // An open spring caught at 0.8: the scrub starts there, not at 1.
-        val p0 = 0.8f
-        assertEquals(p0, MemoriesBackMath.diaryFraction(p0, progress = 0f), 1e-6f)
-        assertEquals(0f, MemoriesBackMath.diaryFraction(p0, progress = 1f), 1e-6f)
-        assertEquals(p0 * (1f - ease(0.3f)), MemoriesBackMath.diaryFraction(p0, progress = 0.3f), 1e-6f)
-        // Full range, no cap: every progress step moves p.
-        var last = p0
+    fun should_preview_the_diary_with_the_eased_pose_when_back_is_at_the_diary_level() {
+        // The diary level previews the page's AOSP pose; p itself is not scrubbed.
+        assertEquals(0f, MemoriesBackMath.diaryPreview(progress = 0f), 1e-6f)
+        assertEquals(1f, MemoriesBackMath.diaryPreview(progress = 1f), 1e-6f)
+        assertEquals(ease(0.3f), MemoriesBackMath.diaryPreview(progress = 0.3f), 1e-6f)
+        // Every progress step moves the pose (no cap).
+        var last = 0f
         for (step in 1..10) {
-            val p = MemoriesBackMath.diaryFraction(p0, progress = step / 10f)
-            assertTrue("progress ${step / 10f}", p < last)
-            last = p
+            val pose = MemoriesBackMath.diaryPreview(progress = step / 10f)
+            assertTrue("progress ${step / 10f}", pose > last)
+            last = pose
         }
     }
 

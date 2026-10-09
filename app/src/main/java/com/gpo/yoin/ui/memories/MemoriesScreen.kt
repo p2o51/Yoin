@@ -78,12 +78,14 @@ import com.gpo.yoin.ui.navigation.back.MemoriesBackLevel
 import com.gpo.yoin.ui.navigation.back.MemoriesPredictiveBack
 import com.gpo.yoin.ui.navigation.back.memoriesDismissCorners
 import com.gpo.yoin.ui.navigation.back.rememberMemoriesDismissRules
+import com.gpo.yoin.ui.nowplaying.StageBackPreview
+import com.gpo.yoin.ui.nowplaying.backPreviewTransform
 import com.gpo.yoin.ui.theme.ProvideYoinMotionRole
 import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinMotionRole
+import kotlinx.coroutines.flow.Flow
 import kotlin.math.abs
 import kotlin.math.roundToInt
-import kotlinx.coroutines.flow.Flow
 
 private val MemoriesAdjacentDeckTrigger = 72.dp
 private val MemoriesDeckEnterOffset = 44.dp
@@ -153,6 +155,8 @@ fun MemoriesScreen(
     val diaryMoving by remember(diaryState) { derivedStateOf { abs(diaryState.fraction) > 0.001f } }
     val diaryLevel by remember(diaryState) { derivedStateOf { diaryState.isDiaryLevel } }
 
+    // Back at the diary level previews the whole page in the AOSP pose (MemoriesPredictiveBack).
+    val diaryBackPreview = remember { StageBackPreview() }
     MemoriesPredictiveBack(
         enabled = backEnabled,
         // a title being edited takes back first (cancel the edit); a spread has one level otherwise: its
@@ -172,6 +176,7 @@ fun MemoriesScreen(
         onCardBackStarted = router::onBackStarted,
         onCardBackFinished = router::onBackFinished,
         titleEditor = titleEditor,
+        diaryPreview = diaryBackPreview,
     )
 
     // The diary's window on the ViewModel: the playhead (narrowed, distinct), drafts, NeoDB.
@@ -345,6 +350,7 @@ fun MemoriesScreen(
                             reducedMotion = reducedMotion,
                             bottomInset = bottomInset,
                             titleEditor = titleEditor,
+                            diaryBackPreview = diaryBackPreview,
                         )
                     }
                 }
@@ -469,6 +475,7 @@ private fun MemoriesContent(
     reducedMotion: Boolean,
     bottomInset: Dp,
     titleEditor: MemoryTitleEditor,
+    diaryBackPreview: StageBackPreview,
 ) {
     // Derived: the deck's pull frames flip this once, not per frame.
     val auroraVisible by remember(revealState) { derivedStateOf { revealState.fraction < 0.999f } }
@@ -625,6 +632,7 @@ private fun MemoriesContent(
                 awardBlocked = { router.backBusy },
                 bottomInset = bottomInset,
                 titleEditor = titleEditor,
+                modifier = Modifier.backPreviewTransform(diaryBackPreview),
             )
         }
 

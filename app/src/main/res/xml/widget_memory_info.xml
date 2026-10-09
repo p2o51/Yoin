@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Memory: album memories (score + time since last heard). Default 2×2; 2×1 strip up to the 4×4 timeline. -->
+<appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
+    android:description="@string/widget_memory_description"
+    android:initialLayout="@layout/glance_default_loading_layout"
+    android:minWidth="110dp"
+    android:minHeight="110dp"
+    android:minResizeWidth="110dp"
+    android:minResizeHeight="50dp"
+    android:targetCellWidth="2"
+    android:targetCellHeight="2"
+    android:maxResizeWidth="900dp"
+    android:maxResizeHeight="600dp"
+    android:resizeMode="horizontal|vertical"
+    android:updatePeriodMillis="21600000"
+    android:widgetCategory="home_screen" />

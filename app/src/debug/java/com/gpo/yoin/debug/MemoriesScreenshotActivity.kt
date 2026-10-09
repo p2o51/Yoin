@@ -489,6 +489,8 @@ class MemoriesScreenshotActivity : ComponentActivity() {
             coverArtUrl = swatchCover("amber", 0xFFD89A2E.toInt()),
             scoreKind = MemoryScoreKind.ALBUM_RATING,
             scoreText = "8.4",
+            writtenAtMillis = System.currentTimeMillis() - 3L * 86_400_000L,
+            memoryTitle = intent.getStringExtra("memoryTitle") ?: "Rain on the Night Bus",
         )
         return fakePillByKey(key, noteCount, latest)?.let { pill ->
             pill.copy(scope = "fake", newsKey = "fake-$key-$noteCount")

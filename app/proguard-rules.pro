@@ -55,3 +55,13 @@
 -dontwarn org.apache.maven.plugins.annotations.Mojo
 -dontwarn org.slf4j.Logger
 -dontwarn org.slf4j.LoggerFactory
+
+# Home-screen widgets: Glance runs every widget update as a WorkManager job, and WorkManager creates its
+# InputMerger and workers reflectively. R8 full mode no longer keeps default constructors implicitly, so without
+# these the job fails ("OverwritingInputMerger has no zero argument constructor") and the widget spins forever.
+-keepclassmembers class * extends androidx.work.InputMerger {
+    public <init>();
+}
+-keepclassmembers class * extends androidx.work.ListenableWorker {
+    public <init>(android.content.Context, androidx.work.WorkerParameters);
+}

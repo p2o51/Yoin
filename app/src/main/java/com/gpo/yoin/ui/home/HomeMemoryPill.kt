@@ -192,6 +192,7 @@ internal fun buildHomeMemoryPill(
                 MemoryScoreKind.AVERAGE_TRACK_RATING -> formatPillScore(candidate.averageSongRating)
                 MemoryScoreKind.NONE -> null
             },
+            writtenAtMillis = candidate.lastWrittenAt,
         )
     }
     val notes = noteCount.coerceAtLeast(0)

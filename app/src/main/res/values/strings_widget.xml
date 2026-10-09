@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Home-screen widgets (Play / Memory). Labels only — no instructions (docs/handoff/ui-copy-audit-2026-10-08.md). -->
+    <string name="widget_play_label">Play</string>
+    <string name="widget_play_description">Recent listening</string>
+    <string name="widget_play_empty">Nothing played yet</string>
+    <string name="widget_memory_label">Memory</string>
+    <string name="widget_memory_description">Your album memories</string>
+    <string name="widget_memory_empty">No memories yet</string>
+    <string name="widget_last_heard_today">Today</string>
+    <plurals name="widget_last_heard_days">
+        <item quantity="one">%d Day Ago</item>
+        <item quantity="other">%d Days Ago</item>
+    </plurals>
+    <plurals name="widget_last_heard_months">
+        <item quantity="one">%d Month Ago</item>
+        <item quantity="other">%d Months Ago</item>
+    </plurals>
+    <plurals name="widget_last_heard_years">
+        <item quantity="one">%d Year Ago</item>
+        <item quantity="other">%d Years Ago</item>
+    </plurals>
+</resources>

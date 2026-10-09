@@ -1,6 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="home_title">Home</string>
+    <string name="home_greeting_morning">Good morning</string>
+    <string name="home_greeting_noon">Good afternoon</string>
+    <string name="home_greeting_afternoon">Good afternoon</string>
+    <string name="home_greeting_evening">Good evening</string>
+    <string name="home_account_cd">Account: %1$s</string>
+    <string name="home_account_close">Close</string>
+    <string name="home_account_manage">Manage accounts</string>
+    <string name="home_account_switch">Switch account</string>
+    <string name="home_account_add">Add account</string>
+    <string name="home_account_settings">Settings</string>
     <string name="home_edit_title">Edit Home</string>
     <string name="home_edit_action_header">Edit Home</string>
     <string name="home_edit_action_section">Edit Home</string>

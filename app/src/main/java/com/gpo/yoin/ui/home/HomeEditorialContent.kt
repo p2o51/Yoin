@@ -76,6 +76,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
@@ -164,7 +165,6 @@ import com.gpo.yoin.ui.home.edit.HomeEditController
 import com.gpo.yoin.ui.home.edit.HomeEditDeps
 import com.gpo.yoin.ui.home.edit.HomeEditExitReason
 import com.gpo.yoin.ui.home.edit.HomeEditHeaderHint
-import com.gpo.yoin.ui.home.edit.HomeEditHeaderTitle
 import com.gpo.yoin.ui.home.edit.HomeEditHitTester
 import com.gpo.yoin.ui.home.edit.HomeEditLayer
 import com.gpo.yoin.ui.home.edit.HomeEditMotion
@@ -197,6 +197,7 @@ import com.gpo.yoin.ui.home.edit.homeEditExclusion
 import com.gpo.yoin.ui.home.edit.homeEditFooterEntry
 import com.gpo.yoin.ui.home.edit.homeEditGestures
 import com.gpo.yoin.ui.home.edit.homeEditHeaderIcon
+import com.gpo.yoin.ui.settings.ProfileCard
 import com.gpo.yoin.ui.home.edit.homeEditInteractive
 import com.gpo.yoin.ui.home.edit.homeEditShelfClip
 import com.gpo.yoin.ui.home.edit.homeEditTrayItems
@@ -290,6 +291,11 @@ internal fun HomeEditorialContent(
     homeCovered: Boolean = false,
     sections: List<HomeSectionState> = HomeLayout.Default.sections,
     onNavigateToSettings: () -> Unit,
+    // The account in use (null = none yet) and opening the account switcher.
+    activeAccount: ProfileCard? = null,
+    onOpenAccounts: () -> Unit = onNavigateToSettings,
+    accountButtonHidden: Boolean = false,
+    onAccountAnchor: (Rect) -> Unit = {},
     onNavigateToMemories: () -> Unit,
     editController: HomeEditController? = null,
     footerNewBadge: Boolean = false,
@@ -919,6 +925,10 @@ internal fun HomeEditorialContent(
                         compact = isLandscapePhone,
                         bubbleController = bubbleController,
                         onNavigateToSettings = onNavigateToSettings,
+                        activeAccount = activeAccount,
+                        onOpenAccounts = onOpenAccounts,
+                        accountButtonHidden = accountButtonHidden,
+                        onAccountAnchor = onAccountAnchor,
                         onNavigateToMemories = onNavigateToMemories,
                         memoriesHintProgress = memoriesHintProgress,
                         memoryPill = memoryPill,
@@ -1427,6 +1437,10 @@ private fun homeStripCovers(
 @Composable
 private fun HomeContentHeader(
     onNavigateToSettings: () -> Unit,
+    activeAccount: ProfileCard?,
+    onOpenAccounts: () -> Unit,
+    accountButtonHidden: Boolean,
+    onAccountAnchor: (Rect) -> Unit,
     onNavigateToMemories: () -> Unit,
     memoriesHintProgress: () -> Float,
     // Edit mode's P (read in draw and layout only), its hit targets, and the
@@ -1460,15 +1474,17 @@ private fun HomeContentHeader(
             .heightIn(min = 48.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        val titleStyle = MaterialTheme.typography.let { if (compact) it.headlineMedium else it.headlineLarge }
-        // "Home", and "Edit Home" over it through P. Display type fades over
-        // 0.75 × its size (≈24dp at 32sp) instead of looking sliced by the
-        // short text band.
-        HomeEditHeaderTitle(
-            progress = editProgress,
-            style = titleStyle,
-            modifier = Modifier.padding(end = HomeHeaderTitleBreathing),
+        val titleStyle = MaterialTheme.typography.let { if (compact) it.headlineSmall else it.headlineMedium }
+        // A greeting over "Home" ("Edit Home" over it through P); on a cold
+        // start the Yoin mark blooms here first (HomeGreetingTitle).
+        HomeGreetingTitle(
+            editProgress = editProgress,
             onEnterEdit = onEnterEdit,
+            compact = compact,
+            // The Memories bubble takes the title's place when it speaks.
+            modifier = Modifier
+                .memoryBubbleTitle(bubbleController)
+                .padding(end = HomeHeaderTitleBreathing),
         )
         if (bubbleController != null) {
             // The bubble overlay hangs inside this span; the edit hint ends it.
@@ -1503,23 +1519,36 @@ private fun HomeContentHeader(
             }
         }
         Spacer(modifier = Modifier.width(2.dp))
-        IconButton(
-            onClick = {
-                haptics.performContextClick()
-                onNavigateToSettings()
-            },
-            enabled = iconsEnabled,
-            modifier = Modifier
-                .homeEditExclusion(editTargets, SettingsTarget) { iconsEnabled }
-                .homeEditHeaderIcon(editProgress)
-                .seamFade()
-                .then(iconSemantics),
-        ) {
-            Icon(
-                imageVector = YoinSymbols.Settings,
-                contentDescription = stringResource(R.string.home_cd_settings),
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+        val headerControl = Modifier
+            .homeEditExclusion(editTargets, SettingsTarget) { iconsEnabled }
+            .homeEditHeaderIcon(editProgress)
+            .seamFade()
+            .then(iconSemantics)
+        if (activeAccount != null) {
+            // The account in use; its switcher has Settings in it.
+            HomeAccountButton(
+                card = activeAccount,
+                onClick = onOpenAccounts,
+                enabled = iconsEnabled,
+                hidden = accountButtonHidden,
+                onAvatarPositioned = onAccountAnchor,
+                modifier = headerControl,
             )
+        } else {
+            IconButton(
+                onClick = {
+                    haptics.performContextClick()
+                    onNavigateToSettings()
+                },
+                enabled = iconsEnabled,
+                modifier = headerControl,
+            ) {
+                Icon(
+                    imageVector = YoinSymbols.Settings,
+                    contentDescription = stringResource(R.string.home_cd_settings),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
         }
     }
 }
@@ -2857,7 +2886,7 @@ private fun activityTypeLabel(entityType: String, resources: Resources): String 
 private fun LazyListState.isAtTop(): Boolean =
     firstVisibleItemIndex == 0 && firstVisibleItemScrollOffset == 0
 
-private fun formatTimeAgo(timestampMillis: Long, resources: Resources): String {
+internal fun formatTimeAgo(timestampMillis: Long, resources: Resources): String {
     val diff = System.currentTimeMillis() - timestampMillis
     val minutes = diff / 60_000L
     val hours = minutes / 60L

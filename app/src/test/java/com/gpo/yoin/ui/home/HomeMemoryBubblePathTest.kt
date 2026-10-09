@@ -1,8 +1,8 @@
 package com.gpo.yoin.ui.home
 
-import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathMeasure
-import androidx.compose.ui.unit.Density
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -10,29 +10,45 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.GraphicsMode
 
-/** [speechBubblePath] on real path math (the plain JVM tests stub android.graphics). */
+/** [memoryBubbleOutline] on real path math (the plain JVM tests stub android.graphics). */
 @RunWith(RobolectricTestRunner::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 class HomeMemoryBubblePathTest {
 
+    // A 412dp phone at 2.625x: body 16..286dp, top 44dp, 60dp tall; tip at 8dp.
+    private val d = 2.625f
+    private val body = Rect(16f * d, 44f * d, 286f * d, 104f * d)
+    private val tailTop = 8f * d
+
+    private fun sample(tailX: Float?): List<androidx.compose.ui.geometry.Offset> {
+        val path = Path()
+        memoryBubbleOutline(path, body, 30f * d, tailX, tailTop, flank = 46f * d, lean = 6f * d, drop = 18f * d)
+        val measure = PathMeasure().apply { setPath(path, forceClosed = true) }
+        return (0..1200).map { i -> measure.getPosition(measure.length * i / 1200f) }
+    }
+
     @Test
-    fun should_keepOutlineInsideBounds_when_tipAnywhere() {
-        val density = Density(2.625f)
-        val size = Size(600f, 225f) // 54dp body + 28dp horn + sag at 2.625x
-        for (tip in listOf(0f, 40f, 79f, 120f)) {
-            // Sample the curve itself (Path bounds include control points,
-            // which an arc's approximation pushes past the circle).
-            val measure = PathMeasure().apply { setPath(speechBubblePath(size, tip, density), forceClosed = true) }
-            val points = (0..800).map { i -> measure.getPosition(measure.length * i / 800f) }
-            val left = points.minOf { it.x }
-            val right = points.maxOf { it.x }
-            val top = points.minOf { it.y }
-            val bottom = points.maxOf { it.y }
-            assertTrue("tip $tip: $left..$right", left >= -0.5f && right <= size.width + 0.5f)
-            assertTrue("tip $tip: $top..$bottom", top >= -0.5f && bottom <= size.height + 0.5f)
-            assertTrue("tip $tip: spans the box", right - left > 590f && bottom - top > 215f)
-            // The tail reaches the top edge: that's where the arrow sits.
-            assertEquals(0f, top, 0.75f)
+    fun should_riseToAPointOverTheChevron_when_tailFits() {
+        for (tailX in listOf(150f * d, 206f * d)) {
+            // Sample the curve itself (Path bounds include control points).
+            val points = sample(tailX)
+            assertTrue(points.minOf { it.x } >= body.left - 0.5f && points.maxOf { it.x } <= body.right + 0.5f)
+            assertEquals(body.bottom, points.maxOf { it.y }, 0.5f)
+            // The point is the topmost spot, right over the chevron.
+            val top = points.minByOrNull { it.y }!!
+            assertEquals(tailTop, top.y, 0.75f)
+            assertEquals(tailX, top.x, 0.75f)
+        }
+    }
+
+    @Test
+    fun should_beAPlainRoundedBody_when_noTailOrNoRoom() {
+        // No tail; and a tail too close to the left end is left off.
+        for (tailX in listOf(null, body.left + 10f * d)) {
+            val points = sample(tailX)
+            assertEquals(body.top, points.minOf { it.y }, 0.5f)
+            assertEquals(body.left, points.minOf { it.x }, 0.5f)
+            assertEquals(body.right, points.maxOf { it.x }, 0.5f)
         }
     }
 }

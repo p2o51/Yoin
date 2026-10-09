@@ -444,10 +444,16 @@ ShellBackOwner.Memories` (Memories ranks last in `ShellBackResolver`). The
 level is captured once per gesture:
 
 1. **Diary level** (`isDiaryLevel`, p ≥ 0.5): `p0 = diary.stop()` catches a
-   running open/close spring; each event snaps
-   p = p0 · (1 − `backGestureEasing`(progress)) — the full range, eased, no
-   cap, no chase. Commit → `launchAnimateTo(0)`, cancel → `launchAnimateTo(1)`,
-   the same morph spring. It lands on the card; the next back is level 2.
+   running open/close spring; p is then NOT scrubbed. Each event snaps the
+   page's AOSP pose instead — `StageBackPreview` on the whole showcase
+   (`Modifier.backPreviewTransform`): scale toward 0.9, shift toward the
+   swipe's edge, decelerated vertical follow — exactly the Now Playing stage
+   preview. Commit → `launchAnimateTo(0)` (the morph runs on its spring);
+   cancel → `launchAnimateTo(1)` if a spring was caught; both springs the pose
+   home. It lands on the card; the next back is level 2. (Until 2026-10-09 this
+   scrubbed p = p0 · (1 − ease(progress)) over the full range; the ease is
+   front-loaded, so most of the diary folded away in the first stretch of the
+   swipe — owner: back "took the whole travel". Scrub p never again.)
 2. **Card level** (p < 0.5): `snapTo(q0)` stops any settle in flight; each
    event snaps q = q0 + (max(Δ, q0) − q0) · `backGestureEasing`(progress),
    Δ = `MemoriesDismissTrigger` / H. Progress 1 parks the page exactly on the
@@ -641,6 +647,7 @@ token.
 | Shell back ownership (NowPlaying > DetailPane > Memories) | `ui/navigation/back/ShellBackResolver.kt` |
 | NP layered back | `ui/nowplaying/NowPlayingOverlayHost.kt` |
 | Sheet back from a detail page (any host) | `ui/component/YoinModalBottomSheet.kt`, `ui/navigation/back/SheetWindowBack.kt` |
+| Predictive back inside a Compose Dialog's own window (Home's account switcher) | `ui/navigation/back/DialogWindowBack.kt` |
 | Detail column: stack, close handler, divider, layout, tiers, entries, routes, host mode | `ui/navigation/pane/DetailPaneHost.kt`, `PaneSplit.kt`, `DetailPaneEntries.kt`, `DetailPaneRoute.kt`, `ui/detail/DetailHostMode.kt` |
 | Adaptive principles (window / column / bar / NP chain) | `docs/adaptive-principles.md` |
 | Memories / pull-up controller q (+ dp rule `settleDismiss` / `chooseDismissTarget`) | `ui/experience/RevealState.kt` |

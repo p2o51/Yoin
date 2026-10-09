@@ -193,5 +193,10 @@ data class HomeMemoryPill(
         val scoreKind: MemoryScoreKind,
         // "%.1f" (Locale.US), the seal's own format; null for NONE.
         val scoreText: String?,
+        // When the user last wrote on it (the bubble's "3 days ago"); null = plays only.
+        val writtenAtMillis: Long? = null,
+        // Its Memory title when one is written (the user's or the AI's, cache
+        // only); null = the album name stands in.
+        val memoryTitle: String? = null,
     )
 }
