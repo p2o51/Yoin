@@ -3,6 +3,7 @@ package com.gpo.yoin.player.applemusic
 import android.content.Context
 import android.os.Handler
 import android.os.Looper
+import android.os.Trace
 import android.util.Log
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
@@ -21,6 +22,7 @@ import com.gpo.yoin.BuildConfig
 import com.gpo.yoin.R
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
+import org.bytedeco.javacpp.Pointer
 
 /** MusicKit owns DRM/audio. Media3 exposes only observed state and supported commands. */
 @UnstableApi
@@ -37,6 +39,14 @@ class AppleMusicMedia3Player(
         // Required by Apple's SDK sample; the Java factory does not load JNI itself.
         System.loadLibrary("c++_shared")
         System.loadLibrary("appleMusicSDK")
+        if (BuildConfig.DEBUG) {
+            Log.i(
+                "YoinMusicKitMemory",
+                "heapMax=${Runtime.getRuntime().maxMemory()} " +
+                    "maxPhysicalBytes=${Pointer.maxPhysicalBytes()} maxBytes=${Pointer.maxBytes()} " +
+                    "physicalBytes=${Pointer.physicalBytes()} trackedBytes=${Pointer.totalBytes()}"
+            )
+        }
     }
     private val controller = MediaPlayerControllerFactory.createLocalController(
         appContext,
@@ -104,7 +114,7 @@ class AppleMusicMedia3Player(
     private val ticker = object : Runnable {
         override fun run() {
             if (!released) {
-                publish()
+                publish("ticker")
                 handler.postDelayed(this, 1000)
             }
         }
@@ -129,12 +139,25 @@ class AppleMusicMedia3Player(
         if (controller.currentPosition > RestoredStartSlackMs && controller.canSeek()) controller.seekToPosition(0)
     }
 
-    private fun publish() {
+    private fun publish(reason: String = "callback") {
         if (released) return
         if (Looper.myLooper() != Looper.getMainLooper()) {
-            handler.post { publish() }
+            handler.post { publish(reason) }
             return
         }
+        if (!BuildConfig.DEBUG) {
+            publishState()
+            return
+        }
+        Trace.beginSection("Yoin.MusicKit.publish.$reason")
+        try {
+            publishState()
+        } finally {
+            Trace.endSection()
+        }
+    }
+
+    private fun publishState() {
         invalidateState()
         val item = controller.currentItem?.item
         onObservation(
