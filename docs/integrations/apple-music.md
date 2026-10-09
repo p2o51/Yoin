@@ -55,6 +55,116 @@ Yoin sets only this documented property in `YoinApplication.onCreate`, before co
 
 Budget unit tests cover tablet, limited/unknown RAM, the RAM cap, larger preexisting defaults and integer overflow. The native SDK smoke test confirmed the initialized 1 GiB physical budget and unchanged 256 MiB tracked-allocation budget. On the final optimized APK, subscribed-device pause/resume, portrait/landscape changes and playing Apple Music → Spotify account switching succeeded; pre-switch RSS was about 732 MiB and the app process remained alive. Long-duration decoder stability remains unverified.
 
+### Source audit and physical-device probe (2026-10-08)
+
+This pass checks the current workspace at `782d8651` with debug-only measurement additions.
+It does **not** establish the cause of subscribed-playback heat. Before any installation,
+the tablet's Settings listed only two Subsonic QA profiles; no Apple Music profile was available.
+The existing debug signing certificate was verified before `adb install -r`; app data was not cleared.
+The installed diagnostic APK is `app/build/outputs/apk/debug/app-debug.apk`, version 0.5.0 (5).
+
+Source comparisons:
+
+- The actual Apple SDK 1.1.2 download in `Downloads/AndroidMusicKitSDK1.1.2.zip` includes
+  JavaCPP **1.4.4** (embedded Maven metadata). Its official `sdk-test-app.zip` sets both
+  JavaCPP limits to `0` before loading JNI, and enables `largeHeap`. The archive changelog
+  ends at 2021-11-16; this alone is not proof that no newer distribution exists.
+- [Cadenza's initialization fix](https://github.com/CadenzaApp/Cadenza/commit/7fcef86f7d698da43c800d5405102fbefe87a775)
+  agrees on setting properties before `loadLibrary`. Yoin already sets its property in
+  `YoinApplication.onCreate` before loading MusicKit; the device assertions below confirm it works.
+- Bundled `Pointer` bytecode agrees with [JavaCPP 1.4.4](https://github.com/bytedeco/javacpp/blob/1.4.4/src/main/java/org/bytedeco/javacpp/Pointer.java):
+  registering an owned pointer checks physical memory, and **exceeding** either enabled limit
+  can trigger up to ten GC/sleep/trim retries while holding the deallocator-class monitor.
+  Being below but near the physical limit does not itself trigger those retries. `maxBytes`
+  limits JavaCPP-tracked allocations, not total process RSS; the two numbers must not be conflated.
+- Yoin's `setContentPositionMs(long)` **already** uses
+  [Media3 1.10.0's advancing position supplier](https://github.com/androidx/media/blob/1.10.0/libraries/common/src/main/java/androidx/media3/common/SimpleBasePlayer.java).
+  Its ticker nevertheless invalidates the whole state and reconstructs play order every second,
+  even without playback. The production service ignores `onObservation`; the validation service
+  still consumes it. Removing the ticker should preserve that observation contract and verify
+  seeks, buffering, pause, track transitions and system controls on a subscribed account.
+- SDK bytecode creates an `AppleMusicPlayback` partial wake lock and Wi-Fi lock type 3.
+  [Android's current Wi-Fi documentation](https://developer.android.com/reference/android/net/wifi/WifiManager#WIFI_MODE_FULL_HIGH_PERF)
+  says API 34+ substitutes a low-latency lock, with connected/foreground/screen-on conditions.
+  A request for the old flag does not prove continuously disabled Wi-Fi power saving on Android 17.
+- [Kaset's 30-track window](https://github.com/alidogangullu/Kaset-Player/commit/25f2dff)
+  is a confirmed project workaround. It is not evidence of a universal 100-track SDK limit;
+  Yoin's long-queue failure and the need for a window remain unverified.
+- Current `AppleMusicPlaybackService` releases its player/session when the source changes or
+  switching starts. Recreating a controller after release is not by itself a leak. The official
+  sample also ties controller ownership to a service, rather than promising process-long ownership.
+
+Physical Pixel Tablet, isolated ADB server **5038**, Android 17:
+
+| Check | Observed result | Scope |
+|---|---|---|
+| Display | Only a 60 Hz physical mode; active render rate 60 Hz | A sustained 120 Hz explanation does not apply to this tablet |
+| Effective JavaCPP limits | `maxPhysicalBytes=1073741824`, `maxBytes=268435456` | Read from initialized `Pointer`, not just System properties |
+| Idle controller, 20 s | Physical bytes about 251.6–253.2 MiB; tracked bytes 280; no GC | No authorization, queue or audio decoder workload |
+| Ticker, stable 5–20 s | 15 calls, mean 1.498 ms, maximum 2.055 ms | Debug build, empty queue; wall time, not CPU time or energy |
+| Release | No ticker calls during the following 2 s | First controller |
+| Five create/release cycles | Java thread count returns to 24 each time; tracked bytes stay 280 | Short unloaded-controller probe, not proof against playback leaks |
+| GC / contention | One background concurrent mark-compact GC in the full probe; largest recorded monitor-contention slice 1.321 ms | No explicit-GC burst or recorded JavaCPP monitor stall in this run |
+| Trace integrity | No nonzero Perfetto error-severity stats | 45 s recording, 32.4 s instrumentation test |
+
+`AppleMusicNativeMemoryPolicyTest` passed all five JVM cases; both existing SDK/session device tests
+and the new opt-in probe passed. `assembleDebug`, `assembleDebugAndroidTest`, `ktlintCheck` and
+`git diff --check` passed. The current ktlint task only reported Kotlin-script checks, so this is
+not a claim of complete Kotlin-source formatting coverage. The diagnostic build launched back to Home.
+
+Local evidence is under `outputs/musickit-audit-20261008/`: `instrumentation.txt`, `idle-probe.txt`,
+`idle-controller.perfetto-trace`, `analysis.sql`, `analysis.csv`, `steady-idle.csv`, `display.txt`,
+`signing-check.txt`, and before/after screenshots. The trace processor found no dropped-data errors.
+The opt-in test runs with instrumentation arguments
+`-e class com.gpo.yoin.player.applemusic.AppleMusicMemoryProbeTest -e musickitMemoryProbe true`;
+ordinary test runs skip it. Debug builds emit `YoinMusicKitMemory` once per controller creation
+and `Yoin.MusicKit.publish.ticker` / `.callback` trace sections, without credentials or track metadata.
+
+Pending an authorized Apple Music profile: record the same queue in foreground Now Playing,
+paused foreground, background and screen-off playback; then stress next/previous and long queues.
+Compare JavaCPP physical/tracked bytes, explicit GC, scheduler stalls, frames, Wi-Fi lock state and
+thermal status under matched conditions. This dock-powered debug run cannot establish energy use.
+Keep the existing limits, queue behavior and animation policy until those measurements are available.
+
+### Subscribed playback on the Pixel Tablet (2026-10-09)
+
+The pending measurements above, taken with the owner's Apple Music profile on the same tablet:
+debug build, dock-powered, 60 Hz, ADB over Wi-Fi (which also keeps the Wi-Fi rail busy), Perfetto
+with ODPM power rails. MusicKit's own threads are inflated in debug builds (the SDK still builds the
+strings of its stripped log calls on every 10 ms tick; R8 removes them in release), so the screen-off
+figures are an upper bound until a release/profileable rerun.
+
+| Scenario | Yoin, % of one core | MusicKit threads | Frames | Notes |
+|---|---|---|---|---|
+| Library albums + detail pane, playing | 93% | ExoPlayer 10%, decoder 5% | 60 fps, full window | wifi.bt 288 mW |
+| Same page, paused | 72% | ~0 | 60 fps, full window | wifi.bt 141 mW |
+| Now Playing full screen with lyrics, playing | ~100% | ~15% | 60 fps | |
+| Screen off, playing | 31% | ExoPlayer 14%, decoder 15% | none | cpu.little 85 mW, wifi.bt 151 mW |
+
+- Screen-on heat is the UI: every frame redraws the whole 2560×1600 window (grid marquees, wave,
+  playing indicator), playing or not, on any provider. Screen-off cost is MusicKit's embedded
+  ExoPlayer 2.6 loop (10 ms `doSomeWork`) plus software AAC decoding; Yoin's own work there is the
+  1 s ticker (1–1.5 ms per call on screen, 6–12 ms on the little cores screen-off, where it also
+  contends with MusicKit's queue lock) — about 1% of a core.
+- Playing adds ~150 mW on the Wi-Fi rail with the screen on and none with it off, consistent with
+  the SDK's `WIFI_MODE_FULL_HIGH_PERF` lock becoming a low-latency lock only while the screen is on
+  (inferred, not isolated).
+- Memory: no growth over 10 minutes of screen-off playback or 25 rapid skips (VmRSS 452 → peak 561
+  → 471 MB, anonymous 163–190 MB, threads 79 → 87 then flat). Opening full Now Playing peaked at
+  ~603 MB. About 157 MB of VmRSS is `/dev/mali0` and dma-buf mappings that `smaps` omits but
+  `/proc/self/statm` — JavaCPP's `physicalBytes` — counts, so UI graphics push MusicKit toward its
+  guard: the vendor's 512 MB default would have tripped; the 1 GiB budget left ~400 MB. The six
+  explicit GCs seen ran on binder threads (system-initiated), not JavaCPP's retry loop.
+- Seen once, not reproduced: after a queue ran out with the screen off, the main thread recomposed at
+  60 Hz with no frames drawn for minutes while the Activity was stopped.
+
+Fixed in the same pass (verified on this device): a song tapped after Play next / Add to queue
+failed with a misleading subscription error because MusicKit's default REPLACE prepare refuses to
+drop an Up Next — prepare now uses `INSERTION_TYPE_CLEAR_AND_REPLACE`; searched catalog albums whose
+`/tracks?include=albums,artists` Apple answers with 500 or 400 (207192046, 206356495, 1452580932)
+now refetch the bare tracklist; a repeated MusicKit queue id no longer crashes Media3's playlist
+check; library search lists one row per catalog identity.
+
 ## Validation for the Profile integration
 
 - Full JVM suite: 297 tests, no failures. New cases cover idempotent migration, preserving authorization at the account limit, credential serialization, catalog navigation IDs, complete playlist pagination, cross-origin pagination rejection, read-only playlist semantics and rejecting unmatched imports.
