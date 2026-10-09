@@ -3,6 +3,7 @@ package com.gpo.yoin.player.applemusic
 import android.content.Context
 import android.os.Handler
 import android.os.Looper
+import android.util.Log
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
@@ -16,6 +17,7 @@ import com.apple.android.music.playback.model.PlaybackState as ApplePlaybackStat
 import com.apple.android.music.playback.model.PlayerQueueItem
 import com.apple.android.music.playback.queue.CatalogPlaybackQueueItemProvider
 import com.apple.android.sdk.authentication.TokenProvider
+import com.gpo.yoin.BuildConfig
 import com.gpo.yoin.R
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
@@ -155,7 +157,14 @@ class AppleMusicMedia3Player(
      */
     private fun playOrder(): PlayOrder? {
         val current = controller.currentItem ?: return null
-        val upcoming = controller.queueItems.orEmpty()
+        // As a queue runs out MusicKit can list the current item (or one id twice) among the upcoming ones.
+        // Media3 rejects a repeated uid, and that throw — from a MusicKit listener — killed the process.
+        val seen = hashSetOf(current.playbackQueueId)
+        val listed = controller.queueItems.orEmpty()
+        val upcoming = listed.filter { seen.add(it.playbackQueueId) }
+        if (BuildConfig.DEBUG && upcoming.size != listed.size) {
+            Log.w("YoinMusicKitQueue", "dropped ${listed.size - upcoming.size} repeated queue ids")
+        }
         val pool = requestedItems.toMutableList()
         fun claim(queued: PlayerQueueItem): MediaItem {
             val match = pool.indexOfFirst { catalogId(it) == queued.item?.subscriptionStoreId }
@@ -291,10 +300,14 @@ class AppleMusicMedia3Player(
             handler.removeCallbacks(prepareTimeout)
             handler.postDelayed(prepareTimeout, 30_000)
             startFromTop = true
+            // A new queue replaces everything, Play next included. The plain prepare() is REPLACE, which
+            // MusicKit (1.1.1, `queue.b`) refuses with a queue error while an added Up Next sits after a
+            // non-last item: after any Play next / Add to queue, tapping a song failed until the queue ran out.
             controller.prepare(
                 CatalogPlaybackQueueItemProvider.Builder()
                     .items(MediaItemType.SONG, *requestedItems.map(::catalogId).toTypedArray())
                     .startItemIndex(requestedIndex).build(),
+                com.apple.android.music.playback.queue.PlaybackQueueInsertionType.INSERTION_TYPE_CLEAR_AND_REPLACE,
                 desiredPlay
             )
         }
