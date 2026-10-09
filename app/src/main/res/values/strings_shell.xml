@@ -2,6 +2,7 @@
 <resources>
     <string name="shell_snackbar_open_settings_no_client_id">Open Settings</string>
     <string name="shell_snackbar_open_settings_auth">Open Settings</string>
+    <string name="shell_snackbar_allow_spotify">Allow</string>
     <string name="shell_pane_album_go_to_artist">Go to artist</string>
     <string name="shell_pane_album_share">Share</string>
     <string name="shell_pane_artist_share">Share</string>
@@ -23,7 +24,10 @@
     <string name="player_spotify_update_app">Update the Spotify app to use in-app playback.</string>
     <string name="player_spotify_unavailable">Spotify playback is unavailable.</string>
     <string name="player_spotify_track_only_fallback">Spotify playback fell back to track-only mode. Open Settings → Spotify and reconnect to restore album / playlist context.</string>
-    <string name="player_spotify_needs_permission">Spotify needs permission in the Spotify app. Open Spotify, approve access if prompted, and try again.</string>
+    <string name="player_spotify_needs_permission">Spotify hasn\'t allowed Yoin to control playback yet.</string>
+    <!-- %1$s = Spotify's own error code, e.g. INVALID_CLIENT -->
+    <string name="player_spotify_consent_refused">Spotify refused: %1$s</string>
+    <string name="player_spotify_allow">Allow in Spotify</string>
     <string name="player_spotify_needs_authorization">Spotify needs authorization in the Spotify app. Open Spotify and try again.</string>
     <string name="player_init_failed">Unable to initialize playback</string>
     <string name="player_play_failed">Unable to play this song</string>

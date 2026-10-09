@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
@@ -171,11 +172,22 @@
             </intent-filter>
         </activity>
 
+        <!--
+            App Remote consent through Spotify's official authorization page (spotify-auth).
+            SpotifyConsentActivity is the invisible host that starts it and reacts to the answer;
+            the library's RedirectUriReceiverActivity owns the app-remote redirect (it must, the
+            library checks), only reached on its browser fallback.
+        -->
         <activity
-            android:name=".data.source.spotify.SpotifyAppRemoteCallbackActivity"
+            android:name=".data.source.spotify.SpotifyConsentActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:theme="@style/Theme.Yoin.WidgetTrampoline" />
+
+        <activity
+            android:name="com.spotify.sdk.android.auth.browser.RedirectUriReceiverActivity"
             android:exported="true"
-            android:launchMode="singleTask"
-            android:theme="@android:style/Theme.Translucent.NoTitleBar">
+            tools:node="merge">
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />

@@ -20,6 +20,7 @@ import com.gpo.yoin.player.CastState
 import com.gpo.yoin.player.ConnectionPhase
 import com.gpo.yoin.player.PlaybackManager
 import com.gpo.yoin.player.PlaybackState
+import com.gpo.yoin.player.SpotifyConnectFailure
 import com.gpo.yoin.data.model.Track
 import androidx.media3.common.Player
 import com.gpo.yoin.ui.common.UiText
@@ -448,6 +449,7 @@ class NowPlayingViewModel(
                     coverArtUrl = repository.resolveCoverUrl(song.coverArt),
                     message = state.connectionErrorMessage?.let { UiText.Raw(it) }
                         ?: UiText.Res(R.string.np_msg_playback_interrupted),
+                    canAllowInSpotify = state.connectionFailure is SpotifyConnectFailure.NeedsConsent,
                 )
 
             song != null -> NowPlayingUiState.Playing(
@@ -514,6 +516,7 @@ class NowPlayingViewModel(
                     coverArtUrl = repository.resolveCoverUrl(pending.coverArt),
                     message = state.connectionErrorMessage?.let { UiText.Raw(it) }
                         ?: UiText.Res(R.string.np_msg_couldnt_start),
+                    canAllowInSpotify = state.connectionFailure is SpotifyConnectFailure.NeedsConsent,
                 )
 
             else -> NowPlayingUiState.Idle

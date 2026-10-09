@@ -215,6 +215,8 @@ dependencies {
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.gson)
     implementation(files("libs/spotify-app-remote-release-0.8.0.aar"))
+    // Spotify's official authorization page, for App Remote consent its own auth view can no longer show.
+    implementation(libs.spotify.auth)
 
     // Image loading
     implementation(libs.coil.compose)

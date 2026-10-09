@@ -80,6 +80,15 @@ sealed interface SpotifyConnectFailure {
     /** Auth handshake failed (not logged in, token revoked, etc). */
     data class AuthFailure(val message: String) : SpotifyConnectFailure
 
+    /**
+     * Spotify hasn't granted this Client ID App Remote control for the signed-in account
+     * ("Explicit user authorization is required"). Not a token problem — the Web API session
+     * is fine — so the recovery is Spotify's own authorization page ([com.gpo.yoin.data.source.spotify.SpotifyConsentActivity]),
+     * never "reconnect the account". The SDK's built-in auth view no longer shows on current
+     * Android / Spotify builds, so this can't be left to `showAuthView(true)`.
+     */
+    data class NeedsConsent(val message: String) : SpotifyConnectFailure
+
     /** Network / IPC / offline-mode / version mismatch. */
     data class TransportFailure(val message: String) : SpotifyConnectFailure
 
@@ -93,6 +102,10 @@ sealed interface SpotifyConnectFailure {
         is AuthFailure -> message.ifBlank {
             resources?.getString(R.string.player_spotify_auth_failed)
                 ?: "Spotify authorization failed."
+        }
+        is NeedsConsent -> message.ifBlank {
+            resources?.getString(R.string.player_spotify_needs_permission)
+                ?: "Spotify hasn't allowed Yoin to control playback yet." // i18n-allow: fallback without resources
         }
         is TransportFailure -> message.ifBlank {
             resources?.getString(R.string.player_spotify_connection_lost)
@@ -187,6 +200,29 @@ internal class SpotifyAppRemotePlayer(
         Log.d(tag, "warmConnection: attempting soft connect for PlayerState observation")
         wantsConnection = true
         connectIfPossible()
+    }
+
+    /**
+     * Spotify's authorization page just granted App Remote control: connect again now. The
+     * play request that failed is still queued, so it plays as soon as the connection is up.
+     */
+    fun retryAfterConsent() {
+        Log.d(tag, "retryAfterConsent")
+        wantsConnection = true
+        coldStartAuthRetryAvailable = true
+        connectIfPossible()
+    }
+
+    /** Spotify's authorization page refused; show its reason where the connect error sits. */
+    fun reportConsentRefused(reason: String) {
+        val message = applicationContext.getString(R.string.player_spotify_consent_refused, reason)
+        publish(
+            lastSnapshot.copy(
+                connectionPhase = ConnectionPhase.Error,
+                connectionErrorMessage = message,
+                connectionFailure = SpotifyConnectFailure.NeedsConsent(message),
+            ),
+        )
     }
 
     fun onHostStop() {
@@ -540,8 +576,8 @@ internal class SpotifyAppRemotePlayer(
         // user has already registered in the Spotify Developer Dashboard.
         // A second URI (APP_REMOTE_REDIRECT_URI) would need its own Dashboard
         // whitelist entry — if it's missing, Spotify rejects the connection
-        // with UserNotAuthorizedException before any scope check runs. Keeping
-        // the split callback activity is harmless (it just finish()es), but
+        // with UserNotAuthorizedException before any scope check runs. That
+        // second URI belongs to SpotifyConsentActivity's authorization request;
         // the ConnectionParams URI must match a whitelisted one.
         val params = ConnectionParams.Builder(clientId)
             .setRedirectUri(SpotifyAuthConfig.REDIRECT_URI)
@@ -961,9 +997,9 @@ internal fun userNotAuthorizedFailure(
         normalized?.contains("authorization is required", ignoreCase = true) == true ||
             normalized?.contains("auth-flow", ignoreCase = true) == true ||
             normalized?.contains("authorize", ignoreCase = true) == true ->
-            SpotifyConnectFailure.AuthFailure(
+            SpotifyConnectFailure.NeedsConsent(
                 resources?.getString(R.string.player_spotify_needs_permission)
-                    ?: "Spotify needs permission in the Spotify app. Open Spotify, approve access if prompted, and try again.", // i18n-allow: SpotifyTypedFailureMappingTest and SpotifyAppRemotePlayerMappingTest assert this English
+                    ?: "Spotify hasn't allowed Yoin to control playback yet.", // i18n-allow: SpotifyTypedFailureMappingTest and SpotifyAppRemotePlayerMappingTest assert this English
             )
 
         else -> SpotifyConnectFailure.AuthFailure(

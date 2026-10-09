@@ -7,14 +7,16 @@ import org.junit.Test
 class SpotifyTypedFailureMappingTest {
 
     @Test
-    fun authorization_prompt_maps_to_auth_failure_with_user_actionable_copy() {
+    fun authorization_prompt_maps_to_needs_consent_not_a_token_failure() {
         val failure = userNotAuthorizedFailure(
             """{"message":"Explicit user authorization is required to use Spotify. The user has to complete the auth-flow to allow the app to use Spotify on their behalf"}""",
         )
 
-        assertTrue(failure is SpotifyConnectFailure.AuthFailure)
+        // Consent for App Remote, not a broken token: the recovery is Spotify's authorization
+        // page, never "reconnect the account".
+        assertTrue(failure is SpotifyConnectFailure.NeedsConsent)
         assertEquals(
-            "Spotify needs permission in the Spotify app. Open Spotify, approve access if prompted, and try again.",
+            "Spotify hasn't allowed Yoin to control playback yet.",
             failure.userMessage(),
         )
     }

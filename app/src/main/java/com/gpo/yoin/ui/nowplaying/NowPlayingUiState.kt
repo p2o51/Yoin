@@ -40,6 +40,8 @@ sealed interface NowPlayingUiState {
         val artist: String,
         val coverArtUrl: String?,
         val message: UiText,
+        /** Spotify hasn't granted App Remote control yet: offer its authorization page. */
+        val canAllowInSpotify: Boolean = false,
     ) : NowPlayingUiState
 
     /**

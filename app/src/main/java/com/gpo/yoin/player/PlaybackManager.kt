@@ -203,6 +203,16 @@ class PlaybackManager(
         }
     }
 
+    /** Spotify's authorization page granted App Remote control: retry the connection (the queued play runs). */
+    fun retrySpotifyAfterConsent() {
+        spotifyRemotePlayer.retryAfterConsent()
+    }
+
+    /** Spotify's authorization page refused; [reason] is Spotify's own error text. */
+    fun reportSpotifyConsentRefused(reason: String) {
+        spotifyRemotePlayer.reportConsentRefused(reason)
+    }
+
     fun onHostStop() {
         // Kill the ticker BEFORE forwarding: the Spotify teardown below
         // republishes a preserved snapshot (often isPlaying=true) that would

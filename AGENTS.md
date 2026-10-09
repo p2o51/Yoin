@@ -111,7 +111,8 @@ When adding a new table that references remote ids, always include a `provider: 
 - `YoinRepository` is already slimmed onto `ProfileManager.activeSource`.
 - ViewModels and Composables consume `data.model.*` neutral models.
 - `PlaybackManager` branches on `PlaybackHandle` and routes `ExternalController` to `SpotifyAppRemotePlayer`. The `PlaybackState`carries a `connectionPhase` (`Idle` / `Connecting` / `Ready` / `Error`) plus `pendingTrack` so Spotify doesn't fake "already playing" before the first real `PlayerState` arrives from App Remote.
-- Spotify connect failures are typed (`SpotifyConnectFailure.NoClientId`, `SpotifyAppMissing`, `PremiumRequired`, `AuthFailure`, `TransportFailure`) and surface through `PlaybackManager.events` — `YoinNavHost` collects them into an actionable snackbar at the shell level.
+- Spotify connect failures are typed (`SpotifyConnectFailure.NoClientId`, `SpotifyAppMissing`, `PremiumRequired`, `AuthFailure`, `NeedsConsent`, `TransportFailure`) and surface through `PlaybackManager.events` — `YoinNavHost` collects them into an actionable snackbar at the shell level.
+- `NeedsConsent` = App Remote says "Explicit user authorization is required". Web OAuth consent (even with `app-remote-control`) does not count, and App Remote's own `showAuthView(true)` page no longer appears on current Android / Spotify builds, so the recovery is `SpotifyConsentActivity`: Spotify's official authorization page via spotify-auth (`app-remote-control`, redirect `yoin://auth/spotify/app-remote`), then a retry that plays the queued request. Offered from the shell snackbar and Now Playing's connect-error state. Never map it to "reconnect the account".
 - `SettingsScreen` exposes profile list / switch / create / edit / delete UI, Spotify OAuth bootstrap, runtime Spotify Client ID config with a deep-linkable `focusSection = "spotify"` entry point, and "No Client ID" badge on unavailable profile cards.
 
 ### Remaining phases

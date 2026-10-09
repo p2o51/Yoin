@@ -84,6 +84,7 @@ import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.Track
 import com.gpo.yoin.data.repository.ActivityContext
 import com.gpo.yoin.data.source.Capability
+import com.gpo.yoin.data.source.spotify.SpotifyConsentActivity
 import com.gpo.yoin.player.PlaybackEvent
 import com.gpo.yoin.player.SpotifyConnectFailure
 import com.gpo.yoin.ui.component.AddToPlaylistSheet
@@ -768,10 +769,12 @@ private fun YoinShell(
                         withDismissAction = actionLabel == null,
                         duration = SnackbarDuration.Long,
                     )
-                    if (result == SnackbarResult.ActionPerformed &&
-                        event.failure.shouldOpenSpotifySettings()
-                    ) {
-                        navigateToSettingsFromShell("spotify")
+                    if (result == SnackbarResult.ActionPerformed) {
+                        when {
+                            event.failure is SpotifyConnectFailure.NeedsConsent ->
+                                shellContext.startActivity(SpotifyConsentActivity.intent(shellContext))
+                            event.failure.shouldOpenSpotifySettings() -> navigateToSettingsFromShell("spotify")
+                        }
                     }
                 }
 
@@ -783,10 +786,12 @@ private fun YoinShell(
                         withDismissAction = actionLabel == null,
                         duration = SnackbarDuration.Long,
                     )
-                    if (result == SnackbarResult.ActionPerformed &&
-                        event.failure.shouldOpenSpotifySettings()
-                    ) {
-                        navigateToSettingsFromShell("spotify")
+                    if (result == SnackbarResult.ActionPerformed) {
+                        when {
+                            event.failure is SpotifyConnectFailure.NeedsConsent ->
+                                shellContext.startActivity(SpotifyConsentActivity.intent(shellContext))
+                            event.failure.shouldOpenSpotifySettings() -> navigateToSettingsFromShell("spotify")
+                        }
                     }
                 }
             }
@@ -1481,12 +1486,15 @@ private fun actionLabelForFailure(
     SpotifyConnectFailure.PremiumRequired -> null
     is SpotifyConnectFailure.AuthFailure ->
         context.getString(R.string.shell_snackbar_open_settings_auth)
+    is SpotifyConnectFailure.NeedsConsent ->
+        context.getString(R.string.shell_snackbar_allow_spotify)
     is SpotifyConnectFailure.TransportFailure -> null
 }
 
 private fun SpotifyConnectFailure.shouldOpenSpotifySettings(): Boolean = when (this) {
     SpotifyConnectFailure.NoClientId -> true
     is SpotifyConnectFailure.AuthFailure -> true
+    is SpotifyConnectFailure.NeedsConsent -> false
     SpotifyConnectFailure.SpotifyAppMissing -> false
     SpotifyConnectFailure.PremiumRequired -> false
     is SpotifyConnectFailure.TransportFailure -> false

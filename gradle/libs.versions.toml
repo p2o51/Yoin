@@ -45,6 +45,7 @@ palette = "1.0.0"
 graphicsShapes = "1.1.0"
 # Home-screen widgets (Play / Memory)
 glance = "1.2.0"
+spotifyAuth = "5.0.0"
 
 # DI — manual (no Hilt/Dagger for lightweight MVP)
 
@@ -131,6 +132,7 @@ palette = { group = "androidx.palette", name = "palette-ktx", version.ref = "pal
 graphics-shapes = { group = "androidx.graphics", name = "graphics-shapes", version.ref = "graphicsShapes" }
 glance-appwidget = { group = "androidx.glance", name = "glance-appwidget", version.ref = "glance" }
 glance-material3 = { group = "androidx.glance", name = "glance-material3", version.ref = "glance" }
+spotify-auth = { group = "com.spotify.android", name = "auth", version.ref = "spotifyAuth" }
 
 # Core AndroidX
 core-ktx = { group = "androidx.core", name = "core-ktx", version = "1.15.0" }

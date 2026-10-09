@@ -60,6 +60,8 @@ import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.CornerSize
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.FilledIconButton
@@ -108,6 +110,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.res.stringResource
@@ -126,6 +129,7 @@ import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import com.gpo.yoin.R
 import com.gpo.yoin.data.local.SongNote
+import com.gpo.yoin.data.source.spotify.SpotifyConsentActivity
 import com.gpo.yoin.ui.common.asString
 import com.gpo.yoin.data.model.YoinDevice
 import com.gpo.yoin.data.repository.ActivityContext
@@ -549,9 +553,11 @@ private fun LaunchingContent(
  * Backend refused / lost the connection mid-launch. Show the failing track
  * with the user-facing error message. Shell snackbar also surfaces the
  * actionable recovery (open Settings / install Spotify / reconnect); this
- * screen just tells the user what they were trying to play and why it
- * didn't work.
+ * screen tells the user what they were trying to play and why it didn't
+ * work — and, when Spotify only lacks App Remote consent, offers it here
+ * too (a detail page has no shell snackbar).
  */
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun ConnectErrorContent(
     state: NowPlayingUiState.ConnectError,
@@ -611,6 +617,18 @@ private fun ConnectErrorContent(
             color = MaterialTheme.colorScheme.error,
             textAlign = androidx.compose.ui.text.style.TextAlign.Center,
         )
+        if (state.canAllowInSpotify) {
+            // Spotify's own authorization page (App Remote's built-in one no longer shows);
+            // on "allow" the connection retries and the track that failed plays.
+            val context = LocalContext.current
+            Spacer(modifier = Modifier.height(20.dp))
+            Button(
+                onClick = { context.startActivity(SpotifyConsentActivity.intent(context)) },
+                shapes = ButtonDefaults.shapes(),
+            ) {
+                Text(stringResource(R.string.player_spotify_allow))
+            }
+        }
     }
 }
 
