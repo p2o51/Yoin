@@ -390,8 +390,11 @@ internal fun Modifier.seamDissolveViewport(
     flow: SeamFlow? = null,
     background: SeamBackground? = null,
     remainingPx: (() -> Float)? = null,
+    // Pins the chrome seam to one look instead of the user's choice — only for
+    // previews of the styles themselves (Settings › Scroll edge, the landing).
+    style: SeamTopStyle? = null,
     scrolledPx: () -> Float,
-): Modifier = this then SeamViewportElement(top, topInset, flow, background, remainingPx, scrolledPx)
+): Modifier = this then SeamViewportElement(top, topInset, flow, background, remainingPx, style, scrolledPx)
 
 private data class SeamViewportElement(
     val top: SeamTop,
@@ -399,11 +402,13 @@ private data class SeamViewportElement(
     val flow: SeamFlow?,
     val background: SeamBackground?,
     val remainingPx: (() -> Float)?,
+    val style: SeamTopStyle?,
     val scrolledPx: () -> Float,
 ) : ModifierNodeElement<SeamViewportNode>() {
-    override fun create() = SeamViewportNode(top, topInset, flow, background, remainingPx, scrolledPx)
+    override fun create() = SeamViewportNode(top, topInset, flow, background, remainingPx, style, scrolledPx)
     override fun update(node: SeamViewportNode) {
         node.top = top
+        node.styleOverride = style
         node.topInset = topInset
         node.useFlow(flow)
         node.background = background
@@ -428,6 +433,7 @@ private class SeamViewportNode(
     flow: SeamFlow?,
     background: SeamBackground?,
     var remainingPx: (() -> Float)?,
+    style: SeamTopStyle?,
     var scrolledPx: () -> Float,
 ) : DelegatingNode(),
     TraversableNode,
@@ -439,6 +445,7 @@ private class SeamViewportNode(
         private set
 
     var top by mutableStateOf(top)
+    var styleOverride by mutableStateOf(style)
     var topInset by mutableStateOf(topInset)
     var background by mutableStateOf(background)
     private var ownFlow: SeamFlow? = null
@@ -485,7 +492,7 @@ private class SeamViewportNode(
      * reads (the user can change it in Settings at any time) — call it from
      * draw or layer blocks only.
      */
-    val topStyle: SeamTopStyle? get() = if (top == SeamTop.Chrome) SeamTopPreference.style else null
+    val topStyle: SeamTopStyle? get() = if (top == SeamTop.Chrome) styleOverride ?: SeamTopPreference.style else null
 
     /** This node draws the tide line at its top and text fades below the line's rest. A snapshot read. */
     val tideActive: Boolean get() = topStyle == SeamTopStyle.Tide
@@ -819,6 +826,7 @@ private class SeamDissolveNode :
 
     override fun onNearChanged(top: Boolean, field: Boolean) {
         val print = print ?: return
+        print.topViewport = viewport()
         if (print.liftForTop != top) print.liftForTop = top
         if (print.liftForField != field) print.liftForField = field
     }
@@ -1182,7 +1190,10 @@ private class SeamPrintNode :
      * the tide it stays whole, so its text stays in it. Snapshot reads — read
      * in draw by both sides.
      */
-    val lifting: Boolean get() = liftForField || (liftForTop && SeamTopPreference.style.liftsText)
+    val lifting: Boolean get() = liftForField || (liftForTop && (topViewport?.topStyle ?: SeamTopPreference.style).liftsText)
+
+    /** The viewport whose chrome seam sets [liftForTop] (a style preview pins its own look). */
+    var topViewport: SeamViewportNode? = null
     val lifted = LinkedHashSet<SeamFadeNode>()
 
     override fun onAttach() {
@@ -1191,6 +1202,7 @@ private class SeamPrintNode :
 
     override fun onDetach() {
         outer = null
+        topViewport = null
         liftForTop = false
         liftForField = false
     }

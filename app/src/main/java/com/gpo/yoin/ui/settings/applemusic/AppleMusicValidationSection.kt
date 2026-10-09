@@ -26,6 +26,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.gpo.yoin.R
+import com.gpo.yoin.data.remote.applemusic.YoinTokenService
 import com.gpo.yoin.ui.common.asString
 import com.gpo.yoin.ui.component.ExpressiveTextField
 import com.gpo.yoin.ui.theme.YoinMotion
@@ -50,7 +51,8 @@ fun AppleMusicValidationSection(
 
 @Composable
 fun AppleMusicValidationContent(state: AppleMusicValidationUiState, onConnect: (String) -> Unit) {
-    var endpoint by rememberSaveable(state.endpoint) { mutableStateOf(state.endpoint) }
+    // Yoin's own token service unless the account already uses another.
+    var endpoint by rememberSaveable(state.endpoint) { mutableStateOf(state.endpoint.ifBlank { YoinTokenService.URL }) }
     Column(
         Modifier.fillMaxWidth().testTag("apple_music_validation").padding(18.dp)
             .animateContentSize(YoinMotion.spatialSpring()),

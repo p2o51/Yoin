@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Settings › Motion › Scroll edge: the full page that replaced the menu. -->
+    <string name="settings_scroll_edge_intro">How scrolling content meets a bar fixed at the top of the page, like Library\'s filters or an album\'s header.</string>
+    <string name="settings_scroll_edge_tide_desc">Covers and text sink under two soft waves at the edge. Stays calm even when you scroll fast.</string>
+    <string name="settings_scroll_edge_dots_desc">Covers break into a fine dot screen as they pass under the bar. Yoin\'s original look.</string>
+    <string name="settings_scroll_edge_cookie_desc">Each cover\'s top edge turns into a scalloped wave that rolls to a soft point as it leaves.</string>
+    <string name="settings_scroll_edge_foot">The bottom bar and the status bar look the same in every style.</string>
+    <string name="settings_scroll_edge_default">Default</string>
+    <string name="settings_about_welcome_guide">Welcome guide</string>
+    <string name="settings_about_welcome_guide_summary">Accounts, Home and scroll edge</string>
+</resources>

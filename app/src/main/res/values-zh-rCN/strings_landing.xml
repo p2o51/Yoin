@@ -1,0 +1,89 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="landing_hello_title">嗨，我是 Yoin。</string>
+    <string name="landing_hello_body">我负责播放你已经有的音乐：你自己的服务器、Spotify 或 Apple Music。</string>
+    <string name="landing_pick_title">你平时用什么听歌？</string>
+    <string name="landing_about_title">哪些归我管，哪些归你的音乐服务，先说清楚。</string>
+    <string name="landing_subsonic_title">你的服务器在哪？</string>
+    <string name="landing_spotify_title">Spotify 要你自己申请一个应用 ID。</string>
+    <string name="landing_spotify_body">我带你一步一步来。</string>
+    <string name="landing_apple_title">Apple Music 需要一个开发者令牌。</string>
+    <string name="landing_apple_body">Apple 向开发者收费，我的可以免费用。</string>
+    <string name="landing_home_title">主页上放些什么？</string>
+    <string name="landing_edge_title">滚动时，内容怎么溜进顶栏下面？</string>
+    <string name="landing_ready_title">好了。</string>
+    <string name="landing_ready_none_title">还没连账号。</string>
+    <string name="landing_ready_none_body">设置里也能加。</string>
+
+    <string name="landing_get_started">开始</string>
+    <string name="landing_next">下一步</string>
+    <string name="landing_skip">跳过</string>
+    <string name="landing_open_yoin">进入 Yoin</string>
+    <string name="landing_back">返回</string>
+
+    <string name="landing_pick_subsonic">Navidrome、Gonic 等自建服务器</string>
+    <string name="landing_pick_spotify">需要 Premium</string>
+    <string name="landing_pick_apple">需要订阅</string>
+
+    <string name="landing_about_does">Yoin 负责</string>
+    <string name="landing_about_doesnt">Yoin 不负责</string>
+    <string name="landing_about_need">你需要</string>
+    <string name="landing_does_play">播放你的曲库，带同步歌词</string>
+    <string name="landing_does_notes">评分、笔记和 Memories</string>
+    <string name="landing_does_accounts">多个账号，一键切换</string>
+    <string name="landing_does_passwords">密码只留在这台设备上</string>
+    <string name="landing_dont_sell">卖音乐或订阅</string>
+    <string name="landing_dont_host">托管或上传你的文件</string>
+    <string name="landing_dont_bill">你的音乐服务的账单</string>
+    <string name="landing_need_subsonic">一台兼容 Subsonic 的服务器</string>
+    <string name="landing_need_spotify">Spotify Premium 和 Spotify app</string>
+    <string name="landing_need_apple">Apple Music 订阅</string>
+    <string name="landing_need_none">上面任意一个服务</string>
+
+    <string name="landing_spotify_create">创建一个应用</string>
+    <string name="landing_spotify_create_body">Premium 账号可以免费创建。</string>
+    <string name="landing_spotify_open">打开 Spotify 开发者后台</string>
+    <string name="landing_spotify_paste">粘贴 Client ID</string>
+    <string name="landing_spotify_pasted">已从剪贴板粘贴</string>
+    <string name="landing_spotify_uris">回调地址</string>
+    <string name="landing_connected">已连接</string>
+    <string name="landing_copy">复制</string>
+    <string name="landing_copied">已复制</string>
+
+    <string name="landing_apple_token">开发者令牌</string>
+    <string name="landing_apple_yoin_title">Yoin 的令牌服务</string>
+    <string name="landing_apple_yoin_body">所有 Yoin 用户共用</string>
+    <string name="landing_apple_own_title">你自己的令牌服务</string>
+    <string name="landing_apple_own_body">需要加入 Apple 开发者计划，每年 US$99</string>
+    <string name="landing_apple_need">需要 Apple Music 订阅</string>
+
+    <string name="landing_home_rows_note">每个区块显示几行，之后在主页长按就能调。</string>
+    <string name="landing_home_drag">调整“%1$s”的位置</string>
+
+    <string name="landing_edge_tide_short">内容沉进两道柔和的波浪。</string>
+    <string name="landing_edge_dots_short">封面碎成细密的圆点。</string>
+    <string name="landing_edge_cookie_short">封面离开时，上缘变成曲奇波浪。</string>
+
+    <string name="landing_ready_accounts">账号</string>
+    <string name="landing_ready_in_use">在用</string>
+    <string name="landing_ready_empty">还没有连接账号</string>
+
+    <string name="guide_step">第 %1$d 步，共 %2$d 步</string>
+    <string name="guide_create">登录，然后点 %1$s</string>
+    <string name="guide_name">名称和描述随便填，比如 %1$s</string>
+    <string name="guide_uri_first">粘进 %1$s，点 %2$s</string>
+    <string name="guide_uri_second">第二个地址也一样粘进去</string>
+    <string name="guide_apis">勾上 %1$s 和 %2$s，同意条款，点 %3$s</string>
+    <string name="guide_client_id">复制 %1$s，然后回到 Yoin</string>
+    <string name="guide_then_name">接着：填名称</string>
+    <string name="guide_then_uris">接着：加回调地址</string>
+    <string name="guide_then_second">接着：第二个地址</string>
+    <string name="guide_then_apis">接着：选 API</string>
+    <string name="guide_then_client_id">最后：复制 Client ID</string>
+    <string name="guide_action_prev">上一步</string>
+    <string name="guide_action_next">下一步</string>
+    <string name="guide_action_copy_first">复制第一个地址</string>
+    <string name="guide_action_copy_second">复制第二个地址</string>
+    <string name="guide_action_back">回到 Yoin</string>
+    <string name="guide_copied">已复制</string>
+</resources>

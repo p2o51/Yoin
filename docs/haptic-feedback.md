@@ -105,6 +105,20 @@ Activities 和 Jump Back In 在编辑态底板右下角的 ⌟ 把手（规则�
 
 一次拖动最多：每跨一档一拍 tick，两个边界各一拍 threshold，抬手时最多再一拍 tick（快甩）和一拍 confirm。按住把手本身不震，和「编辑态拿起一块」（`performDragStart()`）区分开。
 
+### G. 首次引导（Landing，2026-10-09）
+
+“开始”“下一步”“跳过”不震（只是翻页）。平板没有马达，触感只能在手机上验。
+
+| 时机 | 方法 | 视觉孪生 |
+| --- | --- | --- |
+| 入场挥手挥到顶（两次）；点 Yoin | `performTick()` | 手臂到最高点 |
+| 选中 / 取消服务；主页区块开关 | `performToggle(on)` | 头像变成曲奇形 + 卡片换服务色；开关滑动 |
+| 拿起区块 / 每换一格 / 放下且顺序变了 | `performDragStart()` / `performSegmentTick()` / `performConfirm()` | 行放大、换色，邻居让位 |
+| 选令牌服务；选滚动边缘样式 | `performContextClick()` | 单选点；小图描边 |
+| 复制（页面里和画中画小窗里） | `performConfirm()` | “已复制” |
+| 连接成功 / 输入有误、没选服务就点下一步 | `performConfirm()` / `performReject()` | Yoin 举手蹦一下 / 表单横抖、Yoin 摇头 |
+| 进入 Yoin | `performConfirm()` | 胶囊变成首页底栏 |
+
 ## 3. 技术落地建议
 
 1. **统一震动接口**：建议在 `com.gpo.yoin.ui.experience` 包下新建 `Haptics.kt`，封装一个全局的扩展函数或组合项（Composable），将硬编码的 `Constants` 语义化。例如：

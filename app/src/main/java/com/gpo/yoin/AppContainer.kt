@@ -63,6 +63,15 @@ class AppContainer(private val context: Context) {
     private val applicationScope =
         CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
+    private val _profileStartupDone = MutableStateFlow(false)
+
+    /**
+     * True once this launch's profile migrations have run — the legacy Apple
+     * Music validation migration can still ADD a profile, so the first-run
+     * landing waits for this before deciding there is no account.
+     */
+    val profileStartupDone: StateFlow<Boolean> get() = _profileStartupDone
+
     val spotifyRateLimitGate: SpotifyRateLimitGate by lazy { SpotifyRateLimitGate() }
 
     val database: YoinDatabase by lazy {
@@ -318,17 +327,22 @@ class AppContainer(private val context: Context) {
             onProfileDeleted = { profileId -> homeLayoutStore.clearLayout(profileId) },
         ).also { manager ->
             applicationScope.launch {
-                // One-shot carry-forward: pre-3D inline credentialsJson
-                // blobs → encrypted file store + marker rows.
-                manager.runStartupMigrations()
-                runCatching {
-                    manager.migrateAppleMusicValidation(
-                        com.gpo.yoin.data.remote.applemusic.AppleMusicValidationStore(context)
-                    )
+                try {
+                    // One-shot carry-forward: pre-3D inline credentialsJson
+                    // blobs → encrypted file store + marker rows.
+                    manager.runStartupMigrations()
+                    runCatching {
+                        manager.migrateAppleMusicValidation(
+                            com.gpo.yoin.data.remote.applemusic.AppleMusicValidationStore(context)
+                        )
+                    }
+                } finally {
+                    _profileStartupDone.value = true
                 }
             }
         }
     }
+
 
     /** Optional Google Drive sync (docs/cloud-sync.md). Constructing it does no I/O. */
     val cloudSync: CloudSyncManager by lazy {

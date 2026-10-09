@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Picture-in-picture guide action: back to Yoin. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="2"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M14,4 L20,4 L20,10 M20,4 L12,12 M18,14 L18,19 Q18,20 17,20 L5,20 Q4,20 4,19 L4,7 Q4,6 5,6 L10,6" />
+</vector>

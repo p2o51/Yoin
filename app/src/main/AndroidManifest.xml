@@ -92,6 +92,19 @@
         <activity
             android:name=".ui.settings.SettingsPlaceholderActivity"
             android:exported="false" />
+        <!-- The landing's floating guide over Spotify for Developers: picture-in-picture
+             (no overlay permission), in its own task so the pinned window never drags
+             the main task along. -->
+        <activity
+            android:name=".ui.landing.guide.SpotifyGuideActivity"
+            android:exported="false"
+            android:launchMode="singleTask"
+            android:taskAffinity="${applicationId}.spotifyguide"
+            android:excludeFromRecents="true"
+            android:autoRemoveFromRecents="true"
+            android:resizeableActivity="true"
+            android:supportsPictureInPicture="true"
+            android:configChanges="screenSize|smallestScreenSize|screenLayout|orientation" />
 
         <!-- Activity Embedding 开关：声明本应用的分栏由自己负责（规则见
              res/xml/main_split_config.xml，YoinApplication 里注册）。 -->
