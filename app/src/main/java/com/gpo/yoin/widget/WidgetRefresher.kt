@@ -2,6 +2,7 @@ package com.gpo.yoin.widget
 
 import android.content.Context
 import android.content.Intent
+import android.util.Log
 import androidx.glance.appwidget.GlanceAppWidgetManager
 import androidx.glance.appwidget.updateAll
 import com.gpo.yoin.AppContainer
@@ -11,9 +12,11 @@ import com.gpo.yoin.ui.detail.ArtistDetailActivity
 import com.gpo.yoin.ui.detail.PlaylistDetailActivity
 import com.gpo.yoin.ui.experience.HomeSurface
 import com.gpo.yoin.ui.navigation.YoinSection
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.FlowPreview
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.debounce
@@ -28,12 +31,21 @@ import kotlinx.coroutines.launch
  * widget is placed. The system's own period (res/xml) covers "3 Months Ago" ageing while the app is dead.
  */
 internal object WidgetRefresher {
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    // A refresher that fails just stops (logged): it must never take the app down, and in Robolectric — which
+    // builds a fresh Application per test — a late failure must not leak into whichever test runs next.
+    private val scope = CoroutineScope(
+        SupervisorJob() + Dispatchers.Default + CoroutineExceptionHandler { _, error ->
+            Log.w(TAG, "Widget refresh stopped", error)
+        },
+    )
+    private var job: Job? = null
 
     @OptIn(FlowPreview::class)
     fun start(context: Context, container: AppContainer) {
         val app = context.applicationContext
-        scope.launch {
+        // One refresher per process, on the newest container.
+        job?.cancel()
+        job = scope.launch {
             // Off the cold-start path: the repository and its flows spin up after first frame.
             delay(START_DELAY_MS)
             merge(
@@ -57,6 +69,7 @@ internal object WidgetRefresher {
         }
     }
 
+    private const val TAG = "WidgetRefresher"
     private const val REFRESH_DEBOUNCE_MS = 2_000L
     private const val START_DELAY_MS = 4_000L
 }
