@@ -29,7 +29,7 @@ class AlbumSpectrumTest {
     @Test
     fun should_keepWhiteTextAboveSevenToOne_when_anyColourIsToneLocked() {
         val samples = buildList {
-            for (r in 0..255 step 51) for (g in 0..255 step 51) for (b in 0..255 step 51) {
+            for (r in 0..255 step 15) for (g in 0..255 step 15) for (b in 0..255 step 15) {
                 add((0xFF shl 24) or (r shl 16) or (g shl 8) or b)
             }
         }
@@ -37,6 +37,13 @@ class AlbumSpectrumTest {
             val ratio = contrastWithWhite(lockTone(argb))
             assertTrue("0x${argb.toUInt().toString(16)} → $ratio", ratio >= 7.0)
         }
+    }
+
+    @Test
+    fun should_keepSevenToOne_when_aSaturatedLightColourLosesLightnessToGamutMapping() {
+        // Lightness alone landed this at #006825, 6.98:1 (Codex review on #33).
+        val ratio = contrastWithWhite(lockTone(0xFFB5FFBE.toInt()))
+        assertTrue("$ratio", ratio >= 7.0)
     }
 
     @Test

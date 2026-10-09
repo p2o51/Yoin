@@ -220,11 +220,34 @@ internal const val SpectrumLightnessMin = 0.30f
 internal const val SpectrumLightnessMax = 0.46f
 private const val SpectrumChromaBoost = 1.15f
 
-/** Keep hue and chroma, put lightness in [SpectrumLightnessMin]..[SpectrumLightnessMax]; ARGB in and out. */
+/** White text on a spectrum band never drops below this (WCAG contrast ratio). */
+internal const val SpectrumMinContrast = 7f
+private const val SpectrumLightnessStep = 0.005f
+
+/**
+ * Keep hue and chroma, put lightness in [SpectrumLightnessMin]..[SpectrumLightnessMax]; ARGB in and out.
+ * Gamut mapping and 8-bit rounding can leave a saturated light colour just short of [SpectrumMinContrast]
+ * (e.g. 0xFFB5FFBE came out at 6.98:1), so the result is checked and stepped darker until it holds.
+ */
 internal fun lockTone(argb: Int): Int {
     val lab = rgbToOklab(argb)
-    val l = SpectrumLightnessMin + (SpectrumLightnessMax - SpectrumLightnessMin) * lab[0].coerceIn(0f, 1f)
-    return oklabToArgb(floatArrayOf(l, lab[1] * SpectrumChromaBoost, lab[2] * SpectrumChromaBoost))
+    var l = SpectrumLightnessMin + (SpectrumLightnessMax - SpectrumLightnessMin) * lab[0].coerceIn(0f, 1f)
+    val a = lab[1] * SpectrumChromaBoost
+    val b = lab[2] * SpectrumChromaBoost
+    var out = oklabToArgb(floatArrayOf(l, a, b))
+    while (contrastWithWhite(out) < SpectrumMinContrast && l > SpectrumLightnessMin) {
+        l = (l - SpectrumLightnessStep).coerceAtLeast(SpectrumLightnessMin)
+        out = oklabToArgb(floatArrayOf(l, a, b))
+    }
+    return out
+}
+
+/** WCAG contrast of white on [argb]. */
+private fun contrastWithWhite(argb: Int): Float {
+    val luminance = 0.2126f * toLinear((argb shr 16) and 0xFF) +
+        0.7152f * toLinear((argb shr 8) and 0xFF) +
+        0.0722f * toLinear(argb and 0xFF)
+    return 1.05f / (luminance + 0.05f)
 }
 
 private fun toLinear(channel: Int): Float {
