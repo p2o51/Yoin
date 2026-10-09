@@ -91,30 +91,39 @@ fun HomeScreen(
     var switcherShown by rememberSaveable { mutableStateOf(false) }
     var switcherOpen by rememberSaveable { mutableStateOf(false) }
     var accountAnchor by remember { mutableStateOf<Rect?>(null) }
+    // A trip to Settings waits until the card is back in the avatar: launched at once, Settings covers the shell
+    // mid-spring, the stopped window's frame clock pauses, and the half-closed card greets you on the way back.
+    // (Only the spring's invisible tail may be left then.)
+    var afterSwitcherDismissed by remember { mutableStateOf<(() -> Unit)?>(null) }
+    fun closeSwitcherThen(action: () -> Unit) {
+        afterSwitcherDismissed = action
+        switcherOpen = false
+    }
     if (switcherShown && accountSwitcher != null) {
         HomeAccountSwitcherDialog(
             visible = switcherOpen,
             anchor = accountAnchor,
             cards = accountCards,
             onRequestClose = { switcherOpen = false },
+            onCardHome = {
+                afterSwitcherDismissed?.let { action ->
+                    afterSwitcherDismissed = null
+                    action()
+                }
+            },
             onDismissed = { switcherShown = false },
             onSwitch = { card ->
-                switcherOpen = false
                 // An account that can't be used right now is recovered in Settings.
-                if (card.unavailableReason != null) onNavigateToSettings() else accountSwitcher.switchTo(card.id)
+                if (card.unavailableReason != null) {
+                    closeSwitcherThen(onNavigateToSettings)
+                } else {
+                    switcherOpen = false
+                    accountSwitcher.switchTo(card.id)
+                }
             },
-            onManageAccounts = {
-                switcherOpen = false
-                onNavigateToSettings()
-            },
-            onAddAccount = {
-                switcherOpen = false
-                onNavigateToSettings()
-            },
-            onOpenSettings = {
-                switcherOpen = false
-                onNavigateToSettings()
-            },
+            onManageAccounts = { closeSwitcherThen(onNavigateToSettings) },
+            onAddAccount = { closeSwitcherThen(onNavigateToSettings) },
+            onOpenSettings = { closeSwitcherThen(onNavigateToSettings) },
             onEditHome = {
                 switcherOpen = false
                 editController?.enter(null, lifted = false)
