@@ -276,6 +276,29 @@ object YoinMotion {
         visibilityThreshold = HomeEditKickThreshold,
     )
 
+    /**
+     * The landing mascot's own springs (role-free: it is a character, not a
+     * surface). Land = the fins flying into the mark; gesture = a wave, a nod,
+     * a cheer; hop = the vertical kick of a nod or a cheer; shake = the head
+     * ringing out a "no".
+     */
+    fun mascotLandSpring(): FiniteAnimationSpec<Float> = spring(MascotLandDamping, MascotLandStiffness)
+
+    fun mascotGestureSpring(): FiniteAnimationSpec<Float> = spring(MascotGestureDamping, MascotGestureStiffness)
+
+    fun mascotHopSpring(): FiniteAnimationSpec<Float> = spring(MascotHopDamping, MascotHopStiffness)
+
+    fun mascotShakeSpring(): FiniteAnimationSpec<Float> = spring(MascotShakeDamping, MascotShakeStiffness)
+
+    private const val MascotLandDamping = 0.62f
+    private const val MascotLandStiffness = 340f
+    private const val MascotGestureDamping = 0.5f
+    private const val MascotGestureStiffness = 420f
+    private const val MascotHopDamping = 0.42f
+    private const val MascotHopStiffness = 520f
+    private const val MascotShakeDamping = 0.18f
+    private const val MascotShakeStiffness = 520f
+
     fun fadeIn(
         role: YoinMotionRole,
         speed: YoinMotionSpeed = YoinMotionSpeed.Default,

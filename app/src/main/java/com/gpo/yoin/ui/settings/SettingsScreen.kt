@@ -92,6 +92,7 @@ import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.gpo.yoin.BuildConfig
+import com.gpo.yoin.MainActivity
 import com.gpo.yoin.R
 import com.gpo.yoin.data.integration.neodb.NeoDBOAuthContract
 import com.gpo.yoin.data.local.GeminiConfig
@@ -102,6 +103,7 @@ import com.gpo.yoin.ui.common.asString
 import com.gpo.yoin.ui.component.ExpressiveTextField
 import com.gpo.yoin.ui.component.SeamTopPreference
 import com.gpo.yoin.ui.component.SeamTopStyle
+import com.gpo.yoin.ui.component.nameRes
 import com.gpo.yoin.ui.component.YoinDropdownMenu
 import com.gpo.yoin.ui.component.YoinDropdownMenuItem
 import com.gpo.yoin.ui.component.YoinLoadingIndicator
@@ -425,7 +427,13 @@ fun SettingsContent(
                                         }
                                     }
                                     SettingsGroup(title = stringResource(R.string.settings_section_motion)) {
-                                        item { ScrollEdgeItem() }
+                                        item(key = SettingsFeature.ScrollEdge, paintsOwnSegment = listDetail) {
+                                            ScrollEdgeItem(
+                                                listDetail = listDetail,
+                                                selected = openFeature == SettingsFeature.ScrollEdge,
+                                                onOpenPage = { onOpenFeature(SettingsFeature.ScrollEdge) },
+                                            )
+                                        }
                                     }
                                     SettingsGroup(title = stringResource(R.string.settings_section_storage)) {
                                         cloudSyncRow?.let { row ->
@@ -436,6 +444,7 @@ fun SettingsContent(
                                         item { CacheItem(state.cacheSizeBytes, onClearCache) }
                                     }
                                     SettingsGroup(title = stringResource(R.string.settings_section_about)) {
+                                        item { WelcomeGuideItem() }
                                         item {
                                             SettingsItem(
                                                 icon = YoinSymbols.Info,
@@ -1419,7 +1428,7 @@ private fun SelectableSegment(selected: Boolean, content: @Composable () -> Unit
 private val LocalSettingsRowColor = staticCompositionLocalOf { Color.Unspecified }
 
 /** Which Settings feature a [SettingsFeatureScreen] shows. */
-enum class SettingsFeature { Gemini, NeoDb }
+enum class SettingsFeature { Gemini, NeoDb, ScrollEdge }
 
 /**
  * A Settings feature (AI features / NeoDB) as its own page — the right pane of
@@ -1453,6 +1462,7 @@ internal fun SettingsFeatureScreen(
     val featureTitle = when (feature) {
         SettingsFeature.Gemini -> stringResource(R.string.settings_gemini_title_page)
         SettingsFeature.NeoDb -> stringResource(R.string.settings_neodb_title_page)
+        SettingsFeature.ScrollEdge -> stringResource(R.string.settings_motion_scroll_edge)
     }
     val viewportTop = remember { mutableFloatStateOf(0f) }
     val headlineTop = remember { mutableFloatStateOf(Float.NaN) }
@@ -1502,7 +1512,10 @@ internal fun SettingsFeatureScreen(
                         },
                     )
                     val content = uiState as? SettingsUiState.Content
-                    if (content == null) {
+                    if (feature == SettingsFeature.ScrollEdge) {
+                        // Reads only the global style: no need to wait for the Settings state.
+                        ScrollEdgePageContent()
+                    } else if (content == null) {
                         Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
                             YoinLoadingIndicator()
                         }
@@ -1526,6 +1539,7 @@ internal fun SettingsFeatureScreen(
                                         onClearToken = viewModel::clearNeoDbToken,
                                         asPage = true,
                                     )
+                                    SettingsFeature.ScrollEdge -> Unit
                                 }
                             }
                         }
@@ -1544,42 +1558,30 @@ internal fun SettingsFeatureScreen(
  * Cookie wave. Only that seam; it repaints open pages live.
  */
 @Composable
-private fun ScrollEdgeItem() {
-    val context = LocalContext.current
-    val style = currentSeamTopStyle()
-    var menuOpen by remember { mutableStateOf(false) }
-    val haptics = rememberYoinHaptics()
-    Box {
-        SettingsItem(
-            icon = YoinSymbols.UnfoldLess,
-            title = stringResource(R.string.settings_motion_scroll_edge),
-            summary = stringResource(style.labelRes()),
-            onClick = { menuOpen = true },
-        )
-        YoinDropdownMenu(
-            expanded = menuOpen,
-            onDismissRequest = { menuOpen = false },
-            offset = DpOffset(SettingsRowTextInset, 0.dp),
-        ) {
-            SeamTopStyle.entries.forEach { option ->
-                val chosen = option == style
-                YoinDropdownMenuItem(
-                    text = stringResource(option.labelRes()),
-                    onClick = {
-                        haptics.performContextClick()
-                        menuOpen = false
-                        SeamTopPreference.select(context, option)
-                    },
-                    modifier = Modifier.semantics { selected = chosen },
-                    trailingIcon = if (chosen) {
-                        { Icon(imageVector = YoinSymbols.Check, contentDescription = null) }
-                    } else {
-                        null
-                    },
-                )
-            }
-        }
+private fun ScrollEdgeItem(
+    listDetail: Boolean,
+    selected: Boolean,
+    onOpenPage: () -> Unit,
+) {
+    val title = stringResource(R.string.settings_motion_scroll_edge)
+    val summary = stringResource(currentSeamTopStyle().nameRes)
+    if (listDetail) {
+        FeaturePageRow(icon = YoinSymbols.UnfoldLess, title = title, summary = summary, selected = selected, onClick = onOpenPage)
+    } else {
+        SettingsItem(icon = YoinSymbols.UnfoldLess, title = title, summary = summary, onClick = onOpenPage)
     }
+}
+
+/** Settings › About › Welcome guide: back to Home with the landing running again (accounts kept). */
+@Composable
+private fun WelcomeGuideItem() {
+    val context = LocalContext.current
+    SettingsItem(
+        icon = YoinSymbols.Refresh,
+        title = stringResource(R.string.settings_about_welcome_guide),
+        summary = stringResource(R.string.settings_about_welcome_guide_summary),
+        onClick = { context.startActivity(MainActivity.welcomeGuideIntent(context)) },
+    )
 }
 
 // ── Storage ──────────────────────────────────────────────────────────
@@ -1740,11 +1742,6 @@ private fun accountIssueLabel(reason: String): String = when (reason) {
     else -> reason
 }
 
-private fun SeamTopStyle.labelRes(): Int = when (this) {
-    SeamTopStyle.Tide -> R.string.settings_motion_tide_line
-    SeamTopStyle.Dots -> R.string.settings_motion_dots
-    SeamTopStyle.Cookie -> R.string.settings_motion_cookie_wave
-}
 
 // ── Previews ─────────────────────────────────────────────────────────
 

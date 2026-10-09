@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Yoin landing mascot: the navy fin (its right hand).
+  Geometry copied verbatim from ic_yoin_launcher_foreground (the full-bleed
+  three-arrow mark). The viewport is widened to 1300 x 1040 and shifted 140
+  right so the fins that the launcher mask crops stay whole; the three
+  landing_mascot_* drawables share it, so they stack back into the mark.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="130dp"
+    android:height="104dp"
+    android:viewportWidth="1300"
+    android:viewportHeight="1040">
+    <group android:translateX="140">
+        <path
+            android:fillColor="#192396"
+            android:pathData="M885.037 322.715C912.923 266.179 977.242 239.224 1035.35 262.193C1098.06 286.981 1129.78 360.529 1106.21 426.466C1083.91 488.843 1033.38 527.075 1000.77 548.017C963.209 572.142 919.292 591.855 877.499 607.716C846.85 619.347 814.97 629.785 783.876 638.923C786.057 647.057 788.104 655.313 789.989 663.666C805.805 733.753 815.238 832.636 773.206 923.307C743.852 986.628 671.237 1012.94 611.014 982.077C550.792 951.213 525.768 874.862 555.122 811.541C560.94 798.989 564.676 770.166 553.932 722.557C543.871 677.97 525.306 636.027 512.801 613.831L470.401 538.577C447.592 498.094 471.201 447.168 516.835 438.415L595.398 423.346C647.4 413.372 727.098 393.593 795.134 367.773C829.436 354.755 856.382 341.834 874.311 330.32C879.402 327.05 882.844 324.487 885.037 322.715Z" />
+        <path
+            android:strokeColor="#FFFFFF"
+            android:strokeWidth="5"
+            android:pathData="M1064 319C1024.75 428.754 711.646 514.356 560 543.437C607.788 628.239 687.306 832.475 623.08 971" />
+    </group>
+</vector>

@@ -185,6 +185,18 @@ MD3 Expressive 不是 M4，而是 M3 的扩展进化。
 - 被拿出来单独放的动作一律从 ▾ 菜单里去掉，不重复
 - **详情页 ▾ 菜单的功能（2026-10-05 owner F1「split button 里那些功能的实装」）**：Shuffle play 之后依次是 Play next（Spotify 不显示——它只有一个队列，本来就排在 context 前面）、Add to queue、Add to playlist（只在服务能写歌单时出现，打开 NP 的加入歌单面板）、Open in Spotify / Open in Apple Music（有公开链接时），再后面是可被拿出来的 Go to artist / Share。专辑页对整张专辑、艺人页对艺人全部曲目（艺人页不给 Add to playlist）。Share 发「标题 + 链接」，链接来自 `MusicMetadata.webUrl`（Spotify open.spotify.com；Apple Music 只对目录 id，带账号 storefront；Subsonic 没有，只发标题）。入队后 snackbar 一行「Added 12 songs to the queue」/「12 songs will play next」。窗口页和 Wide 详情列共用 `ui/detail/DetailMenu.kt`
 
+### 🌱 首次引导（Landing，2026-10-09 定稿，原型 artifact PQQMmjTG9SHaoESTaWftEG v3）
+
+- **什么时候出现**：首次启动、还没有任何账号时（启动画面会等到判断完成，老用户永远不会看到它闪一下）。之后删光账号也**不会**回来；设置 › 关于 › 重新引导 可以再跑一遍（已连接的账号保留）。实现：`ui/landing/`，`LandingHost` 由 MainActivity 盖在 shell 之上（同一个窗口），`yoin_ui_hints/landing_done_v1` 记录是否走过。
+- **角色**：启动图标的三片拆开当角色（`landing_mascot_*`，几何与 `ic_yoin_launcher_foreground` 一致），粉 = 左手、藏青 = 右手，从中心交汇处挥手；**没有眼睛**（owner 10-09）。入场三片从三个方向落位后挥手两下，每次挥到顶一拍 CLOCK_TICK；连接成功举手蹦一下，输错摇头，选中服务点头。气泡尾巴指着它，换句话时从尾巴尖弹出；气泡标题用 GSF 圆体（ROND 100）。
+- **导航**：底部浮动胶囊 = shell 底栏的孪生（同高、同圆角、同色），里面是返回、步骤点、主按钮；内容放在从胶囊里长出来的浮动窗里，Yoin 站在窗顶（平板横屏：Yoin 在左列，窗在右列）。“进入 Yoin”时浮动窗缩回胶囊、胶囊变成首页底栏、Yoin 挥手后飞到左上角淡出，首页按第“主页内容”一步的选择出现。不加阴影。键盘升起时浮动窗站到键盘上（胶囊留在键盘后面），点连接按钮先收起键盘；从悬浮窗回来自动填好 Client ID 时不弹键盘。平板横屏双栏时，左栏的 Yoin 和气泡按键盘上方剩下的高度缩小，不被键盘盖住。
+- **步骤**：你好 → 选服务（可多选）→ Yoin 负责 / 不负责 / 你需要 → 每个所选服务一页连接 → 主页内容（有账号才出现）→ 顶部边缘 → 完成。首次启动选服务至少选一个；已经有账号时（重新引导）一个不选也能“跳过”，直接去后面几步。
+  - 连接页复用设置的 `ServiceSetupViewModel` / `AppleMusicValidationViewModel`。Subsonic 的“连接” = 先连上服务器再保存。Apple Music 两行单选：默认 Yoin 的令牌服务（`YoinTokenService.URL`，不显示、不用复制），选“你自己的令牌服务”才出现输入框，写明 Apple 开发者计划每年 US$99；不做价目卡。
+  - **悬浮窗导航**（Spotify）：`SpotifyGuideActivity` 画中画小窗浮在浏览器（Spotify for Developers）上，像地图导航一样一步说一件事，共 6 步；点窗口出现系统按钮（上一步 / 复制回调地址 / 下一步，最后一步“回到 Yoin”）。回到 Yoin 时读剪贴板里的 32 位 Client ID 自动填上。不用“显示在其他应用上层”权限。缩小前那半秒是居中的 4:3 卡片（深色底），系统缩小动画从这张卡片开始（`sourceRectHint`），不会先闪一整屏紫色。两个回调地址也折叠在页面里，给在电脑上操作的人。
+  - 主页内容：`HomeSection` 全部区块，开关 + 拖把手排序（触感同主页编辑态 §F）；行数不放进引导，列表下一行小字说明去主页长按调。结束时写进本次新加账号（重新引导时是当前账号）的 `home_layout`。
+  - 顶部边缘：三种样式并排，每个是**真的**滚动边缘效果的小图（`ScrollEdgePreview`，`seamDissolveViewport(style = …)` 只给预览用）；下面一句说明，说明框按三句里最长的那句定高，切换不跳（owner 10-09）。选中立即生效。
+- **返回**：分步流程（新类型，见 predictive-back skill）：第一步首次启动不拦截（系统回桌面），重新引导时第一步返回 = 关掉引导；其它步返回上一步。手势只驱动当前步的 AOSP 预览姿态（缩向 0.9），松手提交后再按弹簧换步，不擦洗换步本身。
+
 ### 🏠 主页
 
 - Mix / 推荐区块（从 Navidrome 获取随机专辑、最近添加等；「最常播放」排序依赖 Scrobble，MVP 阶段使用服务端已有数据）
@@ -363,7 +375,8 @@ NeoDB 同步以 album 为边界。第一阶段只有同时具备 album rating �
 - 服务器配置（Subsonic/Navidrome 地址、认证）
 - 缓存管理（容量限制、清除）
 - 主题偏好
-- 关于 / 版本信息
+- 关于 / 版本信息；关于的第一行“重新引导”再跑一遍首次引导（2026-10-09）
+- 动效 › 滚动边缘（2026-10-09 起是整页，不再是下拉菜单）：一种样式一张卡，卡上是这种样式真的在滚的小图 + 一段说明，最下面一句说明底栏和状态栏不受影响；`SettingsFeatureActivity` 的 `ScrollEdge`，大屏在右栏打开；小图的封面列数随宽度增加（每列约 112dp，3–8 列），不拉宽封面
 
 #### 账号与服务二级页（2026-09-26，取代 2026-09-06 版）
 

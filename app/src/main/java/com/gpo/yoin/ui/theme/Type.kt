@@ -20,7 +20,8 @@ val GoogleSansFlex = FontFamily(
  * Rounded cuts from the FULL Google Sans Flex variable font (ROND 100 +
  * exact wght instancing) — the softened-terminal voice the four static
  * files can't produce. Reserved for the lyric current line, where the
- * rounding reads at display sizes.
+ * rounding reads at display sizes, and the landing mascot's speech bubble
+ * (its voice).
  */
 @OptIn(ExperimentalTextApi::class)
 val GoogleSansFlexRounded = FontFamily(

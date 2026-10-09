@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Yoin landing mascot: the pink fin (its left hand).
+  Geometry copied verbatim from ic_yoin_launcher_foreground (the full-bleed
+  three-arrow mark). The viewport is widened to 1300 x 1040 and shifted 140
+  right so the fins that the launcher mask crops stay whole; the three
+  landing_mascot_* drawables share it, so they stack back into the mark.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="130dp"
+    android:height="104dp"
+    android:viewportWidth="1300"
+    android:viewportHeight="1040">
+    <group android:translateX="140">
+        <path
+            android:fillColor="#FF59CD"
+            android:pathData="M81.9383 348.573C51.2968 340.611 -16.6967 332.156 -61.0882 392.462C-106.605 454.297 -95.2609 542.765 -35.7491 590.06C-7.07619 612.846 30.0687 627.87 53.9624 636.864C82.7386 647.696 115.644 658.004 147.859 667.229C156.788 669.786 195.457 676.647 204.494 679.108C197.245 754.752 185.613 844.276 267.523 914.662C325.26 964.275 410.773 955.863 458.523 895.873C504.991 837.49 532.015 756.394 478.422 706.111C478.422 706.111 454.56 679.371 464.476 661.463C470.504 650.578 512.994 588.968 545.393 542.319C563.625 516.068 550.284 479.655 519.395 471.444L431.422 448.059L81.9383 348.573Z" />
+        <path
+            android:strokeColor="#FFFFFF"
+            android:strokeWidth="8"
+            android:pathData="M-34 399C26.0829 454.85 288.368 530.198 412 560.892C362.701 642.941 293.683 741.079 412 860" />
+    </group>
+</vector>

@@ -80,6 +80,9 @@ android {
     buildTypes {
         debug {
             isPseudoLocalesEnabled = true
+            // QA: -PyoinAppIdSuffix=.qa installs a second, empty copy beside the real one (a first run without
+            // touching the installed app's accounts or database). Unset by default.
+            (project.findProperty("yoinAppIdSuffix") as String?)?.let { applicationIdSuffix = it }
         }
         release {
             if (hasReleaseKeystore) {

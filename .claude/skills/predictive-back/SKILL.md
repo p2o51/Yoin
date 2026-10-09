@@ -64,6 +64,7 @@ the pattern. One surface = one class, never both route and overlay.
 | ShellOverlayDown | Now Playing | Collapse toward host/anchor | **C — NP layered back** |
 | ShellOverlayUp | Memories | Retreat upward to home (an open diary steps back to its card first) | **C — RevealState q + diary p** (`MemoriesPredictiveBack`) |
 | In-page state machine | NP stage (Expanded⇄Compact), album hero⇄tracklist pull-up, Memories card⇄diary | Not a place — back may step the state (NP's stage and the Memories diary do; the pull-up never traps back) | its surface's own controller — never a new Activity or route |
+| Stepped flow (shell-owned, full screen) | The first-run landing (`ui/landing/`) | Back = previous step; the FIRST step of a first run is never consumed (system back-to-home); a re-run's first step closes the flow | **E — stepped flow** (`LandingPredictiveBack`) |
 
 Five questions before implementing (unchanged from AGENTS.md, still law):
 which class is it; where does back land; does it need an explicit back
@@ -486,6 +487,30 @@ per-frame corner) — nothing is resized or cut while p moves. That is the
 layout-phase value p drives is chrome: the Home pill narrowing 88 → 36, read
 in `Modifier.layout` (invariant 6), with its label already gone by fp 0.4.
 
+## Pattern E — the stepped flow (first-run landing, 2026-10-09)
+
+`ui/landing/LandingScreen.kt` + `ui/navigation/back/LandingBackHandler.kt`.
+The landing is mounted by MainActivity ABOVE the shell in the same window
+(so its pill can become the shell's bar at the hand-off). While it shows it
+covers everything, so its one handler is the only enabled one (it registers
+after the shell's); NP and Memories cannot be open under it on a first run.
+
+- **One level.** `enabled = !finishing && (index > 0 || mode == Rerun)`. On a
+  first run's first step it is disabled: root back is never consumed and the
+  system's back-to-home plays.
+- **The step change is never scrubbed** (the Memories diary lesson): each
+  event snaps `StageBackPreview.progress` = `backGestureEasing(progress)`,
+  and the stage applies the AOSP pose (scale → 0.9, edge shift, vertical
+  follow) to the window + mascot + bubble as ONE page about the window's
+  centre — the pill is chrome and stays. Commit → the ViewModel steps back
+  and the step transition runs on its spatial spring while the pose springs
+  home on `predictiveBackSettleSpring`; cancel springs the pose home. Empty
+  flow (3-button) commits at once.
+- The pill's back button calls the same `vm.back()`; the step transition is
+  the one owner of the stage (`LandingMotion.t`).
+- The Spotify guide (`SpotifyGuideActivity`) is a picture-in-picture window
+  over the browser in its own task: back there belongs to the browser.
+
 ## AOSP replica tokens — the source of truth
 
 Everything below is ported from `frameworks/base` WM Shell
@@ -623,3 +648,4 @@ token.
 | Memories diary controller p, gesture router, card ⇄ diary morph | `ui/memories/showcase/MemoriesDiaryState.kt`, `MemoriesGestures.kt`, `MemoriesMorph.kt` |
 | Manifest opt-in, themes | `app/src/main/AndroidManifest.xml`, `res/values/themes.xml` |
 | Bar-morph QA (no playback needed) | `app/src/debug/.../debug/BarMorphPreviewActivity.kt` |
+| First-run landing back (stepped flow, Pattern E) | `ui/navigation/back/LandingBackHandler.kt`, `ui/landing/LandingStage.kt` (preview pose) |
