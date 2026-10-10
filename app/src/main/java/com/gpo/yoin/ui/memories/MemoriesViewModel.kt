@@ -30,6 +30,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
@@ -44,8 +45,6 @@ class MemoriesViewModel(
     private val sessionStore: ExperienceSessionStore,
     private val repository: YoinRepository,
     private val activeProfileId: StateFlow<String?>,
-    // The active MusicSource's provider id (null until the source is built).
-    private val activeSourceId: Flow<String?>,
     // The player, for the diary's playback highlight and "play from this note" (null in tests that don't care).
     private val playback: MemoriesPlayback? = null,
     private val clock: () -> Long = System::currentTimeMillis,
@@ -132,12 +131,12 @@ class MemoriesViewModel(
                     refreshNeoDbConfigured()
                 }
         }
-        // Cold start: the profile id is restored synchronously but its source is
-        // built asynchronously, so the first build can run against no source and
-        // land on Empty. Retry an Empty / Error deck once the source is up (or
-        // changes); a painted deck or a load in flight is left alone.
+        // Cold start: a deck build waits for the source, bounded (see
+        // ensureLoaded). A source that lands after that still retries an Empty
+        // / Error deck; a painted deck or a load in flight is left alone.
         viewModelScope.launch {
-            activeSourceId
+            repository.activeProviderId
+                .filterNotNull()
                 .distinctUntilChanged()
                 .collect {
                     when (_uiState.value) {
@@ -193,6 +192,10 @@ class MemoriesViewModel(
                     deckCoordinator.invalidate()
                     sessionStore.clearMemories()
                 }
+                // Cold start: the profile id is restored synchronously but its
+                // source is built asynchronously; a build against no source lands
+                // on Empty. Bounded — a later source retries it (see init).
+                repository.awaitActiveSource(ACTIVE_SOURCE_WAIT_MS)
 
                 val memories = withPendingTitles(deckCoordinator.ensureDeck())
                 _uiState.value = if (memories.isEmpty()) {
@@ -233,6 +236,8 @@ class MemoriesViewModel(
         val job = viewModelScope.launch {
             _uiState.value = MemoriesUiState.Loading
             try {
+                // A widget tap can land here before the cold-start source exists.
+                repository.awaitActiveSource(ACTIVE_SOURCE_WAIT_MS)
                 val memories = withPendingTitles(deckCoordinator.ensureDeckFocused(focusSessionId))
                 _uiState.value = if (memories.isEmpty()) {
                     MemoriesUiState.Empty
@@ -656,7 +661,6 @@ class MemoriesViewModel(
                 sessionStore = container.experienceSessionStore,
                 repository = container.repository,
                 activeProfileId = container.profileManager.activeProfileId,
-                activeSourceId = container.profileManager.activeSource.map { source -> source?.id },
                 playback = playback,
                 titleStore = container.albumMemoryTitleStore,
             ) as T
@@ -668,6 +672,9 @@ class MemoriesViewModel(
 
         /** Play-from-a-note gives up on its seek if the track isn't current and prepared by then. */
         const val SEEK_TIMEOUT_MS = 4_000L
+
+        /** Max wait for the active source on a cold start before a deck build goes ahead without it. */
+        private const val ACTIVE_SOURCE_WAIT_MS = 4_000L
 
         private const val PLAYHEAD_STOP_MS = 2_000L
     }

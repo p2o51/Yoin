@@ -34,8 +34,6 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.filterNotNull
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
@@ -43,7 +41,6 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
-import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 
 @OptIn(FlowPreview::class, ExperimentalCoroutinesApi::class)
@@ -156,11 +153,7 @@ class LibraryViewModel(
             // arrive before loading. Bounded so a genuinely profile-less install
             // (no source will ever come) still falls through to the error/empty
             // state instead of hanging on the loading spinner forever.
-            if (repository.currentProviderId() == null) {
-                withTimeoutOrNull(ACTIVE_SOURCE_WAIT_MS) {
-                    repository.activeProviderId.filterNotNull().first()
-                }
-            }
+            repository.awaitActiveSource(ACTIVE_SOURCE_WAIT_MS)
             val profileId = repository.currentProfileId()
             try {
                 if (isSpotifyProvider()) {

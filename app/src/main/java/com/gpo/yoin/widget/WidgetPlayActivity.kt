@@ -9,7 +9,6 @@ import com.gpo.yoin.data.model.Track
 import com.gpo.yoin.data.repository.ActivityContext
 import com.gpo.yoin.player.ConnectionPhase
 import com.gpo.yoin.player.playableQueue
-import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
@@ -44,10 +43,8 @@ class WidgetPlayActivity : ComponentActivity() {
 
     private suspend fun startPlayback(entity: WidgetEntity, id: MediaId): Boolean {
         val container = yoinContainer
-        val source = withTimeoutOrNull(SOURCE_TIMEOUT_MS) {
-            container.profileManager.activeSource.filterNotNull().first()
-        } ?: return false
         val repository = container.repository
+        val source = repository.awaitActiveSource(SOURCE_TIMEOUT_MS) ?: return false
         val title = intent.getStringExtra(EXTRA_TITLE).orEmpty()
         val subtitle = intent.getStringExtra(EXTRA_SUBTITLE)?.takeIf { it.isNotBlank() }
         val (tracks: List<Track>, context: ActivityContext) = when (entity) {

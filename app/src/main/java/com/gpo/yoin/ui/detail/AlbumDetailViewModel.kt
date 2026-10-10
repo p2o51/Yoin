@@ -188,6 +188,7 @@ class AlbumDetailViewModel(
         viewModelScope.launch {
             try {
                 val parsedAlbumId = MediaId.parse(albumId)
+                repository.awaitActiveSource(DETAIL_SOURCE_WAIT_MS)
                 val album = repository.getAlbum(parsedAlbumId)
                 if (album == null) {
                     _uiState.value = AlbumDetailUiState.Error(UiText.Res(R.string.detail_album_error_not_found))
@@ -655,6 +656,14 @@ private fun String.toProviderLabel(): UiText = when (this) {
     MediaId.PROVIDER_LOCAL -> UiText.Res(R.string.detail_provider_local)
     else -> UiText.Raw(replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() })
 }
+
+/**
+ * How long a detail page's first load waits for the active source. A widget tap
+ * on a cold process opens the page before ProfileManager has built the source,
+ * and a fetch without one fails with "No profile configured". Past this the
+ * load goes ahead as before (the disk cache still answers; no source = error).
+ */
+internal const val DETAIL_SOURCE_WAIT_MS = 4_000L
 
 /**
  * [toUserMessage] owns the connectivity lines. A sentinel fallback means this

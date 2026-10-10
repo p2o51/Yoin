@@ -17,7 +17,9 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.firstOrNull
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import okhttp3.OkHttpClient
@@ -70,6 +72,18 @@ class ProfileManager(
     private val _activeSource = MutableStateFlow<MusicSource?>(null)
     val activeSource: StateFlow<MusicSource?> = _activeSource.asStateFlow()
 
+    // Builds of the active profile's source still in flight. Starts at one:
+    // the launch build in init, counted from construction.
+    private val activeSourceBuilds = MutableStateFlow(1)
+
+    /**
+     * False while the active profile's source is still being built — at
+     * launch, and while a delete hands over to the next profile. Once true, a
+     * null [activeSource] means none is coming (no profile, unreadable
+     * credentials), so nothing should keep waiting for one.
+     */
+    val activeSourceSettled: Flow<Boolean> = activeSourceBuilds.map { builds -> builds == 0 }.distinctUntilChanged()
+
     private val _switchingState = MutableStateFlow<SwitchState>(SwitchState.Idle)
     val switchingState: StateFlow<SwitchState> = _switchingState.asStateFlow()
 
@@ -98,10 +112,24 @@ class ProfileManager(
     init {
         // Build the initial source for whatever profile boot-migration left active.
         scope.launch {
-            val initial = getActiveProfileSnapshot()
-            if (initial != null) {
-                _activeSource.value = buildSource(initial)
+            try {
+                val initial = getActiveProfileSnapshot()
+                if (initial != null) {
+                    _activeSource.value = buildSource(initial)
+                }
+            } finally {
+                activeSourceBuilds.update { builds -> builds - 1 }
             }
+        }
+    }
+
+    /** Runs [block], which builds the active profile's source, with [activeSourceSettled] held down. */
+    private inline fun <T> buildingActiveSource(block: () -> T): T {
+        activeSourceBuilds.update { builds -> builds + 1 }
+        try {
+            return block()
+        } finally {
+            activeSourceBuilds.update { builds -> builds - 1 }
         }
     }
 
@@ -177,8 +205,10 @@ class ProfileManager(
         )
         profileDao.upsert(profile)
         if (_activeProfileId.value == null) {
-            setActive(profile.id)
-            _activeSource.value = buildSource(profile)
+            buildingActiveSource {
+                setActive(profile.id)
+                _activeSource.value = buildSource(profile)
+            }
         }
         return profile
     }
@@ -236,14 +266,16 @@ class ProfileManager(
         // forever on disk under a profile id no Room row references.
         credentialsStore.delete(id)
         if (wasActive) {
-            _activeSource.value?.dispose()
-            _activeSource.value = null
-            val remaining = profileDao.getAll().firstOrNull()
-            if (remaining != null) {
-                setActive(remaining.id)
-                _activeSource.value = buildSource(remaining)
-            } else {
-                setActive(null)
+            buildingActiveSource {
+                _activeSource.value?.dispose()
+                _activeSource.value = null
+                val remaining = profileDao.getAll().firstOrNull()
+                if (remaining != null) {
+                    setActive(remaining.id)
+                    _activeSource.value = buildSource(remaining)
+                } else {
+                    setActive(null)
+                }
             }
         }
         // After the switch, so Home no longer observes the outgoing profile

@@ -92,6 +92,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -111,6 +112,12 @@ import kotlin.math.roundToInt
 class YoinRepository(
     private val activeSource: StateFlow<MusicSource?>,
     private val activeProfileId: StateFlow<String?>,
+    /**
+     * ProfileManager.activeSourceSettled: true once the active profile's source
+     * is built or known not to come (no profile, unreadable credentials).
+     * Never settled by default — a wait for the source then runs to its timeout.
+     */
+    val activeSourceSettled: Flow<Boolean> = flowOf(false),
     private val database: YoinDatabase,
     private val geminiService: GeminiService,
     private val songAboutEntryDao: SongAboutEntryDao,
@@ -413,6 +420,33 @@ class YoinRepository(
 
     /** Synchronous snapshot of [activeProviderId]. */
     fun currentProviderId(): String? = activeSource.value?.id
+
+    /**
+     * The active source as an opaque identity: it changes on every rebuild —
+     * a rebuild for the same account too (its credentials were edited), which
+     * the provider and profile ids don't show. Compare it; never call through it.
+     */
+    fun activeSourceIdentity(): Any? = activeSource.value
+
+    /**
+     * The active source, waiting up to [timeoutMs] for the first one. The
+     * profile id is restored synchronously at launch, but ProfileManager
+     * builds its source asynchronously, so for a beat every remote read would
+     * fail with "No profile configured" (a cold start, a widget tap that opens
+     * a detail page). Returns at once when a source is already active; null
+     * when none comes — ProfileManager settled without one (no profile,
+     * unreadable credentials), which ends the wait early, or the time ran out.
+     * Callers then carry on exactly as they would have without waiting.
+     */
+    suspend fun awaitActiveSource(timeoutMs: Long): MusicSource? {
+        activeSource.value?.let { source -> return source }
+        withTimeoutOrNull(timeoutMs) {
+            combine(activeSource, activeSourceSettled) { source, settled -> source != null || settled }
+                .first { done -> done }
+        }
+        // Re-read: ProfileManager sets the source before it settles.
+        return activeSource.value
+    }
 
     /** Synchronous snapshot of the active profile id. */
     fun currentProfileId(): String? = activeProfileId.value
