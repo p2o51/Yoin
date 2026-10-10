@@ -267,11 +267,16 @@ class HomeViewModel(
      */
     private fun emit(state: HomeUiState, profileId: String?, perfSrc: String? = null) {
         markPerf(state, perfSrc)
+        val owned = if (state is HomeUiState.Content && state.ownerProfileId != profileId) {
+            state.copy(ownerProfileId = profileId)
+        } else {
+            state
+        }
         if (editing) {
-            frozenState = state
+            frozenState = owned
             frozenProfileId = profileId
         } else {
-            published = state
+            published = owned
             publishedProfileId = profileId
             show()
         }
@@ -536,14 +541,22 @@ class HomeViewModel(
         // The feed being built while nothing of this scope is up; null once
         // it is (from the start on a same-scope reload or a cache paint).
         private var draft: HomeUiState.Content? =
-            if (contentOf(scopeKey) == null) HomeUiState.Content(activities = emptyList()) else null
+            if (contentOf(scopeKey) == null) {
+                HomeUiState.Content(activities = emptyList(), ownerProfileId = profileId)
+            } else {
+                null
+            }
 
         private var localTierIn = false
 
         // What the grid is built from once the local tier is in: the
-        // persisted pools (then their rotation) and the noted-track 1×2.
+        // persisted pools (then their rotation) and the noted-track 1×2. A
+        // read that failed ([poolsRead] / [notedTrackRead] false) keeps what
+        // is up: the covers, re-packed around the wide cards, or the note card.
         private var pools: YoinRepository.HomeGridPoolSnapshot? = null
+        private var poolsRead = false
         private var notedTrack: Pair<HomeWidgetCard, MediaId>? = null
+        private var notedTrackRead = false
 
         // The activity log as read, and Spotify's endpoint feed: in (answered
         // or failed), and its events (null: the read failed).
@@ -553,6 +566,11 @@ class HomeViewModel(
 
         // Recently Played as read, before the Activities dedupe.
         private var recentlyPlayedRead: List<Album>? = null
+
+        // A hero up without its footnote, left for Spotify's endpoint: its
+        // hero is the endpoint's once that answers, so the local tier's isn't
+        // resolved ahead of it (on a cold detail cache, a Spotify request).
+        private var footnotePending = false
 
         // This load's memory signals: built, then published (stamp recorded).
         private var signals: MemorySignals? = null
@@ -564,6 +582,7 @@ class HomeViewModel(
 
         suspend fun run() {
             activeLoad = this
+            var failed = false
             try {
                 coroutineScope {
                     // One library playlist read feeds the shelf and, when due,
@@ -593,26 +612,46 @@ class HomeViewModel(
                         settleSignals()
                     }
                 }
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (e: Exception) {
+                failed = true
+                throw e
             } finally {
                 if (activeLoad === this) activeLoad = null
+                // Failed before its signals went up: a tick it held back
+                // ([signalsPending]) is replayed onto the feed that stays.
+                if (failed && !signalsPublished) {
+                    replaySignalTickMissedByLoad(scopeKey, signalStamps[scopeKey], signalTicksBeforeLoad)
+                }
             }
         }
 
         private suspend fun loadLocalTier(scope: CoroutineScope, playlistsRead: Deferred<Result<List<Playlist>>>) {
             // The one read a load can't do without: a throw fails it, as before.
             val activities = repository.getRecentActivities(limit = HOME_ACTIVITY_LIMIT).first()
-            val freshPools = guardedOrNull { repository.getCachedHomeGridPools(maxAgeMs = GRID_POOLS_TTL_MS) }
             // Pools of any age go up now; expired ones rotate right behind —
-            // the shelf's one network moment per [GRID_POOLS_TTL_MS].
-            pools = freshPools ?: guardedOrNull { repository.getCachedHomeGridPools(maxAgeMs = null) }
-            notedTrack = loadNotedTrackCard()
+            // the shelf's one network moment per [GRID_POOLS_TTL_MS]. A failed
+            // read can't tell fresh pools from none: no rotation on it, the
+            // next load reads again.
+            val fresh = guardedResult { repository.getCachedHomeGridPools(maxAgeMs = GRID_POOLS_TTL_MS) }
+            val persisted = if (fresh.getOrNull() != null) {
+                fresh
+            } else {
+                guardedResult { repository.getCachedHomeGridPools(maxAgeMs = null) }
+            }
+            pools = persisted.getOrNull()
+            poolsRead = persisted.isSuccess
+            val note = loadNotedTrackCard()
+            notedTrack = note.getOrNull()
+            notedTrackRead = note.isSuccess
             localActivities = activities
             localTierIn = true
-            if (freshPools == null) {
+            if (fresh.isSuccess && fresh.getOrNull() == null) {
                 scope.launch { spliceRotatedPools(fetchAndPersistGridPools(playlistsRead)) }
             }
             spliceActivities(scope) { latest ->
-                val grid = buildWidgetGrid(pools, memory = latest.memoryCard(), note = notedTrack)
+                val grid = gridWith(latest, memory = latest.memoryCard())
                 latest.copy(
                     widgetGrid = grid,
                     // The noted song it may now show leaves the shelf.
@@ -644,8 +683,11 @@ class HomeViewModel(
             }
         }
 
-        private fun spliceRotatedPools(rotated: YoinRepository.HomeGridPoolSnapshot) {
+        /** [rotated]: the next batch; null when none came (offline): the shelf stays as it is. */
+        private fun spliceRotatedPools(rotated: YoinRepository.HomeGridPoolSnapshot?) {
+            if (rotated == null) return
             pools = rotated
+            poolsRead = true
             // The wide cards up stay as they are, so Rediscover's dedupe stands.
             splice { latest ->
                 latest.copy(
@@ -705,14 +747,15 @@ class HomeViewModel(
          * Splice the Activities this load now has (see [activitiesFor]) and
          * what [also] derives from them. A new hero drops the footnote of the
          * old one and resolves its own — on a cold detail cache a network
-         * read — then splices it in if that hero is still up.
+         * read — then splices it in if that hero is still up. On Spotify that
+         * waits for the endpoint's answer ([footnotePending]).
          */
         private fun spliceActivities(scope: CoroutineScope, also: (HomeUiState.Content) -> HomeUiState.Content) {
             var heroToResolve: List<ActivityEvent>? = null
             splice { latest ->
                 val (activities, fromRemote) = activitiesFor(latest)
                 val heroChanged = !sameHero(activities, latest.activities)
-                if (heroChanged) heroToResolve = activities
+                if (heroChanged || footnotePending) heroToResolve = activities
                 also(
                     latest.copy(
                         activities = activities,
@@ -726,6 +769,8 @@ class HomeViewModel(
                 )
             }
             val activities = heroToResolve ?: return
+            footnotePending = spotify && !remoteFeedIn
+            if (footnotePending) return
             scope.launch {
                 val footnote = loadActivityHeroFootnote(activities)
                 splice { latest ->
@@ -763,15 +808,19 @@ class HomeViewModel(
         /**
          * The grid with [memory] as its memory 1×2: rebuilt from the pools
          * once the local tier has read them; before that (a splice onto
-         * content already up), the cards up are re-packed around it.
+         * content already up), or when they couldn't be read, the cards up
+         * are re-packed around it.
          */
         private fun gridWith(
             latest: HomeUiState.Content,
             memory: Pair<HomeWidgetCard, MediaId?>?
-        ): List<HomeWidgetCard> = if (localTierIn) {
-            buildWidgetGrid(pools, memory = memory, note = notedTrack)
-        } else {
-            repackWidgetGrid(latest.widgetGrid, memory = memory, note = latest.notedTrackCard())
+        ): List<HomeWidgetCard> {
+            val note = if (localTierIn && notedTrackRead) notedTrack else latest.notedTrackCard()
+            return if (localTierIn && poolsRead) {
+                buildWidgetGrid(pools, memory = memory, note = note)
+            } else {
+                repackWidgetGrid(latest.widgetGrid, memory = memory, note = note)
+            }
         }
 
         /**
@@ -1131,7 +1180,8 @@ class HomeViewModel(
         signals: MemorySignals?,
     ): List<HomeWidgetCard> {
         val memory = if (signals != null) signals.memoryCard else current.memoryCard()
-        return repackWidgetGrid(current, memory = memory, note = loadNotedTrackCard())
+        val note = loadNotedTrackCard().getOrElse { current.notedTrackCard() }
+        return repackWidgetGrid(current, memory = memory, note = note)
     }
 
     /**
@@ -1168,10 +1218,11 @@ class HomeViewModel(
     private fun HomeUiState.Content.memoryCard(): Pair<HomeWidgetCard, MediaId?>? = widgetGrid.memoryCard()
 
     /** The grid's noted-track 1×2 with its track, as on screen. */
-    private fun HomeUiState.Content.notedTrackCard(): Pair<HomeWidgetCard, MediaId>? =
-        widgetGrid.firstNotNullOfOrNull { card ->
-            (card.target as? HomeWidgetTarget.PlaySong)?.song?.id?.takeIf { card.expanded }?.let { card to it }
-        }
+    private fun List<HomeWidgetCard>.notedTrackCard(): Pair<HomeWidgetCard, MediaId>? = firstNotNullOfOrNull { card ->
+        (card.target as? HomeWidgetTarget.PlaySong)?.song?.id?.takeIf { card.expanded }?.let { card to it }
+    }
+
+    private fun HomeUiState.Content.notedTrackCard(): Pair<HomeWidgetCard, MediaId>? = widgetGrid.notedTrackCard()
 
     private fun HomeUiState.Content.recentlyAdded(): RecentlyAdded =
         RecentlyAdded(tracks = recentlyAddedTracks, albums = recentlyAddedAlbums)
@@ -1203,7 +1254,7 @@ class HomeViewModel(
     private suspend fun fetchAndPersistGridPools(
         // The load's one library playlist read, shared with Your Playlists.
         playlistsRead: Deferred<Result<List<Playlist>>>
-    ): YoinRepository.HomeGridPoolSnapshot =
+    ): YoinRepository.HomeGridPoolSnapshot? =
         coroutineScope {
             val albumsDeferred = async {
                 guardedListResult { repository.getAlbumList("random", size = GRID_ALBUM_REQUEST_SIZE) }
@@ -1213,14 +1264,10 @@ class HomeViewModel(
             val tracks = tracksDeferred.await()
             val playlists = playlistsRead.await()
             val reads = listOf(albums, tracks, playlists)
+            // No new batch: the persisted pools stay, and so does the shelf
+            // built from them (the local tier put them up).
             if (reads.any { it.isFailure } && reads.none { it.getOrNull().orEmpty().isNotEmpty() }) {
-                return@coroutineScope guardedOrNull { repository.getCachedHomeGridPools(maxAgeMs = null) }
-                    ?: YoinRepository.HomeGridPoolSnapshot(
-                        albums = emptyList(),
-                        tracks = emptyList(),
-                        playlists = emptyList(),
-                        cachedAt = 0L
-                    )
+                return@coroutineScope null
             }
             val snapshot = YoinRepository.HomeGridPoolSnapshot(
                 albums = albums.getOrDefault(emptyList())
@@ -1331,15 +1378,16 @@ class HomeViewModel(
         }
         val candidates = pool.memoryEligible(MEMORY_CANDIDATE_LIMIT)
         val noteCount = guardedOrNull { repository.countNotes() } ?: return null
-        // Songs are Rediscover's alone: a failed read just leaves them out.
-        val songs = guardedList {
+        // Songs are Rediscover's alone: a failed read keeps the ones behind
+        // the shelf up (none on a first build).
+        val songs = guardedListResult {
             rediscoverSongs.load(
                 provider = providerId,
                 profileId = profileId,
                 playedBefore = nowMillis() - REDISCOVER_AWAY_MS,
                 limit = REDISCOVER_SONG_QUERY_LIMIT,
             )
-        }
+        }.getOrElse { scopeSignals[homeScopeKey(providerId, profileId)]?.songs.orEmpty() }
         if (!matchesCurrentScope(providerId, profileId)) return null
         val pill = buildHomeMemoryPill(candidates, noteCount, scope = homeScopeKey(providerId, profileId))
             .withMemoryTitle(candidates)
@@ -1430,11 +1478,13 @@ class HomeViewModel(
     /**
      * The noted-track 1×2: the most recently touched song note, enriched
      * best-effort with the track's rating and last-play metadata (cover,
-     * duration) so the card can play the song on tap.
+     * duration) so the card can play the song on tap. Success(null): no
+     * note; a failed note read is a failure (the card up stays).
      */
-    private suspend fun loadNotedTrackCard(): Pair<HomeWidgetCard, MediaId>? {
-        val note = guardedList { repository.getRecentSongNotes(limit = 1) }.firstOrNull()
-            ?: return null
+    private suspend fun loadNotedTrackCard(): Result<Pair<HomeWidgetCard, MediaId>?> {
+        val notes = guardedListResult { repository.getRecentSongNotes(limit = 1) }
+            .getOrElse { return Result.failure(it) }
+        val note = notes.firstOrNull() ?: return Result.success(null)
         val trackId = MediaId(note.provider, note.trackId)
         val rating = guardedOrNull { repository.getRating(trackId).first()?.rating }
         val recentPlay = guardedOrNull { repository.getMostRecentPlay(trackId) }
@@ -1471,7 +1521,7 @@ class HomeViewModel(
             expanded = true,
             target = HomeWidgetTarget.PlaySong(song),
         )
-        return card to trackId
+        return Result.success(card to trackId)
     }
 
     private suspend fun loadGridTracks(): List<Track> =
@@ -1608,18 +1658,10 @@ class HomeViewModel(
         }
     }
 
-    private suspend fun <T> guardedList(block: suspend () -> List<T>): List<T> = try {
-        block()
-    } catch (cancellation: CancellationException) {
-        throw cancellation
-    } catch (_: Exception) {
-        emptyList()
-    }
-
     /**
-     * [guardedList] that tells a failure apart from an empty result: a
-     * section whose read fails keeps what it shows, an empty one empties (the
-     * grid pools' rotation, Home's network shelves).
+     * A list read that tells a failure apart from an empty result: a section
+     * whose read fails keeps what it shows, an empty one empties (the grid
+     * pools' rotation, Home's shelves, the noted track, Rediscover's songs).
      */
     private suspend fun <T> guardedListResult(block: suspend () -> List<T>): Result<List<T>> = guardedResult(block)
 

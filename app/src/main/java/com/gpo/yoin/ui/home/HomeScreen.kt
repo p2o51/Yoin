@@ -23,6 +23,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -260,6 +261,17 @@ fun HomeContent(
             val feedVisible by remember { derivedStateOf { contentAlphaState.value > 0f } }
             val feed = uiState as? HomeUiState.Content
                 ?: lastFeed?.takeIf { uiState is HomeUiState.Loading && feedVisible }
+            // Each account's feed keeps its own list state (the scroll) while
+            // Loading stands over it, so a failed switch brings the feed back
+            // where it was; another account's feed starts fresh, and drops it.
+            val feedStates = rememberSaveableStateHolder()
+            val feedOwner = feed?.ownerProfileId.orEmpty()
+            var keptFeedOwner by remember { mutableStateOf<String?>(null) }
+            LaunchedEffect(feed != null, feedOwner) {
+                if (feed == null) return@LaunchedEffect
+                keptFeedOwner?.takeIf { it != feedOwner }?.let(feedStates::removeState)
+                keptFeedOwner = feedOwner
+            }
 
             when {
                 feed != null -> {
@@ -272,41 +284,43 @@ fun HomeContent(
                             },
                     ) {
                         // Edit mode happens in place, inside the feed (HomeEditorialContent).
-                        HomeEditorialContent(
-                            activities = feed.activities,
-                            widgetGrid = feed.widgetGrid,
-                            activityHeroFootnote = feed.activityHeroFootnote,
-                            activityHeroYear = feed.activityHeroYear,
-                            activityHeroSongCount = feed.activityHeroSongCount,
-                            activityHeroMinutes = feed.activityHeroMinutes,
-                            recentlyAddedTracks = feed.recentlyAddedTracks,
-                            recentlyAddedAlbums = feed.recentlyAddedAlbums,
-                            rediscover = feed.rediscover,
-                            playlists = feed.playlists,
-                            recentlyPlayed = feed.recentlyPlayed,
-                            memoryPill = feed.memoryPill,
-                            homeCovered = homeCovered,
-                            sections = sections,
-                            onNavigateToSettings = onNavigateToSettings,
-                            activeAccount = activeAccount,
-                            onOpenAccounts = onOpenAccounts,
-                            accountButtonHidden = accountButtonHidden,
-                            onAccountAnchor = onAccountAnchor,
-                            onNavigateToMemories = onNavigateToMemories,
-                            editController = editController,
-                            footerNewBadge = footerNewBadge,
-                            onOpenMemoryFocus = onOpenMemoryFocus,
-                            memoriesRevealState = memoriesRevealState,
-                            onCommitMemoriesReveal = onCommitMemoriesReveal,
-                            onAlbumClick = onAlbumClick,
-                            onArtistClick = onArtistClick,
-                            onPlaylistClick = onPlaylistClick,
-                            onSongClick = onSongClick,
-                            buildCoverArtUrl = buildCoverArtUrl,
-                            sharedTransitionScope = sharedTransitionScope,
-                            animatedVisibilityScope = animatedVisibilityScope,
-                            modifier = Modifier.fillMaxSize(),
-                        )
+                        feedStates.SaveableStateProvider(feedOwner) {
+                            HomeEditorialContent(
+                                activities = feed.activities,
+                                widgetGrid = feed.widgetGrid,
+                                activityHeroFootnote = feed.activityHeroFootnote,
+                                activityHeroYear = feed.activityHeroYear,
+                                activityHeroSongCount = feed.activityHeroSongCount,
+                                activityHeroMinutes = feed.activityHeroMinutes,
+                                recentlyAddedTracks = feed.recentlyAddedTracks,
+                                recentlyAddedAlbums = feed.recentlyAddedAlbums,
+                                rediscover = feed.rediscover,
+                                playlists = feed.playlists,
+                                recentlyPlayed = feed.recentlyPlayed,
+                                memoryPill = feed.memoryPill,
+                                homeCovered = homeCovered,
+                                sections = sections,
+                                onNavigateToSettings = onNavigateToSettings,
+                                activeAccount = activeAccount,
+                                onOpenAccounts = onOpenAccounts,
+                                accountButtonHidden = accountButtonHidden,
+                                onAccountAnchor = onAccountAnchor,
+                                onNavigateToMemories = onNavigateToMemories,
+                                editController = editController,
+                                footerNewBadge = footerNewBadge,
+                                onOpenMemoryFocus = onOpenMemoryFocus,
+                                memoriesRevealState = memoriesRevealState,
+                                onCommitMemoriesReveal = onCommitMemoriesReveal,
+                                onAlbumClick = onAlbumClick,
+                                onArtistClick = onArtistClick,
+                                onPlaylistClick = onPlaylistClick,
+                                onSongClick = onSongClick,
+                                buildCoverArtUrl = buildCoverArtUrl,
+                                sharedTransitionScope = sharedTransitionScope,
+                                animatedVisibilityScope = animatedVisibilityScope,
+                                modifier = Modifier.fillMaxSize(),
+                            )
+                        }
                     }
                 }
 

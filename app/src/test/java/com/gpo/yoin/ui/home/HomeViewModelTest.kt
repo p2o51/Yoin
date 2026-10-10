@@ -2019,7 +2019,7 @@ class HomeViewModelTest {
     }
 
     @Test
-    fun should_showLoading_when_accountSwitchStarts_until_newAccountsFeed() = runTest {
+    fun should_holdLoadingUntilTheNewAccountsFeed_when_accountSwitchStarts() = runTest {
         // Q14b: from the tap to the new account's first feed Home shows
         // Loading — through the ping and warm-up, and past the commit until
         // that account's local tier is up.
@@ -2057,10 +2057,10 @@ class HomeViewModelTest {
             advanceTimeBy(500)
             expectNoEvents()
 
-            assertEquals(
-                listOf("artist-of-$incoming"),
-                (awaitItem() as HomeUiState.Content).activities.map { it.entityId }
-            )
+            val arrived = awaitItem() as HomeUiState.Content
+            assertEquals(listOf("artist-of-$incoming"), arrived.activities.map { it.entityId })
+            // Whose feed it is travels with it (Home keeps list state per account).
+            assertEquals(incoming, arrived.ownerProfileId)
         }
     }
 
@@ -2093,6 +2093,284 @@ class HomeViewModelTest {
             expectNoEvents()
         }
         coVerify(exactly = 1) { repository.getRecentlyPlayedAlbums(any()) }
+    }
+
+    @Test
+    fun should_restoreFeed_when_aFailedSwitchFromHomeIsAcknowledgedAtOnce() = runTest {
+        // Home's switcher acknowledges its own failure as it lands
+        // (switchFromHome), so this ViewModel sees Switching, then Idle — never
+        // the Error — with the outgoing account still active: the hold lifts
+        // on Idle and the feed comes back as it was.
+        val outgoing = "subsonic-switch-acknowledged-a"
+        val provider = MutableStateFlow<String?>(MediaId.PROVIDER_SUBSONIC)
+        val profileId = MutableStateFlow<String?>(outgoing)
+        val switching = MutableStateFlow<ProfileManager.SwitchState>(ProfileManager.SwitchState.Idle)
+        val repository = scopedRepository(outgoing, provider)
+        coEvery { repository.getRecentlyPlayedAlbums(any()) } returns listOf(recentAlbum("played-a"))
+        val viewModel = switchingViewModel(repository, profileId, switching)
+
+        viewModel.uiState.test {
+            assertEquals(HomeUiState.Loading, awaitItem())
+            val before = awaitItem() as HomeUiState.Content
+            assertEquals(outgoing, before.ownerProfileId)
+
+            switching.value = ProfileManager.SwitchState.Switching(
+                "spotify-switch-acknowledged-b",
+                ProfileManager.SwitchState.Stage.Priming
+            )
+            assertEquals(HomeUiState.Loading, awaitItem())
+
+            // switchTo's Error and the acknowledgement, in one go.
+            switching.value = ProfileManager.SwitchState.Idle
+            assertEquals(before, awaitItem())
+            advanceUntilIdle()
+            expectNoEvents()
+        }
+        coVerify(exactly = 1) { repository.getRecentlyPlayedAlbums(any()) }
+    }
+
+    @Test
+    fun should_keepHoldingLoading_when_theOutgoingFeedSplicesDuringASwitch() = runTest {
+        // A slow block of the outgoing account lands while a switch holds
+        // Loading: it goes into that account's feed, not on screen — only the
+        // switched-to account's own feed ends the hold. The switch then fails,
+        // and the feed comes back with the block in.
+        val outgoing = "subsonic-switch-late-splice-a"
+        val provider = MutableStateFlow<String?>(MediaId.PROVIDER_SUBSONIC)
+        val profileId = MutableStateFlow<String?>(outgoing)
+        val switching = MutableStateFlow<ProfileManager.SwitchState>(ProfileManager.SwitchState.Idle)
+        val repository = scopedRepository(outgoing, provider)
+        val playlists = CompletableDeferred<List<Playlist>>()
+        coEvery { repository.getPlaylists() } coAnswers { playlists.await() }
+        val viewModel = switchingViewModel(repository, profileId, switching)
+
+        viewModel.uiState.test {
+            assertEquals(HomeUiState.Loading, awaitItem())
+            assertTrue((awaitItem() as HomeUiState.Content).playlists.isEmpty())
+
+            val target = "spotify-switch-late-splice-b"
+            switching.value = ProfileManager.SwitchState.Switching(target, ProfileManager.SwitchState.Stage.Priming)
+            assertEquals(HomeUiState.Loading, awaitItem())
+
+            playlists.complete(listOf(playlist("late-list")))
+            advanceUntilIdle()
+            expectNoEvents()
+
+            switching.value = ProfileManager.SwitchState.Error(target, "Server did not respond")
+            val back = awaitItem() as HomeUiState.Content
+            assertEquals(listOf("late-list"), back.playlists.map { it.id.rawId })
+            assertEquals(outgoing, back.ownerProfileId)
+        }
+    }
+
+    @Test
+    fun should_keepJbiCovers_when_aReloadCannotReadThePools() = runTest {
+        // A reload whose pool reads fail keeps the covers up, and doesn't take
+        // the failure for "no fresh pools": no rotation (no network) on it.
+        val profile = "subsonic-pool-read-fails"
+        val repository = memorySignalRepository(profile = profile)
+        val pooled = album("pooled-album", "Pooled")
+        val pools = YoinRepository.HomeGridPoolSnapshot(
+            albums = listOf(pooled),
+            tracks = emptyList(),
+            playlists = emptyList(),
+            cachedAt = 1L
+        )
+        var broken = false
+        coEvery { repository.getCachedHomeGridPools(any()) } answers {
+            if (broken) throw IOException("disk") else pools
+        }
+        coEvery { repository.getCachedHomeGridPools(isNull()) } answers {
+            if (broken) throw IOException("disk") else pools
+        }
+        val viewModel = homeViewModel(repository, profile)
+        advanceUntilIdle()
+        val pooledCard = HomeWidgetTarget.AlbumDetail(pooled.id.toString())
+        assertTrue((viewModel.uiState.value as HomeUiState.Content).widgetGrid.any { it.target == pooledCard })
+
+        broken = true
+        viewModel.refresh()
+        advanceUntilIdle()
+
+        assertTrue((viewModel.uiState.value as HomeUiState.Content).widgetGrid.any { it.target == pooledCard })
+        coVerify(exactly = 0) { repository.getAlbumList("random", any(), any()) }
+    }
+
+    @Test
+    fun should_keepTheNotedTrackCard_when_aReloadCannotReadNotes() = runTest {
+        val profile = "subsonic-note-read-fails"
+        val repository = memorySignalRepository(profile = profile)
+        var broken = false
+        coEvery { repository.getRecentSongNotes(any()) } answers {
+            if (broken) {
+                throw IOException("disk")
+            } else {
+                listOf(
+                    SongNote(
+                        id = "note-kept",
+                        profileId = profile,
+                        trackId = "noted-song",
+                        provider = MediaId.PROVIDER_SUBSONIC,
+                        content = "keep me",
+                        createdAt = 1L,
+                        updatedAt = 1L,
+                        title = "Noted",
+                        artist = "Artist"
+                    )
+                )
+            }
+        }
+        val viewModel = homeViewModel(repository, profile)
+        advanceUntilIdle()
+        val noted = { (viewModel.uiState.value as HomeUiState.Content).widgetGrid.map { it.stableId } }
+        assertEquals(listOf("grid-note:note-kept"), noted())
+
+        broken = true
+        viewModel.refresh()
+        advanceUntilIdle()
+
+        assertEquals(listOf("grid-note:note-kept"), noted())
+    }
+
+    @Test
+    fun should_keepRediscoverSongs_when_aReloadCannotReadThem() = runTest {
+        val profile = "subsonic-rd-songs-read-fails"
+        val repository = memorySignalRepository(profile = profile)
+        coEvery { repository.getAlbumMemoryCandidates(any(), any()) } returns listOf(
+            rediscoverCandidate("a", profile, albumRating = 9f)
+        )
+        coEvery { repository.countNotes() } returns 0
+        var broken = false
+        val source = RediscoverSongSource { _, _, _, _ ->
+            if (broken) throw IOException("database closed")
+            listOf(rediscoverSong("s1", rating = 8f))
+        }
+        val viewModel = homeViewModel(repository, profile, nowMillis = { NOW }, rediscoverSongs = source)
+        advanceUntilIdle()
+        val shelf = { (viewModel.uiState.value as HomeUiState.Content).rediscover.map { it.shelfKey } }
+        assertEquals(listOf("rediscover:subsonic:a", "rediscover-song:subsonic:s1"), shelf())
+
+        broken = true
+        viewModel.refresh()
+        advanceUntilIdle()
+
+        assertEquals(listOf("rediscover:subsonic:a", "rediscover-song:subsonic:s1"), shelf())
+    }
+
+    @Test
+    fun should_replayAHeldBackTick_when_aReloadFailsWhileBuildingSignals() = runTest {
+        // A note written while a reload builds its signals ticks in: the load
+        // keeps the build to itself (signalsPending). The reload then fails —
+        // the feed up stays, on the old signals — and the tick it held back
+        // is replayed rather than lost.
+        val profile = "subsonic-held-tick-failure"
+        val stamp = MutableStateFlow(5L)
+        val repository = memorySignalRepository(profile = profile, stamp = stamp)
+        var notes = 1
+        var reloading = false
+        every { repository.getRecentActivities(limit = any()) } answers {
+            flow {
+                if (reloading) {
+                    delay(3_000)
+                    throw IOException("offline")
+                }
+                emit(emptyList<ActivityEvent>())
+            }
+        }
+        coEvery { repository.getAlbumMemoryCandidates(any(), any()) } coAnswers {
+            if (reloading) delay(5_000)
+            emptyList()
+        }
+        coEvery { repository.countNotes() } answers { notes }
+        val viewModel = homeViewModel(repository, profile)
+        advanceUntilIdle()
+        val noteCount = { (viewModel.uiState.value as HomeUiState.Content).memoryPill?.noteCount }
+        assertEquals(1, noteCount())
+
+        reloading = true
+        viewModel.refresh()
+        advanceTimeBy(500)
+        notes = 2
+        stamp.value = 6L
+        // Its tick (debounced) is in; the reload's build is still out.
+        advanceTimeBy(2_000)
+        assertEquals(1, noteCount())
+
+        advanceUntilIdle()
+        assertEquals(2, noteCount())
+    }
+
+    @Test
+    fun should_resolveOnlyTheEndpointsHeroFootnote_when_spotifyLocalTierGoesUpFirst() = runTest {
+        // Spotify's hero is its endpoint's: the local tier's hero goes up
+        // without a footnote rather than read an album (on a cold detail
+        // cache, a Spotify request) the endpoint is about to replace.
+        val profile = "spotify-footnote-waits"
+        val repository = memorySignalRepository(profile = profile)
+        every { repository.currentProviderId() } returns MediaId.PROVIDER_SPOTIFY
+        every { repository.activeProviderId } returns flowOf(MediaId.PROVIDER_SPOTIFY)
+        fun albumPlay(rawId: String) = ActivityEvent(
+            entityType = "ALBUM",
+            actionType = "PLAYED",
+            entityId = rawId,
+            profileId = profile,
+            provider = MediaId.PROVIDER_SPOTIFY,
+            title = "Album $rawId",
+            subtitle = "Artist"
+        )
+        val local = albumPlay("local-hero")
+        val remote = albumPlay("remote-hero")
+        every { repository.getRecentActivities(limit = any()) } returns flowOf(listOf(local))
+        val endpoint = CompletableDeferred<List<ActivityEvent>>()
+        coEvery { repository.getSpotifyRecentActivities(any()) } coAnswers { endpoint.await() }
+        coEvery { repository.getAlbum(any()) } answers { album(firstArg<MediaId>().rawId, "Hero").copy(year = 2019) }
+        val viewModel = homeViewModel(repository, profile)
+
+        viewModel.uiState.test {
+            assertEquals(HomeUiState.Loading, awaitItem())
+            val localTier = awaitItem() as HomeUiState.Content
+            assertEquals(listOf(local), localTier.activities)
+            advanceTimeBy(500)
+            expectNoEvents()
+
+            endpoint.complete(listOf(remote))
+            advanceUntilIdle()
+            val latest = expectMostRecentItem() as HomeUiState.Content
+            assertEquals(listOf(remote), latest.activities)
+            assertEquals(2019, latest.activityHeroYear)
+        }
+        coVerify(exactly = 0) { repository.getAlbum(MediaId.spotify("local-hero")) }
+        coVerify(exactly = 1) { repository.getAlbum(MediaId.spotify("remote-hero")) }
+    }
+
+    @Test
+    fun should_resolveTheLocalHeroFootnote_when_spotifyEndpointFails() = runTest {
+        val profile = "spotify-footnote-endpoint-fails"
+        val repository = memorySignalRepository(profile = profile)
+        every { repository.currentProviderId() } returns MediaId.PROVIDER_SPOTIFY
+        every { repository.activeProviderId } returns flowOf(MediaId.PROVIDER_SPOTIFY)
+        val local = ActivityEvent(
+            entityType = "ALBUM",
+            actionType = "PLAYED",
+            entityId = "local-hero",
+            profileId = profile,
+            provider = MediaId.PROVIDER_SPOTIFY,
+            title = "Local",
+            subtitle = "Artist"
+        )
+        every { repository.getRecentActivities(limit = any()) } returns flowOf(listOf(local))
+        coEvery { repository.getSpotifyRecentActivities(any()) } coAnswers {
+            delay(1_000)
+            throw IOException("429")
+        }
+        coEvery { repository.getAlbum(any()) } answers { album(firstArg<MediaId>().rawId, "Hero").copy(year = 2001) }
+        val viewModel = homeViewModel(repository, profile)
+        advanceUntilIdle()
+
+        val content = viewModel.uiState.value as HomeUiState.Content
+        assertEquals(listOf(local), content.activities)
+        assertEquals(2001, content.activityHeroYear)
+        coVerify(exactly = 1) { repository.getAlbum(MediaId.spotify("local-hero")) }
     }
 
     /**
