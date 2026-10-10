@@ -169,9 +169,11 @@ class SpotifyLibrarySyncCoordinator(
         // network data — EXCEPT on the very first cold sync (no prior meta),
         // where the caches were just warmed by prime() / a launch warm-up and
         // re-fetching would only slow the first Home paint. Forced refreshes and
-        // TTL re-syncs always invalidate.
+        // TTL re-syncs always invalidate, and so does a first sync after a like
+        // written since that warm-up: the starred tracks stored below come from
+        // the saved-tracks list, and the warm one predates the like.
         val isColdFirstSync = dao.getSyncMeta(profileId) == null
-        if (force || !isColdFirstSync) {
+        if (force || !isColdFirstSync || spotifySource?.hasUnsettledFavoriteWrites() == true) {
             spotifySource?.invalidateLibraryCaches()
         }
         // Warm the four independent library resources concurrently before the

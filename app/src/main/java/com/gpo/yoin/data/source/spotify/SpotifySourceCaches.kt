@@ -101,6 +101,9 @@ internal class SavedTrackDelta(
         synchronized(lock) { entries[trackId] = Entry(saved, ++sequence, clock()) }
     }
 
+    /** Whether a write is still waiting for a list read to settle it. */
+    fun isUnsettled(): Boolean = synchronized(lock) { entries.isNotEmpty() }
+
     /** Taken just before a list read starts; writes up to it are older than the read. */
     fun checkpoint(): Long = synchronized(lock) { sequence }
 

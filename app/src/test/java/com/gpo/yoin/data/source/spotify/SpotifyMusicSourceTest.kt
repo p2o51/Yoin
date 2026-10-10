@@ -264,6 +264,20 @@ class SpotifyMusicSourceTest {
         assertEquals(500, (error as? SpotifyAuthException)?.code)
     }
 
+    @Test
+    fun should_reportUnsettledLike_when_noSavedTracksReadSinceIt() = runTest {
+        val source = newSource()
+        starredOf(source, "t1")
+
+        source.writeActions().setFavorite(MediaId.spotify("t1"), favorite = true)
+        assertTrue(source.hasUnsettledFavoriteWrites())
+
+        savedTracks("t1")
+        source.invalidateLibraryCaches()
+        starredOf(source, "t1")
+        assertFalse(source.hasUnsettledFavoriteWrites())
+    }
+
     // ── Helpers ────────────────────────────────────────────────────────
 
     private fun newSource(): SpotifyMusicSource {

@@ -377,6 +377,37 @@ class SpotifyLibrarySyncCoordinatorTest {
         verify(exactly = 2) { spotifySource.invalidateLibraryCaches() }
     }
 
+    @Test
+    fun should_rereadWarmCaches_when_firstSyncFollowsUnsettledLike() = runTest {
+        val spotifySource = emptySpotifySource(unsettledFavoriteWrites = true)
+
+        coordinator.refreshLibrary(profileId = "profile-a", source = spotifySource)
+
+        verify(exactly = 1) { spotifySource.invalidateLibraryCaches() }
+    }
+
+    @Test
+    fun should_keepWarmCaches_when_firstSyncHasNoUnsettledWrites() = runTest {
+        val spotifySource = emptySpotifySource(unsettledFavoriteWrites = false)
+
+        coordinator.refreshLibrary(profileId = "profile-a", source = spotifySource)
+
+        verify(exactly = 0) { spotifySource.invalidateLibraryCaches() }
+    }
+
+    private fun emptySpotifySource(unsettledFavoriteWrites: Boolean): SpotifyMusicSource {
+        val spotifySource = mockk<SpotifyMusicSource>(relaxed = true)
+        every { spotifySource.id } returns MediaId.PROVIDER_SPOTIFY
+        every { spotifySource.library() } returns library
+        every { spotifySource.profileId } returns "profile-a"
+        every { spotifySource.hasUnsettledFavoriteWrites() } returns unsettledFavoriteWrites
+        coEvery { library.getArtists() } returns emptyList()
+        coEvery { library.getAlbumList("alphabeticalByName", Int.MAX_VALUE) } returns emptyList()
+        coEvery { library.getPlaylists() } returns emptyList()
+        coEvery { library.getStarred() } returns Starred(emptyList(), emptyList(), emptyList())
+        return spotifySource
+    }
+
     private fun seedRemoteLibrary() {
         val artist = Artist(
             id = MediaId.spotify("artist-1"),

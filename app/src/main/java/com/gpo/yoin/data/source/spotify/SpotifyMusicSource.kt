@@ -434,6 +434,13 @@ class SpotifyMusicSource(
         recentlyPlayedCache.get { apiClient.getRecentlyPlayed(limit = RECENTLY_PLAYED_LIMIT) }
 
     /**
+     * Whether a like or unlike written through this source still waits for a
+     * saved-tracks read made after it; until then only the saved ids carry
+     * it, not the cached list's tracks.
+     */
+    fun hasUnsettledFavoriteWrites(): Boolean = savedTrackDelta.isUnsettled()
+
+    /**
      * Drops in-memory library caches so the next read pulls fresh network
      * data. Likes written since stay laid over the re-read saved tracks until
      * that read reflects them (see [SavedTrackDelta]).
