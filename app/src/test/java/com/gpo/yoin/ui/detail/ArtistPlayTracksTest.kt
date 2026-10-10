@@ -360,7 +360,6 @@ class ArtistPlayTracksTest {
             coverArt = null,
             albums = albumIds.map { album(it, tracks = emptyList()) }
         )
-        coEvery { repository.getAlbumRatings(any()) } returns emptyMap()
         coEvery { repository.getArtistListening(any(), any(), any(), any()) } returns null
         every { repository.favoriteOverrides } returns MutableStateFlow(emptyMap())
         every { repository.resolveCoverUrl(any(), any()) } returns null

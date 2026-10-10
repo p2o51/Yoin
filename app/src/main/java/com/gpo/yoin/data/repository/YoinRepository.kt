@@ -3,6 +3,7 @@ package com.gpo.yoin.data.repository
 import java.util.Collections
 import java.util.LinkedHashMap
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicLong
 import androidx.room.withTransaction
 import com.gpo.yoin.data.local.ActivityActionType
 import com.gpo.yoin.data.local.ActivityEntityType
@@ -109,6 +110,14 @@ import kotlin.math.roundToInt
 private typealias DetailDiskWrite<V> = suspend (profileId: String, value: V, stillCurrent: () -> Boolean) -> Unit
 
 /**
+ * A second key a loaded detail also answers to, known only once the value is:
+ * an Apple Music library album opens as its catalog album, which Home's hero,
+ * an Activities card or Memories later read by the catalog id. [keyOf] is that
+ * key (null when it is the requested one); [diskWrite] stores the copy under it.
+ */
+private class DetailAlias<V>(val keyOf: (V) -> String?, val diskWrite: DetailDiskWrite<V>)
+
+/**
  * Provider-agnostic orchestrator over local Room + the currently active
  * [MusicSource]. Remote calls are dispatched through `activeSource`; local
  * persistence (ratings, history, activity, song info) stays in Room.
@@ -210,7 +219,17 @@ class YoinRepository(
          */
         private val generations = ConcurrentHashMap<String, Long>()
 
+        /**
+         * Bumped by every [invalidate], whatever its key. A load's alias key
+         * ([DetailAlias]) is only learnt when the value arrives, too late to
+         * snapshot its generation: the alias copy is written only when no
+         * invalidation at all landed while the load was out.
+         */
+        private val invalidations = AtomicLong()
+
         fun generationOf(key: String): Long = generations[key] ?: 0L
+
+        fun invalidationCount(): Long = invalidations.get()
 
         /**
          * Drop the entry AND detach any in-flight load: a post-edit re-read
@@ -219,6 +238,7 @@ class YoinRepository(
          */
         fun invalidate(key: String) {
             generations.merge(key, 1L) { old, inc -> old + inc }
+            invalidations.incrementAndGet()
             inFlight.remove(key)
             lru.remove(key)
         }
@@ -679,6 +699,15 @@ class YoinRepository(
             detailCacheStore?.writeAlbum(profileId, id.toString(), value, stillCurrent)
         },
         fetch = { requireSource().library().getAlbum(id) },
+        // An Apple Music library album resolves to its catalog album, and the visit, plays and Memories then
+        // name it by the catalog id: keep the copy under that id too, or Home's hero reads it again from the
+        // network a second after the page opens.
+        alias = DetailAlias(
+            keyOf = { album -> album.id.toString().takeIf { it != id.toString() } },
+            diskWrite = { profileId, album, stillCurrent ->
+                detailCacheStore?.writeAlbum(profileId, album.id.toString(), album, stillCurrent)
+            }
+        )
     )?.also(::seedLibraryMembership)
 
     private fun isPreMembershipAppleAlbum(album: Album): Boolean =
@@ -1122,6 +1151,7 @@ class YoinRepository(
         diskRead: suspend (profileId: String) -> Cached<V>?,
         diskWrite: DetailDiskWrite<V>,
         fetch: suspend () -> V?,
+        alias: DetailAlias<V>? = null,
     ): V? {
         val perf = YoinPerf.begin("detail.load")
         val profileId = activeProfileId.value
@@ -1140,7 +1170,7 @@ class YoinRepository(
         val shared = mem.inFlight.computeIfAbsent(key) {
             startedFlight = true
             repositoryScope.async {
-                loadDetailFromDiskOrNetwork(mem, key, profileId, diskFreshMs, diskRead, diskWrite, fetch)
+                loadDetailFromDiskOrNetwork(mem, key, profileId, diskFreshMs, diskRead, diskWrite, fetch, alias)
             }.also { deferred ->
                 // invokeOnCompletion, not try/finally: it fires even when the
                 // scope is cancelled before the body runs, and the two-arg
@@ -1183,7 +1213,8 @@ class YoinRepository(
      * disk purely as an offline fallback. The JSON decode is deferred to
      * [Cached.value], so a row that is never served is never decoded. A fetched
      * value is returned as soon as it is in mem; its disk copy is written in
-     * the background ([persistDetail]).
+     * the background ([persistDetail]). A fetched value that also answers to
+     * an [alias] key is kept under it as well ([putAlias]).
      */
     private suspend fun <V : Any> loadDetailFromDiskOrNetwork(
         mem: DetailMemoryCache<V>,
@@ -1193,6 +1224,7 @@ class YoinRepository(
         diskRead: suspend (profileId: String) -> Cached<V>?,
         diskWrite: DetailDiskWrite<V>,
         fetch: suspend () -> V?,
+        alias: DetailAlias<V>? = null,
     ): DetailLoad<V> {
         suspend fun diskRow(): Cached<V>? =
             profileId?.let { runCatching { diskRead(it) }.getOrNull() }
@@ -1201,15 +1233,21 @@ class YoinRepository(
         // load is in flight bumps it, and every write-back below must then be
         // skipped or it would resurrect pre-edit data (7d fresh on disk).
         val generation = mem.generationOf(key)
+        val invalidations = mem.invalidationCount()
         fun canWriteBack(): Boolean =
             activeProfileId.value == profileId && mem.generationOf(key) == generation
+
+        // The alias key is unknown until the value is, so its guard is stricter:
+        // no invalidation of any key since this load began.
+        fun canWriteAlias(): Boolean = canWriteBack() && mem.invalidationCount() == invalidations
 
         val disk = if (diskFreshMs > 0L) diskRow() else null
         if (disk != null && clock() - disk.cachedAt <= diskFreshMs) {
             disk.value()?.let { value ->
+                // No alias copy from here: the alias key may hold a fresher fetch of its own.
                 if (canWriteBack()) mem.put(key, value, fetched = false)
                 if (clock() - disk.cachedAt > detailRevalidateAfterMs) {
-                    revalidateDetail(mem, key, profileId, diskWrite, fetch)
+                    revalidateDetail(mem, key, profileId, diskWrite, fetch, alias)
                 }
                 return DetailLoad(value, src = "disk")
             }
@@ -1223,6 +1261,7 @@ class YoinRepository(
                     mem.put(key, value, fetched = true)
                     persistDetail(profileId, value, diskWrite, ::canWriteBack)
                 }
+                putAlias(mem, key, profileId, value, alias, canWrite = ::canWriteAlias)
             }
             DetailLoad(fetched, src = "net")
         } catch (e: Exception) {
@@ -1253,6 +1292,27 @@ class YoinRepository(
         repositoryScope.launch { runCatching { diskWrite(profileId, value, stillCurrent) } }
     }
 
+    /**
+     * Keep a fetched [value] under its [alias] key as well, in mem and (in the
+     * background) on disk: a no-op without an alias, when the value answers to
+     * [key] alone, or when [canWrite] (the load's alias guard) says no. Only a
+     * fetch is copied, never a disk or fallback copy, so the alias key is
+     * never set back to something older than what it may already hold.
+     */
+    private fun <V : Any> putAlias(
+        mem: DetailMemoryCache<V>,
+        key: String,
+        profileId: String?,
+        value: V,
+        alias: DetailAlias<V>?,
+        canWrite: () -> Boolean
+    ) {
+        val aliasKey = alias?.keyOf?.invoke(value)?.let { memKey(it, profileId) } ?: return
+        if (aliasKey == key || !canWrite()) return
+        mem.put(aliasKey, value, fetched = true)
+        persistDetail(profileId, value, alias.diskWrite, canWrite)
+    }
+
     /** Background refresh of an already-served (slightly stale) disk entry. */
     private fun <V : Any> revalidateDetail(
         mem: DetailMemoryCache<V>,
@@ -1260,15 +1320,19 @@ class YoinRepository(
         profileId: String?,
         diskWrite: DetailDiskWrite<V>,
         fetch: suspend () -> V?,
+        alias: DetailAlias<V>? = null,
     ) {
         val generation = mem.generationOf(key)
+        val invalidations = mem.invalidationCount()
         fun stillCurrent() = activeProfileId.value == profileId && mem.generationOf(key) == generation
+        fun aliasStillCurrent() = stillCurrent() && mem.invalidationCount() == invalidations
         repositoryScope.launch {
             runCatching { fetch() }.getOrNull()?.let { value ->
                 if (stillCurrent()) {
                     mem.put(key, value, fetched = true)
                     if (profileId != null) runCatching { diskWrite(profileId, value, ::stillCurrent) }
                 }
+                putAlias(mem, key, profileId, value, alias, canWrite = ::aliasStillCurrent)
             }
         }
     }
@@ -3014,15 +3078,6 @@ class YoinRepository(
             emptyList()
         }
         return ArtistListening(stats.playCount, top)
-    }
-
-    /** The user's own album ratings (album_ratings) for [albumIds], keyed by raw album id. */
-    suspend fun getAlbumRatings(albumIds: List<MediaId>): Map<String, Float> {
-        val profileId = activeProfileId.value ?: return emptyMap()
-        return albumIds.groupBy { it.provider }.flatMap { (provider, ids) ->
-            albumRatingDao.getAll(ids.map { it.rawId }, provider, profileId)
-                .map { it.albumId to it.rating }
-        }.toMap()
     }
 
     suspend fun recordAlbumVisit(album: Album) {

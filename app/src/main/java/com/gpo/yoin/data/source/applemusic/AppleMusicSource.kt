@@ -92,12 +92,27 @@ class AppleMusicSource(
         personal: Boolean = path.getOrNull(1) == "me"
     ) = api.resourcePage(path, personal, query, next)
 
-    private suspend fun all(path: List<String>, query: Map<String, String> = emptyMap()): List<JsonObject> {
+    /**
+     * Every page of [path]. With a [fallback], a first page Apple refuses as it may refuse an include
+     * ([mayRefuseInclude]) is read again with [fallback], and so is every later page.
+     */
+    private suspend fun all(
+        path: List<String>,
+        query: Map<String, String> = emptyMap(),
+        fallback: Map<String, String>? = null
+    ): List<JsonObject> {
         val result = mutableListOf<JsonObject>()
         val visited = mutableSetOf<String>()
+        var pageQuery = query
         var next: String? = null
         do {
-            val response = page(path, query, next)
+            val response = try {
+                page(path, pageQuery, next)
+            } catch (error: AppleMusicApiException) {
+                if (fallback == null || next != null || !error.mayRefuseInclude()) throw error
+                pageQuery = fallback
+                page(path, pageQuery, null)
+            }
             result += response.resources()
             next = response.text("next")
             check(next == null || visited.add(next)) { "Apple Music repeated a pagination link" }
@@ -263,8 +278,7 @@ class AppleMusicSource(
      * that is not the failure, or the read fails again.
      */
     private suspend fun personalAlbumWithoutSongs(path: List<String>, failure: AppleMusicApiException): JsonObject? {
-        val status = (failure.failure as? AppleMusicApiFailure.Http)?.status ?: return null
-        if (status != 400 && status < 500) return null
+        if (!failure.mayRefuseInclude()) return null
         return try {
             page(path, CatalogAlbumQuery, personal = true)
         } catch (error: AppleMusicApiException) {
@@ -295,6 +309,15 @@ class AppleMusicSource(
         Result.failure(error)
     }
 
+    /**
+     * What Apple answers a request whose include it won't serve with: a 400, or a 5xx like those it answers
+     * some tracklists' includes with. A token, access or rate-limit failure is never that.
+     */
+    private fun AppleMusicApiException.mayRefuseInclude(): Boolean {
+        val status = (failure as? AppleMusicApiFailure.Http)?.status ?: return false
+        return status == 400 || status >= 500
+    }
+
     /** A token or rate-limit failure fails the plain catalog request as well; any other failure is the lookup's. */
     private fun AppleMusicApiException.failsCatalogToo(): Boolean = when (failure) {
         AppleMusicApiFailure.DeveloperTokenRequired,
@@ -309,13 +332,24 @@ class AppleMusicSource(
         durationSec = tracks.sumOf { it.durationSec ?: 0 }
     )
 
-    override suspend fun getArtists(): List<ArtistIndex> = all(path("artists"), PageLimitQuery).map(::artist)
-        .groupBy { it.name.firstOrNull()?.uppercase() ?: "#" }.toSortedMap()
-        .map { (letter, artists) -> ArtistIndex(letter, artists) }
+    // An include Apple refuses costs the portraits, never the list: the artists are read again without it.
+    override suspend fun getArtists(): List<ArtistIndex> =
+        all(path("artists"), LibraryArtistsQuery, fallback = PageLimitQuery).map(::artist)
+            .groupBy { it.name.firstOrNull()?.uppercase() ?: "#" }.toSortedMap()
+            .map { (letter, artists) -> ArtistIndex(letter, artists) }
 
     override suspend fun getArtist(id: MediaId): ArtistDetail? {
         val path = path("artists", id)
-        val resource = page(path).resources().firstOrNull() ?: return null
+        // A library artist's portrait is its catalog artist's; a catalog artist carries its own.
+        val query = if (id.rawId.startsWith("library:")) LibraryArtistQuery else emptyMap()
+        val response = try {
+            page(path, query)
+        } catch (error: AppleMusicApiException) {
+            // Refused, the include costs the portrait only: the page opens on its first release's cover.
+            if (query.isEmpty() || !error.mayRefuseInclude()) throw error
+            page(path)
+        }
+        val resource = response.resources().firstOrNull() ?: return null
         val artist = artist(resource)
         // The albums relationship pages 25 by default, 100 at most.
         val albums = all(path + "albums", PageLimitQuery).map(::album)
@@ -551,9 +585,18 @@ class AppleMusicSource(
                 libraryAddedAt = a.text("dateAdded")
             )
         }
+
+        /**
+         * A library artist keeps its library id (it opens its library artist page), but has no artwork of its
+         * own: its portrait is the catalog artist's, when the request included the `catalog` relationship.
+         */
         internal fun artist(resource: JsonObject): Artist {
             val a = resource.attributes()
-            return Artist(resource.mediaId(), a.text("name").orEmpty(), null, a.cover())
+            val portrait = a.cover() ?: resource.related("catalog")
+                .firstOrNull { it.text("type") == "artists" }
+                ?.attributes()
+                ?.cover()
+            return Artist(resource.mediaId(), a.text("name").orEmpty(), null, portrait)
         }
         internal fun playlist(resource: JsonObject): Playlist {
             val a = resource.attributes()
@@ -588,6 +631,12 @@ private const val RecentPlayedMaxPages = 5
 
 /** Apple's largest page for library collections and the artist albums relationship (default 25). */
 private val PageLimitQuery = mapOf("limit" to "100")
+
+/** A library artist with its catalog artist, the only one of the two that has a portrait. */
+private val LibraryArtistQuery = mapOf("include" to "catalog")
+
+/** Library › Artists: full pages, each artist with its catalog artist ([LibraryArtistQuery]). */
+private val LibraryArtistsQuery = PageLimitQuery + LibraryArtistQuery
 
 /** A library album's tracks, each with its catalog song: what marks the catalog album's rows. */
 private val LibraryTracksQuery = mapOf("include" to "catalog")

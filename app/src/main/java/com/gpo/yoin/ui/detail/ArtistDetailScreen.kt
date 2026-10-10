@@ -104,7 +104,7 @@ import com.gpo.yoin.ui.theme.withTabularFigures
  *   header      back, name, year span, follow star
  *   hero        pinwheel mark around the portrait
  *   Most Played your own most-played songs (local play history)
- *   Discography release timeline: year column, type, your rating per release
+ *   Discography release timeline: year column, type, track count
  */
 
 @Composable
@@ -996,9 +996,9 @@ private enum class DiscographyFilter {
 
 /**
  * Every release, newest first, as a timeline: a year column marks where a
- * year begins, each row carries the release kind and track count, the newest
- * one is tagged "Latest", and your own rating sits on the right where you gave
- * one. Kind filters appear only when the provider reports at least two kinds.
+ * year begins, each row carries the release kind and track count, and the
+ * newest one is tagged "Latest". Kind filters appear only when the provider
+ * reports at least two kinds.
  * The first [DiscographyCollapsedCount] rows show; the rest expand in place.
  */
 @Composable
@@ -1053,7 +1053,6 @@ private fun ArtistDiscography(
                 album = album,
                 showYear = index == 0 || head[index - 1].year != album.year,
                 isLatest = album.id == newestId,
-                accent = accent,
                 onClick = { onAlbumClick(album.id) },
             )
         }
@@ -1071,7 +1070,6 @@ private fun ArtistDiscography(
                         album = album,
                         showYear = previous?.year != album.year,
                         isLatest = false,
-                        accent = accent,
                         onClick = { onAlbumClick(album.id) },
                     )
                 }
@@ -1109,7 +1107,6 @@ private fun ArtistReleaseRow(
     album: ArtistAlbum,
     showYear: Boolean,
     isLatest: Boolean,
-    accent: Color,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -1166,16 +1163,6 @@ private fun ArtistReleaseRow(
                 overflow = TextOverflow.Ellipsis,
             )
             ReleaseMetaLine(album = album, isLatest = isLatest)
-        }
-        album.userRating?.let { rating ->
-            Text(
-                text = formatAlbumScore(rating),
-                style = MaterialTheme.typography.titleSmall.withTabularFigures(),
-                color = accent,
-                modifier = Modifier
-                    .padding(start = 12.dp)
-                    .seamFade(),
-            )
         }
     }
 }
@@ -1242,7 +1229,7 @@ private fun ArtistDetailPreviewContent() {
                 heroCoverArtUrl = null,
                 isStarred = true,
                 albums = listOf(
-                    ArtistAlbum("3", "Describe", null, 2025, 8, ReleaseType.Album, userRating = 8.5f),
+                    ArtistAlbum("3", "Describe", null, 2025, 8, ReleaseType.Album),
                     ArtistAlbum("1", "Aperture", null, 2023, 11, ReleaseType.Album),
                     ArtistAlbum("2", "What Is Going On?", null, 2021, 6, ReleaseType.EP),
                 ),
