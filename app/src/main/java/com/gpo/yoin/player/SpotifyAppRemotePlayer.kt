@@ -463,12 +463,14 @@ internal class SpotifyAppRemotePlayer(
      * was wanted — a Subsonic or Apple Music account — reports nothing to
      * the player while it lasts and closes when [block] is done, unless
      * something wanted it meanwhile (a Spotify account's [warmConnection], a
-     * play). Without a client id it doesn't try. Plays nothing.
+     * play). Without a client id it doesn't try — once Room has had
+     * [CLIENT_ID_BOOTSTRAP_GRACE_MS] to read it, as a cold connect gets: a
+     * process the broadcast just started may not have it yet. Plays nothing.
      */
     suspend fun <T> withProbeConnection(timeoutMs: Long, block: suspend (ProbeConnection) -> T): T =
         withContext(Dispatchers.Main.immediate) {
             if (remote?.isConnected == true) return@withContext block(ProbeConnection.Connected)
-            if (clientIdProvider().isBlank()) return@withContext block(ProbeConnection.NoClientId)
+            if (!awaitClientId(CLIENT_ID_BOOTSTRAP_GRACE_MS)) return@withContext block(ProbeConnection.NoClientId)
             connectIfPossible()
             val connected = withTimeoutOrNull(timeoutMs) {
                 while (remote?.isConnected != true) delay(CONNECTION_POLL_MS)
@@ -492,12 +494,26 @@ internal class SpotifyAppRemotePlayer(
             }
         }
 
+    /**
+     * Whether a client id is set, or comes in within [graceMs]: it is read
+     * from Room on a cold start, and blank until that first read lands.
+     */
+    private suspend fun awaitClientId(graceMs: Long): Boolean = clientIdProvider().isNotBlank() ||
+        withTimeoutOrNull(graceMs) {
+            while (clientIdProvider().isBlank()) delay(CONNECTION_POLL_MS)
+            true
+        } == true
+
     /** How the debug probe's App Remote connection went ([withProbeConnection]). */
     internal enum class ProbeConnection {
         /** Connected, or already was. */
         Connected,
 
-        /** No Spotify client id set: App Remote can't connect at all. */
+        /**
+         * No Spotify client id set, even after Room's first read: App Remote
+         * can't connect at all. It is the app's one setting (Settings ›
+         * Spotify), not an account's — switching accounts doesn't change it.
+         */
         NoClientId,
 
         /** No started Yoin Activity to connect from. */
@@ -972,7 +988,7 @@ internal class SpotifyAppRemotePlayer(
          */
         const val LIBRARY_STATE_TIMEOUT_MS = 3_000L
 
-        /** How often [withProbeConnection] looks whether the connect landed. */
+        /** How often [withProbeConnection] looks whether the connect (or the client id) landed. */
         const val CONNECTION_POLL_MS = 100L
 
         /**

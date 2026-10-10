@@ -6,7 +6,6 @@ import android.content.Intent
 import android.util.Log
 import com.gpo.yoin.BuildConfig
 import com.gpo.yoin.YoinApplication
-import com.gpo.yoin.player.SpotifyAppRemotePlayer.ProbeConnection
 import com.gpo.yoin.player.normalizedSpotifyErrorMessage
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -51,17 +50,11 @@ class LibraryStateProbeReceiver : BroadcastReceiver() {
                     uris.take(MAX_URIS),
                     CONNECT_TIMEOUT_MS
                 )
-                Log.i(TAG, "connect ${probe.connection} ms=${probe.connectMs}")
-                when (probe.connection) {
-                    ProbeConnection.Connected -> Unit
-                    ProbeConnection.NoClientId -> Log.w(TAG, "no Spotify client id: switch to a Spotify profile")
-                    ProbeConnection.NoHost ->
-                        Log.w(TAG, "App Remote did not connect: open Yoin (an Activity must be started) and retry")
-                    ProbeConnection.TimedOut -> Log.w(
-                        TAG,
-                        "App Remote did not connect within ${CONNECT_TIMEOUT_MS / 1_000} s: open Spotify and retry"
-                    )
-                }
+                Log.i(
+                    TAG,
+                    "connect ${probe.connection} ms=${probe.connectMs} account=${probe.activeProviderId ?: "none"}"
+                )
+                probe.connectionNotes(CONNECT_TIMEOUT_MS).forEach { note -> Log.w(TAG, note) }
                 if (uris.size > MAX_URIS) Log.w(TAG, "probe: read the first $MAX_URIS of ${uris.size} uris")
                 probe.readings.forEach { reading ->
                     val error = reading.error

@@ -108,7 +108,7 @@ debug 包里有一个广播入口 `LibraryStateProbeReceiver`（`app/src/debug`�
 
 - **不起播、不改队列**：只读状态。Spotify 账号在用时直接用 Yoin 已有的连接；当前账号不要 App Remote 时（Subsonic、Apple Music）探针自己连一次，读完就断开，这段时间里不把 Spotify 的播放状态交给播放器，之后的回到前台也不会因为它重连。
 - Spotify 账号自己的常驻连接在探针期间到来（比如冷启动后立刻发广播）时，探针结束后连接留给账号，不断开；探针期间被挡住的播放状态会重新订阅补上。
-- 当前没有 Spotify Client ID 时不尝试连接，直接报 `no Spotify client id`。
+- Client ID 是全 app 一个的设置（设置 › Spotify），不按账号存，切账号不会改变它。它从 Room 读出来，冷启动时先是空的，所以探针先给 Room 留 1.5 秒宽限（和播放器冷启动连接一样），之后仍为空才报 `no Spotify client id configured`，不尝试连接。
 - **不打 token**：日志里只有 URI、结果、耗时和错误类名，没有 access token，也没有 Client ID。
 - App Remote 只有在某个 Yoin Activity 处于 started 状态时才能连，所以**先把 Yoin 打开到前台**，用 Spotify 账号。
 - URI 只能是 track 或 album（UserApi 文档的限制）。一次最多读前 10 个，免得超过后台广播约一分钟的时限。
@@ -126,12 +126,13 @@ $ADB logcat -d -v raw -s YoinProbe:*
 输出示例：
 
 ```
-connect Connected ms=412
+connect Connected ms=412 account=spotify
 libraryState uri=spotify:track:<id1> isAdded=true canAdd=true ms=18
 libraryState uri=spotify:track:<id2> ms=3004 error=TimeoutCancellationException: Timed out waiting for 3000 ms
 ```
 
-- `connect NoClientId`：没有 Spotify Client ID，日志是 `no Spotify client id: switch to a Spotify profile`。
+- `account=`：探针运行时当前账号的服务（`spotify`、`subsonic`、`applemusic`，没有账号时是 `none`）。不是 Spotify 时另起一行 `active account is <服务>, not Spotify: App Remote connects for the probe alone and closes after it`，只说明这个事实，不代表连不上。
+- `connect NoClientId`：宽限过后仍没有 Spotify Client ID，日志是 `no Spotify client id configured: set one in Settings › Spotify (one for the app, not per account)`。和当前账号是不是 Spotify 无关，两件事分两行说。
 - `connect NoHost`：没有 started 的 Yoin Activity，先把 Yoin 打开到前台。
 - `connect TimedOut`：有 Activity，但 8 秒内没连上（Spotify 没装、没登录或冷启动太慢）。
 - 每个 URI 最多等 3 秒。

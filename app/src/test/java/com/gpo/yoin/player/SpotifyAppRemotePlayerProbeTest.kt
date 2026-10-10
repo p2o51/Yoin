@@ -18,6 +18,7 @@ import io.mockk.mockk
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.currentTime
 import kotlinx.coroutines.test.runCurrent
@@ -33,7 +34,8 @@ import org.robolectric.RobolectricTestRunner
  * The debug library-state probe's App Remote connection (Q17): it never
  * leaves the player wanting a connection it didn't want before — so a later
  * host start doesn't reconnect on a Subsonic or Apple Music account — and
- * without a client id it doesn't try at all. A connect attempt shows as a
+ * without a client id (after Room's first read had its grace) it doesn't
+ * try at all. A connect attempt shows as a
  * read of the client id once a host is there. A connection only the probe
  * opened reports nothing to the player and closes after it; on a Spotify
  * account's own connection the player hears Spotify as ever.
@@ -160,14 +162,34 @@ class SpotifyAppRemotePlayerProbeTest {
     }
 
     @Test
+    fun should_waitForTheStoredClientId_when_theProbeStartsBeforeRoomReadIt() = runTest {
+        // A process the broadcast just started: Room's first read of the client id lands half a second in.
+        clientId = ""
+        val player = player()
+        player.onHostStart(context)
+        launch {
+            delay(500L)
+            clientId = "client-id"
+        }
+
+        val connection = player.withProbeConnection(timeoutMs = 1_000L) { it }
+
+        assertEquals(ProbeConnection.Connected, connection)
+        assertEquals(1, appRemote.connects)
+    }
+
+    @Test
     fun should_notTryToConnect_when_noClientIdIsSet() = runTest {
         clientId = ""
         val player = player()
+        player.onHostStart(context)
 
         val connection = player.withProbeConnection(timeoutMs = 8_000L) { it }
 
         assertEquals(ProbeConnection.NoClientId, connection)
-        assertEquals(0L, currentTime)
+        assertEquals(0, appRemote.connects)
+        // It gave Room's first read its grace, not the connect's whole timeout.
+        assertTrue(currentTime in 1L until 8_000L)
         val readsAfterProbe = clientIdReads
         player.onHostStart(context)
         assertEquals(readsAfterProbe, clientIdReads)

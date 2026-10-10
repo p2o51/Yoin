@@ -1114,8 +1114,9 @@ class PlaybackManager(
         val connectStart = SystemClock.elapsedRealtime()
         return spotifyRemotePlayer.withProbeConnection(connectTimeoutMs) { connection ->
             val connectMs = SystemClock.elapsedRealtime() - connectStart
+            val providerId = repository.currentProviderId()
             if (connection != SpotifyAppRemotePlayer.ProbeConnection.Connected) {
-                return@withProbeConnection SpotifyLibraryStateProbe(connection, connectMs, emptyList())
+                return@withProbeConnection SpotifyLibraryStateProbe(connection, connectMs, emptyList(), providerId)
             }
             val readings = uris.map { uri ->
                 val start = SystemClock.elapsedRealtime()
@@ -1128,7 +1129,7 @@ class PlaybackManager(
                     error = state.exceptionOrNull()
                 )
             }
-            SpotifyLibraryStateProbe(connection, connectMs, readings)
+            SpotifyLibraryStateProbe(connection, connectMs, readings, providerId)
         }
     }
 
@@ -1247,12 +1248,43 @@ class PlaybackManager(
     }
 }
 
-/** What the debug library-state probe found: how App Remote's connection went, then one reading per URI. */
+/**
+ * What the debug library-state probe found: how App Remote's connection
+ * went, then one reading per URI. [activeProviderId]: the active account's
+ * service as the probe ran (null: none).
+ */
 internal data class SpotifyLibraryStateProbe(
     val connection: SpotifyAppRemotePlayer.ProbeConnection,
     val connectMs: Long,
-    val readings: List<SpotifyLibraryStateReading>
-)
+    val readings: List<SpotifyLibraryStateReading>,
+    val activeProviderId: String? = null
+) {
+    /**
+     * The probe's notes on the connection, one fact a line, for its log. An
+     * account that isn't Spotify's is said on its own line: it doesn't stop
+     * the probe, which connects App Remote for itself on any account. Nor
+     * does it explain a missing client id — that is the app's one setting,
+     * not the account's.
+     */
+    fun connectionNotes(connectTimeoutMs: Long): List<String> = buildList {
+        if (activeProviderId != MediaId.PROVIDER_SPOTIFY) {
+            add(
+                "active account is ${activeProviderId ?: "none"}, not Spotify: " +
+                    "App Remote connects for the probe alone and closes after it"
+            )
+        }
+        when (connection) {
+            SpotifyAppRemotePlayer.ProbeConnection.Connected -> Unit
+            SpotifyAppRemotePlayer.ProbeConnection.NoClientId -> add(
+                "no Spotify client id configured: set one in Settings › Spotify (one for the app, not per account)"
+            )
+            SpotifyAppRemotePlayer.ProbeConnection.NoHost ->
+                add("App Remote did not connect: open Yoin (an Activity must be started) and retry")
+            SpotifyAppRemotePlayer.ProbeConnection.TimedOut ->
+                add("App Remote did not connect within ${connectTimeoutMs / 1_000} s: open Spotify and retry")
+        }
+    }
+}
 
 /** One App Remote `getLibraryState` read: its answer, or the [error] it failed with. */
 internal data class SpotifyLibraryStateReading(
