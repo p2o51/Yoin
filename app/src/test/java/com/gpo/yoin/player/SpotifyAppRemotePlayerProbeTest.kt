@@ -16,6 +16,7 @@ import com.spotify.protocol.types.PlayerState
 import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.currentTime
@@ -99,6 +100,50 @@ class SpotifyAppRemotePlayerProbeTest {
         assertTrue(snapshots.none { snapshot -> snapshot.observedPlayerState })
         assertTrue(contexts.isEmpty())
         assertEquals(listOf(appRemote.remote), appRemote.closed)
+    }
+
+    @Test
+    fun should_keepTheConnection_when_aSpotifyAccountWarmsAppRemoteWhileTheProbeConnects() = runTest {
+        val player = player()
+        player.onHostStart(context)
+        appRemote.holdConnects = true
+        val probe = async { player.withProbeConnection(timeoutMs = 5_000L) { it } }
+        runCurrent()
+        assertEquals(1, appRemote.connects)
+
+        // A cold start: the Spotify account's source comes in while the probe connects.
+        player.warmConnection()
+        appRemote.completeConnect()
+        assertEquals(ProbeConnection.Connected, probe.await())
+        appRemote.playerStates.last().onEvent(playerState())
+        runCurrent()
+
+        // The account's connection stays, and Spotify's state reaches the player.
+        assertTrue(appRemote.closed.isEmpty())
+        assertTrue(snapshots.last().observedPlayerState)
+        assertEquals(1, appRemote.connects)
+    }
+
+    @Test
+    fun should_keepTheConnectionAndReportSpotify_when_aSpotifyAccountWarmsAppRemoteDuringTheProbe() = runTest {
+        val player = player()
+        player.onHostStart(context)
+
+        player.withProbeConnection(timeoutMs = 1_000L) { connection ->
+            // The probe connected on its own; then the account becomes Spotify's.
+            player.warmConnection()
+            delay(1L)
+            connection
+        }
+        appRemote.playerStates.last().onEvent(playerState())
+        runCurrent()
+
+        assertTrue(appRemote.closed.isEmpty())
+        // Subscribed again, so the state Spotify had when the probe connected comes in too.
+        assertEquals(2, appRemote.playerStates.size)
+        assertEquals(2, appRemote.playerContexts.size)
+        assertTrue(snapshots.last().observedPlayerState)
+        assertEquals(1, appRemote.connects)
     }
 
     @Test

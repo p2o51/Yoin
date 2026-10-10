@@ -107,6 +107,7 @@ $ADB logcat -d -v raw -s YoinPerf:D | grep '^home\.'
 debug 包里有一个广播入口 `LibraryStateProbeReceiver`（`app/src/debug`，manifest 要求发送方持有 DUMP，只有 adb shell 有）。它连上 App Remote，对每个 URI 调 `UserApi.getLibraryState`，把结果打到 logcat 的 `YoinProbe`。
 
 - **不起播、不改队列**：只读状态。Spotify 账号在用时直接用 Yoin 已有的连接；当前账号不要 App Remote 时（Subsonic、Apple Music）探针自己连一次，读完就断开，这段时间里不把 Spotify 的播放状态交给播放器，之后的回到前台也不会因为它重连。
+- Spotify 账号自己的常驻连接在探针期间到来（比如冷启动后立刻发广播）时，探针结束后连接留给账号，不断开；探针期间被挡住的播放状态会重新订阅补上。
 - 当前没有 Spotify Client ID 时不尝试连接，直接报 `no Spotify client id`。
 - **不打 token**：日志里只有 URI、结果、耗时和错误类名，没有 access token，也没有 Client ID。
 - App Remote 只有在某个 Yoin Activity 处于 started 状态时才能连，所以**先把 Yoin 打开到前台**，用 Spotify 账号。

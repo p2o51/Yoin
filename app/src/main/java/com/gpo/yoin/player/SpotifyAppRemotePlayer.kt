@@ -202,16 +202,30 @@ internal class SpotifyAppRemotePlayer(
      * Spotify happens to be playing externally (e.g. the user was already
      * listening via car audio, smart speaker, or another device).
      *
-     * Idempotent — no-op when the remote is already connected or already
-     * connecting. Treated as a "soft" connection attempt: if we can't
-     * reach the Spotify app right now, we stay silent (no banner, no
-     * snapshot with `Error`). The real failure path still fires when the
-     * user explicitly plays something.
+     * Idempotent — no new connect when the remote is already connected or
+     * already connecting — but the want is recorded first, whatever is up:
+     * a connection the debug probe opened ([withProbeConnection]) is then
+     * the account's to keep, not closed under it when the probe ends. Its
+     * state and context went unreported while it was the probe's alone, so
+     * they are subscribed to again and come in now. Treated as a "soft"
+     * connection attempt: if we can't reach the Spotify app right now, we
+     * stay silent (no banner, no snapshot with `Error`). The real failure
+     * path still fires when the user explicitly plays something.
      */
     fun warmConnection() {
-        if (remote?.isConnected == true || connectJob?.isActive == true) return
-        Log.d(tag, "warmConnection: attempting soft connect for PlayerState observation")
+        val wanted = wantsConnection
         wantsConnection = true
+        val connected = remote?.takeIf { it.isConnected }
+        if (connected != null) {
+            if (!wanted) {
+                Log.d(tag, "warmConnection: keeping the probe's connection, subscribing again")
+                subscribeToPlayerState(connected)
+                subscribeToPlayerContext(connected)
+            }
+            return
+        }
+        if (connectJob?.isActive == true) return
+        Log.d(tag, "warmConnection: attempting soft connect for PlayerState observation")
         connectIfPossible()
     }
 
@@ -447,8 +461,9 @@ internal class SpotifyAppRemotePlayer(
      * the connection to stay ([wantsConnection] is left as it was), so no
      * later host start reconnects for it; a connection it opened where none
      * was wanted — a Subsonic or Apple Music account — reports nothing to
-     * the player while it lasts and closes when [block] is done. Without a
-     * client id it doesn't try. Plays nothing.
+     * the player while it lasts and closes when [block] is done, unless
+     * something wanted it meanwhile (a Spotify account's [warmConnection], a
+     * play). Without a client id it doesn't try. Plays nothing.
      */
     suspend fun <T> withProbeConnection(timeoutMs: Long, block: suspend (ProbeConnection) -> T): T =
         withContext(Dispatchers.Main.immediate) {
@@ -469,7 +484,7 @@ internal class SpotifyAppRemotePlayer(
                 )
             } finally {
                 // Opened for the probe alone (nothing asked for it since): closed again.
-                if (!wantsConnection) {
+                if (!wantsConnection && pendingOperations.isEmpty()) {
                     connectJob?.cancel()
                     connectJob = null
                     if (remote != null) disconnectRemote(preserveSnapshot = true)
