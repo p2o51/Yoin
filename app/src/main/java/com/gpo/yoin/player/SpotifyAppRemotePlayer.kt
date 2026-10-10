@@ -466,17 +466,24 @@ internal class SpotifyAppRemotePlayer(
      * play). Without a client id it doesn't try — once Room has had
      * [CLIENT_ID_BOOTSTRAP_GRACE_MS] to read it, as a cold connect gets: a
      * process the broadcast just started may not have it yet. Plays nothing.
+     * Returns [block]'s result with how the connection was left
+     * ([ProbeLeft]), as it turned out once [block] was done.
      */
-    suspend fun <T> withProbeConnection(timeoutMs: Long, block: suspend (ProbeConnection) -> T): T =
+    suspend fun <T> withProbeConnection(timeoutMs: Long, block: suspend (ProbeConnection) -> T): ProbeRun<T> =
         withContext(Dispatchers.Main.immediate) {
-            if (remote?.isConnected == true) return@withContext block(ProbeConnection.Connected)
-            if (!awaitClientId(CLIENT_ID_BOOTSTRAP_GRACE_MS)) return@withContext block(ProbeConnection.NoClientId)
+            if (remote?.isConnected == true) {
+                return@withContext ProbeRun(block(ProbeConnection.Connected), ProbeLeft.AsFound)
+            }
+            if (!awaitClientId(CLIENT_ID_BOOTSTRAP_GRACE_MS)) {
+                return@withContext ProbeRun(block(ProbeConnection.NoClientId), ProbeLeft.NotConnected)
+            }
             connectIfPossible()
             val connected = withTimeoutOrNull(timeoutMs) {
                 while (remote?.isConnected != true) delay(CONNECTION_POLL_MS)
                 true
             } ?: false
-            try {
+            var closed = false
+            val value = try {
                 block(
                     when {
                         connected -> ProbeConnection.Connected
@@ -490,8 +497,15 @@ internal class SpotifyAppRemotePlayer(
                     connectJob?.cancel()
                     connectJob = null
                     if (remote != null) disconnectRemote(preserveSnapshot = true)
+                    closed = true
                 }
             }
+            val left = when {
+                !connected -> ProbeLeft.NotConnected
+                closed -> ProbeLeft.Closed
+                else -> ProbeLeft.Kept
+            }
+            ProbeRun(value, left)
         }
 
     /**
@@ -521,6 +535,27 @@ internal class SpotifyAppRemotePlayer(
 
         /** A host was there, but App Remote didn't connect in time. */
         TimedOut
+    }
+
+    /** What [withProbeConnection]'s block returned, and how the probe left App Remote's connection. */
+    internal data class ProbeRun<T>(val value: T, val left: ProbeLeft)
+
+    /** How the debug probe left App Remote's connection ([withProbeConnection]). */
+    internal enum class ProbeLeft {
+        /** It was connected before the probe: left as it was. */
+        AsFound,
+
+        /**
+         * Opened for the probe, and something wanted it meanwhile — a Spotify
+         * account's warm-up (a cold start's source coming in), a play: kept.
+         */
+        Kept,
+
+        /** Opened for the probe alone: closed once it was done. */
+        Closed,
+
+        /** Not connected for the probe (no client id, no host, or not in time). */
+        NotConnected
     }
 
     private fun enqueueOperation(

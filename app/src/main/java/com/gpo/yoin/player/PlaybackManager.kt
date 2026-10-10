@@ -39,6 +39,7 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -1112,11 +1113,11 @@ class PlaybackManager(
         connectTimeoutMs: Long
     ): SpotifyLibraryStateProbe {
         val connectStart = SystemClock.elapsedRealtime()
-        return spotifyRemotePlayer.withProbeConnection(connectTimeoutMs) { connection ->
+        val run = spotifyRemotePlayer.withProbeConnection(connectTimeoutMs) { connection ->
             val connectMs = SystemClock.elapsedRealtime() - connectStart
-            val providerId = repository.currentProviderId()
+            val account = probedAccount()
             if (connection != SpotifyAppRemotePlayer.ProbeConnection.Connected) {
-                return@withProbeConnection SpotifyLibraryStateProbe(connection, connectMs, emptyList(), providerId)
+                return@withProbeConnection SpotifyLibraryStateProbe(connection, connectMs, emptyList(), account)
             }
             val readings = uris.map { uri ->
                 val start = SystemClock.elapsedRealtime()
@@ -1129,8 +1130,20 @@ class PlaybackManager(
                     error = state.exceptionOrNull()
                 )
             }
-            SpotifyLibraryStateProbe(connection, connectMs, readings, providerId)
+            SpotifyLibraryStateProbe(connection, connectMs, readings, account)
         }
+        return run.value.copy(left = run.left)
+    }
+
+    /**
+     * The active account as the probe found it, for its log: its service, or
+     * why it has no source — none chosen, its source still being built (a
+     * cold start), or none coming (ProfileManager settled without one).
+     */
+    private suspend fun probedAccount(): String = repository.currentProviderId() ?: when {
+        repository.currentProfileId() == null -> SpotifyLibraryStateProbe.ACCOUNT_NONE
+        repository.activeSourceSettled.first() -> SpotifyLibraryStateProbe.ACCOUNT_UNAVAILABLE
+        else -> SpotifyLibraryStateProbe.ACCOUNT_BUILDING
     }
 
     /**
@@ -1250,28 +1263,37 @@ class PlaybackManager(
 
 /**
  * What the debug library-state probe found: how App Remote's connection
- * went, then one reading per URI. [activeProviderId]: the active account's
- * service as the probe ran (null: none).
+ * went, then one reading per URI. [account]: the active account as the probe
+ * ran — its service's id, or [ACCOUNT_NONE] (none chosen),
+ * [ACCOUNT_BUILDING] (its source still being built, as on a cold start) or
+ * [ACCOUNT_UNAVAILABLE] (no source coming: its credentials didn't open).
+ * [left]: how the probe left the connection, once it was done (null: not
+ * told).
  */
 internal data class SpotifyLibraryStateProbe(
     val connection: SpotifyAppRemotePlayer.ProbeConnection,
     val connectMs: Long,
     val readings: List<SpotifyLibraryStateReading>,
-    val activeProviderId: String? = null
+    val account: String = ACCOUNT_NONE,
+    val left: SpotifyAppRemotePlayer.ProbeLeft? = null
 ) {
     /**
      * The probe's notes on the connection, one fact a line, for its log. An
      * account that isn't Spotify's is said on its own line: it doesn't stop
      * the probe, which connects App Remote for itself on any account. Nor
      * does it explain a missing client id — that is the app's one setting,
-     * not the account's.
+     * not the account's. What became of the connection is said as it turned
+     * out, only where the probe connected: one it opened was closed after it,
+     * or kept because something wanted it meanwhile (a Spotify account's
+     * source coming in on a cold start warms it).
      */
     fun connectionNotes(connectTimeoutMs: Long): List<String> = buildList {
-        if (activeProviderId != MediaId.PROVIDER_SPOTIFY) {
-            add(
-                "active account is ${activeProviderId ?: "none"}, not Spotify: " +
-                    "App Remote connects for the probe alone and closes after it"
-            )
+        when (account) {
+            MediaId.PROVIDER_SPOTIFY -> Unit
+            ACCOUNT_NONE -> add("no active account")
+            ACCOUNT_BUILDING -> add("the active account's source was still being built")
+            ACCOUNT_UNAVAILABLE -> add("the active account has no source: its credentials didn't open")
+            else -> add("active account is $account, not Spotify")
         }
         when (connection) {
             SpotifyAppRemotePlayer.ProbeConnection.Connected -> Unit
@@ -1283,6 +1305,21 @@ internal data class SpotifyLibraryStateProbe(
             SpotifyAppRemotePlayer.ProbeConnection.TimedOut ->
                 add("App Remote did not connect within ${connectTimeoutMs / 1_000} s: open Spotify and retry")
         }
+        when (left) {
+            SpotifyAppRemotePlayer.ProbeLeft.Closed -> add("App Remote was opened for the probe alone: closed after it")
+            SpotifyAppRemotePlayer.ProbeLeft.Kept -> add(
+                "App Remote was opened for the probe and kept: the account's warm-up or a play wanted it meanwhile"
+            )
+            SpotifyAppRemotePlayer.ProbeLeft.AsFound ->
+                if (account != MediaId.PROVIDER_SPOTIFY) add("App Remote was already connected: left as it was")
+            SpotifyAppRemotePlayer.ProbeLeft.NotConnected, null -> Unit
+        }
+    }
+
+    companion object {
+        const val ACCOUNT_NONE = "none"
+        const val ACCOUNT_BUILDING = "building"
+        const val ACCOUNT_UNAVAILABLE = "unavailable"
     }
 }
 

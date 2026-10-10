@@ -19,7 +19,9 @@ import kotlinx.coroutines.launch
  * the answers under [TAG]. Connects App Remote when it isn't — it plays
  * nothing and leaves the queue alone — and leaves the connection as it found
  * it: one opened on a Subsonic or Apple Music account closes after the reads,
- * and nothing reconnects for it later. Logs no token or client id.
+ * unless something wanted it meanwhile (a Spotify account's source coming in
+ * on a cold start), and nothing reconnects for it later; the log says which
+ * it was. Logs no token or client id.
  *
  * ```
  * adb shell am broadcast -n com.gpo.yoin/.debug.LibraryStateProbeReceiver \
@@ -50,10 +52,7 @@ class LibraryStateProbeReceiver : BroadcastReceiver() {
                     uris.take(MAX_URIS),
                     CONNECT_TIMEOUT_MS
                 )
-                Log.i(
-                    TAG,
-                    "connect ${probe.connection} ms=${probe.connectMs} account=${probe.activeProviderId ?: "none"}"
-                )
+                Log.i(TAG, "connect ${probe.connection} ms=${probe.connectMs} account=${probe.account}")
                 probe.connectionNotes(CONNECT_TIMEOUT_MS).forEach { note -> Log.w(TAG, note) }
                 if (uris.size > MAX_URIS) Log.w(TAG, "probe: read the first $MAX_URIS of ${uris.size} uris")
                 probe.readings.forEach { reading ->

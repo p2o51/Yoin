@@ -5,6 +5,7 @@ import androidx.test.core.app.ApplicationProvider
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.Track
 import com.gpo.yoin.player.SpotifyAppRemotePlayer.ProbeConnection
+import com.gpo.yoin.player.SpotifyAppRemotePlayer.ProbeLeft
 import com.gpo.yoin.testutil.MainDispatcherRule
 import com.spotify.android.appremote.api.ConnectionParams
 import com.spotify.android.appremote.api.Connector
@@ -38,7 +39,8 @@ import org.robolectric.RobolectricTestRunner
  * try at all. A connect attempt shows as a
  * read of the client id once a host is there. A connection only the probe
  * opened reports nothing to the player and closes after it; on a Spotify
- * account's own connection the player hears Spotify as ever.
+ * account's own connection the player hears Spotify as ever. Each run says
+ * how it left the connection, as it turned out.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 @RunWith(RobolectricTestRunner::class)
@@ -91,14 +93,15 @@ class SpotifyAppRemotePlayerProbeTest {
         player.onHostStart(context)
         assertEquals(0, appRemote.connects)
 
-        val connection = player.withProbeConnection(timeoutMs = 1_000L) { connection ->
+        val run = player.withProbeConnection(timeoutMs = 1_000L) { connection ->
             appRemote.playerStates.last().onEvent(playerState())
             appRemote.playerContexts.last().onEvent(PlayerContext("spotify:album:a", "Album", "", "album"))
             delay(1L)
             connection
         }
 
-        assertEquals(ProbeConnection.Connected, connection)
+        assertEquals(ProbeConnection.Connected, run.value)
+        assertEquals(ProbeLeft.Closed, run.left)
         assertTrue(snapshots.none { snapshot -> snapshot.observedPlayerState })
         assertTrue(contexts.isEmpty())
         assertEquals(listOf(appRemote.remote), appRemote.closed)
@@ -116,7 +119,7 @@ class SpotifyAppRemotePlayerProbeTest {
         // A cold start: the Spotify account's source comes in while the probe connects.
         player.warmConnection()
         appRemote.completeConnect()
-        assertEquals(ProbeConnection.Connected, probe.await())
+        assertEquals(ProbeSaw(ProbeConnection.Connected, ProbeLeft.Kept), ProbeSaw(probe.await()))
         appRemote.playerStates.last().onEvent(playerState())
         runCurrent()
 
@@ -131,12 +134,13 @@ class SpotifyAppRemotePlayerProbeTest {
         val player = player()
         player.onHostStart(context)
 
-        player.withProbeConnection(timeoutMs = 1_000L) { connection ->
+        val run = player.withProbeConnection(timeoutMs = 1_000L) { connection ->
             // The probe connected on its own; then the account becomes Spotify's.
             player.warmConnection()
             delay(1L)
             connection
         }
+        assertEquals(ProbeLeft.Kept, run.left)
         appRemote.playerStates.last().onEvent(playerState())
         runCurrent()
 
@@ -152,9 +156,9 @@ class SpotifyAppRemotePlayerProbeTest {
     fun should_notReconnectOnTheNextHostStart_when_probedOnAnAccountThatWantsNoConnection() = runTest {
         val player = player()
 
-        val connection = player.withProbeConnection(timeoutMs = 1_000L) { it }
+        val run = player.withProbeConnection(timeoutMs = 1_000L) { it }
 
-        assertEquals(ProbeConnection.NoHost, connection)
+        assertEquals(ProbeSaw(ProbeConnection.NoHost, ProbeLeft.NotConnected), ProbeSaw(run))
         val readsAfterProbe = clientIdReads
         // Yoin comes to the foreground on a Subsonic account: nothing connects for the probe.
         player.onHostStart(context)
@@ -172,9 +176,9 @@ class SpotifyAppRemotePlayerProbeTest {
             clientId = "client-id"
         }
 
-        val connection = player.withProbeConnection(timeoutMs = 1_000L) { it }
+        val run = player.withProbeConnection(timeoutMs = 1_000L) { it }
 
-        assertEquals(ProbeConnection.Connected, connection)
+        assertEquals(ProbeSaw(ProbeConnection.Connected, ProbeLeft.Closed), ProbeSaw(run))
         assertEquals(1, appRemote.connects)
     }
 
@@ -184,9 +188,9 @@ class SpotifyAppRemotePlayerProbeTest {
         val player = player()
         player.onHostStart(context)
 
-        val connection = player.withProbeConnection(timeoutMs = 8_000L) { it }
+        val run = player.withProbeConnection(timeoutMs = 8_000L) { it }
 
-        assertEquals(ProbeConnection.NoClientId, connection)
+        assertEquals(ProbeSaw(ProbeConnection.NoClientId, ProbeLeft.NotConnected), ProbeSaw(run))
         assertEquals(0, appRemote.connects)
         // It gave Room's first read its grace, not the connect's whole timeout.
         assertTrue(currentTime in 1L until 8_000L)
@@ -201,13 +205,33 @@ class SpotifyAppRemotePlayerProbeTest {
         // A Spotify account warms App Remote; no Activity yet.
         player.warmConnection()
 
-        player.withProbeConnection(timeoutMs = 1_000L) { it }
+        val run = player.withProbeConnection(timeoutMs = 1_000L) { it }
+        assertEquals(ProbeSaw(ProbeConnection.NoHost, ProbeLeft.NotConnected), ProbeSaw(run))
 
         // Blank from here, so the attempt stops at the client id instead of the SDK.
         clientId = ""
         val readsAfterProbe = clientIdReads
         player.onHostStart(context)
         assertEquals(readsAfterProbe + 1, clientIdReads)
+    }
+
+    @Test
+    fun should_leaveTheConnectionAsItFoundIt_when_aSpotifyAccountsConnectionWasUp() = runTest {
+        val player = player()
+        player.onHostStart(context)
+        player.warmConnection()
+        runCurrent()
+
+        val run = player.withProbeConnection(timeoutMs = 1_000L) { it }
+
+        assertEquals(ProbeSaw(ProbeConnection.Connected, ProbeLeft.AsFound), ProbeSaw(run))
+        assertTrue(appRemote.closed.isEmpty())
+        assertEquals(1, appRemote.connects)
+    }
+
+    /** A run's connection and how it was left, compared at once. */
+    private data class ProbeSaw(val connection: ProbeConnection, val left: ProbeLeft) {
+        constructor(run: SpotifyAppRemotePlayer.ProbeRun<ProbeConnection>) : this(run.value, run.left)
     }
 
     private fun player() = SpotifyAppRemotePlayer(
