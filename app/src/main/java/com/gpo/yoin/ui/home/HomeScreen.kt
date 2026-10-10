@@ -18,6 +18,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -237,30 +238,79 @@ fun HomeContent(
                     hasPlayedInitialContentEntrance = true
                 }
             }
-            val contentAlpha by animateFloatAsState(
+            val contentAlphaState = animateFloatAsState(
                 targetValue = if (isContent && hasPlayedInitialContentEntrance) 1f else 0f,
                 animationSpec = YoinMotion.defaultEffectsSpec(),
                 label = "homeInitialContentAlpha",
             )
+            val contentAlpha by contentAlphaState
             val contentOffsetProgress by animateFloatAsState(
                 targetValue = if (isContent && hasPlayedInitialContentEntrance) 1f else 0f,
                 animationSpec = YoinMotion.defaultSpatialSpec(),
                 label = "homeInitialContentOffset",
             )
+            // A feed that goes back to Loading (an account switch, a deleted
+            // account) leaves on the springs it came in on — fading, settling
+            // the 16dp back down — before Loading takes the page, instead of
+            // blinking out.
+            var lastFeed by remember { mutableStateOf<HomeUiState.Content?>(null) }
+            LaunchedEffect(uiState) {
+                if (uiState is HomeUiState.Content) lastFeed = uiState
+            }
+            val feedVisible by remember { derivedStateOf { contentAlphaState.value > 0f } }
+            val feed = uiState as? HomeUiState.Content
+                ?: lastFeed?.takeIf { uiState is HomeUiState.Loading && feedVisible }
 
-            when (uiState) {
-                is HomeUiState.Loading -> {
+            when {
+                feed != null -> {
                     Box(
-                        modifier = Modifier.fillMaxSize(),
-                        contentAlignment = Alignment.Center,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .graphicsLayer {
+                                alpha = contentAlpha
+                                translationY = (1f - contentOffsetProgress) * contentEntranceOffsetPx
+                            },
                     ) {
-                        if (showDelayedLoading) {
-                            YoinLoadingIndicator()
-                        }
+                        // Edit mode happens in place, inside the feed (HomeEditorialContent).
+                        HomeEditorialContent(
+                            activities = feed.activities,
+                            widgetGrid = feed.widgetGrid,
+                            activityHeroFootnote = feed.activityHeroFootnote,
+                            activityHeroYear = feed.activityHeroYear,
+                            activityHeroSongCount = feed.activityHeroSongCount,
+                            activityHeroMinutes = feed.activityHeroMinutes,
+                            recentlyAddedTracks = feed.recentlyAddedTracks,
+                            recentlyAddedAlbums = feed.recentlyAddedAlbums,
+                            rediscover = feed.rediscover,
+                            playlists = feed.playlists,
+                            recentlyPlayed = feed.recentlyPlayed,
+                            memoryPill = feed.memoryPill,
+                            homeCovered = homeCovered,
+                            sections = sections,
+                            onNavigateToSettings = onNavigateToSettings,
+                            activeAccount = activeAccount,
+                            onOpenAccounts = onOpenAccounts,
+                            accountButtonHidden = accountButtonHidden,
+                            onAccountAnchor = onAccountAnchor,
+                            onNavigateToMemories = onNavigateToMemories,
+                            editController = editController,
+                            footerNewBadge = footerNewBadge,
+                            onOpenMemoryFocus = onOpenMemoryFocus,
+                            memoriesRevealState = memoriesRevealState,
+                            onCommitMemoriesReveal = onCommitMemoriesReveal,
+                            onAlbumClick = onAlbumClick,
+                            onArtistClick = onArtistClick,
+                            onPlaylistClick = onPlaylistClick,
+                            onSongClick = onSongClick,
+                            buildCoverArtUrl = buildCoverArtUrl,
+                            sharedTransitionScope = sharedTransitionScope,
+                            animatedVisibilityScope = animatedVisibilityScope,
+                            modifier = Modifier.fillMaxSize(),
+                        )
                     }
                 }
 
-                is HomeUiState.Error -> {
+                uiState is HomeUiState.Error -> {
                     Box(
                         modifier = Modifier.fillMaxSize(),
                         contentAlignment = Alignment.Center,
@@ -284,51 +334,14 @@ fun HomeContent(
                     }
                 }
 
-                is HomeUiState.Content -> {
+                else -> {
                     Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .graphicsLayer {
-                                alpha = contentAlpha
-                                translationY = (1f - contentOffsetProgress) * contentEntranceOffsetPx
-                            },
+                        modifier = Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.Center,
                     ) {
-                        // Edit mode happens in place, inside the feed (HomeEditorialContent).
-                        HomeEditorialContent(
-                            activities = uiState.activities,
-                            widgetGrid = uiState.widgetGrid,
-                            activityHeroFootnote = uiState.activityHeroFootnote,
-                            activityHeroYear = uiState.activityHeroYear,
-                            activityHeroSongCount = uiState.activityHeroSongCount,
-                            activityHeroMinutes = uiState.activityHeroMinutes,
-                            recentlyAddedTracks = uiState.recentlyAddedTracks,
-                            recentlyAddedAlbums = uiState.recentlyAddedAlbums,
-                            rediscover = uiState.rediscover,
-                            playlists = uiState.playlists,
-                            recentlyPlayed = uiState.recentlyPlayed,
-                            memoryPill = uiState.memoryPill,
-                            homeCovered = homeCovered,
-                            sections = sections,
-                            onNavigateToSettings = onNavigateToSettings,
-                            activeAccount = activeAccount,
-                            onOpenAccounts = onOpenAccounts,
-                            accountButtonHidden = accountButtonHidden,
-                            onAccountAnchor = onAccountAnchor,
-                            onNavigateToMemories = onNavigateToMemories,
-                            editController = editController,
-                            footerNewBadge = footerNewBadge,
-                            onOpenMemoryFocus = onOpenMemoryFocus,
-                            memoriesRevealState = memoriesRevealState,
-                            onCommitMemoriesReveal = onCommitMemoriesReveal,
-                            onAlbumClick = onAlbumClick,
-                            onArtistClick = onArtistClick,
-                            onPlaylistClick = onPlaylistClick,
-                            onSongClick = onSongClick,
-                            buildCoverArtUrl = buildCoverArtUrl,
-                            sharedTransitionScope = sharedTransitionScope,
-                            animatedVisibilityScope = animatedVisibilityScope,
-                            modifier = Modifier.fillMaxSize(),
-                        )
+                        if (showDelayedLoading) {
+                            YoinLoadingIndicator()
+                        }
                     }
                 }
             }

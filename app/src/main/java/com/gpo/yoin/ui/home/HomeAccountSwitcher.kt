@@ -75,6 +75,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.gpo.yoin.AppContainer
 import com.gpo.yoin.R
+import com.gpo.yoin.data.profile.ProfileManager
 import com.gpo.yoin.data.profile.ProviderKind
 import com.gpo.yoin.symbols.YoinSymbols
 import com.gpo.yoin.ui.experience.LocalMotionProfile
@@ -95,9 +96,12 @@ import com.gpo.yoin.ui.settings.serviceLineGroups
 import com.gpo.yoin.ui.theme.YoinMotion
 import com.gpo.yoin.ui.theme.YoinMotionRole
 import com.gpo.yoin.ui.theme.YoinTheme
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -118,15 +122,37 @@ class AccountSwitcherViewModel(private val container: AppContainer) : ViewModel(
     val cards: StateFlow<List<ProfileCard>> = profileCardsFlow(container)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
+    // A switch begun here that fails: Home's feed comes back on its own
+    // (HomeViewModel) and Home says so once, in the shell's snackbar.
+    private val failures = Channel<Unit>(Channel.CONFLATED)
+    val switchFailures: Flow<Unit> = failures.receiveAsFlow()
+
     fun switchTo(profileId: String) {
-        if (container.profileManager.activeProfileId.value == profileId) return
-        viewModelScope.launch { container.profileManager.switchTo(profileId) }
+        val profiles = container.profileManager
+        if (profiles.activeProfileId.value == profileId) return
+        viewModelScope.launch {
+            if (profiles.switchFromHome(profileId)) failures.trySend(Unit)
+        }
     }
 
     class Factory(private val container: AppContainer) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T = AccountSwitcherViewModel(container) as T
     }
+}
+
+/**
+ * Switch to [profileId] from Home's switcher; true when the switch failed.
+ * The failure is acknowledged here, where Home tells it — otherwise
+ * ProfileManager keeps it, and the next visit to Settings would open on its
+ * error card for a switch Settings never started.
+ */
+internal suspend fun ProfileManager.switchFromHome(profileId: String): Boolean {
+    switchTo(profileId)
+    val outcome = switchingState.value
+    if (outcome !is ProfileManager.SwitchState.Error || outcome.profileId != profileId) return false
+    acknowledgeSwitchError()
+    return true
 }
 
 /** The account in use as Home's header button (in place of the Settings gear). */

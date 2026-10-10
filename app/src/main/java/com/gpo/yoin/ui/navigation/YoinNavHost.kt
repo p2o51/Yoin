@@ -815,6 +815,17 @@ private fun YoinShell(
             }
         }
     }
+    // Home's account switcher. A switch begun there that fails puts Home's
+    // feed back on its own (HomeViewModel) and says so here, once.
+    val accountSwitcher: AccountSwitcherViewModel = viewModel(factory = AccountSwitcherViewModel.Factory(app.container))
+    LaunchedEffect(accountSwitcher) {
+        accountSwitcher.switchFailures.collect {
+            snackbarHostState.showSnackbar(
+                message = shellContext.getString(R.string.settings_switch_failed),
+                duration = SnackbarDuration.Short
+            )
+        }
+    }
     // Library-side playlist mutations (currently: create from the "+" FAB).
     // PlaylistDetail ViewModel has its own messages flow wired at its
     // composable scope since it's a short-lived push page.
@@ -945,9 +956,6 @@ private fun YoinShell(
                         // the wash is a vertical gradient with Home's own
                         // parameters, so the two meet without a seam.
                         ExpressivePageBackground(modifier = Modifier.fillMaxSize()) {
-                            val accountSwitcher: AccountSwitcherViewModel = viewModel(
-                                factory = AccountSwitcherViewModel.Factory(app.container),
-                            )
                             HomeScreen(
                                 viewModel = homeViewModel,
                                 accountSwitcher = accountSwitcher,

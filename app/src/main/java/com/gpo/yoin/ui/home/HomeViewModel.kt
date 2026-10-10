@@ -24,6 +24,7 @@ import com.gpo.yoin.data.model.CoverRef
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.Playlist
 import com.gpo.yoin.data.model.Track
+import com.gpo.yoin.data.profile.ProfileManager
 import com.gpo.yoin.data.repository.YoinRepository
 import com.gpo.yoin.data.source.Capability
 import com.gpo.yoin.perf.YoinPerf
@@ -90,10 +91,24 @@ class HomeViewModel(
     // on its scope (see [observeScope]); only an edit that rebuilt the active
     // account's source is left to this.
     private val configurationRevision: StateFlow<Long> = MutableStateFlow(0L),
+    // ProfileManager.switchingState: from a switch's start until the new
+    // account's first feed, Home shows Loading (owner Q14b, see [observeSwitching]).
+    private val switchingState: StateFlow<ProfileManager.SwitchState> =
+        MutableStateFlow(ProfileManager.SwitchState.Idle)
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow<HomeUiState>(HomeUiState.Loading)
     val uiState: StateFlow<HomeUiState> = _uiState.asStateFlow()
+
+    // What Home has published, and whose it is (the profile id): [uiState]
+    // shows it unless an account switch holds Loading over it ([show]).
+    private var published: HomeUiState = HomeUiState.Loading
+    private var publishedProfileId: String? = null
+
+    // The account a switch is going to. Set at the switch's start, cleared
+    // when a feed (or its error) of that account is published, or when the
+    // switch fails — the outgoing account's feed then comes back as it was.
+    private var switchTarget: String? = null
 
     // Edit-mode freeze: while Home is being edited, content updates queue in
     // [frozenState] instead of reshaping the feed under the user's hands.
@@ -101,6 +116,7 @@ class HomeViewModel(
     // [currentContent], so splices made while frozen build on each other.
     private var editing = false
     private var frozenState: HomeUiState? = null
+    private var frozenProfileId: String? = null
 
     // Debug-only: `home.content` marks the first Content only. Declared before
     // init, which can publish a cached Content synchronously.
@@ -188,6 +204,7 @@ class HomeViewModel(
         if (YoinPerf.enabled) YoinPerf.mark("home.loading", "ms_since_process_start" to YoinPerf.sinceProcessStart())
         observeScope()
         observeConfigurationRevision()
+        observeSwitching()
         observeRecentHistory()
         observeMemorySignals()
         observeRediscoverRemovals()
@@ -217,7 +234,11 @@ class HomeViewModel(
         if (this.editing == editing) return
         this.editing = editing
         if (!editing) {
-            frozenState?.let { _uiState.value = it }
+            frozenState?.let { state ->
+                published = state
+                publishedProfileId = frozenProfileId
+                show()
+            }
             frozenState = null
         }
     }
@@ -240,14 +261,62 @@ class HomeViewModel(
         return hints
     }
 
-    /** [perfSrc] labels a Content for the debug-only `home.content` mark: mem | disk. */
-    private fun emit(state: HomeUiState, perfSrc: String? = null) {
+    /**
+     * Publish [state], [profileId]'s feed (or its Loading / error). [perfSrc]
+     * labels a Content for the debug-only `home.content` mark: mem | disk.
+     */
+    private fun emit(state: HomeUiState, profileId: String?, perfSrc: String? = null) {
         markPerf(state, perfSrc)
-        if (editing) frozenState = state else _uiState.value = state
+        if (editing) {
+            frozenState = state
+            frozenProfileId = profileId
+        } else {
+            published = state
+            publishedProfileId = profileId
+            show()
+        }
+    }
+
+    /**
+     * Put [published] on screen — or Loading while an account switch holds
+     * it: from the switch's start until the switched-to account's own feed
+     * (or its error) is published, which ends the hold.
+     */
+    private fun show() {
+        val target = switchTarget
+        if (target != null && published !is HomeUiState.Loading && publishedProfileId == target) {
+            switchTarget = null
+        }
+        _uiState.value = if (switchTarget != null) HomeUiState.Loading else published
+    }
+
+    /**
+     * Q14b: switching accounts takes Home to Loading at once — the outgoing
+     * account's feed doesn't sit there for the ping and warm-up (up to 16 s)
+     * as if nothing happened — and the incoming account's first feed ends
+     * it ([show]). Display only: loads stay on [observeScope]'s one trigger,
+     * so the hand-over hold there is untouched. A failed switch restores the
+     * outgoing source unchanged (no scope move, no reload): the hold just
+     * lifts and its feed is back as it was.
+     */
+    private fun observeSwitching() {
+        viewModelScope.launch {
+            switchingState.collect { state ->
+                switchTarget = when (state) {
+                    is ProfileManager.SwitchState.Switching -> state.profileId
+                    is ProfileManager.SwitchState.Error -> null
+                    // Committed (setActive comes before Idle): hold on until
+                    // the new account's feed is up. A switch that never
+                    // landed holds nothing.
+                    ProfileManager.SwitchState.Idle -> switchTarget?.takeIf { it == activeProfileId.value }
+                }
+                show()
+            }
+        }
     }
 
     /** The newest content, queued or published. */
-    private fun currentContent(): HomeUiState.Content? = (frozenState ?: _uiState.value) as? HomeUiState.Content
+    private fun currentContent(): HomeUiState.Content? = (frozenState ?: published) as? HomeUiState.Content
 
     /** Reload the current scope (Retry, an edit of the active account's credentials). */
     fun refresh() {
@@ -321,9 +390,9 @@ class HomeViewModel(
             if (contentOf(scopeKey) == null) {
                 val cachedHomeContent = homeContentCache[scopeKey]
                 if (cachedHomeContent != null) {
-                    emit(cachedHomeContent, perfSrc = "mem")
+                    emit(cachedHomeContent, profileId, perfSrc = "mem")
                 } else {
-                    emit(HomeUiState.Loading)
+                    emit(HomeUiState.Loading, profileId)
                 }
                 contentScopeKey = scopeKey
             }
@@ -369,6 +438,7 @@ class HomeViewModel(
                             UiText.Res(R.string.home_error_load_failed)
                         },
                     ),
+                    profileId
                 )
             }
         }
@@ -406,7 +476,7 @@ class HomeViewModel(
     private fun markPerf(next: HomeUiState, src: String?) {
         if (!YoinPerf.enabled) return
         if (next is HomeUiState.Loading) {
-            if ((frozenState ?: _uiState.value) !is HomeUiState.Loading) {
+            if ((frozenState ?: published) !is HomeUiState.Loading) {
                 YoinPerf.mark("home.loading", "ms_since_process_start" to YoinPerf.sinceProcessStart())
             }
             return
@@ -741,7 +811,7 @@ class HomeViewModel(
 
         private fun publish(content: HomeUiState.Content, perfSrc: String?) {
             homeContentCache[scopeKey] = content
-            emit(content, perfSrc = perfSrc)
+            emit(content, profileId, perfSrc = perfSrc)
             contentScopeKey = scopeKey
         }
 
@@ -847,7 +917,7 @@ class HomeViewModel(
                         )
                     }
                     homeContentCache[scopeKey] = nextContent
-                    emit(nextContent)
+                    emit(nextContent, profileId)
                 }
         }
     }
@@ -927,7 +997,7 @@ class HomeViewModel(
                         rediscover = refreshedRediscover,
                     )
                     homeContentCache[scopeKey] = nextContent
-                    emit(nextContent)
+                    emit(nextContent, profileId)
                 }
         }
     }
@@ -964,7 +1034,7 @@ class HomeViewModel(
                     if (latest.rediscover.none(played)) return@collect
                     val nextContent = latest.copy(rediscover = latest.rediscover.filterNot(played))
                     homeContentCache[scopeKey] = nextContent
-                    emit(nextContent)
+                    emit(nextContent, play.profileId)
                 }
         }
     }
@@ -1598,6 +1668,7 @@ class HomeViewModel(
                 rediscoverSongs = RediscoverSongSource.of(container.database.playHistoryDao()),
                 memoryTitle = { candidate -> container.albumMemoryTitleResolver.resolve(candidate) },
                 configurationRevision = container.musicConfigurationRevision,
+                switchingState = container.profileManager.switchingState
             ) as T
     }
 

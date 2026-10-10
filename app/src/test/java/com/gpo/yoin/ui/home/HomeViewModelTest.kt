@@ -17,6 +17,7 @@ import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.Playlist
 import com.gpo.yoin.data.model.Starred
 import com.gpo.yoin.data.model.Track
+import com.gpo.yoin.data.profile.ProfileManager
 import com.gpo.yoin.data.repository.YoinRepository
 import com.gpo.yoin.data.source.Capability
 import com.gpo.yoin.testutil.MainDispatcherRule
@@ -41,6 +42,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.StandardTestDispatcher
@@ -2016,6 +2018,83 @@ class HomeViewModelTest {
         assertTrue(content.activitiesFromRemote)
     }
 
+    @Test
+    fun should_showLoading_when_accountSwitchStarts_until_newAccountsFeed() = runTest {
+        // Q14b: from the tap to the new account's first feed Home shows
+        // Loading — through the ping and warm-up, and past the commit until
+        // that account's local tier is up.
+        val outgoing = "subsonic-switch-hold-a"
+        val incoming = "applemusic-switch-hold-b"
+        val provider = MutableStateFlow<String?>(MediaId.PROVIDER_SUBSONIC)
+        val profileId = MutableStateFlow<String?>(outgoing)
+        val switching = MutableStateFlow<ProfileManager.SwitchState>(ProfileManager.SwitchState.Idle)
+        val repository = scopedRepository(outgoing, provider)
+        every { repository.getRecentActivities(limit = any()) } returns profileId.flatMapLatest { id ->
+            flow {
+                if (id == incoming) delay(1_000)
+                emit(listOf(artistVisit("artist-of-$id")))
+            }
+        }
+        val viewModel = switchingViewModel(repository, profileId, switching)
+
+        viewModel.uiState.test {
+            assertEquals(HomeUiState.Loading, awaitItem())
+            assertEquals(
+                listOf("artist-of-$outgoing"),
+                (awaitItem() as HomeUiState.Content).activities.map { it.entityId }
+            )
+
+            switching.value = ProfileManager.SwitchState.Switching(incoming, ProfileManager.SwitchState.Stage.Preparing)
+            assertEquals(HomeUiState.Loading, awaitItem())
+            switching.value = ProfileManager.SwitchState.Switching(incoming, ProfileManager.SwitchState.Stage.Priming)
+            advanceTimeBy(2_000)
+            expectNoEvents()
+
+            // ProfileManager.switchTo commits: the source, setActive, then Idle.
+            provider.value = MediaId.PROVIDER_APPLE_MUSIC
+            profileId.value = incoming
+            switching.value = ProfileManager.SwitchState.Idle
+            advanceTimeBy(500)
+            expectNoEvents()
+
+            assertEquals(
+                listOf("artist-of-$incoming"),
+                (awaitItem() as HomeUiState.Content).activities.map { it.entityId }
+            )
+        }
+    }
+
+    @Test
+    fun should_restoreFeed_when_accountSwitchFails() = runTest {
+        // A failed switch leaves the outgoing account active, its source
+        // untouched: the feed it showed comes back as it was, not reloaded.
+        val outgoing = "subsonic-switch-fails-a"
+        val provider = MutableStateFlow<String?>(MediaId.PROVIDER_SUBSONIC)
+        val profileId = MutableStateFlow<String?>(outgoing)
+        val switching = MutableStateFlow<ProfileManager.SwitchState>(ProfileManager.SwitchState.Idle)
+        val repository = scopedRepository(outgoing, provider)
+        coEvery { repository.getRecentlyPlayedAlbums(any()) } returns listOf(recentAlbum("played-a"))
+        val viewModel = switchingViewModel(repository, profileId, switching)
+
+        viewModel.uiState.test {
+            assertEquals(HomeUiState.Loading, awaitItem())
+            val before = awaitItem() as HomeUiState.Content
+
+            switching.value = ProfileManager.SwitchState.Switching(
+                "spotify-switch-fails-b",
+                ProfileManager.SwitchState.Stage.Connecting
+            )
+            assertEquals(HomeUiState.Loading, awaitItem())
+
+            switching.value = ProfileManager.SwitchState.Error("spotify-switch-fails-b", "Server did not respond")
+            assertEquals(before, awaitItem())
+            switching.value = ProfileManager.SwitchState.Idle
+            advanceUntilIdle()
+            expectNoEvents()
+        }
+        coVerify(exactly = 1) { repository.getRecentlyPlayedAlbums(any()) }
+    }
+
     /**
      * [memorySignalRepository] whose active provider follows [provider], as the
      * active source's id does. The source's identity follows it too (a rebuild
@@ -2044,6 +2123,19 @@ class HomeViewModelTest {
             every { store.layoutFlow(any()) } returns flowOf(null)
         },
         configurationRevision = revision
+    )
+
+    private fun switchingViewModel(
+        repository: YoinRepository,
+        profileId: MutableStateFlow<String?>,
+        switching: MutableStateFlow<ProfileManager.SwitchState>
+    ): HomeViewModel = HomeViewModel(
+        repository = repository,
+        activeProfileId = profileId,
+        homeLayoutStore = mockk<HomeLayoutStore>(relaxed = true).also { store ->
+            every { store.layoutFlow(any()) } returns flowOf(null)
+        },
+        switchingState = switching
     )
 
     private fun playlist(rawId: String): Playlist = Playlist(
