@@ -3,7 +3,9 @@
 package com.gpo.yoin.ui.library
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.EnterExitState
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.MutableTransitionState
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
@@ -26,8 +28,10 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
@@ -56,7 +60,8 @@ import com.gpo.yoin.ui.theme.YoinTheme
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
-import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.transformWhile
 
 /** Space between the ✕ and the first chip: the chips' own gap. */
 private val ClearChipGap = 8.dp
@@ -83,8 +88,10 @@ private val SubChipRevealMargin = 24.dp
  * playlists are mixed ([PlaylistsByYou.available]), and the chips after it
  * make way on the same spatial spring. By You is a toggle over the Playlists
  * view, not a view: leaving Playlists folds it away and keeps it as it was.
- * Unfolding, it scrolls itself into view, clear of the edge fades (a narrow
- * row on a phone, a landscape phone's header, a narrow Wide window).
+ * Unfolding, it scrolls itself into view, clear of the edge fades, where the
+ * row is too short for it (a Wide column the detail pane narrows, whose head
+ * row the ✕ narrows further as it unfolds) or was scrolled with Playlists at
+ * an end.
  *
  * Library is a root section: none of this touches system back, which still
  * leaves the app from any chip.
@@ -111,12 +118,19 @@ internal fun LibraryFilterRow(
         targetValue = if (filtered) ClearChipGap else horizontalPadding,
         animationSpec = YoinMotion.spatialSpring()
     )
+    // The ✕'s own state and the row's width, for By You's reveal: from All the
+    // ✕ unfolds in front of the row on the same frames as By You, narrowing
+    // the row under it. Only that effect reads them, so a frame of the unfold
+    // recomposes nothing.
+    val clearChipVisibility = remember { MutableTransitionState(filtered) }
+    clearChipVisibility.targetState = filtered
+    var rowWidth by remember { mutableIntStateOf(0) }
     Row(
         modifier = modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically
     ) {
         AnimatedVisibility(
-            visible = filtered,
+            visibleState = clearChipVisibility,
             enter = YoinMotion.expandHorizontally(role = YoinMotionRole.Standard, expandFrom = Alignment.Start) +
                 YoinMotion.fadeIn(role = YoinMotionRole.Standard),
             exit = YoinMotion.shrinkHorizontally(role = YoinMotionRole.Standard, shrinkTowards = Alignment.Start) +
@@ -133,6 +147,7 @@ internal fun LibraryFilterRow(
         ExpressiveSegmentRow(
             modifier = Modifier
                 .weight(1f)
+                .onSizeChanged { rowWidth = it.width }
                 .selectableGroup(),
             contentPadding = PaddingValues(start = chipsStart, end = horizontalPadding)
         ) {
@@ -150,7 +165,9 @@ internal fun LibraryFilterRow(
                         LibraryByYouChip(
                             visible = selectedTab == LibraryTab.Playlists && playlistsByYou.available,
                             selected = playlistsByYou.selected,
-                            onSelectedChange = onPlaylistsByYouChange
+                            onSelectedChange = onPlaylistsByYouChange,
+                            rowWidth = { rowWidth },
+                            rowSettled = { clearChipVisibility.isIdle }
                         )
                     }
                 }
@@ -159,9 +176,21 @@ internal fun LibraryFilterRow(
     }
 }
 
-/** Playlists' By You, unfolding from Playlists' trailing edge. */
+/**
+ * Playlists' By You, unfolding from Playlists' trailing edge.
+ *
+ * @param rowWidth the chip row's width now, its view.
+ * @param rowSettled the ✕ in front of the row is not unfolding or folding,
+ *   so the row is done changing width.
+ */
 @Composable
-private fun LibraryByYouChip(visible: Boolean, selected: Boolean, onSelectedChange: (Boolean) -> Unit) {
+private fun LibraryByYouChip(
+    visible: Boolean,
+    selected: Boolean,
+    onSelectedChange: (Boolean) -> Unit,
+    rowWidth: () -> Int,
+    rowSettled: () -> Boolean
+) {
     AnimatedVisibility(
         visible = visible,
         enter = YoinMotion.expandHorizontally(role = YoinMotionRole.Standard, expandFrom = Alignment.Start) +
@@ -169,38 +198,69 @@ private fun LibraryByYouChip(visible: Boolean, selected: Boolean, onSelectedChan
         exit = YoinMotion.shrinkHorizontally(role = YoinMotionRole.Standard, shrinkTowards = Alignment.Start) +
             YoinMotion.fadeOut(role = YoinMotionRole.Standard)
     ) {
+        val enterExit = transition
         LibraryToggleChip(
             label = stringResource(R.string.library_filter_by_you),
             selected = selected,
             onSelectedChange = onSelectedChange,
             modifier = Modifier
                 .padding(start = SubChipGap)
-                .then(rememberRevealOnArrival())
+                .then(
+                    rememberRevealOnArrival(
+                        arriving = {
+                            enterExit.targetState == EnterExitState.Visible &&
+                                (enterExit.isRunning || !rowSettled())
+                        },
+                        rowWidth = rowWidth
+                    )
+                )
         )
     }
 }
+
+/** What By You's reveal asks again on: the chip's size, the row's width, and whether it is still arriving. */
+private data class RevealFrame(val chip: IntSize, val rowWidth: Int, val arriving: Boolean)
 
 /**
  * Scrolls the chip it is on into the row's view as it arrives, [SubChipRevealMargin]
  * clear of either end. It asks for the chip's final bounds: the chip measures
  * full size while it unfolds, and the chips after it give the row room to
  * reach them, so the scroll runs alongside the unfold instead of after it.
+ *
+ * It asks again each time the row's width changes while the chip is
+ * [arriving], and once more as it lands: from All, the ✕ unfolds in front of
+ * the row on the same frames and narrows it, so a chip that was in view when
+ * it first asked could come to rest under the far end's fade (a Wide column
+ * the detail pane narrows to 840dp). An ask that is already met returns at
+ * once. Past the arrival the row is the user's: a later resize or a drag
+ * never pulls the chip back.
  */
 @Composable
-private fun rememberRevealOnArrival(): Modifier {
+private fun rememberRevealOnArrival(arriving: () -> Boolean, rowWidth: () -> Int): Modifier {
     val requester = remember { BringIntoViewRequester() }
     var size by remember { mutableStateOf(IntSize.Zero) }
     val marginPx = with(LocalDensity.current) { SubChipRevealMargin.toPx() }
+    val isArriving by rememberUpdatedState(arriving)
+    val currentRowWidth by rememberUpdatedState(rowWidth)
     LaunchedEffect(requester) {
-        val arrived = snapshotFlow { size }.first { it.width > 0 }
-        try {
-            requester.bringIntoView(Rect(-marginPx, 0f, arrived.width + marginPx, arrived.height.toFloat()))
-        } catch (stopped: CancellationException) {
-            // A drag on the row, or a row with no more room, ends the scroll
-            // early; the chip has unfolded all the same. Leaving composition
-            // still cancels this effect.
-            currentCoroutineContext().ensureActive()
-        }
+        snapshotFlow { RevealFrame(size, currentRowWidth(), isArriving()) }
+            .filter { it.chip.width > 0 }
+            // Through the arrival, then the frame it lands on.
+            .transformWhile { frame ->
+                emit(frame)
+                frame.arriving
+            }
+            .collect { frame ->
+                val clear = Rect(-marginPx, 0f, frame.chip.width + marginPx, frame.chip.height.toFloat())
+                try {
+                    requester.bringIntoView(clear)
+                } catch (stopped: CancellationException) {
+                    // A drag on the row, or a row with no more room, ends the
+                    // scroll early; the chip has unfolded all the same.
+                    // Leaving composition still cancels this effect.
+                    currentCoroutineContext().ensureActive()
+                }
+            }
     }
     return remember(requester) {
         Modifier

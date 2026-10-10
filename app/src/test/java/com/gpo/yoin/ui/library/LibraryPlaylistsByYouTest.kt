@@ -175,6 +175,8 @@ class LibraryPlaylistsByYouTest {
         viewModel.selectTab(LibraryTab.Playlists)
         advanceUntilIdle()
         viewModel.selectPlaylistsByYou(true)
+        // On before the switch, or the reset below would prove nothing.
+        assertTrue(content(viewModel).playlistsByYou.filtering)
 
         profileIds.value = "second"
         advanceUntilIdle()
