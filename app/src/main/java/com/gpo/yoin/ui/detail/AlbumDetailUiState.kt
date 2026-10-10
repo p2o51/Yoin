@@ -103,8 +103,8 @@ data class AlbumSong(
     /** Yoin 放不了（Apple 资料库里没有目录对应的导入曲目）：行变灰并可展开原因。 */
     val isUnavailable: Boolean = false,
     /**
-     * [isStarred] 静默翻转的次数：Spotify 晚到的确认，以及页面打开后第一次读到的状态纠正了专辑自带的旧值。
-     * 这些变化静默淡入淡出，不跳；点击、回退、之后的同步照常跳（FavoriteGlyph）。
+     * [isStarred] 静默翻转的次数：Spotify 晚到的确认，以及页面打开那次查询回来之前（之后则是这一行的第一份状态），
+     * 第一次纠正了专辑自带旧值的非用户状态。这些变化静默淡入淡出，不跳；点击、回退、之后的同步照常跳（FavoriteGlyph）。
      */
     val favoriteQuietFlips: Int = 0,
 )

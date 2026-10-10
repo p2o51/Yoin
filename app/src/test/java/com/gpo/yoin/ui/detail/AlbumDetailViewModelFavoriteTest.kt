@@ -29,9 +29,11 @@ import org.junit.Test
 
 /**
  * The album rows' hearts (P4, D4): the page is out first, then one batched
- * check, whose late answer flips a heart quietly; a tap shows at once and
- * animates as the user's, and so does a failed write falling back; coming
- * back on screen asks again (the repository throttles it).
+ * check, whose late answer flips a heart quietly; until that check is back,
+ * the first state correcting a row's cached flag does too (the page catching
+ * up); a tap shows at once and animates as the user's, and so does a failed
+ * write falling back; coming back on screen asks again (the repository
+ * throttles it).
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class AlbumDetailViewModelFavoriteTest {
@@ -114,6 +116,89 @@ class AlbumDetailViewModelFavoriteTest {
         runCurrent()
 
         assertEquals(true to 0, row(viewModel, second))
+    }
+
+    @Test
+    fun should_flipQuietlyOnce_when_aLibrarySyncCorrectsARowBeforeTheOpeningCheckIsBack() = runTest {
+        val check = CompletableDeferred<Unit>()
+        coEvery { repository.refreshFavoriteStates(any(), any(), any()) } coAnswers { check.await() }
+        val viewModel = viewModel()
+        runCurrent()
+        // The first state agrees with the cached album's flag: nothing caught up on yet.
+        assertEquals(false to 0, row(viewModel, first))
+
+        // A library sync (Home's) lands while the page's check is out: t1 was liked in the Spotify app.
+        states.value = states.value + (first.id to FavoriteState(true))
+        runCurrent()
+        assertEquals(true to 1, row(viewModel, first))
+
+        // Only that first correction is the page catching up; the row's next change animates.
+        states.value = states.value + (first.id to FavoriteState(false))
+        runCurrent()
+        assertEquals(false to 1, row(viewModel, first))
+    }
+
+    @Test
+    fun should_animateALaterSync_when_theOpeningCheckCameBackWithTheRowUnchanged() = runTest {
+        val check = CompletableDeferred<Unit>()
+        coEvery { repository.refreshFavoriteStates(any(), any(), any()) } coAnswers { check.await() }
+        val viewModel = viewModel()
+        runCurrent()
+
+        check.complete(Unit)
+        runCurrent()
+        // Caught up: t2's flag held through the check, so a sync after it is a change, not the page catching up.
+        states.value = states.value + (second.id to FavoriteState(true))
+        runCurrent()
+
+        assertEquals(true to 0, row(viewModel, second))
+    }
+
+    @Test
+    fun should_flipQuietly_when_aRowsFirstStateComesAfterTheOpeningCheck() = runTest {
+        val late = MutableSharedFlow<Map<MediaId, FavoriteState>>(replay = 1)
+        every { repository.observeFavoriteStates(any()) } returns late
+        val viewModel = viewModel()
+        runCurrent()
+
+        // The check is back (the mock answers at once) before the rows hear anything.
+        late.emit(mapOf(first.id to FavoriteState(true), second.id to FavoriteState(false)))
+        runCurrent()
+
+        assertEquals(true to 1, row(viewModel, first))
+        assertEquals(false to 0, row(viewModel, second))
+    }
+
+    @Test
+    fun should_flipQuietly_when_aLikeFromNowPlayingLandedBeforeThePageOpened() = runTest {
+        // Liked in Now Playing a moment ago (the write landed, inside its grace); the cached album still says not.
+        states.value = states.value + (first.id to FavoriteState(true, fromUser = true))
+        val viewModel = viewModel()
+        runCurrent()
+
+        assertEquals(true to 1, row(viewModel, first))
+    }
+
+    @Test
+    fun should_animateTheWriteAndItsFallBack_when_nowPlayingWritesBeforeTheOpeningCheckIsBack() = runTest {
+        val check = CompletableDeferred<Unit>()
+        coEvery { repository.refreshFavoriteStates(any(), any(), any()) } coAnswers { check.await() }
+        val inFlight = MutableStateFlow<Map<MediaId, Boolean>>(emptyMap())
+        every { repository.favoriteOverrides } returns inFlight
+        val viewModel = viewModel()
+        runCurrent()
+
+        // Now Playing's heart, tapped while the page's check is out: the user's change, not catching up.
+        inFlight.value = mapOf(first.id to true)
+        states.value = states.value + (first.id to FavoriteState(true, fromUser = true))
+        runCurrent()
+        assertEquals(true to 0, row(viewModel, first))
+
+        // Its write fails: the rollback animates too.
+        inFlight.value = emptyMap()
+        states.value = states.value + (first.id to FavoriteState(false))
+        runCurrent()
+        assertEquals(false to 0, row(viewModel, first))
     }
 
     @Test

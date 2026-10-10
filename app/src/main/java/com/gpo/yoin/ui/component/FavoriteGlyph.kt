@@ -28,10 +28,11 @@ import com.gpo.yoin.ui.theme.YoinTheme
  * answers that came in late and flipped the heart — Spotify confirming a like
  * after the page is up, or saying it was unliked elsewhere — each of which
  * [FavoriteGlyphIcon] crossfades in quietly instead of letting the symbol
- * beat — and so does an album row's first known state correcting the flag
- * the page drew it from ([settle]). Every other change keeps [quietFlips],
- * so the same symbol animates it as ever (the fill grows and the outline
- * beats): a tap, a failed write rolling back, a library sync, another track.
+ * beat — and so does the first state correcting the flag an album row was
+ * drawn from while the page catches up ([settle]). Every other change keeps
+ * [quietFlips], so the same symbol animates it as ever (the fill grows and
+ * the outline beats): a tap, a failed write rolling back, a library sync
+ * once the page has caught up, another track.
  * [answeredAtMs]: the newest answer seen so far, which tells one coming in
  * from one fallen back to.
  */
@@ -51,10 +52,11 @@ data class FavoriteGlyph(val favorite: Boolean, val quietFlips: Int = 0, val ans
     /**
      * This glyph, drawn before anything was known about the heart (an album
      * page's rows start from the album's own flags, which may be a cached
-     * copy days old), meeting the first state Yoin knows of it — the
-     * saved-tracks mirror, an answer, a write. That is the page catching up,
-     * not a change anyone made now, so a flip is quiet, as a late answer's;
-     * every state after it goes through [next].
+     * copy days old), meeting a state while the page is still catching up
+     * with what Yoin knew as it opened — the saved-tracks mirror, a sync
+     * landing, an answer, a like written before. That is not a change anyone
+     * made now, so a flip is quiet, as a late answer's; once one has flipped
+     * it, or the page has caught up, every state goes through [next].
      */
     fun settle(state: FavoriteState): FavoriteGlyph {
         val shown = if (state.isStarred == favorite) {

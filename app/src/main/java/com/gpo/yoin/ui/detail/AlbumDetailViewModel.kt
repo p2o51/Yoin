@@ -100,12 +100,30 @@ class AlbumDetailViewModel(
     private val favoriteGlyphs = HashMap<MediaId, FavoriteGlyph>()
 
     /**
-     * Rows whose heart has met the repository's state since the page drew it
-     * from the album's own flags (a cached album's may be days old). The
-     * first state a row gets settles it quietly ([FavoriteGlyph.settle]);
-     * a tap before that leaves nothing to settle.
+     * Rows whose heart has caught up with what Yoin knew as the page opened,
+     * having been drawn from the album's own flags (a cached album's may be
+     * days old): every state from here goes through [FavoriteGlyph.next]. A
+     * row settles on the first state that isn't the user's to correct its
+     * flag while the page's opening check is out — quietly
+     * ([FavoriteGlyph.settle]) — on its first state of any kind once that
+     * check is back (quietly too, if it corrects the flag), or on the user's
+     * own change (a tap here, a write out from Now Playing), which animates.
      */
     private val favoriteSettledRows = HashSet<MediaId>()
+
+    /**
+     * Rows whose every state so far, with the page's opening check out,
+     * agreed with the flag the row was drawn from: nothing caught up on yet.
+     * Settled as that check comes back, so a later library sync animates.
+     */
+    private val favoriteCatchingUpRows = HashSet<MediaId>()
+
+    /**
+     * The page's opening check ([YoinRepository.refreshFavoriteStates]) while
+     * it is out, a token per load; null once it is back. It bounds how long
+     * the rows may still be catching up.
+     */
+    private var favoriteOpeningCheck: Any? = null
 
     /** The album's rating row as Room last reported it (its NeoDB dirty flags drive [neoDb]). */
     private var ratingRow: AlbumRating? = null
@@ -225,6 +243,9 @@ class AlbumDetailViewModel(
                 albumSongs = album.tracks.applyFavoriteOverrides(repository.favoriteOverrides.value)
                 favoriteGlyphs.clear()
                 favoriteSettledRows.clear()
+                favoriteCatchingUpRows.clear()
+                val openingCheck = Any()
+                favoriteOpeningCheck = openingCheck
                 albumSongs.forEach { track -> favoriteGlyphs[track.id] = FavoriteGlyph(track.isStarred) }
                 albumTrackIds.value = albumSongs.map(Track::id)
                 // The visit row feeds Home's activity and the widgets, not this page:
@@ -247,15 +268,22 @@ class AlbumDetailViewModel(
                 )
                 markPerfContent(album.id.toString())
 
-                // The rows follow the favorite state from here on — its first
-                // read flips a heart drawn from a stale flag quietly — and Spotify
-                // is asked about likes its 200-track mirror can't show: one batched
-                // check after the page is out, whose answer flips hearts quietly.
+                // The rows follow the favorite state from here on — until this
+                // check is back, the first state correcting a heart drawn from a
+                // stale flag flips it quietly — and Spotify is asked about likes
+                // its 200-track mirror can't show: one batched check after the
+                // page is out, whose answer flips hearts quietly.
                 // The album's own saved state (the ▾ menu's library row) rides
                 // the same check when its saved-albums mirror doesn't have it.
                 favoriteBase.value = album.tracks
                 observeAlbumSaved(album.id)
-                launch { repository.refreshFavoriteStates(album.tracks, album = album) }
+                launch {
+                    try {
+                        repository.refreshFavoriteStates(album.tracks, album = album)
+                    } finally {
+                        if (favoriteOpeningCheck === openingCheck) endFavoriteCatchUp()
+                    }
+                }
 
                 // 观察 album_ratings，把持久化状态 merge 回 Content —— 用户在
                 // 别处（Memory / 以后的 NeoDB 拉取）改了评分 / 评论时，打开
@@ -425,9 +453,27 @@ class AlbumDetailViewModel(
                 ?: states[track.id]
                 ?: return@map track
             val shown = favoriteGlyphs[track.id] ?: FavoriteGlyph(track.isStarred)
-            // The row's first state from the repository: quiet where it corrects the page's seed.
-            val settling = favoriteSettledRows.add(track.id) && tap == null
-            val glyph = if (settling) shown.settle(state) else shown.next(state)
+            val glyph = when {
+                track.id in favoriteSettledRows -> shown.next(state)
+                // The user's own change — a tap here, a write still out from
+                // Now Playing — is no catching up: it animates as ever.
+                tap != null || (state.fromUser && track.id in repository.favoriteOverrides.value) -> {
+                    settleFavoriteRow(track.id)
+                    shown.next(state)
+                }
+                // The page catching up with what Yoin knew as it opened: the first
+                // state to correct the row's flag while the opening check is out
+                // (the mirror, a library sync landing, a like written before the
+                // page opened), or its first state at all once the check is back.
+                favoriteOpeningCheck == null || state.isStarred != shown.favorite -> {
+                    settleFavoriteRow(track.id)
+                    shown.settle(state)
+                }
+                else -> {
+                    favoriteCatchingUpRows += track.id
+                    shown.settle(state)
+                }
+            }
             favoriteGlyphs[track.id] = glyph
             if (track.isStarred == glyph.favorite) track else track.copy(isStarred = glyph.favorite)
         }
@@ -437,6 +483,18 @@ class AlbumDetailViewModel(
                 song.copy(isStarred = glyph.favorite, favoriteQuietFlips = glyph.quietFlips)
             }
         )
+    }
+
+    private fun settleFavoriteRow(id: MediaId) {
+        favoriteSettledRows += id
+        favoriteCatchingUpRows -= id
+    }
+
+    /** The page's opening check is back: no row is catching up any more. */
+    private fun endFavoriteCatchUp() {
+        favoriteOpeningCheck = null
+        favoriteSettledRows += favoriteCatchingUpRows
+        favoriteCatchingUpRows.clear()
     }
 
     private fun addToLibrary(track: Track) {
