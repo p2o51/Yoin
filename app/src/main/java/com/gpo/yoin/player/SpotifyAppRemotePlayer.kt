@@ -36,10 +36,12 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
@@ -418,6 +420,23 @@ internal class SpotifyAppRemotePlayer(
             Result.failure(error)
         }
     }
+
+    /**
+     * For the debug library-state probe: starts the warm connection when
+     * there is none and waits up to [timeoutMs] for it. App Remote connects
+     * only while a Yoin Activity is started. Plays nothing.
+     */
+    suspend fun awaitConnection(timeoutMs: Long): Boolean = withContext(Dispatchers.Main.immediate) {
+        if (remote?.isConnected == true) return@withContext true
+        warmConnection()
+        withTimeoutOrNull(timeoutMs) {
+            while (remote?.isConnected != true) delay(CONNECTION_POLL_MS)
+            true
+        } ?: false
+    }
+
+    /** Whether a started Yoin Activity is there to connect App Remote from (debug probe). */
+    fun hasHost(): Boolean = hostContext != null
 
     private fun enqueueOperation(
         replacePending: Boolean = false,
@@ -882,6 +901,9 @@ internal class SpotifyAppRemotePlayer(
          * dropped connection stranded must not hold the heart check open.
          */
         const val LIBRARY_STATE_TIMEOUT_MS = 3_000L
+
+        /** How often [awaitConnection] looks whether the connect landed. */
+        const val CONNECTION_POLL_MS = 100L
 
         /**
          * Gap between the failing connect and the silent retry. Long enough

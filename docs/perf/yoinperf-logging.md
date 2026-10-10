@@ -99,6 +99,37 @@ $ADB logcat -d -v raw -s YoinPerf:D | grep '^home\.'
 
 只看某类：`grep '^detail\.'`、`grep '^http '`、`grep '^image\.error'`、`grep '^favorite\.'`。
 
+## App Remote 收藏状态探针（只读，Q17）
+
+debug 包里有一个广播入口 `LibraryStateProbeReceiver`（`app/src/debug`，manifest 要求发送方持有 DUMP，只有 adb shell 有）。它连上 App Remote，对每个 URI 调 `UserApi.getLibraryState`，把结果打到 logcat 的 `YoinProbe`。
+
+- **不起播、不改队列**：复用 Yoin 自己的 warm connection（Spotify 账号在用时 Yoin 本来就会这样连），只读状态。
+- **不打 token**：日志里只有 URI、结果、耗时和错误类名，没有 access token，也没有 Client ID。
+- App Remote 只有在某个 Yoin Activity 处于 started 状态时才能连，所以**先把 Yoin 打开到前台**，用 Spotify 账号。
+- URI 只能是 track 或 album（UserApi 文档的限制）。
+
+```sh
+$ADB logcat -c
+$ADB shell am broadcast -n com.gpo.yoin/.debug.LibraryStateProbeReceiver \
+    -a com.gpo.yoin.debug.LIBRARY_STATE \
+    --esa uris spotify:track:<id1>,spotify:track:<id2>,spotify:album:<id3>
+$ADB logcat -d -v raw -s YoinProbe:*
+```
+
+清单 receiver 收不到隐式广播，所以必须带 `-n`。`--esa` 用逗号分隔多个 URI；只有一个时也可以用 `--es uris spotify:track:<id>`。
+
+输出示例：
+
+```
+connect ok=true host=true ms=412
+libraryState uri=spotify:track:<id1> isAdded=true canAdd=true ms=18
+libraryState uri=spotify:track:<id2> ms=3004 error=TimeoutCancellationException: Timed out waiting for 3000 ms
+```
+
+- `connect ok=false`：App Remote 没连上。`host=false` 表示探针开始时没有 started 的 Yoin Activity。
+- 每个 URI 最多等 3 秒。
+- 要确认的四件事：scope 是否够用；耗时；在 Spotify app 和通知栏里点赞后，结果是否立刻变化；只在某个歌单里、显示绿勾但不在 Liked Songs 的歌，返回什么。
+
 ## 按 id 配对算时长
 
 一次打开详情的链路：
