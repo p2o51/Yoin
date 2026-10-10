@@ -237,6 +237,9 @@ fun PlaylistDetailScreen(
                                 .fillMaxWidth()
                                 .weight(1f),
                         ) { state ->
+                            if (state is PlaylistDetailUiState.Content) {
+                                DetailPerfVisibleEffect("playlist", state.playlistId)
+                            }
                             when (state) {
                                 is PlaylistDetailUiState.Loading -> {
                                     Box(

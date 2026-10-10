@@ -11,6 +11,7 @@ import androidx.window.embedding.SplitController
 import coil3.ImageLoader
 import coil3.PlatformContext
 import coil3.SingletonImageLoader
+import com.gpo.yoin.perf.YoinPerfImages
 import com.gpo.yoin.player.applemusic.AppleMusicNativeMemoryPolicy
 import com.gpo.yoin.widget.WidgetRefresher
 
@@ -25,10 +26,13 @@ class YoinApplication : Application(), SingletonImageLoader.Factory {
      * detail pages are separate Activities, so per-Activity loaders multiplied
      * every cache. Pixel-reading callers (palette/seed extraction) must keep
      * `allowHardware(false)` on their own [coil3.request.ImageRequest]s rather
-     * than reach for a separately-configured loader.
+     * than reach for a separately-configured loader. Debug builds add only the
+     * YoinPerf image listener (docs/perf/yoinperf-logging.md); release gets none.
      */
     override fun newImageLoader(context: PlatformContext): ImageLoader =
-        ImageLoader.Builder(context).build()
+        ImageLoader.Builder(context)
+            .apply { YoinPerfImages.listenerFactory()?.let(::eventListenerFactory) }
+            .build()
 
     @OptIn(ExperimentalComposeUiApi::class)
     override fun onCreate() {

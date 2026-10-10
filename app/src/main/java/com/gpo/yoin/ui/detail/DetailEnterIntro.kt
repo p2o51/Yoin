@@ -24,6 +24,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalInspectionMode
 import androidx.compose.ui.platform.LocalView
 import com.gpo.yoin.YoinApplication
+import com.gpo.yoin.perf.YoinPerf
 import com.gpo.yoin.ui.component.YoinLoadingIndicator
 import com.gpo.yoin.ui.navigation.back.BackMotionTokens
 import com.gpo.yoin.ui.theme.YoinMotion
@@ -127,6 +128,34 @@ internal fun DetailLoadingIndicator(intro: DetailEnterIntroState, modifier: Modi
 @Composable
 internal fun DetailEnterPageMountEffect(state: DetailEnterIntroState) {
     SideEffect { state.notePageMounted() }
+}
+
+/**
+ * Debug-only `detail.visible` (docs/perf/yoinperf-logging.md): call from the
+ * page's Content branch. It fires once, when the first frame that composed
+ * Content has committed to the display (`commit=false`: the bounded
+ * handshake timed out or the view detached, so the time is a lower bound).
+ * Where Loading was already on screen the Content crossfade STARTS at this
+ * frame, so the mark is when content begins to show, not its full opacity.
+ */
+@Composable
+internal fun DetailPerfVisibleEffect(kind: String, id: String) {
+    if (!YoinPerf.enabled) return
+    val view = LocalView.current
+    val host = LocalDetailHostMode.current
+    var marked by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        if (marked) return@LaunchedEffect
+        val committed = awaitNextFrameCommit(view)
+        marked = true
+        YoinPerf.mark(
+            "detail.visible",
+            "kind" to kind,
+            "id" to id,
+            "host" to host.name.lowercase(),
+            "commit" to committed
+        )
+    }
 }
 
 @Composable

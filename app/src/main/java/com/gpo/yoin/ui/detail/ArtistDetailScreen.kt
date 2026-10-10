@@ -255,6 +255,7 @@ fun ArtistDetailScreen(
                                 .fillMaxWidth()
                                 .weight(1f),
                         ) { state ->
+                            if (state is ArtistDetailUiState.Content) DetailPerfVisibleEffect("artist", state.artistId)
                             when (state) {
                                 is ArtistDetailUiState.Loading ->
                                     Box(

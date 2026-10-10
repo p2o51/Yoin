@@ -26,6 +26,7 @@ import com.gpo.yoin.data.model.Playlist
 import com.gpo.yoin.data.model.Track
 import com.gpo.yoin.data.repository.YoinRepository
 import com.gpo.yoin.data.source.Capability
+import com.gpo.yoin.perf.YoinPerf
 import com.gpo.yoin.ui.common.UiText
 import com.gpo.yoin.ui.memories.MemoryEntityType
 import com.gpo.yoin.ui.memories.MemoryScoreKind
@@ -87,6 +88,10 @@ class HomeViewModel(
     private var editing = false
     private var frozenState: HomeUiState? = null
 
+    // Debug-only: `home.content` marks the first Content only. Declared before
+    // init, which can publish a cached Content synchronously.
+    private var perfContentMarked = false
+
     // Which provider|profile the Content in [_uiState] belongs to. The live
     // observers only splice into content of the CURRENT scope: right after a
     // profile switch the screen may still hold the old profile's feed (until
@@ -131,6 +136,8 @@ class HomeViewModel(
             .stateIn(viewModelScope, SharingStarted.Eagerly, emptySet())
 
     init {
+        // The constructor's Loading is what a cold start shows until the first Content.
+        if (YoinPerf.enabled) YoinPerf.mark("home.loading", "ms_since_process_start" to YoinPerf.sinceProcessStart())
         refresh()
         observeRecentHistory()
         observeMemorySignals()
@@ -184,7 +191,9 @@ class HomeViewModel(
         return hints
     }
 
-    private fun emit(state: HomeUiState) {
+    /** [perfSrc] labels a Content for the debug-only `home.content` mark: mem | disk | fresh. */
+    private fun emit(state: HomeUiState, perfSrc: String? = null) {
+        markPerf(state, perfSrc)
         if (editing) frozenState = state else _uiState.value = state
     }
 
@@ -195,6 +204,7 @@ class HomeViewModel(
         val providerId = repository.currentProviderId()
         val profileId = activeProfileId.value
         viewModelScope.launch {
+            val perf = YoinPerf.begin("home.refresh")
             val scopeKey = homeScopeKey(providerId, profileId)
             val cachedHomeContent = homeContentCache[scopeKey]
             val cachedSpotifyContent = if (
@@ -210,6 +220,7 @@ class HomeViewModel(
                 cachedHomeContent
                     ?: cachedSpotifyContent
                     ?: HomeUiState.Loading,
+                perfSrc = if (cachedHomeContent != null) "mem" else "disk"
             )
             contentScopeKey = scopeKey
 
@@ -220,11 +231,18 @@ class HomeViewModel(
 
                     else -> loadHomeContent()
                 }
-                if (!matchesCurrentScope(providerId, profileId)) return@launch
+                if (!matchesCurrentScope(providerId, profileId)) {
+                    if (perf != null) YoinPerf.end(perf, "provider" to providerId, "result" to "superseded")
+                    return@launch
+                }
                 homeContentCache[scopeKey] = freshContent
-                emit(freshContent)
+                emit(freshContent, perfSrc = "fresh")
+                if (perf != null) YoinPerf.end(perf, "provider" to providerId, "result" to "ok")
                 contentScopeKey = scopeKey
             } catch (e: Exception) {
+                if (perf != null) {
+                    YoinPerf.end(perf, "provider" to providerId, "result" to "error", "err" to e.javaClass.simpleName)
+                }
                 if (!matchesCurrentScope(providerId, profileId)) return@launch
                 if (cachedSpotifyContent == null) {
                     val detail = e.message
@@ -241,6 +259,39 @@ class HomeViewModel(
                 }
             }
         }
+    }
+
+    /**
+     * Debug-only Home marks (docs/perf/yoinperf-logging.md), on publish:
+     * `home.loading` when the feed falls back to Loading (a refresh with
+     * nothing cached to paint), and `home.content` once, for the first
+     * Content this VM publishes.
+     */
+    private fun markPerf(next: HomeUiState, src: String?) {
+        if (!YoinPerf.enabled) return
+        if (next is HomeUiState.Loading) {
+            if ((frozenState ?: _uiState.value) !is HomeUiState.Loading) {
+                YoinPerf.mark("home.loading", "ms_since_process_start" to YoinPerf.sinceProcessStart())
+            }
+            return
+        }
+        val content = next as? HomeUiState.Content ?: return
+        if (perfContentMarked) return
+        perfContentMarked = true
+        val sections = listOf(
+            content.activities.isNotEmpty(),
+            content.widgetGrid.isNotEmpty(),
+            content.recentlyAddedTracks.isNotEmpty() || content.recentlyAddedAlbums.isNotEmpty(),
+            content.rediscover.isNotEmpty(),
+            content.recentlyPlayed.isNotEmpty(),
+            content.playlists.isNotEmpty()
+        ).count { it }
+        YoinPerf.mark(
+            "home.content",
+            "ms_since_process_start" to YoinPerf.sinceProcessStart(),
+            "sections" to sections,
+            "src" to src
+        )
     }
 
     /** The pill last shown for the current scope — kept when a fresh read can't resolve one. */

@@ -25,6 +25,7 @@ import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.repository.ActivityContext
 import com.gpo.yoin.data.source.WebLinkKind
 import com.gpo.yoin.enableYoinEdgeToEdge
+import com.gpo.yoin.perf.YoinPerf
 import com.gpo.yoin.ui.common.asString
 import com.gpo.yoin.ui.experience.installCoveredWindowAnimationGate
 import com.gpo.yoin.ui.nowplaying.NowPlayingAccessories
@@ -241,6 +242,7 @@ class AlbumDetailActivity : ComponentActivity() {
                     menu = menu,
                     onOpenArtist = (uiState as? AlbumDetailUiState.Content)?.artistId?.let { artistId ->
                         {
+                            YoinPerf.detailClick("artist", artistId, via = "push")
                             launchChildDetail(
                                 ArtistDetailActivity.intent(this@AlbumDetailActivity, artistId),
                             )

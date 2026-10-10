@@ -2,6 +2,7 @@ package com.gpo.yoin.data.remote.applemusic
 
 import android.util.Log
 import com.gpo.yoin.BuildConfig
+import com.gpo.yoin.perf.YoinPerfHttp
 import java.io.IOException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -28,7 +29,9 @@ class AppleMusicApiClient(
     private val baseUrl: HttpUrl = "https://api.music.apple.com/".toHttpUrl()
 ) {
     private val http = transport.newBuilder().followRedirects(false).followSslRedirects(false)
-        .callTimeout(20, java.util.concurrent.TimeUnit.SECONDS).build()
+        .callTimeout(20, java.util.concurrent.TimeUnit.SECONDS)
+        .apply { YoinPerfHttp.interceptor()?.let(::addInterceptor) } // debug-only timing; never the query
+        .build()
 
     init {
         require(baseUrl.isHttps || baseUrl.host in setOf("localhost", "127.0.0.1", "::1"))

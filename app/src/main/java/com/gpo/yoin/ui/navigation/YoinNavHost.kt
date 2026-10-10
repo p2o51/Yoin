@@ -84,6 +84,7 @@ import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.Track
 import com.gpo.yoin.data.repository.ActivityContext
 import com.gpo.yoin.data.source.Capability
+import com.gpo.yoin.perf.YoinPerf
 import com.gpo.yoin.player.PlaybackEvent
 import com.gpo.yoin.player.SpotifyConnectFailure
 import com.gpo.yoin.ui.component.AddToPlaylistSheet
@@ -532,7 +533,10 @@ private fun YoinShell(
             }
         }
     }
-    val pushPane: (DetailPaneRoute) -> Unit = { route -> paneStack.add(route) }
+    val pushPane: (DetailPaneRoute) -> Unit = { route ->
+        markDetailClick(route, via = "pane-push")
+        paneStack.add(route)
+    }
     // Opening or closing the column re-tiers the shell — never mid-edit: edit
     // mode animates out first (P settles at 0), then the column moves.
     val currentOpenPane by rememberUpdatedState(openPane)
@@ -659,8 +663,10 @@ private fun YoinShell(
     }
     val navigateToAlbumFromShell: (String, String?) -> Unit = { albumId, sharedTransitionKey ->
         if (hasDetailPane) {
+            YoinPerf.detailClick("album", albumId, via = "pane")
             openPaneFromShell(DetailPaneRoute.Album(albumId))
         } else if (canLaunchDetail()) {
+            YoinPerf.detailClick("album", albumId, via = "activity")
             detailLaunchPending = true
             try {
                 armDetailChrome()
@@ -675,8 +681,10 @@ private fun YoinShell(
     }
     val navigateToArtistFromShell: (String, String?) -> Unit = { artistId, sharedTransitionKey ->
         if (hasDetailPane) {
+            YoinPerf.detailClick("artist", artistId, via = "pane")
             openPaneFromShell(DetailPaneRoute.Artist(artistId))
         } else if (canLaunchDetail()) {
+            YoinPerf.detailClick("artist", artistId, via = "activity")
             detailLaunchPending = true
             try {
                 armDetailChrome()
@@ -691,8 +699,10 @@ private fun YoinShell(
     }
     val navigateToPlaylistFromShell: (String, String?) -> Unit = { playlistId, sharedTransitionKey ->
         if (hasDetailPane) {
+            YoinPerf.detailClick("playlist", playlistId, via = "pane")
             openPaneFromShell(DetailPaneRoute.Playlist(playlistId))
         } else if (canLaunchDetail()) {
+            YoinPerf.detailClick("playlist", playlistId, via = "activity")
             detailLaunchPending = true
             try {
                 armDetailChrome()
@@ -1019,10 +1029,12 @@ private fun YoinShell(
                                             // and the page lands on "Couldn't load
                                             // this album." (memory → goto album).
                                             if (hasDetailPane) {
+                                                markMemoryAlbumClick(memory, via = "pane")
                                                 openPane(
                                                     DetailPaneRoute.Album("${memory.entityProvider}:${memory.entityId}"),
                                                 )
                                             } else if (canLaunchDetail()) {
+                                                markMemoryAlbumClick(memory, via = "activity")
                                                 detailLaunchPending = true
                                                 try {
                                                     // Keep the deck mounted. Its hidden bottom bar must
@@ -1539,6 +1551,21 @@ internal fun canLaunchDetailFromShell(
     !launchPending
 
 private const val DETAIL_LAUNCH_PAUSE_GRACE_MS = 500L
+
+/** Debug-only `detail.click` for a page opened into the shell's detail column. */
+private fun markDetailClick(route: DetailPaneRoute, via: String) {
+    val kind = when (route) {
+        is DetailPaneRoute.Album -> "album"
+        is DetailPaneRoute.Artist -> "artist"
+        is DetailPaneRoute.Playlist -> "playlist"
+    }
+    YoinPerf.detailClick(kind, route.entityId, via)
+}
+
+/** Debug-only `detail.click` for a Memories stamp's album (its full MediaId, as the page is opened with). */
+private fun markMemoryAlbumClick(memory: MemoryEntry, via: String) {
+    YoinPerf.detailClick("album", "${memory.entityProvider}:${memory.entityId}", via)
+}
 
 @Preview(showBackground = true, backgroundColor = 0xFF1C1B1F)
 @Composable

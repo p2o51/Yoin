@@ -26,6 +26,7 @@ import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.repository.ActivityContext
 import com.gpo.yoin.data.source.WebLinkKind
 import com.gpo.yoin.enableYoinEdgeToEdge
+import com.gpo.yoin.perf.YoinPerf
 import com.gpo.yoin.ui.experience.installCoveredWindowAnimationGate
 import com.gpo.yoin.ui.nowplaying.NowPlayingAccessories
 import com.gpo.yoin.ui.nowplaying.NowPlayingOverlayHost
@@ -170,6 +171,7 @@ class ArtistDetailActivity : ComponentActivity() {
                     enterBarHandoff = intent.getBooleanExtra(DETAIL_EXTRA_BAR_HANDOFF, false),
                     barExitsOnBack = intent.detailBarExitsOnBack(),
                     onAlbumClick = { albumId ->
+                        YoinPerf.detailClick("album", albumId, via = "push")
                         launchChildDetail(
                             AlbumDetailActivity.intent(this@ArtistDetailActivity, albumId),
                         )

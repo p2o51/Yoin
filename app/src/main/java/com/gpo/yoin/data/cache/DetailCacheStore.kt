@@ -5,6 +5,7 @@ import com.gpo.yoin.data.local.DetailCacheEntry
 import com.gpo.yoin.data.model.Album
 import com.gpo.yoin.data.model.ArtistDetail
 import com.gpo.yoin.data.model.Playlist
+import com.gpo.yoin.perf.YoinPerf
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -132,8 +133,12 @@ class DetailCacheStore(
         id: String,
         encode: () -> String,
     ) {
-        runCatching {
+        // Debug-only `detail.diskWrite` (encode + lock wait + upsert + any trim).
+        val perf = YoinPerf.begin("detail.diskWrite")
+        var chars = -1
+        val result = runCatching {
             val encoded = withContext(Dispatchers.Default) { encode() }
+            chars = encoded.length
             val now = clock()
             sizeLock.withLock {
                 // Code points, not String.length: SQLite LENGTH() counts code
@@ -149,6 +154,7 @@ class DetailCacheStore(
                 totalBytesEstimate = total
             }
         }
+        if (perf != null) YoinPerf.end(perf, "kind" to kind, "chars" to chars, "ok" to result.isSuccess)
     }
 
     /**
@@ -177,16 +183,24 @@ class DetailCacheStore(
      * caller stores as the new running total. Called with [sizeLock] held.
      */
     private suspend fun trimToBudget(): Long {
-        var total = dao.totalBytes()
-        if (total <= maxBytes) return total
-        // SQLite (minSdk 26) has no guaranteed window functions, so accumulate
-        // and delete oldest-accessed in Kotlin until we're back under budget.
-        for (row in dao.sizesOldestFirst()) {
-            if (total <= maxBytes) break
-            dao.delete(row.profileId, row.kind, row.entityId)
-            total -= row.bytes
+        // Debug-only `detail.diskTrim` (the SUM, the scan and every delete).
+        val perf = YoinPerf.begin("detail.diskTrim")
+        var rows = 0
+        try {
+            var total = dao.totalBytes()
+            if (total <= maxBytes) return total
+            // SQLite (minSdk 26) has no guaranteed window functions, so accumulate
+            // and delete oldest-accessed in Kotlin until we're back under budget.
+            for (row in dao.sizesOldestFirst()) {
+                if (total <= maxBytes) break
+                dao.delete(row.profileId, row.kind, row.entityId)
+                total -= row.bytes
+                rows++
+            }
+            return total
+        } finally {
+            if (perf != null) YoinPerf.end(perf, "rows" to rows)
         }
-        return total
     }
 
     /** Same unit as SQLite LENGTH() on TEXT: code points, not UTF-16 units. */

@@ -70,6 +70,7 @@ import com.gpo.yoin.data.source.spotify.SpotifyPlayHistoryObject
 import com.gpo.yoin.data.source.spotify.SpotifyRateLimitGate
 import com.gpo.yoin.data.source.spotify.toSpotifyLibraryTrackCache
 import com.gpo.yoin.data.source.spotify.toTrack
+import com.gpo.yoin.perf.YoinPerf
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -175,7 +176,7 @@ class YoinRepository(
          * per cache instance so the three detail types stay fully typed and a
          * shared raw `provider:rawId` can never collide across them.
          */
-        val inFlight = ConcurrentHashMap<String, Deferred<V?>>()
+        val inFlight = ConcurrentHashMap<String, Deferred<DetailLoad<V>>>()
 
         /**
          * Bumped by [invalidate]. A shared load snapshots the generation before
@@ -216,6 +217,14 @@ class YoinRepository(
             lru.clear()
         }
     }
+
+    /**
+     * One shared detail load's result plus where it came from (mem is answered
+     * before a flight exists): disk | net | stale (the fetch failed, a cached
+     * copy served instead, [fetchError] says why). [src] only feeds the
+     * debug-only `detail.load` mark.
+     */
+    private class DetailLoad<V>(val value: V?, val src: String, val fetchError: String? = null)
 
     init {
         repositoryScope.launch {
@@ -557,6 +566,7 @@ class YoinRepository(
     }
 
     suspend fun getAlbum(id: MediaId): Album? = loadCachedDetail(
+        kind = "album",
         mem = albumDetailCache,
         baseKey = id.toString(),
         diskFreshMs = detailDiskFreshMs,
@@ -624,6 +634,7 @@ class YoinRepository(
     }
 
     suspend fun getArtist(id: MediaId): ArtistDetail? = loadCachedDetail(
+        kind = "artist",
         mem = artistDetailCache,
         baseKey = id.toString(),
         diskFreshMs = detailDiskFreshMs,
@@ -874,6 +885,7 @@ class YoinRepository(
     }
 
     suspend fun getPlaylist(id: MediaId): Playlist? = loadCachedDetail(
+        kind = "playlist",
         mem = playlistDetailCache,
         baseKey = id.toString(),
         // Playlists are user-mutable → always revalidate online; disk is only an
@@ -906,8 +918,12 @@ class YoinRepository(
      * masked; the caches then serve only as an offline fallback. For trusted
      * (album/artist) entries a disk hit older than [detailRevalidateAfterMs]
      * kicks off a background refresh (stale-while-revalidate).
+     *
+     * Debug builds time every call as `detail.load` ([kind] is only that
+     * mark's label; docs/perf/yoinperf-logging.md).
      */
     private suspend fun <V : Any> loadCachedDetail(
+        kind: String,
         mem: DetailMemoryCache<V>,
         baseKey: String,
         diskFreshMs: Long,
@@ -915,11 +931,16 @@ class YoinRepository(
         diskWrite: suspend (profileId: String, value: V) -> Unit,
         fetch: suspend () -> V?,
     ): V? {
+        val perf = YoinPerf.begin("detail.load")
         val profileId = activeProfileId.value
         val key = memKey(baseKey, profileId)
         if (diskFreshMs > 0L) {
-            mem.getFresh(key)?.let { return it }
+            mem.getFresh(key)?.let {
+                if (perf != null) YoinPerf.end(perf, "kind" to kind, "id" to baseKey, "src" to "mem")
+                return it
+            }
         }
+        var startedFlight = false
         // Single-flight: racing loads of one key (a prefetch burst + a user tap
         // + a queue build) share one Deferred instead of each paying the fetch
         // and disk write. It runs on [repositoryScope] so a cancelled waiter
@@ -927,6 +948,7 @@ class YoinRepository(
         // failure propagates to every waiter. The entry is removed as the load
         // completes, so a failure never poisons its key.
         val shared = mem.inFlight.computeIfAbsent(key) {
+            startedFlight = true
             repositoryScope.async {
                 loadDetailFromDiskOrNetwork(mem, key, profileId, diskFreshMs, diskRead, diskWrite, fetch)
             }.also { deferred ->
@@ -936,7 +958,24 @@ class YoinRepository(
                 deferred.invokeOnCompletion { mem.inFlight.remove(key, deferred) }
             }
         }
-        return shared.await()
+        if (perf == null) return shared.await().value
+        val loaded = try {
+            shared.await()
+        } catch (e: Throwable) {
+            YoinPerf.end(perf, "kind" to kind, "id" to baseKey, "src" to "err", "err" to e.javaClass.simpleName)
+            throw e
+        }
+        YoinPerf.end(
+            perf,
+            "kind" to kind,
+            "id" to baseKey,
+            "src" to loaded.src,
+            "provider" to baseKey.substringBefore(':').takeIf { loaded.src == "net" },
+            // Coalesced onto a load already in flight (a prefetch, another reader).
+            "joined" to (!startedFlight).takeIf { it },
+            "err" to loaded.fetchError
+        )
+        return loaded.value
     }
 
     /**
@@ -955,7 +994,7 @@ class YoinRepository(
         diskRead: suspend (profileId: String) -> Cached<V>?,
         diskWrite: suspend (profileId: String, value: V) -> Unit,
         fetch: suspend () -> V?,
-    ): V? {
+    ): DetailLoad<V> {
         suspend fun diskRow(): Cached<V>? =
             profileId?.let { runCatching { diskRead(it) }.getOrNull() }
 
@@ -973,11 +1012,11 @@ class YoinRepository(
                 if (clock() - disk.cachedAt > detailRevalidateAfterMs) {
                     revalidateDetail(mem, key, profileId, diskWrite, fetch)
                 }
-                return value
+                return DetailLoad(value, src = "disk")
             }
         }
         return try {
-            fetch()?.also { value ->
+            val fetched = fetch()?.also { value ->
                 // TOCTOU: only persist if still on the profile we resolved under
                 // and the key wasn't invalidated mid-flight — a stale write-back
                 // must not poison another account or overwrite a fresher edit.
@@ -986,9 +1025,11 @@ class YoinRepository(
                     if (profileId != null) runCatching { diskWrite(profileId, value) }
                 }
             }
+            DetailLoad(fetched, src = "net")
         } catch (e: Exception) {
-            (disk ?: diskRow())?.value()?.also { if (canWriteBack()) mem.put(key, it) }
+            val fallback = (disk ?: diskRow())?.value()?.also { if (canWriteBack()) mem.put(key, it) }
                 ?: mem.getStale(key) ?: throw e
+            DetailLoad(fallback, src = "stale", fetchError = e.javaClass.simpleName)
         }
     }
 

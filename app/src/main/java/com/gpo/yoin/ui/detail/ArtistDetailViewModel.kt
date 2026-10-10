@@ -10,6 +10,7 @@ import com.gpo.yoin.data.model.CoverRef
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.Track
 import com.gpo.yoin.data.repository.YoinRepository
+import com.gpo.yoin.perf.YoinPerf
 import com.gpo.yoin.ui.common.UiText
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -28,6 +29,10 @@ class ArtistDetailViewModel(
     private val _uiState = MutableStateFlow<ArtistDetailUiState>(ArtistDetailUiState.Loading)
     val uiState: StateFlow<ArtistDetailUiState> = _uiState.asStateFlow()
 
+    // Debug-only: `detail.content` marks the first Content only. Declared before
+    // init, whose load can publish a mem-cached Content synchronously.
+    private var perfContentMarked = false
+
     /** The loaded artist, kept so the personal layer can be re-read on resume. */
     private var loadedArtist: ArtistDetail? = null
 
@@ -45,6 +50,18 @@ class ArtistDetailViewModel(
     fun retry() {
         _uiState.value = ArtistDetailUiState.Loading
         loadArtist()
+    }
+
+    /** Debug-only `detail.content`: the first Content this VM publishes (docs/perf/yoinperf-logging.md). */
+    private fun markPerfContent(resolvedId: String) {
+        if (!YoinPerf.enabled || perfContentMarked) return
+        perfContentMarked = true
+        YoinPerf.mark(
+            "detail.content",
+            "kind" to "artist",
+            "id" to artistId,
+            "resolved" to resolvedId.takeIf { it != artistId }
+        )
     }
 
     private fun loadArtist() {
@@ -75,6 +92,7 @@ class ArtistDetailViewModel(
                         )
                     },
                 )
+                markPerfContent(artist.id.toString())
                 loadPersonal(artist)
             } catch (e: Exception) {
                 _uiState.value = ArtistDetailUiState.Error(
