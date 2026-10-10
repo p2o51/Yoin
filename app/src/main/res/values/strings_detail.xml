@@ -105,10 +105,6 @@
         <item quantity="one">%1$d release</item>
         <item quantity="other">%1$d releases</item>
     </plurals>
-    <string name="detail_artist_last_play">Last Play</string>
-    <string name="detail_artist_never">Never</string>
-    <string name="detail_artist_no_albums_rated">No albums rated</string>
-    <string name="detail_artist_album_average">Album average %1$s, %2$d of %3$d albums rated</string>
     <string name="detail_artist_follow">Follow</string>
     <string name="detail_artist_following">Following</string>
     <string name="detail_artist_favorite">Favorite</string>

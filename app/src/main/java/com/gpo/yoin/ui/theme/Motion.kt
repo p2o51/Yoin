@@ -23,6 +23,7 @@ import androidx.compose.material3.MotionScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.TransformOrigin
 import com.gpo.yoin.ui.navigation.back.BackMotionTokens
 
@@ -403,26 +404,33 @@ object YoinMotion {
         transformOrigin = transformOrigin,
     )
 
+    // [expandFrom] / [shrinkTowards]: the edge the content stays pinned to
+    // while the clip opens or closes (Compose's End by default). Start-anchored
+    // content passes Start to unfold in place, in reading order.
     fun expandHorizontally(
         role: YoinMotionRole,
         speed: YoinMotionSpeed = YoinMotionSpeed.Default,
         expressiveScheme: MotionScheme = expressiveMotionScheme,
+        expandFrom: Alignment.Horizontal = Alignment.End,
     ): EnterTransition = composeExpandHorizontally(
         animationSpec = spatialSpecForScheme(
             scheme = resolveScheme(role, expressiveScheme, standardMotionScheme),
             speed = speed,
         ),
+        expandFrom = expandFrom,
     )
 
     fun shrinkHorizontally(
         role: YoinMotionRole,
         speed: YoinMotionSpeed = YoinMotionSpeed.Default,
         expressiveScheme: MotionScheme = expressiveMotionScheme,
+        shrinkTowards: Alignment.Horizontal = Alignment.End,
     ): ExitTransition = composeShrinkHorizontally(
         animationSpec = spatialSpecForScheme(
             scheme = resolveScheme(role, expressiveScheme, standardMotionScheme),
             speed = speed,
         ),
+        shrinkTowards = shrinkTowards,
     )
 
     // Inert NavDisplay specs — the shell's own NavDisplay holds the single

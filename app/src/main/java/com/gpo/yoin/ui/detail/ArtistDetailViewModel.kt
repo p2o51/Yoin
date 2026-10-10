@@ -114,7 +114,7 @@ class ArtistDetailViewModel(
 
     /**
      * The user's own layer, merged in after the page paints: album ratings and
-     * local listening (plays, last play, most-played songs). Best-effort — a
+     * local listening (plays, most-played songs). Best-effort — a
      * failed read leaves the page as the provider data alone.
      */
     private suspend fun loadPersonal(artist: ArtistDetail) {
@@ -142,7 +142,6 @@ class ArtistDetailViewModel(
         val summary = listening?.let {
             ArtistListeningSummary(
                 playCount = it.playCount,
-                lastPlayedAt = it.lastPlayedAt,
                 mostPlayed = it.topSongs.map { row ->
                     ArtistPlayedSong(
                         id = MediaId(row.provider, row.songId).toString(),
@@ -155,7 +154,7 @@ class ArtistDetailViewModel(
                     )
                 },
             )
-        } ?: ArtistListeningSummary(playCount = 0, lastPlayedAt = null, mostPlayed = emptyList())
+        } ?: ArtistListeningSummary(playCount = 0, mostPlayed = emptyList())
         (_uiState.value as? ArtistDetailUiState.Content)?.let { current ->
             _uiState.value = current.copy(
                 albums = current.albums.map { album ->

@@ -49,11 +49,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.semantics.clearAndSetSemantics
-import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
@@ -106,7 +103,6 @@ import com.gpo.yoin.ui.theme.withTabularFigures
  *
  *   header      back, name, year span, follow star
  *   hero        pinwheel mark around the portrait
- *   meta        Last Play | Avg. of your album ratings (Album hero anatomy)
  *   Most Played your own most-played songs (local play history)
  *   Discography release timeline: year column, type, your rating per release
  */
@@ -552,8 +548,7 @@ private fun ArtistBody(
                     modifier = if (desktop) Modifier else Modifier.yoinPageContentWidth(),
                 )
                 else -> {
-                    // Portrait on the pinwheel's hub; the meta row below takes the
-                    // Album hero's cover-block width so the two pages line up.
+                    // Portrait on the pinwheel's hub.
                     val portraitSize = minOf(maxW * 0.52f, 216.dp)
                     ArtistPinwheelHero(
                         heroUrl = heroUrl,
@@ -561,12 +556,6 @@ private fun ArtistBody(
                         colors = colors,
                         portraitSize = portraitSize,
                         pinwheelTurn = pinwheelTurn,
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    ArtistHeroMeta(
-                        content = content,
-                        heroUrl = heroUrl,
-                        modifier = Modifier.width(minOf(maxW * 0.74f, 300.dp)),
                     )
                 }
             }
@@ -580,13 +569,30 @@ private fun ArtistBody(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 40.dp),
-                    horizontalArrangement = Arrangement.spacedBy(48.dp),
                 ) {
-                    if (mostPlayedVisible) {
+                    // Arrives with the personal layer; widens in, carrying its
+                    // 48dp gap, so the discography narrows with it instead of
+                    // jumping. Pinned at Start, it unfolds in place, title
+                    // first, instead of sliding in from the page edge.
+                    AnimatedVisibility(
+                        visible = mostPlayedVisible,
+                        enter = YoinMotion.fadeIn(role = YoinMotionRole.Expressive) +
+                            YoinMotion.expandHorizontally(
+                                role = YoinMotionRole.Expressive,
+                                expandFrom = Alignment.Start,
+                            ),
+                        exit = YoinMotion.fadeOut(role = YoinMotionRole.Expressive) +
+                            YoinMotion.shrinkHorizontally(
+                                role = YoinMotionRole.Expressive,
+                                shrinkTowards = Alignment.Start,
+                            ),
+                    ) {
                         ArtistMostPlayed(
                             listening = content.listening,
                             onClick = onMostPlayedClick,
-                            modifier = Modifier.width(ArtistDesktopMostPlayedWidth),
+                            modifier = Modifier
+                                .padding(end = 48.dp)
+                                .width(ArtistDesktopMostPlayedWidth),
                         )
                     }
                     ArtistDiscography(
@@ -634,8 +640,8 @@ private val ArtistDesktopMostPlayedWidth = 480.dp
 /**
  * Landscape handset (ArtistLandscape): the portrait turned sideways — the
  * 220dp circle on its pinwheel on the left (arms kept whole and clear of the
- * capsule band), Last Play | Avg. and Most Played on the right. The name is
- * in the header row only; the discography follows below with the page.
+ * capsule band), Most Played on the right. The name is in the header row
+ * only; the discography follows below with the page.
  */
 @Composable
 private fun ArtistLandscapeHero(
@@ -666,15 +672,14 @@ private fun ArtistLandscapeHero(
             ArtistPortrait(heroUrl = heroUrl, artistName = content.artistName, modifier = Modifier.fillMaxSize())
         }
         Column(modifier = Modifier.weight(1f)) {
-            ArtistHeroMeta(
-                content = content,
-                heroUrl = heroUrl,
-                modifier = Modifier
-                    .widthIn(max = 300.dp)
-                    .fillMaxWidth(),
-            )
-            if (content.listening?.mostPlayed?.isNotEmpty() == true) {
-                Spacer(modifier = Modifier.height(20.dp))
+            // Arrives with the personal layer; grows in instead of popping.
+            AnimatedVisibility(
+                visible = content.listening?.mostPlayed?.isNotEmpty() == true,
+                enter = YoinMotion.fadeIn(role = YoinMotionRole.Expressive) +
+                    expandVertically(animationSpec = YoinMotion.spatialSpring()),
+                exit = YoinMotion.fadeOut(role = YoinMotionRole.Expressive) +
+                    shrinkVertically(animationSpec = YoinMotion.spatialSpring()),
+            ) {
                 ArtistMostPlayed(
                     listening = content.listening,
                     onClick = onMostPlayedClick,
@@ -712,8 +717,8 @@ private fun ArtistPinwheelHero(
         contentAlignment = Alignment.Center,
     ) {
         // Width = the page (no side padding): the arms bleed off the screen
-        // edges only; the band is tall enough that they clear the meta row
-        // below at the resting turn.
+        // edges only; the band is tall enough that they clear the first
+        // section below at the resting turn.
         ArtistPinwheelBackground(
             colors = colors.arms,
             lineColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.65f),
@@ -741,93 +746,10 @@ private fun ArtistPortrait(heroUrl: String?, artistName: String, modifier: Modif
 }
 
 /**
- * The Album hero's meta row, in artist terms — Last Play (your latest play of
- * anything by them, day over time) | Avg. (the mean of your album
- * ratings for their releases, "Based on X/N").
- */
-@Composable
-private fun ArtistHeroMeta(
-    content: ArtistDetailUiState.Content,
-    heroUrl: String?,
-    modifier: Modifier = Modifier,
-) {
-    val listening = content.listening
-    Row(
-        modifier = modifier.seamFade(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            AlbumSectionLabel(text = stringResource(R.string.detail_artist_last_play))
-            val resources = LocalContext.current.resources
-            val labels = listening?.lastPlayedAt?.let { albumLastPlayLabels(it, resources) }
-            Text(
-                text = labels?.first ?: "—",
-                style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.onSurface,
-            )
-            Text(
-                // null listening = still loading: keep the line quiet instead of
-                // flashing "Never" before the history read lands.
-                text = when {
-                    labels != null -> labels.second
-                    listening == null -> " "
-                    else -> stringResource(R.string.detail_artist_never)
-                },
-                style = MaterialTheme.typography.bodyMedium.withTabularFigures(),
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-        // The album page's groove emblem (owner W3, 2026-10-05), no caption:
-        // one ring per release, the rated ones cut, the album ratings'
-        // average in the middle. Album ratings are given on each album page;
-        // here the emblem only reports them.
-        val spec = remember(content.albums) { content.albumAverageEmblemSpec() }
-        val description = artistAverageDescription(content)
-        AlbumScoreEmblem(
-            spec = spec,
-            coverArtUrl = heroUrl,
-            ratedCount = content.ratedAlbumCount,
-            total = content.albums.size,
-            enabled = false,
-            onClick = {},
-            modifier = Modifier.clearAndSetSemantics { contentDescription = description },
-        )
-    }
-}
-
-/**
- * The artist's [AlbumScoreEmblem]: the album ratings' average (unrated when
- * none is rated), one ring per release, oldest outermost — a career read like
- * an album's tracks.
- */
-internal fun ArtistDetailUiState.Content.albumAverageEmblemSpec(): AlbumEmblemSpec {
-    val average = averageAlbumRating
-    return AlbumEmblemSpec(
-        score = if (average != null) AlbumScore(AlbumScoreKind.Average, average) else AlbumScore(AlbumScoreKind.None, 0f),
-        trackRated = albums.asReversed().map { it.userRating != null },
-    )
-}
-
-/** TalkBack for the artist's emblem: the emblem itself would say "Track average". */
-@Composable
-internal fun artistAverageDescription(content: ArtistDetailUiState.Content): String {
-    val average = content.averageAlbumRating ?: return stringResource(R.string.detail_artist_no_albums_rated)
-    val score = "%.1f".format(java.util.Locale.ROOT, average)
-    return stringResource(
-        R.string.detail_artist_album_average,
-        score,
-        content.ratedAlbumCount,
-        content.albums.size,
-    )
-}
-
-/**
  * >= Medium hero (ArtistFold / ArtistDesktop): the pinwheel portrait on the
  * left (180 Medium, 220 Wide), the identity column on the right — the ONLY
- * place the name appears here (the header keeps just back), the meta line,
- * Follow, and the Last Play | Avg. row. Play lives in the bottom bar, not
- * here.
+ * place the name appears here (the header keeps just back), the meta line
+ * and Follow. Play lives in the bottom bar, not here.
  */
 @Composable
 private fun ArtistWideHero(
@@ -883,22 +805,12 @@ private fun ArtistWideHero(
             )
             ArtistWideKind(albumCount = content.albums.size, span = artistActiveSpan(content.albums))
             follow?.invoke()
-            Spacer(modifier = Modifier.height(4.dp))
-            ArtistHeroMeta(
-                content = content,
-                heroUrl = heroUrl,
-                // Capped, then filled: the SpaceBetween row needs a real width
-                // or Last Play and Avg. collapse onto each other.
-                modifier = Modifier
-                    .widthIn(max = 320.dp)
-                    .fillMaxWidth(),
-            )
         }
     }
 }
 
-// Height the band adds around the portrait so the pinwheel's lower arm clears
-// the meta row at the resting turn.
+// Height the band adds around the portrait so the pinwheel's arms clear the
+// first section below at the resting turn.
 private val ArtistPinwheelBandExtra = 150.dp
 
 // Scroll-linked turn of the pinwheel, degrees per px scrolled (~18° per 100dp at 3×).
@@ -1336,7 +1248,6 @@ private fun ArtistDetailPreviewContent() {
                 ),
                 listening = ArtistListeningSummary(
                     playCount = 42,
-                    lastPlayedAt = System.currentTimeMillis() - 86_400_000L,
                     mostPlayed = listOf(
                         ArtistPlayedSong("s1", "Describe", "Describe", null, 231, 12),
                         ArtistPlayedSong("s2", "Warning Sign", "Aperture", null, 205, 7),
