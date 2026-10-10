@@ -546,7 +546,8 @@ class AppleMusicSource(
             return Album(
                 catalog?.mediaId() ?: resource.mediaId(), a.text("name").orEmpty(), a.text("artistName"), artist?.mediaId(), a.cover(),
                 a["trackCount"]?.jsonPrimitive?.intOrNull, null, a.text("releaseDate")?.take(4)?.toIntOrNull(),
-                a["genreNames"]?.jsonArray?.firstOrNull()?.jsonPrimitive?.contentOrNull, addedAt = a.text("dateAdded")
+                a["genreNames"]?.jsonArray?.firstOrNull()?.jsonPrimitive?.contentOrNull, addedAt = a.text("dateAdded"),
+                libraryAddedAt = a.text("dateAdded")
             )
         }
         internal fun artist(resource: JsonObject): Artist {
@@ -563,7 +564,9 @@ class AppleMusicSource(
                 null,
                 null,
                 canWrite = false,
-                comment = a["description"]?.jsonObject?.text("standard")
+                comment = a["description"]?.jsonObject?.text("standard"),
+                // A library playlist's; a catalog playlist has none.
+                libraryAddedAt = a.text("dateAdded")
             )
         }
     }

@@ -38,6 +38,21 @@ data class ServiceFeatures(
      * library too, and keeps its Favorites tab.
      */
     val favoritesAreLibrary: Boolean = false,
+    /**
+     * Library lists whose items carry the date they joined the library
+     * ([com.gpo.yoin.data.model.Album.libraryAddedAt],
+     * [com.gpo.yoin.data.model.Playlist.libraryAddedAt]), so Library offers
+     * Recently added for them. Followed and library artists carry no such
+     * date on any service.
+     */
+    val albumsHaveLibraryDates: Boolean = false,
+    val playlistsHaveLibraryDates: Boolean = false,
+    /**
+     * Library's Alphabetical and Creator sorts skip a leading article ("The
+     * Beatles" under B), as the service's own lists do (Subsonic's
+     * `ignoredArticles`).
+     */
+    val sortIgnoresArticles: Boolean = false,
     @param:StringRes @get:StringRes val saveLabel: Int = R.string.settings_feature_save_favorites,
     @param:StringRes @get:StringRes val removeLabel: Int = R.string.settings_feature_remove_favorites,
 ) {
@@ -51,6 +66,10 @@ object ServiceFeatureCatalog {
         id = MediaId.PROVIDER_SUBSONIC,
         nameRes = R.string.settings_feature_name_subsonic,
         supportsYoinCast = true,
+        // AlbumID3.created and a playlist's created.
+        albumsHaveLibraryDates = true,
+        playlistsHaveLibraryDates = true,
+        sortIgnoresArticles = true,
         integrated = true,
         capabilities = setOf(
             Capability.FAVORITES,
@@ -104,6 +123,8 @@ object ServiceFeatureCatalog {
         saveLabel = R.string.settings_feature_save_spotify,
         removeLabel = R.string.settings_feature_remove_spotify,
         favoritesAreLibrary = true,
+        // A saved album's added_at; /me/playlists carries no date.
+        albumsHaveLibraryDates = true,
         integrated = true,
         capabilities = setOf(
             Capability.FAVORITES,
@@ -158,6 +179,9 @@ object ServiceFeatureCatalog {
     val appleMusic = ServiceFeatures(
         id = MediaId.PROVIDER_APPLE_MUSIC,
         nameRes = R.string.settings_feature_name_apple,
+        // Library albums' and library playlists' dateAdded.
+        albumsHaveLibraryDates = true,
+        playlistsHaveLibraryDates = true,
         integrated = true,
         capabilities = setOf(
             Capability.SEARCH,

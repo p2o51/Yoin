@@ -69,6 +69,8 @@ internal fun SubsonicAlbum.toAlbum(): Album = Album(
     // albums shelf, mirroring the track mapper above.
     addedAt = starred,
     releaseType = subsonicReleaseType(releaseTypes),
+    // When the album came onto the server: Library's Recently added.
+    libraryAddedAt = created,
 )
 
 /** OpenSubsonic `releaseTypes` → [ReleaseType]; the first recognised value wins. */
@@ -120,6 +122,7 @@ internal fun SubsonicPlaylist.toPlaylist(currentUsername: String? = null): Neutr
         (owner.isNullOrBlank() || owner == currentUsername),
     snapshotId = null,
     comment = comment,
+    libraryAddedAt = created,
 )
 
 internal fun SubsonicSearchResult.toSearchResults(): SearchResults = SearchResults(

@@ -16,6 +16,9 @@ package com.gpo.yoin.data.model
  *   it `null`.
  * @property comment Free-form description authored on the server — Subsonic's
  *   `comment`, Spotify's `description`. `null` when the provider carries none.
+ * @property libraryAddedAt When the playlist joined the user's library
+ *   (ISO-8601): Subsonic's `created`, an Apple Music library playlist's
+ *   `dateAdded`. Spotify's `/me/playlists` carries no date, so it stays `null`.
  */
 data class Playlist(
     val id: MediaId,
@@ -28,6 +31,7 @@ data class Playlist(
     val canWrite: Boolean = false,
     val snapshotId: String? = null,
     val comment: String? = null,
+    val libraryAddedAt: String? = null,
 )
 
 /**

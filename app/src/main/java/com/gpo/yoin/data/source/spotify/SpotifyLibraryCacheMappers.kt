@@ -83,6 +83,8 @@ internal fun SpotifyLibraryAlbumCache.toAlbum(): Album = Album(
     tracks = emptyList(),
     isStarred = isSaved,
     addedAt = addedAt,
+    // A cached album is a saved one: its added_at is when it joined the library.
+    libraryAddedAt = addedAt,
 )
 
 internal fun Artist.toSpotifyLibraryArtistCache(

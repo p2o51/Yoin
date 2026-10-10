@@ -106,7 +106,7 @@ class SpotifyMusicSource(
                 else -> albums
             }.mapNotNull { savedAlbum ->
                 savedAlbum.album?.toSimplifiedAlbum()?.toAlbum(savedAlbumIds = savedAlbumIds)
-                    ?.copy(addedAt = savedAlbum.addedAt)
+                    ?.copy(addedAt = savedAlbum.addedAt, libraryAddedAt = savedAlbum.addedAt)
             }
             return mapped.drop(offset.coerceAtLeast(0)).take(size.coerceAtLeast(0))
         }
