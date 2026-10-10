@@ -45,9 +45,11 @@ import org.robolectric.RobolectricTestRunner
 /**
  * A Spotify album saved to the library (Q11) end to end in the repository:
  * the row starts from the saved-albums mirror, or else from Spotify's answer
- * asked in the album page's own contains request; a save or removal shows at
- * once, lands in the mirror, and rolls back when it fails; a service that
- * can't save albums gets no row and sends nothing.
+ * asked in the album page's own contains request, and is unknown (no row)
+ * until one of them says; a save or removal shows at once, lands in the
+ * mirror, rolls back when it fails, and isn't asked about again while
+ * Spotify's answer couldn't beat it; a service that can't save albums
+ * (Subsonic, Apple Music) gets no row and sends nothing.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 @RunWith(RobolectricTestRunner::class)
@@ -114,7 +116,7 @@ class YoinRepositoryAlbumSaveTest {
     fun should_startFromTheMirrorAndAskNothing_when_theAlbumIsAmongTheCachedSavedAlbums() = runTest {
         database.spotifyLibraryCacheDao().upsertAlbum(mirrorRow("al1", cachedAt = now))
 
-        assertEquals(true, saved(album))
+        assertEquals(AlbumSavedState.Saved, state(album))
         repository.refreshFavoriteStates(listOf(track), album = album)
 
         // The tracks are still asked about; the album isn't.
@@ -125,11 +127,12 @@ class YoinRepositoryAlbumSaveTest {
     fun should_askInTheTracksRequest_when_theMirrorDoesNotHaveTheAlbum() = runTest {
         writeActions.answer = mapOf(album.id to true, track.id to false)
 
-        assertEquals(false, saved(album))
+        // Beyond the mirror's newest 200 it may well be saved: unknown, not "not saved".
+        assertEquals(AlbumSavedState.Unknown, state(album))
         repository.refreshFavoriteStates(listOf(track), album = album)
 
         assertEquals(listOf(Lookup(tracks = listOf(track.id), albums = listOf(album.id))), writeActions.lookups)
-        assertEquals(true, saved(album))
+        assertEquals(AlbumSavedState.Saved, state(album))
         // The album's answer doesn't turn into a track's heart, nor the reverse.
         assertEquals(FavoriteState(isStarred = false), repository.observeFavoriteState(track).first())
     }
@@ -147,12 +150,31 @@ class YoinRepositoryAlbumSaveTest {
     }
 
     @Test
-    fun should_askNothing_when_theRateLimitGateIsClosed() = runTest {
+    fun should_leaveTheRowOutAndSendNothing_when_theGateIsClosedAndTheMirrorLacksTheAlbum() = runTest {
         gate.recordBackoff(PROFILE, retryAfterSeconds = 60)
 
         repository.refreshFavoriteStates(listOf(track), album = album)
 
+        // No row: a Save here could neither be known right nor get past the gate.
+        assertEquals(AlbumSavedState.Unknown, state(album))
+        assertNull(state(album).savedOrNull)
         assertEquals(emptyList<Lookup>(), writeActions.lookups)
+        assertEquals(emptyList<Pair<MediaId, Boolean>>(), writeActions.writes)
+    }
+
+    @Test
+    fun should_stayUnknownUntilSpotifyAnswers_when_theCheckIsStillOut() = runTest {
+        val lookup = CompletableDeferred<Unit>()
+        writeActions.pendingLookup = lookup
+        writeActions.answer = mapOf(album.id to false)
+        val checking = async { repository.refreshFavoriteStates(listOf(track), album = album) }
+        runCurrent()
+        assertEquals(AlbumSavedState.Unknown, state(album))
+
+        lookup.complete(Unit)
+        checking.await()
+
+        assertEquals(AlbumSavedState.NotSaved, state(album))
     }
 
     @Test
@@ -161,13 +183,13 @@ class YoinRepositoryAlbumSaveTest {
         writeActions.pendingWrite = write
         val saving = async { repository.setAlbumSaved(album, saved = true) }
         runCurrent()
-        assertEquals(true, saved(album))
+        assertEquals(AlbumSavedState.Saved, state(album))
 
         write.complete(Result.success(Unit))
         assertTrue(saving.await().isSuccess)
 
         assertEquals(listOf(album.id to true), writeActions.writes)
-        assertEquals(true, saved(album))
+        assertEquals(AlbumSavedState.Saved, state(album))
         val row = database.spotifyLibraryCacheDao().getAlbum(PROFILE, "al1")
         assertNotNull(row)
         assertEquals(true, row?.isSaved)
@@ -177,17 +199,20 @@ class YoinRepositoryAlbumSaveTest {
 
     @Test
     fun should_rollBackAndReturnTheReason_when_theSaveFails() = runTest {
+        writeActions.answer = mapOf(album.id to false)
+        repository.refreshFavoriteStates(emptyList(), album = album)
+        assertEquals(AlbumSavedState.NotSaved, state(album))
         val write = CompletableDeferred<Result<Unit>>()
         writeActions.pendingWrite = write
         val saving = async { repository.setAlbumSaved(album, saved = true) }
         runCurrent()
-        assertEquals(true, saved(album))
+        assertEquals(AlbumSavedState.Saved, state(album))
 
         val reason = SpotifyRateLimitException(retryAfterSeconds = 30, endpoint = "me/library")
         write.complete(Result.failure(reason))
 
         assertEquals(reason, saving.await().exceptionOrNull())
-        assertEquals(false, saved(album))
+        assertEquals(AlbumSavedState.NotSaved, state(album))
         assertNull(database.spotifyLibraryCacheDao().getAlbum(PROFILE, "al1"))
     }
 
@@ -198,12 +223,13 @@ class YoinRepositoryAlbumSaveTest {
         writeActions.pendingWrite = write
         val removing = async { repository.setAlbumSaved(album, saved = false) }
         runCurrent()
-        assertEquals(false, saved(album))
+        assertEquals(AlbumSavedState.NotSaved, state(album))
 
         write.complete(Result.success(Unit))
         assertTrue(removing.await().isSuccess)
 
-        assertEquals(false, saved(album))
+        // The mirror row is gone, but the removal itself is known: still a row, saying Save.
+        assertEquals(AlbumSavedState.NotSaved, state(album))
         assertNull(database.spotifyLibraryCacheDao().getAlbum(PROFILE, "al1"))
     }
 
@@ -214,24 +240,63 @@ class YoinRepositoryAlbumSaveTest {
 
         assertTrue(repository.setAlbumSaved(album, saved = false).isFailure)
 
-        assertEquals(true, saved(album))
+        assertEquals(AlbumSavedState.Saved, state(album))
         assertEquals(true, database.spotifyLibraryCacheDao().getAlbum(PROFILE, "al1")?.isSaved)
     }
 
     @Test
-    fun should_holdTheSaveForTheGrace_when_spotifysAnswerLagsBehind() = runTest {
+    fun should_holdTheSaveForTheGraceAndAskOnlyAfterIt_when_spotifysAnswerWouldLagBehind() = runTest {
         repository.setAlbumSaved(album, saved = true)
         database.spotifyLibraryCacheDao().deleteAlbum(PROFILE, "al1")
         writeActions.answer = mapOf(album.id to false)
 
+        // Inside the grace an answer couldn't beat the save: not asked at all.
         now += 10_000L
         repository.refreshFavoriteStates(emptyList(), minIntervalMs = 0L, album = album)
-        assertEquals(true, saved(album))
+        assertEquals(emptyList<Lookup>(), writeActions.lookups)
+        assertEquals(AlbumSavedState.Saved, state(album))
 
         // Past the grace Spotify's answer is the truth (removed elsewhere).
         now += FAVORITE_WRITE_GRACE_MS
         repository.refreshFavoriteStates(emptyList(), minIntervalMs = 0L, album = album)
-        assertEquals(false, saved(album))
+        assertEquals(listOf(Lookup(tracks = emptyList(), albums = listOf(album.id))), writeActions.lookups)
+        assertEquals(AlbumSavedState.NotSaved, state(album))
+    }
+
+    @Test
+    fun should_notAskAboutTheAlbumAlone_when_thePageResumesRightAfterARemoval() = runTest {
+        database.spotifyLibraryCacheDao().upsertAlbum(mirrorRow("al1", cachedAt = now))
+        repository.refreshFavoriteStates(listOf(track), album = album)
+        assertEquals(listOf(Lookup(tracks = listOf(track.id), albums = emptyList())), writeActions.lookups)
+
+        // Removed through Yoin: the mirror row goes, the album was never asked about.
+        assertTrue(repository.setAlbumSaved(album, saved = false).isSuccess)
+        assertNull(database.spotifyLibraryCacheDao().getAlbum(PROFILE, "al1"))
+
+        // Back from "Open in Spotify" within the tracks' interval: nothing to send.
+        now += 5_000L
+        repository.refreshFavoriteStates(listOf(track), album = album)
+        assertEquals(1, writeActions.lookups.size)
+        assertEquals(AlbumSavedState.NotSaved, state(album))
+
+        // Once the grace is over the album rides with its tracks again.
+        now += FAVORITE_WRITE_GRACE_MS
+        repository.refreshFavoriteStates(listOf(track), album = album)
+        assertEquals(Lookup(tracks = listOf(track.id), albums = listOf(album.id)), writeActions.lookups.last())
+    }
+
+    @Test
+    fun should_notAskAboutTheAlbum_when_itsSaveIsStillOut() = runTest {
+        val write = CompletableDeferred<Result<Unit>>()
+        writeActions.pendingWrite = write
+        val saving = async { repository.setAlbumSaved(album, saved = true) }
+        runCurrent()
+
+        repository.refreshFavoriteStates(listOf(track), album = album)
+
+        assertEquals(listOf(Lookup(tracks = listOf(track.id), albums = emptyList())), writeActions.lookups)
+        write.complete(Result.success(Unit))
+        saving.await()
     }
 
     @Test
@@ -243,9 +308,27 @@ class YoinRepositoryAlbumSaveTest {
         activeSource.value = subsonic
         val subsonicAlbum = album(MediaId(MediaId.PROVIDER_SUBSONIC, "al1"))
 
-        assertNull(repository.observeAlbumSaved(subsonicAlbum.id).first())
+        assertEquals(AlbumSavedState.Unsupported, state(subsonicAlbum))
         val error = repository.setAlbumSaved(subsonicAlbum, saved = true).exceptionOrNull()
         repository.refreshFavoriteStates(emptyList(), album = subsonicAlbum)
+
+        assertTrue(error is UnsupportedOperationException)
+        assertEquals(emptyList<Pair<MediaId, Boolean>>(), writeActions.writes)
+        assertEquals(emptyList<Lookup>(), writeActions.lookups)
+    }
+
+    @Test
+    fun should_offerNoRowAndSendNothing_when_theServiceIsAppleMusic() = runTest {
+        val appleMusic = mockk<MusicSource>()
+        every { appleMusic.id } returns MediaId.PROVIDER_APPLE_MUSIC
+        every { appleMusic.capabilities } returns ServiceFeatureCatalog.appleMusic.capabilities
+        every { appleMusic.writeActions() } returns writeActions
+        activeSource.value = appleMusic
+        val appleAlbum = album(MediaId(MediaId.PROVIDER_APPLE_MUSIC, "l.al1"))
+
+        assertEquals(AlbumSavedState.Unsupported, state(appleAlbum))
+        val error = repository.setAlbumSaved(appleAlbum, saved = true).exceptionOrNull()
+        repository.refreshFavoriteStates(appleAlbum.tracks, album = appleAlbum)
 
         assertTrue(error is UnsupportedOperationException)
         assertEquals(emptyList<Pair<MediaId, Boolean>>(), writeActions.writes)
@@ -264,15 +347,15 @@ class YoinRepositoryAlbumSaveTest {
     fun should_forgetTheAnswer_when_theAccountSwitches() = runTest {
         writeActions.answer = mapOf(album.id to true)
         repository.refreshFavoriteStates(emptyList(), album = album)
-        assertEquals(true, saved(album))
+        assertEquals(AlbumSavedState.Saved, state(album))
 
         profileIds.value = OTHER_PROFILE
         profileIds.value = PROFILE
 
-        assertEquals(false, saved(album))
+        assertEquals(AlbumSavedState.Unknown, state(album))
     }
 
-    private suspend fun saved(album: Album): Boolean? = repository.observeAlbumSaved(album.id).first()
+    private suspend fun state(album: Album): AlbumSavedState = repository.observeAlbumSaved(album.id).first()
 
     private fun album(id: MediaId) = Album(
         id = id,
@@ -320,6 +403,7 @@ class YoinRepositoryAlbumSaveTest {
 
     private class FakeWriteActions : MusicWriteActions {
         var answer: Map<MediaId, Boolean> = emptyMap()
+        var pendingLookup: CompletableDeferred<Unit>? = null
         var pendingWrite: CompletableDeferred<Result<Unit>>? = null
         var writeResult: Result<Unit> = Result.success(Unit)
         val lookups = mutableListOf<Lookup>()
@@ -327,6 +411,7 @@ class YoinRepositoryAlbumSaveTest {
 
         override suspend fun favoriteStates(tracks: List<Track>, albums: List<MediaId>): Result<Map<MediaId, Boolean>> {
             lookups += Lookup(tracks.map(Track::id), albums)
+            pendingLookup?.await()
             val asked = tracks.map(Track::id) + albums
             return Result.success(answer.filterKeys { it in asked })
         }

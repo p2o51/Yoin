@@ -134,7 +134,23 @@ internal fun resolveFavoriteState(
     mirrorAtMs: Long,
     nowMs: Long,
     graceMs: Long = FAVORITE_WRITE_GRACE_MS
-): FavoriteState {
+): FavoriteState = resolveLearnedFavoriteState(inFlight, entry, mirrorSaved, mirrorAtMs, nowMs, graceMs)
+    ?: FavoriteState(baseline)
+
+/**
+ * [resolveFavoriteState] with nothing to fall back on: null when nothing is
+ * known — no write in flight or landed, no answer, no mirror row. An album
+ * has no flag of its own to fall back on, so its library row reads this
+ * ([YoinRepository.observeAlbumSaved]) and stays out while it is null.
+ */
+internal fun resolveLearnedFavoriteState(
+    inFlight: Boolean?,
+    entry: FavoriteStateOverlay.Entry?,
+    mirrorSaved: Boolean?,
+    mirrorAtMs: Long,
+    nowMs: Long,
+    graceMs: Long = FAVORITE_WRITE_GRACE_MS
+): FavoriteState? {
     if (inFlight != null) return FavoriteState(inFlight, fromUser = true)
     var best: FavoriteState? = null
     var bestAtMs = Long.MIN_VALUE
@@ -151,5 +167,5 @@ internal fun resolveFavoriteState(
     mirrorSaved?.let { saved ->
         if (mirrorAtMs > bestAtMs) best = FavoriteState(saved)
     }
-    return best ?: FavoriteState(baseline)
+    return best
 }

@@ -45,8 +45,9 @@ sealed interface AlbumDetailUiState {
         val reviewHasUnsavedEdits: Boolean = false,
         /**
          * Whether the album is in the account's library: the ▾ menu's
-         * Save to library / Remove from library row. Null where the service
-         * can't save an album (Capability.ALBUM_SAVE — only Spotify): no row.
+         * Save to library / Remove from library row. Null — no row — where the
+         * service can't save an album (Capability.ALBUM_SAVE — only Spotify),
+         * and while it isn't known yet whether this one is saved.
          */
         val librarySaved: Boolean? = null,
     ) : AlbumDetailUiState {

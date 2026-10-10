@@ -2,6 +2,7 @@ package com.gpo.yoin.data.repository
 
 import com.gpo.yoin.data.model.MediaId
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -81,6 +82,31 @@ class FavoriteStateOverlayTest {
     fun should_useTheTracksFlag_when_nothingElseIsKnown() {
         assertEquals(FavoriteState(isStarred = true), resolve(baseline = true, entry = null))
         assertEquals(FavoriteState(isStarred = false), resolve(baseline = false, entry = null))
+    }
+
+    @Test
+    fun should_knowNothing_when_noWriteAnswerOrMirrorRowIsThere() {
+        // An album has no flag of its own: nothing learned is "unknown", not "not saved".
+        assertNull(resolveLearnedFavoriteState(null, null, mirrorSaved = null, mirrorAtMs = 0L, nowMs = now))
+    }
+
+    @Test
+    fun should_knowTheState_when_anyOneOfWriteAnswerOrMirrorRowIsThere() {
+        overlay.recordRemote(key, saved = false)
+        val answered = overlay.entries.value[key]
+
+        assertEquals(
+            FavoriteState(isStarred = false),
+            resolveLearnedFavoriteState(null, answered, mirrorSaved = null, mirrorAtMs = 0L, nowMs = now)
+        )
+        assertEquals(
+            FavoriteState(isStarred = true),
+            resolveLearnedFavoriteState(null, null, mirrorSaved = true, mirrorAtMs = now, nowMs = now)
+        )
+        assertEquals(
+            FavoriteState(isStarred = true, fromUser = true),
+            resolveLearnedFavoriteState(true, null, mirrorSaved = null, mirrorAtMs = 0L, nowMs = now)
+        )
     }
 
     @Test

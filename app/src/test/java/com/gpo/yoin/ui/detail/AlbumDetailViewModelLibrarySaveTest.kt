@@ -6,6 +6,7 @@ import com.gpo.yoin.data.album.AlbumScrapbookSource
 import com.gpo.yoin.data.model.Album
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.Track
+import com.gpo.yoin.data.repository.AlbumSavedState
 import com.gpo.yoin.data.repository.YoinRepository
 import com.gpo.yoin.data.source.MusicSource
 import com.gpo.yoin.data.source.spotify.SpotifyRateLimitException
@@ -33,7 +34,8 @@ import org.junit.Test
  * The album page's Save to library / Remove from library row (Q11): it
  * follows the repository's saved state (which shows a write at once and
  * rolls a failed one back), a tap asks for the opposite, a failure says why
- * on the window's snackbar, and a service that can't save albums gets no row.
+ * on the window's snackbar; a service that can't save albums gets no row, and
+ * neither does an album whose saved state isn't known yet.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class AlbumDetailViewModelLibrarySaveTest {
@@ -71,7 +73,7 @@ class AlbumDetailViewModelLibrarySaveTest {
     )
 
     /** The repository's resolved saved state: what it shows, a write in flight included. */
-    private val saved = MutableStateFlow<Boolean?>(false)
+    private val saved = MutableStateFlow(AlbumSavedState.NotSaved)
 
     @Before
     fun setUp() {
@@ -101,7 +103,7 @@ class AlbumDetailViewModelLibrarySaveTest {
         assertEquals(false, librarySaved(viewModel))
 
         // Spotify's late answer (or the mirror) says it is saved.
-        saved.value = true
+        saved.value = AlbumSavedState.Saved
         runCurrent()
 
         assertEquals(true, librarySaved(viewModel))
@@ -111,7 +113,7 @@ class AlbumDetailViewModelLibrarySaveTest {
     fun should_saveAndShowItAtOnce_when_theRowIsTapped() = runTest {
         val write = CompletableDeferred<Result<Unit>>()
         coEvery { repository.setAlbumSaved(album, true) } coAnswers {
-            saved.value = true
+            saved.value = AlbumSavedState.Saved
             write.await()
         }
         val viewModel = viewModel()
@@ -129,11 +131,11 @@ class AlbumDetailViewModelLibrarySaveTest {
 
     @Test
     fun should_rollBackAndSayWhy_when_theRemovalIsRateLimited() = runTest {
-        saved.value = true
+        saved.value = AlbumSavedState.Saved
         val write = CompletableDeferred<Result<Unit>>()
         coEvery { repository.setAlbumSaved(album, false) } coAnswers {
-            saved.value = false
-            write.await().also { saved.value = true }
+            saved.value = AlbumSavedState.NotSaved
+            write.await().also { saved.value = AlbumSavedState.Saved }
         }
         val viewModel = viewModel()
         val messages = mutableListOf<UiText>()
@@ -172,7 +174,7 @@ class AlbumDetailViewModelLibrarySaveTest {
 
     @Test
     fun should_offerNoRowAndWriteNothing_when_theServiceCannotSaveAlbums() = runTest {
-        saved.value = null
+        saved.value = AlbumSavedState.Unsupported
         val viewModel = viewModel()
         runCurrent()
 
@@ -181,6 +183,24 @@ class AlbumDetailViewModelLibrarySaveTest {
         runCurrent()
 
         coVerify(exactly = 0) { repository.setAlbumSaved(any(), any()) }
+    }
+
+    @Test
+    fun should_offerNoRowAndWriteNothing_when_theSavedStateIsUnknown() = runTest {
+        // Not in the saved-albums mirror, and the rate-limit gate held the check back.
+        saved.value = AlbumSavedState.Unknown
+        val viewModel = viewModel()
+        runCurrent()
+
+        assertNull(librarySaved(viewModel))
+        viewModel.toggleLibrarySaved()
+        runCurrent()
+        coVerify(exactly = 0) { repository.setAlbumSaved(any(), any()) }
+
+        // The row comes in with the answer.
+        saved.value = AlbumSavedState.Saved
+        runCurrent()
+        assertEquals(true, librarySaved(viewModel))
     }
 
     private fun viewModel() = AlbumDetailViewModel(

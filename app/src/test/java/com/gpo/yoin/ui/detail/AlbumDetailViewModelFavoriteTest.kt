@@ -5,6 +5,7 @@ import com.gpo.yoin.data.album.AlbumScrapbookSource
 import com.gpo.yoin.data.model.Album
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.Track
+import com.gpo.yoin.data.repository.AlbumSavedState
 import com.gpo.yoin.data.repository.FavoriteState
 import com.gpo.yoin.data.repository.YoinRepository
 import com.gpo.yoin.data.source.MusicSource
@@ -66,7 +67,7 @@ class AlbumDetailViewModelFavoriteTest {
         every { repository.observeTracksWithNotes(any()) } returns flowOf(emptySet())
         every { repository.resolveCoverUrl(any(), any()) } returns null
         every { repository.observeFavoriteStates(any()) } returns states
-        every { repository.observeAlbumSaved(any()) } returns flowOf(null)
+        every { repository.observeAlbumSaved(any()) } returns flowOf(AlbumSavedState.Unsupported)
     }
 
     @Test

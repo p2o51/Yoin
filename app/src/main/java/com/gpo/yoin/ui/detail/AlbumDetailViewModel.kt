@@ -20,6 +20,7 @@ import com.gpo.yoin.data.model.LibraryMembership
 import com.gpo.yoin.data.model.MediaId
 import com.gpo.yoin.data.model.Track
 import com.gpo.yoin.data.model.isUnplayableAppleImport
+import com.gpo.yoin.data.repository.AlbumSavedState
 import com.gpo.yoin.data.repository.FavoriteState
 import com.gpo.yoin.data.repository.YoinRepository
 import com.gpo.yoin.data.source.ServiceFeatureCatalog
@@ -351,11 +352,16 @@ class AlbumDetailViewModel(
 
     private var albumSavedJob: Job? = null
 
-    /** The ▾ menu's library row follows the album's saved state; none where the service can't save albums. */
+    /**
+     * The ▾ menu's library row follows the album's saved state: none where the
+     * service can't save albums, nor while nothing says whether this one is
+     * saved ([AlbumSavedState.Unknown]) — the row comes in with the answer.
+     */
     private fun observeAlbumSaved(albumId: MediaId) {
         albumSavedJob?.cancel()
         albumSavedJob = viewModelScope.launch {
-            repository.observeAlbumSaved(albumId).collect { saved ->
+            repository.observeAlbumSaved(albumId).collect { state ->
+                val saved = state.savedOrNull
                 val current = _uiState.value as? AlbumDetailUiState.Content ?: return@collect
                 if (current.librarySaved != saved) _uiState.value = current.copy(librarySaved = saved)
             }

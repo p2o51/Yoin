@@ -106,6 +106,24 @@ class SpotifyAlbumSaveTest {
     }
 
     @Test
+    fun should_spendOneMoreRequestOnTheAlbum_when_itsTracksFillWholeRequests() = runTest {
+        // Kept on purpose (design.md, Q11 request count): without the album's
+        // answer its page has no library row. First in line, so a 429 on the
+        // last request costs a track's answer, not the row.
+        val tracks = (0 until SpotifyApiClient.LIBRARY_CONTAINS_BATCH).map { i -> track("t$i") }
+
+        val states = source().writeActions()
+            .favoriteStates(tracks, albums = listOf(MediaId.spotify("a2")))
+            .getOrThrow()
+
+        val contains = requests.filter { it.requestUrl?.encodedPath == "/v1/me/library/contains" }
+        assertEquals(2, contains.size)
+        assertEquals("spotify:album:a2", contains.first().requestUrl?.queryParameter("uris")?.substringBefore(','))
+        assertEquals("spotify:track:t39", contains.last().requestUrl?.queryParameter("uris"))
+        assertEquals(SpotifyApiClient.LIBRARY_CONTAINS_BATCH + 1, states.size)
+    }
+
+    @Test
     fun should_leaveARemovedAlbumOut_when_spotifysListStillHasIt() = runTest {
         val source = source()
         assertEquals(listOf("a2"), savedAlbumIds(source))

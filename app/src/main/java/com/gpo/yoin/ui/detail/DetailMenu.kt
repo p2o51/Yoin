@@ -3,14 +3,19 @@ package com.gpo.yoin.ui.detail
 import android.content.Intent
 import android.content.res.Resources
 import android.net.Uri
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import com.gpo.yoin.AppContainer
@@ -22,6 +27,8 @@ import com.gpo.yoin.data.source.Capability
 import com.gpo.yoin.data.source.WebLinkKind
 import com.gpo.yoin.symbols.YoinSymbols
 import com.gpo.yoin.ui.component.PlayMenuItem
+import com.gpo.yoin.ui.theme.YoinMotion
+import com.gpo.yoin.ui.theme.YoinMotionRole
 import kotlinx.coroutines.launch
 
 /**
@@ -41,7 +48,8 @@ class DetailMenu internal constructor(
     /**
      * Whether the page's album is in the library: "Save to library" or
      * "Remove from library", which [onToggleLibrary] does. Null leaves the
-     * row out (only a Spotify album page has one).
+     * row out: only a Spotify album page has one, and only once it is known
+     * whether the album is saved.
      */
     val inLibrary: Boolean? = null,
     val onToggleLibrary: (() -> Unit)? = null,
@@ -60,11 +68,20 @@ internal fun ColumnScope.DetailMenuRows(menu: DetailMenu, dismissMenu: () -> Uni
         PlayMenuItem(stringResource(R.string.detail_menu_add_to_playlist), YoinSymbols.Playlist, dismissMenu, it)
     }
     val inLibrary = menu.inLibrary
-    val toggleLibrary = menu.onToggleLibrary
-    if (inLibrary != null && toggleLibrary != null) {
-        val label = if (inLibrary) R.string.detail_menu_remove_from_library else R.string.detail_menu_save_to_library
-        val icon = if (inLibrary) YoinSymbols.LibraryAdded else YoinSymbols.LibraryAdd
-        PlayMenuItem(stringResource(label), icon, dismissMenu, toggleLibrary)
+    // The row waits for the album's saved state, which may land while the menu
+    // is open: it grows in then. It keeps the state it last showed while it leaves.
+    val shownInLibrary = remember { mutableStateOf(false) }.apply { if (inLibrary != null) value = inLibrary }
+    AnimatedVisibility(
+        visible = inLibrary != null && menu.onToggleLibrary != null,
+        enter = expandVertically(YoinMotion.spatialSpring(), expandFrom = Alignment.Top) +
+            YoinMotion.fadeIn(role = YoinMotionRole.Standard),
+        exit = shrinkVertically(YoinMotion.spatialSpring(), shrinkTowards = Alignment.Top) +
+            YoinMotion.fadeOut(role = YoinMotionRole.Standard)
+    ) {
+        val saved = shownInLibrary.value
+        val label = if (saved) R.string.detail_menu_remove_from_library else R.string.detail_menu_save_to_library
+        val icon = if (saved) YoinSymbols.LibraryAdded else YoinSymbols.LibraryAdd
+        PlayMenuItem(stringResource(label), icon, dismissMenu) { menu.onToggleLibrary?.invoke() }
     }
     val openIn = menu.onOpenIn
     if (menu.openInLabel != null && openIn != null) {

@@ -1367,8 +1367,12 @@ class YoinRepository(
      *
      * [album]: the page's album, whose saved state ([observeAlbumSaved]) rides
      * the same requests, first in line — asked only where the service saves
-     * albums and its saved-albums mirror (the newest 200) doesn't already
-     * hold it, at most once per [minIntervalMs] too.
+     * albums, its saved-albums mirror (the newest 200) doesn't already hold
+     * it and no save or removal of Yoin's is still out or inside its grace,
+     * at most once per [minIntervalMs] too. It adds a request only where the
+     * tracks leave it no room: they fill whole requests (40, 80 … asked), or
+     * were all asked within the interval (Now Playing asked about the single
+     * that's playing) — without that answer the page has no library row.
      */
     suspend fun refreshFavoriteStates(
         tracks: List<Track>,
@@ -1421,8 +1425,12 @@ class YoinRepository(
     /**
      * Whether [albumId]'s saved state should ride this check: the service
      * saves albums, its mirror doesn't already say saved (a 200-album mirror
-     * says nothing about the albums beyond it), and it wasn't asked within
-     * [minIntervalMs] — claimed as asked when it is due.
+     * says nothing about the albums beyond it), no save or removal of Yoin's
+     * is still out or inside its grace — any answer Spotify gave now would
+     * lose to it ([resolveLearnedFavoriteState]), so asking would spend a
+     * request on nothing (a removal drops the mirror row, so without this the
+     * next resume asked about the album alone) — and it wasn't asked within
+     * [minIntervalMs]. Claimed as asked when it is due.
      */
     private suspend fun albumSaveAskDue(
         source: MusicSource,
@@ -1434,7 +1442,10 @@ class YoinRepository(
         val mirrored = source.id == MediaId.PROVIDER_SPOTIFY &&
             spotifyLibrarySyncCoordinator?.isAlbumCachedAsSaved(profileId, albumId.rawId) == true
         if (mirrored) return false
+        if (albumId in albumSavesInFlight.value) return false
         val key = FavoriteStateOverlay.Key(profileId, albumId)
+        val entry = albumSavedOverlay.entries.value[key]
+        if (entry?.written != null && clock() < entry.writtenAtMs + FAVORITE_WRITE_GRACE_MS) return false
         return albumSavedOverlay.claimAsks(listOf(key), minIntervalMs).isNotEmpty()
     }
 
@@ -1442,33 +1453,41 @@ class YoinRepository(
 
     /**
      * Whether [albumId] is in the active account's library, for the album
-     * page's Save / Remove row; null where the active service can't save an
-     * album ([Capability.ALBUM_SAVE] — Subsonic, Apple Music), so the row is
-     * left out. The same resolution as a track's heart: a save or removal in
-     * flight wins; else the newest of Yoin's landed write (held for
-     * [FAVORITE_WRITE_GRACE_MS]), the service's answer
+     * page's Save / Remove row. [AlbumSavedState.Unsupported] where the
+     * active service can't save an album ([Capability.ALBUM_SAVE] — Subsonic,
+     * Apple Music). Else the same resolution as a track's heart: a save or
+     * removal in flight wins; else the newest of Yoin's landed write (held
+     * for [FAVORITE_WRITE_GRACE_MS]), the service's answer
      * ([refreshFavoriteStates] with the album) and the saved-albums mirror
-     * row; with none of those, not saved.
+     * row. With none of those it is [AlbumSavedState.Unknown] — never "not
+     * saved", since an album beyond the mirror's newest 200 may well be saved
+     * — and the row stays out until one arrives.
      */
-    fun observeAlbumSaved(albumId: MediaId): Flow<Boolean?> =
+    fun observeAlbumSaved(albumId: MediaId): Flow<AlbumSavedState> =
         combine(activeSource, activeProfileId) { source, profileId -> source to profileId }
             .flatMapLatest { (source, profileId) ->
                 val savesAlbums = source != null && Capability.ALBUM_SAVE in source.capabilities &&
                     source.id == albumId.provider
-                if (!savesAlbums || profileId.isNullOrBlank()) return@flatMapLatest flowOf(null)
+                if (!savesAlbums || profileId.isNullOrBlank()) {
+                    return@flatMapLatest flowOf(AlbumSavedState.Unsupported)
+                }
                 val mirror = spotifyLibrarySyncCoordinator
                     ?.takeIf { albumId.provider == MediaId.PROVIDER_SPOTIFY }
                     ?.observeAlbum(profileId, albumId.rawId)
                     ?: flowOf(null)
                 combine(albumSavesInFlight, albumSavedOverlay.entries, mirror) { inFlight, learned, row ->
-                    resolveFavoriteState(
-                        baseline = false,
+                    val known = resolveLearnedFavoriteState(
                         inFlight = inFlight[albumId],
                         entry = learned[FavoriteStateOverlay.Key(profileId, albumId)],
                         mirrorSaved = row?.isSaved,
                         mirrorAtMs = row?.cachedAt ?: 0L,
                         nowMs = clock()
-                    ).isStarred
+                    )
+                    when (known?.isStarred) {
+                        true -> AlbumSavedState.Saved
+                        false -> AlbumSavedState.NotSaved
+                        null -> AlbumSavedState.Unknown
+                    }
                 }
             }
             .distinctUntilChanged()
