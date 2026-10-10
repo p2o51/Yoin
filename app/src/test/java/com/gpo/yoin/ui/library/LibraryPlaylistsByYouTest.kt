@@ -232,6 +232,7 @@ class LibraryPlaylistsByYouTest {
     private fun libraryViewModel(repository: YoinRepository) = LibraryViewModel(
         repository = repository,
         sortDispatcher = mainDispatcherRule.dispatcher,
-        nameOrder = { String.CASE_INSENSITIVE_ORDER }
+        nameOrder = { String.CASE_INSENSITIVE_ORDER },
+        scrollIndex = { JvmLibraryScrollIndex }
     )
 }

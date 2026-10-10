@@ -8,6 +8,7 @@ import com.gpo.yoin.data.model.SearchResults
 import com.gpo.yoin.data.model.Starred
 import com.gpo.yoin.data.model.Track
 import com.gpo.yoin.ui.common.UiText
+import com.gpo.yoin.ui.component.FastScrollSection
 
 sealed interface LibraryUiState {
     data object Loading : LibraryUiState
@@ -62,6 +63,13 @@ sealed interface LibraryUiState {
          * with fewer than two has no sort row.
          */
         val sortOptions: Map<LibraryTab, List<LibrarySort>> = emptyMap(),
+        /**
+         * The fast scroller's sections over All, Artists and Albums as their
+         * sorts listed them ([LibraryScrollIndexer]); a view without any
+         * shows the handle alone. Read with its list: both come from one
+         * sort pass.
+         */
+        val scrollSections: Map<LibraryTab, List<FastScrollSection>> = emptyMap(),
         /**
          * Playlists' By You sub-chip. [playlists] stays the whole list; the
          * view lists [shownPlaylists].

@@ -1,6 +1,7 @@
 package com.gpo.yoin.ui.library
 
 import android.content.res.Resources
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
@@ -21,6 +22,7 @@ import com.gpo.yoin.data.repository.YoinRepository
 import com.gpo.yoin.data.source.Capability
 import com.gpo.yoin.data.source.ServiceFeatureCatalog
 import com.gpo.yoin.ui.common.UiText
+import com.gpo.yoin.ui.component.FastScrollSection
 import com.gpo.yoin.ui.component.toUserMessage
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
@@ -66,7 +68,13 @@ class LibraryViewModel(
     /** Where the lists are sorted: off the main thread (tests pass their own dispatcher). */
     private val sortDispatcher: CoroutineDispatcher = Dispatchers.Default,
     /** A fresh name order for each sort pass: an ICU collator isn't thread-safe ([libraryNameOrder]). */
-    private val nameOrder: () -> Comparator<String> = { libraryNameOrder() }
+    private val nameOrder: () -> Comparator<String> = { libraryNameOrder() },
+    /**
+     * The fast scroller's alphabet and calendar, fresh for each sort pass like
+     * [nameOrder] ([LibraryScrollIndex.icu]). Off device android.icu is a
+     * stub: a pass that cannot index keeps the sorter's order, handle only.
+     */
+    private val scrollIndex: () -> LibraryScrollIndex = { LibraryScrollIndex.icu() }
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow<LibraryUiState>(LibraryUiState.Loading)
@@ -907,15 +915,58 @@ class LibraryViewModel(
 
     private fun sortLists(inputs: LibraryListInputs): SortedLibraryLists {
         val sorter = LibrarySorter(nameOrder(), inputs.recents, inputs.ignoredArticles)
+        val indexer = LibraryScrollIndexer(scrollIndex(), inputs.ignoredArticles)
         fun sortOf(view: LibraryTab) = inputs.sorts[view] ?: LibrarySort.Recents
+        val sections = mutableMapOf<LibraryTab, List<FastScrollSection>>()
+
+        // Sorted, then put in the fast scroller's order with its sections.
+        fun <T> indexed(view: LibraryTab, list: List<T>, index: (List<T>) -> LibraryIndex.Sorted<T>): List<T> {
+            val result = indexedOrPlain(list, index)
+            sections[view] = result.sections
+            return result.items
+        }
+        val artists = inputs.artists?.let { list ->
+            val sort = sortOf(LibraryTab.Artists)
+            indexed(LibraryTab.Artists, sorter.artists(list, sort)) { indexer.artists(it, sort) }
+        }
+        val albums = inputs.albums?.let { list ->
+            val sort = sortOf(LibraryTab.Albums)
+            indexed(LibraryTab.Albums, sorter.albums(list, sort)) { indexer.albums(it, sort) }
+        }
+        val playlists = inputs.playlists?.let { list ->
+            val sort = sortOf(LibraryTab.Playlists)
+            // No scroller over Playlists: only the same A–Z as the other views.
+            indexedOrPlain(sorter.playlists(list, sort)) { indexer.playlists(it, sort) }.items
+        }
+        val all = allOf(sorter, inputs, sortOf(LibraryTab.All))?.let { list ->
+            val sort = sortOf(LibraryTab.All)
+            indexed(LibraryTab.All, list) { indexer.all(it, sort, albums = inputs.albums.orEmpty()) }
+        }
         return SortedLibraryLists(
             generation = inputs.generation,
-            artists = inputs.artists?.let { sorter.artists(it, sortOf(LibraryTab.Artists)) },
-            albums = inputs.albums?.let { sorter.albums(it, sortOf(LibraryTab.Albums)) },
-            playlists = inputs.playlists?.let { sorter.playlists(it, sortOf(LibraryTab.Playlists)) },
-            all = allOf(sorter, inputs, sortOf(LibraryTab.All)),
+            artists = artists,
+            albums = albums,
+            playlists = playlists,
+            all = all,
+            sections = sections,
             playlistsMixed = inputs.playlists?.hasMixedOwnership() == true
         )
+    }
+
+    /**
+     * [sorted] through [index], or as it is with no sections when the index
+     * can't be built (ICU missing data on a device, a stub off device): the
+     * lists never wait on the scroller's ticks.
+     */
+    private fun <T> indexedOrPlain(
+        sorted: List<T>,
+        index: (List<T>) -> LibraryIndex.Sorted<T>
+    ): LibraryIndex.Sorted<T> = try {
+        index(sorted)
+    } catch (e: RuntimeException) {
+        if (e is CancellationException) throw e
+        Log.w(TAG, "Library fast-scroller index failed; showing the sorted list without sections", e)
+        LibraryIndex.Sorted(sorted, emptyList())
     }
 
     /**
@@ -939,6 +990,7 @@ class LibraryViewModel(
         albums = sorted.albums,
         playlists = sorted.playlists,
         allItems = sorted.all,
+        scrollSections = sorted.sections,
         // The sub-chip follows the list: it goes when the list stops being
         // mixed (and comes back on, as it was, when it mixes again).
         playlistsByYou = PlaylistsByYou(available = sorted.playlistsMixed, selected = playlistsByYouSelected)
@@ -1542,6 +1594,7 @@ class LibraryViewModel(
     }
 
     companion object {
+        private const val TAG = "LibraryViewModel"
         private const val SEARCH_DEBOUNCE_MS = 300L
 
         /** Max wait for the active [MusicSource] to resolve on a cold start
@@ -1590,6 +1643,8 @@ private class SortedLibraryLists(
     val albums: List<Album>?,
     val playlists: List<Playlist>?,
     val all: List<LibraryItem>?,
+    /** The fast scroller's sections over [artists], [albums] and [all], as listed. */
+    val sections: Map<LibraryTab, List<FastScrollSection>>,
     /** The playlists' [hasMixedOwnership]: Playlists shows By You. */
     val playlistsMixed: Boolean
 )

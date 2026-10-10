@@ -20,6 +20,7 @@ import com.gpo.yoin.data.source.MusicWriteActions
 import com.gpo.yoin.data.source.ServiceFeatureCatalog
 import com.gpo.yoin.data.source.spotify.SpotifyLibrarySyncCoordinator
 import com.gpo.yoin.testutil.MainDispatcherRule
+import com.gpo.yoin.ui.component.FastScrollSection
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
@@ -1400,13 +1401,126 @@ class LibraryViewModelTest {
         )
     }
 
-    /** A Subsonic library with one artist, the given albums and one playlist. */
+    // ── Fast scroller sections (U2) ─────────────────────────────────────
+
+    @Test
+    fun should_cutArtistsByLetter_when_sortedAlphabetically() = runTest {
+        val repository = subsonicLibrary(
+            artists = listOf("Beta", "alpha", "The Cure", "2Pac", "Bravo")
+        )
+        val viewModel = libraryViewModel(repository)
+        advanceUntilIdle()
+        viewModel.selectTab(LibraryTab.Artists)
+        advanceUntilIdle()
+
+        // Recents: the handle alone.
+        assertEquals(emptyList<FastScrollSection>(), content(viewModel).scrollSections[LibraryTab.Artists])
+
+        viewModel.selectSort(LibraryTab.Artists, LibrarySort.Alphabetical)
+        advanceUntilIdle()
+
+        val state = content(viewModel)
+        // Subsonic skips "The"; digits and symbols last.
+        assertEquals(listOf("alpha", "Beta", "Bravo", "The Cure", "2Pac"), state.artists.orEmpty().map { it.name })
+        assertEquals(
+            listOf(section("A", 0), section("B", 1), section("C", 3), section("#", 4)),
+            state.scrollSections[LibraryTab.Artists]
+        )
+    }
+
+    @Test
+    fun should_followTheSort_when_albumsSortChanges() = runTest {
+        val albums = listOf(
+            album("n", "Nocturne", added = "2024-03-01T00:00:00Z").copy(artist = "Zola"),
+            album("a", "Aurora", added = "2023-06-01T00:00:00Z").copy(artist = "Moss"),
+            album("b", "Bloom", added = "2021-01-01T00:00:00Z").copy(artist = "Avery"),
+            album("m", "Meridian", added = "2019-09-01T00:00:00Z").copy(artist = null)
+        )
+        val viewModel = libraryViewModel(subsonicLibrary(albums = albums))
+        advanceUntilIdle()
+        viewModel.selectTab(LibraryTab.Albums)
+        advanceUntilIdle()
+
+        fun shown() = content(viewModel).albums.orEmpty().map { it.id.rawId }
+        fun sections() = content(viewModel).scrollSections[LibraryTab.Albums]
+
+        assertEquals(emptyList<FastScrollSection>(), sections())
+
+        viewModel.selectSort(LibraryTab.Albums, LibrarySort.RecentlyAdded)
+        advanceUntilIdle()
+        assertEquals(listOf("n", "a", "b", "m"), shown())
+        assertEquals(
+            listOf(section("2024", 0), section("2023", 1), section("2021", 2), section("2019", 3)),
+            sections()
+        )
+
+        viewModel.selectSort(LibraryTab.Albums, LibrarySort.Alphabetical)
+        advanceUntilIdle()
+        assertEquals(listOf("a", "b", "m", "n"), shown())
+        assertEquals(
+            listOf(section("A", 0), section("B", 1), section("M", 2), section("N", 3)),
+            sections()
+        )
+
+        // By the artist's letter; the album with no artist trails under "#".
+        viewModel.selectSort(LibraryTab.Albums, LibrarySort.Creator)
+        advanceUntilIdle()
+        assertEquals(listOf("b", "a", "n", "m"), shown())
+        assertEquals(
+            listOf(section("A", 0), section("M", 1), section("Z", 2), section("#", 3)),
+            sections()
+        )
+    }
+
+    @Test
+    fun should_keepEachLetterOneRun_when_allMixesKindsAlphabetically() = runTest {
+        val repository = subsonicLibrary(
+            artists = listOf("Beta", "Echo"),
+            albums = listOf(album("al", "Bloom"), album("a2", "Echoes"))
+        )
+        val viewModel = libraryViewModel(repository)
+        advanceUntilIdle()
+        viewModel.ensureSelectedTabLoaded()
+        viewModel.selectSort(LibraryTab.All, LibrarySort.Alphabetical)
+        advanceUntilIdle()
+
+        val state = content(viewModel)
+        val names = state.allItems.orEmpty().map { item ->
+            when (item) {
+                is LibraryItem.ArtistItem -> item.artist.name
+                is LibraryItem.AlbumItem -> item.album.name
+                is LibraryItem.PlaylistItem -> item.playlist.name
+            }
+        }
+        assertEquals(listOf("Beta", "Bloom", "Echo", "Echoes", "Playlist"), names)
+        assertEquals(
+            listOf(section("B", 0), section("E", 2), section("P", 4)),
+            state.scrollSections[LibraryTab.All]
+        )
+        // Playlists has no scroller: no sections of its own.
+        assertNull(state.scrollSections[LibraryTab.Playlists])
+    }
+
+    private fun content(viewModel: LibraryViewModel) = viewModel.uiState.value as LibraryUiState.Content
+
+    private fun section(label: String, start: Int) = FastScrollSection(label, startIndex = start)
+
+    /** A Subsonic library with the given artists (one by default), albums and one playlist. */
     private fun subsonicLibrary(
         capabilities: Set<Capability> = setOf(Capability.FAVORITES, Capability.RANDOM_SONGS, Capability.PLAYLISTS_READ),
-        albums: List<Album> = listOf(album("al", "Album"))
+        albums: List<Album> = listOf(album("al", "Album")),
+        artists: List<String>? = null
     ): YoinRepository = repositoryFor(MediaId.PROVIDER_SUBSONIC, capabilities).also { repository ->
-        coEvery { repository.getArtists() } returns
+        coEvery { repository.getArtists() } returns if (artists == null) {
             listOf(ArtistIndex("A", listOf(Artist(MediaId.subsonic("ar"), "Artist", null, null))))
+        } else {
+            listOf(
+                ArtistIndex(
+                    "*",
+                    artists.mapIndexed { i, name -> Artist(MediaId.subsonic("ar$i"), name, null, null) }
+                )
+            )
+        }
         coEvery { repository.getAlbumList("newest", size = 500) } returns albums
         coEvery { repository.getPlaylists() } returns listOf(
             Playlist(
@@ -1446,8 +1560,8 @@ class LibraryViewModelTest {
 
     /**
      * The ViewModel as tests drive it: sorting on the test dispatcher (so
-     * advanceUntilIdle covers it) and a JVM name order, since android.icu is
-     * a stub off device.
+     * advanceUntilIdle covers it) and a JVM name order and scroll index,
+     * since android.icu is a stub off device.
      */
     private fun libraryViewModel(
         repository: YoinRepository,
@@ -1462,7 +1576,8 @@ class LibraryViewModelTest {
         openStore = openStore,
         clock = clock,
         sortDispatcher = mainDispatcherRule.dispatcher,
-        nameOrder = { String.CASE_INSENSITIVE_ORDER }
+        nameOrder = { String.CASE_INSENSITIVE_ORDER },
+        scrollIndex = { JvmLibraryScrollIndex }
     )
 
     private fun repositoryFor(

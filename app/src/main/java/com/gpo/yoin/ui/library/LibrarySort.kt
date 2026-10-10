@@ -24,7 +24,10 @@ enum class LibrarySort {
     /** Newest in the library first, by the provider's date; undated items last, alphabetically. */
     RecentlyAdded,
 
-    /** By name, with the platform's ICU collator. */
+    /**
+     * By name, in the fast scroller's alphabet ([LibraryIndex], applied by
+     * [LibraryScrollIndexer]): letter by letter, digits and symbols last.
+     */
     Alphabetical,
 
     /** Albums by artist, playlists by owner (an artist is its own); then by name. */
@@ -204,7 +207,7 @@ class LibrarySorter(
 }
 
 /** Each artist's newest library date among [albums]: by the album's artist id, else by the artist's name. */
-private fun artistDatesFrom(albums: List<Album>): (Artist) -> Long? {
+internal fun artistDatesFrom(albums: List<Album>): (Artist) -> Long? {
     val byId = HashMap<MediaId, Long>()
     val byName = HashMap<String, Long>()
     albums.forEach { album ->
