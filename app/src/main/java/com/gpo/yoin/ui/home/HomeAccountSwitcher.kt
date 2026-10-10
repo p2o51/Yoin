@@ -57,6 +57,7 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -225,7 +226,13 @@ internal fun HomeAccountSwitcherDialog(
     onEditHome: () -> Unit,
     onCardHome: () -> Unit = {},
 ) {
-    val reduced = LocalMotionProfile.current == MotionProfile.AdaptiveReduced
+    // The card closes the way it opened: the profile it opened under holds
+    // until the window goes. It can flip while the card is up — Home's
+    // Loading reports motion pressure the moment a switch begins (Q14b), just
+    // as the card heads back into the avatar — and read per frame, that would
+    // snap the morph to the card's rect and drop the avatar's flight half-way.
+    val openedReduced = LocalMotionProfile.current == MotionProfile.AdaptiveReduced
+    val reduced = remember { openedReduced }
     val progress = remember { Animatable(0f) }
     val spatial = YoinMotion.defaultSpatialSpec<Float>()
     val effects = YoinMotion.defaultEffectsSpec<Float>()
@@ -400,6 +407,7 @@ internal fun HomeAccountSwitcherDialog(
                         size = HomeAccountBigAvatar,
                         modifier = Modifier
                             .align(Alignment.TopStart)
+                            .testTag(HOME_ACCOUNT_FLIGHT_TAG)
                             .graphicsLayer {
                                 val p = progress.value
                                 val start = from()
@@ -642,3 +650,6 @@ private fun HomeAccountCardPreview() {
 
 /** Closing progress at which the card reads as back in the avatar ([HomeAccountSwitcherDialog]'s onCardHome). */
 private const val CardHomeProgress = 0.04f
+
+/** The header avatar on its way into (or back out of) the card. */
+internal const val HOME_ACCOUNT_FLIGHT_TAG = "home-account-flight"
