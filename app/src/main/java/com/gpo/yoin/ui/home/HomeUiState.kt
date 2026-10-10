@@ -118,6 +118,9 @@ data class HomeWidgetCard(
     val ratingBasisDateMillis: Long? = null,
     // True shows the localized stand-in for an absent score. [ratingText] stays "N/A".
     val ratingUnavailable: Boolean = false,
+    // [coverArtUrl]'s CoverRef storage key: what Home's snapshot keeps instead
+    // of the URL (a Subsonic one carries credentials), resolved again on restore.
+    val coverKey: String? = null,
 )
 
 /**
@@ -159,6 +162,8 @@ data class HomeRediscoverItem(
     // A song card's newest non-blank note: its one-line snippet when it has
     // no score.
     val noteSnippet: String? = null,
+    // [coverArtUrl]'s CoverRef storage key (see HomeWidgetCard.coverKey).
+    val coverKey: String? = null,
 ) {
     /** The card's title: the song's for a song card, else the album's. */
     val title: String get() = song?.title?.takeIf(String::isNotBlank) ?: albumName
@@ -202,5 +207,7 @@ data class HomeMemoryPill(
         // Its Memory title when one is written (the user's or the AI's, cache
         // only); null = the album name stands in.
         val memoryTitle: String? = null,
+        // [coverArtUrl]'s CoverRef storage key (see HomeWidgetCard.coverKey).
+        val coverKey: String? = null,
     )
 }

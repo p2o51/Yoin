@@ -141,6 +141,8 @@ fun HomeScreen(
     val homeLayout by viewModel.homeLayout.collectAsState()
     // A section new since the last edit session waits in the tray (Q6a).
     val unseenNewSections by viewModel.unseenNewSections.collectAsState()
+    // A new instance per source: covers resolved before it was up resolve again.
+    val buildCoverArtUrl by viewModel.coverArtUrlBuilder.collectAsState()
 
     HomeContent(
         uiState = uiState,
@@ -168,7 +170,7 @@ fun HomeScreen(
         onSongClick = onSongClick,
         homeCovered = homeCovered,
         onRetry = viewModel::refresh,
-        buildCoverArtUrl = viewModel::buildCoverArtUrl,
+        buildCoverArtUrl = buildCoverArtUrl,
         sharedTransitionScope = sharedTransitionScope,
         animatedVisibilityScope = animatedVisibilityScope,
         modifier = modifier,

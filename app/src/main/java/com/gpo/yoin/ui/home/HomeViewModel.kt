@@ -6,6 +6,8 @@ import androidx.lifecycle.viewModelScope
 import com.gpo.yoin.AppContainer
 import com.gpo.yoin.R
 import com.gpo.yoin.data.home.HomeLayoutStore
+import com.gpo.yoin.data.home.HomeSnapshot
+import com.gpo.yoin.data.home.HomeSnapshotStore
 import com.gpo.yoin.data.local.ActivityEntityType
 import com.gpo.yoin.data.local.ActivityEvent
 import com.gpo.yoin.data.local.SongMemoryAggregate
@@ -94,7 +96,11 @@ class HomeViewModel(
     // ProfileManager.switchingState: from a switch's start until the new
     // account's first feed, Home shows Loading (owner Q14b, see [observeSwitching]).
     private val switchingState: StateFlow<ProfileManager.SwitchState> =
-        MutableStateFlow(ProfileManager.SwitchState.Idle)
+        MutableStateFlow(ProfileManager.SwitchState.Idle),
+    // Each account's last feed on disk (P2 PR3, owner Q14a): painted when
+    // nothing of a scope is up yet, then replaced by the fresh load. Null =
+    // none (previews, tests).
+    private val snapshotStore: HomeSnapshotStore? = null
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow<HomeUiState>(HomeUiState.Loading)
@@ -168,6 +174,22 @@ class HomeViewModel(
     private val playedRediscoverRawIds = mutableMapOf<String, MutableSet<String>>()
     private val playedRediscoverSongRawIds = mutableMapOf<String, MutableSet<String>>()
 
+    // Snapshot reads in flight or done, per profile id, each taken by the
+    // first load of that profile that has nothing up ([paintableSnapshot]).
+    // Started early — the active profile's as this VM is created, a switch's
+    // target as the switch begins — so the read is usually in by then.
+    private val snapshotReads = mutableMapOf<String, Deferred<HomeSnapshot?>>()
+
+    /**
+     * Turns a source-relative cover id into the feed's URL (the activities and
+     * the shelves resolve theirs as they compose). A new instance for each
+     * active source, so covers resolved while there was none — a snapshot
+     * painted on a cold start — are asked for again once it is in.
+     */
+    val coverArtUrlBuilder: StateFlow<(String) -> String> = repository.activeProviderId
+        .map { newCoverArtUrlBuilder() }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, newCoverArtUrlBuilder())
+
     /**
      * The active profile's home layout (which sections show, in what order),
      * reconciled against the live section catalog. Orthogonal to [uiState]:
@@ -202,6 +224,9 @@ class HomeViewModel(
     init {
         // The constructor's Loading is what a cold start shows until the first Content.
         if (YoinPerf.enabled) YoinPerf.mark("home.loading", "ms_since_process_start" to YoinPerf.sinceProcessStart())
+        // Off the main thread, ahead of the source: the profile id is restored
+        // synchronously, the source a beat later.
+        activeProfileId.value?.takeIf(String::isNotBlank)?.let(::readSnapshot)
         observeScope()
         observeConfigurationRevision()
         observeSwitching()
@@ -263,7 +288,7 @@ class HomeViewModel(
 
     /**
      * Publish [state], [profileId]'s feed (or its Loading / error). [perfSrc]
-     * labels a Content for the debug-only `home.content` mark: mem | disk.
+     * labels a Content for the debug-only `home.content` mark: mem | disk | snapshot.
      */
     private fun emit(state: HomeUiState, profileId: String?, perfSrc: String? = null) {
         markPerf(state, perfSrc)
@@ -307,6 +332,15 @@ class HomeViewModel(
     private fun observeSwitching() {
         viewModelScope.launch {
             switchingState.collect { state ->
+                // The incoming account's snapshot reads during the ping and
+                // warm-up, ready to paint the moment the switch commits; a
+                // switch that fails lets it go.
+                when (state) {
+                    is ProfileManager.SwitchState.Switching -> readSnapshot(state.profileId)
+                    is ProfileManager.SwitchState.Error ->
+                        if (state.profileId != activeProfileId.value) snapshotReads.remove(state.profileId)?.cancel()
+                    ProfileManager.SwitchState.Idle -> Unit
+                }
                 switchTarget = when (state) {
                     is ProfileManager.SwitchState.Switching -> state.profileId
                     is ProfileManager.SwitchState.Error -> null
@@ -380,8 +414,11 @@ class HomeViewModel(
     /**
      * Load [scope] and publish it. Loading shows only when there is nothing
      * of this scope to show: its content stays up through a same-scope reload,
-     * and the in-memory cache paints at once. Then [HomeLoad] puts the local
-     * tier up and splices every slower block into it as it lands.
+     * the in-memory cache paints at once, and else the account's snapshot
+     * does ([paintableSnapshot]). Then [HomeLoad] puts the local tier up and
+     * splices every slower block into it as it lands — onto the snapshot too,
+     * so it is replaced block by block, a block whose read fails keeping what
+     * the snapshot showed.
      */
     private suspend fun loadScope(scope: HomeScope) {
         val providerId = scope.providerId
@@ -394,13 +431,28 @@ class HomeViewModel(
         try {
             if (contentOf(scopeKey) == null) {
                 val cachedHomeContent = homeContentCache[scopeKey]
-                if (cachedHomeContent != null) {
-                    emit(cachedHomeContent, profileId, perfSrc = "mem")
-                } else {
-                    emit(HomeUiState.Loading, profileId)
+                val snapshot = if (cachedHomeContent == null) paintableSnapshot(providerId, profileId) else null
+                when {
+                    cachedHomeContent != null -> {
+                        emit(cachedHomeContent, profileId, perfSrc = "mem")
+                        contentScopeKey = scopeKey
+                        // This process's own feed is newer than any snapshot.
+                        profileId?.let(snapshotReads::remove)?.cancel()
+                    }
+                    snapshot != null -> {
+                        emit(snapshot.second, profileId, perfSrc = "snapshot")
+                        // Its own provider's scope: painted before the source
+                        // is up, it is this scope's once a source of that
+                        // provider arrives, and no other's.
+                        contentScopeKey = snapshot.first
+                    }
+                    else -> {
+                        emit(HomeUiState.Loading, profileId)
+                        contentScopeKey = scopeKey
+                    }
                 }
-                contentScopeKey = scopeKey
             }
+            if (providerId != null) resolveSnapshotCovers(scopeKey, providerId, profileId)
             if (providerId == null && !profileId.isNullOrBlank()) {
                 // A profile whose source isn't built yet (cold start, the next
                 // profile after a delete): hold what's up rather than publish a
@@ -507,6 +559,97 @@ class HomeViewModel(
 
     fun buildCoverArtUrl(coverArtId: String): String =
         repository.resolveSubsonicCoverUrl(coverArtId, size = 320).orEmpty()
+
+    private fun newCoverArtUrlBuilder(): (String) -> String = { coverArtId -> buildCoverArtUrl(coverArtId) }
+
+    // ── Snapshot (P2 PR3) ────────────────────────────────────────────────
+
+    /** Start reading [profileId]'s snapshot unless a read is already out or in. */
+    private fun readSnapshot(profileId: String) {
+        val store = snapshotStore ?: return
+        if (profileId in snapshotReads) return
+        snapshotReads[profileId] = viewModelScope.async {
+            try {
+                store.read(profileId)
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (_: Exception) {
+                null
+            }
+        }
+    }
+
+    /**
+     * [profileId]'s snapshot as a feed to paint, with the scope it belongs to
+     * (its provider's), or null: no snapshot, a read slower than
+     * [SNAPSHOT_READ_WAIT_MS] (the load goes ahead with Loading), or one of
+     * another provider than [providerId] — the account's source disagrees, so
+     * it isn't this account's feed. With no source yet ([providerId] null) it
+     * paints on its own word and is checked when the source arrives: then
+     * only a source of its provider finds it up as this scope's content.
+     */
+    private suspend fun paintableSnapshot(providerId: String?, profileId: String?): Pair<String, HomeUiState.Content>? {
+        val id = profileId?.takeIf(String::isNotBlank) ?: return null
+        readSnapshot(id)
+        val read = snapshotReads[id] ?: return null
+        val snapshot = withTimeoutOrNull(SNAPSHOT_READ_WAIT_MS) { read.await() }
+        // Taken (a scope change cancelling this wait leaves it to the next load).
+        snapshotReads.remove(id)
+        if (snapshot == null || (providerId != null && snapshot.provider != providerId)) return null
+        val content = snapshot.feed.toHomeContent { key -> snapshotCoverUrl(key, snapshot.provider) }
+        return homeScopeKey(snapshot.provider, id) to content
+    }
+
+    /**
+     * The covers of [scopeKey]'s feed that couldn't resolve when it went up —
+     * a snapshot painted before the account's source — resolved now that the
+     * source is in. The cards' covers reveal over their type icons; the
+     * activities and shelves follow [coverArtUrlBuilder]. Not a fresh feed,
+     * so nothing is written back.
+     */
+    private fun resolveSnapshotCovers(scopeKey: String, providerId: String, profileId: String?) {
+        val shown = contentOf(scopeKey) ?: return
+        val resolved = shown.withResolvedCovers { key -> snapshotCoverUrl(key, providerId) }
+        if (resolved !== shown) emit(resolved, profileId)
+    }
+
+    /**
+     * A snapshot cover [key] as a URL: through the active source when it is
+     * of the snapshot's [provider]; until then a URL key is its own URL (every
+     * source serves one as itself) and a source-relative id waits (null).
+     */
+    private fun snapshotCoverUrl(key: String, provider: String): String? {
+        val ref = CoverRef.fromStorageKey(key) ?: return null
+        if (repository.currentProviderId() == provider) return repository.resolveCoverUrl(ref, size = HOME_COVER_SIZE)
+        return (ref as? CoverRef.Url)?.url
+    }
+
+    /**
+     * Fresh content of [scopeKey] just went up: kept in memory for this
+     * process, and queued as [profileId]'s snapshot (written in the
+     * background, conflated and capped by the store). A feed read without a
+     * source names no provider, so it isn't written.
+     */
+    private fun keep(scopeKey: String, providerId: String?, profileId: String?, content: HomeUiState.Content) {
+        homeContentCache[scopeKey] = content
+        val store = snapshotStore ?: return
+        if (providerId == null || profileId.isNullOrBlank()) return
+        store.save(profileId, providerId) { content.toSnapshotFeed() }
+    }
+
+    /** A cover resolved for a card, with the storage key it came from (what a snapshot keeps). */
+    private fun cardCover(ref: CoverRef?, subsonicFallback: MediaId? = null): Pair<String?, String?> {
+        val fallback = subsonicFallback
+            ?.takeIf { id -> id.provider == MediaId.PROVIDER_SUBSONIC }
+            ?.let { id -> CoverRef.SourceRelative(id.rawId) }
+        repository.resolveCoverUrl(ref, size = HOME_COVER_SIZE)?.let { url -> return url to CoverRef.toStorageKey(ref) }
+        fallback?.let { cover ->
+            repository.resolveCoverUrl(cover, size = HOME_COVER_SIZE)?.let { url ->
+                return url to CoverRef.toStorageKey(cover)
+            }
+        }
+        return null to CoverRef.toStorageKey(ref ?: fallback)
+    }
 
     /**
      * One load of a scope, published in tiers (P2 PR2) rather than all at
@@ -859,7 +1002,7 @@ class HomeViewModel(
         }
 
         private fun publish(content: HomeUiState.Content, perfSrc: String?) {
-            homeContentCache[scopeKey] = content
+            keep(scopeKey, providerId, profileId, content)
             emit(content, profileId, perfSrc = perfSrc)
             contentScopeKey = scopeKey
         }
@@ -965,7 +1108,7 @@ class HomeViewModel(
                             activityHeroMinutes = footnote.minutes,
                         )
                     }
-                    homeContentCache[scopeKey] = nextContent
+                    keep(scopeKey, providerId, profileId, nextContent)
                     emit(nextContent, profileId)
                 }
         }
@@ -1045,7 +1188,7 @@ class HomeViewModel(
                         memoryPill = refreshedPill,
                         rediscover = refreshedRediscover,
                     )
-                    homeContentCache[scopeKey] = nextContent
+                    keep(scopeKey, providerId, profileId, nextContent)
                     emit(nextContent, profileId)
                 }
         }
@@ -1082,7 +1225,7 @@ class HomeViewModel(
                     }
                     if (latest.rediscover.none(played)) return@collect
                     val nextContent = latest.copy(rediscover = latest.rediscover.filterNot(played))
-                    homeContentCache[scopeKey] = nextContent
+                    keep(scopeKey, play.provider, play.profileId, nextContent)
                     emit(nextContent, play.profileId)
                 }
         }
@@ -1149,14 +1292,13 @@ class HomeViewModel(
         val song = pick.song
         if (song.songId.isBlank() || song.provider.isBlank()) return null
         val track = song.toTrack()
+        val (coverArtUrl, coverKey) = cardCover(track.coverArt, subsonicFallback = track.albumId)
         return HomeRediscoverItem(
             // MediaId never holds a blank id: an album-less song stands in for itself.
             albumId = track.albumId ?: track.id,
             albumName = song.album,
             artistName = song.artist.takeIf(String::isNotBlank),
-            coverArtUrl = repository.resolveCoverUrl(track.coverArt, size = 480)
-                ?: track.albumId?.takeIf { it.provider == MediaId.PROVIDER_SUBSONIC }
-                    ?.let { repository.resolveCoverUrl(CoverRef.SourceRelative(it.rawId), size = 480) },
+            coverArtUrl = coverArtUrl,
             score = pick.score,
             scoreText = pick.score?.let(::rediscoverScoreText),
             // Your own track rating: the solid sticker.
@@ -1167,6 +1309,7 @@ class HomeViewModel(
             noteCount = song.noteCount,
             song = track,
             noteSnippet = song.latestNote?.takeIf(String::isNotBlank),
+            coverKey = coverKey,
         )
     }
 
@@ -1453,6 +1596,7 @@ class HomeViewModel(
             subtitle = subtitle,
             subtitleText = subtitleText,
             coverArtUrl = candidate.coverArtUrl,
+            coverKey = candidate.coverArtKey,
             ratingText = score,
             ratingUnavailable = score == "N/A",
             ratingBasis = basis,
@@ -1506,13 +1650,15 @@ class HomeViewModel(
         )
         val score = formatMemoryScore(rating)
         val (subtitle, subtitleText) = singleSubtitle(note.artist)
+        val (coverArtUrl, coverKey) = cardCover(coverRef)
         val card = HomeWidgetCard(
             stableId = "grid-note:${note.id}",
             entityType = MemoryEntityType.SONG,
             title = note.title,
             subtitle = subtitle,
             subtitleText = subtitleText,
-            coverArtUrl = repository.resolveCoverUrl(coverRef, size = 480),
+            coverArtUrl = coverArtUrl,
+            coverKey = coverKey,
             ratingText = score,
             ratingUnavailable = score == "N/A",
             ratingBasis = formatMemoryDate(note.updatedAt),
@@ -1534,44 +1680,46 @@ class HomeViewModel(
 
     private fun Album.toWidgetCard(): HomeWidgetCard {
         val (subtitle, subtitleText) = albumSubtitle(artist)
+        val (coverArtUrl, coverKey) = cardCover(coverArt, subsonicFallback = id)
         return HomeWidgetCard(
             stableId = "grid-album:$id",
             entityType = MemoryEntityType.ALBUM,
             title = name,
             subtitle = subtitle,
             subtitleText = subtitleText,
-            coverArtUrl = repository.resolveCoverUrl(coverArt, size = 480)
-                ?: id.takeIf { it.provider == MediaId.PROVIDER_SUBSONIC }
-                    ?.let { repository.resolveCoverUrl(CoverRef.SourceRelative(it.rawId), size = 480) },
+            coverArtUrl = coverArtUrl,
             target = HomeWidgetTarget.AlbumDetail(id.toString()),
+            coverKey = coverKey,
         )
     }
 
     private fun Track.toWidgetCard(): HomeWidgetCard {
         val (subtitle, subtitleText) = singleSubtitle(artist)
+        val (coverArtUrl, coverKey) = cardCover(coverArt, subsonicFallback = albumId)
         return HomeWidgetCard(
             stableId = "grid-song:$id",
             entityType = MemoryEntityType.SONG,
             title = title.orEmpty(),
             subtitle = subtitle,
             subtitleText = subtitleText,
-            coverArtUrl = repository.resolveCoverUrl(coverArt, size = 480)
-                ?: albumId?.takeIf { it.provider == MediaId.PROVIDER_SUBSONIC }
-                    ?.let { repository.resolveCoverUrl(CoverRef.SourceRelative(it.rawId), size = 480) },
+            coverArtUrl = coverArtUrl,
             target = HomeWidgetTarget.PlaySong(this),
+            coverKey = coverKey,
         )
     }
 
     private fun Playlist.toWidgetCard(): HomeWidgetCard {
         val (subtitle, subtitleText) = playlistSubtitle(owner)
+        val (coverArtUrl, coverKey) = cardCover(coverArt)
         return HomeWidgetCard(
             stableId = "grid-playlist:$id",
             entityType = MemoryEntityType.PLAYLIST,
             title = name,
             subtitle = subtitle,
             subtitleText = subtitleText,
-            coverArtUrl = repository.resolveCoverUrl(coverArt, size = 480),
+            coverArtUrl = coverArtUrl,
             target = HomeWidgetTarget.PlaylistDetail(id.toString()),
+            coverKey = coverKey,
         )
     }
 
@@ -1710,7 +1858,8 @@ class HomeViewModel(
                 rediscoverSongs = RediscoverSongSource.of(container.database.playHistoryDao()),
                 memoryTitle = { candidate -> container.albumMemoryTitleResolver.resolve(candidate) },
                 configurationRevision = container.musicConfigurationRevision,
-                switchingState = container.profileManager.switchingState
+                switchingState = container.profileManager.switchingState,
+                snapshotStore = container.homeSnapshotStore
             ) as T
     }
 
@@ -1769,6 +1918,15 @@ class HomeViewModel(
         // How long a profile without its source yet holds the feed (Library
         // waits as long) before loading without one.
         private const val ACTIVE_SOURCE_WAIT_MS = 4_000L
+
+        // How long a load with nothing up waits for its snapshot's read (a
+        // small file, read since the VM or the switch began; usually in by
+        // then) before going ahead with Loading.
+        private const val SNAPSHOT_READ_WAIT_MS = 400L
+
+        // The pixel size Home resolves its cards' covers at (grid, Rediscover,
+        // the pill's memory), a snapshot's included.
+        private const val HOME_COVER_SIZE = 480
         private val MemoryDateFormatter: DateTimeFormatter =
             DateTimeFormatter.ofPattern("MMM d", Locale.US)
         private val homeContentCache = mutableMapOf<String, HomeUiState.Content>()
@@ -1868,6 +2026,7 @@ private fun toRediscoverItem(pick: RediscoverPick): HomeRediscoverItem? {
         albumName = candidate.albumName,
         artistName = candidate.artistName?.takeIf { it.isNotBlank() },
         coverArtUrl = candidate.coverArtUrl,
+        coverKey = candidate.coverArtKey,
         score = pick.score,
         scoreText = pick.score?.let(::rediscoverScoreText),
         // rediscoverScore's own order: a set album rating wins.

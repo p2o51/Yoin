@@ -1167,6 +1167,8 @@ class HomeViewModelTest {
                     genre = null,
                     userRating = null,
                 ),
+                // The cover's storage key rides along for Home's snapshot.
+                coverKey = "cover-s1"
             ),
             rated,
         )
